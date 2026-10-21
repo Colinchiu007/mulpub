@@ -14,6 +14,14 @@
 
     <p v-if="panelError" class="panel-error" role="alert">{{ panelError }}</p>
 
+    <!-- 敏感词警告（fix-rewrite-warning-severity，2026-10-21）：warning 级而非红色错误。
+         改写成功了，只是提醒人工审核；与 panelError 的失败语义必须分开。 -->
+    <p
+      v-if="panelSensitiveWarnings.length > 0"
+      class="panel-sensitive-warning"
+      data-testid="panel-sensitive-warning"
+    >⚠️ {{ panelSensitiveWarnings.join("；") }}</p>
+
     <!-- 未配置 API Key -->
     <div v-if="!configured" class="no-config">
       <div style="margin-bottom:8px">需要配置 LLM API Key 才能使用 AI 功能</div>
@@ -221,6 +229,9 @@ const selectedStyle = ref("polish")
 const enhancedResult = ref("")
 const summary = ref("")
 const panelError = ref("")
+// 敏感词警告（fix-rewrite-warning-severity，2026-10-21）：引擎后置检测的 warnings。
+// 与 panelError（role="alert" 的红色错误区）语义分离——改写成功了，只是提醒人工审核。
+const panelSensitiveWarnings = ref([])
 
 const modes = [
   { key: "titles", label: "标题生成", icon: Aim },
@@ -331,6 +342,9 @@ async function doRewrite() {
   rewriteResult.value = ""
   rewriteResultMeta.value = null
   rewriteKnowledgeRefs.value = []
+  // 敏感词警告复位（fix-rewrite-warning-severity）：与其它结果态同批清，
+  // 否则上一轮的「可能包含敏感内容」会残留着警告这一轮的新结果。
+  panelSensitiveWarnings.value = []
   // 归因链：新一轮改写开始前清掉上一轮的 id，成功分支再赋值 —— 旧 id 不可能跟着新正文走
   panelRewriteLineageId = null
   try {
@@ -365,8 +379,12 @@ async function doRewrite() {
         originalLength: data.metadata?.originalLength,
         resultLength: data.metadata?.resultLength,
       }
-      if (data.warnings && data.warnings.length > 0) {
-        panelError.value = data.warnings.join("；")
+      if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+        // 敏感词警告走 warning 级（fix-rewrite-warning-severity，2026-10-21）：
+        // 前置拦截已关（PR #4103），后置 warnings 是唯一防线。历史上这里写进 panelError，
+        // 而 panelError 是 role="alert" 的红色错误区，同一时刻结果已成功落地
+        // ⇒ 「红色错误 + 有结果」并存，用户要么以为改写失败、要么以为这个错误能忽略。
+        panelSensitiveWarnings.value = data.warnings.slice()
       }
     } else if (res && res.code === 0 && res.data && res.data.error) {
       panelError.value = res.data.error
@@ -530,6 +548,14 @@ onMounted(() => {
   margin: 0 0 var(--space-sm);
   color: var(--danger, #c53b3b);
   font-size: var(--font-size-xs);
+}
+/* 敏感词警告（fix-rewrite-warning-severity，2026-10-21）：暖橙 warning 色，
+   刻意不用 .panel-error 的危险红——那是「改写失败」的语义。 */
+.panel-sensitive-warning {
+  margin: 0 0 var(--space-sm);
+  color: #92610c;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
 }
 .cohere-btn-primary {
   padding: 8px 16px;

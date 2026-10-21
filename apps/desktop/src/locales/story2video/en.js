@@ -87,6 +87,17 @@ export default {
     compose_timeout: 'Video composition timed out. Check disk space and device load, then resume from the breakpoint. If it still fails, try again later.',
     compose_duration_exceeded: 'The video exceeds the {limitMinutes}-minute limit. Shorten the script or use fewer scenes, then start generation again.',
     compose_segment_duration_exceeded: 'A narration segment exceeds the duration limit. Split that part of the script, then start generation again.',
+    compose_audio_duration_exceeded: 'The total narration audio duration exceeds the {limit} limit. Shorten the script or use fewer scenes, then start generation again.',
+    compose_ffmpeg_not_found: 'The video composition component could not be found, so videos cannot be generated right now. Restart the app; if it still fails, reinstall the app.',
+    compose_invalid_asset_manifest: 'The composition asset list is incomplete, so videos cannot be generated right now. Resume from the breakpoint to regenerate; if this continues, start generation again.',
+    compose_input_size_exceeded: 'The media for this composition totals {actualMb}, which exceeds the {limitMb} limit. Use fewer scenes, compress the images or narration audio, then start generation again. If background music is enabled, try disabling it or use a smaller audio file.',
+    // Numberless variant (CCG external review i2, 2026-10-20): the legacy raw text
+    // `Input media exceeds the total size limit` carries no sizes, so the main template would
+    // render as "totals the allowed size, which exceeds the allowed size limit". When the sizes
+    // are unknown we say only "exceeds the limit" instead of pretending to know them.
+    compose_input_size_exceeded_no_numbers: 'The total media for this composition exceeds the allowed limit. Use fewer scenes, compress the images or narration audio, then start generation again. If background music is enabled, try disabling it or use a smaller audio file.',
+    compose_scene_media_unreadable: 'The visual material for scene {scene} is no longer available or cannot be read. Regenerate that scene image or video, then resume from the breakpoint.',
+    compose_scene_audio_unreadable: 'The narration audio for scene {scene} is no longer available or cannot be read. Regenerate that scene voice, then resume from the breakpoint.',
     operation_failed: 'Could not complete the request. Please try again.',
     invalid_params: 'Pipeline parameter validation failed. Please check your configuration and try again.',
     unknown_error: 'Could not complete the request. Please try again.',
@@ -263,11 +274,50 @@ export default {
       loading: 'Loading...',
       loadFailedTitle: 'Failed to load the project',
       loadFailedRetry: 'Retry',
+      // ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH ──
+      // Failure summary card: explains "why no final video"
+      failureSummaryTitle: 'Generation did not finish',
+      failureSummaryCounts: '{failed} of {total} segments failed, {completed} completed',
+      failureSummaryReasons: 'Main causes: {reasons}',
+      failureSummaryReasonItem: '{label} ({count} segments)',
+      failureSummaryPolicyNote: '{count} segments were flagged by content policy — check those first.',
+      failureSummaryJump: 'Go to the first failed segment',
+      failureSummaryNoReason: 'No specific cause was recorded. Check the full log or recompose directly.',
+      // Failure code -> readable label (unknown codes fall back, never invented)
+      failureReasonPolicy: 'Content policy blocked',
+      failureReasonQuota: 'Quota exhausted',
+      failureReasonMaterial: 'Material generation failed',
+      failureReasonTimeout: 'Generation timed out',
+      failureReasonModel: 'Model call failed',
+      failureReasonUnknown: 'Other cause',
+      // Segment counters / expand / filter
+      segmentCountAll: '{total} segments',
+      segmentCountPartial: 'Showing {shown} of {total} segments',
+      segmentCountNoMatch: 'No matching segments',
+      loadAllSegments: 'Show all',
+      expandAllConfirm: 'Showing all {total} segments renders every card at once and may stutter briefly. Continue?',
+      // Filter and search
+      segmentFilterAll: 'All',
+      segmentFilterFailed: 'Failed only',
+      segmentFilterPolicy: 'Policy-flagged only',
+      segmentSearchPlaceholder: 'Search text / prompt / subtitle',
+      segmentSearchClear: 'Clear search',
+      // Jump feedback / back to top
+      segmentJumpPending: 'Expanding to segment {n}…',
+      backToTop: 'Back to top',
+      backToTopAria: 'Return to the top of the page',
       // Segment editor heading + counters (moved to locale when ResultSegmentEditor was extracted, 2026-10-20)
       segmentEditTitle: 'Segment editor',
       segmentCountSuffix: 'segments',
       promptTranslationLabelZh: 'Chinese translation',
       promptTranslationLabelOther: 'Translation',
+      // Video prompt translation label (2026-10-19): same two-tier family as the image side,
+      // so the reader can tell which prompt a given translation belongs to.
+      videoPromptTranslationLabelZh: 'Video prompt Chinese translation',
+      videoPromptTranslationLabelOther: 'Video prompt translation',
+      // Segment editor collapse toggle (2026-10-19)
+      expandEditor: 'Expand editor',
+      collapseEditor: 'Collapse editor',
       narrationTextLabel: 'Narration text',
       imagePromptLabel: 'Image prompt',
       replaceNarration: 'Replace narration',
@@ -293,5 +343,7 @@ export default {
       sceneLabel: 'scene {scene}',
       sceneRatio: 'scenes {scene}',
       currentProvider: 'current',
+      currentScene: 'this scene',
+      unknownSize: 'the allowed size',
     },
   }

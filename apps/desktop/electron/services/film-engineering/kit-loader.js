@@ -3,7 +3,7 @@
 /**
  * kit-loader - film-kit 数据资产加载与 schema 校验
  *
- * film-kit 是随包携带的《Hell Grind》影视工程数据资产：
+ * film-kit 是随包携带的影视项目案例数据资产：
  *   film-manifest.json       电影元数据 + 场景树（sceneId/名称/计数/层级/来源URL）
  *   shot-library.json        分镜库：每场景代表性真实提示词 + 模型 + 参考 token + 结果 URL
  *   reference-registry.json  token → 参考素材索引（角色/场景/道具 + 图 URL + 描述）
@@ -36,10 +36,21 @@ const KIT_FILES = [
 ]
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-// D4 四处同源：与 fetch-hell-grind-kit.py FILM_PROMPT_MAX_LEN 同值（导入/校验单一契约）
+// prompt 长度上限：导入器（scripts/film-engineering 下的脚本）与 IPC 校验（ipc-handlers/film-engineering.js）
+// 必须同值。这三处的相等性由 apps/desktop/src/i18n/film-debrand.test.js ⑤ 机械校验
+// —— 此前这里写「四处同源」却没有任何判据，注释与实现容易脱节。
 const FILM_PROMPT_MAX_LEN = 50000
 const MAX_PROMPT_LENGTH = FILM_PROMPT_MAX_LEN // 兼容别名，勿在新代码中使用
 const MAX_TOKEN_LENGTH = 64
+
+// 三分提示词的归一化与字段校验住在 shot-prompts.js（影视工程 v2 · F-A）：
+// kit-loader 原本就贴着 500 行门禁（check-max-lines），把三分逻辑塞进来会顶穿；
+// 本仓的既有同型拆分是 network-egress-ledger.js（从 network-egress-guard.js 拆出，别搬回来）。
+// 这里 re-export 是为了**既有 import 路径不变**（下游按 kit-loader 取这三个符号）。
+const {
+  normalizeShotPrompts,
+  validateShotPromptFields,
+} = require('./shot-prompts')
 
 function isUuidLike (value) {
   return typeof value === 'string' && UUID_RE.test(value)
@@ -121,6 +132,8 @@ function validateShotLibrary (shots) {
       return { ok: false, error: at + '.prompt 超过上限 ' + MAX_PROMPT_LENGTH + ' 字符' }
     }
     if (typeof s.model !== 'string' || !s.model.trim()) return { ok: false, error: at + '.model 必须为非空字符串' }
+    const three = validateShotPromptFields(s, at, MAX_PROMPT_LENGTH)
+    if (!three.ok) return three
     if (s.refTokens !== undefined) {
       if (!Array.isArray(s.refTokens)) return { ok: false, error: at + '.refTokens 必须为数组' }
       for (const t of s.refTokens) {
@@ -368,6 +381,8 @@ function loadFilmKit (opts) {
     ['prompt-doctrine.json', validateDoctrine(doctrine)],
     ['shot-library.json', validateShotSceneRefs(shots, manifest)],
   ]
+  // F-A：先归一化再校验合计（顺序不可颠倒——归一化前合计会被低估）
+  for (const s of shots) normalizeShotPrompts(s)
   if (grammarOpt.present) checks.push(['shot-grammar.json', validateShotGrammar(shotGrammar)])
   if (complianceOpt.present) checks.push(['compliance-checklist.json', validateComplianceChecklist(compliance)])
   if (paletteOpt.present) checks.push(['palette.json', validatePalette(palette)])

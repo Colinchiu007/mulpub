@@ -53,6 +53,30 @@ function normalizeEntitlement(value) {
   }
 }
 
+/**
+ * 到期宽限的**客户端判活投影**（PRD §12 N10）。
+ *
+ * 服务端只在 `/me` 与权益提供器的读取端剔除过期 `graceUntil`（见
+ * `PostgresEntitlementProvider.getForUser`），但客户端还持有**缓存/签名快照**两条离线路径：
+ * 断网期间那条缓存不会经过服务端投影，于是「宽限中」横幅会一直显示到快照本身过期为止。
+ * 因此凡是装配 entitlement 的三条路（在线 / 离线 / 宽限快照）都必须过这一层。
+ *
+ * @param {object} entitlement `normalizeEntitlement` 的产物
+ * @param {number} nowSeconds 秒级时钟（与服务内 `_now` 同源，便于测试注入）
+ * @returns {object} 同一对象（就地删除已过期/不可解析的宽限字段）
+ */
+function applyGraceWindow(entitlement, nowSeconds) {
+  if (!entitlement || typeof entitlement !== 'object') return entitlement
+  if (!entitlement.graceUntil) return entitlement
+  const deadlineMs = Date.parse(entitlement.graceUntil)
+  const nowMs = Number.isFinite(nowSeconds) ? nowSeconds * 1000 : Date.now()
+  if (!Number.isFinite(deadlineMs) || deadlineMs <= nowMs) {
+    delete entitlement.graceUntil
+    delete entitlement.previousPlan
+  }
+  return entitlement
+}
+
 // 单条套餐的规范化：id 必填字符串，价格必须是**非负整数（单位：分）**。
 // 价格用整数分而非元，避免浮点误差；非整数（如字符串 '2900'）一律判非法，
 // 宁可丢弃该条也不要显示错价。
@@ -149,8 +173,12 @@ class EntitlementService {
       if (this._now() - exp > ENTITLEMENT_GRACE_SECONDS) return null // 宽限期耗尽 → 降级 free
     }
     if (!this._isCurrentGeneration(generation)) return null
+    // N10（PRD §12）：`graceUntil` 是**服务端到期宽限**的截止时刻，与上面那条离线宽限
+    // （ENTITLEMENT_GRACE_SECONDS，管断网）语义不同、不得合并。快照可能缓存了已经过期的
+    // graceUntil（服务端只在读取端做投影），离线期间客户端必须自己按本地时钟判活，
+    // 否则「宽限中」横幅会在到期 7 天后继续显示。
     this._current = {
-      ...normalizeEntitlement(snapshot),
+      ...applyGraceWindow(normalizeEntitlement(snapshot), this._now()),
       subject,
       deviceId: this._deviceId,
       source: 'grace',
@@ -233,7 +261,7 @@ class EntitlementService {
       await this._clearForGeneration(generation)
       throw new IdentityError('ENTITLEMENT_USER_INACTIVE', '当前账号不可用')
     }
-    const entitlement = normalizeEntitlement(body && body.entitlement)
+    const entitlement = applyGraceWindow(normalizeEntitlement(body && body.entitlement), this._now())
     const snapshotValue = body && body.entitlementSnapshot
     const token = typeof snapshotValue === 'string' ? snapshotValue : snapshotValue && snapshotValue.token
     let snapshot = null
@@ -278,7 +306,7 @@ class EntitlementService {
       })
       if (!this._isCurrentGeneration(generation)) return null
       this._current = {
-        ...normalizeEntitlement(snapshot), subject, deviceId: this._deviceId, source: 'offline', expiresAt: snapshot.exp,
+        ...applyGraceWindow(normalizeEntitlement(snapshot), this._now()), subject, deviceId: this._deviceId, source: 'offline', expiresAt: snapshot.exp,
       }
       return this.getState()
     } catch (_) {

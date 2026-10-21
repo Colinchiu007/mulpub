@@ -6628,6 +6628,24 @@ Vue 展示组件
 
 #### Story2Video 页面术语、固定操作区与历史编辑合同（2026-08-17）
 
+#### 用户可见失败信息的稳定错误码合同（2026-10-20，error-message-user-friendly-audit）
+
+**需求**：所有面向用户的失败提示 SHALL 用当前语言的自然语言说明具体原因并给出可操作建议；MUST NOT 直出英文技术原文、i18n key 或未解析占位符。完整合同见 [PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md](./PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md)，事故复盘见 [BUGFIX-HISTORY-CARD-RAW-ENGLISH-ERROR-2026-10-20.md](./BUGFIX-HISTORY-CARD-RAW-ENGLISH-ERROR-2026-10-20.md)。
+
+**合同要点**：
+
+| 维度 | 要求 |
+| --- | --- |
+| 主进程 | apps/desktop/electron 下会被前端渲染的失败返回体 SHALL 带稳定 errorCode（封闭常量集合，如 COMPOSE_ERROR_CODES）+ 可插值 messageParams；message 仅诊断用 |
+| messageParams | 只含用户可读值（带单位体积、1-based 序号、格式化时长）；MUST NOT 含裸字节数、绝对路径、堆栈、HTTP 状态码 |
+| 穿透边界 | stage-executor → pipeline-engine._finalizeRun → run-state-store 快照 SHALL 一路带上；run.error / stage.error 保持字符串契约（恢复门控与阶段摘要依赖） |
+| 渲染端 | 取值优先级 = 原文归一化（存量兼容）→ 稳定码显式映射（COMPOSE_ERROR_KEY_MAP）→ 原文透传 → 通用兜底；MUST NOT 用字符串推导 locale key |
+| 存量数据 | 只有英文 run.error 的旧记录 SHALL 经原文模式归一化为同一自然语言文案 |
+| 多语言 | 文案一律 zh/en 成对写入 locales/story2video/{zh,en}.js；渲染端 src/ 非 locales 文件不得新增中文字面量（CJK 门禁） |
+| 机械判据 | scripts/check-compose-error-codes.js 校验「主进程常量 / 渲染端映射 / zh+en 文案 / messageParams 占位符」四侧一致，接入 quality-gate.yml 的 changes job（Gate 12g），漏改任一侧即红 |
+
+**验收标准**：① 新产生的 compose 预检失败卡片显示自然语言（含体积/场景号与建议），不含英文原文与 i18n key；② 英文界面显示英文文案；③ 存量记录同样归一化；④ 参数缺失不渲染空占位符；⑤ run.error 字符串契约零回归；⑥ 门禁 6 道变异反证全部 rc=1；⑦ locale 三项门禁 PASS。
+
 视频创作页面的详细产品合同已独立整理到 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)，本节作为主 PRD 索引。流水线选择后的配置/运行页统一称为“流水线启动页”；历史记录进入的任务查看与修改页统一称为“视频任务编辑页”，不再把旧详情弹窗称为任务详情页。固定底部操作条、顶部阶段进度、统一历史卡片字段、失败原因本地化、暂停/删除数据校验、分段跳转、AI 视频生成、音色目录回退和语速滑条均以该文档及 OpenSpec change 为准。
 
 #### Story2Video 历史断点恢复模型合同（2026-08-19）
@@ -6656,7 +6674,7 @@ Vue 展示组件
 | 项 | 规则 |
 |----|------|
 | 平台标识 | 仅允许 `[a-zA-Z0-9_-]+`，非法值拒绝 |
-| 重复账号 | `owner_subject + platform + name`（去空格、小写）唯一；重复返回 409，提示"此账号已添加过" |
+| 重复账号 | `owner_subject + platform + platform_account_id` 三者全同才唯一；重复返回 409，提示"此账号已添加过"。**同平台可添加多个账号**——`platform_account_id` 为空（平台不提供可采集的用户 ID）时允许入库，见 §「账号同平台多账号去重契约」 |
 | 登录验证 | 验证通过 `code=0 且 data.valid=true`；其余一律按"已失效"处理 |
 | 防抖/并发 | 单账号验证期间 `verifyingIds` 防重入；验证按钮 disabled |
 
@@ -7124,6 +7142,12 @@ store:delete-account 凭据删除失败 → return { code: -1, message: '删除�
 - apps/desktop/electron/ipc-handlers/store.js (+2/-1)
 - packages/python-backend/tests/test_server_account_lifecycle.py (+22/-2)
 - apps/desktop/electron/ipc-handlers/store.test.js (+9/-8)
+
+> **⚠️ 本节「修复 1」的 name 判据已于 2026-10-21 被修正并删除**（change: fix-multi-account-same-platform）。
+> 该判据把 `name`（`document.title` 落盘位，采不到平台用户 ID 时回落平台显示名）当成账号身份标识，
+> 导致同一平台的多个不同账号因同名被误判为「此账号已添加过」——用户实测「有 3 个头条号，加第 2 个即被拒」。
+> 现行契约见 PRD §「账号同平台多账号去重契约（2026-10-21）」：**只有 `platform_account_id` 是身份标识**。
+> 本节保留是为记录来路，其中的「判定规则表」与「测试覆盖」两表描述的是被删除的旧行为，不得照做。
 
 #### 8.1.1.1 URL 正文提取实现细节（v2.3.61 BUG 修复）
 
@@ -15575,7 +15599,7 @@ Vue 展示组件
 | 项 | 规则 |
 |----|------|
 | 平台标识 | 仅允许 `[a-zA-Z0-9_-]+`，非法值拒绝 |
-| 重复账号 | `owner_subject + platform + name`（去空格、小写）唯一；重复返回 409，提示"此账号已添加过" |
+| 重复账号 | `owner_subject + platform + platform_account_id` 三者全同才唯一；重复返回 409，提示"此账号已添加过"。**同平台可添加多个账号**——`platform_account_id` 为空（平台不提供可采集的用户 ID）时允许入库，见 §「账号同平台多账号去重契约」 |
 | 登录验证 | 验证通过 `code=0 且 data.valid=true`；其余一律按"已失效"处理 |
 | 防抖/并发 | 单账号验证期间 `verifyingIds` 防重入；验证按钮 disabled |
 
@@ -16043,6 +16067,12 @@ store:delete-account 凭据删除失败 → return { code: -1, message: '删除�
 - apps/desktop/electron/ipc-handlers/store.js (+2/-1)
 - packages/python-backend/tests/test_server_account_lifecycle.py (+22/-2)
 - apps/desktop/electron/ipc-handlers/store.test.js (+9/-8)
+
+> **⚠️ 本节「修复 1」的 name 判据已于 2026-10-21 被修正并删除**（change: fix-multi-account-same-platform）。
+> 该判据把 `name`（`document.title` 落盘位，采不到平台用户 ID 时回落平台显示名）当成账号身份标识，
+> 导致同一平台的多个不同账号因同名被误判为「此账号已添加过」——用户实测「有 3 个头条号，加第 2 个即被拒」。
+> 现行契约见 PRD §「账号同平台多账号去重契约（2026-10-21）」：**只有 `platform_account_id` 是身份标识**。
+> 本节保留是为记录来路，其中的「判定规则表」与「测试覆盖」两表描述的是被删除的旧行为，不得照做。
 
 #### 8.1.1.1 URL 正文提取实现细节（v2.3.61 BUG 修复）
 
@@ -19990,15 +20020,34 @@ apps/desktop/src/views/
 | 克隆命名 | 规范化后非空、长度由输入框 `maxlength` 约束；重名由主进程返回 `VOICE_CLONE_DUPLICATE_ID` | 表单禁用提交 + 错误文案 |
 | 删除目标 | `voiceId` 非空且非加载中；必须存在二次确认 | 直接 return（不可逆操作门禁） |
 | 请求时序 | 4 个自增 `requestId`（目录/选择/克隆/服务商）+ 上下文比对 | 过期响应**不写任何状态**（静默丢弃） |
+| 自动切换回滚锚点 | `selectS2VVoice(voiceId, { rollbackVoiceId })`：调用方若已预写 `s2vConfig.voiceId`，必须在**写之前**捕获切换前值并以**具名选项**传入 | 回滚写回同一 id（空操作）⇒ 下拉停留从未持久化的音色；回归锁见 `useTtsVoices.test.js`「偏好持久化失败时回滚到切换前的选中项」 |
+| 回滚锚点的参数形态 | **必须是具名选项对象**，不得用位置参数/布尔参数 | 位置参数漏传时不报错、不退化，而是**静默退回**有缺陷的旧语义（回滚写回自身）；布尔参数在调用点不可读，且默认值会让新调用点自动继承缺陷向性（QM-6 轮 C i3） |
+| 偏好持久化失败文案 | `friendlyVoiceCatalogError(message, { allowUnmapped: false })` 映射已知错误码，未知码返回空串，让 `\|\|` 右侧的自有兜底真正生效 | 写成 `a \|\| b ? a : c` 三元、或调用时不传 `allowUnmapped: false`，兜底键都成死代码，用户看到「语音列表加载失败」而非真实原因（QM-6 轮 B i1） |
+| 目录拉取失败时的选中项 | `catalogData` 为空**且克隆列表也未拿到权威结果**时，不得清空 `s2vConfig.voiceId`，并须把 `s2vPersistedVoiceId` 同步成同一值 | 一是刷新一次失败即抹掉刚克隆的音色且无提示（违反「已保存的 voiceId 不得静默丢失」）；二是两态不一致会让「默认」徽标与选中项脱节（QM-6 轮 B i2） |
+| 「取不到」与「权威为空」 | 目录/克隆列表只有 `code === 0` 且拿到数组才算**权威结果**；失败一律保留原值，绝不用空数组覆盖 | 克隆列表拉取失败被无条件赋 `[]` ⇒ 克隆音色从候选消失，选中项归一又因候选为空走到清空分支（两层叠加，本次 R3 的真身） |
+| 上下文切换清克隆 | 仅在 `providerId` 或解析出的 `model` **变化**时清空克隆列表；`tracking` 字段只在**目录成功返回后**更新 | ① 同上下文刷新也清 ⇒ 一次失败抹掉候选；② tracking 在请求开始就写 ⇒ 一次失败的切换污染记忆，切回原 provider 判定不出切换，候选永久丢失（QM-6 轮 B i3 / 轮 C i1） |
+| 只读 computed 与 `requireDeps` | 计算属性**只在真正消费 deps**（如 `d.t`）时才调用 `requireDeps()`；只读 state 的 computed 一律不得调用 | Vue 3 的 computed 在求值抛错时把 `_dirty` 置回 false 却**保留上一次的 `_value`**，且抛错那次没成功注册依赖订阅 ⇒ 此后 state 变化再也 trigger 不到它，**永久返回陈旧值**。`s2vVoiceOptions` 原有一行 `const d = requireDeps()` 且函数体从未使用 `d`，即因此让 6 例在 `--sequence.shuffle` 下稳定失败（2026-10-20 定位并修复） |
+| fail-closed 的归属层 | fail-closed 由**写路径方法**承担（`getS2VVoiceContext` / `selectS2VVoice` / `addS2VVoiceClone` 等）；只读 computed 在 deps 缺失时返回安全空值，**不得**抛错 | 让 computed 抛错会引入比它防住的更严重的缺陷（见上一条）。壳的注入顺序是「先 `setupTtsVoicesDeps` 再渲染」，正常路径下 computed 首读时 deps 已就位；把安全网建在会污染缓存的地方得不偿失 |
+| 状态最小面 | 不得为「方便断言」新增与权威状态重复的镜像 ref。`s2vConfig.voiceId` 是音色选择的唯一权威，`s2vPersistedVoiceId`（2026-10-20 移除）是它的冗余镜像且生产零读取 | 镜像会漂移（两态不一致正是 i1/i2 争议的来源），且「写了没人读」的状态只能靠测试断言养活，属设计债。需要「主进程归一后的 id」时应**回写权威**而不是另存镜像 |
 
 ### 流程（功能逻辑）
 
 1. **服务商列表加载**（留壳的 `loadS2VProviders` 驱动）：拉取 image/tts/video 三域 → 语音侧只保留 `enabled && is_configured` 的 provider → 默认选多模态 TTS（`category=multimodal && capability_models.tts`），否则回退首个普通 TTS；用户显式选过（含显式「自动 Edge TTS」）则优先 → 上下文变化时清空 `voiceId` → 触发 `loadS2VVoiceData()`。
-2. **音色目录加载** `loadS2VVoiceData({ refresh })`：卸载守卫 → 取上下文 → 自增 `s2vVoiceRequestId` 并同时作废选择/克隆请求 → 重置目录态 → 并发拉取 `catalog` 与 `capability` → 请求过期即 return → 落盘目录/能力/错误码 → 克隆可用时再并发拉取 `requirements` 与 `clones`（克隆请求 id 独立守卫）→ 目录返回的 `selectedVoiceId` 若在可用集合内则回写 `s2vConfig.voiceId`，否则回退已配置值或清空。
-3. **选择音色** `selectS2VVoice(voiceId)`：空 id 表示「恢复默认」→ 调 `clearTtsVoicePreference`；非空 id 必须存在于当前音色集合（否则报「不在当前目录」）→ **先乐观同步** `s2vConfig.voiceId`（让并发守卫命中本次请求、让「默认」徽标即时反馈）→ 调 `selectTtsVoice` → 失败则**回滚**到前一音色并报保存失败。
+2. **音色目录加载** `loadS2VVoiceData({ refresh })`：卸载守卫 → 取上下文 → 自增 `s2vVoiceRequestId` 并同时作废选择/克隆请求 → 判定上下文是否变化（`providerId` / 解析出的 `model` 与上一次**成功**记录的比对）→ 重置目录态（上下文变化才连克隆列表一起清）→ 并发拉取 `catalog` 与 `capability` → 请求过期即 return → **目录成功后**才更新「上次成功上下文」tracking → 落盘目录/能力/错误码 → 克隆可用时再并发拉取 `requirements` 与 `clones`（克隆请求 id 独立守卫；**拉取失败时保留原克隆列表**）→ 目录返回的 `selectedVoiceId` 若在可用集合内则回写 `s2vConfig.voiceId`，否则按「权威为空 / 取不到」两分支处理（见下）。
+3. **选择音色** `selectS2VVoice(voiceId, { rollbackVoiceId })`：空 id 表示「恢复默认」→ 调 `clearTtsVoicePreference`；非空 id 必须存在于当前音色集合（否则报「不在当前目录」）→ **先乐观同步** `s2vConfig.voiceId`（让并发守卫命中本次请求、让「默认」徽标即时反馈）→ 调 `selectTtsVoice` → 失败则**回滚**到前一音色并报保存失败。
+   - **回滚锚点契约**（`s2v-voice-clone-auto-select`，2026-10-20）：第二参是**具名选项对象** `{ rollbackVoiceId }`，不是位置参数、不是布尔。调用方若在进入本函数**之前**已把目标 id 写进 `s2vConfig.voiceId`（克隆成功后的自动切换正是如此），**必须先捕获切换前的值并显式传入**；否则内部默认以「进入时的 `s2vConfig.voiceId`」为锚点，而该值已被调用方改写成本次目标 ⇒ 回滚写回同一个 id，成为空操作，下拉会停留在一个从未持久化的音色上。**为什么必须是具名对象**：位置参数漏传时不报错、不退化，而是静默退回上述缺陷语义；具名对象让「漏传」退化为「缺省安全语义」，且调用点自解释（QM-6 轮 C i3）。
+   - **失败文案分支**：`clearTtsVoicePreference` / `selectTtsVoice` 返回非 0 时，先 `friendlyVoiceCatalogError(message, { allowUnmapped: false })` 映射已知错误码；**未知码返回空串**，从而落到 `defaultVoiceRestoreFailed`（恢复默认失败）与 `selectionSaveFailed`（保存默认失败）。禁止写成 `a || b ? a : c` 形式的三元（运算符优先级使其恒等于 `a`）；也禁止在不传 `allowUnmapped: false` 的情况下依赖 `||` 右侧兜底——该函数默认对未知码返回非空的 `catalogLoadFailed`，此时右侧**永远不可达**（QM-6 轮 B i1 从根因指出）。
+   - **返回值语义**：`true` 表示偏好已持久化；`false` 表示未落盘（含并发守卫判定过期）。调用方据此决定是否弹成功提示。
 4. **克隆音色**：
    - `chooseS2VVoiceCloneSamples()`：选本地音频 → 返回 `selectionId` 与样本数 → 记入 `s2vVoiceCloneSelection` → 释放「选择中」加载态 → **自动**调 `addS2VVoiceClone(默认名)`（需求：选完即自动入库，无需手填名称）。
-   - `addS2VVoiceClone(name)`：置「创建中」占位行（`s2vVoiceClonePending`，带 `pending-<requestId>` 临时 id 与样本数）→ 调 `addTtsVoiceClone`（`consent: true`）→ 成功则并入列表、选中该音色并 toast；失败清空选择令牌与占位行并报错。
+   - `addS2VVoiceClone(name)`：置「创建中」占位行（`s2vVoiceClonePending`，带 `pending-<requestId>` 临时 id 与样本数）→ 调 `addTtsVoiceClone`（`consent: true`）→ 成功则并入列表、**自动切换**「语音 / 音色 ID」下拉选中项为该新音色并 toast；失败清空选择令牌与占位行并报错。
+     - **自动切换的完整合同**（`s2v-voice-clone-auto-select`）：
+       1. 新克隆音色先并入 `state.s2vVoiceClones` ⇒ 由 `s2vVoiceOptions`（目录 + 克隆合并去重）立刻成为下拉候选，**不依赖**音色目录请求是否完成或成功；
+       2. 记下**切换前**的选中项 `previousVoiceId`，再写 `s2vConfig.voiceId = voice.id`（乐观同步，让下拉与克隆行「默认」徽标立即反映）；
+       3. 调 `selectS2VVoice(voice.id, previousVoiceId)` 持久化偏好（MiMo TTS 的 `mimo-clone-*` 音色自动落到 `mimo-v2.5-tts-voiceclone` 键域，与克隆 registry 同键）；
+       4. 返回 `true` ⇒ 弹 `cloneSuccessToast`（含新音色名）；
+       5. 返回 `false`（偏好未落盘）⇒ **不弹成功提示**，由 `selectS2VVoice` 写入的 `s2vVoiceCatalogError` 在音色下拉旁以 `inline-error` 呈现；克隆事实已成立（音色仍在下拉里），但不得谎报「已添加并已设为默认」；
+       6. 过期克隆结果（用户中途切换语音生成器 / 重载服务商列表导致 `s2vVoiceCloneRequestId` 前进）整体丢弃，不写任何状态。
    - `deleteS2VVoiceClone(id)`：二次确认（点名音色与不可恢复后果）→ 删除 → 从目录与克隆列表双删 → 若删除的是当前选中音色，回退到首个可用音色并重新持久化。
    - `startS2VVoiceCloneRename/cancelS2VVoiceCloneRename/renameS2VVoiceClone`：行内编辑态；重命名只更新展示名，**保留旧条目的 `invalid` 标记**（防失效克隆被误判可用）。
 5. **默认命名** `nextS2VVoiceCloneName()`：前缀取 locale（`cloneNamePrefix`）；扫描现有名字中「前缀+数字」的最大序号，与克隆数量取较大者 +1，3 位零填充；序号用 `BigInt` 解析比较（防超长数字名经 `Number` 转浮点后污染名称）。
@@ -20010,8 +20059,9 @@ apps/desktop/src/views/
 |---|---|
 | 切换语音生成器 | 重置模型为该 provider 默认值、清空已选音色，并记「显式选择自动 Edge」标记（区分「未选择」与「显式 Edge」，防被多模态默认覆盖） |
 | 切换语音模型 | 模型不在当前 provider 的模型列表内时回退默认值，清空已选音色 |
-| 音色下拉选择 | 立即反映到下拉与列表「默认」徽标；持久化失败自动回滚 |
-| 目录加载失败 | 仅瞬时/未知错误显示「刷新音色列表」入口（配置类/不支持/模型不匹配/身份问题重试无效） |
+| 音色下拉选择 | 立即反映到下拉与列表「默认」徽标；持久化失败自动回滚到切换前的选中项（锚点由调用方显式传入时以入参为准） |
+| **克隆成功后自动切换音色** | 新克隆音色入库即成为下拉候选，并**自动成为选中项**（`s2vConfig.voiceId = 新音色 id`，克隆行显示「默认」徽标）；偏好持久化失败则回滚到克隆前的选中项、**不弹**「已添加克隆音色」成功提示，仅在音色下拉旁显示保存失败原因；过期克隆结果（中途切换语音生成器）整体丢弃 |
+| 目录本次拉取失败 | 仅瞬时/未知错误显示「刷新音色列表」入口（配置类/不支持/模型不匹配/身份问题重试无效）；**且不得清空仍可用的已保存选中项**（克隆音色独立于 catalog 存在，刷新失败时保留，遵守「已保存的 voiceId 不得静默丢失」） |
 | 克隆进行中 | 列表顶部显示占位行 + 状态文本（「已选择 N 个样本，正在上传并克隆音色…」）；期间禁止再次选择/删除/重命名 |
 | 删除克隆音色 | 必须二次确认；确认后按钮进入加载态 |
 | 重命名 | 回车保存 / Esc 取消；空名称时确认按钮禁用 |
@@ -20041,6 +20091,9 @@ apps/desktop/src/views/
 | T6 | 重命名保留 `invalid` 标记 | `CreateView.test.js` |
 | T7 | 模块级单例状态可复位（防跨用例泄漏） | `resetTtsVoicesForTest` + 2 处 describe `beforeEach` |
 | T8 | composable 源文件零 CJK 字面量（防回流） | `useTtsVoices.test.js` + CI Gate 7 `--cjk` |
+| T9 | 克隆成功后「语音 / 音色 ID」自动切到新音色（含 MiMo `mimo-clone-` 分支） | `useTtsVoices.test.js`「克隆成功后自动切换」describe |
+| T10 | 偏好持久化失败时回滚到**克隆前**的选中项，且不弹成功提示 | `useTtsVoices.test.js`「偏好持久化失败时回滚到切换前的选中项」 |
+| T11 | 音色目录拉取失败不清空仍可用的已保存选中项 | `useTtsVoices.test.js`「音色目录本次拉取失败时，不清空仍可用的已保存选中项」 |
 
 ### 验收
 
@@ -20333,63 +20386,66 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 - 判据与测试坐标见新 PRD §10/§11；门禁与真机证据见新 PRD §12；交付记录见 §13。
 - 采集页文案：`collection.collectErrors.security_challenge`（更新）、`collection.draftBlockedSecurityChallenge`（新增）；
   改写错误码文案：`userErrors.LLM_NOT_CONFIGURED`（新增）——三项均 zh/en 成对。
-## 键盘可达与可访问名合同（2026-10-19，UX 审计阶段 3.6 / 4.3 / 4.4 / 4.5）
 
-本节把已落地与在途的四组无障碍行为写成产品合同：显示项、交互逻辑、数据校验、提示文字各自写清，避免后续实现"看着做了、用户仍拿不到"。
+## 账号同平台多账号去重契约（2026-10-21，fix-multi-account-same-platform）
 
-### 一、焦点可见性（WCAG 2.4.7）
+> **单一真源在 `01-docs/PRD-MULTI-ACCOUNT-SAME-PLATFORM-2026-10-21.md`**（含根因链、逃逸分析、
+> 测试坐标、变异反证、风险取舍与验收标准）。本节只登记**产品契约本身**，不重复推导过程。
 
-**显示项**
-- 焦点环：`2px` 实线 `outline`，`outline-offset: 2px`；颜色**只能**取单一令牌 `--color-focus-ring`，不得写十六进制字面量。
-- 令牌双档取值（浅暗两档都必须显式声明，缺暗色即失效）：亮色档解析为 `--color-primary-hover`，实测对页面画布底色 **6.05:1**；暗色档取 `--color-primary-dark-tint`，实测对暗色画布 **4.78:1**、对卡片底 **4.30:1**。暗色**不得**沿用亮色值——同色在 `#1a1a1e` 上实测约 1.9:1，等于"有焦点环但看不见"。
-- 只对 `:focus-visible` 生效（键盘进入显示，鼠标点击不显示），不得给任何按钮规则加 `outline: none`。
+### 一、契约
 
-**交互逻辑**
-- 焦点规则必须显式写 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`。原因：组件族普遍带 `transition: all`，会把 `outline-*` 一并纳入过渡 ⇒ 键盘 Tab 后 **0ms 读到的是过渡起点**（实测 `3px currentColor` / offset `0`），视觉上"焦点慢半拍"。判据必须同时读 t=0 与稳态两个时刻，只读稳态会抹掉这条差异的证据。
-- 覆盖范围：按钮族规则必须**逐个变体类**都写。实测 180 个 `.vue` 模板中 134 处按钮的 `class` **只带变体类**（如 `cohere-btn-primary`），没有一处带基类 `cohere-btn` ⇒ 把规则写在基类上等于零覆盖；而 `UiButton` 一族的根节点 `classes` 恒含基类 `ui-btn`，基类规则对它确实有效。**"基类 = 公共形态"是心智模型，不是事实。**
+**同平台可添加多个账号。** 去重判据唯一：`同平台` + `同 owner_subject` + `同一 platform_account_id`，
+三者缺一不判重。
 
-**数据校验（门禁）**
-- 变体域由**模板扫描**派生（按 class 挂在什么元素上分类），禁止按类名前缀猜 ⇒ 前缀法会把 `ui-btn-spinner` 这类 `aria-hidden` 装饰节点与 `el-button`、`router-link` 混进域内（实测 150 条里 109 条假阳性）。
-- 域内每个变体类必须有对应规则，缺任一即判红；并配**规模下界**（模板数、class 属性数、变体数各自 > 阈值），否则"扫描器退化成空集合"会读成"零问题"。
-- 像素基线门禁对焦点态**结构性失明**（截图时无键盘焦点），因此"CI 视觉绿"不能作为"焦点环生效"的证据；该证据只能来自真实渲染引擎读计算样式。
+| 新账号 ID | 已有账号 ID | 平台 | owner | 判定 |
+|---|---|---|---|---|
+| 有值 | 相同 | 相同 | 相同 | **409** `此账号已添加过` |
+| 有值 | 不同 | 相同 | 相同 | 200 允许 |
+| 有值 | 无 | 相同 | 相同 | 200 允许 |
+| 无 | 无 | 相同 | 相同 | 200 允许 |
+| 无 | 有值 | 相同 | 相同 | 200 允许 |
+| 任意 | 任意 | **不同** | 相同 | 200 允许 |
+| 相同 | 相同 | 相同 | **不同** | 200 允许 |
 
-**提示文字**：焦点环是视觉属性，不承载文字，本项**不新增 locale 键**。
+判据唯一实现 `_account_identity_key(platform_account_id)`：只接受字符串，`None`/空串/空白/非字符串
+一律返回 `None`（= 无强标识 = 不参与判重）。`create_account` 与 `_dedup_accounts_on_startup`
+**共用**它——两者判据不同源会出现「创建时允许同平台多账号、重启后又把它们清成一条」的自相矛盾。
 
-### 二、「更多」菜单的键盘可达（roving tabindex）
+### 二、⛔ name 不是身份标识
 
-- **交互逻辑**：同一时刻只有当前项 `tabindex="0"`，其余为 `-1`（否则 Tab 会把整个菜单一项项念完）；`↑/↓` 在项间移动，`Home/End` 跳首尾；`Esc` 关闭菜单，并且**焦点必须归还触发按钮**——不归还时键盘用户的焦点会被丢回文档开头，等于"关掉菜单后不知道自己在哪"。
-- **显示项**：无视觉变化；`aria-haspopup` / `aria-expanded` 沿用既有语义。
-- **范围边界**：菜单项里「CLI」标签的改名与分组属产品决策，不在该批；不可由实现侧自行改词。
+| 字段 | 来源 | 身份标识 | 用途 |
+|---|---|---|---|
+| `platform_account_id` | `[data-account-id]` 等属性 | **是（唯一）** | 唯一去重判据 |
+| `account_name` | DOM 昵称选择器，回落 name | 否 | **显示名首选位** |
+| `name` | `document.title`，采不到时回落平台显示名 | **否** | 历史兼容位，永不作为显示名来源 |
 
-### 三、非按钮可点元素的键盘可达（WCAG 2.1.1）
+`name` 回落平台显示名是常态（头条号/百家号后台不带 `[data-account-id]`，见
+`account-profile.js:97-102`），所以多个同平台账号的 `name` 会全部相同——这正是 v5
+（commit `c84325baa`）误判「此账号已添加过」的根因。该判据已删除，v5 章节有 ⚠️ 废止说明。
 
-- **修法固定为四件套**：`role="button"` + `tabindex="0"` + `@keydown.enter.prevent` + `@keydown.space.prevent`，且两个 keydown 的表达式必须与 `@click` **逐字一致**（抄一份近似逻辑就是两套行为）。
-- **硬禁令（本批实测制造过的次生缺陷）**：已补 `role="button"` 的元素**不得有可见、可聚焦的后代**。`button` 是 leaf 角色，取得该角色后其子树在无障碍树上呈现为 presentational ⇒ 容器内原有的真按钮**从 a11y 树上消失**，而视觉、鼠标、属性写入、单测、构建全都不报错。实测 21 处补全里有 3 处属此类（两处上传区的「移除」按钮、一处列表项内 3 个动作按钮），处置是撤销补全并登记为技术债，而不是"补个 role 再想办法救回来"。
-- **验证手法**：反证不能只"摘掉判据看是否红"，必须**把被撤销的那个错误形态原样重造一遍**（K3），否则判据被放宽后锁仍显示绿。
-- **属性存在 ≠ 行为通畅**：既有测试只做 `trigger('click')`，键盘路径在测试里不可表示。必须补行为用例断言 Enter 与 Space **各自**触发同一 emit，并配一条负控"只有 `@click` 时按 Enter 必须不产生事件"——否则该用例会退化成"测 mount 的副作用"。
+### 三、交互与提示
 
-### 四、标签 ↔ 控件的可访问名（WCAG 1.3.1 / 4.1.2）
+- 保存成功：`accounts.saved`（既有文案）。
+- 命中唯一剩余的 409（同平台同一账号重复添加）：`此账号已添加过`（`accountsPage.duplicateAccount`，
+  zh/en 成对，既有文案）。该提示现在语义准确——只在真的同一账号时出现。
+- 不再出现「同平台第二个账号被拒」；用户无需额外操作即可添加第 2、第 3 个同平台账号。
+- 账号列表按平台分组，同平台多张卡片以 `account_name` 区分；为空回落平台名时可能与同平台另一张
+  卡片同名，但二者仍是独立记录，可分别启用/停用/删除/改名。
 
-- **显示项**：`<label>` 文本就是控件的可访问名。**禁止**用 `placeholder` 承担名称（用户一开始输入它就消失），也禁止只靠 `aria-label` 复制一份标签文本（两份口径必然漂移）。
-- **交互逻辑**：点击标签把焦点送进对应控件；读屏在控件上念出标签文本，而不是"编辑框，未标注"。
-- **数据校验（六条）**
-  1. 关联是否成立只认 **DOM 事实**：`control.labels` 命中该 label、`label.htmlFor === control.id`。"源码里 `for=` 与 `id=` 都出现过"不是证据——**写得越像修好的，字符串判据越看不见**。
-  2. `for` 的合法目标（labelable）是封闭清单：`button`、`input`（`type=hidden` 除外）、`meter`、`output`、`progress`、`select`、`textarea`。指向 `div`/`span` **不是降级而是规范级无效**：浏览器不报错、不关联、也不回退到相邻文本。本仓两种真实成因：① 自研 `UiInput` 曾无 `id` prop ⇒ 调用方写的 `id` 走属性透传落到根 `div`；② 组件库丢弃该属性。
-  3. **第三方组件的属性转发面必须实测**（`mount` 一次、打印根节点与内层控件三层落点）：Element Plus 的 `ElInput` **丢弃 `id`**（根 div 与内层 `input`/`textarea` 三处皆空），但转发 `aria-labelledby` / `aria-label` / `name` / `autocomplete` ⇒ 表单容器的统一修法是「label 自带 `id` + 控件用 `aria-labelledby` 指认它」，且该宿主行为要钉成契约锁（EP 升级后若开始转发 `id`，锁会红，正解同时变回 `for`+`id`）。
-  4. 控件 `id` 的来源优先级固定：**显式传入的 `id` > 框架实例级生成**（Vue 3.5 `useId()`）。**禁止 `Math.random()` 造 id**：同页多实例可撞车，而撞车时 `label[for]` 会指向别人的控件（浏览器取文档首个匹配），比缺失更坏。
-  5. **表单容器（`UiField`）不得代调用方造 id 当标签目标**。容器不渲染控件、控件在 slot 里，而 slot 里的组件是**另一个实例**、`useId()` 得到**另一个**值 ⇒ 容器把自造值发射成 `for` 时，那是一条指向不存在元素的**死 `for`**（屏读宣布一个不存在的控件、点击标签不聚焦，WCAG 4.1.2）。合规形态只有两种，且必须显式选一：**① 认领式** —— 控件把自己的 id 经一条 `Symbol` 的 provide/inject 通道**反向登记**给容器，容器发射"实际被认领的那个 id"；**② 门控式** —— 容器只在调用方**显式给了值**时才发射 `for`（`:for="forId || undefined"`），没给就**不发射**。两条同判据：**宁可没有 `for`，也不能有一个指向不存在元素的 `for`**。不得要求调用方"自己想起来传 `forId`"（该 prop 实测恒空即等同契约不存在），但 prop 恒空的正解是改契约形态，**不是**替调用方编一个值。
-  6. "必填"的语义必须落在**控件**上（`aria-required="true"`），视觉上那颗红色 `*`（`aria-hidden`）只是装饰；`required` 为假时**不得残留** `aria-required`。
-- **存量与节奏**：孤岛 `<label>`（既无 `for`/`:for`、内部也不包裹控件）按**逐文件**基线登记，只能缩小；2026-10-19 实测 **139 → 127**（23 个文件）。基线判据必须同时认识合法替代通道（`aria-labelledby` 等），否则会把一次合规修复计成退化。**并且必须把「缺失」与「指空」分成两态**：一条有 `for` 但目标不存在的 label 会从"孤岛"计数里**消失**，读起来像改善，实际是更糟的伪装态 —— 因此指空要由另一条判据（死 `for` 扫描）单独阻断，豁免只能**按目标逐个**登记、不得整文件豁免。`UiField` 的 26 处带 label 用法**不在**上述 127 里（那是 `<UiField label="…">` 的 prop，不是字面 `<label>` 标签，扫描器对它天然失明），逐点绑定另批做。
-- **提示文字**：本项是属性面改造，**不新增 locale 键、不改任何用户可见文案**（zh/en 成对要求因此不触发）；标签文本、`hint`、错误文案全部沿用既有 i18n 键。
+### 四、回归保护
 
-### 五、验收锚点
+`packages/python-backend/tests/test_server_account_lifecycle.py`：创建路径 9 例 + 启动路径 5 例
+（含用户实测场景、v5 判据反向锁、平台/owner 作用域、非字符串 ID 的写入 422 与读侧 fail-safe、
+启动去重不清无 ID 多账号）。变异反证：判据换回 v5 的 name 匹配，5 个创建路径用例当场变红。
+完整测试坐标表见单一真源文档 §八。
 
-- 焦点环：`apps/desktop/src/styles/focus-ring.test.js`（12 条，含变体域派生、双档令牌声明恰好一次、禁十六进制、2px/offset 唯一性、禁 `outline:none`）+ 真 Chromium 计算样式取证（8 类控件 × 浅暗两档 × t=0/稳态）。
-- 菜单键盘：`apps/desktop/src/components/MpSidebar.more-keyboard.test.js`（13 条）。
-- 可点元素：`apps/desktop/src/clickable-roles.contract.test.js`（7 条，含 leaf 角色不变式与只可缩小的债务登记）+ `clickable-roles.behavior.test.js`（3 条，真 i18n 插件、Enter/Space 各自 emit、`@click`-only 负控）。
-- 标签关联：`apps/desktop/src/label-association.contract.test.js`（19 条，含 C1 回归锁与门控结构锁）+ `apps/desktop/src/element-plus-attr-forwarding.test.js`（3 条）+ 基线 `apps/desktop/src/label-association-baseline.json`。⚠ 这里的条数是**当日读数**，会随锁增删漂移；判定一律以门禁当场执行的通过数为准，不以本文数字作验收证据。
-- 令牌：`apps/desktop/src/styles/token-scales.test.js`（6 条）+ 真引擎逐槽变量链对账。
-- 共同要求：上述每条锁都要做**写回被禁形态**的变异反证（不是"摘掉判据"），且红必须红在指名的那条用例上。
+### 五、风险与取舍
+
+- **代价**：同一平台同一账号在「两次都采不到 ID」时可重复入库（v5 想防的正是这个）。
+  缓解：采集器命中 ID 时判重照旧生效；用户可在账号页删除多余卡片。
+- **不做**：不给 name 加模糊匹配/相似度判据（只把误判边界从「完全相等」挪到「足够相似」）；
+  不做存量数据迁移（历史上被清掉的账号无法恢复，未受影响的存量账号在新判据下全部保留）。
+
 
 ## 列表键必须是条目身份（2026-10-20，UX 审计阶段 4.8 首批）
 

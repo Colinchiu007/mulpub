@@ -1,0 +1,65 @@
+{
+  "sha": "613fed8d9c0b711bae47847c03d9e4d235e3d563",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 5,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| i3 | Warning / security | L1 缺省仍无域名白名单，「URL 来自已认证 provider 响应」把控制面押在第三方响应上；「仅提示可见」不构成阻断 | **采纳**（我方第 2 轮回应不够）：最终口径改为**缺省 fail-closed**——可信主机集合 = { provider API 主机（自动派生） } ∪ { `assetDownloadHosts`（可配） }；不在集合内且**未显式授权** ⇒ **拒绝**；放宽只能由用户在成本确认卡**显式勾选**并**留痕** `project.json`。同源 provider **零配置可用**，非同源 provider 运营配一次即可。落 proposal §4.2.1 + design D5 |",
+      "| i3 | Warning / security | L1 缺省仍无域名白名单，「URL 来自已认证 provider 响应」把控制面押在第三方响应上；「仅提示可见」不构成阻断 | **采纳**（我方第 2 轮回应不够）：最终口径改为**缺省 fail-closed**——可信主机集合 = { provider API 主机（自动派生） } ∪ { `assetDownloadHosts`（可配） }；不在集合内且**未显式授权** ⇒ **拒绝**；放宽只能由用户在成本确认卡**显式勾选**。同源 provider **零配置可用**，非同源 provider 运营配一次即可。落 proposal §4.2.1 + design D5。**⚠️ 本行的「留痕 `project.json`」口径已在第 5 轮被推翻为「运行期一次性令牌，不落盘」，见 §三之四 i3。** |",
+      "| 放宽通道 | 用户在成本确认卡**显式勾选**「本次允许从外部素材域名下载」；勾选产生**运行期一次性令牌**（**只存内存、任务结束失效、SHALL NOT 落盘**）；项目文件 SHALL NOT 存放任何可用于放行的授权位；审计只记「发生过一次外部域名授权」这一**事实**；**未勾选 ⇒ 拒绝** |"
+    ],
+    "ccgSensitiveContentHits": 4,
+    "ccgSensitiveContentSample": [
+      "        \"prosecution\": \"指控成立且可复现：上一轮把「放宽通道」改成运行期一次性令牌时，只改了 proposal.md / PRD / spec.md，漏改 design.md D5 的「放宽通道」行与 tasks.md PR-7b 第 8 条——两处仍写着「勾选结果留痕 project.json 的 egressAllowAnyHost」。同一次改口径还留下 proposal.md §4.2.1 摘要行、design.md D5 摘要行、proposal.md 场景表共 3 处「且留痕」。内存令牌与「落盘授权位」在同一份方案里并存，是货真价实的安全语义自相矛盾：落盘的授权位可被任何写项目文件的路径或外部导入的项目文件静默置真，跨会话长期生效。外部后端 claude 独立复核亦判 upheld。\",",
+      "        \"defense\": \"可以争辩两点：① 上述表述描述的是 PR-7b（出站加固）的**未来**实现，不是本 PR 已落地的代码，本 PR 的 diff 未包含任何授权位持久化，因此不存在已上线的漏洞；② spec.md 已经写成「运行期一次性令牌、SHALL NOT 落盘」，方案并非整体自相矛盾，只是个别文件漏改。\",",
+      "        \"rationale\": \"两点辩护都不足以推翻指控。第一点不成立于「文档一致性」这一判据本身：方案是后续 8 个 PR 的实施依据，design.md 与 tasks.md 是那两个 PR 的**施工图**；施工图里写着「落盘授权位」，实施者照做就会把方案自己否掉的缺陷实现出来——方案的内部矛盾会变成代码缺陷，这是实质风险而非表述瑕疵。第二点只能减轻严重性、不能否定指控，因为矛盾点确实存在且指向安全敏感字段。已按外部后端 claude 的最小修复动作执行：design.md D5 两行、proposal.md 三行、tasks.md 一行统一改为「运行期一次性令牌（只存内存、任务结束失效、SHALL NOT 落盘）；项目文件 SHALL NOT 存放任何可用于放行的授权位；审计只记发生过授权这一事实」，并加机械判据 V-26b（project.json 中不得存在 egressAllow 类字段）。修复后全量 grep「egressAllowAnyHost / 留痕 / 落盘」于本 change 目录，残留为 0。claude 复核提到的 spec.md 一项本方核实为无残留（该文件已改），属其未读文件时的推断，此处如实标注。\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "afab8bafd36dadf9b7ee54253cc2c003c9d35d537cff4609ef353f0e9e559dd4",
+  "decidedAt": "2026-10-20T23:38:15.692Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

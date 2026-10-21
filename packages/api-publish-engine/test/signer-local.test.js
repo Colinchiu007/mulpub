@@ -1,5 +1,6 @@
 const assert = require("assert");
-const { getCsdnSign, getXiaohongshuSign, buildDouyinParams, getKuaishouSign } = require("../src/signer-local");
+// getKuaishouSign 已于 2026-10-21 拆除（32 位假签名，被真实服务端否证）
+const { getCsdnSign, getXiaohongshuSign, buildDouyinParams } = require("../src/signer-local");
 const TEST_SECRET = "test-secret";
 
 let passed = 0, failed = 0;
@@ -80,14 +81,8 @@ test("all expected keys present", () => {
   expected.forEach(function(k){ assertEqual(k in p, true, "Missing key: " + k); });
 });
 
-console.log("\n--- getKuaishouSign ---");
-test("md5 hex when apiPh provided", () => {
-  assertEqual(getKuaishouSign({ title: "test" }, "ph").length, 32);
-});
-test("empty without apiPh", () => { assertEqual(getKuaishouSign({ title: "test" }, null), ""); });
-test("deterministic", () => {
-  assertEqual(getKuaishouSign({ title: "t" }, "ph"), getKuaishouSign({ title: "t" }, "ph"));
-});
+// --- getKuaishouSign 段已移除（2026-10-21）：它测的是 32 位假签名，
+// 该实现已被真实服务端否证并从导出面拆除；替代实现见 src/signer/kuaishou-sig3.js。
 
 console.log("\n========== Result ==========");
 console.log("  Passed: " + passed + " / " + (passed + failed));

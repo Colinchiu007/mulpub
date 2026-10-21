@@ -1,0 +1,57 @@
+{
+  "sha": "6084c620ac46fa4016a69f8aacc4a4982c07c375",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "  - **清单唯一真源**：高危面 = `check-pr-exec-record.js::HIGH_RISK_SURFACES`，逐条自带实测命中数（凭证加解密 / 登录态串行锁 / 云端账号校验 / 登录态三态口径 / 指纹面（限源码扩展名）/ `.github/workflows/` / `scripts/check-`（判据自指）/ `scripts/ccg-review-` / `scripts/deep-review`）。本文这份清单只是导览，**取数一律读该常量**——写进文档的复述（含条数）会过期。前缀匹配实现同样只有一处（`highRiskPrefixOf`），由结构锁钉死「只准一处」。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b9886a620ade11f0b078c720103b178e8b57ef2f349ffe1c503a182438a13e1a",
+  "decidedAt": "2026-10-20T10:22:59.294Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

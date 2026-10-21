@@ -1,0 +1,62 @@
+{
+  "sha": "ed40afbfdecb47558ecb35280855364dc020ccf4",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 402 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 402,
+    "fileCount": 13,
+    "codeFileCount": 7,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "   **对策**：改完必须用 `Select-String` 回读验证，不能只信工具返回值。",
+      "对策：改完必须 `Select-String` 回读；重跑后落盘（`Tee-Object`）再统计。"
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-20T14:51:08.612Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-ed40afbf\\adjudication.json",
+    "note": "裁决尚未填写：3/3 条未定（i1, i2, i4）",
+    "at": "2026-10-20T14:52:57.946Z",
+    "resolvedAt": "2026-10-20T15:00:30.744Z",
+    "closureNote": "自扮演裁决（引擎第三档出口，置信权重 0.6），3 条 Warning 逐条 prosecution/defense/verdict 完整留证于 .adversarial/ccg-deep-ed40afbfde/adjudication.json：\ni1 .cohere-card 无 .col- 前缀疑全局生效 → dismissed：compileStyle({scoped:true}) 实测产物为 .cohere-card[data-v-testscope]，Vue scoped 给每条规则都加属性后缀，与是否带前缀无关；指控前提被编译器产物直接否证。\ni2 isInvalidResult 模板内调 3 次 → upheld 并已修：改 computed 预计算 invalidIds(Set)，三处 O(1) 查表；修后 380 例仍全绿。\ni4 ?? ES2020 兼容 → dismissed：仓内 58 处既存使用 + 本模块 9 例行为测试已实际 import 执行成功（import 阶段就会抛 SyntaxError）。"
+  }
+}

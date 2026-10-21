@@ -1,0 +1,61 @@
+{
+  "sha": "b149359519aeeb96479e41e4290c25c23b993a9e",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "| 上传授权 | `https://studio.ixigua.com/api/upload/getAuthKey/?params=%7B%22type%22:%22` | 1 |",
+      "⇒ 两者都落到登录页 ⇒ **应用外无法验证**（分区凭据读不出，见 §16.21）。",
+      "| 上传授权 | `https://studio.ixigua.com/api/upload/getAuthKey/?params=%7B%22type%22:%22` | 1 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "86c5a1a1b2560687620f7397d7cc009ee9cf6026f713c38598461473f88c73d3",
+  "decidedAt": "2026-10-21T09:57:36.567Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

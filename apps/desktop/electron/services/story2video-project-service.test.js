@@ -2657,6 +2657,102 @@ describe('Story2VideoProjectService', () => {
     expect(failed.segments[0]).toMatchObject({ prompt: '旧提示词', status: 'failed', error: '优化服务不可用' })
   })
 
+  it('regenerateScenePrompt video 重写后旧视频翻译被清空（不保留陈旧翻译）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: 'A new cinematic shot' }] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      aiGenerator: { generateWithDefault: vi.fn(async () => ({ content: '{"0":"新镜头"}' })) },
+      serviceBus: { optimizeVideoPrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-video-trans-stale', status: 'completed', options: {},
+      segments: [{
+        id: 'segment-0', index: 0, text: '你好', prompt: '旧画面词',
+        videoPrompt: '旧视频词', videoPromptTranslation: '旧视频译文',
+      }],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-video-trans-stale', 'segment-0', 'video')
+
+    // 新视频词的译文是本次生成的「新镜头」，不是上一轮遗留的「旧视频译文」
+    expect(updated.segments[0].videoPromptTranslation).toBe('新镜头')
+  })
+
+  it('regenerateScenePrompt video 先落盘 videoPrompt 再等翻译（翻译窗口崩溃不丢优化词，QM-6 i3）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: 'Cinematic shot' }] }))
+    // 翻译阶段抛错（模拟翻译链路整体失败而非单条失败）：videoPrompt 必须已落盘
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      aiGenerator: { generateWithDefault: vi.fn(async () => { throw new Error('LLM down') }) },
+      serviceBus: { optimizeVideoPrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-video-trans-order', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', videoPrompt: null, videoPromptTranslation: null }],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-video-trans-order', 'segment-0', 'video')
+
+    expect(updated.segments[0].videoPrompt).toBe('Cinematic shot')
+    expect(updated.segments[0].videoPromptTranslation).toBe(null)
+    expect(updated.segments[0].status).toBe('completed')
+    // 磁盘上的项目同样已含新 videoPrompt（不等翻译就落盘）
+    const persisted = service.getProject('project-video-trans-order')
+    expect(persisted.segments[0].videoPrompt).toBe('Cinematic shot')
+  })
+
+  it('regenerateScenePrompt video 译文成功路径落盘（dirty 复位 + 磁盘可读，QM-6 i1）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: 'Cinematic shot' }] }))
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      aiGenerator: { generateWithDefault: vi.fn(async () => ({ content: '{"0":"电影镜头"}' })) },
+      serviceBus: { optimizeVideoPrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-video-trans-persist', status: 'completed', options: {},
+      segments: [{ id: 'segment-0', index: 0, text: '你好', videoPrompt: null, videoPromptTranslation: null }],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-video-trans-persist', 'segment-0', 'video')
+
+    expect(updated.segments[0].videoPromptTranslation).toBe('电影镜头')
+    // 第二次 _upsertProject 必须真的把译文写进磁盘（dirty 复位后才能过门禁）
+    const persisted = service.getProject('project-video-trans-persist')
+    expect(persisted.segments[0].videoPrompt).toBe('Cinematic shot')
+    expect(persisted.segments[0].videoPromptTranslation).toBe('电影镜头')
+  })
+
+  it('regenerateScenePrompt video 在 en 界面语言下不发起翻译调用（归一化后短路，QM-6 i2）', async () => {
+    const projectRoot = path.join(root, 'projects')
+    const optimizeVideoPrompt = vi.fn(async () => ({ results: [{ prompt: 'Cinematic shot' }] }))
+    const aiGenerator = { generateWithDefault: vi.fn(async () => ({ content: '{"0":"x"}' })) }
+    const service = new Story2VideoProjectService({
+      store,
+      projectsDir: projectRoot,
+      aiGenerator,
+      serviceBus: { optimizeVideoPrompt },
+    })
+    service._writeProjects([{
+      projectId: 'project-video-trans-en', status: 'completed',
+      options: {},
+      story2videoTextConfig: { config: { optimize: { uiLocale: 'en-US' } } },
+      segments: [{ id: 'segment-0', index: 0, text: '你好', videoPrompt: null, videoPromptTranslation: null }],
+    }])
+
+    const updated = await service.regenerateScenePrompt('project-video-trans-en', 'segment-0', 'video')
+
+    // en ⇒ 不翻译（省一次 LLM 调用），译文为 null，videoPrompt 正常落库
+    expect(aiGenerator.generateWithDefault).not.toHaveBeenCalled()
+    expect(updated.segments[0].videoPrompt).toBe('Cinematic shot')
+    expect(updated.segments[0].videoPromptTranslation).toBe(null)
+  })
+
   it('regenerateScenePrompt image 引擎错误兜底回显原文 → fail-closed（402 形态）', async () => {
     const projectRoot = path.join(root, 'projects')
     const optimizePrompt = vi.fn(async () => ({

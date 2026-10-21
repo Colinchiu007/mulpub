@@ -1004,6 +1004,7 @@ import { avatarCatalogRefs, avatarCatalogComputeds, avatarCatalogMethods } from 
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
+import { applyConfigProfileFromRoute } from '@/features/publish-destination/apply-config-profile-handoff'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { showPipelineBackgroundToast } from '@/stores/pipeline-background-toast'
 import { opsCenterSyncRuntime, opsCenterSyncPipelineOptions, onOpsCenterRuntimeUpdated } from '@/api/ops-center-sync'
@@ -1303,7 +1304,6 @@ export default {
     s2vVoiceRequestId: { get() { return ttsVoicesRefs.s2vVoiceRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceRequestId.value = v } },
     s2vVoiceSelectionRequestId: { get() { return ttsVoicesRefs.s2vVoiceSelectionRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceSelectionRequestId.value = v } },
     s2vVoiceCloneRequestId: { get() { return ttsVoicesRefs.s2vVoiceCloneRequestId.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRequestId.value = v } },
-    s2vPersistedVoiceId: { get() { return ttsVoicesRefs.s2vPersistedVoiceId.value }, set(v) { ttsVoicesRefs.s2vPersistedVoiceId.value = v } },
     s2vVoiceCloneRequirements: { get() { return ttsVoicesRefs.s2vVoiceCloneRequirements.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneRequirements.value = v } },
     s2vVoiceClones: { get() { return ttsVoicesRefs.s2vVoiceClones.value }, set(v) { ttsVoicesRefs.s2vVoiceClones.value = v } },
     s2vVoiceCloneSelection: { get() { return ttsVoicesRefs.s2vVoiceCloneSelection.value }, set(v) { ttsVoicesRefs.s2vVoiceCloneSelection.value = v } },
@@ -2276,7 +2276,13 @@ export default {
       // 生命周期内只恢复一次（由 restoreS2VLastOptions 内部设置 _s2vRestoredOnce），
       // 避免同会话切走再切回覆盖当前编辑。
       if (this.isOrchestratedPipeline(p?.name) && !this._s2vRestoredOnce) {
-        this.restoreS2VLastOptions()
+        // publish-config-picker：留住恢复 promise —— 「恢复上次选项」与「套用 URL 带来的配置档案」
+        // 写同一份表单，并发时后写者胜。配置档案是用户显式选择，必须后写（否则「选了配置却没生效」）。
+        // 非编排型没有恢复在途，也留一个已解决的 promise —— 顺序保证不依赖「当前是不是编排型」
+        // （QM-6 评审 i3 采纳：原先只在编排型分支赋值，将来新增入口时保证会悄悄失效）。
+        this._s2vRestorePromise = this.restoreS2VLastOptions()
+      } else {
+        this._s2vRestorePromise = Promise.resolve()
       }
     },
     // 改写页跳转预填充：读取草稿内容填入文案输入框，并按 query.pipeline 自动选择流水线
@@ -2326,6 +2332,21 @@ export default {
           'Draft not found. Please go back and try again'
         ), 3200)
       }
+    },
+    // 套用「去发布」弹窗带过来的配置档案（publish-config-picker）；契约与四道校验闸见
+    // features/publish-destination/apply-config-profile-handoff.js。必须在选中流水线之后调用。
+    async _applyConfigProfileFromRoute () {
+      return applyConfigProfileFromRoute({
+        profileId: String(this.$route?.query?.configProfile || ''),
+        pipelineId: this.selectedPipeline?.name || '',
+        getProfiles: () => this.s2vConfigProfiles || [],
+        loadProfiles: () => this.loadS2VConfigProfiles({ quiet: true }),
+        applySnapshot: (profile) => this.applyS2VConfigProfileSnapshot(profile),
+        setActiveProfile: (name) => { this.s2vActiveConfigProfile = name },
+        showToast: (key, ms) => this.showS2VOptionsToast(this.$t(key), ms),
+        onRestoreError: () => { this.showS2VOptionsToast(this.$t('create.story2video.configProfile.restoreFailed'), 2600) },
+        awaitRestore: () => this._s2vRestorePromise,
+      })
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke', 'documentary-montage', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(name) },
@@ -5312,7 +5333,12 @@ export default {
     // 改写页跳转预填充：加载草稿文案并自动选择流水线
     const rewriteDraftId = this.$route?.query?.draft
     if (rewriteDraftId) {
+      // 选完流水线再套用配置（publish-config-picker）：配置档案按流水线分域，
+      // 顺序反了会拿到「没有选中流水线」的空套用。
       this._loadDraftForRewrite(String(rewriteDraftId))
+        .then(() => this._applyConfigProfileFromRoute())
+    } else {
+      this._applyConfigProfileFromRoute()
     }
   },
   beforeUnmount() {

@@ -1,0 +1,100 @@
+{
+  "sha": "ef81036a848a281180d6e9b44cba711231b9d734",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 993 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 993,
+    "fileCount": 10,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| B. 每笔 PR `git clone` 一份再合 | **否决**：30 次整仓克隆（本仓体量）在 5 分钟预算里必挂，且克隆出来的仓库与 runner 的凭据/浅历史配置又是一处新假设 |",
+      "实现层深审的 i3 指出：workflow 声明了 `pull-requests: write`，`live()` 用 `GH_TOKEN` 直接对**别人的**在飞 PR 发评论，除权限声明外没有任何授权判定；而 CI 侧评论速率与耗时**未测**。这一格被引擎标记为高危域 `auth`，明打「高危域必须外部复核」，**不得**用自扮演裁决豁免。",
+      "- [x] 4.2 执行记录 `openspec/records/<分支名>.md`：QM-5 五步、变异红集、1.1/1.2 的现场读数、授权与裁决来源（\"第 5 条选②\"） **→ 落点**。执行记录 `openspec/records/debt-baseline-recheck.md`（分支名与 slug 同名）：QM-5 五步、当下 4/30 陈旧绿读数、两条被自家实测否证的写法、M1–M5 红集、驱动自身的 `Number('')===0` 坑、设计层 QM-6 单轴处置与授权来源"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2ec8046b391dbf92cfb2019ef074fa23d415190703da2b266451b0c30d93291f",
+  "decidedAt": "2026-10-21T06:20:47.013Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "外部复核评论 https://github.com/Colinchiu007/mulpub/pull/4144#issuecomment-6309594411（PR #4144 · 第二轴与最后一轮的逐字原文与逐条处置；critic 轴五轮记在同 PR 评论 #issuecomment-6308819480）",
+    "findings": [
+      {
+        "severity": "Info",
+        "file": "scripts/check-debt-recheck.js + debt-baseline-recheck.yml + 测试",
+        "issue": "四项改动各自闭合：①fetch 失败直接归 UNJUDGEABLE/reason=ref-missing 且不再发 merge-tree（第 17 节 gitCalls=0 断言）；②mergedTreeEvidence 命名与只回 built/reason（无 verdict 字面量）已在第 18 节验证；③blockingGateInputs 正确排除 continue-on-error 软门禁、收 .json 账本（第 19/20 节）；下界断言 >=4（第 19 节）防得住派生退化为空集合；第 20 节用不含软门禁的夹具独立分辨账本派生退化。",
+        "fix": "无修复需求，各点已对账闭合。",
+        "verified": true,
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "PR #4144 外部复核评论 https://github.com/Colinchiu007/mulpub/pull/4144#issuecomment-6309594411",
+          "reviewedAt": "2026-10-21T06:29:33.502Z"
+        }
+      },
+      {
+        "severity": "Info",
+        "file": "整个写入面（live、门闩、预算、端点、状态复查）与触发面（paths 对账）",
+        "issue": "无遗留 Critical/Warning：写入面——shouldCommentOn 严格只认 \"1\"（第 10 节）、预算上限合法含 0 且非法回落（第 12 节）、拒写留痕不重试（第 15 节）、端点 PATCH 走 issues/comments/<id>（第 16 节）、写前状态复查 fail-closed（第 13 节）；触发面——workflow paths 与 blockingGateInputs 派生结果逐字对账（第 19 节），无软门禁混入，无假判决旁路（fetch 失败不走 self-merge）。",
+        "fix": "无",
+        "verified": true,
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "PR #4144 外部复核评论 https://github.com/Colinchiu007/mulpub/pull/4144#issuecomment-6309594411",
+          "reviewedAt": "2026-10-21T06:29:33.502Z"
+        }
+      },
+      {
+        "severity": "Info",
+        "file": "测试夹具（第 10–20 节）",
+        "issue": "无装饰性断言：每条断言都验证真实行为差异——第 17 节验证 fetch 失败时 merge-tree 调用为 0（不是\"少写\"）；第 18 节验证函数名与无 verdict；第 19 节验证派生完整性与下界；第 20 节在无软门禁夹具中单独验证账本派生（避免两种退化同形）；第 16 节验证端点形状差异（避免把 404 伪装成平台竞争）。",
+        "fix": "无",
+        "verified": true,
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "PR #4144 外部复核评论 https://github.com/Colinchiu007/mulpub/pull/4144#issuecomment-6309594411",
+          "reviewedAt": "2026-10-21T06:29:33.502Z"
+        }
+      }
+    ],
+    "closureNote": "第 1–6 轮外部复核。critic 轴＝claude 六轮（`claude -p` 直连、stdin 喂载荷、明令只读禁命令，绕开 codeagent-wrapper 的 argv 嗅探），各轮耗时/载荷字节：118.6s·10KB / 37.8s·29914B / 169.4s·32048B / 155.5s·34386B / 67.9s·36498B / 155.9s·48963B，交付 4/4/5/4/1/3 条可解析 findings。proposer 轴＝opencode 一次交付（两字探针三试 200s无回音/44s/125s ⇒ 本日可达；正式派发第 1 次交回过程快照零 verdict，第 2 次以\"钉死行区间、禁自我界定范围\"的简报交付 4 条：3 Warning + 1 Info）。**逐条处置**：第 1 轮 W3（开启后无预算、无写前状态核查）与 W4（结构断言冒充行为断言）成立并落码（design D7/D8）；第 2 轮 W2（夹具只数写调用不数命令类）成立并落码，W1 的\"跨 run 速率窗\"与第 3 轮\"代码内绝对硬顶\"**被拒绝**（理由落 D9，与近 30 天 12 次触发的量级核对）；第 3 轮 W5（夹具对所有输入给同一个答案）成立并落码 + 变异 M10；第 4 轮 **Critical**（PATCH 端点少一层 `issues/` ⇒ 恒 404，且被新增的拒写归因读成平台侧时间窗竞争；根因是夹具恒回空评论、PATCH 分支从未被执行）成立并落码 + 变异 M12 指名红；第 5 轮 1 条 Info 收敛；前端轴 W-FE1（fetch 失败时 `head || HEAD` 拿主干自合并给出假判决，且封闭词表的 ref-missing 无产出路径）、W-FE2（构造函数从不跑判据却回 verdict:IN_BASELINE 且与真判决同前缀同批导出）、W-FE3（触发清单与 debt-guard 实际执行面不同源）**全部成立并落码**（design D11 + spec 第三条 Requirement + 变异 M13/M14；M13 与 M14 第一版红集逐字相同，故另加一条无软门禁夹具的用例把它们分开）。第 6 轮（最终提交 91952fb03）三条 Info 全 `verified=true`：四项改动各自闭合、写入面与触发面无遗留 Critical/Warning、无装饰性断言。反证：`node --test scripts/check-debt-recheck.test.js` = `# tests 25 / # pass 25 / # fail 0`；M1–M14 `有红集=14/14 / 互不相同红集=14`，判据文件按字节还原 `md5=2a4ba86763 restored=true`。**诚实边界**：两轴虽异家族，但都由同一作者派发与处置 ⇒ 承重的是每条**指名红**的变异，不是\"评审说 OK\"；本 `tier` 字段仍是会话手写（全仓无生产方写 tier），公开出处即上两条 PR 评论。",
+    "closedAt": "2026-10-21T06:29:33.502Z"
+  }
+}

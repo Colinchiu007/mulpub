@@ -78,6 +78,23 @@ const RULES = {
   ],
 };
 
+/**
+ * 判定器自己写下的产物 —— 取证面不得**消费**它，但仍要**观测**它。
+ *
+ * 为什么按路径而不是按扩展名：`.ccg/` 整个目录都是判定器与评审链的输出，
+ * 而产物是 `.json`、`codeExtensions` 认它是源码 ⇒ 它正文里逐字复述的方案/记录/上一次理由
+ * （含「授权/密钥/加密」）会同时顶高**规模**与**敏感内容命中**两维。实测：同一份在飞差量
+ * 暂存档 single/132 行/0 命中，区间档 dual/191 行/3 命中，3 处命中全在 .ccg/reviews/*.json。
+ *
+ * 单一出处：`judge()` 的规模过滤、`collectFromDiff()` 的行分流、`isDocsOnly()` 的资格判定
+ * 三处都调本函数，不得各抄一份正则。
+ */
+const SELF_ARTIFACT_PATH = /(^|[\\/])\.ccg([\\/]|$)/;
+
+function isSelfArtifact(file) {
+  return SELF_ARTIFACT_PATH.test(String(file || ""));
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  采集
 // ═══════════════════════════════════════════════════════════════════
@@ -178,11 +195,15 @@ function collectFromDiff(numstatArgs, diffArgs) {
     linesByFile.set(target, lines);
   }
 
+  // 自身产物既不算源码规模，也不进敏感内容取证面（见 isSelfArtifact 的注释）；
+  // 但它的行仍被采集，另归 ccgChangedLines 供报告 —— 排除的是"消费"，不是"观测"。
+  const isCodeFile = (f) => RULES.codeExtensions.has(path.extname(f.file).toLowerCase()) && !isSelfArtifact(f.file);
   const codeFileSet = new Set(
     files
-      .filter((f) => RULES.codeExtensions.has(path.extname(f.file).toLowerCase()))
+      .filter(isCodeFile)
       .map((f) => f.file)
   );
+  const ccgFileSet = new Set(files.filter((f) => isSelfArtifact(f.file)).map((f) => f.file));
   // i3：文档文件的变更行单列出来「只报告、不改判定」。
   // 把文档纳入 mode 判定会造成原来的假阳性；完全丢掉又会让「真口令被贴进 .md」
   // 失去唯一的观测点。折中：单独计数并在输出里点名，判据仍只看源码。
@@ -195,6 +216,7 @@ function collectFromDiff(numstatArgs, diffArgs) {
   const changedLines = [];
   const codeChangedLines = [];
   const docChangedLines = [];
+  const ccgChangedLines = [];
   const lineReadGaps = [];
   for (const f of files) {
     const lines = linesByFile.get(f.file) || [];
@@ -203,7 +225,9 @@ function collectFromDiff(numstatArgs, diffArgs) {
       lineReadGaps.push(f.file);
     }
     for (const l of lines) changedLines.push(l);
-    if (codeFileSet.has(f.file)) {
+    if (ccgFileSet.has(f.file)) {
+      for (const l of lines) ccgChangedLines.push(l);
+    } else if (codeFileSet.has(f.file)) {
       for (const l of lines) codeChangedLines.push(l);
     } else if (docFileSet.has(f.file)) {
       for (const l of lines) docChangedLines.push(l);
@@ -215,6 +239,7 @@ function collectFromDiff(numstatArgs, diffArgs) {
     changedLines,
     codeChangedLines,
     docChangedLines,
+    ccgChangedLines,
     lineReadGaps,
     codeFiles: files.filter((f) => codeFileSet.has(f.file)),
   };
@@ -228,8 +253,12 @@ function collectFromDiff(numstatArgs, diffArgs) {
 // 判定器自己的输出文件不该影响对它的判定。
 function collectStaged() {
   return collectFromDiff(
-    ["diff", "--cached", "--numstat", "--", ".", ":(exclude).ccg"],
-    ["diff", "--cached", "-U0", "--", ".", ":(exclude).ccg"]
+    // 2026-10-20（change: ccg-decider-exclude-self-artifacts，critic 轴 Critical#2）：
+    // 这里原本带 :(exclude).ccg ⇒ .ccg 在 git 层就消失，JS 层收不到那些行 ⇒ 暂存档的
+    // ccgChangedLines 恒为 0，"唯一观测点"只剩补跑档有。排除动作改由 isSelfArtifact 单点持有，
+    // 两档才真的同判且同观测。下方 stagedDiffHash 的那次 git 调用**仍带** pathspec —— 它管记录命名。
+    ["diff", "--cached", "--numstat"],
+    ["diff", "--cached", "-U0"]
   );
 }
 
@@ -320,6 +349,9 @@ function collectProposal(file) {
 /** 是否全部改动都落在文档白名单内（§11.2b docs-only 快通道的唯一 skip 依据） */
 function isDocsOnly(staged) {
   if (staged.proposal) return false; // 方案评审不走 docs-only
+  // 只改了判定器自己的产物 = 没碰任何被测面 ⇒ 与 docs-only 同样跳过。
+  // 注意"files 为空"仍不得判 docs-only（那是没读到东西，不是读到了不该判的东西）。
+  if (staged.files.length && staged.files.every((f) => isSelfArtifact(f.file))) return true;
   if (!staged.files.length) return false;
   return staged.files.every((f) => {
     const ext = path.extname(f.file).toLowerCase();
@@ -334,8 +366,8 @@ function judge(staged) {
   const isProposal = !!staged.proposal;
   const codeFiles = isProposal
     ? staged.files
-    : staged.files.filter((f) =>
-        RULES.codeExtensions.has(path.extname(f.file).toLowerCase())
+    : staged.files.filter(
+        (f) => RULES.codeExtensions.has(path.extname(f.file).toLowerCase()) && !isSelfArtifact(f.file)
       );
   const changedLines = isProposal
     ? (staged.stats ? staged.stats.changedLines : 0)
@@ -395,6 +427,11 @@ function judge(staged) {
   const docContentHits = (staged.docChangedLines || []).filter((l) =>
     RULES.sensitiveContents.some((re) => re.test(l))
   );
+  // 与 i3 对文档行的处理同构：**只报告、不改判定**。升成阻断判据是自相矛盾的——
+  // 这些命中逐字来自方案与执行记录正文，同一份散文一处不消费、另一处拦下来不成立。
+  const ccgContentHits = (staged.ccgChangedLines || []).filter((l) =>
+    RULES.sensitiveContents.some((re) => re.test(l))
+  );
   const lineReadGaps = staged.lineReadGaps || [];
 
   return {
@@ -410,6 +447,9 @@ function judge(staged) {
       // 只报告、不参与 mode 判定的两栏（评审 i3 / i5）
       docSensitiveContentHits: docContentHits.length,
       docSensitiveContentSample: docContentHits.slice(0, 3),
+      // 判定器自身产物里的敏感词命中：已从取证面摘出，仍逐条计数（评审 critic#3 的处置）
+      ccgSensitiveContentHits: ccgContentHits.length,
+      ccgSensitiveContentSample: ccgContentHits.slice(0, 3),
       lineReadGaps,
     },
   };
@@ -839,6 +879,12 @@ function main() {
   );
   // i3：文档里的敏感词只报告，不改 mode。点名是为保住这个观测点 ——
   // 「真口令被贴进 .md」原来靠 contentHits 的假阳性顺带被看见，现在必须显式报。
+  if (result.stats.ccgSensitiveContentHits > 0) {
+    console.log(
+      `          ⚠ 自身产物命中敏感词 ${result.stats.ccgSensitiveContentHits} 处（**不计入模式判定**，判定器不消费自己写下的散文）：` +
+        (result.stats.ccgSensitiveContentSample || []).map((x) => `「${String(x).slice(0, 40)}」`).join(" ")
+    );
+  }
   if (result.stats.docSensitiveContentHits > 0) {
     console.log(
       `          ⚠ 文档行命中敏感词 ${result.stats.docSensitiveContentHits} 处（**不计入模式判定**，请人工确认是否真凭证）：` +
@@ -896,6 +942,7 @@ if (require.main === module) {
 
 module.exports = {
   RULES,
+  isSelfArtifact,
   buildDeepReviewInit,
   detectBackends,
   summarizeBackendAvailability,

@@ -212,6 +212,9 @@ function createSystemApi(ipcRenderer) {
     aiEnhanceContent: (content, style) => ipcRenderer.invoke('ai:enhance-content', content, style),
     aiGenerateSummary: (content) => ipcRenderer.invoke('ai:generate-summary', content),
     aiRewrite: (params) => ipcRenderer.invoke('ai:rewrite', params),
+    // 改写取消（rewrite-cancel-and-truncation-summary）：协作式，在分段边界生效。
+    // runId 由渲染层每次改写生成；未带 runId 的旧调用方行为完全不变。
+    aiRewriteCancel: (runId) => ipcRenderer.invoke('ai:rewrite-cancel', runId),
     // 热门选题「生成视频 → 去发布」的爆款标题生成（fix-hot-topics-genvideo-title）
     aiGenerateGenVideoTitle: (payload) => ipcRenderer.invoke('ai:generate-gen-video-title', payload),
     aiListRewriteStrategies: () => ipcRenderer.invoke('ai:list-rewrite-strategies'),

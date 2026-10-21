@@ -1,0 +1,61 @@
+{
+  "sha": "ef81036a848a281180d6e9b44cba711231b9d734",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 302 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 302,
+    "fileCount": 9,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "3. 处置优先级：**单键精准更新基线**（diff 仅 1 行、完全可归因）> 拆文件/抽组件 > `--update --rewrite`（脚本注释明确警告它「会掩盖别人的漂移，需人工审 diff」，是最后手段）；",
+      "- **顺带修 CI 的 RED（用户裁决）**：`RewriteView.vue` 在 origin/main 上已 **1418/1419** 行（贴住 max-lines 上限），199 行历史漂移由 #4123/#4078/#4063/#4032 等多个他人 PR 累积，本 PR 只净增 12 行却触发 `LEDGER_GREW`。已按用户裁决把基线单键精准更新（1219 → 1430，**diff 仅 1 行且完全可归因**），**未使用 `--update --rewrite`**（脚本注释明确警告它会掩盖他人漂移）。",
+      "3. **`LEDGER_GREW` 与「谁造成的漂移」**：`RewriteView.vue` 在 origin/main 上已 1418/1419 行（上限），199 行历史漂移由 #4123/#4078/#4063/#4032 等多个他人 PR 累积；本 PR 只净增 12 行却触发门禁。已按用户裁决更新基线（1219 → 1430，单键精准更新，diff 仅 1 行且完全可归因），**未使用 `--update --rewrite`**（脚本注释明确警告它会掩盖他人漂移）。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1fb10bbd4e2c9f96156100740b3b069e2ed155a3a3a115b3b1e821644622799d",
+  "decidedAt": "2026-10-21T06:07:33.452Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

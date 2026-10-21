@@ -22,6 +22,27 @@
       （新槽亮暗两档 / hex=0 / 消费⇒有定义 / 死类 0 消费）。
    ========================================================================== */
 
+/* ---- 历史类名收编（历史类名收编文件）----
+ * ⚠️ 必须留在**本文件最顶部**（任何限定规则之前），不得下移。
+ *
+ * 为什么（collection-ux-step-flow，2026-10-20 事故复盘）：
+ *   CSS 规范要求 `@import` 出现在样式表的**所有限定规则之前**，否则浏览器
+ *   **静默忽略**这条 @import（不报错、不警告）。本文件此前把这条 @import 写在
+ *   文件末尾（第 381 行，前面已有约 380 行规则）⇒ collection-page-legacy.css
+ *   整块从未进入浏览器 ⇒ 承载的 `.compare-textarea`（对比文本框尺寸）、
+ *   `.col-result-box`（结果框底色）、`.col-chip-row`、`.col-compare-title`
+ *   集体失效 ⇒ 用户真机看到「改写后两个文本框只有默认的迷你尺寸」。
+ *
+ *   既有门禁只断「类名在 CSS 文件里出现过」，**不断这条规则会不会真的生效**
+ *   —— 典型的装饰性门禁。机械判据已补进
+ *   src/features/collection/collection-page-css-contract.test.js
+ *   （「CSS 文件里的 @import 必须早于任何限定规则」）。
+ *
+ *   Vue 的 scoped 编译**不会内联 @import**（实测：@vue/compiler-sfc 编译
+ *   Collection.vue 样式块，产物里 @import 原样保留、无 compare-textarea 规则），
+ *   所以这条位置约束对「构建期 + 浏览器运行期」都成立。 */
+@import './collection-page-legacy.css';
+
 /* ---- 采集域专属变量（默认值镜像；tokens.css 的 :root 同名槽为权威来源）----
  * 这里再声明一份的原因：本文件可能被单独 import，而 Vue scoped 的 @import
  * 不保证注入顺序在 tokens.css 之后；镜像一份可在极端顺序下兜住。
@@ -38,6 +59,12 @@
   --col-btn-h: 32px;
   --col-panel-pad: 20px;
   --col-card-pad: 16px;
+  /* 卡片内部纵向节奏（2026-10-20 collection-page-visual-polish）：
+   * 此前卡片内的 gap/margin 来自两套刻度混用（cohere 的 --space-* 是
+   * 2/6/8/12/16/24/32，非 4 的倍数；tokens 的 --spacing-* 是 4 基数），
+   * 于是同一张卡里出现 14px 与 2px 这种「看得出歪、说不清哪歪」的间距。
+   * 统一到 4px 刻度：卡片内 12px、同组元素间 8px。 */
+  --col-card-gap: var(--spacing-3);
   --col-banner-pad: 8px 12px;
 }
 
@@ -141,27 +168,21 @@ textarea.col-field { height: auto; padding: 8px 10px; line-height: 1.6; resize: 
   overflow: hidden;
 }
 
-/* 顶部饰带：上一轮既有品牌辨识元素，保留 3s 扫光；
- * 本轮补 prefers-reduced-motion 关闭（新增可访问性项，不改默认观感）。 */
-.col-panel::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: var(--color-ribbon);
-  background-size: 200% 100%;
-  animation: col-panel-ribbon 3s infinite ease-in-out;
-}
-
-@keyframes col-panel-ribbon {
-  0%, 100% { background-position: 100% 0; }
-  50% { background-position: 0 0; }
-}
-
+/* 面板饰带已移除（2026-10-20，change: collection-page-visual-polish）
+ *
+ * 原状：`.col-panel::before` 画一条 4px 高、`3s infinite` 扫光的橙红渐变饰带
+ *      （--color-ribbon = linear-gradient(90deg,#ea580c,#fb923c,#fdba74)）。
+ * 移除依据（PRD §2 D1，三条独立理由）：
+ *   1. 页面上并存 2+ 面板时，多条饰带以不同相位持续扫动 —— 它成了整页最主动
+ *      抢注意力的元素，而它不承载任何信息；
+ *   2. 橙红渐变与紫主色（--color-primary）构成双色系，页面上没有第三种语言
+ *      解释「什么时候该是橙色」；
+ *   3. 成熟产品的面板一律是「1px 边框 + 极淡阴影」，没有装饰性色条
+ *      （Linear / Stripe / Notion / Vercel 同此）。
+ * 层次改由既有的 box-shadow: var(--shadow-sm) 承担 —— 不加新东西，只减噪音。
+ *
+ * 注：`.col-panel` 上的 overflow/position 保留，它们同时兜住子元素溢出。 */
 @media (prefers-reduced-motion: reduce) {
-  .col-panel::before { animation: none; }
   .col-result-box--flash { animation: none; }
 }
 
@@ -340,7 +361,17 @@ textarea.col-field { height: auto; padding: 8px 10px; line-height: 1.6; resize: 
   align-items: center;
   margin-top: var(--spacing-3);
 }
-.col-card-actions .col-btn { min-height: 28px; padding: 0 10px; font-size: var(--font-size-xs); }
+/* 卡片内操作尺寸（2026-10-20 collection-page-visual-polish，PRD §2 D5 / §7 A2）
+ * 原为 min-height:28px + font-size:var(--font-size-xs)=12px —— 低于国际常见的
+ * 最小可点高度（Material 36px / Stripe 32px / Apple HIG 44px），且 12px 字在
+ * 28px 高度里显得"挤"，是卡片观感廉价感的主要来源之一。
+ * 统一到规范层 32px 档（--col-btn-h）与 13px 字（--font-size-sm），与页面其它
+ * 按钮同档 —— 卡片内不再有"缩水按钮"。 */
+.col-card-actions .col-btn {
+  min-height: var(--col-btn-h);
+  padding: 0 var(--spacing-3);
+  font-size: var(--font-size-sm);
+}
 
 .col-card-badge {
   margin-top: var(--spacing-1);
@@ -351,6 +382,49 @@ textarea.col-field { height: auto; padding: 8px 10px; line-height: 1.6; resize: 
   white-space: nowrap;
 }
 .col-card-badge--warning { color: var(--color-warning); }
+
+/* ============================ 采集结果卡片视觉 ============================
+ * 2026-10-20 collection-page-visual-polish（PRD §2 D3/D7/D8，§5 状态表）。
+ * 本节全部只作用于采集域，不改 cohere-design-system.css 的全局规则。 */
+
+/* 光标（PRD D7）——`.cohere-card` 全局带 cursor:pointer，但采集结果卡本体
+ * 并不绑定点击（只有 card-icon / card-info 可点）。指针光标承诺了未实现的
+ * 行为，是本仓「假可点」同型问题的残留；两个真正可点的子元素在
+ * CollectedResultsList.vue 自己的 scoped 里已给 pointer，不受影响。 */
+.cohere-card {
+  cursor: default;
+}
+
+/* 悬停只抬边框与阴影，不做位移 —— 网格里一旦位移，鼠标横扫时整片卡会"呼吸"。 */
+.cohere-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+/* 标题 2 行截断（PRD D3 / A3）。原声明只有 font-size/weight/color，既无行高
+ * 也无截断：15–25 字的中文标题会换到 4–5 行，同一行的卡片高度由最长标题决定，
+ * 操作区因此上下浮动。四件套缺一不可（display 建盒 / clamp 定行 / orient 定轴 /
+ * overflow 兜底）。 */
+.cohere-card .card-platform {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+/* 无效结果卡（PRD D8 / A5）：无标题且 0 字，或采集落地是验证页。
+ * 此前与正常卡外观完全一致（用户截图里的「百度安全验证」「无标题 · 0字」），
+ * 混在有效结果里无法一眼排除。
+ * 原则：不隐藏（数据是真的，用户可能要重采）、不改行为、只做视觉区分。 */
+.col-result-card--invalid {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.col-result-card--invalid .card-platform {
+  color: var(--color-text-secondary);
+}
 
 /* ============================ 间距工具类收敛 ============================ */
 /* 原 zb-mt4/mt6/mt8 三个魔术 margin → spacing 阶梯（PRD §4.4） */
@@ -376,6 +450,5 @@ html .cohere-page-header {
 .col-btn-retry-sm { font-size: var(--font-size-xs); padding: 2px 10px; margin-left: var(--spacing-2); min-height: 24px; }
 
 /* 其余历史类名收编（区块标题/输入族/进度块/结果框/chip 行/对比双栏/类别标签/
-   文案库预览弹窗/ASR 弹窗）已拆到 collection-page-legacy.css，由本文件 @import。
-   拆分原因：check-max-lines 的 500 行硬限（NEW_OVER_LIMIT 会阻断新代码）。 */
-@import './collection-page-legacy.css';
+   文案库预览弹窗/ASR 弹窗）已拆到 collection-page-legacy.css，由本文件**顶部**
+   的 @import 引入（位置约束见文件开头注释：后置 @import 会被浏览器静默忽略）。 */

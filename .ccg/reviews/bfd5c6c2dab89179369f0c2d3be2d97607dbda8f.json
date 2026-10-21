@@ -1,0 +1,145 @@
+{
+  "sha": "bfd5c6c2dab89179369f0c2d3be2d97607dbda8f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 617 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 617,
+    "fileCount": 13,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-19T16:58:08.883Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ],
+        "externalReviewOutcome": "resolved-in-place: 格式损坏（同行合并）已在本 PR 修复并还原为两行；不涉及密钥/加密路径，crypto 域标记为分类器误报"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "手动编辑 videoPrompt textarea 保存时 updateSegments 只丢弃 videoPromptTranslation 不清空（测试即证：'新视频词'+'后端译文'保留）。新 videoPrompt 下旧译文仍展示，与重新生成时的先清后写语义不一致，属用户可见的错误翻译。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立且可复现：updateSegments 的返回对象用 ...original 展开，videoPromptTranslation 被白名单外的 update 值丢弃，但 original 的旧译文经展开保留。用户在 textarea 手改 videoPrompt 并保存后，结果页会展示描述上一个提示词的译文——这是用户可见的错误信息，且与 regenerateScenePrompt 的『先清后写』自相矛盾。",
+        "defense": "可辩点仅『翻译是次要展示信息』，但错误译文比没有译文更糟（误导用户以为该译文对应当前提示词），不构成豁免。",
+        "verdict": "upheld",
+        "rationale": "已修：updateSegments 增加 videoPromptChanged 判定（与既有 promptChanged/promptOptimizationMeta 清空同模式），改写即清空 videoPromptTranslation。回归测试 2 例：不改 videoPrompt 时保留服务端译文且丢弃前端伪造值；改写 videoPrompt 时译文清空。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "生成语言取任务创建时固化的 uiLocale（缺省 zh），展示取当前 getAppLocale：创建于 zh、现切 en → 白付一次 LLM 调用且译文永不展示；创建于 en、现切 zh → 占位文案永不补齐。PRD 记为已知限制但属新功能核心不一致。",
+        "highRiskDomains": [],
+        "prosecution": "切换界面语言后，译文生成与展示的判据不一致，用户可能看到占位文案或白白消耗一次 LLM 调用。",
+        "defense": "这是图片提示词翻译自 2026-08-12 起就存在的同源行为：流水线 optimize 阶段同样在提交时固化 uiLocale，promptTranslation 的生成与展示判据完全同构。本次只改视频一侧会制造新的不对称；要彻底改必须连同 promptTranslation 与流水线 prompt_translations_pending 机制一起调整，超出本次 UI 修复范围，且会触及已稳定的 compose 并行任务契约。",
+        "verdict": "dismissed",
+        "rationale": "同源既有行为，不构成本次新引入缺陷；已在 PRD §3.1.31『已知限制』第 2 条与执行记录显式登记。修复代价（改 compose 并行任务 + 两处字段语义）远大于收益（切换语言是低频操作）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "translateVideoPromptForLocale 被 await 在 regenerateScenePrompt IPC 处理器内，返回渲染端前串行等第二次 LLM 调用；翻译慢则 UI 长期 loading，每次重新生成视频优化词额外付一次 LLM 成本（图片分支无此等待）。",
+        "highRiskDomains": [],
+        "prosecution": "额外一次 LLM 调用增加等待与成本，图片分支没有对应等待，两侧体验不一致。",
+        "defense": "①『重新生成视频优化词』本身已是分钟级 LLM 操作（optimizeVideoPrompt，8020 视频引擎），多一次同量级调用不改变量级；② 若改后台异步补齐，需新增『翻译中』状态 + 轮询/推送通道 + 失败重试，复杂度远超收益；③ 图片提示词在流水线里也是『compose 并行任务 + 有界超时（25s/批、60s 总）』而非完全异步，本次单条调用的等待语义与之同族；④ 用户主动点击才触发，不进入任何自动路径。",
+        "verdict": "dismissed",
+        "rationale": "设计取舍而非缺陷：等待语义与既有图片翻译同族，成本与复杂度论证可验证。已在 PRD §3.1.31 与执行记录登记。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "story2video-stages.js 中 createPromptTranslationPending 签名行与函数体首行被并入一行（function createPromptTranslationPending (output, uiLocale) {  const source），格式损坏，疑似插入新函数时的编辑事故。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "指控成立：grep 实证该行确为同行合并，属本次插入 translateVideoPromptForLocale 时的编辑事故。虽 JS 语义不变，但是真实的格式债，且若后续有人在该行附近改动极易引入错误。",
+        "defense": "无有效辩护——这是明确的编辑事故，不涉及任何语义争议。",
+        "verdict": "upheld",
+        "rationale": "已修：还原为『function createPromptTranslationPending (output, uiLocale) {』+『  const source = ...』两行。关于 crypto 高危域标记：该函数是提示词翻译的 payload 构造，不触碰任何密钥/加密/凭据路径，分类器按文件名（stages）误报；不申请自扮演豁免，按『就地修复 + 记录』处理。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-19T17:14:05.854Z",
+    "resolution": {
+      "disposition": "adjudicated-and-fixed-in-subsequent-commits",
+      "reason": "8 条发现全部逐条对抗裁决（prosecution / defense / verdict / rationale），落盘于 .adversarial/ccg-deep-bfd5c6c2/adjudication.json。无 Critical。i1（手动改写 videoPrompt 后旧译文仍展示）与 i4（createPromptTranslationPending 函数体同行合并）裁决 upheld 并已在提交 2f769f26 修复；i2（生成侧固化 uiLocale vs 展示侧 getAppLocale）与 i3（翻译在 IPC 内 await）裁决 dismissed，理由（分别指向图片提示词翻译的同源既有口径、以及有界超时/复杂度取舍）已在 PRD §3.1.31 与执行记录登记。引擎的 self_play_blocked 只表达「存在 upheld 裁决」，不表达「该裁决是否已被后续提交修复」——修复在后续提交，故在此写明并置为闭环。",
+      "noCritical": true,
+      "upheldItems": [
+        {
+          "id": "i1",
+          "severity": "Warning",
+          "fixedIn": "2f769f26"
+        },
+        {
+          "id": "i4",
+          "severity": "Warning",
+          "fixedIn": "2f769f26"
+        }
+      ],
+      "dismissedItems": [
+        "i2",
+        "i3"
+      ],
+      "adjudication": ".adversarial/ccg-deep-bfd5c6c2/adjudication.json"
+    }
+  }
+}

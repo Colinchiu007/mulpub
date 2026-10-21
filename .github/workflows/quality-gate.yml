@@ -64,6 +64,10 @@ jobs:
           node --test scripts/check-gate-record-debt.test.js
           # 引导文案按钮名同步锁的自测（与被测判据同进 changes job，2026-10-17 change: collected-results-fix）
           node --test scripts/check-locale-button-name-sync.test.js
+          # 债务基线重算链的回归锁（change: debt-baseline-recheck）。必须待在 changes job 而不是 static-gates：
+          # 它守的是"收紧基线后在飞 PR 的旧绿结论会被重算并点名"，而 static-gates 整块会被 docs-only 短路 ⇒
+          # 一份改基线的 docs-only PR 恰好能绕过它（本仓同类反例见上方 check-gate-record-debt 那条注释）。
+          node --test scripts/check-debt-recheck.test.js
           # 冻结判据按档拦：PR 档收口成"可见"。动因是 2026-10-16 实测 run 38781654774 ——
           # pull_request 检出的是 main⊕本分支的合并预览，主干每几分钟长一块，PR 档"等于基线"必红。
           # main push 那一档照旧拦，所以锁没被拆松，只是装回它真能成立的位置。
@@ -299,6 +303,23 @@ jobs:
           node --test scripts/check-text-encoding-integrity.test.js
           node scripts/check-text-encoding-integrity.js
 
+      # --- Gate 12g：compose 稳定错误码 ↔ locale 文案一致性（2026-10-20 事故复盘）---
+      # 动因（error-message-user-friendly-audit）：历史记录失败卡片直出英文技术原文
+      # `Input media exceeds the total size limit`。四层逃逸链的最后一层是「新增错误码要
+      # 同时改三处（主进程 COMPOSE_ERROR_CODES / 渲染端 COMPOSE_ERROR_KEY_MAP /
+      # locales zh+en 文案）纯靠自觉」，漏一处就静默渲染成英文原文或 i18n key 原文。
+      # 为什么住 changes 而不是 static-gates：本锁的输入含 locales/story2video/{zh,en}.js
+      # 与 src/views/history-utils.js，而只改文案的 PR 会被判 docs-only 短路 static-gates；
+      # 判据本体只 require node 内置模块（本 job 无 Install deps 也能跑）。
+      # 锁什么：错误码三侧集合相等 + zh/en 成对存在 + 新增码的文案占位符能在主进程
+      # messageParams 里找到。变异反证 6 道（删映射/删 zh/删 en/改占位符/删主进程常量/
+      # 清空映射表）全部 CAUGHT，见 scripts/check-compose-error-codes.test.js。
+      - name: "Gate 12g - Compose error code / locale consistency (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-compose-error-codes.test.js
+          node scripts/check-compose-error-codes.js
+
       # --- Gate 12c：文档绝对路径有效性门禁（#3000 逃逸分析逼出） ---
       # 动因：仓库根 2026-10-06 改名后，文档里的**绝对路径**不会跟着改，于是静默失效
       # （运维手册里 `cd D:\...\<旧名>\apps\desktop` 照着敲必然失败）。此前**零门禁**
@@ -413,6 +434,21 @@ jobs:
         run: |
           node --test scripts/check-branch-merged.test.js
 
+      # --- Gate 2b8：「主干红着就别往里合」判据的回归锁（AGENTS「PR 自动合并」判据第 2 条的执行体） ---
+      # 动因（2026-10-19 实测）：判据第 2 条「gh pr checks 零 pending、零 fail」比 GitHub 的 required
+      # 清单更严，却只以散文存在、每轮由会话临场判断。一条**非 required** 的分片红先合进 main，
+      # main 转红后反过来把之后每个 PR 的 required `Gate Result` 判红 —— 两个 PR 被冻约 40 分钟，
+      # 冻住它们的不是自己的改动。散文挡不住，所以给它执行体 scripts/check-main-red.js +
+      # scripts/lib/main-red.js，并由 merge-when-green.{sh,ps1} 两个入口共用（判据只有一份）。
+      # 落点必须是 changes 作业（同 2b2/2b3/2b4 口径：static-gates 带 docs-only 门槛，守门判据落在
+      # 会被自己防的那道短路里的作业，等于给自己关掉校验）；本作业没有 Install deps ⇒ 判据只能
+      # require node 内置模块（本判据另接 gh 子进程，但测试一律注入假 collector，零真实出站）。
+      # 接线锁在测试文件内：两个合并入口必须调用本判据、且必须排在 REST 合并动作之前。
+      - name: "Gate 2b8 - Main-red merge gate (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-main-red.test.js
+
       # --- Gate 2b7：全仓 CI 作业超时常量的取证对账（2026-10-20 起覆盖全部 24 格） ---
       # 编 2b7 而不是 2b5：#3724（未合并）占用 "Gate 2b5 - CCG evidence anchor"，2b6 已被收敛探针占用，
       # 同号会在 squash 后撞成两步同名（`check-unwired-tests.js` 的"同名 basename 必须写全相对路径"会读成一条）。
@@ -475,6 +511,60 @@ jobs:
           # 实测形状：1dd05b12（#2792）把 277 条目/1.86MB 复制成 1097 条目/7.37MB，最坏同一标题 16 次。
           node --test scripts/check-changelog-duplicate-entries.test.js
           node scripts/check-changelog-duplicate-entries.js --base="${MB:-$BASE_REF}" --head=HEAD
+
+      # --- Gate 2b8：台账聚合器（change: changelog-record-carrier）---
+      # 落点必须是本 job：聚合器的输入是 openspec/records/**、CHANGELOG.md、01-docs/learnings.md，
+      # 三者**全部**命中 CI_IGNORED_PATHS（docs-only 白名单）。接在被 `docs-only != 'true'` 门控的
+      # job 里，等于"只改记录/台账的 PR 可以让这把锁一次都不跑"—— 这正是 AGENTS「进白名单的前提锁」
+      # 记过的自关校验形态（同 Gate 2b2 / Gate 2c3 口径，实测事故 #3114）。
+      # 本步骤刻意只跑 --dry-run：真写入属发版动作（由 release-gate 在片4 接入）。在 PR 门禁里写文件
+      # 会把别人刚并入 main 的条目算进我的差量，那既是假红也是把聚合器变成第二个写者。
+      # dry-run 首行读数（records=/missing=/landed=）是这条链"在 CI 上确实跑过"的唯一现场证据，
+      # 不得用"测试通过"替代它 —— 测试跑的是夹具，真仓读数才证明解析面对得上现状。
+      - name: "Gate 2b8 - Changelog aggregator (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/aggregate-changelog.test.js
+          # ⛔ 只看 rc 不够（QM-6 critic i5）：步骤 rc=0 与"聚合器打了空行就退出"完全同形，
+          # 而这条步骤存在的理由恰恰是**留下真仓现场读数**。判据取它自己打印的首行，
+          # 并带 records>0 的下界 —— records=0 意味着采集面退化（openspec/records 读不到），
+          # 那和"本轮没有待搬条目"是两件不同的事，必须能被区分。
+          # tee 的退出码不是被测命令的退出码；本步骤 shell: bash 带 -o pipefail，node 非零即中止。
+          LOG="${RUNNER_TEMP:-/tmp}/aggregate-dryrun.log"
+          node scripts/aggregate-changelog.js --dry-run | tee "$LOG"
+          grep -qE '^AGGREGATE records=[1-9][0-9]* ' "$LOG" || {
+            echo "[Gate 2b8] FAIL: 没有看到 AGGREGATE 首行读数，或 records=0（采集面退化，不等于没有待搬条目）"
+            exit 1
+          }
+
+      # --- Gate 2b9：热写面禁改门禁（change: changelog-record-carrier 片3）---
+      # 拦的是「PR 改 CHANGELOG.md / 01-docs/learnings.md 顶部」这一形状：多 PR 并发时它们结构上
+      # 必撞（实测 4/4 个可判定的 CONFLICTING PR 冲突文件只有这两个），CI 全绿也合不进去。
+      # 编 2b9：2b2–2b8 已被占（#3724 合入后 `Gate 2b5 - CCG evidence anchor` 也在用），同号会撞名。
+      # 落点必须是 changes 作业（无 job 级 if）：台账与记录路径全在 docs-only 白名单里，
+      # 接在会被短路的 job 里等于给自己关掉校验（AGENTS「进白名单的前提锁」，同 Gate 2b2/2b8 口径）。
+      # 本步骤先跑 **advisory**：在飞 PR 绝大多数已按旧规改了台账，一上来就阻断会把它们全判红，
+      # 而那不是它们的错。档位由判据自己在首行打印（MODE=advisory），不由这里猜。
+      # ⚠ advisory 只留痕不判定 ⇒「QG Changes 绿」不等于「热写面已守住」；转 enforce 的前置条件
+      #   写在 openspec/changes/changelog-record-carrier/tasks.md 4.3（当场重取的在飞冲突数清零）。
+      - name: "Gate 2b9 - Hot-carrier edit gate (changes job, advisory)"
+        shell: bash
+        env:
+          CL_BASE: ${{ github.event.pull_request.base.sha }}
+          # ⛔ head 必须取 PR 的 head sha，不能留空让它等于 HEAD —— 本步骤实测踩过：
+          # pull_request 事件 actions/checkout 检出的是 **merge ref**（HEAD = 我 head ⊕ 当时 main 的合并提交），
+          # 于是 base.sha..HEAD 会把「base 之后别人并入 main 的台账改动」算进本 PR 的差量。
+          # 现场读数（run 39536655940）：`差量文件=26 命中热写面=2 判定=FAIL` —— 那 2 个文件不是我改的。
+          # advisory 档今天不拦，但转 enforce 那天它会拦下每一个 base 落后的 PR。
+          # 回归锁见 scripts/check-no-hot-carrier-edit.test.js T12（merge ref 形态，与 T4 的 rebase 形态分列）。
+          CL_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --test scripts/check-no-hot-carrier-edit.test.js
+          # base 取 merge-base（不是 PR base sha，也不是 origin/main）—— 同 Gate 2c3 实测过的口径。
+          BASE_REF="${CL_BASE:-HEAD^}"
+          HEAD_REF="${CL_HEAD:-HEAD}"
+          MB="$(git merge-base "$BASE_REF" "$HEAD_REF" 2>/dev/null || true)"
+          node scripts/check-no-hot-carrier-edit.js --base="${MB:-$BASE_REF}" --head="$HEAD_REF" --mode=advisory
 
   static-gates:
     name: QG Static
@@ -610,6 +700,17 @@ jobs:
           # 判据本体也要在每次 PR 上真被执行一次（--dry-run 不起 vitest，秒级）：
           # 否则 CLI 只有本地手动跑过，会烂成"工具还在、扫描域已经漂"那种装饰性存量。
           node scripts/check-clock-shift-oracle.js --dry-run
+          # 桌面测试前置产物门禁（2026-10-17，electron-ci-preload-build）。
+          # 动因：#3782 把 preload 与 paginator 产物移出版本控制，只在本文件（quality-gate.yml）的
+          # 三个 job 补了重建步骤，electron-ci.yml 与 clock-shift-oracle.yml 漏配。
+          # 前者已由 PR #3837 补齐（1bed4ad2c），后者由本 PR 补齐。
+          # oracle 侧的形态不是「红」而是「绿得没有权威」：基线段一红即打印
+          # ORACLE_NOT_AUTHORITATIVE 并 return 0（scripts/check-clock-shift-oracle.js:354-357），
+          # 巡检看到绿灯而判据已失效。本判据按 job 扫 workflow 正文（注释与引号内容不参与判定），
+          # 要求跑桌面 vitest 的 job 之前有一条 preload 重建；「谁在域内」的唯一真源是
+          # .github/scripts/desktop-test-prereq-jobs.json，域内集合变化会在测试里显式报红。
+          node --test .github/scripts/check-desktop-test-prereqs.test.js
+          node .github/scripts/check-desktop-test-prereqs.js
           # 阶段 5.3 / 5.4 两条新门禁（ux-audit-phase34，2026-10-19）。落点选本步骤的理由与上面
           # check-workflow-structure 完全同一条：**本步骤整体是 shell: bash，任一非零即中止**；
           # 接进 Gate 3（默认 pwsh、多条命令只有最后一条的 $LASTEXITCODE 决定成败）等于接进装饰门禁。

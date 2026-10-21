@@ -19,7 +19,7 @@ function makeKitDir () {
   fs.writeFileSync(path.join(dir, 'film-manifest.json'), JSON.stringify({
     schemaVersion: 1,
     filmMeta: {
-      title: 'Hell Grind',
+      title: 'Film Project Case',
       durationSec: 5706,
       logline: 'logline',
       characters: [{ name: 'ROKO', descriptor: 'd' }, { name: 'JAXX', descriptor: 'd' }, { name: 'LULU', descriptor: 'd' }, { name: 'REIN', descriptor: 'd' }],

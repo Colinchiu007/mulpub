@@ -1,0 +1,61 @@
+{
+  "sha": "b8902cc058c25bc3e21331f720830a4321dab772",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "3. 仍然**不要**用 `--update` 整份重写：它的改写粒度是「全部条目」，会把仍命中条目的 `patched` 一起改掉，与 `targetVersion` 打架 ⇒ 换一个红。",
+      "3. 已经有人在无制度授权下自发这么干了（`openspec/records/member-tier-contract.md:130` 写着「## CHANGELOG 条目（暂移到执行记录：热文件冲突说明）」）。**遇到这种\"民间形态\"要当需求读，不要当污染读**——它给出的合同比我凭空设计的更贴合真实用法。",
+      "- **刻意不做**：不跑 `node scripts/check-dep-audit.js --update` 整份重写。实测它会把 5 条既有条目的 `patched` 从「>=1.1.x」改写成「>=5.0.x」（npm 公告的多段 vulnerable 区间被解析成另一段），而 `targetVersion` 仍是 1.1.x ⇒ 立刻触发 `DECISION_CONTRADICTS_PATCHED`——**用一个红换另一个红**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "40eda62d2cdd864052a79c0b4dc49eefe5b72ff5ee6a640cf96a692d8e079c74",
+  "decidedAt": "2026-10-21T00:59:10.855Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

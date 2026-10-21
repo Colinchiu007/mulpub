@@ -12,8 +12,12 @@ import ResultSegmentCard from './ResultSegmentCard.vue'
 //
 // 注意：宿主的 segments 是 Vue **reactive** 数组，元素是响应式对象；测试必须用
 // reactive() 包裹才复现真实场景（普通对象上改属性不触发子组件重渲染）。
+//
+// 2026-10-19 起卡片编辑主体默认折叠，而本文件既有用例断言的都是主体内的控件
+// （textarea / 下载按钮 / 字幕输入等）。为了让这些「主体行为」用例保持只测行为、
+// 不被折叠开关干扰，helper 默认按展开态挂载；折叠态本身由末尾专门的一组用例断言。
 const mountCard = (segment, props = {}) => mount(ResultSegmentCard, {
-  props: { segment, absoluteIndex: 0, totalCount: 3, ...props },
+  props: { segment, absoluteIndex: 0, totalCount: 3, expanded: true, ...props },
   global: {
     mocks: {
       $t: (key, params) => {
@@ -135,6 +139,90 @@ describe('ResultSegmentCard：宿主刷新同步与全量下标（QM-6 审查项
 
     expect(w.find('[data-testid="segment-image-preview"]').text()).toContain('未生成')
     expect(w.find('img').exists()).toBe(false)
+    w.unmount()
+  })
+})
+
+// ==================== 提示词区（2026-10-19）：图片/视频提示词 + 中文翻译成对展示 ====================
+describe('ResultSegmentCard：提示词与翻译成对 + 编辑主体折叠', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  const promptSegment = (overrides = {}) => ({
+    id: 's1',
+    text: '旁白一',
+    status: 'completed',
+    prompt: 'A red apple',
+    promptTranslation: '一个红苹果',
+    videoPrompt: 'Cinematic shot of a red apple',
+    videoPromptTranslation: '红苹果的电影镜头',
+    ...overrides,
+  })
+
+  it('图片翻译块紧跟图片提示词、视频翻译块紧跟视频提示词（DOM 顺序成对）', async () => {
+    const w = mountCard(promptSegment())
+
+    const imageBlock = w.find('[data-testid="segment-prompt-translation"]')
+    const videoBlock = w.find('[data-testid="segment-video-prompt-translation"]')
+    expect(imageBlock.exists()).toBe(true)
+    expect(videoBlock.exists()).toBe(true)
+    expect(imageBlock.text()).toContain('一个红苹果')
+    expect(videoBlock.text()).toContain('红苹果的电影镜头')
+
+    // 两个 textarea 与各自翻译块的相对顺序：提示词在前、翻译紧随其后
+    const textareas = w.findAll('textarea')
+    const imageTextarea = textareas[0]
+    const videoTextarea = w.find('[data-testid="segment-video-prompt-textarea"]')
+    expect(videoTextarea.element.compareDocumentPosition(imageTextarea.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    expect(videoBlock.element.compareDocumentPosition(videoTextarea.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    // 视频翻译块必须在图片翻译块之后（先图片后视频，与提示词顺序一致）
+    expect(videoBlock.element.compareDocumentPosition(imageBlock.element) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    w.unmount()
+  })
+
+  it('无译文时两个翻译块都走占位文案而非空块', async () => {
+    const w = mountCard(promptSegment({ promptTranslation: null, videoPromptTranslation: null }))
+
+    expect(w.find('[data-testid="segment-prompt-translation"]').text()).toContain('未生成')
+    expect(w.find('[data-testid="segment-video-prompt-translation"]').text()).toContain('未生成')
+    w.unmount()
+  })
+
+  it('en 界面不展示视频提示词翻译（与图片侧同一判据）', async () => {
+    const i18n = (await import('@/i18n')).default
+    const previous = i18n.global.locale.value
+    const w = mountCard(promptSegment())
+    i18n.global.locale.value = 'en'
+    try {
+      await nextTick()
+      expect(w.vm.showVideoPromptTranslation).toBe(false)
+      expect(w.vm.showPromptTranslation).toBe(false)
+    } finally {
+      i18n.global.locale.value = previous || 'zh'
+    }
+    w.unmount()
+  })
+
+  it('默认折叠：不渲染编辑主体，只留头部与素材区', () => {
+    const w = mountCard(promptSegment(), { expanded: false })
+
+    expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(false)
+    // 素材区属于扫读信息，折叠态仍可见
+    expect(w.find('[data-testid="scene-material-section"]').exists()).toBe(true)
+    expect(w.find('[data-testid="segment-image-preview"]').exists()).toBe(true)
+    const toggle = w.find('[data-testid="segment-editor-toggle"]')
+    expect(toggle.exists()).toBe(true)
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    w.unmount()
+  })
+
+  it('展开态渲染编辑主体，aria-expanded=true，点击上抛 toggle-editor', async () => {
+    const w = mountCard(promptSegment(), { expanded: true })
+
+    expect(w.find('[data-testid="segment-prompt-editor"]').exists()).toBe(true)
+    const toggle = w.find('[data-testid="segment-editor-toggle"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    await toggle.trigger('click')
+    expect(w.emitted('toggle-editor')[0]).toEqual(['s1'])
     w.unmount()
   })
 })

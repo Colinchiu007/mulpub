@@ -78,6 +78,56 @@ function ffmpegErrorMeta (error) {
   }
 }
 
+/**
+ * compose 预检/执行阶段失败返回体（稳定错误码契约，2026-10-20）。
+ *
+ * 事故背景（error-message-user-friendly-audit）：预检直接把英文技术 message 当作
+ * `message` 返回（如 `Input media exceeds the total size limit`），stage-executor 原样
+ * 写进 `run.error` 落库，历史记录卡片再经 pipeline-error-formatter 的「短自然语言直出」
+ * 分支透出，用户在失败卡片上看到这句英文。原则违背：项目铁律要求「所有提示/报错都用
+ * 用户友好自然语言说明并给出建议，且文字支持多语言」。
+ *
+ * 契约：失败返回体必须带稳定 `errorCode`（渲染端据此映射 locales 文案）与可插值
+ * `messageParams`；`message` 仅作诊断保留，**不得**作为用户可见文案来源。
+ * 渲染端契约见 src/story2video/story2video-notifications.js + locales/story2video/{zh,en}.js，
+ * 一致性由 scripts/check-compose-error-codes.js 机械校验（新增码必须三处同改）。
+ *
+ * 注意：这里是**错误码值**的封闭集合。`errorCode` 值带 `COMPOSE_` 前缀，与渲染端
+ * `COMPOSE_ERROR_KEY_MAP` 的键一一对应；时长类的三个分支（单段/成片/旁白）映射到
+ * 不同的 locale key，因此必须是三个独立码，不能合并成一个 `DURATION_EXCEEDED`。
+ */
+const COMPOSE_ERROR_CODES = Object.freeze({
+  FFMPEG_NOT_FOUND: 'COMPOSE_FFMPEG_NOT_FOUND',
+  INVALID_ASSET_MANIFEST: 'COMPOSE_INVALID_ASSET_MANIFEST',
+  INPUT_SIZE_EXCEEDED: 'COMPOSE_INPUT_SIZE_EXCEEDED',
+  SCENE_MEDIA_UNREADABLE: 'COMPOSE_SCENE_MEDIA_UNREADABLE',
+  SCENE_AUDIO_UNREADABLE: 'COMPOSE_SCENE_AUDIO_UNREADABLE',
+  SEGMENT_DURATION_EXCEEDED: 'COMPOSE_SEGMENT_DURATION_EXCEEDED',
+  OUTPUT_DURATION_EXCEEDED: 'COMPOSE_DURATION_EXCEEDED',
+  AUDIO_DURATION_EXCEEDED: 'COMPOSE_AUDIO_DURATION_EXCEEDED',
+  // requested / composed 两类时长超限在用户侧与「成片总时长」是同一句可操作建议，
+  // 复用 COMPOSE_DURATION_EXCEEDED 码，不新增 locale 文案（避免同义多份文案漂移）。
+})
+
+/**
+ * 字节 → 用户可读体积字符串（供 messageParams 插值，避免裸字节数）。
+ * 自适应单位：>=1MB 用 MB（一位小数），否则用 KB（取整）——避免「0.0 MB」这种
+ * 把上限显示成 0 的误导（测试注入小上限时尤为明显）。
+ */
+function bytesToSize (value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return '0'
+  const mb = n / (1024 * 1024)
+  if (mb >= 1) return mb.toFixed(1) + 'MB'
+  return Math.max(1, Math.round(n / 1024)) + 'KB'
+}
+
+/** 组装失败返回体：稳定 errorCode + messageParams + 诊断 message */
+function composeFailure (errorCode, message, messageParams) {
+  return { code: -1, errorCode, message, messageParams: messageParams || null }
+}
+
+
 function isFfmpegStageTimeoutError (error) {
   return error?.code === 'ETIMEDOUT' || (error?.killed === true && error?.signal === 'SIGTERM')
 }
@@ -938,17 +988,33 @@ class Story2VideoComposeEngine {
       })
       if (!videoPath && !imagePath) {
         logComposeFailure('preflight', 'Scene media path rejected', { reason: 'scene_media_unreadable', sceneIndex: index })
-        return { code: -1, message: 'Scene media path is not allowed or unreadable at index ' + index }
+        return composeFailure(
+          COMPOSE_ERROR_CODES.SCENE_MEDIA_UNREADABLE,
+          'Scene media path is not allowed or unreadable at index ' + index,
+          { scene: index + 1 }
+        )
       }
       if (!audioPath) {
         logComposeFailure('preflight', 'Scene audio path rejected', { reason: 'scene_audio_unreadable', sceneIndex: index })
-        return { code: -1, message: 'Scene audio path is not allowed or unreadable at index ' + index }
+        return composeFailure(
+          COMPOSE_ERROR_CODES.SCENE_AUDIO_UNREADABLE,
+          'Scene audio path is not allowed or unreadable at index ' + index,
+          { scene: index + 1 }
+        )
       }
       const mediaInputs = videoPath ? [videoPath, audioPath] : [imagePath, audioPath]
       for (const mediaPath of mediaInputs) {
         if (!accountInput(mediaPath)) {
           logComposeFailure('preflight', 'Input media exceeds total size limit', { reason: 'input_size_limit' })
-          return { code: -1, message: 'Input media exceeds the total size limit' }
+          return composeFailure(
+            COMPOSE_ERROR_CODES.INPUT_SIZE_EXCEEDED,
+            'Input media exceeds the total size limit',
+            {
+              limitMb: bytesToSize(this.maxInputTotalBytes),
+              actualMb: bytesToSize(totalInputBytes),
+              scene: index + 1,
+            }
+          )
         }
       }
       preparedScenes.push({ ...scene, videoPath, imagePath, audioPath })
@@ -971,7 +1037,15 @@ class Story2VideoComposeEngine {
         composeWarnings.push(BGM_SKIP_WARNING_CODES[reason] || BGM_SKIP_WARNING_CODES.unreadable)
       } else if (!accountInput(bgmPath)) {
         logComposeFailure('preflight', 'Input media exceeds total size limit', { reason: 'input_size_limit' })
-        return { code: -1, message: 'Input media exceeds the total size limit' }
+        return composeFailure(
+          COMPOSE_ERROR_CODES.INPUT_SIZE_EXCEEDED,
+          'Input media exceeds the total size limit',
+          {
+            limitMb: bytesToSize(this.maxInputTotalBytes),
+            actualMb: bytesToSize(totalInputBytes),
+            kind: 'bgm',
+          }
+        )
       }
     }
 
@@ -997,7 +1071,11 @@ class Story2VideoComposeEngine {
       if (!audioDuration) continue
       if (scenes.length > 1 && audioDuration > this.maxSegmentDurationSeconds) {
         logComposeFailure('preflight', 'Segment narration duration limit exceeded', { reason: 'segment_duration_limit', sceneIndex: index })
-        return { code: -1, message: '单段旁白时长不能超过 ' + formatDurationLimit(this.maxSegmentDurationSeconds) }
+        return composeFailure(
+          COMPOSE_ERROR_CODES.SEGMENT_DURATION_EXCEEDED,
+          '单段旁白时长不能超过 ' + formatDurationLimit(this.maxSegmentDurationSeconds),
+          { limit: formatDurationLimit(this.maxSegmentDurationSeconds), scene: index + 1 }
+        )
       }
       totalAudioDuration += audioDuration
     }
@@ -1005,11 +1083,19 @@ class Story2VideoComposeEngine {
     // 旁白检查仅在旁白上限低于成片上限（更严旁白约束）时可达。
     if (totalAudioDuration > this.maxDurationSeconds) {
       logComposeFailure('preflight', 'Output duration limit exceeded', { reason: 'output_duration_limit' })
-      return { code: -1, message: '成片总时长不能超过 ' + formatDurationLimit(this.maxDurationSeconds) }
+      return composeFailure(
+        COMPOSE_ERROR_CODES.OUTPUT_DURATION_EXCEEDED,
+        '成片总时长不能超过 ' + formatDurationLimit(this.maxDurationSeconds),
+        { limit: formatDurationLimit(this.maxDurationSeconds) }
+      )
     }
     if (totalAudioDuration > this.maxAudioDurationSeconds) {
       logComposeFailure('preflight', 'Narration duration limit exceeded', { reason: 'narration_duration_limit' })
-      return { code: -1, message: '旁白音频总时长不能超过 ' + formatDurationLimit(this.maxAudioDurationSeconds) }
+      return composeFailure(
+        COMPOSE_ERROR_CODES.AUDIO_DURATION_EXCEEDED,
+        '旁白音频总时长不能超过 ' + formatDurationLimit(this.maxAudioDurationSeconds),
+        { limit: formatDurationLimit(this.maxAudioDurationSeconds) }
+      )
     }
     const effectiveRequestedDuration = scenes.reduce((total, scene, index) => {
       // min-duration 模式预检与场景循环共用同一 base 公式（probed || duration || defaultSceneDuration），
@@ -1021,7 +1107,11 @@ class Story2VideoComposeEngine {
     }, 0)
     if (effectiveRequestedDuration > this.maxDurationSeconds) {
       logComposeFailure('preflight', 'Requested duration limit exceeded', { reason: 'requested_duration_limit' })
-      return { code: -1, message: 'Requested video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes' }
+      return composeFailure(
+        COMPOSE_ERROR_CODES.OUTPUT_DURATION_EXCEEDED,
+        'Requested video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes',
+        { limit: formatDurationLimit(this.maxDurationSeconds) }
+      )
     }
 
     // 子进度：预检全部通过，进入逐片段合成
@@ -1136,7 +1226,11 @@ class Story2VideoComposeEngine {
         accumulatedDuration += segmentDuration
         if (accumulatedDuration > this.maxDurationSeconds) {
           this._cleanupSession(sessionDir)
-          return { code: -1, message: 'Composed video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes' }
+          return composeFailure(
+            COMPOSE_ERROR_CODES.OUTPUT_DURATION_EXCEEDED,
+            'Composed video duration exceeds the allowed limit of ' + Math.round(this.maxDurationSeconds / 60) + ' minutes',
+            { limit: formatDurationLimit(this.maxDurationSeconds) }
+          )
         }
         segmentDurations.push(segmentDuration)
         segmentRecords.push({
@@ -2458,6 +2552,7 @@ module.exports = {
   Story2VideoComposeEngine,
   findFfmpeg,
   findFfprobe,
+  COMPOSE_ERROR_CODES,
   KNOWN_COMPOSE_PHASES,
   normalizeComposeProgressUpdate,
   countChunkedMergeChunks,

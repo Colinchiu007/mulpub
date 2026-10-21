@@ -1,6 +1,6 @@
-# film-kit 数据资产 Schema（《Hell Grind》影视工程）
+# film-kit 数据资产 Schema（影视项目案例）
 
-> 本目录由 `scripts/film-engineering/fetch-hell-grind-kit.py` 从公开语料重建（可复现）。
+> 本目录由 `scripts/film-engineering/` 下的导入脚本从公开语料重建（可复现）。
 > 加载与校验实现：`apps/desktop/electron/services/film-engineering/kit-loader.js`（fail-closed）。
 > 校验不通过 → 整体返回 `FILM_KIT_UNAVAILABLE`，不允许部分降级。
 >
@@ -46,11 +46,10 @@
 {
   "schemaVersion": 1,                       // 必须 === 1
   "filmMeta": {
-    "title": "Hell Grind",                  // 非空字符串
+    "title": "Film Project Case",           // 非空字符串（中性中文案，界面按 locale 本地化）
     "durationSec": 5706,                    // 正数
     "logline": "…",                         // 非空字符串
     "characters": [{ "name": "ROKO", "descriptor": "…" }],  // 非空数组，每项含非空 name
-    "source": { "projectUrl": "…", "skillRepo": "…", "apiBase": "…" }
   },
   "scenes": [
     { "id": "<uuid>", "name": "…", "count": 3, "parentId": "<uuid|null>", "level": 0 }
@@ -70,6 +69,9 @@
     "shotId": "<uuid>",          // 唯一非空
     "sceneId": "<uuid>",         // 必须存在于 manifest.scenes
     "prompt": "EXACT 3 CHARACTERS…",  // 非空；上限 50000 字符（真实提示词最高约 39470）
+    "imagePrompt": "…",          // 可选；首帧图提示词；缺省由加载器归一化为 prompt
+    "videoPrompt": "…",          // 可选；视频运动提示词；缺省归一化为空串（**不回落 prompt**）
+    "endFramePrompt": "…",       // 可选；尾帧约束；缺省归一化为空串
     "model": "seedance_2_0",     // 非空
     "refTokens": ["<uuid>", …],  // 可选；数组，每项字符串 ≤64 字符
     "resultUrl": "https://…",    // 可选；https URL
@@ -83,6 +85,29 @@
 - 每个场景取最后一个 `completed` 的视频类 job（按 `created_at` 升序）作为代表分镜。
 - **v7 计划新增字段**（尚未写入本语料，由 `shot-duration.js` 在运行时派生）：
   `durationMs` / `durationSec` / `durationSource`。见「七、时长来源优先级链」。
+
+### 2.1 提示词三分（影视工程 v2 · F-A）
+
+| 字段 | 语义 | 缺省（加载期归一化） | 消费方 |
+|------|------|--------------------|--------|
+| `imagePrompt` | **首帧图**提示词：静态画面（主体 / 场景 / 光线 / 构图 / 风格） | `??= prompt`（**逐字等于旧 prompt**） | 图片生成（`film-engineering-service.generateSelected`） |
+| `videoPrompt` | **视频运动**提示词：只保留运镜 + 主体 + 时长内的变化，**不含**静态画面全量 | `??= ''`（**空**，**不回落 prompt**） | 视频生成（`video-gen.buildShotSubmitPayload`） |
+| `endFramePrompt` | **尾帧约束**：末帧应当是什么（衔接下一镜的起点） | `??= ''` | 本批次**只产出不消费**（消费前置见 OpenSpec spec） |
+
+**加载期归一化口径**（`shot-prompts.normalizeShotPrompts`）：`imagePrompt ??= prompt`、`videoPrompt ??= ''`、`endFramePrompt ??= ''`。
+归一化后下游**不再有 `?? prompt` 分支**；消费侧回落链是 `videoPrompt → imagePrompt → prompt`（视频）与 `imagePrompt → prompt`（图片）。
+
+**为什么 `videoPrompt` 回落空串而不是 `prompt`**：回落 `prompt` 会让「存量分镜的视频提示词过长」这件事
+**被掩盖成已解决**（字段非空、长度不减）。留空 ⇒ 消费侧回落 `imagePrompt`，**边界在数据上可见**。
+存量长提示词的真正治理是后续项（一次性重算 + 人工审核），不在本批次。
+
+### 2.2 分镜提示词的字段校验
+
+单字段长度上限仍是 `FILM_PROMPT_MAX_LEN = 50000`（**未放宽**），三分各自都受它约束。
+
+**没有「三分合计上限」**：早期草案曾设 `FILM_PROMPT_BUNDLE_MAX_LEN = 50000`，但该值与单字段上限相同 ⇒ 三段各自顶格的**合法**资产会被误判死；而三段各自已被单字段上限约束，合计上限**永远不会触发**（除非法输入），是个装饰性判据。**已删除**（验证层评审 i4）。
+
+真正起作用的护栏是**字段类型与长度校验**（`validateShotPromptFields`）：三分字段存在即必须是字符串且不超单字段上限。
 
 ## 三、reference-registry.json
 
@@ -325,11 +350,23 @@ prompts/tasks/<task>/en/user.md
 
 ## 十一、生成与重建
 
+导入脚本位于 `scripts/film-engineering/`，该目录下只有一个 `.py`（脚本名保留了历史命名，
+含旧项目代号 —— 它不随包、不在去品牌范围内，故未改名；本文档不写它的字面量以免随包泄漏）。
+
 ```bash
-python scripts/film-engineering/fetch-hell-grind-kit.py \
-    --source-dir D:/Data/projects/mp-research/hell-grind-full \
+# 先确认脚本名（目录下唯一的 .py）
+ls scripts/film-engineering/*.py
+
+python scripts/film-engineering/<上一步得到的脚本名> \
+    --source-dir <全量语料目录> \
     --out-dir apps/desktop/electron/film-kit
 ```
+
+⚠ 脚本**自带去品牌中性化与写前自检**（`neutralize_manifest` / `neutralize_payload` +
+`assert_neutral_payload`）：源语料里的旧项目名、来源 URL、提示词引用锁标签都会被映射成中性值
+（片名与根场景名 → `Film Project Case`、来源块整块删除、`…BATTLEFIELD` 之类的环境锁标签 → `PROJECT …`），
+写盘前若仍有命中则直接失败、不留半成品。
+`apps/desktop/src/i18n/film-debrand.test.js` 在 CI 上兜底（锁 ① 扫随包数据、锁 ⑤ 校验脚本仍有这两段）。
 
 - 语料为公开 API 一次性抓取（155,123 jobs / 161 jsonl），脚本本地离线重建，无需登录。
 - **v7 新增的四份资产不由该脚本生成**：它们是人工维护的方法论资产

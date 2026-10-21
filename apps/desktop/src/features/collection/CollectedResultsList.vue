@@ -64,7 +64,19 @@
       </div>
 
       <div class="cohere-card-grid">
-        <div v-for="item in items" :key="item.id" class="cohere-card" :class="{ 'col-item--active': item.id === activeId }">
+        <div
+          v-for="item in items"
+          :key="item.id"
+          class="cohere-card"
+          :class="{
+            'col-item--active': item.id === activeId,
+            /* 无效结果（2026-10-20 collection-page-visual-polish，PRD §2 D8）：
+               无标题且 0 字的条目此前与正常卡外观完全一致，混在有效结果里无法
+               一眼排除。只加视觉类，不隐藏、不改行为。 */
+            'col-result-card--invalid': invalidIds.has(item.id),
+          }"
+          :data-testid="invalidIds.has(item.id) ? 'result-invalid-' + item.id : null"
+        >
           <div class="card-top">
             <input
               type="checkbox"
@@ -81,13 +93,17 @@
                  （QM-6 评审 #5：注释曾承诺 .self 而代码未加，两处必须一致）。 -->
             <div class="card-icon card-icon--click" :data-testid="'card-icon-' + item.id" @click="$emit('select', item)"><el-icon><component :is="item.mediaType === 'video' ? VideoCamera : Document" /></el-icon></div>
             <div class="card-info card-info--click" :data-testid="'card-info-' + item.id" @click="$emit('select', item)">
-              <!-- 一级：标题 + 元信息（Q10-c 层级重排） -->
-              <div class="card-platform">{{ item.title || $t('collection.recordsUntitled') }}</div>
+              <!-- 一级：标题 + 元信息（Q10-c 层级重排）
+                   :title 承载**原文全文**（2026-10-20，PRD §6.2）：标题在 CSS 里被
+                   截断到 2 行，若不提供 tooltip，用户就再也看不到后半句。 -->
+              <div class="card-platform" :title="item.title || $t('collection.recordsUntitled')">{{ item.title || $t('collection.recordsUntitled') }}</div>
               <div class="card-account">
                 {{ item.source || 'url' }} · {{ item.wordCount || (item.content || '').length }}{{ $t('collection.wordCountUnit') }}
                 <template v-if="item.mediaType === 'video' && item.duration"> · {{ formatDuration(item.duration) }}</template>
                 <template v-if="item.mediaType === 'video' && item.platform && platformKeys.includes(item.platform)"> · {{ platformLabel(item.platform) }}</template>
               </div>
+              <!-- 无效结果提示（2026-10-20）：只说结论与建议，不复述脏数据 -->
+              <div v-if="invalidIds.has(item.id)" class="card-badge card-badge--warning" :data-testid="'result-invalid-hint-' + item.id">{{ $t('collection.invalidResultHint') }}</div>
               <!-- 二级：徽标区 -->
               <div v-if="item.rewriteFailed" class="card-badge card-badge--warning" :title="item.rewriteError || ''" :data-testid="'badge-rewrite-failed-' + item.id">{{ $t('collection.zhihuFav.rewriteFailedBadge') }}<template v-if="item.rewriteError">：{{ item.rewriteError }}</template></div>
               <div v-else-if="item.rewrittenContent" class="card-badge" :title="item.rewrittenContent">{{ $t('collection.zhihuFav.rewrittenBadge') }}：{{ item.rewrittenContent.slice(0, 40) }}</div>
@@ -114,6 +130,7 @@ import { ref, computed, watch } from 'vue'
 import { Document, VideoCamera, Link } from '@element-plus/icons-vue'
 import { PLATFORM_NAMES } from '@multi-publish/shared-utils/src/platform-definitions'
 import EmptyState from '@/components/EmptyState.vue'
+import { isInvalidResult } from './collected-result-validity'
 
 const props = defineProps({
   items: { type: Array, required: true },
@@ -135,6 +152,17 @@ const props = defineProps({
 defineEmits(['select', 'createDraft', 'toVideo', 'publish', 'toggleSelect', 'toggleSelectAll', 'clear', 'emptyAction', 'batchPublishImages', 'batchGenerateVideos', 'batchPublishVideos', 'toggleBatchAccount'])
 
 
+/**
+ * 无效结果判定（2026-10-20 collection-page-visual-polish，PRD §6.1）。
+ * 规则与边界见 collected-result-validity.js 的模块注释 —— 单独成文件是为了
+ * 让测试能直接 import 做**行为**断言：本次变异反证实测，把判定改成恒 false 后，
+ * 只查「函数名存在」的契约测试毫无反应（变异 M8 假绿）。
+ *
+ * 与 `collected-content-guard.js#isVerificationContent` 的关系：后者判「验证页
+ * 文字特征」，是采集链路的判定；本函数不做正则复刻，只判"这条结果有没有可用内容"。
+ *
+ * 纯展示用途：只影响 class 与提示行，不修改 item、不影响任何 emit 与行为。
+ */
 const platformScope = ref('')
 const videoPlatformScope = ref('')
 
@@ -147,6 +175,23 @@ watch(() => props.batchVideoPlatformOptions, (opts) => {
 
 const selectedSet = computed(() => new Set(props.selectedIds))
 const allSelected = computed(() => props.items.length > 0 && props.batchSelectedCount === props.items.length)
+
+/**
+ * 每条结果的无效标记（2026-10-20 collection-page-visual-polish）。
+ *
+ * 为什么用 computed 而不是在模板里调三次 `isInvalidResult(item)`：
+ * 模板的 `:class` / `:data-testid` / `v-if` 三处都需要这个布尔值，直接调用会让
+ * 同一条目在每轮渲染里重复计算三次（批量操作者的列表常有数十条）。
+ * 用 Set 做一次 O(n) 预计算，之后三处都是 O(1) 查表；`items` 变动才重算，
+ * 可见行为与直接调用完全一致（深审 i2，见 openspec/records 的裁决记录）。
+ */
+const invalidIds = computed(() => {
+  const set = new Set()
+  for (const item of props.items || []) {
+    if (isInvalidResult(item)) set.add(item.id)
+  }
+  return set
+})
 const isSelected = (id) => selectedSet.value.has(id)
 const isAccountSelected = (kind, accId) => props.isAccountSelectedFn(kind, kind === 'imageText' ? platformScope.value : videoPlatformScope.value, accId)
 

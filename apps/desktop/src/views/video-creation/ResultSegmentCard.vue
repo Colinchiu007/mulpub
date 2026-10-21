@@ -24,6 +24,18 @@
         <button type="button" :disabled="absoluteIndex === totalCount - 1" :title="tOrKey('story2video.sceneMaterial.segmentMoveDown')" @click="$emit('move-segment', absoluteIndex, 1)">{{ tOrKey('story2video.sceneMaterial.segmentMoveDown') }}</button>
         <button type="button" :disabled="totalCount === 1" :title="tOrKey('story2video.sceneMaterial.segmentDelete')" @click="$emit('remove-segment', absoluteIndex)">{{ tOrKey('story2video.sceneMaterial.segmentDelete') }}</button>
       </div>
+      <!-- 编辑主体折叠开关（2026-10-19）：分段多时表单会淹没页面，默认收起只留头部+缩略图，
+           点开才露出提示词/翻译/语音等可编辑项。展开态由父级统一管理（互斥，见 ResultSegmentEditor）。 -->
+      <button
+        type="button"
+        class="segment-editor-toggle"
+        data-testid="segment-editor-toggle"
+        :aria-expanded="expanded ? 'true' : 'false'"
+        @click="$emit('toggle-editor', segment.id)"
+      >
+        <span class="segment-editor-toggle__icon" aria-hidden="true">{{ expanded ? '▾' : '▸' }}</span>
+        {{ expanded ? tOrKey('story2video.sceneMaterial.collapseEditor') : tOrKey('story2video.sceneMaterial.expandEditor') }}
+      </button>
     </div>
 
     <div class="segment-thumb" :class="{ 'asset-placeholder': !draft.imageUrl }" data-testid="segment-image-preview">
@@ -100,6 +112,11 @@
       </div>
     </div>
 
+    <!-- 文本编辑主体（2026-10-19）：默认折叠。素材区（缩略图 + 四槽）保持可见，因为那是
+         「看这一镜有什么」的扫读信息；而旁白/字幕/提示词/翻译/语音是本页最占高度的表单，
+         分段一多就把页面淹了（用户截图反馈的正是这块）。展开态由父级 expandedSegmentId
+         统一管理，做到同一时刻只展开一个。 -->
+    <div v-if="expanded" class="segment-editor-body" data-testid="segment-prompt-editor">
     <label class="field-label">
       {{ $t('story2video.sceneMaterial.narrationTextLabel') }}
       <textarea v-model="draft.text" rows="3" @input="$emit('dirty')"></textarea>
@@ -123,10 +140,21 @@
       {{ $t('story2video.sceneMaterial.imagePromptLabel') }}
       <textarea v-model="draft.prompt" rows="3" :placeholder="$t('story2video.sceneMaterial.emptySlot')" @input="$emit('dirty')"></textarea>
     </label>
+    <!-- 图片提示词中文翻译（2026-10-19 起与提示词成对紧邻）：放在它所翻译的提示词正下方，
+         与视频提示词翻译同构；弱化只读样式与可编辑 textarea 形成层级差。 -->
+    <div class="segment-prompt-translation" data-testid="segment-prompt-translation">
+      <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
+      <p class="segment-prompt-translation-text">{{ showPromptTranslation ? draft.promptTranslation : $t('story2video.sceneMaterial.emptySlot') }}</p>
+    </div>
     <label class="field-label">
       <span>{{ $t('story2video.sceneMaterial.videoPromptLabel') }}</span>
       <textarea v-model="draft.videoPrompt" rows="3" data-testid="segment-video-prompt-textarea" :placeholder="$t('story2video.sceneMaterial.emptySlot')" @input="$emit('dirty')"></textarea>
     </label>
+    <!-- 视频提示词中文翻译（2026-10-19）：同一套成对结构，标签区分归属，避免读者误认翻译对应哪一段 -->
+    <div class="segment-prompt-translation" data-testid="segment-video-prompt-translation">
+      <span class="segment-prompt-translation-label">{{ videoPromptTranslationLabel }}</span>
+      <p class="segment-prompt-translation-text">{{ showVideoPromptTranslation ? draft.videoPromptTranslation : $t('story2video.sceneMaterial.emptySlot') }}</p>
+    </div>
     <div class="segment-inline-actions">
       <UiButton size="sm" variant="secondary" data-testid="regenerate-image-prompt-button" :disabled="busy" @click="$emit('regenerate-prompt', segment.id, 'image')">
         {{ busyKind === 'promptImage' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateImagePrompt') }}
@@ -134,10 +162,6 @@
       <UiButton size="sm" variant="secondary" data-testid="regenerate-video-prompt-button" :disabled="busy" @click="$emit('regenerate-prompt', segment.id, 'video')">
         {{ busyKind === 'promptVideo' ? $t('story2video.sceneMaterial.regeneratingPrompt') : $t('story2video.sceneMaterial.regenerateVideoPrompt') }}
       </UiButton>
-    </div>
-    <div class="segment-prompt-translation" data-testid="segment-prompt-translation">
-      <span class="segment-prompt-translation-label">{{ promptTranslationLabel }}</span>
-      <p class="segment-prompt-translation-text">{{ showPromptTranslation ? draft.promptTranslation : $t('story2video.sceneMaterial.emptySlot') }}</p>
     </div>
 
     <div class="segment-voice-settings">
@@ -198,6 +222,7 @@
       <UiButton v-if="segment.audioPath" size="sm" variant="ghost" @click="$emit('download-artifact', segment.audioPath, artifactName('audio', segment.audioPath))">{{ $t('story2video.sceneMaterial.downloadAudio') }}</UiButton>
       <UiButton v-if="segment.videoPath" size="sm" variant="ghost" @click="$emit('download-artifact', segment.videoPath, artifactName('video', segment.videoPath))">{{ $t('story2video.sceneMaterial.downloadVideo') }}</UiButton>
     </div>
+    </div>
   </article>
 </template>
 
@@ -225,10 +250,13 @@ export default {
     voiceSelectable: { type: Boolean, default: false },
     // 已标记不可用的素材位：'segmentId:kind' -> true
     unavailableMaterialKinds: { type: Object, default: () => ({}) },
+    // 编辑主体是否展开（2026-10-19）：默认折叠，展开态由父级统一管理以做到互斥
+    expanded: { type: Boolean, default: false },
   },
   emits: [
     'dirty',
     'card-ref',
+    'toggle-editor',
     'move-segment',
     'remove-segment',
     'select-material',
@@ -306,6 +334,22 @@ export default {
       const translation = this.segment && this.segment.promptTranslation
       return typeof translation === 'string' && translation.trim() !== ''
     },
+    // 视频提示词翻译标签（2026-10-19）：与图片提示词标签同族，按界面语言取 zh/other 两档，
+    // 让 en 界面即便未来展示译文也没有「中文翻译」这种错位措辞。
+    videoPromptTranslationLabel() {
+      const locale = getAppLocale()
+      const key = locale === 'zh'
+        ? 'story2video.sceneMaterial.videoPromptTranslationLabelZh'
+        : 'story2video.sceneMaterial.videoPromptTranslationLabelOther'
+      return this.$t(key)
+    },
+    // 视频提示词翻译的展示判据（2026-10-19）：与图片侧同规则——en 界面不展示、
+    // 只有非空字符串才算有译文（null/''/空白一律走占位文案）。
+    showVideoPromptTranslation() {
+      if (getAppLocale() === 'en') return false
+      const translation = this.segment && this.segment.videoPromptTranslation
+      return typeof translation === 'string' && translation.trim() !== ''
+    },
   },
   methods: {
     tOrKey(key, params) {
@@ -381,6 +425,15 @@ export default {
 .scene-material-slot-action > * { width: 100%; min-width: 0; }
 .scene-material-slot-action button { width: 100%; min-width: 0; white-space: normal; }
 .segment-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+/* 编辑主体折叠开关（2026-10-19）：与上移/下移/删除同排，但语义独立（不参与排序），
+   故 margin-left 不抢 auto（排序组已占用右侧），用 4px 间隙贴在排序组左侧。 */
+.segment-editor-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; cursor: pointer; }
+.segment-editor-toggle:hover { border-color: var(--primary); color: var(--primary); }
+.segment-editor-toggle__icon { font-size: var(--font-size-xs); line-height: 1; }
+/* 提示词/翻译成对结构（2026-10-19）：翻译块紧贴对应 textarea 下方，弱化视觉权重（只读、次于可编辑控件） */
+.segment-prompt-translation { margin-top: 6px; padding: 8px 10px; border-left: 3px solid var(--border); border-radius: 0 4px 4px 0; background: var(--surface-secondary, var(--bg)); }
+.segment-prompt-translation-label { display: block; color: var(--text-muted); font-size: var(--font-size-xs); font-weight: 600; }
+.segment-prompt-translation-text { margin: 2px 0 0; color: var(--text); font-size: var(--font-size-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .segment-status { padding: 3px 6px; border-radius: 4px; background: var(--border-light); color: var(--text-muted); font-size: var(--font-size-xs); }
 .segment-status-reason { flex: 1 1 auto; min-width: 0; color: var(--status-failed-text, var(--danger, #d93025)); font-size: var(--font-size-xs); line-height: 1.45; word-break: break-word; }
 .segment-policy-flag { padding: 3px 6px; border-radius: 4px; background: var(--danger-bg, #fdecea); color: var(--danger, #d93025); font-size: var(--font-size-xs); font-weight: 600; }

@@ -171,7 +171,6 @@ export default {
     planCodepoints: '{n} code points in total',
     planVoice: 'Provider {provider} · Model {model} · Voice {voice}',
     billingNotice: 'Publishing from text calls the TTS provider per chunk and incurs charges. Confirm usage and cost first.',
-    originChannel: 'from channel settings',
     originPreference: 'from your voice preference',
     originProviderDefault: 'from provider default',
       detail: 'Details: {detail}',

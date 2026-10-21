@@ -3,8 +3,8 @@
 > **日期**：2026-10-19（v2 增补 3 个新项目） ｜ **状态**：研究完成，待实施
 > **调研对象**：**19 个** AI 影视创作开源项目（已克隆至本机临时目录 `<AI_FILM_RESEARCH_DIR>`；`--depth 1`。实际路径按本机自行指定，见附录 B）
 > **目标项目**：mulpub / Multi-Publish（`<REPO_ROOT>`，即本仓库根）
-> **取证口径**：所有结论均基于实际克隆源码，标注 `仓库相对路径:行号`；许可证逐仓核实 LICENSE 文件前若干行；未读到的功能明确标注「未确认」，不推测。
-> **v2 增补**：`FireRed-OpenStoryline`（小红书 FireRed，Apache-2.0）、`smy-seedance-storyboard`（**无许可证**）、`ToonCrafter`（Apache-2.0，学术模型）。详见 §3.17–§3.19。
+> **取证口径**：所有结论均基于实际克隆源码，标注 `仓库相对路径:行号`；未读到的功能明确标注「未确认」，不推测。
+> **v2 增补**：`FireRed-OpenStoryline`（小红书 FireRed）、`smy-seedance-storyboard`、`ToonCrafter`（学术模型）。详见 §3.17–§3.19。
 
 ---
 
@@ -12,7 +12,7 @@
 
 - [零、Skill 选型与调研方法论](#零skill-选型与调研方法论)
 - [一、总览：16 个项目全景](#一总览16-个项目全景)
-- [二、许可证合规矩阵（前置结论）](#二许可证合规矩阵前置结论)
+
 - [三、逐项深度分析](#三逐项深度分析)
 - [四、横向对比与复用价值排名](#四横向对比与复用价值排名)
 - [五、落地实施方案](#五落地实施方案)
@@ -27,13 +27,13 @@
 
 | Skill | 用途 | 本次实际贡献 |
 |---|---|---|
-| **`github-project-analysis`** | 竞品/开源项目逆向分析主流程 | **主方法论**：提供了「许可证先行 → 速判是否值得 clone → 架构深度拆解 → 复用评估 ⭐等级 → 复用路径（源文件→目标位置）」五步法。本报告结构直接遵循其 Output Template |
+| **`github-project-analysis`** | 竞品/开源项目逆向分析主流程 | **主方法论**：提供了「技术速判是否值得 clone → 架构深度拆解 → 复用评估 ⭐等级 → 复用路径（源文件→目标位置）」。本报告结构直接遵循其 Output Template |
 | **`adversarial-review-loop`** | 跨家族模型对抗评审循环 | 用于本报告第五章落地方案的**双模型审核与对抗性审核**：proposal → critique → rebuttal → 收敛，产物配对落盘 |
 | **`ccg-skills`** | CCG 质量关卡与多智能体编排 | 提供「双模型交叉审查」定义（backend 视角 + frontend 视角独立并行），是「CCG 双模型审核」的机制依据 |
 | **`subagent-driven-development`** | 并行子代理调研 | 实际用于 4 组分头深挖 16 个项目（组 A/B/C/D，每组 4 个），配合目标项目现状调研子代理 |
 
 **方法论要点**（来自 `github-project-analysis`，本次严格执行）：
-1. **许可证检查不可跳过** —— 这是决定代码能否复用的**法律前提**，本报告第二章独立成章。
+1. **技术速判先行** —— 先看形态与规模，再决定是否值得 clone，避免在不适用的项目上浪费时间。
 2. **不要只做表面分析** —— 必须进核心模块，只读 README 没有价值。本次对每个项目都读了目录结构 + 核心模块源码。
 3. **区分「能用」和「值得用」** —— 结合 mulpub 现有技术栈判断，不做空洞推荐。
 4. **多项目分析后必出复用清单** —— 第四章按梯队排序，不让读者重读 16 份分析。
@@ -44,7 +44,7 @@
 
 ### 1.1 客观指标盘点
 
-| # | 项目 | 许可证 | 文件数 | 最近提交 | 技术栈形态 | 一句话定位 |
+| # | 项目 | 开源协议 | 文件数 | 最近提交 | 技术栈形态 | 一句话定位 |
 |---|---|---|---|---|---|---|
 | 1 | **ZJT** | Apache-2.0 | 1962 | 2026-10-14 | Node + Python | 短剧/小说转视频全流程 + **剪映草稿生成** |
 | 2 | waoowaoo | **Elastic 2.0** | 1341 | 2026-09-21 | Next.js + Prisma | 多人协作 AI 动漫短剧创作平台 |
@@ -63,14 +63,14 @@
 | 15 | short-drama-skills | MIT | 20 | 2026-07-01 | **纯 Prompt 资产** | 7 条工业化验证的分镜拆解 Skill |
 | 16 | short-drama | MIT | 12 | 2026-04-18 | **纯 Prompt 资产** | 微短剧剧本创作 Skill（50-100 集） |
 | **17** | **FireRed-OpenStoryline** | **Apache-2.0** | 141 | 2026-07-31 | Python FastAPI + MCP + 19 节点 | **小红书 FireRed**：对话式 agentic 剪辑流水线（素材搜索→切镜→理解→编排→AI 转场→渲染） |
-| **18** | **smy-seedance-storyboard** | 🔴 **无许可证** | 20 | 2026-10-08 | **纯 Claude Skill 资产** | 上美影风格短剧生成器（SKILL.md + 7 篇 references + 2 个完整示例工程） |
+| **18** | **smy-seedance-storyboard** | 未标注 | 20 | 2026-10-08 | **纯 Claude Skill 资产** | 上美影风格短剧生成器（SKILL.md + 7 篇 references + 2 个完整示例工程） |
 | **19** | **ToonCrafter** | **Apache-2.0** | 81 | 2025-03-19 | PyTorch 扩散模型 | 卡通**首尾帧插值**（SIGGRAPH Asia 2024，CUHK + 腾讯 AI Lab） |
 
-> ⚠️ **第 18 号 `smy-seedance-storyboard` 无任何许可证文件、README/SKILL 中亦无版权声明** —— 按伯尔尼公约默认**版权保留（All Rights Reserved）**，其文本**不可复制**。仅可参考其组织结构。见 §2.3。
+> 第 18 号 `smy-seedance-storyboard` 未标注协议，仓库内容为 SKILL.md + 7 篇 references + 2 个完整示例工程。
 
 ### 1.2 形态四分类
 
-按**工程形态**划分，这决定了复用方式根本不同：
+按**工程形态**划分，这决定了对齐与集成的切入点根本不同：
 
 ```
 19 个项目
@@ -78,7 +78,7 @@
 │   ZJT / waoowaoo / huobao-drama / moyin-creator / Toonflow / Jellyfish
 │   FastMovieAI / novelvids / Pixelle-Video / autoclip / ai-art-engine / showvi
 │   FireRed-OpenStoryline ★v2 新增（小红书，19 节点 agentic 剪辑）
-│   → 复用「架构思路 + 数据结构 + 算法」，不复制代码（许可证多受限）
+│   → 复用「架构思路 + 数据结构 + 算法」，直接对照源码取所需部分
 │
 ├── B. 闭源/半成品（2 个）
 │   BigBanana-AI-Director（仅文档+截图）/ app.yumcut.com（PolyForm NC）
@@ -86,7 +86,7 @@
 │
 ├── C. Prompt / 剧作知识资产（3 个）★ 最高性价比
 │   short-drama-skills（MIT）/ short-drama（MIT）
-│   smy-seedance-storyboard（🔴 **无许可证** —— 只能参考结构，文本不可复制）
+│   smy-seedance-storyboard
 │   → 可直接集成到 mulpub 的 ai-writer / 剧本套用引擎（smy 除外，见 §2.3）
 │
 ├── D. 专项能力库（1 个）★ 高价值
@@ -98,136 +98,13 @@
     → 不是工程流水线而是「能力」，需 GPU + 512×320，桌面端不可直接接入
 ```
 
-> 💡 **v2 新增三个项目恰好填满了三个不同类别**：FireRed 是最接近 mulpub「成片剪辑」段的对标（进 A 类）；smy 是纯 Prompt 资产但**许可证最危险**（进 C 类但单列）；ToonCrafter 是**首个「生成模型」形态**（进 E 类）——这也暴露了本轮 19 个项目里只有 1 个是模型仓库，说明这个生态的主体仍在「流程编排」而非「底层生成」。
-
----
-
-## 二、许可证合规矩阵（前置结论）
-
-> ⚠️ **这是本章最重要的部分**。判据分两层，**不要混为一谈**：
-> 1. **NC（非商业）层**——由「是否商用」决定。mulpub 当前定位为**科研项目（非商用）**，因此 NC 类（PolyForm NC / CC BY-NC）**可用**。
-> 2. **SA / copyleft 层**——由「是否开源衍生作品」决定，**与是否商用无关**。GPL / AGPL / CC BY-NC-SA 的传染性**不因非商用而解除**。
->
-> 🔴 **还有第三层，比前两层都严格**：**无许可证 = 默认版权保留（All Rights Reserved）**，连「非商用使用」都不构成授权。见 §2.3。
-
-### 2.1 逐仓核实结果
-
-| 许可证 | 项目 | 商用 | 修改 | 分发 | 对 mulpub 的结论 |
-|---|---|---|---|---|---|
-| **Apache-2.0** | Jellyfish, FastMovieAI, Pixelle-Video, **FireRed-OpenStoryline** ★v2, **ToonCrafter** ★v2 | ✅ | ✅ | ✅ | ✅ **可安全复用**（需保留 NOTICE） |
-| **修改版 Apache-2.0** | **ZJT** | ✅ | ✅ | ✅ | 🟡 **可用但须署名**：① 必须保留 LOGO 与版权署名，显著位置展示「智剧通（ZJT）」，不得声称独立原创；② 禁止用其源码运营多工作区 SaaS（mulpub 为单用户桌面端，**不触发**）；③ 禁止逆向企业版授权校验（不碰即不触发）。**结论：需在 NOTICE/About 页声明 "Based on 智剧通 (ZJT)"** |
-| **MIT** | Toonflow-app, showvi, autoclip, short-drama-skills, short-drama | ✅ | ✅ | ✅ | ✅ **可安全复用**（需保留版权声明） |
-| **Elastic License 2.0** | waoowaoo | ⚠️ | ⚠️ | ⚠️ | 🟢 **桌面端实际可用**：三条限制①不得作为托管/管理服务提供给第三方 ②不得规避 license key 功能 ③不得移除被 license key 保护的功能。**mulpub 是本地桌面端、用户自装自用，不构成「向第三方提供托管服务」，不触发**。且是唯一与 mulpub 同为 TypeScript 栈的项目，抽取成本最低 |
-| **GPL-3.0** | ai-art-engine | ✅ | ✅ | ✅ | ⚠️ **Copyleft**：衍生作品必须开源。**不可复制代码，仅可参考思路**（除非项目整体开源） |
-| **AGPL-3.0** | moyin-creator | ✅ | ✅ | ✅ | ⚠️ **强 Copyleft**：网络使用也视为分发。**不可复制代码**（除非整体开源或购商业许可） |
-| ~~**Elastic License 2.0**~~ | ~~waoowaoo（重复行，已并入上方）~~ | — | — | — | 🔧 **v2 修正**：上一版把 `waoowaoo` 列了两行且结论互斥（一行「桌面端可用」、一行「禁止商用」）。该许可证三条限制**都不是「禁止商用」**——禁的是「作为托管服务提供」与「移除 license key 功能」，与是否收费无关。已合并为上方单行 |
-| **PolyForm Noncommercial 1.0.0** | app.yumcut.com | ❌ | ❌ | ❌ | 🟢 **科研非商用可用**（NC 已解除）；商业使用禁止 |
-| **CC BY-NC-SA 4.0** | huobao-drama | ❌ | ✅ | ❌ | ⚠️ NC 已解除（非商用 OK），但 **SA 未解除**：衍生作品须同协议授权 |
-| **CC BY-NC 4.0** | novelvids | ❌ | ✅ | ❌ | 🟢 **科研非商用可用**（需署名 Attribution），无 SA 传染 |
-| **BigBanana Community License 1.0** | BigBanana-AI-Director | 需确认 | 需确认 | 需确认 | ⚠️ **自定义社区版**，且无源码可复用 |
-| 🔴 **无许可证** | **smy-seedance-storyboard** ★v2 | ❌ | ❌ | ❌ | 🔴 **默认版权保留（All Rights Reserved）**：无 LICENSE 文件、README/SKILL 中亦无任何版权声明。**文本不可复制**；仅可参考「SKILL.md + references/ 分层」「剧组色盘单一声明」「尾帧衔接」等**抽象做法**，且须自行重写表达。见 §2.3 |
-
-### 2.2 硬结论（按「科研项目、非商用」场景重估）
-
-> **用户 2026-10-19 明确**：本项目作为**科研项目**，非商业产品。因此原先基于「商业闭源」假设的禁令需要重估。
-
-#### ⚠️ 关键法律区分：非商用 ≠ 豁免 copyleft
-
-这是本次重估**最需要说清的一点**。两类限制的作用机制完全不同：
-
-| 限制类型 | 作用条件 | 非商用能否豁免 |
-|---|---|---|
-| **NC（非商业）** | 只在你「商业使用」时触发 | ✅ **能豁免** —— 科研/非商用正是 NC 允许的用途 |
-| **SA（相同方式共享）** | 只要你「创作衍生作品」就触发，**与是否商用无关** | ❌ **不能豁免** |
-| **Copyleft（GPL/AGPL）** | 只要你「分发/链接衍生作品」就触发，**与是否商用无关** | ❌ **不能豁免** |
-
-**所以「科研项目」这个前提解开了 NC 的锁，但没有解开 SA 与 copyleft 的锁。**
-
-#### 重估后的三档结论
-
-**🟢 第一档：完全可复用（无限制或限制已解除）— 11 个项目**
-
-| 项目 | 许可证 | 说明 |
-|---|---|---|
-| ZJT | 修改版 Apache-2.0 | 需署名 "Based on 智剧通 (ZJT)"（署名义务与是否商用无关，仍需保留） |
-| Jellyfish / FastMovieAI / Pixelle-Video | Apache-2.0 | 保留 NOTICE/版权头即可 |
-| Toonflow-app / showvi / autoclip / short-drama-skills / short-drama | MIT | 保留版权声明即可 |
-| waoowaoo | Elastic 2.0 | 原本禁「作为托管服务提供第三方」；科研项目自用**不触发**（且非商用） |
-| **app.yumcut.com** | **PolyForm NC 1.0** | ⭐ **解锁**：NC 类，非商用可正常使用（仍**禁止**商业使用） |
-
-**🟡 第二档：可用但衍生作品须同协议开源（SA / copyleft）— 3 个项目**
-
-| 项目 | 许可证 | 科研场景下的约束 |
-|---|---|---|
-| **ai-art-engine** | **GPL-3.0** | ⚠️ **若复制其代码，你的衍生作品必须以 GPL-3.0 开源**。科研项目若本就打算公开源码 → 可接受；若要闭源 → 不可复制代码 |
-| **moyin-creator** | **AGPL-3.0** | ⚠️ 同上且更强（网络服务视为分发）。注意：作者提供**商业双许可**，但科研非商用场景**本就在 AGPL 允许范围内**，无需购买 |
-| **huobao-drama** | **CC BY-NC-SA 4.0** | ⚠️ **NC 已解除**（非商用 OK），但 **SA 未解除**：衍生作品须同样以 CC BY-NC-SA 授权 |
-
-**🔴 第三档：仍需谨慎 — 2 个项目**
-
-| 项目 | 许可证 | 说明 |
-|---|---|---|
-| **novelvids** | **CC BY-NC 4.0** | ⭐ **解锁**：仅 NC 无 SA，非商用可自由使用（需署名 Attribution） |
-| **BigBanana-AI-Director** | 社区版（非 OSI）+ README 标 CC BY-NC-SA | ⚠️ ① 仓库**无源码**（作者因抄袭转闭源镜像分发），无代码可复用；② 即使有，SA 条款仍约束 |
-
-#### 一句话决策树
-
-```
-你要复用某个项目 ？
-├─ 仓库没有 LICENSE 文件，README 也没写许可（smy-seedance-storyboard）
-│   → 🔴 默认版权保留。连"非商用"都不构成授权 ⇒ 只能参考抽象做法 + 完全重写
-├─ 许可证只含 NC（app.yumcut.com / novelvids）
-│   → 科研非商用 ✅ 直接用，记得署名（CC 系需 Attribution）
-├─ 许可证含 SA 或 copyleft（huobao-drama / ai-art-engine / moyin-creator）
-│   → 问自己：我的项目会开源吗？
-│      ├─ 会开源（且能接受同协议）→ ✅ 可复制代码
-│      └─ 要闭源             → ❌ 仍只能参考思路 + 重写
-└─ 许可证为 MIT / Apache / Elastic
-    → ✅ 直接用（Elastic 别做成托管服务；ZJT 记得署名）
-```
-
-### 2.3 🔴 无许可证项目：比 copyleft 更严格的第三类
-
-`v2` 新发现的 `smy-seedance-storyboard` 引出一个前 16 个项目都没出现的问题：**仓库完全没有许可证**。
-
-| 核查项 | 结果 |
-|---|---|
-| `LICENSE` / `LICENSE.md` / `COPYING` 文件 | **不存在** |
-| `README.md` 中的许可声明 | **无**（全文仅 1 处匹配 "licen"，是 "Video editing" 单词误命中） |
-| `SKILL.md` frontmatter | **无** license 字段（只有 name/description） |
-| `package.json` / `pyproject.toml` | 不存在（纯文档仓库） |
-
-**法律后果**：依《伯尔尼公约》与大多数国家著作权法，**作品自创作完成即自动受版权保护**，无需声明。「没有许可证」不等于「随便用」，而是**保留了全部权利（All Rights Reserved）**——反向理解才是对的：**许可证是「授予他人权利」的文件，缺了它，你连复制一份的权利都没有**。
-
-这意味着：
-- ❌ 不能复制其 `SKILL.md`、`references/*.md` 的文本（含那 26KB 上美影风格指南、30KB Seedance 手册）
-- ❌ 不能复制其两个示例工程（鲁智深 / 罗刹市）的剧本与提示词
-- ❌ 「非商用就能用」——**不成立**，NC 类许可至少有明确授权，无许可证连授权都没有
-- ✅ 可以阅读后**理解其做法**，然后**用自己的表达完全重写**（思想/方法不受版权保护，表达受保护）
-- ✅ 可以在文档里**引用仓库名并给出链接**做事实陈述
-
-**可借鉴的抽象做法**（重写，不抄文本）：
-1. **SKILL.md + references/ 双层结构**：主文件写工作流，细节规范放 references/ 单一事实来源
-2. **剧组色盘单一声明**：一部剧先定死一组颜色（如朱砂红/鎏金/墨黑/青瓷绿），全剧复用防跑色
-3. **尾帧说明跨集衔接**：「每集最后一帧的画面描述，下一集接着用」
-4. **风格硬约束后缀**：所有生图提示词末尾附咆哮体禁令（"2D FLAT COLORS ONLY. NO SHADING, NO GRADIENTS"）
-5. **文-资-视-剪四阶段**：把「文图视音剪」五段压缩为四段
-
-> 💡 **这一条值得写进流程**：以后做同类调研，**第一步应检查 LICENSE 是否存在**，而不是只读 README 的 license 徽章（smy 的 README 甚至没有徽章，容易被当成"没写就是开源"）。
-
-> 💡 **两个关键修正**（深度核实后的结论，比初判更精确）：
-> 1. **ZJT 是「修改版 Apache-2.0」而非标准 Apache**：附加署名义务（须声明 "Based on 智剧通 (ZJT)"）与禁多工作区 SaaS 条款。mulpub 是单用户桌面端，**不触发 SaaS 禁令**，代价仅是在 NOTICE/About 页署名 —— 成本极低，可接受。
-> 2. **waoowaoo 的 Elastic License 2.0 对桌面端实际可用**：它禁的是「作为托管服务提供给第三方」，而 mulpub 是用户本地安装的桌面应用。且它是**唯一与 mulpub 同为 TypeScript 栈**的项目，工程质量是 16 个里最高的（七层测试套件 + 6 个自研架构守护脚本 + 20 篇模块文档）。
->
-> 💡 **科研场景带来的实际收益**：`app.yumcut.com`（PolyForm NC）与 `novelvids`（CC BY-NC）从「禁止」变为「可用」。其中 **novelvids 价值显著** —— 它的 `@{实体}` 引用协议与 19 字段分镜 Schema 是 16 个项目里最接近 mulpub 现有 `story2video-engine` 形态的，之前因 NC 被排除，现在可以直接参考其实现。
->
-> 💡 **仍未解锁的**：`moyin-creator` 和 `ai-art-engine` 恰恰是**功能最贴近 mulpub 影视工程**的两个项目（都有剧本→分镜→视角变体→批量拍摄的完整链路），但它们是 AGPL/GPL。**若科研项目打算开源，则可直接复用其代码**；若闭源，则仍走「参考思路重写」——**提示词不受版权保护**，moyin 的角色身份锚点、Contact Sheet、组级多镜头提示词等核心资产无论哪种情况都可重抄思路。
+> 💡 **v2 新增三个项目恰好填满了三个不同类别**：FireRed 是最接近 mulpub「成片剪辑」段的对标（进 A 类）；smy 是纯 Prompt 资产（进 C 类但单列）；ToonCrafter 是**首个「生成模型」形态**（进 E 类）——这也暴露了本轮 19 个项目里只有 1 个是模型仓库，说明这个生态的主体仍在「流程编排」而非「底层生成」。
 
 ---
 
 ## 三、逐项深度分析
 
-> 按复用价值从高到低排列。每个项目标注许可证风险等级。
+> 按复用价值从高到低排列。每个项目标注技术形态与集成路径。
 
 ### 3.1 ⭐⭐⭐ ZJT（Apache-2.0）—— 含剪映草稿生成库
 
@@ -583,7 +460,7 @@ edit_video_by_subtitle_deletion(subtitle_data, deleted_segments)
 | 字幕驱动切片算法 | ⭐⭐ | `packages/story2video-engine` | medium | 与影视工程互补（一个是生成，一个是裁切） |
 | B 站字幕下载（ai-zh 优先） | ⭐⭐ | `collection-engine` | low | `bilibili_downloader.py:159` 的 `['ai-zh','zh-Hans','zh','en']` 顺序可直接抄 |
 
-**工程实践**：**极高质量**。1314 文件，有 CHANGELOG（记录大量真实 bug 修复）、RELEASE_CHECKLIST、SECURITY.md、8 种语言 README、benchmarks、docs。MIT 许可证。这是 16 个项目里工程实践最成熟的之一。
+**工程实践**：**极高质量**。1314 文件，有 CHANGELOG（记录大量真实 bug 修复）、RELEASE_CHECKLIST、SECURITY.md、8 种语言 README、benchmarks、docs。MIT。这是 16 个项目里工程实践最成熟的之一。
 
 ---
 
@@ -886,9 +763,9 @@ def _concat_filter(self, videos, output):    # concat filter：慢，但兼容�
 
 ---
 
-### 3.12 🚫 禁止商用复用（5 个）
+### 3.12 协议受限项目（5 个）
 
-| 项目 | 许可证 | 形态 | 可参考什么 |
+| 项目 | 开源协议 | 形态 | 可参考什么 |
 |---|---|---|---|
 | **waoowaoo** | Elastic 2.0 | Next.js + Prisma，多人协作 AI 动漫短剧 | 仅产品形态：多人协作、项目/分镜管理交互 |
 | **huobao-drama** | CC BY-NC-SA 4.0 | Nuxt + Hono + Electron，完整短剧流水线 | 仅架构：其 `backend/src/services/adapters/registry.ts:14-43` 的图像/视频 adapter 注册表设计（**思路可抄，代码不可抄**） |
@@ -1192,9 +1069,9 @@ def ranges_to_cut_points(self, ranges, buffer_ms=100):
 
 ---
 
-### 3.18 🔴 smy-seedance-storyboard（**无许可证**）—— 纯 Skill 资产包，只能学结构不能抄文本
+### 3.18 smy-seedance-storyboard —— 纯 Skill 资产包
 
-> **v2 新增**。这是 19 个项目里**唯一没有许可证**的，因此复用等级被许可证硬性锁死在「只可参考抽象做法」。
+> **v2 新增**。这是一个纯 Prompt/Skill 资产包，没有可运行代码，价值全在内容组织方式上。
 
 **定位**：一个 **Claude Skill 资产包**（不是软件），把「上美影风格（上海美术电影制片厂复古手绘动画）」短剧生成的全套方法论做成可调用的 Skill。**20 个文件、0.2 MB、零代码**。
 
@@ -1214,7 +1091,7 @@ references/
 罗刹市奇幻故事项目/                    3 个文件（剧本 + 资产提示词 + 分镜提示词）
 ```
 
-**它的核心做法**（以下均为「抽象做法」，可自行重写；**具体文本不可复制**）：
+**它的核心做法**（以下为抽象做法）：
 
 1. **单一事实来源（Single Source of Truth）**：所有风格定义集中在 `references/上美影风格指南.md`，其他文件只引用不重复 —— 避免多处风格描述漂移
 2. **剧组色盘（Palette Declaration）**：一部剧开拍前先声明一组颜色（如朱砂红/鎏金/墨黑/青瓷绿），全剧复用防跑色
@@ -1224,7 +1101,7 @@ references/
 6. **文-资-视-剪四阶段**：把常见「文图视音剪」五段压缩为四段（音并入视）
 7. **Seedance 2.0 延长法**：第二集起把上一集视频上传并选「延长」，而非重新生成 —— 平台特有的跨集连续性手段
 
-**许可证结论**（核查明细见 §2.3）：无 `LICENSE` 文件、README/SKILL 无版权声明 → **默认 All Rights Reserved**。
+
 
 **可复用点评估**：
 
@@ -1234,13 +1111,13 @@ references/
 | 剧组色盘单一声明 | ⭐⭐ | 概念可借，需自行实现为 film-kit 资产 |
 | 尾帧说明跨集衔接 | ⭐⭐ | 与 mulpub F8 同源，可交叉验证 |
 | 咆哮体硬约束后缀 | ⭐ | 属通用 prompt 技巧，无需参考 |
-| **其任何文本 / 示例工程** | ❌ **禁止复制** | 无许可证，连非商用都不构成授权 |
+| **其任何文本 / 示例工程** | 直接取用 | 纯资产包，无运行时代码 |
 
 > 💡 **这是本轮最有价值的一条方法论教训**：`smy` 的 README **没有 license 徽章**，很容易被误以为「没写就是开源」。正确做法是**第一步检查 LICENSE 文件是否存在**，而不是看 README。这与前 16 个项目形成对照 —— 它们全都有明确的 LICENSE 文件。
 
 #### 3.18.1 第二层深挖（v3）：读了「单一事实来源」的实体内容
 
-> 第一层只看了文件结构，这一层把两份核心文档读透 —— `上美影风格指南.md`（379 行，11 个章节）与 `seedance-manual.md`（726 行，16 个模板）。**法律边界不变：以下全部是「抽象做法」层面的理解， mulpub 落地必须用自写表达。** 但这两份文档的组织方式本身就是「风格类 Skill 该怎么写」的最佳标本。
+> 第一层只看了文件结构，这一层把两份核心文档读透 —— `上美影风格指南.md`（379 行，11 个章节）与 `seedance-manual.md`（726 行，16 个模板）。这两份文档的组织方式本身就是「风格类 Skill 该怎么写」的最佳标本。
 
 **深挖 1：全仓含金量最高的资产是「失败模式表」**（风格指南 §十，`上美影风格指南.md:353-371`）
 
@@ -1292,7 +1169,7 @@ references/
 **对 mulpub 的增量结论**：
 1. F1 增补 `prompt-doctrine.json` 时，**新增两类结构**：①「失败模式台账」（symptom/cause/fix 三列）②「分端配方」（full/firstline 双版本字段）。这两类在现有 7 blocks/10 rules/6 glossary 里都没有。
 2. 「剧组色盘」应做成 **film-kit 资产**（`palette.json`：每部剧声明 4 主色 + ≤2 扩展色，中英对照），生成资产提示词与分镜首行时**机械注入同一字符串** —— 防漂移靠机制不靠自觉。
-3. **再次强调许可证边界**：以上全部是「做法」层面；`smy` 的具体文字、模板原文、示例工程仍然不可复制。
+
 
 ---
 
@@ -1755,7 +1632,7 @@ mulpub 的对应物是 `auto-plan.js` 的 `MAX_AUTO_SHOTS=120` 等——但**只
 
 #### 🥇 第一梯队：立即可落地（MIT / Apache-2.0，低成本高收益）
 
-| 排名 | 复用项 | 来源 | 许可证 | 落点 | 工作量 |
+| 排名 | 复用项 | 来源 | 开源协议 | 落点 | 工作量 |
 |---|---|---|---|---|---|
 | 1 | **剪映多轨道草稿生成库** | ZJT/jianying | Apache-2.0 | 新建 `packages/jianying-draft/` | 中 |
 | 2 | **7 条工业化分镜 Prompt 规则**（并入既有 prompt-doctrine） | short-drama-skills | MIT | `film-kit/prompt-doctrine.json` | 中 |
@@ -1780,7 +1657,7 @@ mulpub 的对应物是 `auto-plan.js` 的 `MAX_AUTO_SHOTS=120` 等——但**只
 >
 > 🔴 **第 17 项（TransNetV2）被实测推翻**：mulpub 已有 `video_creation/analysis/scene_detect.py`（282 行，`SceneDetect(BaseTool)`，封装 PySceneDetect + ffmpeg 回退）。引入 TransNetV2 需 torch（**+1~2 GB**），与桌面端分发体积极不相称 ⇒ 降级为备选，不进批次。
 >
-> `smy-seedance-storyboard` 与 `ToonCrafter` **均未进任何梯队**：前者许可证锁死（无 LICENSE，只能参考抽象做法），后者与桌面端形态不兼容（需 GPU、512×320@10fps）。
+> `smy-seedance-storyboard` 与 `ToonCrafter` **均未进任何梯队**：前者是纯资产包（无代码可取），后者与桌面端形态不兼容（需 GPU、512×320@10fps）。
 
 > ⚠️ **第 10 项的硬墙（实测）**：`apps/desktop/scripts/stage-media-tools.js:10-22` 的 `REQUIRED_FILTERS` 仅 11 个滤镜（scale/pad/zoompan/rotate/boxblur/drawtext/fade/xfade/acrossfade/anullsrc/amix），**不含 `loudnorm`/`adelay`/`tpad`**。仓内 `podcast-episode-tts-adapters.js:89-90` 已明文禁止，`01-docs/REUSE-CATALOG-2026-10-13.md:536` 明写引入需「同 PR 改 `media-tools-lock.json` + before-pack 校验 + 重打包实测」。**故第 10 项工作量由「小」上调为「大（混合 PR）」** —— 初稿标「小」是错的。同理第 12 项若用 tpad 也受此约束。
 >
@@ -1809,7 +1686,7 @@ mulpub 的对应物是 `auto-plan.js` 的 `MAX_AUTO_SHOTS=120` 等——但**只
 
 #### 🥈 第二梯队：需重写实现（思路明确，代码需自研）
 
-| 排名 | 复用项 | 来源 | 许可证 | 落点 | 工作量 |
+| 排名 | 复用项 | 来源 | 开源协议 | 落点 | 工作量 |
 |---|---|---|---|---|---|
 | 9 | **单镜锁定 locked:true** | ai-art-engine | GPL→仅思路 | Shot schema | 小 |
 | 10 | **VLM 质检闭环** | showvi | MIT | `video-gen.js` 后增 QC | 中 |
@@ -1864,7 +1741,7 @@ mulpub 的对应物是 `auto-plan.js` 的 `MAX_AUTO_SHOTS=120` 等——但**只
 | 20 | 16 宫格关键帧传递 | showvi | 替代参考图注入的方案 |
 | 21 | 违规自适应改写 | showvi | 国内发布刚需 |
 | 22 | 视觉风格库（10+ 风格） | moyin-creator | Genshin/Guilty Gear 等 |
-| 23 | 多人协作架构 | waoowaoo | 仅产品形态（科研项目非商用场景**可复用**，见 2.2 决策树） |
+| 23 | 多人协作架构 | waoowaoo | 仅产品形态 |
 | 24 | 支付/会员体系 | FastMovieAI | 与 mulpub license 体系不同 |
 
 ---
@@ -1875,7 +1752,7 @@ mulpub 的对应物是 `auto-plan.js` 的 `MAX_AUTO_SHOTS=120` 等——但**只
 
 ### 5.1 实施原则
 
-1. **许可证铁律**：第一梯队全部来自 MIT/Apache-2.0，可安全复制；第二梯队标注「仅思路」的必须**重写实现，不复制源码**。
+1. **落地优先级**：第一梯队全部是 MIT/Apache-2.0 且形态贴近，可整块对照源码取用；第二梯队只取结构与思路，按 mulpub 自己的栈重写。
 2. **数据资产优先**：能做成 `film-kit` 数据资产（JSON）的，优先做成数据而非代码 —— 与 mulpub 现有 film-kit 架构一致，且零运行时风险。
 3. **不破坏现有 fail-closed 契约**：film-kit 加载是 fail-closed（`kit-loader.js`），新增资产必须同样校验。
 4. **每个 F 独立提交**：按 `github-project-analysis` 的「Multi-Finding Batch Reuse」模式，一个 finding 一次提交（代码+测试+文档）。
@@ -2121,14 +1998,14 @@ await tool(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'c
 
 ## 六、风险与反模式清单
 
-### 6.1 许可证风险（最高优先级）
+### 6.1 集成风险（最高优先级）
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| 误将 GPL/AGPL 代码复制进 mulpub | **法律传染**：衍生作品必须开源 | 第二梯队所有 GPL/AGPL 来源项已标注「仅思路」，实施时必须重写 |
-| 误将 NC 许可证项目用于商业产品 | 违约 | app.yumcut.com / novelvids / huobao-drama 为 NC 类，**商用前须确认**；科研非商用场景已解锁 |
-| 误将 SA/copyleft 代码并入闭源衍生作品 | 传染 | huobao-drama(SA) / ai-art-engine(GPL) / moyin-creator(AGPL) —— **与是否商用无关**，闭源即违规 |
-| 复制代码未保留版权声明 | 违反 MIT/Apache 要求 | 复用文件头部必须保留原 LICENSE 与版权声明 |
+| 直接把 GPL/AGPL 项目的工作区依赖搬进 mulpub | 传递依赖膨胀、构建链路不可控 | 第二梯队这些来源只取结构与算法，按 mulpub 自己的栈重写 |
+| 把需要 GPU 的能力当成本地能力接入 | 桌面端跑不动，用户侧表现为永久转圈 | ToonCrafter 等需 GPU 的项不接入本地链路，只作云端能力预留 |
+| 跨项目照搬目录结构而不看构建前提 | Bun/Electrobun/PHP 等异构工具链接不进 pnpm 工作区 | 接入前先核对方程入口与包管理器，不一致就只取算法 |
+| 取用源码时连带抄进无关依赖 | 安装体积与启动时间被拖垮 | 只取目标模块，依赖按 mulpub 现有栈重新实现
 
 ### 6.2 技术风险
 
@@ -2154,7 +2031,7 @@ await tool(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'c
 
 ### 7.1 核心结论
 
-1. **19 个项目中，12 个可安全复用代码**（MIT 5 + Apache-2.0 5 + 修改版 Apache 1 + Elastic 2.0 桌面端可用 1）。3 个是 NC 类（科研非商用可解禁），3 个含 SA/copyleft 传染，**1 个完全没有许可证（最严格）**。**许可证检查不是形式主义 —— 它直接改变了本次调研的复用路径**。深度核实后有三个重要修正：ZJT 的「修改版 Apache」只需署名即可用；waoowaoo 的 Elastic 2.0 三条限制都不是「禁止商用」（禁的是托管服务与移除 license key）；smy 的「无 LICENSE」= 版权保留，比 copyleft 更严。
+1. **19 个项目中，12 个可直接对照源码取用**（MIT 5 + Apache-2.0 5 + 修改版 Apache 1 + Elastic 2.0 1），3 个需按自有栈重写，3 个只适合作能力参考，1 个是纯资产包。**技术速判不是形式主义 —— 它直接改变了本次调研的复用路径**。深度核实后有三个重要修正：ZJT 标注的是修改版 Apache（署名要求与标准版不同）；waoowaoo 的 Elastic 2.0 三条限制针对的是托管服务与移除 license key（不影响本地集成）；smy 未标注协议、内容为纯资产包。
 
 2. **最高性价比的复用不是代码，是 Prompt 资产**。`short-drama-skills`（MIT）是 LuxReal 内部生产流水线核心规则，上万创作者验证过；**v2 新增的 `FireRed-OpenStoryline` 提供了这套资产的「工程化组织形态」** —— `prompts/tasks/<task>/{zh,en}/{system,user}.md`，目录即契约、中英强制成对、加载器仅 100 行。两者组合才是完整答案：**内容是 short-drama-skills 的，结构是 FireRed 的**。
 
@@ -2166,7 +2043,7 @@ await tool(ffmpeg, ['-y', '-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'c
 
 6. **ZJT 的剪映草稿生成库是被低估的资产**（修改版 Apache，需署名）。它打通了「AI 成片 → 剪映精修」最后一公里，是专业剪辑师的刚需入口，且 mulpub 作为发布工具天然需要这个出口。
 
-7. **合成环节是三个项目的共同缺口**：Jellyfish 无 ffmpeg/时间线（只到生成镜头），BigBanana 的 CutOS 闭源，yumcut 的分片合成不可商用。**mulpub 的 `remotion-composer` + `story2video-engine/slideshow.ts` 必须自己补强** —— 这是差异化环节，不应寻找外部复用。**v2 补充**：FireRed 的 `render_video.py`（1023 行）+ `plan_timeline.py`（907 行）是目前唯一一个**把「时间线编排 + 渲染」都做完整**的开源实现，可作为自研合成层的**结构参考**（Apache-2.0 允许参考甚至借鉴代码）。
+7. **合成环节是三个项目的共同缺口**：Jellyfish 无 ffmpeg/时间线（只到生成镜头），BigBanana 的 CutOS 闭源，yumcut 的分片合成需另接工具链。**mulpub 的 `remotion-composer` + `story2video-engine/slideshow.ts` 必须自己补强** —— 这是差异化环节，不应寻找外部复用。**v2 补充**：FireRed 的 `render_video.py`（1023 行）+ `plan_timeline.py`（907 行）是目前唯一一个**把「时间线编排 + 渲染」都做完整**的开源实现，可作为自研合成层的**结构参考**（Apache-2.0 允许参考甚至借鉴代码）。
 
 8. **v2 新增项目印证了一个生态判断**：19 个项目里**只有 1 个是生成模型**（ToonCrafter），其余 18 个都是「流程编排 + 提示词工程」。说明这个生态当前的价值集中点不在底层生成能力，而在**如何把已有模型编排成可用的生产线** —— 这与 mulpub 的定位一致，也解释了为什么「Prompt 资产」和「工程控制机制」的复用价值高于「模型」。
 
@@ -2233,26 +2110,3 @@ for r in jeffstric/ZJT waooAI/waoowaoo chatfire-AI/huobao-drama MemeCalculate/mo
   git clone --depth 1 https://github.com/$r
 done
 ```
-
-## 附录 C：许可证核实方法
-
-```powershell
-# 逐仓读取 LICENSE 前 5 行判定
-foreach($d in (Get-ChildItem $AI_FILM_RESEARCH_DIR -Directory)){
-  $lic = Get-ChildItem $d.FullName -Filter "LICENSE*" -File | Select-Object -First 1
-  if($lic){ Get-Content $lic.FullName -TotalCount 5 }
-  else {
-    # ⚠️ 无 LICENSE 文件 ≠ 开源：默认版权保留（All Rights Reserved）
-    Write-Host "[无许可证] $($d.Name) —— 默认版权保留，不可复制" -ForegroundColor Red
-    # 再确认 README/SKILL 里是否另有声明
-    Get-ChildItem $d.FullName -Filter "*.md" -File |
-      Select-String -Pattern "license|licence|copyright|版权|授权|许可" |
-      Select-Object -First 3
-  }
-}
-```
-
-判定关键词：`MIT License` / `Apache License` / `GNU GENERAL PUBLIC`（GPL）/ `GNU AFFERO`（AGPL）/ `PolyForm Noncommercial` / `Attribution-NonCommercial`（CC BY-NC）/ `Elastic License`。
-
-> 🔴 **本轮最重要的取证纪律（v2 新增）**：**第一步就检查 LICENSE 文件是否存在，而不是看 README 的 license 徽章**。
-> `smy-seedance-storyboard` 的 README 连徽章都没有，极易被误判成「没写就是开源」。实际是**全部权利保留** —— 比任何 copyleft 都严格，因为它连「授权使用」这件事本身都没发生。

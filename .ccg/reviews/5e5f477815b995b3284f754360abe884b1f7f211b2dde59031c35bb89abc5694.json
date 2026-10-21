@@ -1,0 +1,107 @@
+{
+  "sha": "b940c96e1bef4405c052f6c332117726cd21158b",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 10 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
+  "stats": {
+    "changedLines": 10,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5e5f477815b995b3284f754360abe884b1f7f211b2dde59031c35bb89abc5694",
+  "decidedAt": "2026-10-20T03:34:01.684Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "注释差值与数据矛盾：register 侧 2722→2770 实为 +48（注释写 +46）、2487→2578 实为 +91（注释写 +92）；+46/+92 是 targets 侧差值，同一句中两套口径混用，误导后续审计核对。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立。注释原句写「pipeline-engine.js 2724→2770（+46）与 story2video-compose-engine.js 2486→2578（+92）」，两个起点是 targets 侧，但同段又声明「targets 与 register.files 两侧同步上浮」，读者无法判断 delta 归属哪一侧。可验证的失败场景：审计者按 register 侧起点复算 2722+46=2768≠2770、2487+92=2579≠2578，两处都对不上现值，会得出「基线登记与实物错位」的假异常，白跑一轮排查；而基线文件的 // 字段正是给审计者做这种逐键求差用的。实测两侧差值：register 2722→2770=+48、2487→2578=+91；targets 2724→2770=+46、2486→2578=+92。",
+        "defense": "最弱的一层辩护是「两个数字都能在文件里找到」——+46/+92 确为 targets 侧真实差值，且注释上下文在讲 targets 上调。更强的一层：delta 只是说明性文字，不参与任何判据计算，门禁读的是 JSON 数值而非注释。但辩护无法否定「同一句混用两套口径」这一事实，也无法让审计者免于复算失败。",
+        "verdict": "upheld",
+        "rationale": "实测确认两侧口径不同：register +48/+91、targets +46/+92，而原注释只给了一侧数字却配了另一侧起点。已在同一 PR 内改写注释，把两侧增量分别列明（register 侧 +48/+91、targets 侧 +46/+92 并各自标注起点与现值），使注释可被逐键复算校验。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "tasks.md 第 8 节 8.1–8.4 全部勾选，声称三模块拆分完成、216 例回归锁定、filesOver500 95==95；但本 commit diff 无任何拆分代码或新增模块文件，仅 baseline 上调与勾选，记录与提交实物无法对应核验。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立。勾选是本仓执行记录里「已完成」的唯一形态，读者只会看勾选。在本 commit（b18e2b73d）上执行 `git show --stat` 找不到 story2video-notification-params.js / story2video-notifications-keys.js 任何一行，于是「216 例回归锁定」这条声明在该提交上无法取证：既不能确认拆分发生过，也不能确认那 216 例跑的是拆分后的代码。要核验必须回翻 PR 历史找到 4be07714f（拆分文件的实际引入提交），而 tasks.md 从未写下这个归属。",
+        "defense": "拆分与勾选属同一 PR 的不同提交，PR 整体可核验；且 tasks.md 是 change 内部计划文档，不是对外的收口账（收口账是 openspec/records/）。但「同 PR 不同提交」恰恰是问题所在：勾选落了地而实物在别的提交，等于把「可独立取证」降级成「需人肉回溯」。",
+        "verdict": "upheld",
+        "rationale": "已实测确认拆分文件由 4be07714f 引入，而 §8 的勾选落在其后的提交上。已在 §8 每项补「归属提交 4be07714f」，使记录自身带上可追溯指针，不必回翻 PR 历史即可核验实物归属。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "新增 .ccg/reviews/5e5f….json 记录 sha=b940c96e 与本提交 head b18e2b73d 不一致，stats 为 10 行/2 文件而非本提交 148 行；且 deepReview.status=pending、tier=unknown，必需深审未完成记录即随提交入库。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控的实质是「记录错配 + 未评审即入库」：记录 sha 指向父提交、stats 描述的是另一个 diff、status 还停在 pending，三者叠加看起来像一条错挂的记录混进了提交，读者会以为评审已完成或记录张冠李戴。若记录真属错配，后续按它闭合就等于给错了对象发通行证。",
+        "defense": "三项「异常」全部是判定机制的既定在途形态，且都有源码出处。① 父 sha 归因：pre-commit 跑判定器时新 commit 尚未生成，currentSha() 拿到父提交，故记录写在父 sha 上；驱动命中时会主动打印「判定记录按 diff 内容寻址命中 …（pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为）」。② stats 描述的是**该记录自己的 diff**（10 行/2 文件，即 baseline 上调），与本 commit 行数不同是必然，不是错配。③ tier=unknown 是生产方 buildDeepReviewInit 给新产物的初始值，check-pr-exec-record.js 明文写着「新记录天生 tier=unknown」；status=pending 是「待评审」在途态。④ 时序上记录必须先存在才能被驱动评审，闭合在同一次 PR 内完成（本条裁决所在流程即闭合动作）。",
+        "verdict": "dismissed",
+        "rationale": "指控把机制定义的在途形态读成了错配与违规。逐项可核：父 sha 归因见 deep-review.sh / ccg-deep-review.js 的 readDecision 注释及驱动命中日志原文；tier=unknown 的归属见 scripts/check-pr-exec-record.js 对生产方 buildDeepReviewInit 的说明；pending→闭合的时序由同一 PR 完成。反证：若改成「提交后补写记录」，记录描述的 diff 将是历史对象而非当次变更，反而制造失真——这正是内容寻址（stagedDiffHash）存在的理由。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-20T05:00:17.085Z",
+    "tier": "external",
+    "evidence": "openspec/records/error-message-user-friendly-audit.md",
+    "closureNote": "第 1 轮 critic=claude 提出 5 条（3 Warning / 2 Info）；第 1 轮自扮演裁决定 i1/i2 upheld、i3 dismissed。处置：i1（基线注释混用 register/targets 两套口径 → 两侧增量分别列明并标注起点与现值）已修、i2（tasks §8 勾选缺实物归属 → 每项补「归属提交 4be07714f」）已修、i3 dismissed（父 sha 归因 / tier=unknown / pending 均为判定机制在途形态，附源码出处）。逐条见执行记录 §8.1。"
+  }
+}

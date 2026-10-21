@@ -1,0 +1,46 @@
+{
+  "sha": "5e173de83a2a8d03c392c04044ecc17ef3cdeb2f",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 5,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 6
+        }
+      }
+    ],
+    "error": "Revision校验失败",
+    "validationErrors": [
+      "edits[0]before 在方案原文中不存在（逐字匹配失败）：\"| F-B | 纯函数：逐镜就绪度判定（无 IO、可测）。**`skipped`\"",
+      "edits[1]before 在方案原文中不存在（逐字匹配失败）：\"| 读入事实 | `file/provider` 探测\"",
+      "edits[2]before 在方案原文中不存在（逐字匹配失败）：\"身份锚点与参考图优先级声明构造\"",
+      "edits[4]before 在方案原文中不存在（逐字匹配失败）：\"| V-26b | 放宽授权留痕 | `auto-project.test.js\"",
+      "edits[6]before 在方案原文中不存在（逐字匹配失败）：\"| PR-6b | F-C 出站安全加固\"",
+      "edits[7]before 在方案原文中不存在（逐字匹配失败）：\"| 其余合同 | S-1 https / S-3 私网段 / S-4' DNS \"",
+      "edits[9]before 在方案原文中不存在（逐字匹配失败）：\"| `node apps/desktop/electron/tests/film\"",
+      "edits[11]before 在方案原文中不存在（逐字匹配失败）：\"| PR-1 | **方案 + F-A 提示词三分** | 无（本 change\"",
+      "edits[12]before 在方案原文中不存在（逐字匹配失败）：\"| PR-8 | **F-F 身份锚点 + 参考图优先级** | 无（独立面）\"",
+      "responses[0]decision=accepted 但没有对应的 edit（issueId=i1）——方案将原封不动，循环无法收敛",
+      "responses[1]decision=partially_accepted 但没有对应的 edit（issueId=i2）——方案将原封不动，循环无法收敛",
+      "responses[4]decision=partially_accepted 但没有对应的 edit（issueId=i5）——方案将原封不动，循环无法收敛",
+      "responses[7]decision=accepted 但没有对应的 edit（issueId=i8）——方案将原封不动，循环无法收敛"
+    ],
+    "note": "第 1 轮修订失败",
+    "artifacts": ".adversarial\\ccg-plan-proposal-codex",
+    "at": "2026-10-20T20:41:43.664Z"
+  }
+}

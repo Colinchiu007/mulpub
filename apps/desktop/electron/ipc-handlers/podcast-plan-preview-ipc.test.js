@@ -95,7 +95,7 @@ describe('podcast IPC · episode:planPreview 只读合同', () => {
     expect(ctx.registry.assertChannelWritable).not.toHaveBeenCalled()
   })
 
-  it('音色三层全空 ⇒ 信封带 subCode=PODCAST_TTS_VOICE_UNRESOLVED 与 issues（拒绝态不是空态）', async () => {
+  it('音色两层全空 ⇒ 信封带 subCode=PODCAST_TTS_VOICE_UNRESOLVED 与 issues（拒绝态不是空态）', async () => {
     const ctx = setup({
       modelProviderManager: { getDefault: vi.fn(() => null) },
     })
@@ -164,5 +164,163 @@ describe('podcast IPC · episode:planPreview 只读合同', () => {
     const handlerSrc = fs.readFileSync(path.resolve(__dirname, 'podcast.js'), 'utf8')
     expect(handlerSrc).not.toMatch(/split\('\\n'\)/)
     expect(handlerSrc).not.toMatch(/Array\.from\([^)]*\)\.length\s*>\s*\d+/)
+  })
+})
+
+describe('podcast IPC · episode:planPreview 撤档后 handler 侧的四条现场判据（QM6 i1/i3/i4/i6）', () => {
+  it('空/空白 channelId 由形状层拒，且不得把空 id 送进频道服务（存在性守卫不得演成第二次拒绝源）', async () => {
+    const getChannel = vi.fn(() => ({ title: '播客频道', description: '', author: '' }))
+    const ctx = setup({ podcastChannelService: { getChannel, readFeedSync: () => null } })
+    const res = await ctx.call({ channelId: '   ', script: OK_SCRIPT })
+    expect(res.code).not.toBe(0)
+    expect(res.subCode).toBe('PODCAST_CHANNEL_ID_REQUIRED')
+    expect(getChannel, '空 id 不该走存在性读取——拒绝的落点只有形状层一处').not.toHaveBeenCalled()
+    expect(ctx.registry.assertChannelWritable).not.toHaveBeenCalled()
+  })
+
+  it('存量频道带着 meta.voiceRef（撤档前写入的历史数据）⇒ 出声一次，且解析如实落到 capability 默认', async () => {
+    const ctx = setup({
+      podcastChannelService: {
+        getChannel: () => ({ title: '播客频道', description: '', author: '', voiceRef: { providerId: 'doubao-tts', model: 'doubao-tts', voiceId: 'legacy-voice' } }),
+        readFeedSync: () => null,
+      },
+    })
+    const res = await ctx.call({ channelId: CHANNEL, script: OK_SCRIPT })
+    expect(res.code).toBe(0)
+    expect(res.data.voice.origin).toBe('providerDefault')
+    expect(res.data.voice.voiceId, '历史 voiceRef 不得再被当作音色来源').not.toBe('legacy-voice')
+    const warns = ctx.log.warn.mock.calls.map((c) => String(c[0] || ''))
+    expect(warns.filter((w) => w.indexOf('voiceRef') >= 0).length, '静默把「原本命中频道档」改成回退，必须在现场留痕').toBe(1)
+    expect(ctx.registry.assertChannelWritable).not.toHaveBeenCalled()
+  })
+
+  it('历史 voiceRef 只填了一段 ⇒ 撤档后如实**通过**并出声（QM6 i1：行为变更的另一侧）', async () => {
+    // 撤档前 `resolveEpisodeVoice` 对三段不齐的 channelRef 是硬拒绝（且注释明文「不得顺着回退链往下走」）；
+    // 撤档后该字段根本不进解析 ⇒ 从「拒绝」变成「按偏好/capability 通过」。这一侧也是行为变更，必须出声。
+    const ctx = setup({
+      podcastChannelService: {
+        getChannel: () => ({ title: '播客频道', description: '', author: '', voiceRef: { voiceId: 'half-configured' } }),
+        readFeedSync: () => null,
+      },
+    })
+    const res = await ctx.call({ channelId: CHANNEL, script: OK_SCRIPT })
+    expect(res.code, '撤档的定义是该字段既不采纳也不拒绝；为保留旧的半配置拒绝就得把频道档请回来，与撤档锁冲突').toBe(0)
+    const warns = ctx.log.warn.mock.calls.map((c) => String(c[0] || ''))
+    expect(warns.filter((w) => w.indexOf('voiceRef') >= 0).length, '从拒绝变通过同样是静默改行为，必须留痕').toBe(1)
+    expect(ctx.registry.assertChannelWritable).not.toHaveBeenCalled()
+  })
+
+  it('出声判据只覆盖「当年会参与第①档判定」的值，不给未受影响的历史数据发告警（QM6 i3）', async () => {
+    // 旧语义里 `{}` 与三段全空取不到 voiceId，本就落偏好/capability ⇒ 撤档没改任何东西，出声即误报；
+    // 但主干那行注入还先按 typeof==='object' 滤过一遍 ⇒ 非对象标量当年被滤成 null，撤档没改它们；
+    // 只有「过了那道滤网」的值才谈得上被撤档改变：数组撞旧守卫当场硬拒绝、对象看三段规范键名
+    // （半配置当场拒绝、齐缺落 fallthrough）⇒ 前者出声、后者不出声。
+    // 合法性判据仍只在入参形状层一处。
+    const cases = [
+      [{}, 0],
+      [{ providerId: '', model: '', voiceId: '' }, 0],
+      [null, 0],
+      [undefined, 0],
+      ['', 0],
+      [false, 0],
+      [[], 1],
+      [0, 0],
+      ['legacy-string', 0],
+      [true, 0],
+      [{ providerId: 0 }, 1],
+      [{ voiceId: 0 }, 1],
+      [{ voiceId: 'x' }, 1],
+      [{ voiceID: 'typo-key' }, 0],
+      [{ providerId: 'p', unrelated: 'x' }, 1],
+      [{ unrelated: 'x' }, 0],
+      [{ providerId: 'p', model: 'm', voiceId: 'v' }, 1],
+    ]
+    for (const [ref, wantWarns] of cases) {
+      const ctx = setup({
+        podcastChannelService: {
+          getChannel: () => ({ title: '播客频道', description: '', author: '', voiceRef: ref }),
+          readFeedSync: () => null,
+        },
+      })
+      const res = await ctx.call({ channelId: CHANNEL, script: OK_SCRIPT })
+      const label = 'voiceRef=' + JSON.stringify(ref)
+      expect(res.code, label + ' 不该影响预览成败（撤档后它不是输入）').toBe(0)
+      const warns = ctx.log.warn.mock.calls.map((c) => String(c[0] || ''))
+      expect(warns.filter((w) => w.indexOf('voiceRef') >= 0).length, label + ' 的出声次数').toBe(wantWarns)
+    }
+  })
+
+  it('存在性读取必须排在预览自身的校验之后（QM6 i4：位置即判据，不是顺序偏好）', async () => {
+    // 主干上这次读发生在分块与形状校验之后（它是音色解析的入参求值）。把读挪到 handler 最前会让
+    // 「正文太短 + 频道有问题」报频道错，用户看不到真正该改的那一格；畸形 id 的拒绝源也会从形状层
+    // 搬到服务层——那是两个不同的用户可见错误码。
+    const getChannel = vi.fn(() => { throw new Error('存在性读取不该发生在形状校验之前') })
+    const ctx = setup({ podcastChannelService: { getChannel, readFeedSync: () => null } })
+    const short = await ctx.call({ channelId: CHANNEL, script: '太短了' })
+    expect(short.subCode).toBe('PODCAST_TTS_COPY_TOO_SHORT')
+    expect(getChannel, '正文判据必须先于存在性读取；把读挪回前面这条必须红').not.toHaveBeenCalled()
+    const badId = await ctx.call({ channelId: 'bad/../id', script: OK_SCRIPT })
+    expect(badId.code, '畸形 id 必须由形状层拒').not.toBe(0)
+    expect(badId.subCode).toBe('PODCAST_CHANNEL_ID_INVALID')
+    expect(getChannel, '畸形 id 同样不得走到存在性读取').not.toHaveBeenCalled()
+  })
+
+  it('撤档把「命中频道档的成功」变成「两层全空的拒绝」那一格必须留痕（第五轮 P1）', async () => {
+    // 原版把出声整段留在 await 之后：previewEpisodePlan 抛错时控制流直接进 handlerFor 的 catch，
+    // getChannel 与出声一次都不执行——而「历史频道带 voiceRef + 偏好空 + capability 无默认」恰是
+    // 撤档前后行为真的变了的那一格（撤档前它命中频道档、预览是成功的），留痕机制对该格失明。
+    const getChannel = vi.fn(() => ({ title: '播客频道', description: '', author: '', voiceRef: { providerId: 'p', model: 'm', voiceId: 'v' } }))
+    const ctx = setup({
+      podcastChannelService: { getChannel, readFeedSync: () => null },
+      modelProviderManager: { getDefault: vi.fn(() => null) },
+    })
+    const res = await ctx.call({ channelId: CHANNEL, script: OK_SCRIPT })
+    expect(res.subCode).toBe('PODCAST_TTS_VOICE_UNRESOLVED')
+    const warns = ctx.log.warn.mock.calls.map((c) => String(c[0] || ''))
+    expect(warns.filter((w) => w.indexOf('voiceRef') >= 0).length, '拒绝支也要留痕，否则撤档改了行为而日志零痕迹').toBe(1)
+    expect(getChannel, '留痕必须先读一次频道 meta').toHaveBeenCalled()
+  })
+
+  it('频道缺失 + 音色两层全空 ⇒ 频道错误抢先（第五轮 P3，主干上它是入参求值）', async () => {
+    // 主干上 channelRefOf(channelId) 是音色解析的**入参求值** ⇒ 频道缺失本来就抢先于音色错误。
+    // 撤档删掉那次求值后，如果拒绝支不补读频道，用户看到的会是「请检查服务商与音色设置」——
+    // 把人支去翻一个没问题的地方。这里带 assertChannelExists 的正控，免得下面的 writable 禁词是装饰。
+    const registry = {
+      tryBeginPublish: vi.fn(() => true), endPublish: vi.fn(),
+      assertChannelExists: vi.fn(() => {
+        const e = new Error('PODCAST_CHANNEL_NOT_FOUND: 频道不存在，可能已被删除')
+        e.code = 'PODCAST_CHANNEL_NOT_FOUND'
+        throw e
+      }),
+      assertChannelWritable: vi.fn(), channelDir: vi.fn(() => '/tmp/never'),
+    }
+    const ctx = setup({
+      podcastRegistry: registry,
+      podcastChannelService: null,
+      modelProviderManager: { getDefault: vi.fn(() => null) },
+    })
+    const res = await ctx.call({ channelId: 'ch_gone', script: OK_SCRIPT })
+    expect(res.subCode, '频道错误必须抢先于音色错误（两者排查方向不同）').toBe('PODCAST_CHANNEL_NOT_FOUND')
+    expect(registry.assertChannelExists, '正控：这条路径必须真经过一次存在性读取').toHaveBeenCalled()
+    expect(registry.assertChannelWritable, '只读通道不得请求可写句柄').not.toHaveBeenCalled()
+  })
+
+  it('留痕按频道去重且消息带 channelId（第五轮 P5：常驻状态不去重就每次开框刷屏）', async () => {
+    // 撤档不回填该字段 ⇒ 状态对同一频道是常驻的；本文件对同类常驻状态已有两条去重先例
+    // （stockShapeWarned、previewDepWarned），口径是「刷屏会把真信号冲掉」。去重键必须是 channelId，
+    // 全局一条布尔会让第二个受影响频道的现场被第一个吃掉。
+    const ctx = setup({
+      podcastChannelService: {
+        getChannel: () => ({ title: '播客频道', description: '', author: '', voiceRef: { voiceId: 'v' } }),
+        readFeedSync: () => null,
+      },
+    })
+    for (let i = 0; i < 3; i += 1) {
+      const res = await ctx.call({ channelId: CHANNEL, script: OK_SCRIPT })
+      expect(res.code).toBe(0)
+    }
+    const hits = ctx.log.warn.mock.calls.map((c) => String(c[0] || '')).filter((w) => w.indexOf('voiceRef') >= 0)
+    expect(hits.length, '同一频道只出一次').toBe(1)
+    expect(hits[0], '消息必须可归因到具体频道').toContain(CHANNEL)
   })
 })

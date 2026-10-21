@@ -2901,7 +2901,131 @@ story2video-compose 的创作配置使用五个可折叠区：基础、外观、
 - StageProgress时间格式："X分Y秒" 或 "Y秒"
 
 
-### 3.1.30 电影工程（film-engineering）流水线合并（2026-08-18）
+### 3.1.31 视频提示词中文翻译与提示词区交互重构（2026-10-19）
+
+> **范围**：视频详情页（成品编辑页 / ResultView）分段提示词区。补齐视频提示词的中文翻译、把翻译块改为与对应提示词上下紧邻、并把分段可编辑主体改为默认折叠。
+> **分支**：`s2v-video-prompt-translation`。
+> **关联**：openspec change `s2v-video-prompt-translation`（proposal + specs/story2video-prompt-translation/spec.md）；执行记录 `openspec/records/s2v-video-prompt-translation.md`。
+
+#### 1) 背景（两条独立的根因）
+
+**用户诉求（2026-10-19，附截图）**：成品编辑页每个视频分段的提示词优化区里，只有图片提示词带中文翻译，视频提示词没有；且整个区域内容太多，视觉体验不好。
+
+- **根因 A — 翻译缺失**：图片提示词的翻译链路自 3.1.28 建立（`translatePromptsForLocale` → compose 并行任务 `story2video_prompt_translation_compose` → 按场景 index 回填 `promptTranslation` → 随分段持久化）。视频提示词（`videoPrompt`）是 3.1.29 才新增的字段，其生成链路（流水线 `optimizeVideoScenePrompts`）与「重新生成视频优化词」（`regenerateScenePrompt` kind=video）**从未接入翻译能力**。
+- **根因 B — 信息密度**：结果页唯一的翻译块被放在「画面提示词 textarea + 视频优化词 textarea + 两枚重新生成按钮」**之后**，与它描述的提示词隔了一整个区块；10+ 分段时首屏被 textarea/表单淹没。
+
+#### 2) 流程（数据流）
+
+```
+用户在成品编辑页展开某分段，点击「重新生成视频优化词」
+  ├─ 1. 渲染端 regenerateScenePrompt(segmentId, 'video')
+  │     └─ segmentsDirty 时先 saveSegments（既有 W3 语义）
+  ├─ 2. 主进程 regenerateScenePrompt(projectId, segmentId, 'video')
+  │     ├─ serviceBus.optimizeVideoPrompt(seed, { index, max_length: 40000 })
+  │     ├─ extractOptimizedVideoPrompt 校验（fail-closed：引擎 error + 回显原文不改分段）
+  │     ├─ segment.videoPrompt = safeText(optimizedText, 40000)
+  │     ├─ segment.videoPromptTranslation = null          ← 先清（旧译文失效）
+  │     └─ translateVideoPromptForLocale(aiGenerator, nextVideoPrompt, uiLocale, log)
+  │           ├─ uiLocale === 'en'            → 返回 null（不翻译）
+  │           ├─ aiGenerator 不可用           → 返回 null（fail-open）
+  │           ├─ LLM 抛错/超时/非法内容      → 返回 null（fail-open）
+  │           ├─ 译文 === 原文                → 返回 null（不展示冗余）
+  │           └─ 成功                        → 译文（≤2000 字符）
+  │     └─ 仅当译文非 null 时才写回 segment.videoPromptTranslation
+  ├─ 3. 持久化：_upsertProject（dirty=true）+ 清理未引用文件
+  └─ 4. 渲染端回写 project/segments + refreshSegmentImageUrls + 成功通知
+        └─ 「视频优化词」textarea 下方渲染只读中文翻译块
+```
+
+#### 3) 数据校验
+
+| 项 | 规则 |
+|----|------|
+| `segment.videoPromptTranslation` | `string \| null`，≤2000 字符（与 `promptTranslation` 落库上限一致）；`safeText(value, 2000)` 收敛，非字符串一律 `''` → `null` |
+| 译文有效性 | 非空、trim 后非空、且 trim 后**不等于**视频提示词原文；命中 JSON 对象文本（`/^\{["']\d/`）或代码块标记（`json`）不作为译文 |
+| `videoPrompt` 本体 | ≤40000 字符（既有 3.1.29.5 契约不变） |
+| `uiLocale` | 取 `project.story2videoTextConfig.config.optimize.uiLocale` → `project.options.uiLocale` → 缺省 `'zh'`；仅接受 `/^[A-Za-z-]{1,16}$/`，其余回落缺省 |
+| `updateSegments` 白名单 | **不含** `videoPromptTranslation`：渲染端保存分段时携带该字段一律丢弃，保留服务端译文（防前端伪造） |
+| compose 回填 | compose 输出不含该字段（`normalizeComposeScenes` 白名单），按稳定 source index 从 fallback 分段回填；compose 值优先、空白回退 fallback、两者皆空为 null（与 `videoPrompt`/`promptTranslation` 同源治理） |
+| 旧项目兼容 | 无 `videoPromptTranslation` 字段时正常加载，`safeText(undefined) → ''` → null，不报错 |
+
+#### 4) 功能逻辑
+
+| 功能 | 逻辑 |
+|------|------|
+| **视频提示词中文翻译生成** | 复用 `translatePromptsForLocale`（批量调用、严格 JSON 系统提示、markdown fence 剥离、平衡 JSON 提取、逐行兜底、HTML/marker 包装防御全部继承），**不写第二份翻译实现**。单条调用（batch size 1） |
+| **fail-open** | 翻译链路任何一步失败都只导致 `videoPromptTranslation = null`；`videoPrompt` 本体、`status='completed'`、错误通知语义全部不受影响 |
+| **陈旧译文治理** | 重写 `videoPrompt` 时先置 null 再按结果写回，翻译失败不留上一轮译文（与图片提示词 `promptTranslation` 语义一致） |
+| **图片分支隔离** | `kind === 'image'` 完全不触碰 `videoPromptTranslation`，且不发起任何 LLM 调用 |
+| **提示词/翻译成对** | 图片提示词 textarea 下方紧邻图片翻译块；视频优化词 textarea 下方紧邻视频翻译块。两块各带归属标签区分 |
+| **en 界面** | 两个翻译块均不展示可见译文（`showPromptTranslation` / `showVideoPromptTranslation` 返回 false），保留占位文案 |
+
+#### 5) 交互逻辑
+
+| 交互 | 逻辑 |
+|------|------|
+| **默认折叠** | 分段卡片默认紧凑态：只渲染分段序号、状态徽标、政策标记、素材区概览与展开开关。可编辑主体（旁白文字/字幕/提示词/翻译/语音设置/操作按钮）**不渲染**（`v-if`，非 `v-show`） |
+| **展开开关** | 分段头部「展开编辑 / 收起编辑」按钮（`data-testid="segment-editor-toggle"`，`aria-expanded` 同步）；图标 ▸ / ▾ |
+| **展开态互斥** | `expandedSegmentId` 单值状态：展开分段 B 时分段 A 自动收起；再次点击当前分段收起为紧凑态 |
+| **删除展开分段** | `removeSegment` 时若被删分段正处于展开态，`expandedSegmentId` 置空，避免残留指向已删除 id 的展开态 |
+| **失败不收起** | 「重新生成提示词」失败只发通知，不改 `expandedSegmentId`，用户停留原地可立即重试 |
+| **未保存守卫** | 折叠/展开不触发 dirty（纯 UI 态），离开守卫语义不变 |
+
+#### 6) 显示项与提示文字
+
+| 场景 | 文案（zh / en） |
+|------|-----------------|
+| 展开开关（收起态） | 展开编辑 / Expand editor |
+| 展开开关（展开态） | 收起编辑 / Collapse editor |
+| 图片翻译块标签 | 图片提示词中文翻译 / Image prompt translation |
+| 视频翻译块标签 | 视频提示词中文翻译 / Video prompt translation |
+| 翻译块无译文占位 | 未生成 / Not generated（复用 `sceneMaterial.emptySlot`） |
+
+> 翻译块为只读展示，不可编辑、不可复制按钮（选中复制由浏览器原生行为承担）。
+
+#### 7) UI/UE 方案选型（用户点名要求分析）
+
+对「内容太多」评估了 4 类常见处理，结论如下（详细理由见执行记录 §交互方案选型）：
+
+| 方案 | 结论 | 理由 |
+|------|------|------|
+| 提示词与翻译**左右分栏**（同一行） | ❌ 不采纳 | 中英文都是**长文本**（英文 480 字符 / 中文 130 字符）。左右分栏把每侧可用宽度砍到 ≈50%，英文提示词在 500px 栏宽下要滚 6-8 行，中文侧大量留白——阅读与编辑体验双输。左右分栏只适合「短键值对」 |
+| 翻译**默认隐藏 + hover/点击 tooltip** | ❌ 不采纳 | 翻译是需要**静读**的长文本，tooltip 的窄宽度与易消失性和它冲突；「不可复现的临时浮层」不符合桌面端信息查阅习惯 |
+| **默认折叠 + 点击展开** | ✅ 采用 | 「详情区块过长」的标准解（Progressive Disclosure）。首屏只留分段序号/状态/素材区概览，编辑区按需展开；配合**展开态互斥**进一步压低视觉噪音。本项目已有同族实现可对齐（`QuickCollectPanel` 查看提示词、`BatchCollectPanel` 分组面板、`FilmAutoPanel` el-collapse 高级区） |
+| 翻译与提示词**上下紧邻成对** | ✅ 采用 | 保持每侧全宽（长文本不被砍），并用弱化样式（左边框 + 次级底色 + 只读）与可编辑 textarea 形成层级差 |
+
+#### 8) 测试要求
+
+| 层 | 用例 |
+|----|------|
+| 单元（渲染端） | ①图片/视频翻译块成对且标签区分；②翻译块 DOM 位置紧邻对应 textarea（`compareDocumentPosition`）；③无译文时占位文案；④en 界面两个 `show*Translation` 判定返回 false；⑤重新生成图片后旧图片译文被后端清空（占位）；⑥重新生成视频后旧视频译文被清空（占位）；⑦默认折叠不渲染编辑主体；⑧展开态互斥；⑨失败不收起；⑩删除展开分段后收起 |
+| 单元（主进程） | ①video 成功产出译文并断言 LLM 调用形态（type='llm'、系统提示含「简体中文」与「JSON」）；②重写后旧译文被清空；③LLM 抛错时 `videoPromptTranslation=null` 且 `videoPrompt`/`status` 不受影响；④LLM 返回 markdown 包装 + 示例时取到真实译文而非包装文本；⑤image 分支不写 `videoPromptTranslation` 且不发起 LLM 调用；⑥`updateSegments` 丢弃 `videoPromptTranslation` |
+| 兼容 | 旧项目（无 `videoPromptTranslation`）正常加载并显示占位 |
+
+#### 9) 已知限制
+
+1. **存量项目无 `videoPromptTranslation`**：2026-10-19 之前生成的项目该字段为 null，视频提示词旁显示占位文案。只在用户点「重新生成视频优化词」后补齐第一份译文——**未做存量批量回填**（需遍历 N 个项目的 LLM 批量翻译，成本与失败面都不适合塞进本次 UI 修复）。
+2. **locale 来源固化于任务创建时**：主进程无 `navigator`，`_resolveUiLocale` 取 `optimize.uiLocale` → `options.uiLocale` → 缺省 `zh`。用户在任务创建后切换界面语言，新生成的视频译文仍按任务创建时的语言。与图片提示词翻译同源（流水线 optimize 阶段也是提交时固化 `uiLocale`），非本次新引入的不一致。
+3. **流水线自动路径未覆盖**：本次只覆盖「重新生成视频优化词」交互入口。若后续要在成片生成时同步产出视频译文，应扩展 `prompt_translations_pending` 机制而非复制逻辑。
+
+#### 10) 实现落位（2026-10-20 随 #4064 组件化调整）
+
+本节行为契约不变，但承载文件在 `#4064`（`PRD-S2V-RESULT-VIEW-PERF`）之后整体迁移——原实现内联在
+`apps/desktop/src/views/ResultView.vue` 的分段区，`#4064` 把分段区抽成两个组件，故本特性随之落位：
+
+| 关注点 | 文件 | 说明 |
+|--------|------|------|
+| 提示词/翻译成对渲染 + 折叠开关 | `apps/desktop/src/views/video-creation/ResultSegmentCard.vue` | 图片翻译块紧邻图片提示词 textarea、视频翻译块紧邻视频优化词 textarea；`expanded` 为受控 prop，卡头渲染「展开编辑/收起编辑」开关（`data-testid="segment-editor-toggle"`，`aria-expanded` 同步） |
+| 展开态唯一真源（互斥 + 删除收起） | `apps/desktop/src/views/video-creation/ResultSegmentEditor.vue` | `data.expandedSegmentId` 单值状态；`toggleSegmentEditor()` 幂等互斥；`onRemoveSegment()` 在删除被展开分段时置空 |
+| 折叠范围 | 同上（模板结构） | 只折叠**文本编辑主体**（旁白/字幕/图片提示词+翻译/视频优化词+翻译/语音设置/操作按钮）；**缩略图与四素材槽保持可见**，因为那是「这一镜有什么」的扫读信息，不属于用户抱怨的超长表单 |
+| 宿主接线 | `apps/desktop/src/views/ResultView.vue` | 只保留 `<ResultSegmentEditor>` 的 props/emits 接线，不再持有分段级 UI 状态 |
+| 主进程翻译能力 | `electron/services/story2video-stages.js`、`story2video-project-service.js` | 未受组件化影响，契约同 §3.1.31 第 2)–4) 小节 |
+
+对应测试也按组件拆分：`ResultSegmentCard.test.js`（成对渲染/占位/en 判据/折叠态与 `expanded` 两态）、
+`ResultSegmentEditor.test.js`（默认全折叠/只展开一个/互斥/幂等/删除收起）、
+`ResultView.test.js`（宿主级接线：原有涉及主体内控件的用例补了「先展开」一步）。
+
+
 
 > **范围**：新增「影视工程（Hell Grind）」流水线，包含独立页面 `/film-engineering`、film-kit 资产库、IPC 服务与 i18n 注册。
 > **分支**：`codex/film-engineering-hell-grind` → 合入 `codex/video-creation-ui`。
