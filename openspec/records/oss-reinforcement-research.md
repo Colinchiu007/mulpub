@@ -32,7 +32,6 @@ date: 2026-10-13
 1. **F3 选型 camofox-browser**：CloakBrowser 二进制专有许可（BINARY-LICENSE v1.3：订阅 + 禁再分发 + OEM/SaaS 条款——产品向终端客户提供浏览器能力命中 OEM）→ 主选 MIT+MPL 链的 camofox；CloakBrowser 降备选并建议并行 OEM 咨询。
 2. **F1-c 注入通道证伪与重建**：原方案「preload 注入 stealth evasions」被 `rpa-view-session.js:169` 的 contextIsolation+sandbox 实证否证（隔离世界 patch 无效，且现有 stealth-preload.js 头注为错误声明）→ 改用 `webContents.debugger` + `Page.addScriptToEvaluateOnNewDocument`（webview-manager/utils.js:143 同款基建+回归锁）。
 3. **反检测法务红线（评审 Critical）**：「仅本人账号」为用户侧约束、无法传递给终端客户 → B1 启动前置法务门禁（逐平台 ToS 边界/验证码破解默认关/销售条款/官方 API 优先登记）。
-4. **许可证三件套纪律**：API spdx_id 连续三次不可信（biliup MIT 文件+禁商用声明、DrissionPage NOASSERTION+自定义禁商用、XTTS MPL 代码+CPML 权重禁商用）→ 实施方案前必须 LICENSE + NOTICE/README 声明 + 模型权重许可三查。
 
 ### 遗留项（如实记录）
 

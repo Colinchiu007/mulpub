@@ -32,6 +32,12 @@ const GUI_CLI_E2E_SUITE_NAME = 'GUI/CI 工作流门禁契约';
  * ② `maxObservedMs` 是**手动维护**的 CI 长尾上限，不是每次跑完自动落盘的实时最大值（进程内台账
  *    `elapsedSamples` 随测试进程结束就没了，它只服务"贴脸逼近"那条断言）。要改这个数，唯一的
  *    正当路径是当场跑一次复测入口并把它的输出整份粘回来。
+ * ③ **采样域有两根轴**（2026-10-20，PR #4072 的同族第二处）：复测入口过去只认
+ *    `quality-gate.yml` × `QG Desktop Shards`，而实测同一行还出现在同 workflow 的 `QG Coverage`（1705ms）
+ *    与另一个 workflow `electron-ci.yml` 的 `electron-tests`（1331ms）里。所以 `PRODUCERS` 现在是
+ *    (workflow × 作业名) 的显式登记表，覆盖度也逐 workflow 各判；只扩其中一根轴会让人以为域已完整，
+ *    而那正是本次要修的形状。判据在 `gui-ci-exit-contract.test.js` 的「采样域必须是 workflow × 作业名
+ *    的生产者登记表」那条（含 A/B 两臂与"`(2/2)` 也必须留在域内"的 shard 漂移负控）。
  */
 const GUI_CLI_E2E_CASE_TIMEOUT_MS = 60000;
 
@@ -43,10 +49,16 @@ const GUI_CLI_E2E_BUDGET_PROVENANCE = {
   jobs: 8,
   safetyMultiplier: 4,
   collectedAt: '2026-10-17',
-  source: 'CI 作业 QG Desktop Shards（脚本扫两档，命中只落在该文件所属的 1/2）日志里该用例的耗时行'
+  source: 'CI 作业 QG Desktop Shards（脚本扫两档，命中只落在该文件所属的 1/2）+ QG Coverage'
+    + ' + electron-ci.yml 的 electron-tests 三份日志里该用例的耗时行'
     + '（✓=跑成、×=被框架切断时的墙钟下限）'
     + '，由 scripts/case-timeout-audit.js 汇总：node scripts/case-timeout-audit.js --runs=8 --json'
-    + '；采不到样本以 rc=3 出声——零样本不等于没问题',
+    + '；采不到样本以 rc=3 出声——零样本不等于没问题。'
+    + '⚠ 下面这组数（max=12744 / samples=8 / runs=8 / jobs=8，2026-10-17）是**旧域**（只有 QG Desktop Shards'
+    + ' 一个作业族、且只有 quality-gate.yml 一个 workflow）量的 ⇒ max 是**下界**、samples 是**上界**口径下的'
+    + ' 一条轴。2026-10-20 当场实测三个生产者各产 1 条：Coverage 1705ms、Shards(1/2) 1261ms、'
+    + 'electron-tests 1331ms ⇒ 扩域后样本量按轴倍增，重测须整份粘回；'
+    + '按不对称纪律，更低值不构成收紧理由，更高值则抬预算并同步台账断言。',
 };
 
 // 进程内台账：只有**真跑**才记样本。审计脚本与"贴脸逼近"那条断言都取这份数，

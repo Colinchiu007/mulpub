@@ -243,7 +243,7 @@
 | 声明式源注册表（`type: hottest\|realtime`、`interval`、`sub`、`disable`、`redirect`） | NewsNow `pre-sources.ts` | MIT | 我们的 registry 字段设计 |
 | `expected_domain` 整源丢弃 + 告警 | TrendRadar `config.yaml` | GPL-3.0 | §9 的域名校验 |
 
-**明确不可用**：① wechat2rss（`ttttmr/Wechat2RSS`）**无 LICENSE**（默认保留所有权利）⇒ 代码不可复用，且公众号直采需微信登录态 ⇒ **本 PRD 不做公众号直采**，只保留「用户自填第三方 RSS」的通用入口（S3 之后评估）；② 内嵌 RSSHub/TrendRadar 代码（AGPL/GPL 传染）；③ 机器之心 `jiqizhixin.com/rss`（200 但 0 条目）、PingWest `pingwest.com/feed`（空）、虎嗅 `huxiu.com/rss/0.xml`（超时）——实测不可用，禁止写入 registry。
+**明确不做**：① wechat2rss（`ttttmr/Wechat2RSS`）公众号直采需微信登录态 ⇒ **本 PRD 不做公众号直采**，只保留「用户自填第三方 RSS」的通用入口（S3 之后评估）；② 内嵌 RSSHub/TrendRadar 代码（AGPL/GPL 传染）；③ 机器之心 `jiqizhixin.com/rss`（200 但 0 条目）、PingWest `pingwest.com/feed`（空）、虎嗅 `huxiu.com/rss/0.xml`（超时）——实测不可用，禁止写入 registry。
 
 ## 13. 验收标准（可验证）
 
