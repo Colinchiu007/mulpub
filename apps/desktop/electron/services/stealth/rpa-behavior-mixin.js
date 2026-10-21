@@ -179,10 +179,28 @@ const behaviorMixin = {
     let d = null
     if (driver === 'behavior') {
       d = await this._behaviorClick(win, sel)
-      if (d == null) log.warn('RpaView', '[click] 行为层失败，回落原生合成 click sel=' + String(sel).slice(0, 60))
+      if (d == null) log.warn('RpaView', '[click] 行为层失败，先试 CDP 可信点击 sel=' + String(sel).slice(0, 60))
+    }
+    // 中间这一档「CDP 可信点击」是 wxmp-save-untrusted-click 的修复点。
+    // 2026-10-21 现场（微信「保存为草稿」）：isolated 探活失败（nonce mismatch after
+    // rebuild）→ 直接回落到 el.click() → 页面探针 appReq:0 / xhr:none，30 秒后判定
+    // 「保存未被平台确认」。微信后台忽略不可信事件，合成 click 只能当最后兜底，
+    // 否则「点击成功」是假绿：_click 恒返回 true，上层看不出任何异常。
+    if (d == null && typeof this._clickViaCdp === 'function') {
+      const trusted = await this._clickViaCdp(win, sel).catch(() => null)
+      if (trusted === 'TRUSTED_CLICK') {
+        // 只读描述串：点击已经由可信事件完成，这里**不得**再点一次（会重复提交）。
+        const describeJs = '(function(){let el=(function(){return ' + resolveJs + '})();'
+          + 'if(!el)return "TRUSTED_CLICK";'
+          + 'return el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10)})()'
+        d = await this._isoEval(win, describeJs).catch(() => 'TRUSTED_CLICK')
+        if (d == null) d = 'TRUSTED_CLICK'
+        log.info('RpaView', '[click] CDP 可信点击生效 sel=' + String(sel).slice(0, 40) + ' -> ' + String(d).slice(0, 60))
+      }
     }
     if (d == null) {
       d = await this._isoEval(win, '(function(){let el=(function(){return ' + resolveJs + '})() ;if(!el)throw new Error("not found: "+' + JSON.stringify(sel) + ');var d=el.tagName+"|"+String(el.className||"").slice(0,26)+"|"+String(el.innerText||"").replace(/\\s+/g,"").slice(0,10);el.click();return d})()')
+      if (d != null) log.warn('RpaView', '[click] 回落合成 click（页面可能忽略不可信事件）sel=' + String(sel).slice(0, 60))
     }
     return d
   },
@@ -197,7 +215,14 @@ const behaviorMixin = {
    */
   async _clickViaCdp(win, sel) {
     const dbg = win.webContents.debugger
-    try { await dbg.attach('1.3') } catch (_) { /* 已附加 */ }
+    // attach 归属：只有自己新建的会话才允许 detach。此前无条件 detach，会在
+    // 「已被他方 attach（如 isolated 链）」时把别人的调试会话拆掉，导致同一流程里
+    // 后续 evaluate 全部报 context gone（2026-10-21 微信保存链实测到的次生故障面）。
+    const alreadyAttached = typeof dbg.isAttached === 'function' && dbg.isAttached()
+    let owned = !alreadyAttached
+    if (!alreadyAttached) {
+      try { await dbg.attach('1.3') } catch (_) { owned = false }
+    }
     try {
       const expr = '(function(){var el=(function(){return ' + buildResolveElementCode(sel) + '})();if(!el)return "";'
         + 'el.scrollIntoView({block:"center"});var r=el.getBoundingClientRect();var cx=Math.round(r.left+r.width/2),cy=Math.round(r.top+r.height/2);'
@@ -209,11 +234,17 @@ const behaviorMixin = {
       if (!pos || pos.indexOf(',') < 0) { log.warn('RpaView', '[clickTrusted] 元素未找到: ' + String(sel).slice(0, 30)); return 'NOT_FOUND' }
       const x = Number(pos.split(',')[0]); const y = Number(pos.split(',')[1])
       for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await dbg.sendCommand('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 })
+      // 还原临时关闭的遮挡层：__mpPe 只服务于「让真实点击命中目标」，点完必须复原，
+      // 否则这些元素会永久 pointer-events:none（此前只写不读，是遗留副作用）。
+      await dbg.sendCommand('Runtime.evaluate', {
+        expression: '(function(){try{(window.__mpPe||[]).forEach(function(p){try{p[0].style.pointerEvents=p[1]}catch(e){}});window.__mpPe=[]}catch(e){}})()',
+        returnByValue: true,
+      }).catch(() => null)
       log.info('RpaView', '[clickTrusted] ' + String(sel).slice(0, 28) + ' -> TRUSTED@' + x + ',' + y)
       return 'TRUSTED_CLICK'
     } catch (e) {
       log.warn('RpaView', '[clickTrusted] ' + e.message); return null
-    } finally { try { await dbg.detach() } catch (_) { /* ignore */ } }
+    } finally { if (owned) { try { await dbg.detach() } catch (_) { /* ignore */ } } }
   },
 }
 

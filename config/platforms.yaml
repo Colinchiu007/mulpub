@@ -51,6 +51,10 @@ platforms:
     has_api: false
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     name: 微博
+    # 2026-10-21 补：此前整段没有 publish_url，RPA 通用分支在导航前就返回
+    # `weibo no publish_url`（现场日志 06:29:05），图文发布 100% 失败。
+    # 微博没有独立「写文章」入口，登录态下的发布框就在首页（发布框在信息流顶部）。
+    publish_url: https://weibo.com/
     type: mixed
     icon: 🔥
     category: 中文

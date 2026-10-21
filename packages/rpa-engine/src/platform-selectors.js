@@ -65,8 +65,29 @@ module.exports = {
       publish_btn: ['button:has-text("发布")', '.PublishPanel-publish'],
     },
     weibo: {
-      content_textarea: ['.publisher_text textarea', '.W_input', 'textarea[node-type="textEl"]'],
-      publish_btn: ['a[node-type="submit"]', '.W_btn_b', 'button:has-text("发布")'],
+      // 2026-10-21 真机取证（该账号自己的 cookie 分区，已登录，落在 weibo.com 首页）：
+      //   发布框 `<textarea class="_input_1rz8r_8" placeholder="有什么新鲜事想分享给大家？">`（可见）
+      //   发送   `<button class="woo-button-main woo-button-flat woo-button-primary woo-button-m woo-button-round">发送</button>`（可见）
+      //   旧版判据（.publisher_text textarea / .W_input / textarea[node-type="textEl"] /
+      //   a[node-type="submit"] / .W_btn_b）实测**全部 0 命中** —— 微博已改版为 React + woo 设计系统，
+      //   2026-10-21 现场 `titleInputs=0` 与 `content editor not found` 就是这批旧选择器全落空的结果。
+      // 类名 `_input_1rz8r_8` 是 CSS Modules 生成的哈希（每次构建都会变），不能写死；
+      //   主判据只能用 placeholder 文案（产品文案，长期稳定），`woo-button-primary` 是设计系统稳定类。
+      content_textarea: [
+        'textarea[placeholder*="有什么新鲜事"]',
+        'textarea[placeholder*="新鲜事"]',
+        'main textarea',
+        '.publisher_text textarea',
+        '.W_input',
+        'textarea[node-type="textEl"]',
+      ],
+      publish_btn: [
+        'button:has-text("发送")',
+        '.woo-button-primary',
+        'a[node-type="submit"]',
+        '.W_btn_b',
+        'button:has-text("发布")',
+      ],
     },
     douyin: {
       upload_btn: ['button:has-text("上传视频")', '.upload-btn', '[class*="upload"]'],

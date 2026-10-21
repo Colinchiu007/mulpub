@@ -93,16 +93,32 @@ describe('rpa-view-helpers — 行为层接线（任务 3.4）', () => {
     expect(r).toBe(true)
   })
 
-  it('行为层点击失败时 warn 并经 isolated 通道回落原生合成 click', async () => {
+  it('行为层点击失败时先走 CDP 可信点击，不再执行合成 click', async () => {
     const ctx = makeCtx()
     ctx._behaviorClick.mockResolvedValue(null)
+    ctx._clickViaCdp = vi.fn().mockResolvedValue('TRUSTED_CLICK')
+    const win = { webContents: { executeJavaScript: vi.fn() } }
+    const r = await helpersMixin._click.call(ctx, win, '#pub')
+    expect(ctx._behaviorClick).toHaveBeenCalled()
+    expect(ctx._clickViaCdp).toHaveBeenCalledWith(win, '#pub')
+    // wxmp-save-untrusted-click：可信点击成功后唯一一次 _isoEval 只能读描述串
+    expect(ctx._isoEval).toHaveBeenCalledTimes(1)
+    expect(String(ctx._isoEval.mock.calls[0][1])).not.toContain('el.click()')
+    expect(r).toBe(true)
+    expect(warnSpy).toHaveBeenCalledWith('RpaView', expect.stringContaining('先试 CDP 可信点击'))
+  })
+
+  it('CDP 可信点击也未命中时才回落合成 click（并 warn 出声）', async () => {
+    const ctx = makeCtx()
+    ctx._behaviorClick.mockResolvedValue(null)
+    ctx._clickViaCdp = vi.fn().mockResolvedValue('NOT_FOUND')
     const win = { webContents: { executeJavaScript: vi.fn() } }
     const r = await helpersMixin._click.call(ctx, win, '#pub')
     expect(ctx._behaviorClick).toHaveBeenCalled()
     expect(ctx._isoEval).toHaveBeenCalledTimes(1)
     expect(String(ctx._isoEval.mock.calls[0][1])).toContain('el.click()')
     expect(r).toBe(true)
-    expect(warnSpy).toHaveBeenCalledWith('RpaView', expect.stringContaining('回落原生合成'))
+    expect(warnSpy).toHaveBeenCalledWith('RpaView', expect.stringContaining('回落合成 click'))
   })
 
   it('MP_RPA_DRIVER=native 时跳过行为层直接原生合成 click', async () => {
