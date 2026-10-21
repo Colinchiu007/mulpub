@@ -14,9 +14,9 @@ sync_backfill_owner: none-derived-from-trunk
 |---|---|---|
 | 变更类型与隔离 | ✅ | 运行时代码变更 ⇒ 独立 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-leaf-roles`（非 C 盘），分支同名裸名；`scripts/start-mp-task.ps1 -TaskName ux-audit-leaf-roles` 创建，判据取产物：`rev-parse --abbrev-ref HEAD` = `ux-audit-leaf-roles`（本次实跑打印）。依赖就绪 `pnpm install --frozen-lockfile` + `node scripts/verify-worktree-deps.js` RC=0 |
 | 质量节拍 pre-flight | ✅ | 编辑前确认非共享根 `main`；共享根全程未写入（收尾 `git status --porcelain` 只有本 5 个文件） |
-| 自测（新增锁） | ✅ | `apps/desktop/src/leaf-role-contract.test.js` 8 条（QM-6 评审后从 4 条扩到 8 条：新增 i1/i2/i3/i7 四组 fixture），控制跑 `[BASE] rc=0 collected=8 red=0` |
-| 自测（消费者并集） | ✅ | 判据取「消费者并集」不是「我改过的文件」：对两个被改视图按 basename 反查测试消费者（`git grep -l -E "(views/\|/)(Collection\|CreateHistory)\.vue" -- 'apps/desktop/**/*.test.js'`）得 **16** 个文件，并上本锁共 **17** 个测试文件全跑 = **324 passed / 0 failed / 0 pending**（`--reporter=json --outputFile` 读数，`testResults` 数组长度 17 且含 `leaf-role-contract`，两条都当场打印） |
-| 反证（9 道） | ✅ | 九道变异逐条见 §5.4（每道都写成**可直接照抄到源文件的改法**，验收不依赖临时脚本）：`COUNTERPROOF=ALL_CAUGHT`，控制跑 8 条全绿，红集互不相同（M1=2、M4=4、其余各 1 且各指名不同用例），九条均 `还原字节一致=OK`，跑完 `git status` 只剩本批文件 |
+| 自测（新增锁） | ✅ | `apps/desktop/src/leaf-role-contract.test.js` 9 条（初版 4 条 → 第一轮评审后 8 条 → 第二轮后 9 条），控制跑 `[BASE] rc=0 collected=9 red=0` |
+| 自测（消费者并集） | ✅ | 判据取「消费者并集」不是「我改过的文件」：对两个被改视图按 basename 反查测试消费者（`git grep -l -E "(views/\|/)(Collection\|CreateHistory)\.vue" -- 'apps/desktop/**/*.test.js'`）得 **16** 个文件，并上本锁共 **17** 个测试文件全跑 = **325 passed / 0 failed / 0 pending**（`--reporter=json --outputFile` 读数，`testResults` 数组长度 17 且含 `leaf-role-contract`，两条都当场打印） |
+| 反证（15 道） | ✅ | 驱动已入库：`node scripts/leaf-role-contract-mutate.js`（从干净 checkout 可复跑，路径按脚本自身位置定位仓库根，不写死盘符）→ `COUNTERPROOF=ALL_CAUGHT`；控制跑 `[BASE] rc=0 collected=9 red=0`；红集互不相同（M1=2、M4=5、M5=2、其余各 1，且各指名不同用例）；十五条均 `还原字节一致=OK`，跑完 `git status` 只剩本批文件 |
 | 静态门禁 | ✅ | `node scripts/check-doc-abs-paths.js` → PASS（`counts=1161 domain=5051 files=561 canJudge=true`；本记录一律 `<仓库父目录>` / `<临时脚本目录>` 占位）；`node .github/scripts/check-locale-sync.js --cjk` → PASS（基线 1330 / 现场 1124，无新增硬编码）；`node .github/scripts/check-max-lines.js` → PASS（`domain=11465`，超限文件 95 / 挂账 95、测试超限 13 / 挂账 12，「无新增超大文件，挂账清单与现实一致」——新锁 188 行，远低于 testLimit 1500）；`node scripts/check-debt-budget.js` → 五项指标全在基线内（`maxFileLines 5356 ≤ 5359` 因既有文件自然回落，其余四项持平）；`node scripts/check-no-brand-residue.js` → PASS（11464 tracked 文件）；`git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` **两口径逐字相等**（35/0、9/0、188/0、3/1、2/1、73/0 ⇒ 行尾未被改写；PRD/CHANGELOG 工作副本 crlf 计数只增加本次新增行数、lone_cr 与 nul 均 0） |
 | QM-1 打包 | N/A | 只改 `apps/desktop/src/**`（渲染端），未触碰 `electron/**`、`packages/rpa-engine/**` ⇒ 打包判据不触发 |
 | QM-4 视觉回归 | 未跑（如实登记） | 本批改动是**属性移除**（`role` / `tabindex`）与键盘处理器移除，不含任何视觉属性变化；像素门禁对 ARIA 属性结构性失明（它在的是"看起来一样"这一层）。真实风险面是 Tab 顺序变化，属键盘导航判据、由本锁与 4.4 首批的焦点环契约覆盖；判定交由 `QG Visual` 在 CI 执行 |
@@ -61,7 +61,7 @@ M2 的一条实现注意：变异必须**替换**原条目而不是在同名键�
 
 `src/styles/focus-ring.test.js` 的变体域是按「`tag === 'button' || 'a' || role="button"`」从模板里清点的。因此把 `role="button"` 从容器**搬到**某个 span 上，会同时改变那把锁的判定域 —— 本批刻意选「降级容器、不把 role 搬到别的元素」，避免同一次改动里动两套契约。后续处理 TabBar / CopyLibraryView 时必须同时改这两把锁，并在同一 PR 内跑焦点环测试全量。
 
-## 五、QM-6：本次真跑了外部双模型评审，九条发现逐条处置
+## 五、QM-6：真跑了两轮外部双模型评审（17 条发现），逐条处置与实况
 
 ### 5.1 判定与通道实况
 
@@ -88,7 +88,7 @@ M2 的一条实现注意：变异必须**替换**原条目而不是在同名键�
 收敛判定: status=self_play reason=selfPlay minScore=5
 ```
 
-### 5.2 九条发现的处置（采纳并修 6 / 否证 2 / 上报 1）
+### 5.2 第一轮 9 条发现的处置（采纳并修 6 / 否证 2 / 上报 1）—— 注意：处置指"我怎么改代码"，不等于评审已闭合，闭合实况见 §5.6
 
 | # | 严重度 | 处置 | 依据 |
 |---|---|---|---|
@@ -108,7 +108,7 @@ M2 的一条实现注意：变异必须**替换**原条目而不是在同名键�
 2. **两份命名键**：判定记录按内容寻址取名 —— 索引脏时键是 `stagedDiffHash`，而 `deep-review.sh` 读的是 **HEAD sha 命名**那份。提交后须用**干净索引**再跑一次 `node scripts/ccg-review-decider.js --base origin/main`（它会打印「暂存 diff（排除 .ccg）为空 ⇒ 回落父 sha 命名」）才落出评审链要读的那份；否则评审 fail-closed 报「本提交有 N 行非 .ccg 改动却没有判定记录」。
 3. 引擎内 `model-call.js` 原先把**别人机器上的** `codeagent-wrapper.exe` 绝对路径写死（本机表现为 `spawnSync ENOENT`，且报错只说「评审失败」），已按 `os.homedir()` 解析并把原字面量降为兜底候选之一；这条改动在用户级技能目录里、不在本仓，回滚只需把那一行改回原值。
 
-### 5.4 变异反证（九道，各自指名红；改法可直接照抄复现）
+### 5.4 变异反证（九道，第一轮；第二轮后扩为 15 道，驱动脚本已入库 `scripts/leaf-role-contract-mutate.js`）
 
 | 变异 | 改法 | 期望红在 | 实测 |
 |---|---|---|---|
@@ -122,16 +122,40 @@ M2 的一条实现注意：变异必须**替换**原条目而不是在同名键�
 | M8 | `roleIn` 退回 `/\brole\s*=\s*["']([^"']+)["']/` | `:role` fixture | 1/1 CAUGHT |
 | M9 | 从 `INTERACTIVE_TAGS` 删掉交互组件名那三行 | 组件名 fixture | 1/1 CAUGHT |
 
-控制跑 `[BASE] rc=0 collected=8 red=0`；九条 `还原字节一致=OK`；末行 `COUNTERPROOF=ALL_CAUGHT`。
+控制跑 `[BASE] rc=0 collected=8 red=0`；九条 `还原字节一致=OK`；`COUNTERPROOF=ALL_CAUGHT`。
+**第二轮后同一脚本扩到 15 道**（M10 void 跳过 / M11 自闭合计深度 / M12 role 大小写与多值 / M13 插值涂白 / M14 `@keyup` / M15 配对失败退回文件尾），复跑读数：`[BASE] rc=0 collected=9 red=0` → 十五道全部指名 CAUGHT、逐条 `还原字节一致=OK`、末行 `COUNTERPROOF=ALL_CAUGHT`；M1 的锚点同时被"必须唯一"改写（`class="cohere-card collection-record-card"` 在 v-if/v-else 两张卡各出现一次，旧临时脚本用 `replace(首处)` 静默容忍）。
 M4 的红数是 4 而不是 1：摘掉 `button` 角色后，除了「例外条目虚挂」，四组 fixture 里所有以 `role="button"`
 为前置的断言一起塌 —— 红集重合是**变异面比锁面宽**的正常表现，不据此判"锁没牙"（每条变异仍指名命中了自己那条）。
 
+### 5.5 第二轮评审（对修复后的提交）：8 条发现，其中 4 条打在解析器本体上
+
+第一轮修完再推，引擎对新提交 `01e9776c` 又跑了一轮（同样真跨家族：`proposer=opencode critic=claude 通过`，`评审完成：8 条问题，维度分 4 个，最低分 6`）。逐条现场复现后的处置：
+
+| # | 严重度 | 处置 | 现场依据 |
+|---|---|---|---|
+| r2-i1 | Warning | **采纳并修（本轮最有价值的一条）** | 「同名闭合标签配对」对 **void 元素**（`<img role="img">` 没有 `</img>`）与**自闭合写法**（`<div/>` 只加不减）都没有防护，两种情况 `closeAt` 都退化成文件尾 ⇒ ① 无关代码里的控件被报成容器内违规（误报），② `containerOf` 的「inner 非空」对整段文件尾都成立 ⇒ 区间断言悄悄失去语义。**评审还指出更要的一点**：当前仓库全绿只证明"现状没踩中"，不保证未来编辑不踩中 ⇒ 修法不是加站点例外而是让解析器**出错即出声**：void 容器直接跳过；自闭合开标签不计深度；配不上对**抛错点名文件/行号/标签**，不再 `return src.length`。M10/M11/M15 三道变异各自把这三处退回旧形态，均指名红 |
+| r2-i2 | Warning | 一半采纳，一半**按规范否证** | 采纳：role 值按 ARIA 规范**大小写不敏感**（`role="Button"` 等义），且允许**空格分隔多值**（`role="tab button"`）—— 只在原值上比表就是"改个大小写整条逃逸"。现改为 token 化 + `toLowerCase()`，M12 指名红。**否证 `presentation`/`none` 那半**：评审说这两个角色"同样把整棵子树变成 presentational"，规范不是这么写的 —— "children presentational" 规则只挂在叶子角色上，`presentation`/`none` 只剥**自身那一层**的语义，后代控件仍在无障碍树里；把它们计成叶子角色会把合法写法判成缺陷。这条以 fixture 形式钉住（V7：`<div role="presentation">` 内的 `<button>` **不得**报红），免得下一个人再"顺手补上" |
+| r2-i3 | Warning | 采纳（枚举面按实测边界处理） | 交互属性表补 `@keyup` / `@keypress` / `@focus` / `v-on:*` —— **本批自己就从 `Collection.vue` 移除过 `@keyup.enter`**，属性表里没有它就是把已知写法判成"无交互"；M14 指名红。`readOpenTag` 现把反引号也当引号字符。组件名清单**不假装收敛完**：`el-dropdown`/`el-tooltip`/`el-slider` 等仍不在表内，评审建议接到"生产者登记表"上（本仓 `case-timeout-audit.js` 有先例），那属另一片的工程量 —— 边界如实写在注释里：**枚举之外的组件名一律看不见**，不做"已覆盖"的宣称 |
+| r2-i4 | Info | 采纳 | 插值字面量 `{{ '<button>x</button>' }}` 会被读成真实开标签（误报）。现把 `{{ … }}` 一起等长涂白。`v-html` 与 `<component :is>` 渲染出的真 DOM 模板层不可见，写进头注释与 PRD 边界的"刻意不覆盖"清单。**这条同时暴露了我自己的 fixture 缺陷**：第一版把插值写在容器**外面**，变异 M13 因此 MISSED —— 断言"能抓住变异"之前必须先确认测点落在被测区间内 |
+| r2-i5 | Info | 采纳 | `containerOf` 现要求**锚点全文件唯一**（`Collection.vue` 里 `class="cohere-card collection-record-card"` 在 `v-if`/`v-else` 两张卡上各出现一次，`indexOf` 会取到第一处 ⇒ 形状断言可能校验到错误的容器）。这条不是我发现的巧合：**驱动脚本改吃"唯一命中"后 M1 当场 MUTATE-FAIL**，才把双卡形态暴露出来 —— 旧临时脚本用 `replace(首处)` 静默容忍重复锚点，变异可能落在错的元素上却照样报 CAUGHT |
+| r2-i6 | Warning | **采纳，且是最该被记住的一条** | 入库产物 `19b8183….json` 的 `deepReview.status` 仍是 `self_play_pending`（裁决四格未填），而同批 CHANGELOG/记录写着"9 条逐条处置"。按本仓自己的规矩，**只读产物的人看到的必须是同一个故事** ⇒ 本记录的措辞降级为"处置 = 我怎么改代码，≠ 评审已闭合"，并明确写出：`adjudicatedBy` 由引擎持有、不可改写；填 `upheld` 会进 `self_play_blocked`（引擎的阻断计数不看"是否已修"），填 `dismissed` 才可能 `self_play_resolved`，所以**本 PR 的 QM-6 状态就是未闭合，停在欠账门禁上等人工**，不以任何措辞把它读成通过 |
+| r2-i7 | Info | 采纳 | 反证驱动脚本从临时目录**搬进入库**：`scripts/leaf-role-contract-mutate.js`（路径由脚本自身位置向上定位仓库根，不写死盘符；`.gitignore` 加一条 negation，否则 `scripts/*.js` 会把它静默忽略）。现在从干净 checkout 可以用一条命令复跑全部 15 道变异。它本身不进 CI（CI 执行的是锁；`check-unwired-tests.js` 的采集域只认 `*.test.*`），这一点写在文件头注释里而不是假装"已接 CI" |
+| r2-i8 | Info | 不修，写清代价 | `matchingCloseStart` 每个容器两趟全局正则 + 全量事件数组，含 k 个容器的文件是 O(k·n)。当前 186 个 `.vue`、单文件最大几 KB 的规模下实测无感（锁全跑 <1s）。**不拿"以后可能慢"当现在重构的理由**，但把量级写进注释，域一旦扩大（比如把 ops-center 的 .vue 也纳进来）第一笔成本就在这里 |
+
+**这一轮的收敛判断**：r2 的 8 条里有 4 条打在解析器能力上，且 r2-i1 与 r2-i6 都是"锁/产物在自己声称的维度上不成立"——这类发现只有独立视角会给。第二轮之后**不再自动续第三轮**：引擎每轮都对"当前提交的全部 diff"重审，续跑会无限延长，而 QM-6 的机械闭环本来就不由我决定（见 r2-i6）。
+
+### 5.6 现在这个 PR 的 QM-6 实况（给合入前的人）
+
+- 入库的判定产物三份：`b49b45…json`（`status=pending`）、`19b8183…json` 与 `01e9776c…json`（均 `self_play_pending`，`performedBy="self-play(pending)"`，`findings=null`）；
+- 本地 `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 判**不通过**（dual 欠账）；CI 侧同判据是 `--mode=advisory`，**打印但不拦**；
+- ⇒ 本 PR **不满足 AGENTS.md 自动合并判据第 4 条**，停在人工过目；评审的实际产出（17 条发现、13 条已落成代码/文档改动、4 道新增变异）全部写在本记录里，供裁决。
+
 ## 六、验收锚点
 
-- `pnpm exec vitest run src/leaf-role-contract.test.js`（cwd = `apps/desktop`）→ **8 passed / 0 failed**；
-- 消费者并集 17 个测试文件 → 324 passed / 0 failed；
+- `pnpm exec vitest run src/leaf-role-contract.test.js`（cwd = `apps/desktop`）→ **9 passed / 0 failed**；
+- 消费者并集 17 个测试文件 → 325 passed / 0 failed；
 - `node <临时脚本目录>/mw-leaf-role-probe.cjs <仓库>/apps/desktop/src` → `扫描 .vue 文件数=186 违规站点数=3`，且这 3 条与例外清单逐条对应（锁里同款断言）；
-- 九道变异 `COUNTERPROOF=ALL_CAUGHT` + 每条 `还原字节一致=OK`（改法清单见 §5.4）。
+- 十五道变异 `COUNTERPROOF=ALL_CAUGHT` + 每条 `还原字节一致=OK`，驱动脚本在库内（`scripts/leaf-role-contract-mutate.js`，见 §5.4 / §5.5 r2-i7）。
 
 ## 远程同步
 

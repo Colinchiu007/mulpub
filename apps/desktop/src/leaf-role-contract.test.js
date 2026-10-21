@@ -40,7 +40,14 @@ const INTERACTIVE_TAGS = new Set([
   'ui-button', 'uibutton', 'router-link',
 ])
 /** 组件标签带这些属性时也算"卡里的另一个交互"（Vue 自定义组件渲染出的是真 DOM 节点） */
-const INTERACTIVE_ATTR_RE = /(?:@click|@keydown|v-on:click|:href|\bhref=)/
+const INTERACTIVE_ATTR_RE = /(?:@click|@keydown|@keyup|@keypress|@focus|v-on:(?:click|keydown|keyup|keypress|focus)|:href|\bhref=)/
+/**
+ * void 元素没有闭合标签（`<img role="img">` / `<input role="button">`）：
+ * 若仍按"同名闭合配对"找 inner，`closeAt` 会一路落到文件尾，inner 退化成"文件剩余全文"，
+ * 于是把无关代码里的交互控件当成容器内违规（误报方向），并让 containerOf 的
+ * "inner 非空"断言对整段文件尾都成立 —— 形状断言悄悄失去"限定在被降级容器区间内"的语义。
+ */
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
 /**
  * `tabindex="-1"` 是**程序性焦点目标**（滚动锚点、dialog 落点），不是用户可操作控件
  * （QM-6 评审 i7）：把它计成"交互"会让任何加过渡焦点元素的卡片误报。
@@ -68,6 +75,14 @@ export function blankOutNonTemplate (src) {
   // script / style 整块（含标签本身）
   const blockRe = /<(script|style)\b[\s\S]*?<\/\1\s*>/gi
   for (let m; (m = blockRe.exec(src));) hide.fill(1, m.index, m.index + m[0].length)
+  // 插值区 {{ … }}：模板文本里的 `{{ '<button>x</button>' }}` 不是标记，
+  // 不涂白就会把插值字面量里的尖括号当成真实开标签命中（误报方向）
+  for (let at = src.indexOf('{{'); at >= 0;) {
+    const close = src.indexOf('}}', at + 2)
+    if (close < 0) break
+    hide.fill(1, at, close + 2)
+    at = src.indexOf('{{', close + 2)
+  }
   // 等长输出：隐藏区里的非 \n 字符换成空格，行号与偏移继续对得上原文
   let out = ''
   for (let i = 0; i < n;) {
@@ -110,21 +125,34 @@ export function readOpenTag (src, lt) {
   while (j < src.length) {
     const c = src[j]
     if (quote) { if (c === quote) quote = null }
-    else if (c === '"' || c === "'") quote = c
-    else if (c === '>') return { attrs: src.slice(lt, j), end: j }
+    // 反引号也算引号：`<div :id="`x>y`">` 里的 `>` 若被当标签结束会整站截断（QM-6 二轮 i3）
+    else if (c === '"' || c === "'" || c === '`') quote = c
+    else if (c === '>') return { attrs: src.slice(lt, j), end: j, selfClosing: src[j - 1] === '/' }
     j += 1
   }
-  return { attrs: src.slice(lt), end: src.length }
+  return { attrs: src.slice(lt), end: src.length, selfClosing: false }
 }
 
-/** 找与 start 处 <tag 配对的闭合标签起点（跳过同名嵌套）；找不到返回 src.length */
+/**
+ * 找与 start 处 <tag 配对的闭合标签起点（跳过同名嵌套）。两条必须（QM-6 二轮 i1）：
+ * ① **自闭合**的同名开标签不得计入深度 —— `<div/>` 只加不减，会让后面的 `</div>`
+ *    永远降不到 0；② void 元素（img / input / br …）根本没有闭合标签，按配对找 inner
+ *    会一路落到文件尾，把"文件剩余全文"当容器 inner ⇒ 无关代码里的控件被报成容器内违规，
+ *    且 containerOf 的"inner 非空"断言对整段文件尾都成立，区间断言悄悄失去语义。
+ * 因此：void 容器与"配不上对"一律返回 **-1 让调用方出声**，不得返回 src.length。
+ */
 export function matchingCloseStart (src, after, tag) {
+  if (VOID_TAGS.has(String(tag).toLowerCase())) return -1
   const openRe = new RegExp('<' + tag + '(?=[\\s/>])', 'g')
   const closeRe = new RegExp('</' + tag + '\\s*>', 'g')
   const events = []
   openRe.lastIndex = after
   closeRe.lastIndex = after
-  for (let m; (m = openRe.exec(src));) events.push({ at: m.index, d: 1 })
+  for (let m; (m = openRe.exec(src));) {
+    const ot = readOpenTag(src, m.index)
+    if (!ot.selfClosing) events.push({ at: m.index, d: 1 })
+    openRe.lastIndex = ot.end + 1
+  }
   for (let m; (m = closeRe.exec(src));) events.push({ at: m.index, d: -1 })
   events.sort((a, b) => a.at - b.at)
   let depth = 1
@@ -132,22 +160,36 @@ export function matchingCloseStart (src, after, tag) {
     depth += e.d
     if (depth === 0) return e.at
   }
-  return src.length
+  return -1
 }
 
-function roleIn (attrs) {
-  // 三种写法都要认：role="button" / role='button' / :role="'button'"（QM-6 评审 i7）。
-  // :role 的值是 JS 表达式，外层是模板属性引号、内层还有一层字符串引号，
-  // 所以必须"先取整个属性值，再剥内层引号"——把内层引号直接写进字符类会整条不匹配。
-  // 边界（如实声明）：:role="某变量" 这种值在运行时才知道的角色，本锁判不出来。
+/**
+ * 取元素声明的 role token 列表。三条都不可省（QM-6 二轮 i2）：
+ * ① ARIA 规范里 role 值**大小写不敏感** ⇒ `role="Button"` 与 `role="button"` 等义，
+ *    只在原值上比表就会因一个首字母大写整条逃逸；
+ * ② role 允许**空格分隔多值**（`role="button tab"`）⇒ 必须按 token 逐个比，不能整串比；
+ * ③ 三种写法都要认：role="…" / role='…' / :role="'…'"（:role 的值外层是模板属性引号、
+ *    内层还有一层字符串引号，必须先取整个属性值再剥内层引号 ——
+ *    把内层引号直接写进字符类会整条不匹配）。
+ * 边界（如实声明）：`:role="某变量"` 这种运行时才知道的角色，本锁判不出来。
+ */
+export function roleTokens (attrs) {
   const m = /(?:^|[\s:])role\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(attrs)
-  if (!m) return null
+  if (!m) return []
   const raw = (m[1] !== undefined ? m[1] : m[2]).trim()
   const v = raw.replace(/^['"`]+|['"`]+$/g, '').trim()
-  return v || null
+  if (!v) return []
+  // 边界如实声明：`:role="某变量"` 这种运行时才知道的角色值不是合法 token，会被下面的
+  // token 过滤丢掉 ⇒ 本锁判不出来。反失明那条用例负责盯"域不为空"，不负责盯这种逃逸。
+  return v.toLowerCase().split(/\s+/).filter((t) => /^[\w-]+$/.test(t))
 }
 
-/** 扫出一份 .vue 里所有「叶子角色容器内含真实交互」的站点 */
+/**
+ * 扫出一份 .vue 里所有「叶子角色容器内含真实交互」的站点。
+ * 解析不出容器边界时**必须出声**（抛错），不得把"文件剩余全文"当 inner 静默接受 ——
+ * 后者同时制造误报与让区间断言失效，而"锁变绿但测的不是它声称的那段"是本仓反复记录的
+ * 装饰性门禁形态（QM-6 二轮 i1）。
+ */
 export function findLeafRoleConflicts (relPath, rawSrc) {
   const src = blankOutNonTemplate(rawSrc.replace(/\r\n/g, '\n'))
   const hits = []
@@ -159,16 +201,21 @@ export function findLeafRoleConflicts (relPath, rawSrc) {
     if (!tm) { i = lt + 1; continue }
     const tag = tm[1]
     const ot = readOpenTag(src, lt)
-    const role = roleIn(ot.attrs)
-    if (role && LEAF_ROLES.includes(role)) {
+    const leaf = roleTokens(ot.attrs).find((t) => LEAF_ROLES.includes(t))
+    if (leaf) {
+      if (ot.selfClosing || VOID_TAGS.has(tag.toLowerCase())) { i = ot.end + 1; continue }
       const closeAt = matchingCloseStart(src, ot.end + 1, tag)
+      if (closeAt < 0) {
+        throw new Error(relPath + '：第 ' + src.slice(0, lt).split('\n').length + ' 行的 <' + tag +
+          ' role="' + leaf + '"> 找不到配对闭合标签 ⇒ 本锁无法界定它的 inner，拒绝把文件剩余全文当容器内容')
+      }
       const inner = src.slice(ot.end + 1, closeAt)
       const bad = scanInteractive(inner)
       if (bad.length > 0) {
         hits.push({
-          key: relPath + ':' + role,
+          key: relPath + ':' + leaf,
           line: src.slice(0, lt).split('\n').length,
-          tag, role, bad,
+          tag, role: leaf, bad,
         })
       }
       i = Math.max(closeAt, ot.end + 1)
@@ -204,14 +251,21 @@ function scanInteractive (inner) {
 }
 
 
-/** 取某个开标签（按锚点子串定位）的开标签属性区 + 到其配对闭合标签之间的区间；锚点缺失即抛错（不得静默返回整份文件） */
+/**
+ * 取某个开标签（按锚点子串定位）的属性区 + 到其配对闭合标签之间的区间。
+ * 三条拒绝静默的路径（QM-6 二轮 i1/i5）：锚点必须**唯一**（同文件另一张卡先出现且含同一
+ * 子串时，indexOf 会取到第一处，形状断言就校验到错误的容器）；配不上对一律抛错；
+ * 锚点被格式化掉时表现为"抛错停摆"而不是"悄悄校验别处"。
+ */
 function containerOf (src, anchor, tag) {
   const at = src.indexOf(anchor)
   if (at < 0) throw new Error('锚点不存在，无法定位容器：' + anchor)
+  if (src.indexOf(anchor, at + 1) >= 0) throw new Error('锚点在文件里不唯一，无法确定校验的是哪个容器：' + anchor)
   const lt = src.lastIndexOf('<', at)
   const ot = readOpenTag(src, lt)
   const tagName = tag || /^<([a-zA-Z][\w-]*)/.exec(src.slice(lt, lt + 40))[1]
   const closeAt = matchingCloseStart(src, ot.end + 1, tagName)
+  if (closeAt < 0) throw new Error('容器 <' + tagName + '> 配不上闭合标签，拒绝把文件剩余全文当 inner：锚点=' + anchor)
   return { attrs: src.slice(lt, ot.end + 1), inner: src.slice(ot.end + 1, closeAt) }
 }
 
@@ -316,6 +370,62 @@ describe('叶子角色合同：role=button/link/tab 的容器内不得嵌真实�
     expect(findLeafRoleConflicts('Fixture6.vue', el), '<el-button> 未被计入交互控件').toHaveLength(1)
     const pascal = ['<template>', '  <div role="button">', '    <UiButton @click="go">去</UiButton>', '  </div>', '</template>'].join('\n')
     expect(findLeafRoleConflicts('Fixture7.vue', pascal), '<UiButton> 未被计入交互控件').toHaveLength(1)
+  })
+
+  it('容器边界不得靠"落到文件尾"蒙过去（void / 自闭合 / 多值大小写 / 插值字面量）', () => {
+    // QM-6 二轮 i1 + i2 + i3 + i4，四组 fixture 各钉一条解析器退化路径。
+    const t = (rows) => rows.join('\n')
+
+    // ① void 容器：`<img role="img">` 没有闭合标签，绝不能把"文件剩余全文"当 inner
+    const voidLeaf = t([
+      '<template>',
+      '  <img role="img" :src="url" alt="封面">',
+      '  <div class="other"><button @click="x">别的卡</button></div>',
+      '</template>',
+    ])
+    expect(findLeafRoleConflicts('V1.vue', voidLeaf), 'void 元素被当容器 ⇒ 把无关按钮报成它的后代').toEqual([])
+
+    // ② 自闭合同名开标签不得计入深度
+    const selfClosing = t([
+      '<template>',
+      '  <div role="button" tabindex="0">',
+      '    <div class="sizer"/>',
+      '    <button @click="go">go</button>',
+      '  </div>',
+      '</template>',
+    ])
+    const scHits = findLeafRoleConflicts('V2.vue', selfClosing)
+    expect(scHits, '自闭合 <div/> 让深度永远降不到 0 ⇒ inner 退化成文件尾').toHaveLength(1)
+    expect(scHits[0].bad.join(',')).toMatch(/button/)
+
+    // ③ role 值大小写不敏感 + 空格分隔多值
+    const upper = t(['<template>', '  <div role="Button">', '    <button @click="x">x</button>', '  </div>', '</template>'])
+    expect(findLeafRoleConflicts('V3.vue', upper), 'role="Button" 因大小写逃逸').toHaveLength(1)
+    const multi = t(['<template>', '  <div role="tab button">', '    <input value="v">', '  </div>', '</template>'])
+    expect(findLeafRoleConflicts('V4.vue', multi), '多值 role 整串比对 ⇒ "tab button" 逃逸').toHaveLength(1)
+
+    // ④ 插值字面量里的尖括号不是标记 —— **必须放在叶子容器内**，
+    //    否则这条 fixture 根本没在测涂白（第一版把它写在容器外，M13 变异因此 MISSED）。
+    const interp = t(['<template>', '  <div role="button">写个 {{ \'<button>x</button>\' }} 说明</div>', '</template>'])
+    expect(findLeafRoleConflicts('V5.vue', interp), '插值字面量里的 <button> 被当成真实控件 ⇒ 误报').toEqual([])
+
+    // ⑤ @keyup / v-on:keydown 必须算交互（本批自己就从 Collection.vue 移除过 @keyup.enter）
+    const keyup = t(['<template>', '  <div role="button">', '    <span @keyup.enter="open">标题</span>', '  </div>', '</template>'])
+    expect(findLeafRoleConflicts('V6.vue', keyup), '@keyup 未被计入交互属性').toHaveLength(1)
+
+    // ⑥ presentation / none 刻意**不**当叶子角色 —— 且这不是漏coverage 而是规范差异：
+    //    ARIA 的 "children presentational" 规则只挂在叶子角色上，presentation/none 只剥自己
+    //    那层的语义，后代控件仍在无障碍树里。把它们计成叶子会把合法写法判成缺陷。
+    const pres = t(['<template>', '  <div role="presentation">', '    <button @click="x">仍然可见</button>', '  </div>', '</template>'])
+    expect(findLeafRoleConflicts('V7.vue', pres), 'presentation 只剥自身语义，后代控件不应被报成消失').toEqual([])
+
+    // ⑧ "出声"这条出口必须可达：配不上对时要抛错，而不是静默把文件尾当内容。
+    //    没有这条，上面那句"拒绝把剩余全文当 inner"就只是注释里的承诺（装饰性分支）。
+    const unpaired = t(['<template>', '  <div role="button" tabindex="0">', '    <button @click="x">x</button>', '</template>'])
+    // 断言取的是**实际抛出的那句话**（第一次写成 /配不到|配不上/，与实际文案"找不到配对闭合标签"
+    // 不同 ⇒ 这条用例自己先红 —— 期望也要当场验，不是写完就当它对）
+    expect(() => findLeafRoleConflicts('V8.vue', unpaired), '配不上对时必须抛错，不得静默退化').toThrow(/找不到配对闭合标签/)
+    expect(() => findLeafRoleConflicts('V8.vue', unpaired)).toThrow(/V8\.vue/)
   })
 
   it('本批两个被修站点：容器已降级，且等价真实控件必须在**被降级的那个容器区间内**', () => {

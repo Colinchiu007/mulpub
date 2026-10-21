@@ -518,6 +518,9 @@ shared-user-data.backups/
 !scripts/qm6-enforce-preview.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
+# 反证驱动（scripts/leaf-role-contract-mutate.js）的 JSON 报告：工作产物，含本机绝对路径，
+# 不得进主干、也不得被 Gate 12c 的存量账本当成文档。
+.ccg/tmp/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）
 # 2026-10-17（change: bundle-untrack）：这 5 个文件是构建产物，曾被跟踪，导致
 # `build:vue` 后 `git status` 出现 stat-dirty（内容归一后无差异，但行尾/mtime 变化）。
@@ -530,3 +533,7 @@ apps/desktop/electron/monitor-preload.bundle.js
 apps/desktop/electron/services/generated/card-paginator.iife.js
 apps/desktop/electron/services/stealth/stealth-preload-enhanced.bundle.js
 !scripts/offline-live-contract-mutate.js
+# QM-6 round 2 (finding i7): the leaf-role counter-proof driver has to be runnable from a
+# clean checkout, so un-ignore it despite the scripts/*.js rule above.
+# ASCII only: this file is not UTF-8 throughout.
+!scripts/leaf-role-contract-mutate.js
