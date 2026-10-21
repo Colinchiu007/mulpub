@@ -4808,7 +4808,9 @@ describe("运营开关 videoCreation.maxOutputResolution（4K 能力）", () => 
 
       // 下拉/配置已同步（并发守卫不再静默丢弃），偏好已保存
       expect(w.vm.s2vConfig.voiceId).toBe("MiniMaxVoice_abc123");
-      expect(w.vm.s2vPersistedVoiceId).toBe("MiniMaxVoice_abc123");
+      // 注：原「expect(w.vm.s2vPersistedVoiceId)」已删除 —— 该 ref 是 s2vConfig.voiceId 的
+      // 冗余镜像、生产零读取（2026-10-20 清理）。「偏好已保存」的真实证据是下面这条
+      // selectTtsVoice 的入参断言（它才是落盘动作本身）。
       expect(selectSpy).toHaveBeenCalledWith(expect.objectContaining({ voiceId: "MiniMaxVoice_abc123" }));
       // 默认徽标与按钮文案
       expect(w.vm.isS2VDefaultVoice("MiniMaxVoice_abc123")).toBe(true);

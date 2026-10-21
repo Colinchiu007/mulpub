@@ -1,0 +1,66 @@
+{
+  "sha": "b149359519aeeb96479e41e4290c25c23b993a9e",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 20,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 13,
+    "docSensitiveContentSample": [
+      "> 🔴 **还有第三层，比前两层都严格**：**无许可证 = 默认版权保留（All Rights Reserved）**，连「非商用使用」都不构成授权。见 §2.3。",
+      "| **修改版 Apache-2.0** | **ZJT** | ✅ | ✅ | ✅ | 🟡 **可用但须署名**：① 必须保留 LOGO 与版权署名，显著位置展示「智剧通（ZJT）」，不得声称独立原创；② 禁止用其源码运营多工作区 SaaS（mulpub 为单用户桌面端，**不触发**）；③ 禁止逆向企业版授权校验（不碰即不触发）。**结论：需在 NOTICE/About 页声明 \"Based on 智剧通 (ZJT)\"** |",
+      "| **CC BY-NC-SA 4.0** | huobao-drama | ❌ | ✅ | ❌ | ⚠️ NC 已解除（非商用 OK），但 **SA 未解除**：衍生作品须同协议授权 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": [
+      "\"01-docs/research/oss-reinforcement-2026-10-13/GitHub-\\351\\241\\271\\347\\233\\256\\345\\210\\206\\346\\236\\220\\346\\212\\245\\345\\221\\212-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/GitHub-\\351\\241\\271\\347\\233\\256\\345\\210\\227\\350\\241\\250-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/\\345\\206\\263\\347\\255\\226\\347\\202\\271\\345\\210\\206\\346\\236\\220\\344\\270\\216\\345\\273\\272\\350\\256\\256-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/\\345\\256\\236\\346\\226\\275\\350\\256\\241\\345\\210\\222-2026-10-13.md\""
+    ]
+  },
+  "stagedDiffHash": "98abf2338ba108893a8930fab1db19dbad5feda3640e83e216df68ae9c26a2ff",
+  "decidedAt": "2026-10-21T09:50:33.733Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

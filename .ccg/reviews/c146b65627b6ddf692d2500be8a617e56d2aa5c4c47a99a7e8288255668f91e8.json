@@ -1,0 +1,118 @@
+{
+  "sha": "923ca7157da533e379fb5150708b8052641f4942",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 148 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 148,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c146b65627b6ddf692d2500be8a617e56d2aa5c4c47a99a7e8288255668f91e8",
+  "decidedAt": "2026-10-20T09:25:14.310Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "opencode+claude(deep-review harness)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "critical",
+        "status": "rejected",
+        "summary": "记录混淆：c8ae28cb 高危项为空且 self_play_resolved 合规；crypto 高危的 f6beeb12 已标 needs_revision"
+      },
+      {
+        "id": "i2",
+        "severity": "critical",
+        "status": "rejected",
+        "summary": "createUrl 仅主进程可达（渲染端走 IPC）、服务只绑回环、容量硬上限、单机单用户无隔离维度；被误归 auth 域"
+      },
+      {
+        "id": "i3",
+        "severity": "warning",
+        "status": "rejected",
+        "summary": "renderItems 有 Array.isArray 守卫，返回必为数组；default null 用于区分\"未传\"与\"空数组\""
+      },
+      {
+        "id": "i4",
+        "severity": "warning",
+        "status": "fixed",
+        "summary": "补 500 段实测：buildFailureSummary 与含关键词 filterSegments 单次 <20ms，把声明变成可复现数字"
+      },
+      {
+        "id": "i5",
+        "severity": "warning",
+        "status": "acknowledged",
+        "summary": "导航状态在宿主 + vm 耦合为有意取舍（宿主是跳转唯一状态源），记入 PRD §7.3 与遗留"
+      },
+      {
+        "id": "i6",
+        "severity": "info",
+        "status": "acknowledged",
+        "summary": "手工切分测试文件的脆弱性已记入踩坑，结论：以 vitest 为语法判据"
+      },
+      {
+        "id": "i7",
+        "severity": "info",
+        "status": "acknowledged",
+        "summary": "QM-1 清理吃掉结论已当场修复（先出判据再宽容清理），记入踩坑 5"
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-cd13ef40\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
+    "at": "2026-10-20T09:26:10.127Z",
+    "tier": "external",
+    "evidence": "第三轮评审针对「滚动高亮与帧调度下沉 composable」这次提交（148 行，SINGLE 模式），critique 产出 7 条问题 / 4 维度 / 最低 4 分（.adversarial/ccg-deep-cd13ef40/critique-v1.md）。逐条裁决：i4（性能数字未实测）成立→已补 500 段实测用例（buildFailureSummary 与含关键词 filterSegments 单次 <20ms，55 条全绿）；i5（导航状态在父组件 + vm 耦合）成立但属有意取舍（宿主是跳转唯一状态源，见上一轮 A12 结论），记入 PRD §7.3 与 record 遗留；i1、i3 经核实不成立（i1 把 c8ae28cb 与 f6beeb12 两条记录混为一谈：前者高危项为空且 self_play_resolved 合规，后者才是 crypto 高危且我已标 needs_revision；i3 说 renderItems 可能空指针，实际有 Array.isArray 守卫）；i2 经核实不成立（createUrl 不是渲染端可达 API，唯一入口是 IPC；HTTP 只绑回环；容量是硬上限；单机单用户无隔离维度），但该项被判定器归入 highRiskDomains=[auth]。⚠️ 未完成项（如实记录，不伪造）：机制要求 i2 的外部复核为「performedBy 逐字 claude + 公开 PR 评论 URL」；claude CLI 实际返回 HTTP 402 Insufficient credits（OpenRouter 无额度），外部复核未能取得，adjudication.json 的 i2.externalReview 保持 null，未填任何假 URL。状态取 needs_revision：不是\"已全部收口\"，而是\"有 1 项机制要求的外部复核因后端不可用仍未完成\"。另记 i6/i7（Info，均属已修/已记录项）：i6 手工切分测试文件的脆弱性已记入执行记录踩坑 3，结论是以 vitest 为语法判据；i7 的「清理语句吃掉结论」本轮当场修复（改为先出判据再宽容清理），并已记入踩坑 5。"
+  }
+}

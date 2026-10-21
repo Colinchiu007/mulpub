@@ -192,6 +192,9 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
       outputLength: 1234,
       modelTruncated: true,
       segmented: { enabled: true, segmentCount: 5, totalChars: 60000 },
+      // rewrite-sensitive-precheck-relax 收尾：warnings 是第五个 meta 字段。
+      // 信封里没有该字段（旧版引擎）⇒ 归一化为空数组，不臆造警告也不炸。
+      warnings: [],
     })
   })
 
@@ -205,7 +208,27 @@ describe('采集页一键改写 — 超长正文自动截取（fix-collect-rewri
       outputLength: undefined,
       modelTruncated: false,
       segmented: null,
+      warnings: [],
     })
+  })
+
+  it('改写结果带敏感词 warnings ⇒ meta.warnings 原样透传（不静默丢弃）', async () => {
+    // rewrite-sensitive-precheck-relax 收尾：前置拦截已关，后置 warnings 是采集页
+    // 唯一能看到的敏感词提示。历史上成功分支只挑四字段，warnings 被丢弃 ⇒ 零提示。
+    window.electronAPI = mockStealthApi('', {
+      code: 0,
+      data: {
+        success: true,
+        result: '改写后的内容。',
+        warnings: ['改写结果可能包含敏感内容，请人工审核'],
+      },
+    })
+    const w = mountCollection()
+    await nextTick()
+    const r = await w.vm.rewriteViaEngine('字'.repeat(100))
+    expect(r.meta.warnings).toEqual(['改写结果可能包含敏感内容，请人工审核'])
+    // 结果仍要照常返回：警告不是失败
+    expect(r.result_content).toBe('改写后的内容。')
   })
 
   it('分段失败 ⇒ 映射 REWRITE_SEGMENT_FAILED 并带 1-based 段号（不编进 errorCode）', async () => {

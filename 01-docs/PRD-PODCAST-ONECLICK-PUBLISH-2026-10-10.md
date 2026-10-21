@@ -255,7 +255,6 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.episode.invalid` | 单集字段不合格，已停止出期，请按下方逐条修正。 | The episode fields are not valid, so the publish stopped. Fix each issue listed below. |
 | `podcast.episode.measureFailed` | 无法实测音频的时长或字节，已停止出期（不得用申报值代替）。 | The audio duration or size could not be measured, so the episode publish stopped (declared values are not accepted instead). |
 | `podcast.episode.measured` | 实测：时长 {duration} 秒 · 字节 {bytes} · 类型 {mime} | Measured: {duration}s duration · {bytes} bytes · {mime} |
-| `podcast.episode.originChannel` | 来自频道设置 | from channel settings |
 | `podcast.episode.originPreference` | 来自你的音色偏好 | from your voice preference |
 | `podcast.episode.originProviderDefault` | 来自服务商默认 | from provider default |
 | `podcast.episode.partial` | 这一期已登记到本地播客频道，公网 feed 尚未更新。 | This episode is registered on the local podcast channel; the public feed is not updated yet. |
@@ -379,7 +378,7 @@ partial 含「这一期已登记到本地频道」+ 一个只重试 feed 的出�
 | `podcast.errors.PODCAST_VIDEO_NOT_FOUND` | 找不到成片文件，请回结果页重新生成或重选路径 | The final video file cannot be found; regenerate it on the result page or pick the file again |
 | `podcast.errors.fallback` | 发生未知问题（{code}） | Unknown issue ({code}) |
 
-共 142 键；逐键 zh/en 成对且均为非空串。
+共 141 键；逐键 zh/en 成对且均为非空串。
 
 ## 7. 功能逻辑（按刀次）
 
@@ -414,8 +413,8 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 #### 7.4.0 两处合同纠正（写在实现之前，因为它们会改变可实现形态）
 
 1. **「音色默认值属频道级（未配置时回退全局默认音色并提示）」这句里，"全局默认音色"在本仓不存在**（取证：默认音色只有两层——capability 级 `defaultVoiceId`（`services/tts-voice-catalog.js:64,93,99`）与用户偏好 `tts-voice-preference:v1:${providerId}:${model}`（`tts-voice-service.js:117,301-306`），跨 provider 的全局默认无处可查；`model-provider-manager.js:1089-1098` 的 `getDefault('tts')` 选的是 **provider** 不是音色）。
-   纠正后的形态：**频道只存 `voiceRef = { providerId, model, voiceId }` 三段，任一缺失即整段视为未配置**；未配置时的回退顺序固定为 ① 频道 voiceRef → ② 用户偏好（当前默认 provider 的那条）→ ③ capability 的 `defaultVoiceId` → ④ 三者都拿不到就**拒绝出期**（`PODCAST_TTS_VOICE_UNRESOLVED`），不得静默用「某个 provider 的第一个音色」猜——猜错的用户听感是「我的播客怎么换了个人说话」，且一旦发进 feed 就是对外可见的错。
-   ② 与 ③ 命中时界面上必须写明**用的是哪一层回退**（显示项见 7.4.6），否则用户无法区分「我配过」与「系统替我选了」。
+   纠正后的形态（2026-10-19 再次纠正，见 §7.4.1.2：频道档已撤销）：**可查的默认音色只有两层**——用户偏好与 capability；回退顺序固定为 ① 用户偏好（当前默认 provider 的那条）→ ② capability 的 `defaultVoiceId` → ③ 两者都拿不到就**拒绝出期**（`PODCAST_TTS_VOICE_UNRESOLVED`），不得静默用「某个 provider 的第一个音色」猜——猜错的用户听感是「我的播客怎么换了个人说话」，且一旦发进 feed 就是对外可见的错。
+   ① 与 ② 命中时界面上必须写明**用的是哪一层回退**（显示项见 7.4.6），否则用户无法区分「我配过」与「系统替我选了」。
 2. **本刀不得依赖 `loudnorm` 做响度归一**（取证：打包媒体工具的已验证滤镜清单 `REQUIRED_FILTERS` 不含 `loudnorm`，`scripts/stage-media-tools.js:10-21`；`anullsrc`/`amix`/`acrossfade` 在列）。AGENTS.md「Story2Video 媒体工具资源闭包」要求"打包前按锁校验编码器/滤镜、打包后真实检查"，所以引入 `loudnorm` 必须同时改锁 + 改 `before-pack` 校验 + 重打包实测，那是另一条混合 PR 的体量。
    替代方案（写死，不许临场发挥）：**同一期内所有块使用逐字相同的 `voiceId / rate / pitch / audio_format` 参数**，块间衔接用 `concat=n=N:v=0:a=1`（已验证的 `aac` 编码路径），不做归一、也不做跨块音量补偿。
    后果必须如实写进 §13：**跨 provider 降级时各块响度可能不一致**，本期接受这个不一致，不接受「为了归一而去碰未验证的滤镜」。
@@ -435,17 +434,50 @@ registry（index.json + 两段 channel.json）、迁移三态（首访即可读�
 
 | 项 | 落地口径 | 少了它会怎样 |
 |---|---|---|
-| 回退顺序 | ① 频道 `voiceRef` → ② 用户偏好 → ③ capability 的 `defaultVoiceId` → ④ 全空即**拒绝出期** | 猜「provider 的第一个音色」会让同一频道在不同机器解析出不同音色，而 feed 一旦挂上就是对外可见的错 |
-| 键名归一 | 频道真源存 `providerId`，本层归一后交 `voiceRefIssues` 判三段；同时接受历史别名 `provider` | 不归一会把「三段齐备但键名叫 providerId」的合法配置判成半配置，**每个正常配置过音色的频道都出不了期** |
-| 码表单点 | 半配置与三层全空**共用** `TTS_COMPOSE_ERRORS.VOICE_REF_INCOMPLETE`（其值即用户可见的 `PODCAST_TTS_VOICE_UNRESOLVED`），层间区分靠 `issues[].path`：`voiceRef` / `voice` / `voice.preference` / `voice.capability` | 每层各造一个码会在 locale 里堆无人维护的文案键，而两层的处置对用户是同一句话 |
+| 回退顺序 | ① 用户偏好 → ② capability 的 `defaultVoiceId` → ③ 全空即**拒绝出期**（频道档于 2026-10-19 撤销，见 §7.4.1.2） | 猜「provider 的第一个音色」会让同一频道在不同机器解析出不同音色，而 feed 一旦挂上就是对外可见的错 |
+| 键名口径（入参形状层） | 三段同存/同缺只在 `voiceRefIssues` 一处判，键名只认 `providerId`（历史别名 `provider` 经 QM-6 V1 删除） | 频道档撤销后解析层不再读任何 voiceRef，这条职责留在**入参形状层**：两层若各认一套键名，同一条入参会得到相反结论，等于把「谁的判据生效」交给调用顺序 |
+| 码表单点 | 入参半配置与两层全空**共用** `TTS_COMPOSE_ERRORS.VOICE_REF_INCOMPLETE`（其值即用户可见的 `PODCAST_TTS_VOICE_UNRESOLVED`），层间区分靠 `issues[].path`：`voice` / `voice.preference` / `voice.capability`（`voiceRef` 那一条随频道档退役，仍由入参形状层持有） | 每层各造一个码会在 locale 里堆无人维护的文案键，而两层的处置对用户是同一句话 |
 | 「读异常」≠「没配」 | 偏好或 capability **抛异常**时直接拒绝并出声（`warn`），不得静默降级到下一层；对照组：返回 `null` 才继续回退 | 把一次存储异常变成「系统替你换了个人说话」，且用户在界面上看不出来 |
 | 空值不算命中 | 偏好记录存在但 `voiceId` 为空串/纯空白 ⇒ 按没配处理，继续回退（对象形状 `{voiceId}` 与裸字符串形状都支持，覆盖 store 的两种历史形状） | 把空值当命中会让下一层永远点不到，表现为「配过偏好的人反而解析失败」 |
-| 无默认 provider | 拿不到 `defaultProvider` 的 providerId+model 时**②③ 无定位键**，直接拒绝且两个读取实现一次都不被调用 | 「随便挑一个 provider」等于把解析结果绑到 provider 列表的顺序上 |
+| 无默认 provider | 拿不到 `defaultProvider` 的 providerId+model 时**①② 无定位键**，直接拒绝且两个读取实现一次都不被调用 | 「随便挑一个 provider」等于把解析结果绑到 provider 列表的顺序上 |
 | 注入缺失 | `readPreference` / `getCapability` 任一缺失 ⇒ `PODCAST_EPISODE_INVALID`，且发生在任何读取之前 | 缺依赖时降级成"少一层回退"会让半成品在生产路径上静默生效 |
 
-**显示项 3 的数据来源（§7.4.6 的三态来源标注）**：本层返回 `origin ∈ {channel, preference, providerDefault}` 与 `resolvedBy`（形如 `preference:openai-tts/tts-1`）。渲染层必须按 `origin` 选文案键 `podcast.tts.voice.channel` / `.preference` / `.providerDefault`，措辞要让用户区分「我配的」与「系统替我选的」。**这三条 locale 键与浮层接线属第 3 片下半**（同下半还须把 `podcast-tts-compose.js` 加回 `src/locales/podcast-error-codes.test.js` 的 PRODUCERS 并补 4 组 zh/en 成对文案，见 tasks.md 的 MUST 行）。
+**显示项 3 的数据来源（§7.4.6 的两态来源标注；2026-10-19 撤销频道档前为三态）**：本层返回 `origin ∈ {preference, providerDefault}` 与 `resolvedBy`（形如 `preference:openai-tts/tts-1`）。渲染层必须按 `origin` 选文案键 `.preference` / `.providerDefault`（实际落点是 `podcast.episode.origin*`，与 §8.2.9 的偏差已就地记录），措辞要让用户区分「我配的」与「系统替我选的」。**这三条 locale 键与浮层接线属第 3 片下半**（同下半还须把 `podcast-tts-compose.js` 加回 `src/locales/podcast-error-codes.test.js` 的 PRODUCERS 并补 4 组 zh/en 成对文案，见 tasks.md 的 MUST 行）。
 
-**锁**：`podcast-tts-voice.test.js` 16 条——含「①命中时两个读取实现调用数必须为 0」（顺序判据用调用计数而非返回形状）、「半配置不得往下走」、「异常与没配结果必须不同（成对用例）」、三条**注入真 `tts-voice-catalog.getVoiceCapability`** 的跨模块契约锁（`openai-tts/tts-1 → alloy`；`elevenlabs → defaultVoiceId 为 null` 必须拒绝；未知 provider 不算命中），以及一条「本层源码不得出现第二个 `PODCAST_*` 字面量码」的码表单点结构锁。
+**锁**：`podcast-tts-voice.test.js` 现 14 条——含「① 命中时不读 ②」（顺序判据用调用计数而非返回形状）、两条**撤档锁**（`VOICE_ORIGIN` 闭集只剩两档；源码剥注释后不得再出现频道三段的读取形状，且剥注释必须配一条「真 require 仍看得见」的正控，否则切片切错了也会读成全不命中）、「异常与没配结果必须不同（成对用例）」、三条**注入真 `tts-voice-catalog.getVoiceCapability`** 的跨模块契约锁（`openai-tts/tts-1 → alloy`；`elevenlabs → defaultVoiceId 为 null` 必须拒绝；未知 provider 不算命中），以及一条「本层源码不得出现第二个 `PODCAST_*` 字面量码」的码表单点结构锁。
+
+##### 7.4.1.2 频道音色档的撤销，以及撤档时照出来的第二处缺口（2026-10-19，tasks 4.5b② 改判「撤档」）
+
+**裁决**：不补频道 `voiceRef` 的写侧，改为删掉回退链的第 ① 档。三个候选（做写侧 / 撤档 / 换别的形态）里撤档胜出，靠的是一条可重取的取证而不是省事：
+
+```
+git grep -n voiceRef -- apps/desktop/electron apps/desktop/src packages   # 逐条归类后：无对 meta.voiceRef 的赋值（2026-10-19）
+```
+
+**修正（QM6 i1，指控成立）**：上面这条命令原先写的是 `git grep -c voiceRef -- apps/desktop/src packages` 命中 0，**而那个扫描域不含 `apps/desktop/electron`**——频道 meta 的写侧与已知触点恰恰都在主进程目录，所以原命令证明不了它声称的事。正确的取证是把全域命中逐条归类为「请求载荷路径」（`podcast-episode-host.js:293` 取 `p.voiceRef`、`podcast-episode-synth.js:130` 透传、adapters 与 compose 的入参形状层）与「测试夹具」两类，**两类之外没有任何对 `meta.voiceRef` 的赋值**；渲染层 0 命中、频道页无音色控件。必须一并知道的第二条事实：`podcast-channel-service.js:296` 的 `Object.assign({}, channel, …)` **不滤未知键**，`validateChannel`（`podcast-rss.js:83`）只校验已声明字段、**不剥未知字段** ⇒ 经 `podcast:channel:save` 手工或走 API **可以**把 `voiceRef` 落进 meta。所以「恒为空」只对**代码路径**成立、对**磁盘数据**不成立——这正是下面那条 warn 不是「以防万一」的原因。全仓唯一触点就是「读给它自己听」的那个注入。所以这一档在**代码路径上**恒为空，删掉它不改变任何一次由代码产生的解析结果；但对盘上可能存在的历史值会变，两个方向见下文「存量数据的口径」。
+
+为什么「留着」比「删掉」更坏：一条不可达的档位会让下一个读者以为「频道可以配音色」，于是他不去补真正需要的入口；而它挂着的「半配置当场拒绝」判据，守的是一个永远不会被填的地方。同理，`src/components/PodcastScriptEntry.vue` 里那张「要不要出声」的表（`ANNOTATED_ORIGINS`）在闭集只剩两档后与闭集本身完全重合，一并删除——**判据 2 随其对象一起退役，不是被放宽**。locale 的 `podcast.episode.originChannel`（zh/en 两把）随消费者消失同 PR 下线：AGENTS 明令禁止留死键。
+
+**撤档顺带照出来的缺口（本 PR 不修，记为 tasks 4.5b④）**：`resolveEpisodeVoice` 的**生产调用方只有只读预览一个**（取证：`git grep -n resolveEpisodeVoice -- apps/desktop` 的命中里，除测试与注释外只剩 `podcast-episode-plan-preview.js`）。真出期那一站 `podcast-episode-host.js` 取的是**请求载荷里的** `p.voiceRef`，而渲染层从不发送它 ⇒ 适配层拿到空对象 ⇒ `getConfiguredProvider(opts, ['voice_provider','voiceProvider'])`（`asset-generator.js:145`，只读 `opts`、不回落任何设置）返回 null ⇒ `_tryProviderTTS` 返回 null ⇒ 落到 edge-tts，再落到 `anullsrc` 静音。
+
+后果是两件事叠在一起：① **预览承诺的音色与真实出期用的音色不是同一条链算出来的**——浮层显示「来自你的音色偏好 · alloy」，而那层解析结果从未交给合成；② §7.4.3 入参层明写「`voiceRef` 三段同缺是合法（由主进程按两层取）」，`podcast-tts-compose.test.js` 里就有这条用例——**合同说主进程会取，代码里主进程没取**。
+
+为什么不在本片一起修：这不是删一档，而是把音色解析搬进**出期主路径**——一旦接上，所有配了默认 provider 的账号，其播客音频的**实际发声者会当场改变**（从 edge-tts/兜底变成配置的 provider+voiceId）。那是用户可感知的行为变更，需要真机验收（听一段成片）与一次独立的 QM-1/QM-6，属另一刀。把它塞进一次「撤掉不可达档位」的 PR，会让同一个 diff 既有「无行为变化」的部分又有「改变发声者」的部分，评审无法按单一假设判断。合同的半步先落：4.5b④ 已挂在 tasks，验收判据写明「出期宿主必须调用 `resolveEpisodeVoice` 同一实现并把结果交给合成层，且预览与出期对同一入参必须逐字段同结论」。
+
+**本片补写的一条既有不变量，以及它的位置（QM6 第三轮 i4）**：预览原先靠 `channelRefOf` 那次读取**顺带**拒绝了不存在的频道；撤档会把这条副作用一起带走，而它已被一条现存用例契约化（`electron/ipc-handlers/podcast-plan-preview-ipc.test.js`「频道不存在时由服务如实拒绝」）。因此存在性判据改为在 handler 里**显式**读一次（只读 `getService(channelId).getChannel()`，`assertChannelWritable` 仍一次都不许被调）。⛔ **位置本身是判据**：这次读取排在 `previewEpisodePlan` **之后**。主干上它发生在分块与形状校验之后（`channelRefOf` 是音色解析的入参求值），所以「正文太短 + 频道有问题」报 `PODCAST_TTS_COPY_TOO_SHORT`、畸形 id 报 `PODCAST_CHANNEL_ID_INVALID`；把读取挪到前面会让频道错误抢先，把两个不同的用户可见错误码换成一个——那不是顺序偏好。变异反证：把读取挪回 `previewEpisodePlan` 之前 ⇒ 新增的「存在性读取必须排在预览自身的校验之后」指名红。
+
+**空 id / 畸形 id 的拒绝源只有一处（QM6 第一、三轮 i1/i6 的处置）**：第一版给这次读取加了 `if (String(cid||'').trim())` 门控，那是**第二份同一判据**——空 id 与畸形 id 本来就由 `previewEpisodePlan` 的形状层拒（判据与码表只在 compose 那一份），门控只是在下游再猜一次上游会不会放行。现已删除：读取无条件发生，但因它排在形状层之后，空白与畸形 id 根本走不到服务。这条由 `podcast-plan-preview-ipc.test.js` 钉住——断言两者各自被拒**且 `getChannel` 一次都没被调**；若将来有人把形状层的非空判据改宽，这次读取就会真的撞进服务，而那条既有的「频道不存在时由服务如实拒绝」会先出声。
+
+**存量数据的口径（QM6 第二、三轮 i4/i1/i3 补全两个方向；第五轮 P1/P2/P3 再纠正）**：源码 grep 只证明「没有写侧」，不证明「磁盘上没有历史值」。撤档对存量 `meta.voiceRef` 改变的行为**有两个方向**，只写一侧就是漏：① 原本**命中频道档**（三段齐备）⇒ 现在落到偏好或 capability，甚至变成拒绝；② 原本被**硬拒绝** ⇒ 现在**通过**。⛔ 第 ② 侧的范围由**主干那行注入与旧守卫两段合起来**决定，不是由解析层守卫单独决定（本条此前这样写过，被第五轮 P2 否证）：注入读作 `meta.voiceRef && typeof meta.voiceRef === 'object' ? meta.voiceRef : null`，所以非对象标量（空串、`0`、`false`、裸串）当年就被滤成 `null`、走 fallthrough ⇒ 撤档**没改**它们的行为，对它们发告警就是给未受影响的数据刷屏。真正过了那道滤网的只有 plain object 与数组——数组撞旧守卫当场硬拒绝，对象按**三段规范键名**判（半配置当场拒绝、齐备命中频道档、大小写错位的 `{voiceID:…}` 两者都不是 ⇒ 不出声）。**这条判据只回答「要不要出声」**，合法性判据仍只在入参形状层一处。
+
+**出声的两条支与去重（第五轮 P1/P3/P5）**：静默改行为不可接受 ⇒ 必须出声，且**两条支都要出**。成功支在 `previewEpisodePlan` 之后读一次频道（既是存在性判据也是留痕）；拒绝支只对 `PODCAST_TTS_VOICE_UNRESOLVED` 这**一个**码补读一次——撤档把「命中频道档的成功」变成「两层全空的拒绝」恰是最需要留痕的那一格，而原版把它整段留在 `await` 之后 ⇒ 一次都执行不到。同一处补读同时保住主干的错误优先级：`channelRefOf` 当年是音色解析的**入参求值**，频道缺失本就抢先于音色错误，所以 catch 里读到的 `PODCAST_CHANNEL_NOT_FOUND` 必须照常抛出，否则用户会被指向「请检查服务商与音色设置」而那里没有问题；其它错误码一律**不**补读，否则 `PODCAST_TTS_COPY_TOO_SHORT` 会被频道错误抢先——那是同一处判据的反面。去重按 `channelId`（本层不回填该字段 ⇒ 状态常驻，不去重就每开一次确认框刷一行；与本文件 `stockShapeWarned`／`previewDepWarned` 同口径），消息带 channelId，好让「还有几个频道挂着历史字段」能直接从日志数出来。
+
+**两条可观察性边界（第五轮 P2/P4，防下一个会话顺手加严或误扩承诺）**：① 「非对象标量」**不需要**一条专门的 `typeof` 短路——规范键名扫描对它们天然取不到键。第六轮变异反证实测「把那一行删掉」读数完全不变，即写了走不到的判据就是装饰性分支，所以实现里只留说明、不留判据。② 本通道与 `podcast:channel:get` 同路径，首触频道仍会顺带触发**存量固化旁路写**（tasks 4.4b）；本层的「只读」只指**不请求可写句柄**（`assertChannelWritable` 一次都不许被调），不得写成「整条链路零写盘」。
+
+**为什么不保留旧的半配置拒绝**：那等于为它把刚删掉的第①档以另一个名字请回来，与本节的撤档锁直接冲突。
+
+
+**为什么形状层的 `voiceRefIssues` 不跟着一起删（QM6 i3 的处置）**：撤档的理由是「档位不可达 ⇒ 误导读者」，不能套到入参形状层——那层校验的是**调用方发来的载荷**，是系统边界上的输入验证，与「回退链里有没有这一档」是两个问题。具体说：`publishFromScript` 的 `voiceRef` 今天恒为空是 4.5b④ 那个 bug 的**症状**，不是「这条判据无用」的证据；把边界验证删掉，等于在修那个 bug 时把唯一还盯着它的眼睛也摘了。两者区别的判据一句话：**回退档回答「系统替谁选」，形状校验回答「你传的东西合不合法」**。
 #### 7.4.2 流程（相位与手柄）
 
 手柄仍是 `podcast-episode-publish.js` 的闭集 `PHASES`（:29-32）与 `CANCELABLE_UNTIL='uploadAudio'`。刀 4 **只在 `extractMix` 这一站换一个实现**（`synthesizeEpisodeAudio` 取代 `extractEpisodeAudio`），`probe` 及其之后逐字复用。结构锁（PRD §8 ⑪）的口径是：**改相位枚举必须与逐格结果态测试同 PR**；刀 4 不改枚举，改的是注入实现。
@@ -502,7 +534,7 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 
 1. 进度：`已完成块数 / 总块数`（总块数在 `chunk` 结束时才确定，之前显示"正在分段…"，**不得**先猜一个总数再改口——数字会变的东西被用户当作进度谎言）。
 2. 逐块累计时长（来自每块 ffprobe 实测，不来自 provider 申报值；申报值与本仓「不得用申报值代替实测」纪律冲突）。
-3. 音色来源标注：`频道配置` / `沿用上次选择` / `provider 内置默认` 三态之一（对应 §7.4.0 的 ①②③，未配置直接拒绝时不显示本项）。
+3. 音色来源标注：`沿用上次选择` / `provider 内置默认` 两态之一（对应 §7.4.0 的 ①②；频道档已于 2026-10-19 撤销，两层都落空时直接拒绝出期，本项不显示）。
 4. 结果三态各一句话（success / partial / cancelled，语义与 §6.4 逐字一致；success 必须含「聚合端下次抓取后生效（通常数小时至数天）」，**禁止**写"已即时生效"）。
 5. 拒绝态必须点名成因类别：素材太短 / 分段不安全 / 某块降级为静音（列出块号）/ 音色无法解析 / provider 全部失败——五类不得合并成"合成失败"。
 
@@ -515,7 +547,7 @@ pickChannel → colloquialize → chunk → ttsBlock(逐块，串行) → concat
 | `podcast.tts.blocksProgress` | 合成中 | 「已合成 {done} / {total} 段」 |
 | `podcast.tts.blocking` | 总块数未定 | 「正在分段…」 |
 | `podcast.tts.durationSoFar` | 合成中 | 「累计时长 {duration}」 |
-| `podcast.tts.voice.channel` / `.preference` / `.providerDefault` | 显示项 3 | 三态来源标注，措辞必须让用户能区分"我配的"与"系统替我选的" |
+| ~~`podcast.tts.voice.channel`~~ / `.preference` / `.providerDefault` | 显示项 3 | 原为三态；2026-10-19 撤销频道档后只剩两态，`.channel` 那把从未落地（实际落点是 `podcast.episode.origin*`，见 §8.2.9 的偏差记录）。措辞必须让用户能区分"我配的"与"系统替我选的" |
 | `podcast.errors.PODCAST_TTS_VOICE_UNRESOLVED` | ①层 | 无法确定音色，已停止（不猜音色） |
 | `podcast.errors.PODCAST_TTS_COPY_TOO_SHORT` | ①层 | 正文过短，不足以成为一期 |
 | `podcast.errors.PODCAST_TTS_CHUNK_UNSAFE` | chunk | 分段边界不安全（无句号可切），已停止而非硬切 |
@@ -906,7 +938,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 | 位置 | 显示内容 | 数据来源 |
 | --- | --- | --- |
-| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；浮层已消费（②-b）；三把 `podcast.episode.plan*` 键与 §8.2.9 的 origin 三把均已落（②-a-l 的欠账在 ②-b 同 PR 清偿，共七把 zh/en 成对键） |
+| 二次确认框 | 块数、总码点、服务商/模型/音色三段 | **只读 IPC `podcast:episode:planPreview`**（§7.10.4.1，2026-10-16 主进程侧已落）：`plan.totalBlocks/totalCodepoints` 由 `planChunks` 同一实现产出、`voice` 五段由 `resolveEpisodeVoice` 产出，本层只转发不加工；浮层已消费（②-b）；三把 `podcast.episode.plan*` 键与 §8.2.9 的 origin 标注键均已落（频道档撤销后为两把，`originChannel` 同 PR 下线）（②-a-l 的欠账在 ②-b 同 PR 清偿，共七把 zh/en 成对键） |
 | 进度遮罩 | 当前相位 + `durationSec` / `sizeBytes` / `mime` 实测值 | `publish:progress` 富化事件（§6.4.2） |
 | 结果 | 成功给 `feedUrl`；partial 明示「公网 feed 未更新」；cancelled 明示「已回滚，未产生远端对象」 | 编排层信封 |
 
@@ -932,7 +964,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 - `podcast.episode.planBlocks` —— zh `将切成 {n} 块` / en `Will be split into {n} chunks`
 - `podcast.episode.planCodepoints` —— zh `合计 {n} 码点` / en `{n} code points in total`
 - `podcast.episode.planVoice` —— zh `服务商 {provider} · 模型 {model} · 音色 {voice}` / en `Provider {provider} · Model {model} · Voice {voice}`
-- 来源标注**复用** §8.2.9 已定的三把 `podcast.voice.origin*` 键，**不另写一份**（同一句话抄两处必然漂移）。
+- 来源标注**复用** §8.2.9 已定的 `podcast.voice.origin*` 键（频道档撤销后为两把），**不另写一份**（同一句话抄两处必然漂移）。
 
 **验收判据（逐条可测，缺一不可）**：
 
@@ -946,7 +978,7 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 **故意不做**：不给预览加限流/去抖（打开浮层是低频动作，加限流只会让计数与用户刚改完的正文不一致）；不做「预估费用金额」（本仓无服务商价目表真源，写出来就是猜）；不在预览里做口语化重写（§7.6 那条链独立，且必须保持换行与终止标点的结构不变量）。
 
-**与 §8.2.9 的关系（偏差在此明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。二者若并存，用户打开一次浮层要走两趟近重复读路径，且音色解析会跑两遍。故本节的 `podcast:episode:planPreview` **承载** §8.2.9 的读面，§8.2.9 的落点、三态标注与验收判据全部照用，只是 IPC 名与载荷合一。这是对本 PRD 自身早期条款的收敛，不是新增偏离。
+**与 §8.2.9 的关系（偏差在此明写）**：§8.2.9 曾把同一批音色信息规划成独立的 `podcast:voice-preview`。二者若并存，用户打开一次浮层要走两趟近重复读路径，且音色解析会跑两遍。故本节的 `podcast:episode:planPreview` **承载** §8.2.9 的读面，§8.2.9 的落点、来源标注与验收判据全部照用（标注现为两态，见 §7.4.1.2），只是 IPC 名与载荷合一。这是对本 PRD 自身早期条款的收敛，不是新增偏离。
 
 > **落地现场（2026-10-16，tasks 4.3②-a）**：主进程侧已按本节落地——`apps/desktop/electron/services/podcast-episode-plan-preview.js`（分块与音色**只转发不加工**，缺注入实现即 fail closed）+ IPC 通道 `podcast:episode:planPreview` + preload 键 `episodePlanPreview` + 两个 tracked bundle 已重生。
 
@@ -1290,9 +1322,12 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 术语与 `01-docs/i18n-glossary.md` 对齐：「存量」不得与「历史数据/旧数据」混用；
 改词典必须同 PR 跑 `apps/desktop/src/i18n/glossary.test.js`（键级成对锁覆盖不到术语成对）。
 
-### 8.2.9 音色来源三态标注（**部分实现：文本浮层已标注，判据 2 与视频落点未落**）
-> **落地状态（2026-10-19 逐绑定点实测，取代本节原先的"尚未实现"）**：读面已由 §7.10.4.1 的 `podcast:episode:planPreview` 一并提供，文本出期浮层 `src/components/PodcastScriptEntry.vue:16` 渲染来源标注、`:49-52` 持三把键 ⇒ 本节顶部那段"实测三个事实"（`voiceRef` 渲染层 0 命中、locales 无音色键、无 IPC 带到渲染层）**已全部过期，保留原文不改写，但以本段为准**。三处偏离必须知道：① **键名**实际落的是 `podcast.episode.origin*`（`src/locales/podcast/zh.js:174-176` = `en.js:174-176`），不是本节表里写的 `podcast.voice.origin*`，措辞也不同（实际「来自频道设置」，表里「本期音色取自频道设置」）——§7.10.4.1 那句"复用、不另写一份"未逐字兑现，记为**有意偏离**（同一条文案抄两份必然漂移，此处选择保留已落的这套键，本节表格按实测读、不再当第二份真源）。② **判据 2 未落**：`channel` 档也在 `ORIGIN_KEYS` 里，于是"用户自己填的"那一档照样显示来源，与判据 2 相反（tasks 4.5b①）。③ **落点换了组件**：本节原写"落点是 `PodcastEpisodeEntry.vue` 表单底部一行"，实际落在文本浮层；`PodcastEpisodeEntry.vue`（视频出期那枚）至今 `voice|origin` 命中 0。判据 1/3/4/5/6 未逐条反查 ⇒ 在 4.5b① 闭合前，本节不得读成"已按七条判据验收"。
+### 8.2.9 音色来源标注（**两态；判据 2 随频道档于 2026-10-19 一起退役，视频落点仍未落**）
+> **落地状态（2026-10-19 逐绑定点实测，取代本节原先的"尚未实现"）**：读面已由 §7.10.4.1 的 `podcast:episode:planPreview` 一并提供，文本出期浮层 `src/components/PodcastScriptEntry.vue:16` 渲染来源标注、`:49-52` 持三把键 ⇒ 本节顶部那段"实测三个事实"（`voiceRef` 渲染层 0 命中、locales 无音色键、无 IPC 带到渲染层）**已全部过期，保留原文不改写，但以本段为准**。三处偏离必须知道：① **键名**实际落的是 `podcast.episode.origin*`（`src/locales/podcast/zh.js:174-176` = `en.js:174-176`），不是本节表里写的 `podcast.voice.origin*`，措辞也不同（实际「来自频道设置」，表里「本期音色取自频道设置」）——§7.10.4.1 那句"复用、不另写一份"未逐字兑现，记为**有意偏离**（同一条文案抄两份必然漂移，此处选择保留已落的这套键，本节表格按实测读、不再当第二份真源）。② **判据 2 未落**：`channel` 档也在 `ORIGIN_KEYS` 里，于是"用户自己填的"那一档照样显示来源，与判据 2 相反（tasks 4.5b①）。③ **落点换了组件**：本节原写"落点是 `PodcastEpisodeEntry.vue` 表单底部一行"，实际落在文本浮层；`PodcastEpisodeEntry.vue`（视频出期那枚）至今 `voice|origin` 命中 0。判据 1/3/4/5/6 未逐条反查（4.5b① 已由 PR #3955 闭合，4.5b③ 视频落点仍未落）。**④ 2026-10-19 撤销频道档后判据 2 失去对象**：闭集只剩两档且两档都要标注，那张「要不要出声」的表（`ANNOTATED_ORIGINS`）随之删除，`originChannel` 的 zh/en 两把键同 PR 下线——它们已无消费者，留着就是死键（AGENTS 禁止）。
 > **2026-10-19 第二次更正（随 PR 勾 4.5b①）**：上面第三条偏离已闭合——`originLabel` 现在只给 `preference` / `providerDefault` 出声（新增 `ANNOTATED_ORIGINS` 白名单，与 `ORIGIN_KEYS` 那张闭集表**刻意分开**：前者答"要不要告诉用户"，后者答"有哪些档"），闭集外取值不显示且出 `console.warn`，两者各有指名用例与变异反证（M1/M2 红集不同、M3/M4 红集重合）。**仍未落的只剩两件**：① 本节的落点原定 `PodcastEpisodeEntry.vue`（视频出期浮层），那里至今没有任何音色/来源显示 ⇒ 拆 `tasks 4.5b③`；② 回退链第 ① 档（频道 `voiceRef`）只有读侧、没有写侧，而写侧需要的录入控件被本节「故意不做」第二条挡着 ⇒ 那条排除的理由针对的是"全局默认音色"这个不存在的东西，与频道级 `voiceRef` 不是同一件事，需产品裁决后才能拆片，`tasks 4.5b②` 记着这个阻塞事实。**所以本节的状态是"文本浮层那半已按七条判据中的 1/2 实现并有锁，其余判据与视频落点未逐条验收"，不是"已落地"。**
+
+> **2026-10-19 第三次更正（随撤档 PR，取代上一段里两处现已过期的表述）**：① 上一段的「新增 `ANNOTATED_ORIGINS` 白名单，与 `ORIGIN_KEYS` 那张闭集表刻意分开」是**当时的正确做法**，但回退链第 ① 档在同日被撤销后，闭集只剩 `preference`/`providerDefault` 两档且两档都要标注，那张出声表与闭集重合 ⇒ 已删除（判据 2 随对象退役，见 §7.4.1.2）。② 上一段的「第 ① 档只有读侧没有写侧……需产品裁决后才能拆片，`tasks 4.5b②` 记着这个阻塞事实」——产品裁决已到，落点是**撤销该档**而不是补写侧，所以本节的三态标注现为**两态**，`podcast.episode.originChannel` 两把键已下线。历史两段保留原文不改写。
+> 仍未落的只剩：`tasks 4.5b③`（视频出期浮层那半，`PodcastEpisodeEntry.vue` 至今 `voice|origin` 命中 0）与 `tasks 4.5b④`（出期宿主不消费解析链）。
 
 
 > **承载方（2026-10-16）**：本节的读面由 §7.10.4.1 的 `podcast:episode:planPreview` 一次性提供（不再单开 `podcast:voice-preview`，两趟近重复读路径会让音色解析跑两遍）。下面的落点、三态标注与验收判据**照用不变**，仅 IPC 名与载荷合一；`plan.voice.origin` 三把键由 §7.10.4.1 复用。
@@ -1314,7 +1349,9 @@ finally: 删本 run 临时目录 → episodeCancelRegistry.end → registry.endP
 
 | 键 | zh | en |
 | --- | --- | --- |
-| `podcast.voice.originChannel` | 本期音色取自频道设置 | Voice comes from the channel |
+| ~~`podcast.voice.originChannel`~~ | 本期音色取自频道设置（**2026-10-19 随频道档撤销，键已下线**） | ~~Voice comes from the channel~~ |
+
+> 本表按 §8.2.9 早期规划原样保留（~~划线~~ 表示该档已撤）。**QM6 i5 点名的一处必须读对**：本次实际从 locales 删掉的键是 `podcast.episode.originChannel`（zh/en 成对，见 `src/locales/podcast/zh.js` 与 `en.js` 的 diff），而本节这张表里的 `podcast.voice.origin*` 三把键**从未存在过**——这正是上面 ① 那条「有意偏离」的现场后果：同一个信息在文档里有两套键名，被划线的就成了没有实体的那一套。所以本表**不得当作第二份真源读**，实存键名一律以 `src/locales/podcast/{zh,en}.js` 为准；撤档后现存两把：`podcast.episode.originPreference` / `podcast.episode.originProviderDefault`。
 | `podcast.voice.originPreference` | 本期音色取自你的默认偏好（{provider} / {model}） | Voice comes from your default preference ({provider} / {model}) |
 | `podcast.voice.originProviderDefault` | 本期音色取自该模型自带的默认音色（{provider} / {model}） | Voice comes from the model default ({provider} / {model}) |
 

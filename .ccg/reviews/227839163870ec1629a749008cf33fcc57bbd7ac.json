@@ -1,0 +1,58 @@
+{
+  "sha": "227839163870ec1629a749008cf33fcc57bbd7ac",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 13,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "      \"| 第七轮：自家闸门在合并前拦下两条红，处置是拆结构而不是上调基线 | ✅ | 这是 `check-main-red` 第一次在真输入上跑完整链路（#4024 那片的执行体被本片消费，跨片自举）：`merge-when-green.sh` 轮询到 CI 收敛后读数 `MAIN-RED verdict=NEW_RED exit=1 mainFail=0 newRed=2`，点名 `Gate Result, 债务熔断检查` 并拒绝合并。**根因只有一条**：本片把 `ipc-handlers/podcast.js` 从 470 行推到 **505** 行，越过 `FILES_OVER_500` 基线 95 ⇒ `债务熔断检查` 红；`QG Changes` 里那条「⑩ 消费者套件必须整份真的跑了」因为它**真跑**消费套件而跟着红；required 的 `Gate Result` 再汇总红。**处置口径**：`check-debt-budget.js --update` 是「接受漂移」，AGENTS 要求先问能不能拆结构 ⇒ 把纯函数 `legacyChannelVoiceRefCarriesContent` 连同 21 行范围口径整体搬进 `electron/services/podcast-legacy-voice-ref.js`（零依赖、可独立阅读），`podcast.js` 回到 **488** 行，本机 `node scripts/check-debt-budget.js` 现场 `filesOver500: 95 (baseline 95)` 转绿。行为逐字不变：四个受影响测试文件 **71 passed** 不动，第五轮那批变异反证里指向该函数的锚点（M5/M6/M8）随文件重定向后仍各自指名变红。QM-1 重打包自证新文件随包（asar 内 blob 与工作树逐字节相同）且 handler 的 require 链在产物里指得过去。**另记一处不认领的既有红**：本机跑 `scripts/lib/git-domain.test.js` 的 ⑫「同一目录换一种写法仍必须是仓库根」在**干净的 main 工作副本**上同样 fail（`pass 11 / fail 1`，两侧读数一致）——该作业在 CI 跑 Linux 故主干绿，属既有 Windows 侧欠账，不由本片修。\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T01:48:11.405Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

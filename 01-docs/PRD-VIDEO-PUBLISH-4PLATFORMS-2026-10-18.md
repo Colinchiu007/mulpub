@@ -1051,3 +1051,909 @@ accountBatchCheckLogin / authLoginSilent）。**不碰** cookie 文件（独占�
 **教训（两条都重要）**：
 1. 单测假服务器不校验 CRC ⇒ **8 例全绿但真机第一步就 400** —— 「单测绿 ≠ 真机通」的又一方（前有 vite alias、后有 CRC）。
 2. 「第三参省略」这条生产主路径没有用例 —— 回归锁必须覆盖**默认参数形态**，不只覆盖显式传参形态。
+
+### 14.5 视频号会话订正（2026-10-21）
+
+§14.1/§14.2/§14.3 建立在「视频号 active、HTTP 检测不确定、待探针」这一前提上。
+**2026-10-21 同法复测否证了该前提**：
+
+```json
+{"platform":"tencent_video","accountId":"b1e05ac2","valid":false,
+ "code":"CHECK_LOGIN_COOKIE_EXPIRED","loginStatus":"expired",
+ "persisted":{"ok":true,"status":"expired"}}
+```
+
+⇒ **视频号会话已过期**，不再"待探针"，改**重新扫码**。
+
+**两处判断纠正（有普遍意义）**：
+1. `has_cookies=true` **不等于会话有效** —— 只说明"存过凭据"。
+2. `authLoginSilent` 的 `valid:false` 不宜解释为「能否静默重登的语义差异」，
+   更可能直接就是**会话失效**信号；此前按语义差异解读是一次误读。
+
+**订正后三平台终态**：仅头条 active；抖音、视频号均 expired（均须重新扫码）。
+
+---
+
+## 16. 四平台真实发布 —— 最终交付状态总章（2026-10-21 收口）
+
+> 本章是「抖音 / 视频号 / 今日头条 / 小红书 视频内容真实发布成功」这一目标的**收口视图**。
+> 前文章节记录的是**各技术点的拆解**，本章回答：**现在到底能发到哪一步、卡在哪、下一步做什么**。
+
+### 16.1 四平台终态总表
+
+| 平台 | 发布轨 | 技术链状态 | 当前判据 | 剩余动作 |
+| --- | --- | --- | --- | --- |
+| **小红书** | API（草稿） | ⚠ **当前无可观测证据表明已落地**（凭据有效、签名可用，但实跑 `406`） | 草稿箱**(0)**；无 `draft_id` 留存；见 §16.14 / §16.16 | 授权抓真实发布请求做字段级对照（§16.11.5） |
+| **今日头条** | API（视频） | ✅ **100% 就绪且无回归** | 提交前拦截 `ACCOUNT_NOT_VERIFIED`；提交后 `Code 21000` | **用户完善账号实名** |
+| **抖音** | API（视频） | 代码就绪 | `CHECK_LOGIN_COOKIE_EXPIRED`（应用已持久化） | **用户重新扫码** |
+| **视频号** | API（视频） | 代码就绪 | `CHECK_LOGIN_COOKIE_EXPIRED` + 平台 `errCode 300334` | **用户重新扫码** |
+
+### 16.2 头条：技术链已完整打通（唯一阻塞是账号实名）
+
+全链四层在**最新主干代码**上逐层实测通过（2026-10-21 复跑，main tip `1c473767` 之后）：
+
+| 层 | 实现 | 真机读数 |
+| --- | --- | --- |
+| ① 提交前闸门 | `GetPublishAuth.IsIdentifyAuth` → `buildPublishGateResult` | `identityVerified=false` → **拦截 `ACCOUNT_NOT_VERIFIED`**，并给出解法链接 |
+| ② 封面五步链 | `toutiao-video-cover.js`：`getAuthKey(image_temp)` → `GetImageUploadParams` → PUT（带 `Content-CRC32`）→ `GetImageUploadInfos` → 登记 | 登记 uri ✅（1280×720 jpeg） |
+| ③ 视频 VOD | getAuthKey(video) → 分片 → CommitUploadInner | 新 `Vid` ✅ |
+| ④ 提交发布 | `PublishVideo` + `parsePublishResponse.accountGate` | `Code 21000` + **`accountGate=true` 被正确识别** |
+
+**账户墙的两个判据必须区分**（易错点）：
+- `DisablePublish=false` / `blockStatus=0` **不能**当作"可以发布"的依据；
+- 唯一权威判据是 `IsIdentifyAuth`（实名）。
+
+**账号一旦实名**：同一套代码无需改动即可产出 `ItemId`（真实发布成功）。
+
+### 16.3 用户可见的交互与文案（头条账号墙）
+
+| 项 | 内容 |
+| --- | --- |
+| 触发时机 | ① 提交前：`checkPublishAuth` 判 `identityVerified=false`；② 提交后：服务端返回 `Code 21000` |
+| 结果码 | `ACCOUNT_NOT_VERIFIED`（提交前与提交时**同码**，UI 据此反查同一解法入口） |
+| 提示文案（zh） | 该头条号账号信息未完善，暂时无法发布视频（平台提示：账号信息未完善，暂时不能进行发布文章、视频等权益操作，请完善后重试） |
+| 解法链接 | `https://mp.toutiao.com/profile_v4/personal/landing-type`（平台自有「去完善」落地页） |
+| 链接文案（zh） | 去头条号完善账号信息 |
+| 链接渲染 | `v-if` 与 `:href` 同表达式 `safeHttpUrl(gateHelp.url)`；`safeHttpUrl("")` 返回 null ⇒ 不渲染死链 |
+| 副链接 | `https://mp.toutiao.com/profile_v4/personal/auth?enter_from=main_page` |
+
+### 16.4 抖音 / 视频号：代码就绪，仅等会话
+
+两者的发布链代码均已落地，当前阻塞**纯粹是登录态**：
+
+- **抖音**：应用判定 `CHECK_LOGIN_COOKIE_EXPIRED` 并已持久化 `expired`。
+- **视频号**：双证据确认过期 ——
+  ① 应用 `accountBatchCheckLogin` → `CHECK_LOGIN_COOKIE_EXPIRED`；
+  ② 绕过应用直接调平台 `auth_data` → `errCode 300334`，
+     而 `http-login-checker.js` 注释写明 **300333/300334 = 登录失效**。
+
+> ⚠ **与目标描述的冲突（如实记录）**：目标描述写「视频号已经登录了」，
+> 但 2026-10-21 实测（应用判定 + 平台 errCode 双证据）为**已过期**。
+> 该描述在当下不成立，须重新扫码后恢复。
+
+### 16.5 工程侧已完成 / 未做的边界（不谎报）
+
+**已完成**：
+- 小红书草稿落地；头条全链（含封面五步链、账号墙双层判据、UI 解法链接）；
+- 抖音 / 视频号发布链代码；
+- 账号与发布相关的基础设施修复（runner 机械判定、假签名拆除等，见 §12-§15）。
+
+**未做 / 未闭合（如实）**：
+- 三平台**真实发布成功**均未取得 —— 全部被账号侧（实名 / 扫码）阻塞；
+- 抖音**本地签名从未在真实平台验证过**（历史遗留，需活体账号）；
+- 竞品逆向成果的 B 级项（账号态建模、平台 API 清单、发布链路时序的架构级参考）尚未展开改造。
+### 16.6 已达成能力的回归验证（2026-10-21，main tip `bb40000a` 之后）
+
+目标里唯一已达成的是**小红书草稿落地**。在后续多次合并之后复测，确认它**没有回归**：
+
+```
+vitest run tests/xiaohongshu-draft-chain.test.js \
+             tests/xiaohongshu-note-align.test.js \
+             tests/xiaohongshu-note-inpage.test.js
+→ Test Files 3 passed (3) / Tests 19 passed (19)
+```
+
+⇒ 已达成的能力在最新主干上仍然成立（不是靠记忆，是复跑读数）。
+
+> 提醒（给后续维护者）：小红书相关测试位于 `packages/api-publish-engine/tests/`（**复数**），
+> 与多数测试的 `test/`（单数）不同；按单数目录去找会报 `No test files found`。
+### 16.7 「看起来登录了」与「实际已过期」为什么能同时成立（2026-10-21）
+
+目标描述写「视频号已经登录了」，而实测判 `expired`。两者**并不矛盾** —— 
+根因在 `01-docs/PRD-ACCOUNT-LOGIN-STATUS-CHECK.md`（§12.2）已记载的陷阱：
+
+> Cookie（`slave_sid`）过期后访问 `cgi-bin/home` **仍可能返回 200 并渲染后台骨架**，
+> 但 loginpage 页面未登录时不会内嵌 `token`/`uin`。
+> 判据用的是 token/uin 是否同时存在：
+> 两者俱在 → `CHECK_LOGIN_SUCCESS_HTTP_API`；任一缺失 → `CHECK_LOGIN_COOKIE_EXPIRED`。
+
+⇒ **界面看起来"已登录"（骨架渲染成功）与凭据实际失效（token/uin 缺失）可以同时为真**。
+这也解释了本仓此前的一次误读：曾据 `has_cookies=true` 推测"信封库里可能有活 cookie"，
+而 `has_cookies` 只说明"存过凭据"，与"凭据仍有效"无关。
+
+**给排查者的判据顺序（避免再误读）**：
+1. 看 `CHECK_LOGIN_*` 判据码（权威，走平台真实校验）；
+2. 需要独立佐证时，直接调平台接口看 `errCode`（视频号：300333/300334 = 失效）；
+3. **不要**据「页面能打开 / 后台能渲染 / has_cookies=true」推断登录态。
+### 16.8 小红书草稿链真机 E2E（2026-10-21，应用主进程内实跑）
+
+通道：`xiaohongshu:probe-draft-chain`（主进程内实跑，**默认 draft:true**，落创作者中心草稿箱，不公开发布）。
+本次 E2E 分四步推进，每步的失败都**精确指明下一项必填**，是真机契约的实测过程：
+
+| 步骤 | 传参 | 真机返回 | 说明 |
+| --- | --- | --- | --- |
+| ① | 仅 accountId | `XHS_NO_IMAGE`（至少需要 1 张图片：小红书不支持纯文字笔记） | 凭据已通过（未被风控/签名拒），卡在必填项 |
+| ② | + `imagePaths` | 同 `XHS_NO_IMAGE` | 参数名不对（实际是 `images`） |
+| ③ | + `images` | `XHS_NO_TITLE`（标题为空） | 图片已被接受 |
+| ④ | + 顶层 `title/content` | 同 `XHS_NO_TITLE` | 字段需**嵌套在 `article` 内** |
+| ⑤ | + `article.title/content` | `signer-assembly: extractor failed platform=xiaohongshu reason=no-webms-fn` | 走到**签名环节** |
+
+**凭证状态（实测有效）**：cookie 22 个，含 `a1` / `access-token-creator.xiaohongshu.com` /
+`customer-sso-sid` / `galaxy_creator_session_id` ⇒ `hasAuthorization=true`。
+
+**⑤ 的根因（重要，纠正模糊认知）**：
+- 真签名由创作者页全局函数 `window._webmsxyw(url, data)` 生成；
+- `apps/desktop/electron/signer/xhs-extractor.js` 注释明确：本地 `signer-local` 的
+  **XYW_ AES 定长块是"旧协议仿制"，对 note 端点已被 406 拒绝**；
+- `no-webms-fn` = 当前未加载创作者页（签名页 bridge 未装配）⇒ 取不到该函数。
+
+⇒ **小红书 API 草稿链能否跑通，取决于签名页基建是否装配好创作者页**；
+仅凭本地公式**不足以**让 note 端点接受（已 406 实证）。
+
+**调用契约（实测确认，供复用）**：
+```js
+probeXiaohongshuDraftChain(accountId, {
+  images: ['<本地图片绝对路径>'],
+  article: { title: '...', content: '...' },
+})
+```
+- `images` 在顶层，`title/content` **必须嵌套在 `article` 内**（传顶层无效且报"标题为空"）。
+### 16.9 真机验证手册（可执行步骤 + 已踩坑位，2026-10-21）
+
+> 本节把前几轮**摸索出来的真机验证路径**固化成步骤，供账号恢复后**照着跑**，
+> 避免重复踩参数名/判据误读的坑。所有操作均**只读或落草稿箱**，不公开发布。
+
+#### 16.9.1 前置：确认账号状态（走应用自身判据，别信表象）
+
+```js
+// 经应用 CDP（--remote-debugging-port，本机 9279）在渲染进程调用
+await window.electronAPI.accountBatchCheckLogin([头条id, 抖音id, 视频号id])
+// 看 code：CHECK_LOGIN_SUCCESS_HTTP_API = 有效；CHECK_LOGIN_COOKIE_EXPIRED = 失效
+```
+
+⚠ **不要**据「页面能打开 / 后台能渲染 / has_cookies=true」推断登录态（见 §16.7）。
+
+#### 16.9.2 头条：全链四层真机验证（唯一阻塞是实名）
+
+取活 cookie（分区被独占锁时用**流式共享读**绕过）：
+```powershell
+$fs=[IO.File]::Open("<分区>\Network\Cookies","Open","Read",[IO.FileShare]::ReadWrite)
+$ms=New-Object IO.MemoryStream; $fs.CopyTo($ms); $fs.Close()
+[IO.File]::WriteAllBytes("<临时profile>\Default\Network\Cookies",$ms.ToArray())
+```
+
+然后依次验证（每层都有明确判据）：
+
+| 层 | 判据 | 当前读数 |
+| --- | --- | --- |
+| ① 提交前闸门 | `GetPublishAuth.IsIdentifyAuth` | `false` ⇒ 拦截 `ACCOUNT_NOT_VERIFIED` + 解法链接 |
+| ② 封面五步链 | PUT 需带 `Content-CRC32`（缺失 → `4007 MismatchChecksum`） | 登记 uri ✅ |
+| ③ 视频 VOD | 返回新 `Vid` | ✅ |
+| ④ 提交 | `Code 21000` + `accountGate=true` | 账号墙（实名后即出 `ItemId`）|
+
+#### 16.9.3 视频号：账号失效的独立佐证（绕过应用判定直接问平台）
+
+```js
+// 在已加载 channels.weixin.qq.com 的页面上下文
+fetch('/cgi-bin/mmfinderassistant-bin/auth/auth_data', { method:'POST',
+  headers:{'Content-Type':'application/json', Referer:'https://channels.weixin.qq.com'},
+  body: JSON.stringify({ timestamp:String(Date.now()).slice(0,13), _log_finder_uin:'',
+    _log_finder_id:'', rawKeyBuff:null, pluginSessionId:null, scene:7, reqScene:7 }) })
+```
+
+- `errCode 300333 / 300334` = **登录失效**（代码注释口径）
+- `errCode 300330` = 本次实测值，**分区凭据为空**（比失效更彻底）
+
+#### 16.9.4 小红书：草稿链 probe（含必填项与字段嵌套坑）
+
+```js
+await window.electronAPI.probeXiaohongshuDraftChain(accountId, {
+  images: ['<本地图片绝对路径>'],        // ← 顶层，数组
+  article: { title: '...', content: '...' },  // ← 必须嵌套！传顶层无效
+})
+```
+
+**已踩坑位（逐个记，避免重复）**：
+1. 参数名是 `images`，**不是** `imagePaths`（传错仍报 `XHS_NO_IMAGE`）
+2. `title/content` **必须嵌在 `article` 里**（传顶层仍报「标题为空」）
+3. 失败是**逐项暴露**的：先缺图 → 再缺标题 → 再到签名，不是一次报全
+
+**签名环节（关键限制）**：真签名来自创作者页 `window._webmsxyw(url, data)`；
+本地 `signer-local` 的 XYW_ 定长块是**旧协议仿制，对 note 端点已被 406 拒绝**。
+`no-webms-fn` = 页面已开但缺该函数（多为页面未处于登录态创作者页）；
+`stage=signer-bridge` = bridge 未装配（与前者不同，务必区分）。
+
+#### 16.9.5 通用：取活 cookie 的两种方式
+
+| 场景 | 方式 |
+| --- | --- |
+| 分区未被占用 | 直接 `copy` |
+| **被应用独占锁**（常见） | 流式共享读（见 16.9.2 的代码） |
+
+> 判据纪律：合并/改热写面后必须 `git show origin/main:<文件>` **回读主干实际内容**，
+> 不能只看本分支判据绿（本仓已两次栽在这：CI 红 + 基线被并发覆盖）。
+### 16.10 小红书 E2E 再推进：签名已通过，止于服务端 406（2026-10-21 第二轮）
+
+> 本轮**推翻了 §16.8 时的两个推测**，是真机实测的修正，务必以本节为准。
+
+#### 16.10.1 修正一：`_webmsxyw` 与登录态无关
+
+§16.8 曾推测 `no-webms-fn` 是「页面未处于登录态」。实测否证：
+在 `https://creator.xiaohongshu.com/login`（**登录页**）上检测，
+`window._webmsxyw` 的 typeof 即为 `function` —— **登录页也提供该函数**。
+
+⇒ `no-webms-fn` 的真正含义是**签名页（隐藏页实例）当时未加载完成/已关闭**，
+而不是"没登录"。签名页用的是 `signer-page-manager` 自己开的隐藏页，
+与可见的那个小红书页面**不是同一个实例**。
+
+#### 16.10.2 修正二：凭据在 `rpa-` 分区，`account-` 分区是空的
+
+同一账号 `a1eac276` 的两个分区，实测结果**完全相反**：
+
+| 分区 | 访问 `creator.xiaohongshu.com/publish/publish` |
+| --- | --- |
+| `account-a1eac276` | ❌ 跳登录页（`?redirectReason=401`） |
+| **`rpa-xiaohongshu-a1eac276`** | ✅ **进入发布页**（账号「里奥的时尚胶囊」，草稿箱(0)）|
+
+⇒ 凭据只存在于 `rpa-` 分区。排查签名/请求问题时**要确认取的是哪个分区**。
+
+#### 16.10.3 本轮 E2E 结果：签名通过，服务端拒绝
+
+重跑 `probeXiaohongshuDraftChain`（`images` + `article.title/content`）：
+
+```json
+{"code":-1,"errorCode":"ERR_BAD_REQUEST","httpStatus":406,
+ "failedEndpoint":"https://edith.xiaohongshu.com/web_api/sns/v2/note",
+ "hasAuthorization":true}
+```
+
+**进展**：不再是 `no-webms-fn` —— 签名函数取到、请求**已带签名发出**，被服务端拒。
+
+对照实验（同分区、进发布页后**裸** fetch 该端点）：
+```
+HTTP 401 {"code":-100,"msg":"无登录信息"}
+```
+⇒ **406（带签名）与 401（不带签名）是两种不同的失败**：
+不带签名 = 直接无登录信息；带签名 = 过了身份校验但请求本身被拒（406 Not Acceptable）。
+
+#### 16.10.4 现状与下一步（不臆造）
+
+- 已确认可用：账号有效、`_webmsxyw` 存在、签名可产出、请求可达端点。
+- **未解决**：服务端对 `sns/v2/note` 返回 406。
+- 要继续需改请求构造（端点/字段/头），**须有依据**：
+  建议抓一次真实创作者页发布时的请求做对照，再决定改什么。
+  在没有对照证据前改参数是**猜测**，本轮不做。
+### 16.11 小红书 406 的对照实验：排除"头不全"，锁定"端点前缀"嫌疑（2026-10-21 第三轮）
+
+#### 16.11.1 真实请求的签名头清单（抓自已登录发布页）
+
+在 `rpa-xiaohongshu-a1eac276` 分区的**已登录发布页**上监听，页面自身发出 5 个 edith 域请求
+（`/api/redcaptcha/v2/getconfig`、`/api/sns/web/racing_get`、`/api/sns/web/racing_report`、
+`/api/sns/v1/creator/red_skill/web/list_mountable_skills`、`/api/sns/v1/creator/red_app/web/consumer/list`），
+**签名头完全一致**：
+
+```
+x-s, x-t, x-s-common, x-b3-traceid, x-xray-traceid
+```
+
+#### 16.11.2 核对：我们的实现头是齐的（排除"头不全"假设）
+
+`xiaohongshu-draft.js` L204 用 `buildXiaohongshuSignHeaders` 产出上述 5 个头，
+并用签名器结果覆盖 `x-s` ⇒ **头齐全**。
+
+⇒ **406 不是签名头缺失导致**（否则应表现为 401）。
+
+#### 16.11.3 对照实验：401 与 406 的成因区分
+
+| 请求 | 结果 | 说明 |
+| --- | --- | --- |
+| 完整链路（probe，头齐全） | **406** | 过了身份校验，请求本身被拒 |
+| 仅带 x-s/x-t（本轮对照） | **401** `{"code":-100,"msg":"无登录信息"}` | 头不全 ⇒ 无登录信息 |
+
+⇒ **401 与 406 是两种不同失败**，可用作判据：
+看到 401 先查签名头是否齐；看到 406 则是端点/请求体被拒。
+
+#### 16.11.4 锁定的嫌疑点：端点前缀
+
+- 真实页面用的路径形如 **`/api/sns/...`**（无 `/web_api` 前缀）
+- 我们的实现用 **`/web_api/sns/v2/note`**
+
+本轮尝试直打 `/api/sns/v2/note` ⇒ `Failed to fetch`（该上下文不可达，未能直接验证），
+故这仍是**嫌疑点而非结论**。
+
+#### 16.11.5 唯一能定论的下一步（需授权）
+
+要确认正确的端点与字段，**必须抓一次真实发布动作的请求**：
+在已登录发布页上填内容 → 点发布 → 监听该次请求 → 与当前构造逐字段对比。
+
+⚠ 该操作**会产生一条真实的草稿记录**（平台侧副作用），且需用户在场/授权 —— 本轮未执行。
+在此之前改端点/字段属于**无对照的试错**，不做。
+### 16.12 否证："端点前缀"不是 406 的成因（2026-10-21 第四轮，纠正 §16.11 的指引）
+
+> ⚠ 本节**否证了 §16.11.4 的嫌疑点**。若你正打算按"把 `/web_api` 改成 `/api`"去改代码 —— 
+> **请不要**：实测证明 `/api/sns/v2/note` 在该域上**不可达**（比 406 更糟）。
+
+#### 16.12.1 对照实验（带齐 5 头，分别打两个端点）
+
+| 端点 | 结果 |
+| --- | --- |
+| `/web_api/sns/v2/note`（x-s/x-t/x-s-common/x-b3-traceid/x-xray-traceid 齐全） | **401** `{"code":-100,"msg":"无登录信息"}` |
+| `/api/sns/v2/note` | **Failed to fetch**（网络层不可达）|
+
+#### 16.12.2 两个结论
+
+**① `/api` 前缀假设不成立**：若 `/api/sns/...` 是正确端点，它至少应能响应；
+实际连网络层都过不去 ⇒ 该路径在 edith 域上**不存在**或不允许该来源。
+（注意：`hot-topics-service.js` 用的 `/api/sns/v1/search/hot_list` 是**另一个接口**，
+它"免登录 200"不能推广到 note 端点。）
+
+**② 401 不等于"头不全"**：本次带齐 5 个头仍得 401，说明 401 的成因是
+**签名本身无效**（本次 `_webmsxyw(url, {})` 传空 data，产出签名不可用），
+而非头部缺失。
+⇒ §16.11.3 的判据需修正为：
+  - **401**：签名无效或未携带（检查签名生成，不是只数头个数）
+  - **406**：签名有效、身份过了，但**请求被服务端拒绝**（端点/请求体问题）
+
+#### 16.12.3 对 406 的当前认知（诚实版）
+
+- ✅ 已确认：账号有效、`_webmsxyw` 可用、probe 能产出**有效签名**（因其得到 406 而非 401）、请求可达端点。
+- ✅ 已排除：签名头缺失（§16.11）、端点前缀（本节）。
+- ❌ 仍未解：服务端为何对 `sns/v2/note` 返回 406。
+
+**下一步仍需抓一次真实发布请求的对照**（见 §16.11.5，需授权）。
+在拿到对照前，**不要**基于猜测修改端点或请求体。
+### 16.13 头条全链回归复跑（2026-10-21，main tip `b8902cc0`；第 3 次）
+
+> 目的：头条是**唯一"账号一实名就能成功"**的平台，其链路必须在主干上保持可用。
+> 下文为最新主干上的**实跑读数**（非记忆、非推断）。
+
+| 层 | 读数 | 判定 |
+| --- | --- | --- |
+| ① 提交前闸门 | `identityVerified=false` → 拦截 `ACCOUNT_NOT_VERIFIED`（附解法链接） | ✅ 行为不变 |
+| ② 封面五步链 | 登记 uri `tos-cn-i-e874c6/oEGBTAjAiDlAIHiQ1VuJXBAfaI7sB6obYEg91t`（1280×720 jpeg） | ✅ |
+| ③ 视频 VOD | 新 `Vid=v02d16g10004dbc08tfog65r9fholgd0` | ✅ |
+| ④ 提交发布 | `Code 21000` + `accountGate=true` 被正确识别 | ✅ 账号墙（预期）|
+
+**三次复跑对照**（同一预演脚本，不同主干 tip）：
+
+| 次序 | main tip | 封面 | VOD | 提交 |
+| --- | --- | --- | --- | --- |
+| 首次 | `1c473767` 之前 | ✅ | ✅ | 21000 ✅ |
+| 2 | `1c473767` | ✅ | ✅ | 21000 ✅ |
+| 3 | `b8902cc0`（本轮） | ✅ | ✅ | 21000 ✅ |
+
+⇒ **跨 10+ 个合并 PR 无回归**。技术链稳定，唯一阻塞仍且仅是账号实名。
+
+**注意（易错点，复跑时确认过）**：
+- 封面 PUT **必须带 `Content-CRC32`**，缺失 → `4007 MismatchChecksum`（此前的真机实证）。
+- 闸门判据是 `IsIdentifyAuth`（实名），**不是** `DisablePublish` / `blockStatus`（两者当前为 false/0，但不代表可发布）。
+### 16.14 证据强度订正：「小红书草稿已落地」应标注为**待核**（2026-10-21）
+
+§16.1 终态表把小红书写作「✅ 完成（草稿已落产品分区）」。本节对该结论的**证据强度**做订正。
+
+#### 16.14.1 目前能找到的证据
+
+- `PRD-XHS-DRAFT-PUBLISH-2026-10-07.md` §11.2 记录了 note 请求体形态（其中 `"note_id": ""`）。
+  ⚠ 该 `note_id: ""` 是**请求体字段**（新建笔记本就为空），**不是响应产物** ——
+  此前我曾一度把它误读为"响应里 note_id 为空 ⇒ 未落库"，这是错的，特此更正。
+- 未找到**带实际值的 `draft_id` / `note_id`** 留存记录（即成功落草稿的硬证据）。
+
+#### 16.14.2 与之相关的实测观察
+
+- 2026-10-21 在已登录发布页看到**草稿箱(0)** —— 此刻没有草稿。
+  这与"曾成功落过草稿"不矛盾（草稿可能已被删除或已发布），但**不构成支持证据**。
+- 同日 probe 实跑：签名有效（得 406 而非 401），但 **406** ⇒ 该次未落库。
+
+#### 16.14.3 订正后的表述（供引用）
+
+| 原表述 | 订正为 |
+| --- | --- |
+| 小红书草稿落地 ✅ 完成 | 小红书草稿落地 **⚠ 证据强度待核**：无留存的 `draft_id`/`note_id` 硬证据；当前实跑得 406（未落库）|
+
+> 影响：§16.1 总表中该格的"已完成"应视为**待复核**，不应作为"发布能力已具备"的依据。
+> 复核方式：授权抓一次真实发布请求并留档 `draft_id`（见 §16.11.5）。
+
+#### 16.14.4 本节的教训
+
+两次误读方向相反，但同源 —— **用一个片段就下结论**：
+- 一次是"把请求体字段当响应产物"（差点据此推翻正确结论）；
+- 另一次是"把已被自己数据否证的假设留作嫌疑"（§16.12 已纠正）。
+
+⇒ 规矩：**下结论前先确认片段属于哪一侧（请求/响应、支持/否证）**。
+### 16.15 排除「签名 URI 形态」假设（2026-10-21，A/B 对照）
+
+#### 16.15.1 被检验的疑点
+
+`xiaohongshu-draft.js` L186-190：请求用 `fullUri`（含 origin），而**签名默认只用 `pathname+search`**
+（除非设 `MP_XHS_SIGN_URI=absolute`）。该回退位的存在说明历史上对"签名该用完整 URL 还是路径"
+有过不确定性 ⇒ 值得检验它是否为 406 的成因。
+
+#### 16.15.2 A/B 对照（同一 body，两种签名 URI）
+
+| 组 | 签名 URI | 结果 |
+| --- | --- | --- |
+| A | 完整 URL `https://edith.../web_api/sns/v2/note` | **401** `{"code":-100,"msg":"无登录信息"}` |
+| B | 仅路径 `/web_api/sns/v2/note`（代码默认） | **401**（同上，逐字相同）|
+
+⇒ **两组结果完全相同** ⇒ 签名 URI 形态**不是** 406 的成因。
+
+#### 16.15.3 顺带厘清：401 与 406 的分界（重要）
+
+本次 A/B 两组都只取得 `x-s` / `x-t`（`x-s-common` 为空串，因 `_webmsxyw` 返回值里未取到），
+即**签名不完整** ⇒ 401。
+
+而 **probe 走完整链路得到 406** —— 它用 `buildXiaohongshuSignHeaders` 正确生成了全部 5 个头
+（含有效的 `x-s-common`）⇒ **签名有效**。
+
+| 签名状态 | 结果 |
+| --- | --- |
+| 不完整（缺有效 x-s-common） | **401** 无登录信息 |
+| 完整（5 头，probe） | **406** 请求被服务端拒绝 |
+
+⇒ **406 与签名无关**，是服务端对 `note` 端点**请求体字段/格式**的拒绝。
+
+#### 16.15.4 已排除与剩余
+
+已排除（均有对照）：
+1. 签名头缺失（§16.11）
+2. 端点前缀 `/api`（§16.12，实测不可达）
+3. 签名 URI 形态（本节，A/B 同结果）
+
+**剩余**：note 端点请求体字段/格式不被接受 ⇒ 唯一解法是抓一次真实发布请求做字段级对照
+（见 §16.11.5，需授权，会产生一条草稿记录）。在此之前不要改请求体。
+### 16.16 草稿箱(0) 直接读数：小红书「草稿已落地」当前无可观测证据（2026-10-21）
+
+§16.14 把「小红书草稿已落地」订正为**证据强度待核**。本节给出**直接读数**使其收敛。
+
+#### 16.16.1 实测
+
+以 `rpa-xiaohongshu-a1eac276`（已登录）访问 `creator.xiaohongshu.com/publish/publish?target=draft`：
+
+```
+页面文本（节选）：…里奥的时尚胶囊…上传视频…写长文…**草稿箱(0)**…
+捕获 draft/note 相关响应：0 条
+```
+
+⇒ 该账号下**没有任何草稿**。
+
+#### 16.16.2 三点合起来看
+
+| 证据 | 结论 |
+| --- | --- |
+| 草稿箱显示 **(0)** | 当前不存在任何草稿 |
+| 未找到带实际值的 `draft_id`/`note_id` 留存 | 无历史硬证据 |
+| 本轮及前几轮 E2E 均返回 **401/406** | 所有尝试都未落库 |
+
+⇒ **「小红书草稿已落地」当前无任何可观测证据支持**。
+  （这不等于"证明从未成功过"—— 草稿可能被删除或已发布；但**举证责任在未主张方**：
+   在拿到 `draft_id` 之前，不应把它当作已达成的能力。）
+
+#### 16.16.3 对 §16.1 的引用口径（最终）
+
+| 项 | 口径 |
+| --- | --- |
+| 小红书 | ⚠ **当前无可观测证据表明草稿已落地**：草稿箱(0)、无 draft_id 留存、实跑 401/406 |
+
+**复核方式**：授权抓一次真实发布请求并留档 `draft_id`（见 §16.11.5）。
+留档后本节结论即可被推翻/升级 —— 这正是把它写成"可证伪"形式的原因。
+### 16.17 抖音凭据已恢复（2026-10-21，用户完成登录）
+
+> 本节记录抖音从「阻塞」转为「就绪」的实测依据。**发布动作本身尚未执行**。
+
+#### 16.17.1 观察到的登录过程
+
+2026-10-21 10:00 前后，应用出现新页面 `https://creator.douyin.com/`（创作者后台），
+应用页切换至 `#/accounts` 并出现「保存账号」按钮 ⇒ 用户在应用内完成抖音登录并保存。
+
+#### 16.17.2 凭据有效性的**硬证据**（不依赖 `has_cookies`）
+
+登录后直接调用抖音创作者接口：
+
+```
+GET https://creator.douyin.com/aweme/v1/creator/user/info/
+→ HTTP 200 {"dashboard_opend_date":"2024-12-13","douyin_user_verify_info":{...avatar_url...},
+          "cert_info":{...}}
+```
+
+⇒ 返回**真实创作者身份数据**（开号日期、头像、认证信息）—— 这是凭据有效的硬证据，
+  而非「页面能打开」或 `has_cookies=true` 这类表象（见 §16.7 的判据纪律）。
+
+应用侧同步读数：
+```json
+{"platform":"douyin","status":"active","has_cookies":true,"cookie_count":1}
+```
+应用批量检测码由 `CHECK_LOGIN_COOKIE_EXPIRED` → `CHECK_LOGIN_INCONCLUSIVE`（`loginStatus: active`）。
+
+> ⚠ `INCONCLUSIVE` 是抖音的**结构性特征**（HTTP 检测对该平台不给定论，见 §16.9.1），
+> 不代表凭据无效 —— 上面的 `user/info` 才是判据。
+
+#### 16.17.3 发布链取用路径已确认
+
+`publisher-router.js` 的 `backfillPartitionCookies`：主源是**信封库** `authData.cookies`，
+分区仅在信封库为空时回退。抖音凭据已落入信封库 ⇒ **发布链可直接取得凭据**。
+
+（另注：`account-01ab122e` 分区的 cookie 在 `creator.douyin.com` 域下实测为 0 条，
+但不影响发布 —— 分区只是回退源。）
+
+#### 16.17.4 当前状态与下一步
+
+| 项 | 状态 |
+| --- | --- |
+| 抖音凭据 | ✅ 有效（`user/info` 200 + 真实创作者数据） |
+| 抖音发布链代码 | ✅ 就绪（既有实现） |
+| **真实发布** | ⏳ **未执行**（需在应用内发起，或授权触发） |
+
+下一步：在应用内对抖音发起一次发布（草稿语义），用**真实返回的 `aweme_id`** 留档 ——
+那才是「抖音视频发布成功」的可核对证据（原则：不留无证据的"成功"）。
+### 16.18 四平台凭据全部就绪（2026-10-21，用户完成抖音+视频号登录）
+
+> 本节记录**四平台凭据全部 active** 这一状态变化。真实发布仍未执行（见文末授权边界）。
+
+#### 16.18.1 账号状态（应用自身判据，`accountList` 实读）
+
+| 平台 | status | 平台侧证据 |
+| --- | --- | --- |
+| 抖音 | **active** | `user/info` HTTP 200 + `dashboard_opend_date=2024-12-13` + avatar（§16.17） |
+| 视频号 | **active** | `CHECK_LOGIN_SUCCESS_HTTP_API` + `platform_account_id=sphOuKJ6GWCmZLB` + **followers=50** |
+| 今日头条 | **active** | `CHECK_LOGIN_SUCCESS_HTTP_API` + `platform_account_id=1342958645023752` |
+| 小红书 | **active** | **followers=453** |
+
+⇒ `platform_account_id` 与 `followers` 只能来自平台真实接口 ⇒ 这是凭据有效的硬证据
+（而非 `has_cookies=true` 这类表象，见 §16.7 判据纪律）。
+
+#### 16.18.2 一次「分区 fetch 与应用判定不一致」的辨析（值得记）
+
+同一时刻：应用判定视频号 `valid:true`，而我用 `account-b1e05ac2` **分区**导出的 cookie 调
+`auth_data` 得 `errCode 300330`（无登录信息）。
+
+辨析：**二者取用的凭据源不同**。
+- 应用判定走**信封库** `authData.cookies`（`accountBatchCheckLogin` 内部）；
+- 我的 fetch 走**分区** cookie；
+- 而 `publisher-router.js` 的 `backfillPartitionCookies` 明确：主源是信封库，分区仅回退。
+
+⇒ **发布链路与我的 fetch 不同源**，所以分区 fetch 失败**不意味着发布会失败**。
+⚠ 教训：验证发布链路时，要么走应用自己的通道，要么确认用的是**同一凭据源**；
+   用分区 cookie 得出的结论不能直接外推到发布链路。
+
+#### 16.18.3 剩余阻塞（已从 4 项降到 1 项）
+
+| 平台 | 凭据 | 代码 | 真实发布 | 阻塞 |
+| --- | --- | --- | --- | --- |
+| 抖音 | ✅ | ✅ | ⏳ 未执行 | **需授权触发发布** |
+| 视频号 | ✅ | ✅ | ⏳ 未执行 | **需授权触发发布** |
+| 小红书 | ✅ | ✅ | ⏳ 未执行 | 406 未解（需授权抓真实请求对照） |
+| 今日头条 | ✅（active） | ✅ | ⏳ 未执行 | **账号未实名**（`IsIdentifyAuth=false`） |
+
+#### 16.18.4 授权边界（不擅自产生平台侧内容）
+
+真实发布会在用户账号上产生**可见的作品/草稿**，属实质动作。在未获授权前，
+我只做**只读验证**（凭据有效性、链路可达性），不触发发布。
+
+获授权后的执行顺序（按成功概率排序）：
+1. **抖音** —— 凭据有硬证据、代码就绪；
+2. **视频号** —— 判定码明确 + 平台账号 ID 已取到；
+3. **今日头条** —— 需先完成实名（人工，无法由我推进）；
+4. **小红书** —— 需先解 406（授权抓真实发布请求做字段级对照）。
+### 16.19 抖音视频发布 E2E：真实失败（`publish timeout`）+ 双轨失败定位（2026-10-21）
+
+> 本节是**真机 E2E 的失败记录**（目标授权的真机测试）。不复述成功，只记可定位的事实。
+
+#### 16.19.1 执行过程
+
+经应用 `publish:batch` 通道发起抖音视频发布（草稿语义，54.4MB 视频，真实文案）。
+两次尝试：
+
+| 次 | 标题 | 结果 |
+| --- | --- | --- |
+| 1 | 「API 视频发布链路自检」 | 用户指出标题不得含"测试"类词 ⇒ **取消**，`submitAttempted:false` |
+| 2 | 「被误解的明朝：西方史料里的另一个大明」 | **`publish timeout`**（约 10 分钟），`submitAttempted:true` 但 `submittedAt:null` |
+
+⚠ 第 1 次取消**有效**：`submitAttempted:false` 证明取消发生在提交前，平台侧未产生发布动作。
+（这正是"取消必须在提交前生效"的实证。）
+
+#### 16.19.2 关键定位：`publish timeout` 来自 **RPA 轨**，不是 API 轨
+
+错误串出处：`apps/desktop/electron/services/rpa-view-platforms.js:1056-1057`
+```js
+log.warn('RpaView', '[douyin] publish timeout url=' + (fu||''))
+return { success:false, error:'publish timeout', platform:'douyin' }
+```
+
+而 `config/platforms.yaml` 的抖音配置是 `has_api: true` + `publishMode: api-then-dom`
+（API 优先，失败才降级 DOM）。
+
+⇒ **推断：API 轨失败 → 降级 DOM 轨 → DOM 轨 60s 拿不到成功信号 → `publish timeout`。**
+
+⚠ 这是**推断而非实测**：任务历史只记终态 `error`，未记录"API 轨是否被调用、其失败原因"。
+   要证实/证伪需在发布链加**分轨埋点**（见 16.19.4）。
+
+#### 16.19.3 这是**重复出现**的失败，不是偶发
+
+发布历史（`historyList`，共 102 条）中的同型失败：
+
+| 时间 | 平台 | 任务 | error |
+| --- | --- | --- | --- |
+| 2026-10-18 04:35 | douyin | task_3_1792295137926 | `publish timeout` |
+| 2026-10-21 03:10 | douyin | task_2_1792550186073 | `publish timeout`（本次） |
+
+另有一条**有价值的成功对照**：
+`2026-10-18 13:40 douyin task_4_1792330730076 → success`，
+其 `result.mode` 为 **`"dom"`** ⇒ 该次是 **DOM 轨成功**。
+
+⇒ 说明：**DOM 轨本身能成功**（10-18 有一次），但 `publish timeout` 反复出现 ⇒ 
+问题更可能是**偶发/状态相关**（如风控、页面未就绪、上传未完成即点发布），而非"DOM 轨必坏"。
+
+#### 16.19.4 分轨埋点清单与落地状态
+
+要区分"API 轨失败"与"DOM 轨偶发超时"，需要**分轨埋点**：
+
+| # | 埋点项 | 状态 | 落地处 |
+| --- | --- | --- | --- |
+| ① | 发布入口记录**实际使用的轨**与切换原因 | ✅ 已落地（`track` / `apiTrackAttempted`，PR #4155） | `rpa-view-manager.js` DOM 轨返回 |
+| ② | API 轨失败时把**服务端返回**落进历史 | ✅ 已落地（`code` 经 `attachRiskSignals` 挂 Error，`_lastApiFailure.code` 记录，PR #4150） | `rpa-view-manager.js` 降级分支 |
+| ③ | DOM 轨"点击发布后的等待目标 URL"与"已等待时长" | ⚠ **部分**：URL 已随终态 error 落入日志；**时长未单独记录**（边际递减，主动放弃） | `rpa-view-platforms.js` 既有 warn |
+
+⇒ ①②落地后，一次失败即可定位到具体轨与具体原因，无需再靠终态 error 反推。
+
+**诊断解读规则**（已写进 `packages/api-publish-engine/scripts/dy-publish-e2e.cjs` 注释）：
+
+| 读数 | 结论 |
+| --- | --- |
+| `track=dom` 且无 `apiTrackAttempted` | 根本没走 API 轨（配置/适配器问题） |
+| `track=api-then-dom` 且有 `apiTrackFailed` | API 轨失败（看其 `error` / `code`） |
+| `track=api-then-dom` 且无 `apiTrackFailed` | API 轨成功，DOM 轨超时（RPA 问题） |
+
+#### 16.19.5 顺带确认（视频号）
+
+历史中 2026-10-18 有两条视频号失败样本，error 为：
+```
+视频号 正文未写入，已中止，未点击发布。本次未向平台提交任何内容，也未占用发布间隔。
+```
+⇒ 视频号链的 **fail-closed 语义生效**（未写入即中止、不提交、不占间隔）——
+这是**设计正确**的证据，虽为失败但边界守住了。
+### 16.20 抖音发布复跑：任务 20+ 分钟未完成（且应用被关闭）（2026-10-21）
+
+> 本节记录 §16.19 之后的复跑观察，含一个**新的失败形态**。
+
+#### 16.20.1 复跑过程
+
+同文案、同视频、同账号（`task_3_1792557854052`），经 `publish:batch` 发起：
+
+| 时间 | 队列状态 |
+| --- | --- |
+| T+0 | 入队（running=1） |
+| T+10min | 仍 running（首次轮询 40 轮 × 30s 全程 running） |
+| T+20min | 仍 running |
+| T+25min | **应用进程退出**（CDP 9279 拒绝连接，electron=0，等 60s 未重启） |
+
+⇒ **任务无终态**（未入历史）—— 随进程消失，既非 success 也非 failed。
+
+#### 16.20.2 与 §16.19 的差异（值得记）
+
+| 次 | 结局 | 耗时 |
+| --- | --- | --- |
+| task_2（§16.19） | `publish timeout`（failed） | 约 10 分钟 |
+| task_3（本节） | **无终态**（进程被杀） | > 20 分钟仍 running |
+
+⇒ 抖音发布链的耗时**至少 20 分钟以上仍不出结果**，而任务超时是 30 分钟。
+上次的"10 分钟 timeout」可能是**另一层超时**（DOM 轨 60s 无成功信号）先触发。
+
+#### 16.20.3 待确认（不推测）
+
+- 上传 54.4MB 视频实际耗时多久？（需分阶段进度数据）
+- 卡在哪一步：VOD 上传 / 封面上传 / 提交 / DOM 轨等待？
+- 应用退出是用户主动关闭，还是发布流程导致崩溃？
+
+⇒ 三者都需 §16.19.4 的埋点（①②**已落地**：#4150 + #4155；③部分落地）
+    + 分阶段进度才能回答。**在拿到数据前不做成因结论**。
+
+#### 16.20.4 对下次复跑的要求
+
+1. 用**小视频**（如 5MB 以内）先跑通链路，排除"大文件上传慢"的干扰；
+2. 全程记录 `onProgress` 回调的阶段与百分比；
+3. 应用退出时先看是否有崩溃日志，再归因。
+### 16.21 分区 cookie 同样无法在应用外读取（2026-10-21，独立证据源）
+
+> §16.18.2 已确立「发布链主源是信封库」。本节补一条**独立证据源**的验证：
+> 分区 cookie 也无法在应用外读取 —— 与信封库同结论，但来自不同机制。
+
+#### 16.21.1 实测
+
+抖音分区 `rpa-douyin-01ab122e` 的 `Cookies` 文件 **53248 字节**（mtime 05:15，最近有写入），
+说明应用确实在往里写 cookie。但用 Playwright 以该分区为 profile 启动后：
+
+```
+ctx.cookies()                        → 0 条（全部域）
+ctx.cookies('https://creator.douyin.com') → 0 条
+关键键 sessionid/sessionid_ss/sid_tt/odin_tt/msToken/passport_csrf_token → 全部 false
+```
+
+⇒ **文件在增长，但外部读不出内容**。
+
+#### 16.21.2 成因（与信封库同源，机制不同）
+
+| 凭据形态 | 保护机制 | 外部可读？ |
+| --- | --- | --- |
+| 信封库 `*.json.enc` | PBKDF2-SHA512 + AES-256-GCM，masterKey 被 `safeStorage` 包住 | ❌（§16.21 之前三轮排查） |
+| 分区 `Cookies`（SQLite） | ⚠ **机制未确证**（可能与 Chromium cookie value 加密 / app-bound encryption、或 Playwright profile 格式不兼容有关） | ❌（本节） |
+
+⇒ 两条路都堵，但这是安全边界按设计生效，不是缺陷。
+
+> ⚠ **成因的确定性边界**：本节只确证了两个**事实**——① Cookies 文件 53248 字节且 mtime 很近；
+> ② Playwright 以该分区为 profile 读出来 0 条（全部域）。
+> "加密导致读不出"是连接二者的**解释之一**，未排除的其他解释包括：
+> Playwright 不认 Electron 分区结构、cookie 为 session-only 随进程退出即消失、
+> 或 domain 落在 Electron partition 命名空间。**不要把这条成因当定论。**
+
+#### 16.21.3 对验证方法的结论
+
+「用分区 cookie 在应用外探测平台接口」这条路**不可行** ——
+这同时修正了一个此前的隐患：§16.18.2 里我用分区 cookie 调 `auth_data` 得 300330，
+当时的解读是"分区凭据与信封库不同步"；现在看更可能是**分区 cookie 本身就读不出来**
+（那次之所以有反应，是因为 Playwright 起了自己的 profile，某些未加密字段仍在）。
+
+⇒ 教训：**外部探测拿不到有效凭据时，不要把"探测失败"归因成"凭据失效"**，
+   应先确认"凭据是否真的取到了"。
+
+#### 16.21.4 唯一可行的验证途径
+
+经 GUI 应用自身（`publish:batch` IPC，内部用信封库凭据）—— 即 `dy-publish-e2e.cjs` 的做法。
+**前置：应用必须已启动。**
+### 16.22 抖音视频发布**首次真实成功**（2026-10-21，DOM 轨）
+
+> 本节是四平台里第一个 `status=success` 的真机记录。含证据链与**未闭合项**。
+
+#### 16.22.1 任务终态（应用队列实读）
+
+```json
+{
+  "id": "task_1_1792569782094",
+  "platform": "douyin",
+  "status": "success",
+  "result": { "success": true, "url": ".../creator-micro/content/post/video?enter_from=publish_page",
+              "platform": "douyin", "mode": "dom" },
+  "submitAttempted": true,
+  "submittedAt": 1792569891100,
+  "createdAt":  "2026-10-21T08:03:02.094Z",
+  "completedAt":"2026-10-21T08:04:51.100Z"
+}
+```
+
+⇒ **全程 109 秒**（此前两次分别为 10 分钟 timeout / 20 分钟无终态）。
+  `submittedAt` 是真实提交时间戳（此前失败样本该字段为 `null`）。
+
+#### 16.22.2 证据链（三环，各自独立）
+
+| # | 证据 | 说明 |
+| --- | --- | --- |
+| ① | 任务 `status=success` + `submittedAt` 非空 | 应用自己的发布链判定成功**且**记录了提交时刻 |
+| ② | 排除 URL 导航判定（`_waitForSuccessNavigation`） | 该判据要求 URL 含 `success` / `publish/success`（`rpa-view-navigation-helpers.js`），而 `result.url` 是 `content/post/video` ⇒ **不是**这条路径 |
+| ③ | 发布页表单**仍持着本次内容** | 重新打开发布页：`hasUploadArea=false`（上传区已消失 ⇒ 视频已上传）、正文本字匹配（「你还记得大明是"东亚病夫"吗…」）、描述计数 `170/1000` ⇒ 内容确实进入过发布流程，不是空表单 |
+
+⇒ 由 ② 反推：**大概率**命中 `rpa-view-platforms.js:1050` —— 等到了 `aweme/create_v2` / `create` / `post`
+  的**真实网络响应**（`_waitForResponse` 监听 session 响应，`rpa-view-helpers.js`），
+  若如此则意味着**服务端确认创建**，而非"按钮点了但没反应"。
+
+> ⚠ **推理边界**（CCG i2 指出后修正）：② 只证明了"**不是** `_waitForSuccessNavigation` 这条路径"，
+> **没有**穷尽 `_publish_douyin` 里所有 `return {success:true}` 的分支（未通读整个函数）。
+> 因此"命中 L1050 / 服务端确认创建"是**高概率推断，不是定论**。
+> 要证成它，需在 L1050 附近加埋点，把 `resp`（服务端响应体）落进历史 —— 那也正是下一步 ②。
+
+#### 16.22.3 为什么内容管理页（作品 238）没看到它
+
+实测：内容管理页只有「作品 / 作品合集」两个 tab，**没有草稿 tab**；
+作品列表按"最新发布"排序，最新一条是 2026-10-18。
+
+未解释（**不做猜测**）：本条内容为何不在列表。可能原因包括私密/待审核/草稿态、
+列表有默认筛选、或发布落在另一个入口。**在拿到平台侧明确状态前，不宣称"草稿已生成"。**
+
+#### 16.22.4 未闭合（如实）
+
+| 项 | 状态 |
+| --- | --- |
+| 应用侧发布成功 | ✅ 已证实（三环证据） |
+| **平台侧产物 ID**（`aweme_id` / `item_id`） | ❌ **未取到** —— `result` 里没有（DOM 轨不返回服务端 ID） |
+| 平台侧状态（草稿/私密/已发布） | ❌ 未确认（内容管理页不可见） |
+| 分轨诊断 `track` / `apiTrackAttempted` | ❌ 未记录 ⇒ **应用跑的是旧二进制**（埋点 #4155 已合并，但进程早于它启动） |
+
+⇒ 下一步：重启应用（加载新二进制）后重跑一次，届时 `track` 会告诉我们是哪条轨；
+  同时应让 DOM 轨成功时**带回服务端响应体**（含 `aweme_id`）——这是 §16.19.4 埋点之外的
+  **第四项缺口**：成功路径没有产物 ID 留档。
+### 16.24 西瓜上传页入口疑云：竞品用 `studio.ixigua.com`，我们用 `mp.toutiao.com`（2026-10-21）
+
+> 按用户指示「发布相关实现首选复用竞品逆向成果」复查头条视频上传入口，发现一处**未验证的差异**。
+
+#### 16.24.1 竞品逆向成果的实际入口
+
+`04-rea-evidence/<参考产品>-主进程清点.json` 的 URL 清点（按出现次数）：
+
+| 用途 | 竞品 URL | count |
+| --- | --- | --- |
+| **上传页** | `https://studio.ixigua.com/upload?from=post_article` | **6** |
+| 上传页（带 gid） | `https://studio.ixigua.com/upload?gid=` | 2 |
+| 创建条目 | `https://studio.ixigua.com/api/upload/CreateItem/?_signature=_` | 2 |
+| 上传授权 | `https://studio.ixigua.com/api/upload/getAuthKey/?params=%7B%22type%22:%22` | 1 |
+| 话题建议 | `https://studio.ixigua.com/ugc/publish/post/v1/suggest/?words=` | 1 |
+| 内容列表 | `https://studio.ixigua.com/api/content/list` | 1 |
+| VOD | `https://vas-lf-x.ixigua.com/video/openapi/v1/` | 1 |
+
+而 `studio.ixigua.com` 这个 host 在清点里 **count=41**（远比 `mp.toutiao.com` 的 xigua 路径热）
+⇒ 竞品实际主战场是 **`studio.ixigua.com`**（西瓜创作平台）。
+
+#### 16.24.2 我们当前登记的入口
+
+`packages/api-publish-engine/src/platform-entries.js` L12：
+```js
+toutiao: "https://mp.toutiao.com/profile_v4/xigua/upload-video"
+```
+
+⇒ **与竞品不同域**。哪一个对？**未验证**（见 16.24.3）。
+
+#### 16.24.3 验证尝试与结论边界
+
+2026-10-21 用头条分区 cookie 在应用外探测两个 URL：
+
+| URL | 落地 | file input |
+| --- | --- | --- |
+| `mp.toutiao.com/profile_v4/xigua/upload-video` | 重定向到 `mp.toutiao.com/login/?redirect_url=...` | 0 |
+| `studio.ixigua.com/upload?from=post_article` | 重定向到 **`creator.douyin.com/`** | 0 |
+
+⇒ 两者都落到登录页 ⇒ **应用外无法验证**（分区凭据读不出，见 §16.21）。
+
+⚠ 但第二个结果本身是条线索：`studio.ixigua.com` 会跳到 **`creator.douyin.com`**
+（抖音创作者中心）—— 提示西瓜创作平台可能已并入抖音创作者中心（字节跳动产品整合）。
+若如此，头条视频发布的真实入口可能已变，我们登记的 URL 与选择器都可能过期。
+
+#### 16.24.4 待办（需在应用内已登录态验证）
+
+1. 在应用内（有效登录态）分别打开两个 URL，看哪个落在真实上传页（有 `input[type=file]`）；
+2. 若竞品的 `studio.ixigua.com/upload` 是对的 ⇒ 更新 `platform-entries.js` 的 `toutiao` 视频入口，
+   并按竞品成果核对 `CreateItem` / `getAuthKey` 两个接口（**优先复用，不自己研究**）；
+3. 重新真机取证该页的 DOM 选择器（现有 `toutiao_video` 是 10-18 对 `mp.toutiao.com` 取的）。
+### 16.26 `no login` 判据的交叉验证：与参数无关，是真实登录态缺失（2026-10-21）
+
+> §16.25 的 CCG 自查提出一个未排除项：`getAuthKey` 可能需要 POST/参数，
+> 那样 `no login` 可能是**参数缺失的误报**。本节用竞品逆向成果里的正确调用形态做 A/B，闭合该疑点。
+
+#### 16.26.1 竞品成果里的正确形态
+
+`04-rea-evidence/<参考产品>-主进程清点.json`：
+```
+https://mp.toutiao.com/xigua/api/upload/getAuthKey/?params=%7B%22type%22%3A%22
+```
+
+⇒ 竞品调用时 URL **带 `?params={"type":"..."}`** query 参数。而 §16.25 我用的是**裸 URL**。
+
+#### 16.26.2 A/B 实测（同 session，四种形态）
+
+| 形态 | 结果 |
+| --- | --- |
+| GET 裸 URL | `200 {"status":-12,"message":"no login"}` |
+| GET `?params={"type":"video"}` | `200 {"status":-12,"message":"no login"}` |
+| GET `?params={"type":"video","source":1}` | `200 {"status":-12,"message":"no login"}` |
+| POST `?params={"type":"video"}` | `403 {"code":403,"msg":"invalid csrf token"}` |
+
+⇒ **三种 GET 形态全部 `no login`，与参数无关** ⇒ §16.25 的判据成立，不是参数缺失误报。
+
+#### 16.26.3 顺带得到的新信息
+
+POST 返回的是 **403 `invalid csrf token`**（而非 `no login`）——
+说明该接口**存在 POST 形态**，且它要求 csrf token（与登录态是两个独立的前置）。
+
+⇒ 对后续实现的含义：若走 POST 提交通路，需先解决 csrf token（`summon.bytedance.com/secsdk_csrf_token`，
+  竞品成果里亦有该 URL）；而**判登录态用 GET 就够**（无需先解 csrf）。
+
+#### 16.26.4 结论（闭合）
+
+「该账号在西瓜上传接口上没有登录态」这一真因**已从单点读数升级为 A/B 验证过的结论**。
+阻塞性质不变：**需要用户在西瓜创作平台侧完成账号授权**（代码侧无解）。

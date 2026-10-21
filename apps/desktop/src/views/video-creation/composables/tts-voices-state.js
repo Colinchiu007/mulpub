@@ -26,7 +26,6 @@ export const state = reactive({
   s2vVoiceRequestId: 0,
   s2vVoiceSelectionRequestId: 0,
   s2vVoiceCloneRequestId: 0,
-  s2vPersistedVoiceId: '',
   s2vVoiceCloneRequirements: null,
   s2vVoiceClones: [],
   s2vVoiceCloneSelection: null,
@@ -36,6 +35,11 @@ export const state = reactive({
   s2vVoiceCloneRenamingId: '',
   s2vVoiceCloneRenameDraft: '',
   s2vVoiceProviderExplicitEdge: false,
+  // 上一次 loadS2VVoiceData 用的语音上下文（providerId + 解析出的 model）。
+  // 用途：区分「上下文切换」（reset 时要连克隆列表一起清）与「同上下文刷新」（保留克隆列表），
+  // 见 useTtsVoices.js 的 resetS2VVoiceData({ clearClones }) 调用点与 CCG 深度审查 i3。
+  s2vVoiceCloneProviderId: '',
+  s2vVoiceCloneModelId: '',
 })
 
 /** 壳注入的跨域依赖（setupTtsVoicesDeps 一次性注入；window 兜底防测试/早调用时序） */
@@ -146,7 +150,12 @@ export const s2vVoiceProviderOptions = computed(() => {
 })
 
 export const s2vVoiceCatalogRefreshable = computed(() => {
-  const d = requireDeps()
+  // ⛔ 不得在此调用 requireDeps()：该 computed 只读 state，不消费 deps。
+  // 「为了 fail-closed 而调用」会引入一个真实缺陷 —— Vue 的 computed 在求值抛错时
+  // 把 `_dirty` 置回 false 却**保留上一次的 _value**，而抛错那次又没成功注册依赖订阅，
+  // 于是此后 state 变化再也 trigger 不到它 ⇒ 永久返回陈旧值。
+  // 实测形态：--sequence.shuffle 下 s2vVoiceOptions 卡在 [v1,v2,v3]（上一个用例的残留），
+  // 而它两个真实依赖已是正确值（2026-10-20 定位，见 useTtsVoices.test.js 的 DIAG 记录）。
   // 仅瞬时/未知错误提供「刷新音色列表」；配置类/不支持/模型不匹配/身份问题重试无效
   if (!state.s2vVoiceCatalogError) return false
   const code = state.s2vVoiceCatalogErrorCode
@@ -160,7 +169,8 @@ export const s2vVoiceCatalogRefreshable = computed(() => {
 // MiMo TTS 的模型分支标记：mimo-v2.5-tts 与 mimo-v2.5-tts-voiceclone
 // 由「语音 / 音色 ID」下拉区分（预置音色 → tts，克隆音色 → voiceclone）。
 export const s2vVoiceModelHidden = computed(() => {
-  const d = requireDeps()
+  // 同上：不调用 requireDeps（本函数只经 getS2VVoiceProvider 间接取 provider，
+  // 那条路径自己 requireDeps；在 computed 里再调一次只会多一个抛错点）。
   const provider = getS2VVoiceProvider()
   return Boolean(provider && provider.id === 'mimo-tts')
 })
@@ -170,14 +180,20 @@ export const s2vVoiceModelHidden = computed(() => {
 // （voice-model-program-resolved：不再读用户可编辑的 s2vConfig.voiceModel）。
 // deps 语义与原实现一致：未注入即抛错（fail-closed），由壳负责 setupTtsVoicesDeps。
 export const s2vVoiceContextModel = computed(() => {
-  const d = requireDeps()
+  // 同上：不调用 requireDeps（getS2VVoiceProvider / resolveVoiceModelForProvider 各自负责 fail-closed）
   const provider = getS2VVoiceProvider()
   if (provider && provider.id === 'mimo-tts') return 'mimo-v2.5-tts'
   return resolveVoiceModelForProvider(provider)
 })
 
 export const s2vVoiceOptions = computed(() => {
-  const d = requireDeps()
+  // ⛔ 这里原先有一行 `const d = requireDeps()`，且**整个函数体从未使用 d** ——
+  // 纯粹是「为了 fail-closed 而调用」。它是 --sequence.shuffle 下 6 例失败的根因：
+  // 该 computed 只读 state.s2vVoiceCatalog / state.s2vVoiceClones，与 deps 无关；
+  // 一旦在 deps 未注入时被读一次（测试里的 fail-closed 用例就会读），Vue 的 computed
+  // 在抛错路径上保留旧 _value 且丢掉依赖订阅，之后永久返回陈旧值。
+  // 实证（seed=1792469548946）：computed=['v1','v2','v3'] 而手动按同一公式算
+  // =['official-old','MiniMaxVoice_auto1']，两个真实依赖也都是新值。
   const voices = [
     ...(Array.isArray(state.s2vVoiceCatalog) ? state.s2vVoiceCatalog : []),
     ...(Array.isArray(state.s2vVoiceClones) ? state.s2vVoiceClones : []),
@@ -210,7 +226,6 @@ export function resetTtsVoicesForTest() {
     s2vVoiceRequestId: 0,
     s2vVoiceSelectionRequestId: 0,
     s2vVoiceCloneRequestId: 0,
-    s2vPersistedVoiceId: '',
     s2vVoiceCloneRequirements: null,
     s2vVoiceClones: [],
     s2vVoiceCloneSelection: null,
@@ -220,6 +235,8 @@ export function resetTtsVoicesForTest() {
     s2vVoiceCloneRenamingId: '',
     s2vVoiceCloneRenameDraft: '',
     s2vVoiceProviderExplicitEdge: false,
+    s2vVoiceCloneProviderId: '',
+    s2vVoiceCloneModelId: '',
   }
   Object.assign(state, initial)
   deps = null

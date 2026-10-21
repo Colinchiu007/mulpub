@@ -41,7 +41,17 @@ const API_PH_KEY = 'kuaishou.web.cp.api_ph'
 const API_PH_RE = /kuaishou\.web\.cp\.api_ph=([a-z0-9]+)/
 // 带签端点白名单（切片 §1.11）：upload/pre、upload/finish、video/pc/submit；
 // 不带签：fragment、complete、cover/upload、photo/list
-const SIGN_COMMAND = 'kuaishou.ns-sig3-browser'
+/*
+ * 签名命令选择（2026-10 变更，与 kuaishou-capabilities.js 同源）
+ *   DEFAULT_SIGN_COMMAND = 'kuaishou.ns-sig3'         Tier-A 纯 JS（竞品 VM 算法完整还原）
+ *   BROWSER_SIGN_COMMAND = 'kuaishou.ns-sig3-browser' Tier-B 页面签名器（保留为回退）
+ * 默认切纯 JS 的理由：与 VM 逐字节对拍 10/10 + 真实服务端 result:1；
+ * 保留回退的理由：submit 等带发布副作用的端点尚未用纯 JS 做活体回归。
+ */
+const DEFAULT_SIGN_COMMAND = 'kuaishou.ns-sig3'
+const BROWSER_SIGN_COMMAND = 'kuaishou.ns-sig3-browser'
+// 兼容既有导出名与历史引用
+const SIGN_COMMAND = DEFAULT_SIGN_COMMAND
 
 class KuaishouVideoError extends Error {
   constructor (message, code) {
@@ -113,6 +123,7 @@ class KuaishouVideoChain {
     this.cpBase = opts.cpBase || CP_BASE
     this.uploadScheme = opts.uploadScheme || 'https:'
     this.signer = opts.signer
+    this.signCommand = opts.signCommand || DEFAULT_SIGN_COMMAND
     this.partSize = opts.partSize || PART_SIZE
     const timeout = opts.timeout
     const headers = { 'User-Agent': this.userAgent }
@@ -146,7 +157,7 @@ class KuaishouVideoChain {
     const payload = { url, type: type || 'json', params, accountId: (opts && opts.accountId) || undefined }
     let sig
     try {
-      sig = await signer(SIGN_COMMAND, payload)
+      sig = await signer(this.signCommand, payload)
     } catch (e) {
       const msg = String(e.message || e)
       const notReady = /未就绪|not\s*ready|bridge not injected|未验证|unverified|degraded|not registered|未注册/i.test(msg)
@@ -461,6 +472,8 @@ module.exports = {
   buildKuaishouPostData,
   cookieValue,
   SIGN_COMMAND,
+  DEFAULT_SIGN_COMMAND,
+  BROWSER_SIGN_COMMAND,
   CP_BASE,
   registry,
 }

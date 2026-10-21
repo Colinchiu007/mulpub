@@ -1,0 +1,57 @@
+{
+  "sha": "125fcd11431c238b6d017fb7b6086f182fee2baa",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 121 行（≤ 200）但命中 auth/数据库/加密：敏感内容 7 处",
+  "stats": {
+    "changedLines": 121,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- 原实现：`MD5(apiPh + \"|\" + JSON.stringify(body))` → **32 位**裸 hex。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "131831caf15b90a759f1d4416b54d777cf8b6558f2a06102559bc8dfcb41bdac",
+  "decidedAt": "2026-10-20T17:07:47.442Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -1,9 +1,9 @@
 'use strict'
 /**
- * 刀 4 第 3 片·上半的行为锁（PRD §7.4.1 四步回退链 / §7.4.6 显示项 3）。
+ * 刀 4 第 3 片·上半的行为锁（PRD §7.4.1 两步回退链与拒绝态 / §7.4.6 显示项 3）。
  *
  * 三条锁的写法纪律：
- * - 顺序判据一律用「调用计数」而不是「返回值形状」——回退链最常见的错法是②命中时仍去读了③，
+ * - 顺序判据一律用「调用计数」而不是「返回值形状」——回退链最常见的错法是 ① 命中时仍去读了 ②，
  *   那样即使命中也把 capability 的读异常变成新的拒绝路径（用户配过音色反而出不了期）。
  * - 「读偏好异常」与「偏好没配」必须各测一条且结果不同：把前者顺手降级到 ③ 就是静默换人说话。
  * - 跨模块契约锁注入**真** `tts-voice-catalog.getVoiceCapability`，不用手搓 capability 形状
@@ -35,88 +35,8 @@ function mkDeps (opts = {}) {
   return deps
 }
 
-describe('resolveEpisodeVoice —— 四步回退链的顺序与出声', () => {
-  it('① 频道三段齐备（providerId 键名）即用频道音色，且不读偏好与 capability', async () => {
-    const { resolveEpisodeVoice, VOICE_ORIGIN } = await load()
-    const d = mkDeps({ preference: { voiceId: 'should-not-be-used' }, capability: { defaultVoiceId: 'nope' } })
-    const res = resolveEpisodeVoice({
-      channelRef: { providerId: 'openai-tts', model: 'tts-1', voiceId: 'nova' },
-      defaultProvider: { providerId: 'doubao-tts', model: 'doubao-tts' },
-      readPreference: d.readPreference, getCapability: d.getCapability, warn: d.warn,
-    })
-    expect(res).toEqual({ ok: true, providerId: 'openai-tts', model: 'tts-1', voiceId: 'nova', origin: VOICE_ORIGIN.CHANNEL, resolvedBy: 'voiceRef:openai-tts/tts-1' })
-    expect(d.calls).toEqual({ pref: 0, cap: 0 })
-  })
-
-  it('别名键 provider **不再被接受**，且与形状层 voiceRefIssues 同结论（两层不得对同一条入参反向）', async () => {
-    const { resolveEpisodeVoice, VOICE_ERRORS } = await load()
-    const { voiceRefIssues } = require('./podcast-tts-compose')
-    const aliasRef = { provider: 'openai-tts', model: 'tts-1', voiceId: 'nova' }
-    const res = resolveEpisodeVoice({
-      channelRef: aliasRef,
-      defaultProvider: { providerId: 'openai-tts', model: 'tts-1' },
-      readPreference: () => ({ voiceId: 'alloy' }), getCapability: () => ({ defaultVoiceId: null }),
-    })
-    // 形状层（先跑）对这条判半配置；本层也必须判半配置——两边结论必须一致
-    expect(voiceRefIssues(aliasRef).length).toBe(1)
-    expect(res.ok).toBe(false)
-    expect(res.code).toBe(VOICE_ERRORS.UNRESOLVED)
-    expect(res.issues[0].path).toBe('voiceRef')
-    // 逐字段对账：两层同结论的判据必须覆盖「三段齐备」这一侧，否则别名用例只是恒不匹配
-    const goodRef = { providerId: 'openai-tts', model: 'tts-1', voiceId: 'nova' }
-    expect(voiceRefIssues(goodRef)).toEqual([])
-    const ok = resolveEpisodeVoice({
-      channelRef: goodRef,
-      readPreference: () => null, getCapability: () => ({ defaultVoiceId: null }),
-    })
-    expect(ok.ok).toBe(true)
-    expect(ok.voiceId).toBe('nova')
-  })
-
-  it('非对象的 voiceRef 当场拒绝，不落进回退链替用户选音色', async () => {
-    const { resolveEpisodeVoice, VOICE_ERRORS } = await load()
-    for (const bad of ['openai-tts', 42, ['x'], true]) {
-      const d = { pref: 0, cap: 0 }
-      const res = resolveEpisodeVoice({
-        channelRef: bad,
-        defaultProvider: { providerId: 'openai-tts', model: 'tts-1' },
-        readPreference: () => { d.pref++ }, getCapability: () => { d.cap++ },
-      })
-      expect(res.ok).toBe(false)
-      expect(res.code).toBe(VOICE_ERRORS.UNRESOLVED)
-      expect(res.issues[0].path).toBe('voiceRef')
-      expect(d).toEqual({ pref: 0, cap: 0 })
-    }
-  })
-
-  it('② 之前不得越过：voiceRef 半配置当场拒绝（issues[].path=voiceRef），两个读取实现一次都不被调用', async () => {
-    const { resolveEpisodeVoice, VOICE_ERRORS } = await load()
-    const d = mkDeps({ preference: { voiceId: 'alloy' }, capability: { defaultVoiceId: 'alloy' } })
-    const res = resolveEpisodeVoice({
-      channelRef: { providerId: 'openai-tts', model: 'tts-1' },
-      defaultProvider: { providerId: 'openai-tts', model: 'tts-1' },
-      readPreference: d.readPreference, getCapability: d.getCapability,
-    })
-    expect(res.ok).toBe(false)
-    expect(res.code).toBe(VOICE_ERRORS.UNRESOLVED)
-    expect(res.issues[0].code).toBe('PODCAST_TTS_VOICE_UNRESOLVED')
-    expect(res.issues[0].path).toBe('voiceRef')
-    expect(d.calls).toEqual({ pref: 0, cap: 0 })
-  })
-
-  it('频道完全未配置（三段同缺）才算真的走回退，不被判成半配置', async () => {
-    const { resolveEpisodeVoice } = await load()
-    const d = mkDeps({ preference: { voiceId: 'bing' }, capability: { defaultVoiceId: 'alloy' } })
-    const res = resolveEpisodeVoice({
-      channelRef: null,
-      defaultProvider: { providerId: 'openai-tts', model: 'tts-1' },
-      readPreference: d.readPreference, getCapability: d.getCapability,
-    })
-    expect(res.ok).toBe(true)
-    expect(res.voiceId).toBe('bing')
-  })
-
-  it('② 命中用户偏好：origin=preference，且不再读 capability', async () => {
+describe('resolveEpisodeVoice —— 两步回退链（①偏好 ②capability）与拒绝态的顺序、出声', () => {
+  it('① 命中用户偏好：origin=preference，且不再读 capability', async () => {
     const { resolveEpisodeVoice, VOICE_ORIGIN } = await load()
     const d = mkDeps({ preference: { voiceId: 'echo' }, capability: { defaultVoiceId: 'alloy' } })
     const res = resolveEpisodeVoice({
@@ -153,7 +73,7 @@ describe('resolveEpisodeVoice —— 四步回退链的顺序与出声', () => {
     expect(res.voiceId).toBe('shimmer')
   })
 
-  it('④ 三层都拿不到 ⇒ 拒绝出期，issues 指明是哪一层空', async () => {
+  it('③ 两层都拿不到 ⇒ 拒绝出期，issues 指明是哪一层空', async () => {
     const { resolveEpisodeVoice, VOICE_ERRORS } = await load()
     const d = mkDeps({ preference: null, capability: { defaultVoiceId: null } })
     const res = resolveEpisodeVoice({
@@ -166,11 +86,11 @@ describe('resolveEpisodeVoice —— 四步回退链的顺序与出声', () => {
     expect(d.calls).toEqual({ pref: 1, cap: 1 })
   })
 
-  it('没有默认 provider 时不得"随便挑一个"：②③ 无定位键即拒绝，且两个读取都不被调用', async () => {
+  it('没有默认 provider 时不得"随便挑一个"：①② 无定位键即拒绝，且两个读取都不被调用', async () => {
     const { resolveEpisodeVoice, VOICE_ERRORS } = await load()
     const d = mkDeps({ preference: { voiceId: 'alloy' }, capability: { defaultVoiceId: 'alloy' } })
     const res = resolveEpisodeVoice({
-      channelRef: null, defaultProvider: null,
+      defaultProvider: null,
       readPreference: d.readPreference, getCapability: d.getCapability, warn: d.warn,
     })
     expect(res.ok).toBe(false)
@@ -282,5 +202,29 @@ describe('本层不得自己走出站（音色解析在任何 provider 调用之
     const codeLiterals = [...new Set([...src.matchAll(/'PODCAST_[A-Z_]+'/g)].map((x) => x[0]))]
     expect(codeLiterals).toEqual(["'PODCAST_EPISODE_INVALID'"])
     expect(src).toContain('TTS_COMPOSE_ERRORS.VOICE_REF_INCOMPLETE')
+  })
+})
+
+describe('第①档（频道 voiceRef）已撤 —— 不得被顺手加回', () => {
+  it('VOICE_ORIGIN 闭集只剩两档', async () => {
+    const { VOICE_ORIGIN } = await load()
+    expect(Object.keys(VOICE_ORIGIN).sort()).toEqual(['PREFERENCE', 'PROVIDER_DEFAULT'])
+    expect(Object.values(VOICE_ORIGIN).sort()).toEqual(['preference', 'providerDefault'])
+  })
+
+  it('源码不得再读频道三段：channelRef / channelRefParts / voiceRefIssues / CHANNEL 档字面量', () => {
+    const raw = require('node:fs').readFileSync(MODULE, 'utf8')
+    // 判据只量代码：本文件的头注释要逐字说明「撤了哪一档、为什么」，不剥注释的话这条锁会
+    // 因为解释了禁词而判红（同族坑：仓内多处结构锁都栽在注释命中禁词上）。
+    // 还剩两种会误红的形态是**刻意保留**的严格度，不是遗漏（QM6 i5）：行尾 // 注释（本切片只删整行
+    // 注释）与含禁词的字符串字面量。判据宁可红在一句措辞上——被误红的人当场就能看见禁词并改写；
+    // 反过来把切片写宽，「频道档悄悄回来了」那次就没人看见了。头注释因此不复述撤档史（见模块头口径 2）。
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*\*/.test(l) && !/^\s*\/\//.test(l)).join('\n')
+    // 正控：剥完仍在读的东西必须还看得见，否则「禁词全不命中」可能只是切片切错了。
+    expect(code).toMatch(/require\(\s*'\.\/podcast-tts-compose'\s*\)/)
+    expect(code).toMatch(/resolveEpisodeVoice/)
+    for (const banned of ['channelRef', 'channelRefParts', 'voiceRefIssues', "CHANNEL: 'channel'"]) {
+      expect(code.indexOf(banned), banned).toBe(-1)
+    }
   })
 })

@@ -239,6 +239,82 @@ async function translatePromptsForLocale (aiGenerator, prompts, uiLocale, log, r
   return items
 }
 
+/**
+ * 视频提示词本地语言翻译（2026-10-19）：为「重新生成视频优化词」补齐与图片提示词对称的中文翻译。
+ *
+ * 背景：结果页「视频优化词」此前只有原文，而图片提示词旁有只读中文翻译（promptTranslation），
+ * 用户在同一编辑区需要来回对照，视觉与信息密度都不均衡。本次把翻译能力扩展到 videoPrompt。
+ *
+ * 契约（与 translatePromptsForLocale 同源，复用其解析/兜底/防御逻辑）：
+ *   - 复用 translatePromptsForLocale 的批量调用与 JSON 解析，避免第二份翻译实现漂移；
+ *     **单条调用是受支持路径**：以 `[{ index: 0, prompt }]` 走一个 batch（batchSize=3 下的单元素批次），
+ *     index 对齐、JSON 解析、逐行回退与包装防御全部原样生效，无特殊分支（2026-10-19 QM-6 i3 补齐声明）；
+ *   - 目标语言默认跟随入参 uiLocale，缺省 zh（与流水线 optimize 阶段口径一致）；
+ *   - fail-open：LLM 不可用 / 解析失败 / 超时 / 单条失败 → 返回 null，调用方不得因此失败；
+ *   - 上限 2000 字符（与 promptTranslation 落库上限一致），Unicode 安全；
+ *   - 译文与原文相同（引擎已返回中文或未真正翻译）时视为无翻译，返回 null，避免冗余展示。
+ *
+ * @param {object|null} aiGenerator - AIGenerator 实例（需 generateWithDefault）
+ * @param {string} prompt - 待翻译的视频优化词（英文）
+ * @param {string} uiLocale - 界面语言（zh/en/…），非 en 才需要翻译
+ * @param {object|null} log - 日志器（warn/info）
+ * @returns {Promise<string|null>} 译文；不可用或无效时 null
+ */
+async function translateVideoPromptForLocale (aiGenerator, prompt, uiLocale, log) {
+  const text = typeof prompt === 'string' ? prompt.trim() : ''
+  if (!text) return null
+  // 主语言子标签归一化（QM-6 第六轮 i2 / 第八轮复核）：en-US/EN 等都应按 en 短路，
+  // 与展示侧 getAppLocale()（只认 en/zh）口径一致；调用方 _resolveUiLocale 已归一化，
+  // 这里再兜一层，避免直接调用方传入带地区后缀的值时漏短路。
+  const primaryLanguage = String(uiLocale || '').trim().split('-')[0].toLowerCase() || 'zh'
+  const targetLanguage = primaryLanguage === 'en' ? 'en' : (primaryLanguage === 'zh' ? 'zh' : 'zh')
+  if (targetLanguage === 'en') return null
+  if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
+    if (log && typeof log.warn === 'function') {
+      log.warn('Story2VideoStages', 'video prompt translation skipped: default LLM unavailable (uiLocale=' + targetLanguage + ')')
+    }
+    return null
+  }
+  try {
+    // 有界超时（2026-10-19 QM-6 i3）：与流水线并行路径 runBoundedPromptTranslation 同源口径
+    // （单批 25s、总 60s）。该函数被 await 在 regenerateScenePrompt IPC 处理器内，若无界，
+    // LLM stall 会让整个响应（含 videoPrompt 回写、status='completed'、_upsertProject）无限期挂起。
+    // finally 里清理定时器（QM-6 第六轮 i4）：否则成功路径每次重新生成都留下一个最长 25s 的
+    // 悬挂 setTimeout，Node 进程会因它保持存活、且 accumulate 成定时器泄漏。
+    let timeoutId
+    try {
+      const timeoutPromise = new Promise((resolve) => {
+        timeoutId = setTimeout(resolve, PROMPT_TRANSLATION_BATCH_TIMEOUT_MS, null)
+      })
+      const translationPromise = translatePromptsForLocale(aiGenerator, [{ index: 0, prompt: text }], targetLanguage, log)
+      // 滞后 rejection 必须有人接管（QM-6 第八轮 i2）：Promise.race 超时结算后，若内层
+      // translatePromptsForLocale 在 25s 后才 reject（LLM 慢后报错），该 rejection 会变成
+      // unhandled rejection——Electron 主进程下是节点级风险。挂一个 no-op catch：
+      // 结果照旧丢弃（超时即失败），只是不让它无人接管。
+      translationPromise.catch(() => {})
+      const items = await Promise.race([translationPromise, timeoutPromise])
+      if (!Array.isArray(items)) {
+        if (log && typeof log.warn === 'function') {
+          log.warn('Story2VideoStages', 'video prompt translation timed out after ' + PROMPT_TRANSLATION_BATCH_TIMEOUT_MS + 'ms')
+        }
+        return null
+      }
+      const translated = items[0] ? items[0].translation : null
+      if (typeof translated !== 'string' || !translated.trim()) return null
+      // 译文与原文相同视为未翻译（引擎直出中文或回显原文），不写入，避免冗余展示
+      if (translated.trim() === text) return null
+      return translated.trim().slice(0, 2000)
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  } catch (error) {
+    if (log && typeof log.warn === 'function') {
+      log.warn('Story2VideoStages', 'video prompt translation failed: ' + (error && error.message ? error.message : String(error)))
+    }
+    return null
+  }
+}
+
 function createPromptTranslationPending (output, uiLocale) {
   const source = Array.isArray(output) ? output : []
   return {
@@ -3993,6 +4069,7 @@ module.exports = {
   resolveSceneFinalFrame,
   optimizeVideoScenePrompts,
   translatePromptsForLocale,
+  translateVideoPromptForLocale,
   createPromptTranslationPending,
   applyPromptTranslationsToScenes,
   runBoundedPromptTranslation,

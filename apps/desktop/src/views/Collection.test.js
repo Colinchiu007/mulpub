@@ -1269,7 +1269,10 @@ describe("CollectionView", () => {
 
   // ── 字数区间控制（2026-09-12）──
 
-  it("renders word count inputs with default 800-2000 and replaces length select", async () => {
+  it("renders word count inputs EMPTY by default (no limit) and replaces length select", async () => {
+    // 2026-10-20 collection-ux-step-flow：默认值由 800-2000 改为**留空**。
+    // 用户诉求是「默认让改写引擎自由发挥，不给限制，除非用户自己填写数字」——
+    // 预填 800-2000 等于每次改写都被强制压进一个窄区间。
     window.electronAPI = {
       aggregationCollect: vi.fn(),
       aggregationRewrite: vi.fn(),
@@ -1280,8 +1283,10 @@ describe("CollectionView", () => {
     await nextTick();
     const inputs = w.findAll('input[type="number"]');
     expect(inputs.length).toBeGreaterThanOrEqual(2);
-    expect(w.vm.rewriteWordCountMin).toBe(800);
-    expect(w.vm.rewriteWordCountMax).toBe(2000);
+    expect(w.vm.rewriteWordCountMin).toBe('');
+    expect(w.vm.rewriteWordCountMax).toBe('');
+    // 留空 = 不报错（allowEmpty 语义），且「AI 改写」按钮不被字数校验挡住
+    expect(w.vm.rewriteWordCountError).toBe('');
     // 三档 length 下拉已移除
     const selects = w.findAll("select");
     const lengthOptions = selects.flatMap((s) => s.findAll("option").map((o) => o.text()));

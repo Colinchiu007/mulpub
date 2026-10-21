@@ -25,7 +25,24 @@ const CP_BASE = 'https://cp.kuaishou.com'
 const REFERER = CP_BASE + '/profile'
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.114 Safari/537.36'
 const API_PH_KEY = 'kuaishou.web.cp.api_ph'
-const SIGN_COMMAND = 'kuaishou.ns-sig3-browser'
+
+/*
+ * 签名命令选择（2026-10 变更）
+ *
+ *   DEFAULT_SIGN_COMMAND = 'kuaishou.ns-sig3'
+ *     Tier-A 纯 JS。竞品 VM 算法完整还原，与 VM 逐字节对拍 10/10，
+ *     并在真实服务端验证通过（无签 500002 被拒 / 带签 result:1）。
+ *     优点：零浏览器依赖、0.08–0.17 ms/次。
+ *
+ *   BROWSER_SIGN_COMMAND = 'kuaishou.ns-sig3-browser'
+ *     Tier-B 页面签名器（Playwright/CEF 隐藏页）。保留为**回退**：
+ *     submit 等带发布副作用的端点尚未用纯 JS 做活体回归，需要时
+ *     可在构造时显式传 { signCommand: BROWSER_SIGN_COMMAND }。
+ */
+const DEFAULT_SIGN_COMMAND = 'kuaishou.ns-sig3'
+const BROWSER_SIGN_COMMAND = 'kuaishou.ns-sig3-browser'
+// 兼容既有导出名与历史引用：未显式指定时使用的命令
+const SIGN_COMMAND = DEFAULT_SIGN_COMMAND
 const MIN_SIG_LEN = 40
 
 const ACCOUNT_CURRENT_PATH = '/rest/v2/creator/pc/authority/account/current'
@@ -49,12 +66,16 @@ function cookieValue (cookie, key) {
 
 class KuaishouCapabilities {
   /**
-   * @param {{cookie:string, userAgent?:string, client?:object, signer?:Function, timeout?:number}} opts
+   * @param {{cookie:string, userAgent?:string, client?:object, signer?:Function, timeout?:number,
+   *          signCommand?:string}} opts
+   *   signCommand 缺省为 DEFAULT_SIGN_COMMAND（Tier-A 纯 JS）；
+   *   需要回退到页面签名器时传 BROWSER_SIGN_COMMAND。
    */
   constructor (opts = {}) {
     this.cookie = opts.cookie
     this.userAgent = opts.userAgent || UA
     this.signer = opts.signer
+    this.signCommand = opts.signCommand || DEFAULT_SIGN_COMMAND
     this.client = opts.client || createHttpClient({
       baseURL: opts.apiBase || CP_BASE,
       timeout: opts.timeout,
@@ -82,7 +103,7 @@ class KuaishouCapabilities {
     const payload = { url, type: 'json', params: bodyObj, accountId: (opts && opts.accountId) || undefined }
     let sig
     try {
-      sig = await signer(SIGN_COMMAND, payload)
+      sig = await signer(this.signCommand, payload)
     } catch (e) {
       const msg = String((e && e.message) || e)
       const notReady = /未就绪|not\s*ready|bridge not injected|未验证|unverified|degraded|not registered|未注册/i.test(msg)
@@ -188,6 +209,8 @@ module.exports = {
   CP_BASE,
   API_PH_KEY,
   SIGN_COMMAND,
+  DEFAULT_SIGN_COMMAND,
+  BROWSER_SIGN_COMMAND,
   MIN_SIG_LEN,
   ACCOUNT_CURRENT_PATH,
   HOME_INFO_PATH,

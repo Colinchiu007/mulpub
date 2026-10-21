@@ -1,0 +1,58 @@
+{
+  "sha": "b8bd506aeb3b8ef2ce4e54b6277a668ea85a4380",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "## 7. 合并轮的现场（2026-10-20，人工授权 + CHANGELOG 拆出本 PR）",
+      "- **合并经人工授权，不是 agent 自动合并**：AGENTS「PR 自动合并」判据第 4 条（`check-pr-exec-record.js --mode=enforce` 为 OK）**未满足**，用户原话授权「授权你来直接合并 #3988」。红因只有一条，且与实现无关：本 PR 命中高危面前缀 `scripts/deep-review`（由 `deep-review.sh` + `deep-review-deps.test.js` 拉进来），而判定记录里 `tier` 整段缺席 ⇒ 高危面只认 `tier=external` + 可核 evidence，自扮演在机械上永远闭不了这一类 PR。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ec5f6f84cf1ada2e3cb9398d59678367b4ddd3f0669223b1070209e20434c7f9",
+  "decidedAt": "2026-10-20T13:26:06.732Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

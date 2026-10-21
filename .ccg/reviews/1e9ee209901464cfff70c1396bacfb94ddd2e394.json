@@ -1,0 +1,60 @@
+{
+  "sha": "1e9ee209901464cfff70c1396bacfb94ddd2e394",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"round51 自查闭环。非高危面判定依据：① 改动只新增 scripts/dump-envelope-credentials.cjs（**运行结果是 exit 1，不产出任何凭据**）与 openspec/records/envelope-cred-boundary.md；② 不触碰判据本体、workflows、CI_IGNORED_PATHS；③ 凭证/登录态侧本次是**只读探测且三条路全堵**，未新增任何获取凭据的通道（脚本明确标注\\\"当前解不开\\\"）。逐条处置见下方 adjudication。\",",
+      "        \"rationale\": \"关键在它**会不会被误用**，我做了三层防误用：① 运行结果恒定 exit 1 + 明确错误文案（\\\"未取到 masterKey\\\"），不产出任何凭据；② 头部注释用 ⚠ 大段标注\\\"当前状态：解不开\\\"并列出三条路各自的失败原因；③ 执行记录里写明\\\"刻意保留一个暂不可用脚本\\\"的理由与\\\"绝不让它以可用工具面目存在」。对比删除的代价：删掉后，下一个会话（或未来的我）会从零开始重试这三条路，而这三条路各自要跑几分钟到十几分钟才有结论。留档是把**已付成本**变成可复用信息。⚠ 但我承认一个风险：若有人只看文件名就 `node scripts/dump-...` 然后看到报错，可能以为是脚本坏了。缓解只能是注释与记录 —— 已做，但无法更强（除非加个显式 的 --i-know-it-does-not-work 旗标，那是过度设计）。\",",
+      "        \"finding\": \"这轮本来是想验证发布链，结果只得到\\\"取不到凭据\\\" —— 目标毫无推进？\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T07:21:30.769Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "sha": "b5dd3bc06ae8d68be73273b01b7a2bbbb0c49e6f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 338 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 338,
+    "fileCount": 11,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2c5cd4a0ef38810d7976260406a0f36994484bb39a48c955e2d872f6208b7537",
+  "decidedAt": "2026-10-20T06:27:14.845Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": null,
+    "closureNote": "本记录对应「视频提示词翻译块 + 折叠开关在 #4064 新组件上落位」的提交。第 1-9 轮 CCG 深度审查的\n17 处 upheld 修复全部保留（主进程侧逐字节未变），本次是把已审定的契约搬到新承载文件，并补齐\n新结构下的等价用例：\n① ResultSegmentCard.vue —— 图片翻译块移到图片提示词 textarea 正下方（#4064 保留的旧位置仍隔着\n   按钮行，正是用户反馈的错位）；新增视频翻译块紧随视频 textarea；折叠开关 + expanded 受控 prop；\n   折叠范围收窄为文本编辑主体（缩略图与四素材槽保持可见）。\n② ResultSegmentEditor.vue —— data.expandedSegmentId 作展开态唯一真源；toggle 幂等互斥；\n   onRemoveSegment 删除被展开分段时置空（不残留指向已删 id 的状态）。\n③ locales zh/en 成对新增 videoPromptTranslationLabelZh/Other + expandEditor/collapseEditor，\n   并删掉先前那对固定串键以免同一语义两份文案。\n\n新增用例 10 条（ResultSegmentCard 5 + 新建 ResultSegmentEditor 5），全部针对新结构；\nResultView.test.js 只补「先展开」适配步骤，不堆新用例。938 行前的既有行为断言一条未删。\n回归：6 个套件 436 例全绿；eslint --quiet rc=0；check-max-lines / font-size-scale /\nlocale-sync --keys/--cjk / unwired-tests / no-conflict-markers / doc-abs-paths 全 PASS。"
+  }
+}

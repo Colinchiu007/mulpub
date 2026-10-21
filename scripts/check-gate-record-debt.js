@@ -15,7 +15,7 @@
 //   3) 该文件 blob 是 LF、工作区是 CRLF（`i/lf w/crlf attr/text=auto`）⇒ 键必须先去尾部 CR，
 //      否则同一内容在两种检出下判成两回事。
 //
-// 用法：node scripts/check-gate-record-debt.js [--carrier-mode=block|visible] [--base-ref=<rev>]
+// 用法：node scripts/check-gate-record-debt.js [--carrier-mode=block|visible] [--base-ref=<rev>] [--head-ref=<rev>] [--root=<路径>]
 // 回归：node --test scripts/check-gate-record-debt.test.js
 
 const fs = require('fs')
@@ -145,7 +145,7 @@ const CROSS_SLUG_RE = /（([a-z0-9][a-z0-9-]*)，/
 // 但必须打印出来（不拦截又不出声，等于把放过做成静默的）。正例是另起 slug：…-backfill。
 const CROSS_BACKFILL_RE = /^本次执行记录：(?:\d+ 笔)?回填|远程同步回填|并销账/
 // 上线时既有的真矛盾，逐条给理由；其作者回填后必须删掉本项（陈旧承认即红，清单只能缩小）。
-const CROSS_SRC_ALLOWED = new Set(['ops-ingress-only']) // 他人会话的运行时代码记录块，本仓纪律是不代改
+const CROSS_SRC_ALLOWED = new Set() // 空清单：旧载体历史欠账已由 close-legacy-gate-debt 一刀逐条收口（本清单只能缩小）
 
 const LEDGER_FILE = path.join(__dirname, 'gate-record-debt-ledger.json')
 
@@ -915,6 +915,19 @@ function parseHeadRef(argv) {
   return hit ? hit.slice('--head-ref='.length) : 'HEAD'
 }
 
+// 取证根默认取仓库根；`--root` 只为"能被测到"而存在：没有它，
+// "真造出一个有阻断的仓库 ⇒ CLI 退 1"这句话只能靠读源码相信。
+// 不给时逐字走原路径（path.resolve(__dirname, '..')）——默认行为的零影响是这条的第一约束。
+function parseRoot(argv) {
+  const hit = argv.find((a) => a.startsWith('--root='))
+  if (!hit) return path.resolve(__dirname, '..')
+  const raw = hit.slice('--root='.length)
+  if (!raw) throw new Error('--root 给了空值：回落默认根会把「路径写错了」读成「扫过了且没问题」')
+  const abs = path.resolve(raw)
+  if (!fs.existsSync(abs)) throw new Error(`--root 指向不存在的目录：${abs}（fail closed：不回落默认根）`)
+  return abs
+}
+
 function parseFlags(argv) {
   // 参数不得静默忽略：拼错的旗标读起来像"某一档生效了"，实际命令行什么都没改。
   // 原文件头宣传的 [--json] 从未被实现过——那是一个承诺了但不会出现的形态，已如实删掉。
@@ -926,8 +939,8 @@ function parseFlags(argv) {
   // （外部评审 F5 家族的 F2），已删；CI 若真要下发就会在这里当场红，而不是"看起来生效"。
   // `head-ref` 与 `base-ref` 成对存在：本判据看的是 merge-base 到某个 head 的**差量**，
   // 只给 base 不给 head 就只能读工作树，CI 上工作树不是 PR 的 head（同上一轮"取源必须成对"）。
-  const allowed = ['carrier-mode', 'base-ref', 'head-ref']
-  const needValue = ['base-ref', 'head-ref']
+  const allowed = ['carrier-mode', 'base-ref', 'head-ref', 'root']
+  const needValue = ['base-ref', 'head-ref', 'root']
   for (const a of argv) {
     if (!a.startsWith('--')) continue
     const name = a.slice(2).split('=')[0]
@@ -942,8 +955,8 @@ function parseFlags(argv) {
 }
 
 function main() {
-  const root = path.resolve(__dirname, '..')
   const argv = process.argv.slice(2)
+  const root = parseRoot(argv)
   parseFlags(argv)
   // 冻结基线与合并账本都只在 CLI 侧读生产仓库；collect() 保持可注入，
   // 否则夹具会静默量到真仓状态（carrierFreeze 同款教训，实测冲掉过 8 条合法测试）。
@@ -957,7 +970,10 @@ function main() {
   let closure = process.env.MP_TEST_FORCE_UNPROVEN
     ? { ok: false, reason: String(process.env.MP_TEST_FORCE_UNPROVEN) }
     : buildClosureDiff({ baseRef, headRef, cwd: root, recordsRel: RECORDS_REL_POSIX })
-  const r = collect({ root, ledger: loadLedger(root), carrierFreeze: loadCarrierFreeze(), mergeLedger: ml, closureDiff: closure })
+  // 冻结基线必须跟着 root 走：它原先读 __dirname 那份真仓文件，于是"夹具载体 + 真仓基线"
+  // 是结构性混合态——夹具里删掉基线它照样能读到合法的，漂移永远报不出来。
+  const carrierFreezeFile = path.join(root, 'scripts', path.basename(CARRIER_FREEZE_FILE))
+  const r = collect({ root, ledger: loadLedger(root), carrierFreeze: loadCarrierFreeze(carrierFreezeFile), mergeLedger: ml, closureDiff: closure })
   console.log(format(r, { carrierBlocking: mode === "block" }))
   // 打印即门禁：CI 上账本不可用（浅检出、ref 没取到、仓库态异常）意味着派生档整体停用。
   // 停用不是"通过"——留在 CI 里就是一条随时会烂成装饰的分支，必须当场红并给出原因。
@@ -985,7 +1001,7 @@ module.exports = {
   RECORD_FIELD_PR_LEGACY, DERIVED_MARKER, DERIVED_MARKER_RE,
   GATE_FILE, LEDGER_FILE, DUPLICATE_HEADINGS_ALLOWED, HEADING_RE, headingTitle,
   CARRIER_FREEZE_FILE, loadCarrierFreeze, carrierSignature, parseCarrierMode,
-  parseBaseRef, parseHeadRef, parseFlags,
+  parseBaseRef, parseHeadRef, parseFlags, parseRoot,
   // 词表与结构判断的唯一入口在判据这侧（模块只给结构）；这里 re-export 是为了让
   // "全仓只有一处 diff 取源"那条锁能同时看到两个消费者。真跑 CI 档用的就是这个再导出，
   // 不是让调用方各自去 require 模块（那样第二个 execFileSync('git' 就长在别人文件里了）。

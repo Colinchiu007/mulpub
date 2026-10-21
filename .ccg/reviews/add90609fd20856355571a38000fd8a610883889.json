@@ -1,0 +1,58 @@
+{
+  "sha": "add90609fd20856355571a38000fd8a610883889",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"rationale\": \"因为\\\"值是否为明文\\\"需要**实测**才能判定（取决于 Chromium 版本与平台加密策略）， 不跑就不知道。我的处理顺序是：实现 → 实跑 → 发现不可靠 → **移除而非保留**。 关键在最后一步：把不可靠的部分**删掉**，而不是留在脚本里当\\\"尽力而为\\\"的功能。 这符合我在 §16.14/§16.16 反复强调的原则 —— 不留看似可用、实际无证据的产物。\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T01:08:32.530Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

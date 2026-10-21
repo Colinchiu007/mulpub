@@ -119,4 +119,82 @@ describe('Story2Video 本机媒体流服务', () => {
     expect(server.revoke(third)).toBe(true)
     expect(server.size).toBe(1)
   })
+
+  // ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH §3.1：令牌容量必须容纳一个整页大任务 ──
+  //
+  // 现场：169 段任务每段最多 5 个媒体位（image1/image2/video1/video2/audio）⇒ 最多 845 个
+  // 回环 URL。旧容量 128 会在展开到约 26 段时开始 FIFO 淘汰 ⇒ 较早分段的图变 404 ⇒
+  // 渲染端 @error 兜底把它显示成「未生成」——正是用户最初抱怨的「破图」形态回来了。
+  it('默认容量足以容纳 169 段任务的全部媒体位（845 个 URL 不被淘汰）', async () => {
+    // 用一个自增 tokenFactory 造 845 个唯一令牌，全部指向同一个真实文件
+    let seq = 0
+    await server.stop()
+    server = new Story2VideoMediaServer({
+      tokenFactory: () => 't' + String(seq++).padStart(23, '0'),
+    })
+    await server.start()
+
+    const urls = []
+    for (let i = 0; i < 845; i += 1) urls.push(server.createUrl(mediaPath))
+
+    // 一个都没被淘汰
+    expect(server.size).toBe(845)
+    // 首个与最后一个是同一路径的不同令牌，二者都必须可访问
+    expect((await fetch(urls[0])).status).toBe(200)
+    expect((await fetch(urls[844])).status).toBe(200)
+  })
+
+  it('访问即续期：令牌在活跃使用时不因固定 15 分钟到期而失效', async () => {
+    // 现场：用户在 169 段编辑页停留超过 15 分钟 ⇒ 全部令牌被 _pruneExpired 清空 ⇒
+    // 图片整片变「未生成」。修法是滑动过期：每次成功命中就把 expiresAt 往后推。
+    let now = 0
+    const tokens = ['dddddddddddddddddddd']
+    await server.stop()
+    server = new Story2VideoMediaServer({
+      tokenTtlMs: 1000,
+      now: () => now,
+      tokenFactory: () => tokens.shift(),
+    })
+    await server.start()
+    const url = server.createUrl(mediaPath)
+
+    // 每 800ms 访问一次，累计远超 TTL(1000ms)
+    for (let i = 0; i < 5; i += 1) {
+      now += 800
+      expect((await fetch(url)).status).toBe(200)
+    }
+
+    // 续期确实发生：最后一次访问后 900ms（< TTL）仍可用
+    now += 900
+    expect((await fetch(url)).status).toBe(200)
+
+    // 但停止使用超过 TTL 后必须失效（滑动过期不等于永不过期）
+    now += 1200
+    expect((await fetch(url)).status).toBe(404)
+  })
+
+  it('续期不改变容量上限：活跃访问不会让已淘汰令牌复活', async () => {
+    let now = 0
+    const tokens = [
+      'eeeeeeeeeeeeeeeeeeee',
+      'ffffffffffffffffffff',
+    ]
+    await server.stop()
+    server = new Story2VideoMediaServer({
+      maxEntries: 1,
+      tokenTtlMs: 1000,
+      now: () => now,
+      tokenFactory: () => tokens.shift(),
+    })
+    await server.start()
+    const first = server.createUrl(mediaPath)
+    expect((await fetch(first)).status).toBe(200)
+
+    // 第二次 createUrl 触发容量淘汰 ⇒ first 被删
+    const second = server.createUrl(mediaPath)
+    expect(server.size).toBe(1)
+    now += 100
+    expect((await fetch(first)).status).toBe(404)
+    expect((await fetch(second)).status).toBe(200)
+  })
 })

@@ -1,0 +1,135 @@
+{
+  "sha": "c5087351dc4746996844a43cb5ec02088550d21f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 479 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 479,
+    "fileCount": 9,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 32,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "- [ ] 3.3 授权出口：本次差量**新增**的 `scripts/hot-carrier-write-authorization.json`，核对 `applies_to_base` 与实际 merge-base；base 已存在该文件 MUST NOT 生效（沿用 dedup 授权那条已验证形态，避免常驻通行证）",
+      "- [ ] 3.6 本机实跑：`node scripts/check-no-hot-carrier-edit.js --base=origin/main --head=HEAD` 对**当前这个 PR 自己**跑一次——本刀改了 CHANGELOG 吗？没有 ⇒ 应 PASS；若有 ⇒ 走授权出口并如实写理由",
+      "- [x] 3.3 授权出口 ⇒ 只认本次差量 `status=A` 的 `scripts/hot-carrier-write-authorization.json`，`applies_to_base` 须逐字等于实际 merge-base，`authorizedPaths` 须逐个覆盖命中项；用例 `T5`(放行)/`T5b`(路径未覆盖→拒)/`T6`+`T6b`+`T6c`(常驻证→拒)/`T7`(坐标不符→拒)，变异 MC/MD/MH 分别指名 T6c/T7/T5b"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2b912f653e1acc48f8ee31de9b0b65f1c8e919179c9d63b4d1932579fa06ea06",
+  "decidedAt": "2026-10-21T02:30:26.017Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "claude",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews artifact stats wrong: claims 479 lines/9 files/sha=c5087351d; proposal shows 748 lines/10 files/head=495cd3513. Artifact is stale or miscalibrated.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "判定产物写 479 行 / 9 文件 / sha=c5087351d，而提案与评审载荷是 748/761 行、head=495cd3513 ⇒ 疑似陈旧或标定错误。",
+        "defense": "两个数作用域不同且都正确：pre-commit 在**新提交尚未生成时**判定，故 sha 记父提交、行数记该笔 staged diff（引擎自身打印过「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」）；761 行是 deep-review 按 origin/main 取整条分支的载荷。PR 级欠账判据取的是\"变更集内每条 dual 产物\"，不是要求两个数相等。",
+        "verdict": "dismissed",
+        "rationale": "**dismissed**：把不同作用域的数当矛盾，是取证错位而非度量错误。本仓已记过同型坑（同屏两个 mode 读数不得据以归因）。"
+      },
+      {
+        "id": "i5",
+        "severity": "Critical",
+        "finding": "quality-gate.yml run block lacks set -e after node --test; test failures don't break the CI step, so a broken gate stays green regardless.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "Gate 2b9 的 run 块在 `node --test` 之后没有 `set -e`，测试失败不会中止步骤 ⇒ 门禁可能恒绿。",
+        "defense": "该步骤显式声明 `shell: bash`。GitHub 对 bash 步骤默认注入 `-e -o pipefail`（本仓 AGENTS 明文记过：「GitHub 的 shell: bash 默认带 -e -o pipefail，任一非零即中止」，正是 `check-step-failfast.js` 认可 bash 的理由）。本机 `node scripts/check-step-failfast.js` 亦判该步骤合规（41 个多命令步骤全 fail-fast 或按欠账登记，rc=0）。",
+        "verdict": "dismissed",
+        "rationale": "**dismissed**：按\"块里有没有出现 set -e 这个串\"判，是字符串判据；判据要问的是默认 shell 是否真的会中止。变异反证方向：给 bash 步骤补 `set -e` 不改变任何行为，去掉 `shell: bash` 才会让 check-step-failfast 立刻变红。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "Gate uses --mode=advisory (exits 0 on hits). Record admits this is not enforcement; security gap remains open with no enforce transition done.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "门禁以 --mode=advisory 运行，命中也退 0，\"安全缺口仍未闭合\"。",
+        "defense": "分档是本片的设计本身并写进 spec：在飞 PR 绝大多数已按旧规改了台账，此刻转 enforce 会把它们全判红，而那不是它们的错。转档前置条件与\"须人工过目\"写在 tasks 4.3，且 PR 正文/记录的「遗留」第 1 条逐字声明\"今天热写面已守住是假话\"。",
+        "verdict": "dismissed",
+        "rationale": "**dismissed（作为本片缺陷指控不成立）**：这是被显式登记的欠账，不是被掩盖的缺陷。把它当本片未修的 bug 会诱导\"立刻 enforce\"，那才是本仓记过的装饰性回退形态。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": ".gitignore comments embed brittle line-number refs (106, 244) that drift on edit, causing future maintenance confusion.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": ".gitignore 注释引用了行号（106 / 244），行号会随编辑漂移，误导后人。",
+        "defense": "注释在行号之外同时引用了**模式自身**（`scripts/*.js`、`!scripts/*.test.js`），按模式可一句话重取；且该文件里既有 30+ 条同族反选注释都用同一写法（先例 #3011/#3308），只改我这一条会让风格分裂、反而更难找。",
+        "verdict": "dismissed",
+        "rationale": "**dismissed（作为缺陷指控不成立）**。影响面是注释可读性，不是行为正确性；不为此引入单点例外。若将来要清，应整族一起改成\"只引用模式不引用行号\"。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "finding": "spec.md references unreleased hot-carrier-atomic-landing (hot-carrier-paths.json); introduces hidden dependency on unreleased spec.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "spec 以一份未落地的 change（hot-carrier-atomic-landing 的 hot-carrier-paths.json）为边界依据 ⇒ 对未发布规格形成隐式依赖。",
+        "defense": "引用的目的是划边界（禁止两份清单\"顺手统一\"），不是委托它执行；两个 Scenario 已断言\"另一方的锁自己红，本判据不受影响\"。",
+        "verdict": "dismissed",
+        "rationale": "**原指控成立，且已按它修掉**：commit 30ab220e8 把该 Requirement 改成自持效力 —— 即便那条 change 被放弃、那份清单从未落地，\"MUST NOT 合并\"照样成立，引用降级为历史指针与防误删说明。因此对 PR 当前文本，指控不再成立；这里记的是\"曾经成立并已修\"，不是\"评审误报\"。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": ".ccg/reviews sha=c5087351d (base), not proposal head 495cd3513; layer/mode definitions unclear.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "产物 sha 是 base（c5087351d）而非 head，layer/mode 定义不清。",
+        "defense": "与 i1 同一事实的另一半：`sha` 字段按父提交记录，`layer` 是\"验证层(动手后·diff)\"，`mode` 由变更规模与内容命中共同决定 —— 三者定义都在 `scripts/ccg-review-decider.js` 里，产物字段就是它的输出形状。本次判 dual 的原因是 479 行 > 200 阈值。",
+        "verdict": "dismissed",
+        "rationale": "**dismissed**：判据形状未变，评审只是不熟悉既有字段语义；不构成缺陷。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-21T02:58:57.372Z",
+    "tier": "external",
+    "evidence": "PR #4145",
+    "closureNote": "轮 1/3（critic=claude 真跑，8 条问题 / 4 维度 / 最低分 3；proposer=opencode 跨家族校验通过；载荷 761 行 = 整条分支 vs origin/main）。\n引擎因 minScore=3 落到自扮演第三档出口做逐条裁决，本会话填完 6 条 verdict（闭集词表 upheld|dismissed —— 第一版误用自造词 rejected/known_tradeoff，引擎直接判\"未填\"，症状看着像它不读我的裁决）：\n  - i1 [Critical] verdict=dismissed：**dismissed**：把不同作用域的数当矛盾，是取证错位而非度量错误。本仓已记过同型坑（同屏两个 mode 读数不得据以归因）。\n  - i5 [Critical] verdict=dismissed：**dismissed**：按\"块里有没有出现 set -e 这个串\"判，是字符串判据；判据要问的是默认 shell 是否真的会中止。变异反证方向：给 bash 步骤补 `set -e` 不改变任何行为，去掉 `shel\n  - i3 [Critical] verdict=dismissed：**dismissed（作为本片缺陷指控不成立）**：这是被显式登记的欠账，不是被掩盖的缺陷。把它当本片未修的 bug 会诱导\"立刻 enforce\"，那才是本仓记过的装饰性回退形态。\n  - i2 [Warning] verdict=dismissed：**dismissed（作为缺陷指控不成立）**。影响面是注释可读性，不是行为正确性；不为此引入单点例外。若将来要清，应整族一起改成\"只引用模式不引用行号\"。\n  - i7 [Warning] verdict=dismissed：**原指控成立，且已按它修掉**：commit 30ab220e8 把该 Requirement 改成自持效力 —— 即便那条 change 被放弃、那份清单从未落地，\"MUST NOT 合并\"照样成立，引用降级为历史指\n  - i4 [Warning] verdict=dismissed：**dismissed**：判据形状未变，评审只是不熟悉既有字段语义；不构成缺陷。\n其中 i7 曾判 upheld，修法落在 commit 30ab220e8（把边界规则的效力改由本 change 自持，不再依赖未落地的 hot-carrier-atomic-landing），之后改判 dismissed 并写明\"曾成立、已按它修\"。\n⚠ 手写声明：`tier`/`evidence` 由本会话写入，**不是工具产物** —— 全仓无生产方写 tier（tasks 8.1b 未落地）。外部 critic 真跑了这份载荷是事实，但字段落盘这一层必须如实记成手写代用。\n⚠ 工具定位产物的前置条件（本仓既有死区，此处复现）：deep-review 只按 HEAD 的 stagedDiffHash 命中判定记录，而 dual 判定记在**父提交**上 ⇒ 末笔若是 docs-only（判 SKIP）就永远追不到那枚 dual；本片靠 `git checkout --detach <代码提交>` 才让工具自己命中并收敛（--force 只在入口 deep-review.sh:798 生效，仓外驱动不消费它）。"
+  }
+}

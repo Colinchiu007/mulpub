@@ -1,0 +1,101 @@
+{
+  "sha": "df59f7cc9b19b14ee74ffe2e25482122a997135a",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 53 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 53,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "f9e30145a8f5793767b4f6ac8f3fd91c177477f9f79aab0517618dd20a624dfd",
+  "decidedAt": "2026-10-19T17:47:06.475Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "compose 回填对 videoPromptTranslation 无条件取 fallback：重新合成后场景携带新 videoPrompt（optimizeVideoScenePrompts 重写）时，展示的译文描述回填前的旧提示词，与本次『改写即失效、译文须对应当前提示词』的语义自相矛盾。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立：原实现 safeText(segment.videoPromptTranslation).trim() || fallbackTranslation，只要 compose 侧该字段为空白就无条件回填 fallback 译文。若本次落地的 videoPrompt 与 fallback 的不同（compose 自带新值 / optimize 重写），旧译文描述的就是回填前的提示词——正是本次变更自己要防的『错误译文』形态，只是从 updateSegments 一条路径漏到了 compose 回填这条路径。",
+        "defense": "无明显辩护：确为同一语义在第二条路径上的漏网。",
+        "verdict": "upheld",
+        "rationale": "已修：回填改为条件式——只有当本次落地的 videoPrompt 与 fallbackSegment.videoPrompt 逐字节相同（且非空）时才回填译文，否则置 null。重新合成（recomposeProject）传的 fallback 就是项目自身 segments，videoPrompt 相同 ⇒ 译文正确保留，行为不回退；仅当 compose 输出携带不同 videoPrompt 时才清空。补 2 例回归（同值保留 / 异值清空），project-service 127 例全绿。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "生成侧 uiLocale 固化于任务创建、展示侧 getAppLocale()：zh 创建切 en 查看时白付一次 LLM 调用且译文永不展示；en 创建切 zh 时译文永不生成。新字段、用户可见，仅登记为已知限制未消除。",
+        "highRiskDomains": [],
+        "prosecution": "切换界面语言后生成与展示判据不一致，用户可能白付一次 LLM 调用或看到永不补齐的占位文案。",
+        "defense": "同源既有行为：图片提示词翻译（promptTranslation）自 2026-08-12 起就是完全同构的口径（流水线 optimize 阶段提交时固化 params.uiLocale 生成，展示端 ResultView 用 getAppLocale()）。主进程的 _resolveUiLocale 取值来源正是项目创建时固化的 uiLocale，它没有能力拿到渲染进程实时 locale（无 navigator、无 IPC 通道）。只改视频一侧会制造新的不对称；彻底改必须连同 promptTranslation 与 prompt_translations_pending 机制一起调整，超出本次范围。",
+        "verdict": "dismissed",
+        "rationale": "与既有图片提示词翻译同构，非本次新引入的不一致；主进程结构上无法获取渲染进程实时 locale。已在 PRD §3.1.31『已知限制』第 2 条与执行记录登记。彻底修复属独立 change（需改 compose 并行任务契约 + 两处字段语义）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "新增测试出现与 QM-6 i4 同类同行合并格式损坏：it('...fail-open 不阻塞', async () => {    const projectRoot = ... 一行两语句，同类事故在测试文件中复发且已入库。",
+        "highRiskDomains": [],
+        "prosecution": "指控成立：grep 实证该行确为同行合并（一次无副作用的 edit 把换行吃掉了）。与上一轮 stages.js 的 i4 完全同类——同一会话内第二次发生，说明靠自觉无效。",
+        "defense": "无有效辩护——这是明确的编辑事故。",
+        "verdict": "upheld",
+        "rationale": "已修：还原为两行。同类事故在一轮内复发两次（stages.js 函数体 + 测试文件 it 块），说明需要机械拦截而非自觉：后续对该仓库的编辑一律在编辑后立刻用 grep 复核目标行的行首形态（本会话已对两个文件各做一次复核）。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-20T02:10:03.314Z"
+  }
+}

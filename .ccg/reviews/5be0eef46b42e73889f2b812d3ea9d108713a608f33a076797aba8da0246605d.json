@@ -1,0 +1,61 @@
+{
+  "sha": "f718f575387d4d76956941ab0bd13f845cf29062",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 41 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 41,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"- fix(门禁): 第五轮由**只读 fresh-context 对抗评审**（子代理，不是 QM-6 那一轴、不产闭环状态）命中四处会让这道闸门重新变成「一次都拦不了」或「拦错东西」的形态，逐条现场取证后全部成立并已修：① **Critical** 判据只给 PR 侧设了零检查档，主干侧 `mainRows=[]` 时三个集合全空，一路走到最后一档打印「主干绿、本 PR 无红」并 exit 0（与文件开头要防的「把工具的失明读成结论」同型，且这个输入正是第四轮 i3 自己写下的真实形态）；② 闸门在两个合并入口里被排在「本 PR 失败清单」之后，于是在**立项的那个场景**（主干红 ⇒ 每个 PR 的 required `Gate Result` 跟着红）它一次都不会执行、rc=2 在入口路径上不可达，而接线锁当时只断言「在 REST 合并之前」——那个弱性质照样成立，所以 25 条锁全绿却测不到它；③ `--allow-main-red` 点到任意一条主干红就放行整批，且 `indexOf` 是裸子串匹配（`Gate Result` 会在 `Gate Result 2：修它` 里命中并替相邻键名顶罪），未点名的红连名字都不再出现在读数里；④ `merge-when-green.ps1` 的 `Fail()` 在 `$ErrorActionPreference='Stop'` 下先 `Write-Error` 抛终止错误、`exit $code` 永不执行，本机对照实跑 `stop_rc=1 / host_rc=7` ⇒ 文档化的 2/3/4/5/6/7 全塌成一档。另两处顺带收紧：接线锁改为**剥注释**（注释里的同款文字不得再算接线）、合并请求必须带 `-f \\\"sha=<被验过的那个 head>\\\"`（不传时 GitHub 合的是执行那一刻的 head）。三个 commit status 态 `EXPECTED/NO_STATE/STARTING` 归 pending 而不是 unknown（评审自己标注「本仓现在没有 commit status，属将来时」，但落 unknown 的后果是接了外部 CI 后闸门恒 rc=4）。回归锁 25→32 全绿（7 条新锁先见证指名红再实现），新增变异反证 R6-R14 共 9 道全部 CAUGHT、逐条还原 md5 相同；两个入口改完都过真解释器（`bash -n` OK、`Parser::ParseFile` 在 5.1 与 pwsh 7 各一遍 `TOKENS=716 ERRORS=0`）。\",",
+      "      \"| 判据自身可跑性 | ✅ | 两个入口都过了**真解释器**解析：`bash -n scripts/merge-when-green.sh` OK；`scripts/merge-when-green.ps1` 用 `Language.Parser::ParseInput` 实跑 → `PS_PARSE_OK tokens=670`（不是目测 YAML/文本）。改 workflow 正文后跑 `.github/scripts/check-workflow-structure.js` → `files=14 violations=0`；`scripts/check-unwired-tests.js` → 域内 109 个测试文件「全部已接线或按欠账登记」（本 PR 新测试已点名进 Gate 2b8，不是靠它自动被发现）。 |\",",
+      "      \"| 第五轮回归与变异现值 | ✅ | `node --test scripts/check-main-red.test.js` = **32 passed / 0 failed**（第四轮 25 条 + 本轮 7 条；TDD 现场：实现前先跑，7 条红且红集恰是那 7 条新锁，其余 25 条不受影响 ⇒ 红可归因）。变异反证新增 **R6-R14 共 9 道全部 CAUGHT**，每条还原后 md5 逐字节相同：R6 摘主干零读数档／R7 退回「点一条放行整批」／R8 点名退回裸子串／R9 摘 commit-status 归类／R10 把真实调用换成同样文字的注释行／R11 把闸门挪回失败出口之后／R12-R13 两个入口的合并体去掉 `sha=`／R14 `Fail()` 退回 `Write-Error`。**红集重合如实记**：R10 与 R11 打红的是同一条「接线锁必须剥注释，且闸门要排在第一个失败出口之前」（一把锁一次守两格），不是两条独立的锁；R12 与 R13 同理共用「绑定 head sha」那条。两个入口改完都过真解释器：`bash -n scripts/merge-when-green.sh` OK；`.ps1` 经 `Language.Parser::ParseFile` 在 Windows PowerShell 5.1 与 pwsh 7 各一遍，均 `TOKENS=716 ERRORS=0`。\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5be0eef46b42e73889f2b812d3ea9d108713a608f33a076797aba8da0246605d",
+  "decidedAt": "2026-10-21T04:06:03.434Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

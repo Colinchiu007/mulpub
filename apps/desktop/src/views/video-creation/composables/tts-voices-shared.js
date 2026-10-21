@@ -16,7 +16,6 @@ import {
   s2vVoiceOptions,
 } from './tts-voices-state'
 import { selectTtsVoice, clearTtsVoicePreference } from '@/api/tts-voice-catalog'
-import { formatUserError } from '@/utils/user-facing-error'
 
 function getS2VVoiceContext() {
   const d = requireDeps()
@@ -91,7 +90,20 @@ function toS2VVoiceCloneRequirements(requirements) {
   }
 }
 
-function friendlyVoiceCatalogError(message) {
+/**
+ * 把主进程错误 message 映射为用户可读文案。
+ *
+ * @param {string} message 原始 message（可能含错误码）
+ * @param {object} [options] 选项对象（刻意不用位置布尔参数 —— 漏传会**静默退回**「恒有兜底」
+ *   的旧行为，那正是两个兜底键变成死代码的成因；具名参数让每个意图显式、可扩展）
+ * @param {boolean} [options.allowUnmapped=true] 未知错误码时的行为：
+ *   true  ⇒ 返回 catalogLoadFailed（「语音列表加载失败」），适合「我只想要一句通用提示」的调用点；
+ *   false ⇒ 返回空串，让调用点的 `|| 自有兜底` 真正生效
+ *            （否则本函数恒返回非空，右侧兜底永不可达）。
+ * @returns {string}
+ */
+function friendlyVoiceCatalogError(message, options = {}) {
+  const allowUnmapped = options?.allowUnmapped !== false
   const d = requireDeps()
   const raw = String(message || '')
   const map = {
@@ -126,6 +138,11 @@ function friendlyVoiceCatalogError(message) {
   const found = Object.entries(map).find(([key]) => raw.includes(key))
   // 英文兜底（ASCII）仅用于「键缺失」的防御路径；键存在时一律取 locale 值（zh/en 成对）
   if (found) return d.translate('create.story2video.voice.' + found[0], found[1], found[1])
+  // 未知错误码：默认返回 catalogLoadFailed（调用方多数只想要「列表加载失败」这一句）。
+  // 但调用点若要落到**自己的**兜底文案（如「默认音色保存失败」），必须传
+  // allowUnmapped=false —— 否则本函数恒返回非空串，`friendlyVoiceCatalogError(m) || 自有兜底`
+  // 的右侧永远不可达（2026-10-20 CCG 深度审查 i1：旧代码正是这样把两个兜底键变成死代码的）。
+  if (allowUnmapped === false) return ''
   // 不向用户泄露系统技术错误码
   const generic = 'The voice list could not be loaded. Using the default voice. Please try again later.'
   return d.translate('create.story2video.voice.catalogLoadFailed', generic, generic)
@@ -196,7 +213,21 @@ function formatS2VVoiceCloneDuration(value) {
   return d.t('create.story2video.voice.durationMinutesSeconds', { minutes, seconds: remainingSeconds })
 }
 
-async function selectS2VVoice(voiceId) {
+/**
+ * 显式选择音色（下拉切换或克隆列表「设为默认」）并持久化偏好。
+ *
+ * @param {string} [voiceId] 目标音色 ID；缺省取当前 s2vConfig.voiceId
+ * @param {object} [options] 选项对象（刻意不用位置布尔/字符串参数 —— 位置参数漏传会
+ *   **静默退回**有缺陷的旧行为，正是本次 R1 的成因；选项对象让每个意图都具名、可扩展）
+ * @param {string} [options.rollbackVoiceId] 持久化失败时的回滚锚点。调用方若在进入本函数
+ *   **之前**已先把 voiceId 写进 s2vConfig（克隆成功后的自动切换就是这样），**必须**显式传入
+ *   切换前的值；否则内部以「进入时的 voiceId」为锚点，而该值已被调用方改写成目标 id
+ *   ⇒ 回滚写回同一个 id，成为空操作，下拉会停留在一个从未保存成功的音色上。
+ *   **缺省时不传锚点** ⇒ 锚点 = 进入时的 s2vConfig.voiceId（旧行为，仅供未预写 voiceId 的调用方）。
+ * @returns {Promise<boolean>} 偏好是否已持久化
+ */
+async function selectS2VVoice(voiceId, options = {}) {
+  const rollbackVoiceId = options?.rollbackVoiceId
   const d = requireDeps()
   if (voiceId === undefined) voiceId = d.getS2vConfig().voiceId
   const context = getS2VVoiceContext()
@@ -211,14 +242,16 @@ async function selectS2VVoice(voiceId) {
     const result = await clearTtsVoicePreference(d.cloneForIpc(selectContext))
     if (!isCurrentS2VVoiceSelectionRequest(requestId, selectContext, d.getS2vConfig().voiceId)) return false
     if (result?.code !== 0) {
-      state.s2vVoiceCatalogError = friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: d.t('create.story2video.voice.catalogFetchFailed') }).message
-        ? friendlyVoiceCatalogError(result?.message)
-        : d.t('create.story2video.voice.defaultVoiceRestoreFailed')
+      // 先映射已知错误码；映射不到才落到「恢复默认音色失败」。
+      // 第二个参数 false 是**必需的**：friendlyVoiceCatalogError 默认对未知码返回非空的
+      // catalogLoadFailed，不传 false 则右侧兜底永不可达（旧代码正是这样把
+      // defaultVoiceRestoreFailed 变成死代码，用户把「恢复默认失败」看成「列表加载失败」）。
+      state.s2vVoiceCatalogError = friendlyVoiceCatalogError(result?.message, { allowUnmapped: false })
+        || d.t('create.story2video.voice.defaultVoiceRestoreFailed')
       return false
     }
     const selectedVoiceId = typeof result.data?.selectedVoiceId === 'string' ? result.data.selectedVoiceId : ''
     d.getS2vConfig().voiceId = selectedVoiceId
-    state.s2vPersistedVoiceId = selectedVoiceId
     state.s2vVoiceCatalogError = ''
     return true
   }
@@ -229,7 +262,8 @@ async function selectS2VVoice(voiceId) {
   // 显式选择（下拉或克隆列表「设为默认」）先同步下拉框与配置：
   // 1) 让 isCurrentS2VVoiceSelectionRequest 并发守卫命中本次请求（否则结果被静默丢弃）；
   // 2) 让下拉框与克隆行「默认」徽标立即反映本次选择。
-  const previousVoiceId = d.getS2vConfig().voiceId
+  // 回滚锚点取显式入参（调用方已预写 voiceId 的场景），否则取进入时的值（旧行为）。
+  const previousVoiceId = rollbackVoiceId !== undefined ? rollbackVoiceId : d.getS2vConfig().voiceId
   d.getS2vConfig().voiceId = normalizedVoiceId
 
   const requestId = ++state.s2vVoiceSelectionRequestId
@@ -238,14 +272,15 @@ async function selectS2VVoice(voiceId) {
   if (result?.code !== 0) {
     // 保存失败：回滚下拉与徽标，避免显示一个从未持久化的「默认」音色
     d.getS2vConfig().voiceId = previousVoiceId
-    state.s2vVoiceCatalogError = friendlyVoiceCatalogError(result?.message) || formatUserError(result, { fallback: d.t('create.story2video.voice.catalogFetchFailed') }).message
-      ? friendlyVoiceCatalogError(result?.message)
-      : d.t('create.story2video.voice.selectionSaveFailed')
+    // 先映射已知错误码；映射不到才落到「默认音色保存失败」（第二个参数 false 的理由见 clear 分支）
+    state.s2vVoiceCatalogError = friendlyVoiceCatalogError(result?.message, { allowUnmapped: false })
+      || d.t('create.story2video.voice.selectionSaveFailed')
     return false
   }
-  state.s2vPersistedVoiceId = typeof result.data?.selectedVoiceId === 'string'
-    ? result.data.selectedVoiceId
-    : normalizedVoiceId
+  // 注：这里原有 `state.s2vPersistedVoiceId = result.data.selectedVoiceId ?? normalizedVoiceId`，
+  // 记录主进程归一后的 id。该 ref 是 s2vConfig.voiceId 的冗余镜像、生产零读取（2026-10-20 清理）。
+  // ⚠ 若将来真的需要「主进程归一后的 id」（它可能与本地传入值不同），正解是把它**回写
+  // s2vConfig.voiceId**（让权威来源与显示同步），而不是再存一份没人读的镜像。
   state.s2vVoiceCatalogError = ''
   return true
 }

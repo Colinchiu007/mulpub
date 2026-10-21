@@ -32,7 +32,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Fail([string]$msg, [int]$code) {
-  Write-Error $msg
+  Write-Host ("FAIL(" + $code + "): " + $msg) -ForegroundColor Red; [Console]::Error.WriteLine("FAIL(" + $code + "): " + $msg)
   exit $code
 }
 
@@ -72,6 +72,15 @@ while ($true) {
   Start-Sleep -Seconds $PollSeconds
 }
 
+# 3b) 主干红 / 本 PR 新增红的闸门（判据唯一实现：scripts/lib/main-red.js，本入口只调用不判定）
+#     rc=1 新增红；rc=2 主干红着；rc=3 未证实；rc=4 闸门自身故障。一律停手，不得重推掩盖。
+#     ⛔ 整段必须排在下面「本 PR 失败清单」之前（第五轮 C2）：主干红时每个 PR 的 required Gate Result
+#     都跟着红，先按「PR 有红」退出的话闸门一次都不会跑，而「只剩一句未通过、把真实原因（主干红）
+#     藏成我的 PR 有问题」正是本片立项要消灭的那句话。
+$allow = if ($env:MAIN_RED_ALLOW) { @('--allow-main-red', $env:MAIN_RED_ALLOW) } else { @() }
+& node scripts/check-main-red.js --pr $PrNumber @allow
+if ($LASTEXITCODE -ne 0) { Fail "STOP：main-red 闸门拒绝合并 PR #$PrNumber（rc=$LASTEXITCODE；读本脚本上一行的 verdict 行）" 7 }
+
 # 3) 解析最终结论（仅用 state，不依赖 conclusion 字段）
 $final = gh pr checks $PrNumber --json name, state 2>&1
 if ($LASTEXITCODE -ne 0) { Fail "无法获取 PR #$PrNumber 最终检查状态。" 5 }
@@ -97,7 +106,9 @@ if ($failed.Count -gt 0) {
 # 4) 全部通过 -> 合并（REST API 直接合并，无需 --yes，原子且可靠）
 $repo = (gh pr view $PrNumber --json repository --jq '.repository.nameWithOwner' 2>$null)
 if (-not $repo) { $repo = 'Colinchiu007/mulpub' }
-$mergeApiArgs = @('-X', 'PUT', "repos/$repo/pulls/$PrNumber/merge", '-f', "merge_method=$Method")
+$prHeadSha = (gh pr view $PrNumber --json headRefOid --jq '.headRefOid' 2>$null)
+if (-not $prHeadSha) { Fail '取不到 PR head sha——不传 sha 的合并落的是「执行那一刻的 head」，闸门验过的 sha 与真正进主干的产物可以不是同一笔（第五轮 C6）' 7 }
+$mergeApiArgs = @('-X', 'PUT', "repos/$repo/pulls/$PrNumber/merge", '-f', "merge_method=$Method", '-f', "sha=$prHeadSha")
 if ($DeleteBranch) { $mergeApiArgs += @('-f', 'delete_branch=true') }
 Write-Host "==> 所有 CI 检查通过，合并 PR #$PrNumber ($Method)$(if ($DeleteBranch) { ' 并删除分支' })..." -ForegroundColor Green
 gh api @mergeApiArgs 2>&1

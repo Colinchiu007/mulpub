@@ -127,17 +127,17 @@ async rewrite({ mode, content, userSettings, strategyId })
 **执行流程（8 步）**：
 
 1. **输入校验**（`_validate`）：空内容 → `EMPTY_CONTENT`；Unicode 码点计数 > 6000 → `TOO_LONG`（2026-09-12 起移除 < 20 的 TOO_SHORT 下限）。
-2. **敏感词前置检测**（`_sensitiveCheck('pre')`）：命中则返回 `SENSITIVE_CONTENT`，不进入 LLM。
+2. **敏感词检测（前置）**（`_sensitiveCheck('pre')`）：**只记录、不拦截**（rewrite-sensitive-precheck-relax，2026-10-20 起）。命中结果仍会算出，用于第 8 步的知识库「双零命中」条件。历史上此处命中即返回 `SENSITIVE_CONTENT` 整篇拒绝，因词库为内置示例级且无配置入口，实测日常词汇（如「爆炸」）即可拦下一篇长文而用户无法调节，故取消拦截。恢复拦截只需把 `_sensitiveCheck` 的返回值改回 `blocked: stage === 'pre' && hits.length > 0`，调用点无需改动。
 3. **策略匹配**（`_resolveStrategy`）：手动指定 strategyId 直接取；否则自动匹配 Top1。
 4. **Prompt 构建**（`_buildPrompt`）：策略 systemPrompt + 模式指令组成 system prompt；userPromptTemplate 替换 `{content}` `{industry}` `{purpose}` `{tone}` `{platform}` `{knowledgeContext}` `{mode}` `{targetLength}` 八个占位符。
 5. **LLM 推理**：无 llmClient → `NO_LLM_CLIENT`；异常 → `LLM_ERROR`；空结果 → `EMPTY_RESULT`。
 6. **后处理**（`_postProcess`）：去 AI 味（默认开启）+ 长度截断（上限优先级：userSettings.wordCountRange.max > 策略 postProcess.maxLength > 默认 3000）。
-7. **敏感词后置检测**：命中则附 warnings + sensitiveHits，不阻断返回。
-8. **质量评估 + 反馈**：SimHash 评估（失败降级 null），无敏感词命中时异步记录到知识库。
+7. **敏感词后置检测**（`_sensitiveCheck('post')`）：命中则附 warnings + sensitiveHits，不阻断返回。**这是用户唯一可见的敏感词提示通道**——注意 `Collection.vue` 的采集入口目前不消费 `warnings`（见 3.6 节）。
+8. **质量评估 + 反馈**：SimHash 评估（失败降级 null），**前置与后置均零命中时**才异步记录到知识库（命中敏感词的内容不进知识库，避免固化成学习样本）。
 
 **三种模式的指令模板**（`_getModeInstructions`）见第四章。
 
-**容错设计**：质量评估 try-catch 降级 null；敏感词检测 try-catch 降级放行；知识库反馈仅在无敏感词时触发。
+**容错设计**：质量评估 try-catch 降级 null；敏感词检测 try-catch 降级放行（fail-open 并留痕）；知识库反馈仅在「前置 + 后置双零命中」时触发。
 
 ### 3.2 StrategyManager 策略管理器（strategy-manager.js）
 
@@ -297,6 +297,13 @@ Pass 3: 加人类质感 — 句长变化、口语化、留白、作者观点可�
 **热更新**：`addWord`/`removeWord`/`updateWordList`/`syncCategories` 无需重建整棵树，支持运营中心增量同步。
 
 **核心方法**：`detect(text)`（返回命中详情）、`filter(text)`（替换为掩码）、`getStats()`、`getCategoryPolicy()`。
+
+**⚠️ 词库来源与配置入口（rewrite-sensitive-precheck-relax 审查发现，未闭合）**：
+
+- 引擎侧过滤器由 `apps/desktop/electron/services/rewrite-engine.js:213` 以 `new SensitiveFilter()` 注入，用的是本文件 3.6 所述的**内置 24 词示例库**（`BUILTIN_WORDS_BY_CATEGORY`）。
+- **运营中心的 `content_policy.word_list` 远程词库不进这条链**——它只被 `ipc-handlers/sensitive.js`（编辑器「🔍 检测敏感词」手动检测/替换 IPC）消费。两套词库**互不同步**：同一篇文案在 shared-utils 词库与引擎词库下可能命中不同词（实测分别命中「走私」与「爆炸」）。
+- 因此引擎侧当前**没有任何用户可调开关**（无 UI、无白名单注入）。2026-10-20 已按用户确认取消前置拦截（见 3.1 节第 2 步）；后置检测保留为唯一用户可见通道。
+- 未闭合项：① 若将来要「严格模式」，正解是把 `content_policy.word_list` 接进引擎注入链并加用户级开关，**不要再复制第三份词库**；② `warnings` 的消费面不完整——`RewriteView.vue` 把它写进红色错误区（与「有结果」并存，视觉语义矛盾）、`AiWriterPanel.vue` 同样进 `panelError`，而 `Collection.vue` 的 4 个采集入口**完全丢弃 `warnings`**。也就是说采集页入口目前没有任何后置敏感词提示。
 
 ### 3.7 RewriteQualityEvaluator 质量评估器（rewrite-quality-evaluator.js）
 

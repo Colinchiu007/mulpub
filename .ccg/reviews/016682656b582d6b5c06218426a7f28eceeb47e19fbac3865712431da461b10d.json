@@ -1,0 +1,93 @@
+{
+  "sha": "68e05eeddeed4929021dce3e5bcf39fdb981ad14",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "### 16.17 抖音凭据已恢复（2026-10-21，用户完成登录）",
+      "#### 16.17.2 凭据有效性的**硬证据**（不依赖 `has_cookies`）",
+      "⇒ 返回**真实创作者身份数据**（开号日期、头像、认证信息）—— 这是凭据有效的硬证据，"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "016682656b582d6b5c06218426a7f28eceeb47e19fbac3865712431da461b10d",
+  "decidedAt": "2026-10-21T02:11:51.295Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条记录抖音凭据恢复（用户动作后的状态变化）。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.17（user/info 200 响应 + 应用侧读数 + 取用路径确认）",
+    "confidenceWeight": 0.9,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "你从「账号页出现保存账号按钮」推断用户在登录，又从 user/info 200 推断凭据有效 —— 这些推断成立吗？",
+        "verdict": "upheld_verified",
+        "rationale": "成立，且刻意用了**可核对的硬证据**而非表象： · user/info 返回 HTTP 200 且含 dashboard_opend_date=\"2024-12-13\"、avatar_url、cert_info   —— 这些是**只有已登录创作者账号才会返回的真实身份数据**，不是页面 HTML 或布尔标志； · 应用侧 status 由 expired → active、批量检测码变为 INCONCLUSIVE（抖音结构性特征），   与\"刚完成登录\"这一时间点吻合。 我特意**没有**把 has_cookies=true 当证据（§16.16 已证明它只说明\"存过凭据\"）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "你说「抖音已具备真实发布条件」—— 但真实发布并未执行。这是否又是\"看起来就绪但无证据\"的表述？",
+        "verdict": "upheld_verified",
+        "rationale": "刻意区分了两件事，并在 §16.17.4 用表格明确标出： | 凭据 | ✅ 有效（user/info 硬证据）| | 发布链代码 | ✅ 就绪 | | **真实发布** | ⏳ **未执行** | 即\"具备条件\"只覆盖前两项；第三项（真实发布 + aweme_id 留档）明确标为未执行。 这不同于 §16.14/§16.16 的问题（那里是把无证据说成已完成）—— 此处是**有条件地下结论**，且把未做的部分单独列出。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "下一步是\"在应用内对抖音发起一次发布\"—— 这需要用户操作或授权，你为什么不在本轮做？",
+        "verdict": "upheld_verified",
+        "rationale": "因为真实发布会产生**平台侧可见的作品/草稿**，属用户账号的实质动作， 且当前用户正在使用应用（账号页/抖音登录流程刚结束）—— 不宜擅自触发。 我在 §16.17.4 的\"下一步\"写明了执行方式与验收判据（用真实 aweme_id 留档）， 等用户授权或自行操作后即可执行。 这与小红书\"需授权抓包\"是同一边界原则：**不在未经授权的情况下在用户账号上产生内容**。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 3,
+      "note": "i1 论证硬证据（user/info 真实身份数据）而非表象；i2 用表格把「凭据有效/代码就绪/发布未执行」三者分开，避免\"就绪即成功\"的误导；i3 说明发布动作需授权的边界，与小红书同原则。"
+    },
+    "at": "2026-10-21T02:13:19.033Z"
+  }
+}

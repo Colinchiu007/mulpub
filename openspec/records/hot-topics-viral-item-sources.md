@@ -59,8 +59,6 @@ date: 2026-10-17
 | newsnow 覆盖度 | 读 `server/sources/*.ts` 适配器清单（47 项）：含 `douyin.ts`、`kuaishou.ts`，**无** 小红书、**无** 视频号 ⇒ 「newsnow 能补齐国内短视频三平台」这一常见误解被否证 |
 | DailyHotApi 覆盖度 | 逐行读 README 站点表（45 站）：有抖音热点榜、快手热点榜，**无小红书、无视频号**；pushed 2026-03-11 |
 | 60s 的小红书源 | 读 `src/modules/rednote.module.ts` 源码：同一端点 `edith.xiaohongshu.com/api/sns/v1/search/hot_list`，且 `shield` 为硬编码 2023 年 App 指纹 ⇒ 不作依赖，理由写入 PRD §3.1 |
-| MediaCrawler 许可证 | 读 `LICENSE` 原文：`NON-COMMERCIAL LEARNING LICENSE 1.1`，含「limited to learning and research purposes only」「may not be used for large-scale crawling」「未经书面同意不得用于任何商业目的」；README 把 HomeFeed 与热搜榜单列在**闭源付费 Pro** ⇒ 判「只能读码、不可进产品」 |
-| 无许可证那一批 | `gh api` 的 `.license` 为 null：`cv-cat/Spider_XHS`、`cv-cat/DouYin_Spider`、`3441293738/creatorhub`、`qiye45/wechatVideoDownload`、`lecepin/WeChatVideoDownloader`、`1968820297-hue/tangdan-hot-collector` ⇒ 默认保留所有权利，不可用 |
 | GPL 那一批 | `sansan0/TrendRadar`(62,975)、`JoeanAmier/TikTokDownloader`(16,920)、`JoeanAmier/XHS-Downloader`(13,033) 均 GPL-3.0 ⇒ PRD 只允许「用户自托管、应用调其 HTTP 接口」，代码不入包 |
 | 视频号开源空白 | 6 组关键词检索（视频号 榜单 / 热榜 / 爆款 / 数据采集 / shipinhao / wxchannels）未命中任何"榜单/推荐流"API；高 star 全是下载器。PRD 表述为「未命中」而非「不存在」，并把"不为凑三平台塞假源"写成非目标 |
 

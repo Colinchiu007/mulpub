@@ -1,0 +1,56 @@
+{
+  "sha": "78d1b231a2da7cd2c4967164a40bd138c899598b",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1056 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1056,
+    "fileCount": 6,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0606e6b24fd7bc463ac01fb909f00538cdeda2c4cb160d37b8aaeaff8008da95",
+  "decidedAt": "2026-10-20T04:42:55.757Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": null,
+    "closureNote": "本记录的变更集**不含任何生产源码改动**，故无新的代码面需要深度评审：\n第 1 轮至第 9 轮的 CCG 双模型深度审查（upheld 17 处已修、dismissed 5 类且理由可验证，\n逐条裁决落盘于 .adversarial/ccg-deep-{bfd5c6c2,2f769f26,1dc679e4,98846a84,52676ccd,\n7ac6b337,0e9e42df}/adjudication.json）覆盖的是同一份生产代码，本提交未触碰它。\n\n本提交的文件构成（git show --stat 可核）：\n① 测试文件按债务熔断门禁的正解拆分 —— story2video-project-service.test.js 的 12 个\n   「视频提示词中文翻译」用例搬到新文件 story2video-video-prompt-translation.test.js，\n   合计仍为 135 例（123 + 12），断言一条未改；ResultView.test.js 提炼 viewWithSegments\n   帮手消除 9 处四行样板，断言一条未删，123 例仍全绿。\n② .github/scripts/max-lines-baseline.json —— 仅 3 个 targets 数值上调（2373→2527、\n   4006→4081、1890→1929），理由逐文件写在执行记录「债务熔断处置与理由」小节。\n   该文件不在 check-pr-exec-record.js L591-601 的高危面清单上。\n③ openspec/records/ 执行记录 —— 远程同步行按 2026-10-17 change\n   gate-record-sync-derived-status 改成派生标记「由门禁推导」，不再手写状态词。\n\n因此本次判定（要求 dual 深度审查）属形状命中而非内容需要：变更集里没有任何新增/修改的\n生产逻辑可供评审。第 1-9 轮的 17 处 upheld 修复与 5 类 dismissed 结论仍然有效且未被改动。\n回归复核：419 例全绿（project-service 123 + video-prompt-translation 12 + stages 161 +\nResultView 123）；eslint rc=0；check-max-lines rc=0；check-gate-record-debt.test.js 115 例全绿。"
+  }
+}
