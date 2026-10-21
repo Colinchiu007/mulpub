@@ -6,17 +6,41 @@
 `scripts/ccg-review-writeback.js` 决定是否把 `deepReview.tier` 写为 `external` 并写 `deepReview.evidence`。
 生产代码 MUST NOT 再出现第二处写 `tier` 的实现，判定记录里 `tier` 的写入方 MUST 唯一。
 
-写入 MUST 同时满足四条，任一不成立即**不写、不改 `status`、不猜默认值**，并输出一行点名缺哪一条：
+写入 MUST 同时满足五条，任一不成立即**不写、不改 `status`、不猜默认值**，并输出一行点名缺哪一条：
 
 1. `deepReview.status` 在 `CLOSED_DEEP_REVIEW_STATUSES` 内；
 2. `deepReview.findings` 是**数组**且长度 > 0；
 3. `deepReview.performedBy` 与同一份记录的 `reviewBackends.critic` **逐字相等**（期望值由驱动写入，不由填写方自选）；
-4. 该记录是本次驱动调用刚产出的（按记录文件路径 + 本次 sha 归属，不得翻历史产物顶替）。
+4. 该记录是本次驱动调用刚产出的，**两条同时成立且各自出声**：
+   ① 调用前后记录文件**字节不同**（相同 ⇒ `no-write`）；
+   ② `deepReview` **去掉 `at` 后的规范化摘要不同**（相同 ⇒ `no-new-delivery`）。
+   仅用 ① 不合格：引擎每个写回站点都带 `at` 时间戳，字节差会被时间戳单独满足；
+   仅用 ② 也不合格：无变化的复审但 `status` 改变时必须能写。
+   第 ② 项的规范化与 `delivery@` 证据摘要（只取 `deepReview.findings`）是**两个不同实现**，
+   MUST 各有一个名字、各有一条用例，MUST NOT 合并；
+5. 记录文件路径由入口**显式透传**。路径缺失 MUST 当场以 `missing-record-path` 出声并终止写回，
+   MUST NOT 回退为"扫目录取最近一个"或"用 HEAD sha 猜"。
 
 `externalReview` 一类的形状判据若需要「后端名与本轮 critic 一致」这一条，MUST 复用本 Requirement 的第 3 条口径，
 MUST NOT 在别处再抄一份比较逻辑。
 
-#### Scenario: 四条件齐备时驱动写回 external
+写回器 MUST NOT 依赖 `CLOSED_DEEP_REVIEW_STATUSES` 的当前内容而不设防：
+它 SHALL 有一条**冻结快照**用例断言该闭集逐项相等；闭集变动 MUST 同次改快照并走评审，
+**MUST NOT** 出现"改判据即静默改了生产者"。
+
+#### Scenario: 时间戳单独变化不构成新交付
+- **WHEN** 引擎重写同一条记录、`findings`/`status`/`performedBy` 逐字未变而只有 `at` 变了
+- **THEN** 写回器 MUST 以 `no-new-delivery` 出声且 MUST NOT 写 `tier`
+
+#### Scenario: status 变了但 findings 没变仍算新交付
+- **WHEN** 一轮无变化的复审把 `status` 从 `escalated` 改为 `cleared`，`findings` 未变
+- **THEN** 语义指纹 MUST 判定为已变并允许写回（前提第 1–3 条成立）
+
+#### Scenario: 路径未透传必须出声而不是猜
+- **WHEN** 调用写回器时未传记录文件路径
+- **THEN** MUST 以 `missing-record-path` 失败并终止，MUST NOT 扫描目录或改用 HEAD sha 推断
+
+#### Scenario: 五条件齐备时驱动写回 external
 - **WHEN** 引擎已把 `status:"cleared"`、`performedBy:"claude"`、`findings:[3 条]` 落进 `.ccg/reviews/<sha>.json`，且该记录 `reviewBackends.critic` 为 `claude`
 - **THEN** 写回器 MUST 把 `deepReview.tier` 置为 `external` 并写入 `delivery@<sha256>` 形态的 `evidence`
 - **AND** `scripts/check-pr-exec-record.js` 对同一条记录 MUST 读成 `external`（不再依赖任何手写）
@@ -80,6 +104,17 @@ MUST NOT 让"跑过评审"的记录比"什么都没做"的记录更差（后者�
 
 `deep-review.sh` 由 `exec` 改为调用后，其退出码 MUST 与被调用方的退出码逐字一致；
 `--dry-run` 出口与引擎缺失（`DRY_NO_DRIVER`）出口的行为 MUST 与改动前一致。
+信号终止 MUST 显式映射（跨家族评审 codex i2）：`code !== null` 取 `code`；仅有 `signal` 时取 `128 + signo`；
+两者皆 `null` 一律取 `1`。写回器整体 MUST 包在 `try/catch` 内，失败 MUST 只在 stderr 出声，
+MUST NOT 改变已确定的退出码，也 MUST NOT 以裸栈收尾。
+
+#### Scenario: 子进程被信号终止时不得洗成 0
+- **WHEN** 引擎进程被 `SIGKILL`（`code` 为 `null`、`signal` 为 `SIGKILL`）
+- **THEN** 入口 MUST 以 `137`（`128+9`）退出，MUST NOT 因写回器未抛错而返回 0
+
+#### Scenario: 写回器抛错不改退出码
+- **WHEN** 引擎以 rc=0 正常收敛，而写回器内部抛异常
+- **THEN** 入口 MUST 仍以 0 退出，且 stderr MUST 出现写回失败的原因行
 
 #### Scenario: rc 语义不因加写回而漂移
 - **WHEN** 引擎以 rc=1 退出（如 `escalated`）
@@ -87,5 +122,5 @@ MUST NOT 让"跑过评审"的记录比"什么都没做"的记录更差（后者�
 
 #### Scenario: 缺键补齐而非静默丢字段
 - **WHEN** 记录 `deepReview` 有 `status`/`performedBy`/`findings` 而无 `tier` 键
-- **THEN** 写回器 MUST 先按统一口径补 `tier` 初值，再按四条件决定是否升 `external`
+- **THEN** 写回器 MUST 先按统一口径补 `tier` 初值，再按五条件决定是否升 `external`
 - **AND** 判据对该条 MUST 能区分「补过初值未升级」与「字段整段消失」两种形态
