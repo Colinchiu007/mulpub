@@ -145,7 +145,12 @@ async function publishToutiaoWithFallback (p) {
  */
 async function publishToutiao (p) {
   const { win, article, host, log, getPublishUrl, stripHtml } = p
-  const config = host._getPlatformConfig('toutiao')
+  // 2026-10-21（toutiao-bridge-content-type）：必须传 article ——
+  // `_getPlatformConfig` 内部按 `article.video_path` 走 `resolvePublishSelectors`
+  // 合并 `toutiao_video`（西瓜上传页）选择器；漏传 article 会拿到图文选择器
+  // （无 file_input），被发布前置门禁判成「视频发布尚未支持」。
+  // 真机实证：已认证账号 45261bb5 实测被 fail-closed 拒绝。
+  const config = host._getPlatformConfig('toutiao', article)
   const contentType = article.video_path ? 'video' : 'image'
   const publishUrl = getPublishUrl('toutiao', contentType)
   // ProseMirror 走纯文本通道；Quill 草稿会把 HTML 规范化为 <p>，
