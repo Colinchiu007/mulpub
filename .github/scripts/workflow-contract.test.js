@@ -578,6 +578,40 @@ test('docs-only 短路：electron-ci 与 build 的 job 级条件同样接线', (
         Array.isArray(job.needs) &&
         job.needs.includes('build');
       if (isTagOnlyJob) continue;
+      // 豁免：electron-ci 的两个作业（2026-10-21，change: electron-ci-shard-landing）。
+      //   ① `electron-tests-shards`（分片作业）：桌面整轮单测被拆进它。PR 上同一批测试已由
+      //      QG desktop-shards 执行（2026-09-17 起），这里再跑一遍是纯浪费，且是 N 份 setup。
+      //      ⇒ 它的条件多一个"非 PR 事件"子句（必须是**字面量**，缺省=两种事件都跑）。
+      //   ② `electron-tests`（汇入作业）：它必须 needs 分片作业（否则拿不到"任一片失败"），
+      //      且必须带 always()（否则分片被跳过或失败时，required context `electron-tests`
+      //      那一格**不出现**＝另一种 "Expected — waiting for status to be reported"）。
+      //      matrix 作业的 check 名恒带后缀（`electron-tests-shards (1)`），报不出
+      //      `electron-tests` 这个名字 —— 见 openspec/records/electron-ci-shard.md §八/§九的取证。
+      //   ⚠️ 豁免只放宽"必须逐字相等 / needs 只能是 [changes]"这两处**形状**，
+      //      放宽后仍必须断言：① docs-only 条件**在**（纯文档 PR 仍跳过）；
+      //      ② changes **在** needs 里（docs-only 判定仍是它的上游）。
+      const isElectronCiShards = name === 'electron-ci.yml' && jn === 'electron-tests-shards';
+      const isElectronCiAggregate = name === 'electron-ci.yml' && jn === 'electron-tests';
+      if (isElectronCiShards) {
+        const ifText = String(job.if || '');
+        const needs = Array.isArray(job.needs) ? job.needs : [job.needs];
+        assert.ok(ifText.includes("needs.changes.outputs.docs-only != 'true'"),
+          `electron-ci 的 ${jn} 必须仍带 docs-only 短路条件（纯文档 PR 跳过），实测=${JSON.stringify(job.if)}`);
+        assert.ok(ifText.includes("github.event_name != 'pull_request'"),
+          `electron-ci 的 ${jn} 必须写明"只在非 PR 事件跑"（PR 上同一批测试由 QG desktop-shards 承担），实测=${JSON.stringify(job.if)}`);
+        assert.ok(needs.includes('changes'), `electron-ci 的 ${jn} 必须 needs changes（docs-only 判定的上游）`);
+        continue;
+      }
+      if (isElectronCiAggregate) {
+        const ifText = String(job.if || '');
+        const needs = Array.isArray(job.needs) ? job.needs : [job.needs];
+        assert.ok(ifText.includes("needs.changes.outputs.docs-only != 'true'"),
+          `electron-ci 的 ${jn} 必须仍带 docs-only 短路条件（纯文档 PR 跳过），实测=${JSON.stringify(job.if)}`);
+        assert.ok(ifText.includes('always()'),
+          `electron-ci 的 ${jn} 必须带 always()（分片被跳过/失败时汇入作业仍要出现），实测=${JSON.stringify(job.if)}`);
+        assert.ok(needs.includes('changes'), `electron-ci 的 ${jn} 必须 needs changes（docs-only 判定的上游）`);
+        continue;
+      }
       assert.equal(
         job.if,
         "needs.changes.outputs.docs-only != 'true'",
@@ -1321,13 +1355,46 @@ test('跑桌面 vitest 全量的每个 job 都必须在测试前重建那 5 个�
     [],
     '构建产物已移出版本控制 ⇒ 跑桌面全量的 job 必须有一步同时重建 build:preload 与 build:paginator 且排在测试之前',
   );
-  const electronCi = rows.find(r => r.key === 'electron-ci.yml:electron-tests');
-  assert.ok(electronCi, 'electron-ci.yml:electron-tests 必须仍落在本锁覆盖面内（整片删掉测试步来"修好"本锁不算修）');
+  const electronCi = rows.find(r => r.key === 'electron-ci.yml:electron-tests-shards');
+  assert.ok(electronCi, 'electron-ci.yml:electron-tests-shards 必须仍落在本锁覆盖面内（整片删掉测试步来"修好"本锁不算修）');
   const buildStep = electronCi.steps[electronCi.judge.buildIdx];
   const testStep = electronCi.steps[electronCi.judge.testIdx];
   // 配对锁：两条 if 必须逐字相同，否则"只在 push 跑测试 / 两种事件都跑构建"这类漂移会悄悄发生
   assert.equal(String(buildStep.if), String(testStep.if),
     `electron-ci.yml 重建步与测试步的 if 必须一致（实测 build=${buildStep.if} test=${testStep.if}）`);
+});
+
+test('electron-ci 的分片作业与汇入作业必须各司其职（required context 靠汇入作业报出去）', () => {
+  // 2026-10-21（electron-ci-shard-landing）：桌面单测整轮被拆进 matrix 作业后，
+  // matrix 作业的 check 名恒带后缀（`electron-tests-shards (1)`），
+  // 而 ruleset `main-ci-gate`（id 23749994）要求的 required context 里**有** `electron-tests`
+  // ⇒ 那个 context 只能由一个**非 matrix**、**id 与 name 都叫 `electron-tests`** 的作业报出来。
+  // 2026-10-20 三轮实测的结论记在 openspec/records/electron-ci-shard.md §八/§九。
+  const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'electron-ci.yml'), 'utf8'));
+  const jobs = wf.jobs || {};
+
+  // ① 汇入作业必须在，且 id 与 name 都是 electron-tests
+  assert.ok(jobs['electron-tests'], '汇入作业 electron-tests 必须存在（它才是 required context 的来源）');
+  assert.equal(jobs['electron-tests'].name, 'electron-tests',
+    '汇入作业的 name 必须逐字是 electron-tests（required context 按 check 名匹配）');
+
+  // ② matrix 作业不得用这个名字（两条同名检查 ⇒ 聚合语义失效）
+  assert.ok(jobs['electron-tests-shards'], '分片作业 electron-tests-shards 必须存在');
+  assert.notEqual(jobs['electron-tests-shards'].name, 'electron-tests',
+    'matrix 作业的 check 名恒带后缀，它若也叫 electron-tests 就会出现两条同名检查');
+
+  // ③ 汇入作业必须 needs 分片作业并带 always()：否则分片被跳过或失败时，
+  //    required context 那一格**不出现**（＝另一种 "Expected — waiting for status to be reported"）
+  const needs = jobs['electron-tests'].needs;
+  assert.ok(Array.isArray(needs) ? needs.includes('electron-tests-shards') : needs === 'electron-tests-shards',
+    '汇入作业必须 needs 分片作业');
+  assert.ok(String(jobs['electron-tests'].if || '').includes('always()'),
+    `汇入作业的 if 必须含 always()，实测=${JSON.stringify(jobs['electron-tests'].if)}`);
+
+  // ④ 汇入作业里不得再跑一遍整轮桌面单测（否则分片的收益被吐回去）
+  const aggregateSteps = jobs['electron-tests'].steps || [];
+  const suiteStep = aggregateSteps.find((s) => /pnpm --filter @multi-publish\/desktop test --/.test(s.run || ''));
+  assert.equal(suiteStep, undefined, '汇入作业里不得再出现整轮桌面单测步（整轮已搬进分片作业）');
 });
 
 test('顺序判据可达：重建排在测试之后必须判 BUILD_AFTER_TEST', () => {
@@ -1355,8 +1422,10 @@ const ELECTRON_CI_PUSH_ONLY_IF = "github.event_name != 'pull_request'";
 
 test('electron-ci 的重建步与测试步必须把「只在非 PR 事件跑」写成字面量', () => {
   const wf = yaml.load(fs.readFileSync(path.join(__dirname, '..', 'workflows', 'electron-ci.yml'), 'utf8'));
-  const j = judgeDesktopSuiteJob((wf.jobs['electron-tests'] || {}).steps || []);
-  const steps = (wf.jobs['electron-tests'] || {}).steps || [];
+  // 2026-10-21：整轮单测已搬进分片作业 `electron-tests-shards`（汇入作业 electron-tests 只做
+  // 冒烟 / Vue 构建 / 依赖检查，不再跑桌面全量）⇒ 这条判据跟着指向分片作业。
+  const j = judgeDesktopSuiteJob((wf.jobs['electron-tests-shards'] || {}).steps || []);
+  const steps = (wf.jobs['electron-tests-shards'] || {}).steps || [];
   assert.equal(j.verdict, 'OK', `electron-ci 的配对状态被破坏：${JSON.stringify(j)}`);
   const buildIf = steps[j.buildIdx] && steps[j.buildIdx].if;
   const testIf = steps[j.testIdx] && steps[j.testIdx].if;

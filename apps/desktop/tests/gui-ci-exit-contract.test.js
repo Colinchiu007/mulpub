@@ -685,74 +685,91 @@ describe('GUI/CI 工作流门禁契约', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
 
     expect(workflow.jobs['electron-tests']['runs-on']).toEqual('windows-latest');
-    // 45 → 70（#2458）：串行单测步骤预算从 20m 抬到 35m 后，job 级必须一起抬，
-    // 否则「不可归因的超时」只是从 timeout(1) 换成 Actions 的 job killer。
-    // 该值与步骤预算的**关系**由同文件「预算挂实测、超时可自证、且不与 job 级倒挂」那条守住，
-    // 不要把它改回一个孤立的魔数。
-    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(70);
+    expect(workflow.jobs['electron-tests-shards']['runs-on']).toEqual('windows-latest');
+    // 汇入作业（electron-tests）：70 → 35。
+    // 旧值 70 是因为**整轮单测**（内层 35min 墙）曾在这个作业里；2026-10-21 起整轮被拆到
+    // `electron-tests-shards` 分片作业，汇入作业只剩 install(10) + electron runtime(10) +
+    // 冒烟(30s) + Vue 构建 + 依赖/环依赖检查 ⇒ 35 留得住。
+    // 「不得倒挂」的关系由同文件「预算挂实测、超时可自证、且不与 job 级倒挂」那条守着
+    // （那条现在按**分片作业**算），不要把它改回一个孤立的魔数。
+    expect(workflow.jobs['electron-tests']['timeout-minutes']).toBe(35);
+    // 分片作业：install 10 + electron runtime 10 + 单片墙 1100s(18.3min) = 38.3min 显式上限之和
+    // 必须小于本值 ⇒ 40（不倒挂由同文件那条锁断言）。
+    expect(workflow.jobs['electron-tests-shards']['timeout-minutes']).toBe(40);
   });
 
   it('Electron CI 跳过桌面媒体下载脚本，并显式恢复测试所需运行时', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
-    const steps = workflow.jobs['electron-tests'].steps;
-    const dependencySteps = steps.filter((step) => step.name === 'Install dependencies');
-    const runtimeSteps = steps.filter((step) => step.name === 'Restore required JavaScript runtimes');
-    const checksumSteps = steps.filter((step) => step.name === 'Verify Electron checksum pin (win32, windows-latest)');
-    const electronSteps = steps.filter((step) => step.name === 'Install Electron runtime');
-    const rebuildSteps = steps.filter((step) => step.name === 'Rebuild native modules for Electron ABI');
-    const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
+    // 单测轮已搬进分片作业（electron-tests-shards）；汇入作业（electron-tests）保留冒烟等其余步骤。
+    const shards = workflow.jobs['electron-tests-shards'];
+    const aggregate = workflow.jobs['electron-tests'];
+    for (const job of [shards, aggregate]) {
+      const steps = job.steps;
+      const dependencySteps = steps.filter((step) => step.name === 'Install dependencies');
+      const runtimeSteps = steps.filter((step) => step.name === 'Restore required JavaScript runtimes');
+      const checksumSteps = steps.filter((step) => step.name === 'Verify Electron checksum pin (win32, windows-latest)');
+      const electronSteps = steps.filter((step) => step.name === 'Install Electron runtime');
+      const rebuildSteps = steps.filter((step) => step.name === 'Rebuild native modules for Electron ABI');
+      const testSteps = steps.filter((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
-    expect(dependencySteps).toHaveLength(1);
-    expect(runtimeSteps).toHaveLength(1);
-    expect(checksumSteps).toHaveLength(1);
-    expect(electronSteps).toHaveLength(1);
-    expect(testSteps).toHaveLength(1);
-    expect(dependencySteps[0].run.trim()).toBe(
-      'pnpm install --frozen-lockfile --ignore-scripts',
-    );
-    // GitHub 官方 runner 冷启动缓存下 pnpm install 需要更充裕预算（ECS 自托管热缓存仅需 5min）
-    expect(dependencySteps[0]['timeout-minutes']).toBe(10);
+      expect(dependencySteps).toHaveLength(1);
+      expect(runtimeSteps).toHaveLength(1);
+      expect(checksumSteps).toHaveLength(1);
+      expect(electronSteps).toHaveLength(1);
+      expect(dependencySteps[0].run.trim()).toBe(
+        'pnpm install --frozen-lockfile --ignore-scripts',
+      );
+      // GitHub 官方 runner 冷启动缓存下 pnpm install 需要更充裕预算（ECS 自托管热缓存仅需 5min）
+      expect(dependencySteps[0]['timeout-minutes']).toBe(10);
 
-    const runtimeInstall = runtimeSteps[0].run;
-    expect(runtimeInstall).toContain('node scripts/run-package-install.js esbuild');
-    expect(runtimeInstall).toContain(
-      'node scripts/run-package-install.js --script scripts/postinstall.js vue-demi',
-    );
-    expect(runtimeInstall).not.toContain('ffmpeg-ffprobe-static');
+      const runtimeInstall = runtimeSteps[0].run;
+      expect(runtimeInstall).toContain('node scripts/run-package-install.js esbuild');
+      expect(runtimeInstall).toContain(
+        'node scripts/run-package-install.js --script scripts/postinstall.js vue-demi',
+      );
+      expect(runtimeInstall).not.toContain('ffmpeg-ffprobe-static');
 
-    const checksumPolicy = checksumSteps[0].run;
-    expect(checksumPolicy).toContain('electron-v43.7.7-win32-x64.zip');
-    expect(checksumPolicy).toContain("require('./node_modules/electron/checksums.json')");
+      const checksumPolicy = checksumSteps[0].run;
+      expect(checksumPolicy).toContain('electron-v43.7.7-win32-x64.zip');
+      expect(checksumPolicy).toContain("require('./node_modules/electron/checksums.json')");
 
-    expect(electronSteps[0].run).toContain(
-      'unset electron_use_remote_checksums npm_config_electron_use_remote_checksums',
-    );
-    expect(electronSteps[0].run).toContain('node node_modules/electron/install.js');
-    expect(electronSteps[0]['timeout-minutes']).toBe(10);
-    expect(electronSteps[0].env).toEqual({
-      ELECTRON_MIRROR: 'https://cdn.npmmirror.com/binaries/electron/',
-    });
+      expect(electronSteps[0].run).toContain(
+        'unset electron_use_remote_checksums npm_config_electron_use_remote_checksums',
+      );
+      expect(electronSteps[0].run).toContain('node node_modules/electron/install.js');
+      expect(electronSteps[0]['timeout-minutes']).toBe(10);
+      expect(electronSteps[0].env).toEqual({
+        ELECTRON_MIRROR: 'https://cdn.npmmirror.com/binaries/electron/',
+      });
 
-    // 迁移契约（2026-08-13 pnpm）：better-sqlite3 不在依赖图（sqlite-wrapper.js 为 sql.js 兼容层），
-    // `pnpm exec @electron/rebuild` 无法解析未声明的 bin（npm npx 会临时下载，pnpm exec 不会）——
-    // electron-ci 必须不再包含 better-sqlite3 rebuild 步骤（历史 npm no-op 步骤已移除）。
-    expect(rebuildSteps).toHaveLength(0);
+      // 迁移契约（2026-08-13 pnpm）：better-sqlite3 不在依赖图（sqlite-wrapper.js 为 sql.js 兼容层），
+      // `pnpm exec @electron/rebuild` 无法解析未声明的 bin（npm npx 会临时下载，pnpm exec 不会）——
+      // electron-ci 必须不再包含 better-sqlite3 rebuild 步骤（历史 npm no-op 步骤已移除）。
+      expect(rebuildSteps).toHaveLength(0);
 
-    const dependencyIndex = steps.indexOf(dependencySteps[0]);
-    const runtimeIndex = steps.indexOf(runtimeSteps[0]);
-    const checksumIndex = steps.indexOf(checksumSteps[0]);
-    const electronIndex = steps.indexOf(electronSteps[0]);
-    const testIndex = steps.indexOf(testSteps[0]);
+      const dependencyIndex = steps.indexOf(dependencySteps[0]);
+      const runtimeIndex = steps.indexOf(runtimeSteps[0]);
+      const checksumIndex = steps.indexOf(checksumSteps[0]);
+      const electronIndex = steps.indexOf(electronSteps[0]);
 
-    expect(dependencyIndex).toBeLessThan(runtimeIndex);
-    expect(runtimeIndex).toBeLessThan(checksumIndex);
-    expect(checksumIndex).toBeLessThan(electronIndex);
-    expect(electronIndex).toBeLessThan(testIndex);
+      expect(dependencyIndex).toBeLessThan(runtimeIndex);
+      expect(runtimeIndex).toBeLessThan(checksumIndex);
+      expect(checksumIndex).toBeLessThan(electronIndex);
+
+      // 单测步只允许出现在分片作业里（汇入作业里若再有一份，就等于整轮又跑了一遍）
+      if (job === shards) {
+        expect(testSteps).toHaveLength(1);
+        expect(steps.indexOf(electronSteps[0])).toBeLessThan(steps.indexOf(testSteps[0]));
+      } else {
+        expect(testSteps).toHaveLength(0);
+      }
+    }
   });
 
   it('Electron CI 不执行仅供桌面发布门禁使用的真实媒体工具测试', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
     const job = workflow.jobs['electron-tests'];
+    const shardsJob = workflow.jobs['electron-tests-shards'];
     const nativeDependencyTest = fs.readFileSync(
       path.join(PROJECT_ROOT, 'apps/desktop/electron/tests/stage-media-tools.test.js'),
       'utf8',
@@ -766,7 +783,9 @@ describe('GUI/CI 工作流门禁契约', () => {
       'utf8',
     );
 
+    // 分片作业跑的是同一批桌面测试 ⇒ 同样的 env 跳过（漏一个就是分片与整轮行为不一致）
     expect(job.env).toMatchObject({ SKIP_NATIVE_MEDIA_TOOL_TESTS: '1' });
+    expect(shardsJob.env).toMatchObject({ SKIP_NATIVE_MEDIA_TOOL_TESTS: '1' });
     expect(nativeDependencyTest).toContain("process.env.NODE_ENV === 'test'");
     expect(nativeDependencyTest).toContain("process.env.SKIP_NATIVE_MEDIA_TOOL_TESTS === '1'");
     expect(nativeDependencyTest).toContain('it.skipIf(skipNativeMediaTests)');
@@ -779,49 +798,116 @@ describe('GUI/CI 工作流门禁契约', () => {
 
   it('Electron CI 使用测试环境、串行 watchdog 和失败进程诊断', () => {
     const { source, workflow } = readWorkflow('electron-ci.yml');
-    const job = workflow.jobs['electron-tests'];
+    const job = workflow.jobs['electron-tests-shards'];
     const steps = job.steps;
     const unitStep = steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
     const diagnosticStep = steps.find((step) => step.name === 'Vitest failure diagnostics');
 
     expect(job.env).toMatchObject({ NODE_ENV: 'test' });
-    expect(unitStep.run).toContain('BUDGET_SECONDS=2100');
+    expect(unitStep.run).toContain('BUDGET_SECONDS=1100');
     expect(unitStep.run).toMatch(/timeout --signal=TERM --kill-after=30s \$\{BUDGET_SECONDS\}s/);
+    // 确定性语义不许丢：「单 worker 串行」既是 main 侧第二次独立运行的 flake 检出手段，
+    // 也是 --shard 能按文件切的前提（并行时同一文件的用例可能跨片）。
     expect(unitStep.run).toContain('--maxWorkers=1');
     expect(unitStep.run).toContain('--no-file-parallelism');
     expect(unitStep.run).toContain('--reporter=verbose');
     expect(unitStep.run).toContain('--testTimeout=10000');
     expect(unitStep.run).toContain('--hookTimeout=10000');
     expect(unitStep.run).toContain('--teardownTimeout=10000');
+    // 分片参数：没有它，这一步跑的还是整轮（那就白改作业形状了）
+    expect(unitStep.run).toContain('--shard=${{ matrix.shard }}/${{ strategy.job-total }}');
     expect(diagnosticStep.if).toBe('failure()');
     expect(diagnosticStep.run).toContain('tasklist.exe');
     expect(source).not.toContain('maxWorkers=4');
   });
 
   /**
-   * #2458：串行单 worker 那一轮的**步骤级**预算。
+   * 分片作业的形状锁（2026-10-21，change: electron-ci-shard-landing）。
+   *
+   * 守三件各自会咬人的事：
+   * ① 片数变少 ⇒ 均值上界被抬高 ⇒ 「单片墙比旧整轮墙矮」这条反向判据就漏了
+   *    （上一轮外部评审 i3：片数从 `>= 2` 改成**恰好** N 才不留这个洞）；
+   * ② 单片预算被一路抬高 ⇒ 分片变成"抬预算的包装"（反向判据：单片墙 < 旧整轮墙 1200s）；
+   * ③ matrix 作业与汇入作业重名/互不 needs ⇒ required context `electron-tests` 报不出来
+   *    （ruleset main-ci-gate id 23749994 要求这个 context，见
+   *    openspec/records/electron-ci-shard.md §八的取证）。
+   */
+  it('桌面单测按 --shard 切成恰好 4 片，单片预算挂单片实测且不高于旧整轮墙', () => {
+    const { workflow } = readWorkflow('electron-ci.yml');
+    const shards = workflow.jobs['electron-tests-shards'];
+    const aggregate = workflow.jobs['electron-tests'];
+
+    // ① 片数：恰好 4（不是 >=2：片数变少会抬高均值上界，反向判据随之失效）
+    expect(Array.isArray(shards.strategy.matrix.shard)).toBe(true);
+    expect(shards.strategy.matrix.shard).toEqual([1, 2, 3, 4]);
+    // 任一片失败都要让其余片跑完：cancel 掉其余片就拿不到"哪几片红"
+    expect(shards.strategy['fail-fast']).toBe(false);
+
+    // ② 汇入作业：id 与 name 都必须是 electron-tests（ruleset required context 靠它出现），
+    //    且必须 needs 分片作业、带 always()（否则分片被跳过/失败时 context 那一格不出现）
+    expect(aggregate.name).toBe('electron-tests');
+    expect(aggregate.needs).toContain('electron-tests-shards');
+    expect(String(aggregate.if)).toContain('always()');
+    // matrix 作业**不得**用这个名字（两条同名检查 ⇒ 聚合语义失效）
+    expect(shards.name).not.toBe('electron-tests');
+    expect(shards.name).toContain('shard');
+
+    // ④ 汇入作业必须**真的**把"任一片红"翻译成"本作业红"：
+    //    只靠 job 级 needs 是不够的——needs 不会自动传播失败，一个只有 always() 却没有
+    //    失败判定步骤的汇入作业，会在分片全红时**照样报绿**，required context 就成了一句空话。
+    const failStep = (aggregate.steps || []).find(
+      (step) => /needs\.electron-tests-shards\.result/.test(String(step.if || '')),
+    );
+    expect(failStep, '汇入作业必须有一步按 needs.electron-tests-shards.result 判定分片失败').toBeDefined();
+    expect(String(failStep.if)).toMatch(/==\s*'failure'/);
+    expect(String(failStep.if)).toMatch(/==\s*'cancelled'/);
+    expect(failStep.run).toMatch(/exit 1/);
+
+    // ③ 单片预算：挂单片实测（整轮实测 ÷ 片数），且严格低于被替换的旧整轮墙 1200s
+    const unitStep = shards.steps.find(
+      (step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)',
+    );
+    const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
+    const shardCount = shards.strategy.matrix.shard.length;
+    // 整轮实测：2026-10-21 main push 两次成功运行的 `elapsed=` 自证行（1678s / 1759s）
+    const measuredWholeRoundSeconds = 1759;
+    const perShardHealthySeconds = measuredWholeRoundSeconds / shardCount; // ≈ 440s
+    const retiredWallSeconds = 20 * 60;                                  // 旧整轮墙 1200s
+    expect(budgetSeconds).toBeGreaterThanOrEqual(perShardHealthySeconds * 2);
+    expect(budgetSeconds).toBeLessThan(retiredWallSeconds);              // 不是抬预算的包装
+    expect(budgetSeconds).toBeLessThan(measuredWholeRoundSeconds);       // 也不得高于整轮实测
+    expect(budgetSeconds).toBeLessThanOrEqual(1100);                     // 钉住现值，防止一路抬高
+  });
+
+  /**
+   * #2458：串行单 worker 那一轮的**步骤级**预算（2026-10-21 起按片计）。
    *
    * 依据只能取步骤级实测：`timeout(1)` 约束的就是这一步，而 job 级总时长还含两次
    * install / checkout / 冒烟，拿它当步骤基线会系统性高估（层级混淆的来龙去脉与
    * 两组数字都记在 docs/electron-ci-step-budget-baseline.md）：
-   *   - 步骤健康耗时 794 s（run 36380533567，main push `bef5fb72` 的自证行
-   *     `[electron-ci-timeout-budget] elapsed=794s budget=2100s rc=0`）；
+   *   - 整轮步骤健康耗时：2026-10-21 main push 两次成功运行 **1678 s / 1759 s**
+   *     （`[electron-ci-timeout-budget] elapsed=…s budget=2100s rc=0`；两次成功之间的
+   *     差值就是 runner 负载抖动）；
+   *   - 同一整轮在负载下两次直接撞 2100 s 墙（rc=124，零断言失败）；
    *   - 被替换掉的旧墙 1200 s（`--kill-after=30s 20m`）。
-   * 真实红因是 runner 负载把步骤耗时放大到越过 1200 s + 超时不可归因，
-   * 不是"自然耗时已贴墙"（794 s 对 1200 s 还有约 33% 余量）。
+   * 真实红因是 runner 负载把整轮耗时放大到越过墙，而"抬预算"只是把不可归因的超时往后推
+   * （文档里明写：根因修法是按 --shard 把这一轮切开）。
    */
-  it('Electron CI 串行单测预算挂实测、超时可自证、且不与 job 级倒挂', () => {
+  it('Electron CI 单片预算挂单片实测、超时可自证、且不与 job 级倒挂', () => {
     const { source, workflow } = readWorkflow('electron-ci.yml');
-    const job = workflow.jobs['electron-tests'];
+    const job = workflow.jobs['electron-tests-shards'];
     const unitStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
-    // 1) 预算挂在步骤级实测上：既要对被替换的旧墙有实质余量，也要覆盖健康耗时的倍数
+    // 1) 预算挂在**单片**实测上：整轮基线先按片摊薄，再对健康单片留 2× 以上余量；
+    //    同时不得高于旧整轮墙 1200s（否则就是"抬预算的包装"而不是分片）。
     const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
-    const measuredStepElapsedSeconds = 794; // 自证行实测，不是 job 总时长
+    const shardCount = job.strategy.matrix.shard.length;
+    const measuredWholeRoundSeconds = 1759; // 自证行实测（整轮），不是 job 总时长
     const retiredWallSeconds = 20 * 60;     // 旧魔数 20m
-    expect(budgetSeconds).toBeGreaterThan(retiredWallSeconds);
-    expect(budgetSeconds).toBeGreaterThanOrEqual(retiredWallSeconds * 1.5);
-    expect(budgetSeconds).toBeGreaterThanOrEqual(measuredStepElapsedSeconds * 2);
+    const perShardHealthySeconds = measuredWholeRoundSeconds / shardCount;
+    expect(budgetSeconds).toBeGreaterThan(retiredWallSeconds / shardCount); // 覆盖"同样负载下的单片最坏"
+    expect(budgetSeconds).toBeGreaterThanOrEqual(perShardHealthySeconds * 2);
+    expect(budgetSeconds).toBeLessThan(retiredWallSeconds);
     // 旧魔数不得复活（它的问题不是"比自然耗时只多 1 分钟"，而是既无实测依据、红时又不可归因）
     expect(unitStep.run).not.toMatch(/--kill-after=30s 20m/);
 
@@ -852,16 +938,23 @@ describe('GUI/CI 工作流门禁契约', () => {
    */
   it('自证块必须在 bash -e -o pipefail 下真能执行，而不是只在 YAML 里存在', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
-    const unitStep = workflow.jobs['electron-tests'].steps
+    const unitStep = workflow.jobs['electron-tests-shards'].steps
       .find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
     // 只做两处按题意的替换，其余结构（timeout / tee / PIPESTATUS / 自证块）一字不动。
     // 用文本替换而不是伪造 `pnpm`：`timeout` 是外部命令，看不见 shell 函数表（函数桩 → 127），
     // 靠 PATH 注入 stub 又会被本机含中文的用户名目录搅乱（实测 127）。
+    // ⚠️ 第三处替换是**必须**的（2026-10-21，change: electron-ci-shard-landing）：分片后这段
+    // run 里出现了 GitHub 表达式 `${{ matrix.shard }}` / `${{ strategy.job-total }}`。
+    // 那是 **Actions 模板**，不是 bash —— 直接喂给 bash 会得到 `bad substitution`（退出码 1），
+    // 于是这条行为锁会读到"退出码 1"而不是"被 timeout 掐断的 124"，判据域就悄悄错了。
+    // 这里把它们物化成字面量（1 / 4），模拟 Actions 渲染后的样子。
     const body = String(unitStep.run)
       .replace(/BUDGET_SECONDS=\d+/, 'BUDGET_SECONDS=1')
+      .replace(/\$\{\{[^}]*\}\}/g, '1')
       .replace(/pnpm --filter[\s\S]*?2>&1 \| tee "\$LOG"/, 'sleep 2 2>&1 | tee "$LOG"');
     assert(body.includes('sleep 2 2>&1 | tee "$LOG"'), '内层命令替换失败 ⇒ 会真跑整套桌面测试');
+    assert(!body.includes('${{'), 'GitHub 表达式未被物化 ⇒ bash 会以 bad substitution 退出（判据域会错）');
 
     const bash = resolveGitBash();
     assert(bash, 'Git Bash 必须可解析：bash 步骤的语义只能用它复现');

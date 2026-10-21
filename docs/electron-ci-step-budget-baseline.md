@@ -7,15 +7,17 @@
 
 | 层级 | 数字 | 来源 |
 | --- | --- | --- |
-| **步骤级**（`timeout(1)` 实际约束的对象） | **794 s**（13m14s） | run `36380533567` / job `108795205438`（main push `bef5fb72`，2026-09-28 05:08:39 → 05:21:53）。日志自证行：`[electron-ci-timeout-budget] elapsed=794s budget=2100s rc=0`，同轮 `Test Files 674 passed \| 3 skipped` |
-| **job 级**（含两次 install、checkout、冒烟等） | 18m44s – 21m32s | #2458 登记时从 `gh run list` 读到的 job 总时长 |
+| **步骤级**（`timeout(1)` 实际约束的对象） | **1678 s / 1759 s**（两次成功运行） | 2026-10-21 main push：`2a63373d3` 的自证行 `[electron-ci-timeout-budget] elapsed=1759s budget=2100s rc=0`、`760826d19` 的 `elapsed=1678s budget=2100s rc=0`。⚠️ 这两个数**取代**了下面那条 2026-09-28 的 794 s —— 套件这一个月长了不少，794 s 已严重过时（用它算余量会得出"还有 33% 余量"的假结论） |
+| **步骤级**（负载下的红） | **≥ 2100 s**（两次撞墙） | 2026-10-21 main push：`617e4bf69` 与 `e8799536c`（本次 PR #4163 的合并 SHA）都是 `elapsed=2100s budget=2100s rc=124` + `TIMEOUT_BUDGET_EXCEEDED` + **零** vitest 摘要行（整轮没跑完，不是断言失败） |
+| **job 级**（含两次 install、checkout、冒烟等） | 18m44s – 21m32s（2026-09-28 口径，已随套件增长过时） | #2458 登记时从 `gh run list` 读到的 job 总时长 |
 
 被替换掉的旧墙 `--kill-after=30s 20m` = **1200 s**，约束的是**步骤**。
 
 ## 由此得出的两个结论
 
 1. **#2458 原文里"自然耗时已贴着 20m 墙、余量只剩约 1 分钟"这句话混用了层级。** 步骤自身健康耗时 794 s，对 1200 s 的墙本来还有约 400 s（≈33%）余量；真正把它推过墙的是 runner 负载放大，不是"套件自然时长已≈墙"。所以该 issue 的**根因描述需要修正**为：*余量在负载下不够 + 超时不可归因*，而不是*预算已被自然时长吃光*。
-2. **预算取值仍然成立，但依据要换成步骤级。** 现值 `BUDGET_SECONDS=2100` 相当于健康步骤耗时的 **2.64 倍**、被替换旧墙的 **1.75 倍**。结构锁因此改为对这两个关系断言，不再拿 job 级总时长当步骤级基线（那会把一个偏大的数当"实测上界"，让锁比实际需要更松）。
+   **2026-10-21 更正（按新实测）**：健康耗时已从 794 s 长到 **1678–1759 s**，而墙仍是 2100 s ⇒ 余量只剩 **19%–25%**。也就是说，"余量不够"这件事在今天比 2026-09-28 严重得多：红灯不是偶发，是**常态**（main 近 12 次 `Electron CI` 6 红，且与代码无关）。
+2. **预算取值仍然成立，但依据要换成步骤级。** 现值 `BUDGET_SECONDS=2100` 相当于健康步骤耗时的 **1.19–1.25 倍**（2026-09-28 时是 2.64 倍）—— 也就是说，**这个墙今天已经贴着健康耗时了**，"抬预算"这条路走到头了：再抬只是把不可归因的超时往后推。结构锁因此改为对这两个关系断言，不再拿 job 级总时长当步骤级基线（那会把一个偏大的数当"实测上界"，让锁比实际需要更松）。
 
 ## 记录在案的一处遗留不精确
 
@@ -106,13 +108,23 @@ matrix 作业自己不得叫同一个名字。
 
 **教训**：取证要看**所有**承载 gate 的机制。GitHub 有两套并存的分支保护面
 （legacy protection + rulesets），只查一套就得出「不受约束」的结论，是「查到第一个空结果就收工」。
-`electron-tests` **不在分支保护的 required checks 里**（取证：
 
-```
-gh api repos/<owner>/<repo>/branches/main/protection
-  → required_status_checks.contexts = ["Gate Result", "build", "QG Unit Tests", "QG Coverage"]
-```
+> ⚠️ **2026-10-21 更正（本段原文有一半是错的）**：原文写「`electron-tests` **不在**分支保护的
+> required checks 里（取证：`branches/main/protection` 只有 4 个 context）…因此 matrix 产生的
+> `electron-tests (1)`/`(2)`/`(3)` 不会造成『Expected — waiting for status to be reported』」。
+> **这半句来自第一次取证只查了 legacy protection API**。真相（2026-10-20 实测 + 2026-10-21 复核）：
+> 拦人的是 **ruleset** `main-ci-gate`（id 23749994，enforcement=active），它的 required contexts 里
+> **有** `electron-tests`：
+>
+> ```
+> gh api repos/<owner>/<repo>/rulesets/23749994
+>   → QG Static / QG Unit Tests / electron-tests / 文档同步检查
+>            债务熔断检查 / 单元测试 + Lint / GUI Gate Result
+> ```
+>
+> 所以 matrix 一旦把作业报成 `electron-tests (1)`，那个 context **永不出现** ⇒
+> 无论多少项全绿都判 `base branch policy prohibits the merge`。
+> **正解**（2026-10-21 落地）：matrix 作业改 id（`electron-tests-shards`）+ 一个 id 与 name 都叫
+> `electron-tests` 的**非 matrix** 汇入作业，把聚合结果按 required 名报出去。
+> 本变更**不改**分支保护规则、不改 `CI_IGNORED_PATHS` 白名单。
 
-）。因此 matrix 产生的 `electron-tests (1)`/`(2)`/`(3)` 不会造成
-「Expected — waiting for status to be reported」。本变更不改分支保护规则、
-不改 `CI_IGNORED_PATHS` 白名单。

@@ -68,18 +68,36 @@ jobs:
           BASE="${{ github.event.pull_request.base.sha }}"
           node scripts/classify-docs-only.js --base="$BASE" --repo="$PWD"
 
-  electron-tests:
+  # --- 桌面单测的**分片**执行（change: electron-ci-shard-landing） ---------------------------
+  # 为什么把整轮拆开：整轮（--maxWorkers=1 --no-file-parallelism 确定性串行）的步骤级实测
+  # 2026-10-21 是 1678s / 1759s 两次成功、两次直接撞 2100s 的墙（rc=124，零断言失败）——
+  # 即"健康耗时"已经贴着墙，余量只剩 19%~25%，runner 稍慢一点就整轮跑不完。
+  # 墙抬高只是把不可归因的超时往后推（docs/electron-ci-step-budget-baseline.md 记着这条禁令），
+  # 根因修法是把这一轮按 --shard 切开：每片工作量降到 1/N，单片墙也随之变小。
+  #
+  # ⚠️ 作业 id 必须是 `electron-tests-shards`（**不是** `electron-tests`）：
+  #    matrix 作业的 check 名恒带后缀（`electron-tests-shards (1)`），
+  #    而 ruleset `main-ci-gate`（id 23749994）要求的 required context 里**有** `electron-tests`
+  #    ⇒ 那个 context 只能由下面那个**非 matrix、id 与 name 都叫 `electron-tests`** 的汇入作业报出来。
+  #    2026-10-20 三轮实测（见 openspec/records/electron-ci-shard.md §九）：给 matrix 作业起名
+  #    `electron-tests` 也没用，check 名仍是 `electron-tests (1)`。
+  electron-tests-shards:
+    name: Unit tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: windows-latest
     needs: [changes]
-    # docs-only 短路：纯文档 PR 跳过（skipped 满足 required check；混合 PR 全量不变）
-    if: needs.changes.outputs.docs-only != 'true'
-    # 预算不得倒挂（#2458）：本 job 的显式上限之和 = Install dependencies 10 +
-    # Install Electron runtime 10 + 串行单测步骤内层 timeout 35 = 55 分钟，
-    # 再加 checkout/setup/媒体工具 restore/冒烟/构建等无上限步骤。
-    # 旧值 45 已经贴着这个上界 —— 只把内层 20m 抬到 35m 而不抬 job 级，
-    # 结果是「不可归因的 job 级超时」取代「不可归因的步骤级 exit 124」，
-    # 失败模式没修，只是换了个掐掉它的层。70 = 55 + 约 15 分钟其它步骤余量。
-    timeout-minutes: 70
+    # ① docs-only 短路：纯文档 PR 跳过（skipped 满足 required check；混合 PR 全量不变）
+    # ② 只在非 PR 事件跑：PR 上同一批桌面测试已由 QG desktop-shards 分片执行（2026-09-17 起），
+    #    这里再跑一遍就是纯浪费——而且是 4 份 setup（install/electron runtime/preload 构建）。
+    #    条件必须写成**字面量**（workflow-contract.test.js 钉住"不得缺省"：缺省=两种事件都跑）。
+    if: needs.changes.outputs.docs-only != 'true' && github.event_name != 'pull_request'
+    strategy:
+      # 任一片失败都让其余片跑完：cancel 掉其余片就拿不到"哪几片红"，诊断成本反而更高
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    # 预算不得倒挂：install 10 + electron runtime 10 + 单片墙 1100s(18.3min) + 其余步骤余量
+    # ⇒ 显式上限之和 28.3min 必须小于本值（锁：apps/desktop/tests/gui-ci-exit-contract.test.js）
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
@@ -126,8 +144,6 @@ jobs:
       # 下面那步桌面全量测试里有 9 个文件是**拿真实产物对账**的（preload-path / ipc-contract /
       # build-preload / viral-pr2-preload / preload-variant / overlay-view-suspension / shell-mode-6b /
       # podcast-plan-preview-ipc / podcast-script-ipc），缺这两步就 ENOENT 红。
-      # #3782 当时只给 quality-gate.yml 的三个消费 job 补了重建，漏了这里 —— 而本步 `if` 排除了
-      # pull_request，所以症状是"PR 全绿、main push 连红"，红只在 main 显形。
       # `if` 与被配对的测试步**逐字相同**：不跑测试时也不白跑构建。
       - name: Build preload bundles
         if: github.event_name != 'pull_request'
@@ -135,33 +151,26 @@ jobs:
           pnpm --filter @multi-publish/desktop run build:preload
           pnpm --filter @multi-publish/desktop run build:paginator
 
-      # 2026-09-17：PR 上跳过本步（同一批桌面测试已由 QG desktop-shards 分片执行），
-      # 仅在 main push / workflow_dispatch 运行，保留「单 worker 串行确定性模式」的 CI 覆盖与第二次独立运行的 flake 检出。
+      # 单片预算：按**当前整轮实测**摊薄后再留负载余量。
+      #   整轮实测 1678s~1759s（2026-10-21 main push 两次成功运行的 `elapsed=` 自证行）
+      #   ÷ 4 片 ⇒ 单片健康 ≈ 440s；同样负载下的整轮最坏 ≥2100s ⇒ 单片最坏 ≈ 525s
+      #   1100s ⇒ 对单片健康 2.5×、对单片最坏 2.1× 余量
+      # 且**严格低于被替换的旧整轮墙 1200s**（不是抬预算的包装）。
+      # ⚠️ 这三个数字的出处与换算规则见 docs/electron-ci-step-budget-baseline.md；
+      #    改预算必须先补一次**步骤级实测**（读 `elapsed=` 行），再改锁里的常量。
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
         if: github.event_name != 'pull_request'
         run: |
-          # 预算必须挂**步骤级**实测，不能挂魔数，也不能拿 job 级总时长当步骤基线（#2458）。
-          # 步骤健康耗时实测 794s（run 36380533567 / main push bef5fb72 的自证行
-          # `elapsed=794s budget=2100s rc=0`），被替换掉的旧墙是 1200s。真实红因是 runner
-          # 负载把步骤耗时放大到越过旧墙（main 近 14 次运行里 8 次 exit 124），而不是
-          # "自然耗时已贴着墙" —— 794s 对 1200s 本来还有约 33% 余量。
-          # 层级混淆的完整依据与两个数字的出处：docs/electron-ci-step-budget-baseline.md。
-          # 2100s ≈ 健康步骤耗时 ×2.6 ≈ 旧墙 ×1.75，属**单调放宽**（不会让任何原本通过的运行
-          # 变红），但仍不是「修好了根因」：根因修法是按 --shard 把这一轮切开（issue 档 2）。
-          # 同一 job 级 timeout-minutes 必须一起抬，否则只是把「不可归因的超时」从
-          # timeout(1) 换成 Actions 的 job killer —— 那正是本 issue 的失效模式。
-          BUDGET_SECONDS=2100
-          LOG=electron-ci-unit-tests.log
+          BUDGET_SECONDS=1100
+          LOG=electron-ci-unit-tests-shard-${{ matrix.shard }}.log
           START=$(date +%s)
           # ⛔ `set +e` 是必须的，不是风格（2026-10-20 follow-up，动因见 #2525 的反面）：
           #    本 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时 `-e` 会**立刻
-          #    退出步骤**，于是后面的 PIPESTATUS 与整段自证诊断一次都不会执行。实测两次失败
-          #    attempt 的日志里都没有 `[electron-ci-timeout-budget] elapsed=… rc=…` 这行 ——
-          #    #2525 的标题是「让超时失败能自证」，但它专门为之设计的那个场景，恰恰是它唯一
-          #    不出现的场景。行内 `set -e` 只影响本步骤的子 shell，不波及其它步骤。
+          #    退出步骤**，于是后面的 PIPESTATUS 与整段自证诊断一次都不会执行。
           set +e
           timeout --signal=TERM --kill-after=30s ${BUDGET_SECONDS}s \
             pnpm --filter @multi-publish/desktop test -- \
+            --shard=${{ matrix.shard }}/${{ strategy.job-total }} \
             --maxWorkers=1 --no-file-parallelism --reporter=verbose \
             --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000 2>&1 | tee "$LOG"
           # 必须读 PIPESTATUS：`cmd | tee` 的 $? 是 tee 的退出码（恒 0），
@@ -170,14 +179,14 @@ jobs:
           set -e
           END=$(date +%s)
           ELAPSED=$((END - START))
-          echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s rc=${RC}"
+          echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s rc=${RC} shard=${{ matrix.shard }}/${{ strategy.job-total }}"
           if [ "${RC}" -eq 124 ]; then
-            echo "TIMEOUT_BUDGET_EXCEEDED：本轮被步骤级 timeout 掐断，不是断言失败。"
-            echo "自证判据：日志里没有 vitest 摘要行（Test Files ... / Tests ...），说明整轮没跑完。"
+            echo "TIMEOUT_BUDGET_EXCEEDED：单片被步骤级 timeout 掐断，不是断言失败。"
+            echo "自证判据：日志里没有 vitest 摘要行（Test Files ... / Tests ...），说明整片没跑完。"
             grep -cE '^[[:space:]]+[✓×↓-]' "$LOG" | sed 's/^/已完成测试行数: /' || true
             grep -cE '^ *(Test Files|Tests) ' "$LOG" | sed 's/^/摘要行数(应为 2): /' || true
             tail -n 8 "$LOG" | sed 's/^/末段输出: /' || true
-            echo "下一步应该是把这一轮按 --shard 切开，而不是继续加大预算。"
+            echo "下一步应该是把分片数调大，而不是继续加大预算。"
           fi
           exit "${RC}"
 
@@ -186,6 +195,85 @@ jobs:
         run: |
           echo "Vitest 或前置步骤失败，输出 runner 进程列表"
           tasklist.exe 2>/dev/null | head -40 || true
+
+  # --- 汇入作业：把分片结果按 required context `electron-tests` 报出去 -----------------------
+  # 必须是**非 matrix**、**id 与 name 都叫 `electron-tests`** 的作业（ruleset main-ci-gate 要求的
+  # context 就是这个名字；matrix 作业的 check 名恒带后缀，报不出这个名字）。
+  # 本作业同时承担「冒烟 + Vue 构建 + 依赖/环依赖检查」——这些步骤与单测无关，不该进分片。
+  electron-tests:
+    name: electron-tests
+    runs-on: windows-latest
+    needs: [changes, electron-tests-shards]
+    # always()：分片作业被跳过（docs-only 短路）或失败时，本作业仍要出现，
+    # 否则 required context 那一格**不出现**＝另一种"Expected — waiting for status to be reported"。
+    if: always() && needs.changes.outputs.docs-only != 'true'
+    # 预算不得倒挂：本作业已不含单测轮（它搬去分片作业了），
+    # 显式上限只剩 install 10 + electron runtime 10 + 其余步骤（冒烟 30s / Vue 构建 / 依赖检查），
+    # 35 留得住。旧值 70 是因为整轮单测（内层 35min）曾在本作业内。
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    env:
+      NODE_ENV: test
+      SKIP_NATIVE_MEDIA_TOOL_TESTS: '1'
+
+    steps:
+      # 汇入判定：任一片失败 ⇒ 本作业失败（否则 required context 恒绿，分片红了也没人知道）
+      - name: Fail when a unit test shard failed
+        if: needs.electron-tests-shards.result == 'failure' || needs.electron-tests-shards.result == 'cancelled'
+        run: |
+          echo "unit test shards result: ${{ needs.electron-tests-shards.result }}"
+          exit 1
+
+      - name: Report unit test shard result
+        run: |
+          echo "unit test shards result: ${{ needs.electron-tests-shards.result }}"
+
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.13.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Restore required JavaScript runtimes
+        run: |
+          node scripts/run-package-install.js esbuild
+          node scripts/run-package-install.js --script scripts/postinstall.js vue-demi
+
+      - name: Verify Electron checksum pin (win32, windows-latest)
+        run: |
+          node -e "const checksums = require('./node_modules/electron/checksums.json'); const artifact = 'electron-v43.7.7-win32-x64.zip'; const pinned = checksums[artifact]; if (typeof pinned !== 'string' || pinned.length === 0) throw new Error('Electron checksum pin missing for ' + artifact); console.log('Electron ' + artifact + ' checksum verified present in manifest');"
+
+      - name: Install Electron runtime
+        timeout-minutes: 10
+        env:
+          ELECTRON_MIRROR: https://cdn.npmmirror.com/binaries/electron/
+        run: |
+          unset electron_use_remote_checksums npm_config_electron_use_remote_checksums
+          node node_modules/electron/install.js
+
+      # 这 5 个受管构建产物已于 #3782 移出版本控制（.gitignore 吞掉），于是"干净检出里没有它们"。
+      # 下面那步桌面全量测试里有 9 个文件是**拿真实产物对账**的（preload-path / ipc-contract /
+      # build-preload / viral-pr2-preload / preload-variant / overlay-view-suspension / shell-mode-6b /
+      # podcast-plan-preview-ipc / podcast-script-ipc），缺这两步就 ENOENT 红。
+      # `if` 与被配对的测试步**逐字相同**：不跑测试时也不白跑构建。
+      - name: Build preload bundles
+        if: github.event_name != 'pull_request'
+        run: |
+          pnpm --filter @multi-publish/desktop run build:preload
+          pnpm --filter @multi-publish/desktop run build:paginator
 
       - name: Electron smoke test (headless, windows-latest)
         run: |
