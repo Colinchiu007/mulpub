@@ -1920,3 +1920,40 @@ toutiao: "https://mp.toutiao.com/profile_v4/xigua/upload-video"
 2. 若竞品的 `studio.ixigua.com/upload` 是对的 ⇒ 更新 `platform-entries.js` 的 `toutiao` 视频入口，
    并按竞品成果核对 `CreateItem` / `getAuthKey` 两个接口（**优先复用，不自己研究**）；
 3. 重新真机取证该页的 DOM 选择器（现有 `toutiao_video` 是 10-18 对 `mp.toutiao.com` 取的）。
+### 16.26 `no login` 判据的交叉验证：与参数无关，是真实登录态缺失（2026-10-21）
+
+> §16.25 的 CCG 自查提出一个未排除项：`getAuthKey` 可能需要 POST/参数，
+> 那样 `no login` 可能是**参数缺失的误报**。本节用竞品逆向成果里的正确调用形态做 A/B，闭合该疑点。
+
+#### 16.26.1 竞品成果里的正确形态
+
+`04-rea-evidence/<参考产品>-主进程清点.json`：
+```
+https://mp.toutiao.com/xigua/api/upload/getAuthKey/?params=%7B%22type%22%3A%22
+```
+
+⇒ 竞品调用时 URL **带 `?params={"type":"..."}`** query 参数。而 §16.25 我用的是**裸 URL**。
+
+#### 16.26.2 A/B 实测（同 session，四种形态）
+
+| 形态 | 结果 |
+| --- | --- |
+| GET 裸 URL | `200 {"status":-12,"message":"no login"}` |
+| GET `?params={"type":"video"}` | `200 {"status":-12,"message":"no login"}` |
+| GET `?params={"type":"video","source":1}` | `200 {"status":-12,"message":"no login"}` |
+| POST `?params={"type":"video"}` | `403 {"code":403,"msg":"invalid csrf token"}` |
+
+⇒ **三种 GET 形态全部 `no login`，与参数无关** ⇒ §16.25 的判据成立，不是参数缺失误报。
+
+#### 16.26.3 顺带得到的新信息
+
+POST 返回的是 **403 `invalid csrf token`**（而非 `no login`）——
+说明该接口**存在 POST 形态**，且它要求 csrf token（与登录态是两个独立的前置）。
+
+⇒ 对后续实现的含义：若走 POST 提交通路，需先解决 csrf token（`summon.bytedance.com/secsdk_csrf_token`，
+  竞品成果里亦有该 URL）；而**判登录态用 GET 就够**（无需先解 csrf）。
+
+#### 16.26.4 结论（闭合）
+
+「该账号在西瓜上传接口上没有登录态」这一真因**已从单点读数升级为 A/B 验证过的结论**。
+阻塞性质不变：**需要用户在西瓜创作平台侧完成账号授权**（代码侧无解）。
