@@ -145,10 +145,10 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 | 编号 | 文件 | 改什么 | 预计行数变化 |
 |------|------|--------|------------|
 | F-A | `apps/desktop/electron/services/film-engineering/script-adapt.js` | 把拼装拆成**零件**（头 / 角色行 / 运动块 / 静态块），buildTemplatePrompt 改为消费零件（**输出逐字不变**，918 组合等价核验）；新增 buildMotionPrompt（运动子集） | +95 / -40 |
-| F-A | `apps/desktop/electron/services/film-engineering/kit-loader.js` | 加载时归一化 `imagePrompt/videoPrompt/endFramePrompt`（`videoPrompt ??= ''`，**不回落 prompt**，见 §2.5）；`KIT_FILES` 不变（同文件） | +45 / -5 |
+| F-A | `apps/desktop/electron/services/film-engineering/shot-prompts.js`（**新建**）+ `kit-loader.js` | 三分的归一化与字段校验住在 `shot-prompts.js`（`kit-loader` 贴着 500 行门禁，拆出来才放得下；同型拆分见 `network-egress-ledger.js`）；归一化 `imagePrompt/videoPrompt/endFramePrompt`（`videoPrompt ??= ''`，**不回落 prompt**，见 §2.5）；`KIT_FILES` 不变 | +95 / -15 |
 | F-A | `apps/desktop/electron/services/film-engineering/auto-plan.js` | 规划期派生：`imagePrompt` = 当前拼装结果（**逐字不变**）；`videoPrompt` = **运动子集**（场景头 + 剧情 + 角色行 + 运动类块，去掉空间/音频/约束等静态块）；`endFramePrompt` = **''**（尾帧约束文本来自任务级提示词库，**派生随 PR-3（F-I）落地**，本批次只落字段与消费口径） | +70 / -15 |
 | F-A | `apps/desktop/electron/services/film-engineering/video-gen.js` | 图片走 `imagePrompt`、视频走 `videoPrompt`（`videoPrompt` 为空回落 `imagePrompt`）；**`endFramePrompt` 本批次不送入 provider**（消费前置见 §2.4） | +25 / -8 |
-| F-A | `apps/desktop/electron/film-kit/SCHEMA.md` | 三字段规格 + 合计上限口径（数值 / 单位=字符 / 计量对象=三者之和 / 旧字段不计入 / fail-closed） | +55 / 0 |
+| F-A | `apps/desktop/electron/film-kit/SCHEMA.md` | 三字段规格 + **字段级**校验口径（单字段上限 / 类型 / fail-closed 处置）；**不设「三分合计上限」**（验证层评审 i4 已删，理由见 SCHEMA.md §2.2） | +55 / 0 |
 | F-A | `apps/desktop/electron/services/film-engineering/auto-project.js` | **三分必须落进项目文件**——只存 `prompt` 的话，续跑/重生成时派生的 `videoPrompt` 会丢失，「视频只拿运动信息」第二次运行就失效 | +12 / 0 |
 | F-A | `apps/desktop/electron/services/film-engineering/film-engineering-service.js` | 图片生成走 `imagePrompt`（缺省回落 `prompt`） | +8 / -3 |
 | F-A | `apps/desktop/electron/film-kit/shot-library.json` | **零改动**（153 条存量不迁，靠加载期归一化） | 0 |
@@ -280,13 +280,14 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD   # commit 之
 
 ```
 PR-1 (方案，docs-only)
- ├─► PR-2 (F-I 任务模板派生 + F-H UI + F-J 严格模式)
- ├─► PR-3 (F-E 锁镜 + F-G 乐观锁 + G-8 时长落盘) ─► PR-4 (F-B 就绪度) ─┐
-  └─► PR-6 (纯重构：抽出 film-video-downloader) ─► PR-7a (零行为抽取 egress-guard) ─► PR-7b (F-C 加固)
+└─► PR-2 (F-A 提示词三分)
+    ├─► PR-3 (F-I 任务模板派生 + F-H UI + F-J 严格模式)
+    ├─► PR-4 (F-E 锁镜 + F-G 乐观锁 + G-8 时长落盘) ─► PR-5 (F-B 就绪度)
+    ├─► PR-6 (纯重构：抽出 film-video-downloader) ─► PR-7a (零行为抽取 egress-guard) ─► PR-7b (F-C 加固)
+    └─► PR-8 (F-D 体检)          （与出站链路无逻辑依赖）
 
-PR-8 (F-D 体检) ── 依赖 PR-2（与出站链路无逻辑依赖）
-
-PR-9 (F-F 身份锚点) — 独立，可与任意 PR 并行
+PR-5 (F-B 就绪度) ─► PR-7b (F-C 加固)    （PR-7b 的另一个前置，见 §5.0 表格）
+PR-9 (F-F 身份锚点) ── 独立，可与任意 PR 并行
 ```
 
 > **PR-6 拆 6a/6b 的理由**（回应评审 i8）：`egress-guard` 若"抽自 `shot-downloader` 又被 `shot-downloader` 反向调用"，抽取方向与依赖顺序就是未定的——评审无法判断"这是重构还是循环依赖"。6a 只做**零行为抽取**（模块从 `shot-downloader` 里搬出来、`shot-downloader` 改调它，测试全绿），6b 再在 `egress-guard` 上**加** pinning / 端口 / 主机策略，并让 `film-video-downloader` 改走它。两步各自可独立验证、依赖单向（`shot-downloader` → `egress-guard` → 无反向）。
@@ -322,7 +323,7 @@ PR-9 (F-F 身份锚点) — 独立，可与任意 PR 并行
 | # | 标准 | 怎么证明生效（命令 + 期望） | 怎么证明没破坏既有功能 |
 |---|------|---------------------------|------------------------|
 | V-1 | 分镜提示词拆三份且存量零迁移 | `node --test apps/desktop/electron/services/film-engineering/kit-loader.test.js` —— 断言加载 153 条存量后每条 `imagePrompt` 非空且等于原 `prompt`、`endFramePrompt` 合法（空串或合法串）；**`videoPrompt` 的存量判据不在本条**（统一由 V-30 负责，避免两条互斥）；`git diff --stat apps/desktop/electron/film-kit/shot-library.json` 为空 | `kit-loader.test.js` 既有 23 例全绿 |
-| V-2 | 三分合计有上限 | 新增用例：三分合计超上限 → 加载 **fail-closed**（`FILM_KIT_UNAVAILABLE`），不是静默截断。**口径**：`FILM_PROMPT_BUNDLE_MAX_LEN = 50000`，单位 = **字符**（`String.length`，非字节），计量对象 = `imagePrompt + videoPrompt + endFramePrompt` **三者之和**（旧字段 `prompt` 不计入）；错误文案含文件名、镜 id、实测长度与上限 | 同上；数值/单位/口径同步写进 `SCHEMA.md` |
+| V-2 | 三分字段逐项校验 | 新增用例：三分字段存在但**非字符串**或**超单字段上限 50000** → 加载 **fail-closed**（`FILM_KIT_UNAVAILABLE`），不是静默截断；错误文案含镜 id、字段名与实测长度。**无「三分合计上限」**：该值与单字段上限同值会误杀三段顶格的合法资产，且在单字段上限已约束下永不触发（验证层评审 i4 已删除） | 同上；数值/口径同步写进 `SCHEMA.md` |
 | V-3 | 图片/视频各走各的提示词 | `video-gen.test.js` 新增用例断言图片提交用 `imagePrompt`、视频提交用 `videoPrompt`；缺 `videoPrompt` 时回落 `imagePrompt` | `video-gen.test.js` 既有 19+7 例全绿 |
 | V-4 | 就绪度内联在既有闸内 | `video-gen.test.js` 断言未确认时输出含 `costCheck.readiness`，且 **provider 调用次数 = 0**；断言 `film-video-checkpoint-integration.test.js` 既有 140-172 行用例**未被修改且仍绿** | `film-video-checkpoint-integration.test.js` 全绿（**只读断言，不改它**） |
 | V-5 | 缺提示词/坏参考图的镜在确认前就被标出 | 新增用例：构造 1 镜空提示词 → `costCheck.shots[0].ready === false` 且 `reason` 非空 | 同上 |

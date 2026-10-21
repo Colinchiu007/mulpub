@@ -4,7 +4,7 @@
  * 影视工程 v2 · F-A「分镜提示词三分」契约测试
  *
  * 覆盖跨 5 个模块的一条链：
- *   kit-loader（归一化 + 合计上限）→ script-adapt（拼装逐字不变 + 运动子集）
+ *   kit-loader（归一化 + 字段校验）→ script-adapt（拼装逐字不变 + 运动子集）
  *   → auto-plan（派生三分）→ auto-project（落盘）→ video-gen / film-engineering-service（消费）
  *
  * 为什么单独成文件：这条契约**横跨 5 个模块**，拆进各自的测试文件会让「三分在链路上没有断点」
@@ -18,7 +18,7 @@ const os = require('os')
 const path = require('path')
 
 const { loadFilmKit } = require('./kit-loader')
-const { FILM_PROMPT_BUNDLE_MAX_LEN, SHOT_PROMPT_FIELDS } = require('./shot-prompts')
+const { SHOT_PROMPT_FIELDS } = require('./shot-prompts')
 const { buildTemplatePrompt, buildTemplatePromptParts, buildMotionPrompt } = require('./script-adapt')
 const { planAutoShots } = require('./auto-plan')
 const { buildShotSubmitPayload } = require('./video-gen')
@@ -101,24 +101,6 @@ describe('F-A · kit 归一化：三分提示词', () => {
     expect(r.kit.shots[0].imagePrompt).toBe('首帧图提示词')
     expect(r.kit.shots[0].videoPrompt).toBe('视频运动提示词')
     expect(r.kit.shots[0].endFramePrompt).toBe('尾帧约束')
-  })
-
-  it('三分合计超上限 → fail-closed（不静默截断），错误文案含实测长度与上限', () => {
-    const dir = tmpDir()
-    const half = 'x'.repeat(Math.floor(FILM_PROMPT_BUNDLE_MAX_LEN / 2) + 10)
-    writeKit(dir, makeKit([{
-      shotId: '33333333-3333-4333-8333-333333333333',
-      sceneId: 'scene-25',
-      prompt: '旧提示词',
-      imagePrompt: half,
-      videoPrompt: half,
-      endFramePrompt: half,
-      model: 'seedance_2_0',
-    }]))
-    const r = loadFilmKit({ kitDir: dir })
-    expect(r.ok).toBe(false)
-    expect(r.error).toContain('三分提示词合计')
-    expect(r.error).toContain(String(FILM_PROMPT_BUNDLE_MAX_LEN))
   })
 
   it('三分字段类型非法（非字符串）→ fail-closed', () => {
@@ -232,11 +214,68 @@ describe('F-A · 自动模式派生三分', () => {
   })
 })
 
+describe('F-A · 运动子集不变量（评审 i1 的回归锁：motion ⊆ full）', () => {
+  const template = {
+    prompt: [
+      'EXT. CITY STREET - NIGHT',
+      '[CHARACTER: ROKO] stands still.',
+      '',
+      'GEO SPATIAL LAYOUT:',
+      '- STREET: wet asphalt, left.',
+      '',
+      'AUDIO:',
+      '- rain ambience',
+      '',
+      'POSITIVE CONSTRAINTS:',
+      '- no text overlay',
+      '',
+      'ACTION TIMING:',
+      '[0-3s] He raises his fist.',
+      '',
+      'CHARACTER ACTING:',
+      '- ROKO hesitates, then commits.',
+    ].join('\n'),
+  }
+  const args = { template, beatText: '小强握紧拳头。', characterMap: { ROKO: '小强' } }
+
+  it('运动子集不含静态类块（GEO / AUDIO / POSITIVE CONSTRAINTS），但含运动类块', () => {
+    const motion = buildMotionPrompt(args)
+    expect(motion).toContain('ACTION TIMING')
+    expect(motion).toContain('CHARACTER ACTING')
+    expect(motion).not.toContain('GEO SPATIAL LAYOUT')
+    expect(motion).not.toContain('AUDIO')
+    expect(motion).not.toContain('POSITIVE CONSTRAINTS')
+  })
+
+  it('运动子集是首帧图提示词的**子集**（每段都能在全文里逐字找到）', () => {
+    const full = buildTemplatePrompt(args)
+    const parts = buildTemplatePromptParts(args)
+    expect(parts.motionParts.length).toBeGreaterThan(0)
+    for (const part of parts.motionParts) {
+      expect(full).toContain(part)
+    }
+  })
+
+  it('散文块（无识别前缀）既不进首帧图提示词、也不进运动子集', () => {
+    // 首帧图口径 = 原实现那五类块，散文块**从来就不在里面** ⇒ 「运动子集不含散文」不是丢内容。
+    // 反过来把散文塞进运动子集会破坏 motion ⊆ full（评审 i1 的错误修法）。
+    const prose = { prompt: 'EXT. ROOM\n\nA quiet prose paragraph without any recognized prefix.' }
+    expect(buildTemplatePrompt({ template: prose, beatText: '', characterMap: {} }))
+      .not.toContain('quiet prose paragraph')
+    expect(buildMotionPrompt({ template: prose, beatText: '', characterMap: {} }))
+      .not.toContain('quiet prose paragraph')
+  })
+})
+
 describe('F-A · 真实 kit 的派生比例（实测口径，不是拍脑袋的阈值）', () => {
   const KIT = path.resolve(__dirname, '../../film-kit/shot-library.json')
 
+  it('真实 shot-library.json 在仓内（缺失即红，不许静默跳过）', () => {
+    expect(fs.existsSync(KIT)).toBe(true)
+  })
+
   it('全部真实模板的派生视频提示词总量 ≤ 首帧图提示词总量的 0.6 倍', () => {
-    if (!fs.existsSync(KIT)) return
+    expect(fs.existsSync(KIT)).toBe(true)
     const shots = JSON.parse(fs.readFileSync(KIT, 'utf8'))
     const beat = '小强握紧拳头。'
     let sumFull = 0
@@ -247,10 +286,27 @@ describe('F-A · 真实 kit 的派生比例（实测口径，不是拍脑袋的�
       sumFull += full.length
       sumMotion += motion.length
     }
-    // 实测 0.177（2026-10-21，153 个真实模板）⇒ 0.6 留足余量，
+    // 实测 0.146（2026-10-21，153 个真实模板，beat=单行 7 字符；beat 越长比值越高，
+    // 3 行 beat 实测 0.207）⇒ 0.6 留足余量，
     // 同时不是「严格小于」这种能被差 1 字符满足的判据。
     expect(sumFull).toBeGreaterThan(0)
     expect(sumMotion / sumFull).toBeLessThanOrEqual(0.6)
+  })
+
+  it('全部真实模板：运动子集都是首帧图提示词的子集，且不含静态类块', () => {
+    expect(fs.existsSync(KIT)).toBe(true)
+    const shots = JSON.parse(fs.readFileSync(KIT, 'utf8'))
+    const beat = '小强握紧拳头。'
+    for (const tpl of shots) {
+      const args = { template: tpl, beatText: beat, characterMap: {} }
+      const full = buildTemplatePrompt(args)
+      const motion = buildMotionPrompt(args)
+      expect(motion.length).toBeLessThanOrEqual(full.length)
+      for (const part of buildTemplatePromptParts(args).motionParts) {
+        expect(full).toContain(part)
+      }
+      expect(motion).not.toContain('GEO SPATIAL LAYOUT')
+    }
   })
 })
 

@@ -43,14 +43,13 @@ const FILM_PROMPT_MAX_LEN = 50000
 const MAX_PROMPT_LENGTH = FILM_PROMPT_MAX_LEN // 兼容别名，勿在新代码中使用
 const MAX_TOKEN_LENGTH = 64
 
-// 三分提示词的归一化与合计上限住在 shot-prompts.js（影视工程 v2 · F-A）：
+// 三分提示词的归一化与字段校验住在 shot-prompts.js（影视工程 v2 · F-A）：
 // kit-loader 原本就贴着 500 行门禁（check-max-lines），把三分逻辑塞进来会顶穿；
 // 本仓的既有同型拆分是 network-egress-ledger.js（从 network-egress-guard.js 拆出，别搬回来）。
 // 这里 re-export 是为了**既有 import 路径不变**（下游按 kit-loader 取这三个符号）。
 const {
   normalizeShotPrompts,
   validateShotPromptFields,
-  validateShotPromptBundles,
 } = require('./shot-prompts')
 
 function isUuidLike (value) {
@@ -384,7 +383,6 @@ function loadFilmKit (opts) {
   ]
   // F-A：先归一化再校验合计（顺序不可颠倒——归一化前合计会被低估）
   for (const s of shots) normalizeShotPrompts(s)
-  checks.push(['shot-library.json', validateShotPromptBundles(shots)])
   if (grammarOpt.present) checks.push(['shot-grammar.json', validateShotGrammar(shotGrammar)])
   if (complianceOpt.present) checks.push(['compliance-checklist.json', validateComplianceChecklist(compliance)])
   if (paletteOpt.present) checks.push(['palette.json', validatePalette(palette)])

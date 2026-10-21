@@ -6,6 +6,8 @@
 > ｜基线：`main@0918bf0b2` ｜分支：`film-pipeline-prompt-triple-and-guards`
 > ｜原始产物在 `.adversarial/`（被 `.gitignore` 忽略，不入库）；本文件为**可入库的公开记录**
 
+> **后续修订说明（2026-10-21，验证层评审之后）**：本文件是**决策层 5 轮评审的历史记录**，原文不改。下表 i6 采纳的「写明 `FILM_PROMPT_BUNDLE_MAX_LEN = 50000`、单位=字符、计量对象=三字段之和」这一处置，在**验证层**（`.adversarial/ccg-deep-48e45266/`）评审 i4 中被**否证并删除** —— 该值与单字段上限同值 ⇒ 永不触发且误杀三段各自顶格的合法资产。现行口径为「**逐字段校验 + 不设合计上限**」，见 `design.md` D2、`specs/film-engineering/spec.md` 与 `01-docs/PRD-FILM-PIPELINE-V2-2026-10-21.md` §3.1。其余 4 轮 40 条意见的处置不受影响。
+
 ---
 
 ## 一、评审后端与跨家族校验

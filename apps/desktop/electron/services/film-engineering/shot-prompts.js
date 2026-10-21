@@ -10,19 +10,6 @@
  * 既有 import 路径不变。
  */
 
-/**
- * 分镜提示词三分的**合计**上限。
- *
- * 为什么单字段上限之外还要一个合计上限：三分各 5 万 ⇒ 合计 15 万字符送进 provider 必然被拒，
- * 且失败点在下游、定位成本高。合计上限与真实承载一致，让**资产损坏在加载期就暴露**。
- *
- * 口径（口径本身也被判据锁住，改动须同步 SCHEMA.md 与测试）：
- *   - 单位：**字符**（`String.length`，不是字节）；
- *   - 计量对象：`imagePrompt + videoPrompt + endFramePrompt` **三者之和**；
- *   - 旧字段 `prompt` **不计入**（它是 imagePrompt 的历史别名，计进去等于重复计量）。
- */
-const FILM_PROMPT_BUNDLE_MAX_LEN = 50000
-
 /** 三分字段名（归一化与合计校验共用一份真源，避免两处各写一份字符串） */
 const SHOT_PROMPT_FIELDS = Object.freeze(['imagePrompt', 'videoPrompt', 'endFramePrompt'])
 
@@ -62,7 +49,9 @@ function validateShotPromptFields (shot, at, maxLen) {
   for (const field of SHOT_PROMPT_FIELDS) {
     const v = shot[field]
     // 缺失即跳过：本函数在**归一化之前**跑（存量分镜的三分字段还不存在），
-    // 归一化之后的「合计上限」由 validateShotPromptBundles 负责。
+    // 归一化之后三分字段一定存在，由本函数逐项校验类型与长度。
+    // 本批次**没有「三分合计上限」**（该判据与单字段上限同值 ⇒ 永不触发，
+    // 且会误杀三段各自顶格的合法资产；验证层评审 i4 已删除，口径见 SCHEMA.md §2.2）。
     // ⚠️ 漏掉这个跳过会让所有存量 kit 加载失败（实测 55 例红）。
     if (v === undefined || v === null) continue
     if (typeof v !== 'string') {
@@ -75,37 +64,8 @@ function validateShotPromptFields (shot, at, maxLen) {
   return { ok: true }
 }
 
-/**
- * 校验分镜的三分提示词合计长度。
- * 必须在**归一化之后**调用（否则存量分镜的 `imagePrompt` 还没落位，合计会被低估）。
- * @param {Array<object>} shots
- * @returns {{ok: boolean, error?: string}}
- */
-function validateShotPromptBundles (shots) {
-  if (!Array.isArray(shots)) return { ok: false, error: 'shot-library 必须为数组' }
-  for (let i = 0; i < shots.length; i++) {
-    const s = shots[i]
-    if (!s || typeof s !== 'object') continue
-    let total = 0
-    for (const field of SHOT_PROMPT_FIELDS) {
-      const v = s[field]
-      if (typeof v === 'string') total += v.length
-    }
-    if (total > FILM_PROMPT_BUNDLE_MAX_LEN) {
-      return {
-        ok: false,
-        error: 'shots[' + i + '] 三分提示词合计 ' + total + ' 字符，超过上限 ' + FILM_PROMPT_BUNDLE_MAX_LEN +
-          '（单位：字符；计量对象：imagePrompt + videoPrompt + endFramePrompt）：请精简该镜提示词',
-      }
-    }
-  }
-  return { ok: true }
-}
-
 module.exports = {
-  FILM_PROMPT_BUNDLE_MAX_LEN,
   SHOT_PROMPT_FIELDS,
   normalizeShotPrompts,
   validateShotPromptFields,
-  validateShotPromptBundles,
 }

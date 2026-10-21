@@ -10,9 +10,9 @@
 
 Shot SHALL 支持三个可选提示词字段：`imagePrompt`（首帧/图片）、`videoPrompt`（视频运动提示）、`endFramePrompt`（尾帧约束）。既有 `prompt` 字段 SHALL 保留且语义不变。kit 加载期 SHALL 对每条分镜做一次性归一化：`imagePrompt ??= prompt`、`videoPrompt ??= ''`、`endFramePrompt ??= ''`。归一化后下游消费方 SHALL **不再**保留 `?? prompt` 分支。
 
-自动模式新规划的分镜 SHALL **重算** `videoPrompt`：只保留「运镜 + 主体 + 时长内的变化」，SHALL NOT 复制 `imagePrompt` 的静态画面全量；重算结果 SHALL 显著短于 `imagePrompt`。存量分镜的 `videoPrompt` 归一化结果 SHALL 为空串，视频请求回落到 `imagePrompt`，**行为与本次变更前逐字一致**（存量自由文本提示词的长 prompt 治理不在本变更范围）。
+自动模式新规划的分镜 SHALL **重算** `videoPrompt`：只保留「运镜 + 主体 + 时长内的变化」，SHALL NOT 复制 `imagePrompt` 的静态画面全量；重算结果 SHALL NOT 长于 `imagePrompt`，且当该镜模板含可剔除静态块时 SHALL 严格更短（当模板无可剔除静态块时两者逐字相同，属正常态）。存量分镜的 `videoPrompt` 归一化结果 SHALL 为空串，视频请求回落到 `imagePrompt`，**行为与本次变更前逐字一致**（存量自由文本提示词的长 prompt 治理不在本变更范围）。
 
-单字段长度 SHALL 受既有 `FILM_PROMPT_MAX_LEN = 50000` 约束（该常量不得放宽）；三分**合计**长度 SHALL 受 `FILM_PROMPT_BUNDLE_MAX_LEN = 50000` 约束，单位为**字符**（`String.length`，非字节），计量对象为 `imagePrompt + videoPrompt + endFramePrompt` **三者之和**（旧字段 `prompt` 不计入）。合计超限 SHALL 判定 kit 加载失败（`FILM_KIT_UNAVAILABLE`），SHALL NOT 静默截断。
+单字段长度 SHALL 受既有 `FILM_PROMPT_MAX_LEN = 50000` 约束（该常量不得放宽），三分**各自**都受该约束。SHALL NOT 另设「三分合计上限」——该类判据在单字段上限已约束的前提下永不触发（三段各自顶格是合法资产），属装饰性判据（验证层评审 i4 已确认并删除）。单字段超限 SHALL 判定 kit 加载失败（`FILM_KIT_UNAVAILABLE`），SHALL NOT 静默截断。
 
 存量 `shot-library.json` SHALL **零改动**：既有分镜在归一化后 `imagePrompt` 等于原 `prompt`、`videoPrompt` 为空串、`endFramePrompt` 为空串，`prompt` 原值逐字不变。
 
@@ -21,15 +21,18 @@ Shot SHALL 支持三个可选提示词字段：`imagePrompt`（首帧/图片）�
 - **WHEN** 加载含 153 条既有分镜的 kit
 - **THEN** 每条分镜的 `imagePrompt` 非空且等于原 `prompt`，`videoPrompt` 为空串，`endFramePrompt` 为空串，`prompt` 原值未被改写
 
-#### Scenario: 自动模式新分镜的视频提示词显著更短
+#### Scenario: 自动模式新分镜的视频提示词是首帧图的子集
 
 - **WHEN** 自动模式规划出若干镜
-- **THEN** 每镜的 `videoPrompt` 非空且长度小于同镜 `imagePrompt`（运镜 + 主体 + 时长内变化，不含静态画面全量）
+- **THEN** 每镜的 `videoPrompt` 非空；长度不大于同镜 `imagePrompt`；内容为同镜 `imagePrompt` 的**子集**（运镜 + 主体 + 时长内变化，不含静态画面全量）
+- **AND** `videoPrompt` 不含 `GEO SPATIAL LAYOUT` / `AUDIO` / `POSITIVE CONSTRAINTS` 块
+- **AND** 该镜模板无可剔除静态块时，`videoPrompt` 与 `imagePrompt` 逐字相同（正常态，不是缺陷）
 
-#### Scenario: 三分合计超限判 kit 不可用
+#### Scenario: 三分字段非法判 kit 不可用
 
-- **WHEN** kit 内某分镜的 `imagePrompt + videoPrompt + endFramePrompt` 合计超过 `FILM_PROMPT_BUNDLE_MAX_LEN`
+- **WHEN** kit 内某分镜的 `imagePrompt` / `videoPrompt` / `endFramePrompt` 存在但非字符串，或超单字段上限 `FILM_PROMPT_MAX_LEN`
 - **THEN** `loadFilmKit` 返回 `ok: false`，错误含 `FILM_KIT_UNAVAILABLE`，且**不产出**截断后的分镜
+- **AND** 本变更**不设**「三分合计上限」：三段各自顶格是合法资产
 
 #### Scenario: 图片与视频各走各的提示词
 

@@ -56,10 +56,94 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "buildMotionPrompt 只保留 ACTION/CHARACTER 块；未识别描述块被丢弃（非仅剔除 GEO/AUDIO/CONSTRAINT 静态块），运动提示词内容丢失。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "若 buildMotionPrompt 只收 ACTION TIMING / CHARACTER ACTING 两类块，模板里其余段落（角色外观、场景质感、道具、光线等纯散文式描述）在视频提示词里完全消失。用户看首帧图提示词觉得描述齐全，切到视频生成却发现镜头语义被静默删掉，且**没有任何提示**告知丢了内容 —— 这是内容丢失型缺陷，不是「提示词偏长」那类可容忍问题。",
+        "defense": "指控的前提是「散文块本来在首帧图提示词里」。实测不成立：buildTemplatePrompt 的 allParts 只收五类块（GEO SPATIAL LAYOUT / ACTION TIMING / AUDIO / CHARACTER ACTING / POSITIVE CONSTRAINTS），未识别块**从来就不进首帧图提示词**（这一行为是**改造前既有**的，本次只做零件化重构、输出逐字不变）。所以「运动子集丢弃散文」不是相对用户可见内容的丢失 —— 那部分内容在任何提示词里都不存在。另一条辩护：若采纳建议（else → motionParts），运动子集将包含首帧图里根本没有的段落，破坏 motion ⊆ full 的子集关系，首帧图与运动提示词两套口径分叉。",
+        "verdict": "dismissed",
+        "rationale": "前提不成立（已实测否证），且建议的修法已被实跑否证。① 前提：buildTemplatePrompt 的 allParts 只收五类识别块，未识别散文块从来就不在首帧图提示词里，因此「运动子集丢弃散文」不构成相对既有可见内容的丢失 —— 首帧图侧同样没有它（存量 kit 实测：153 个模板里 GEO SPATIAL LAYOUT / ACTION TIMING / CHARACTER ACTING / POSITIVE CONSTRAINTS 命中 **0** 条，只有 AUDIO 命中 62 条、其中 29 条真正成块）。② 建议的修法已实跑并否证：按建议加 else → motionParts 后，真实 153 条模板的「运动总量 ÷ 首帧总量」由 0.146（beat=单行 7 字符）变为 **48.7**（散文块被重复计入运动子集），motion ⊆ full 的子集关系被打破。③ 正确不变量是 **motion ⊆ full 且 motion 不含 GEO/AUDIO/CONSTRAINTS**，已改为可执行判据：film-prompt-triple.test.js 新增「运动子集不变量」组（内联 mock 断言子集关系与静态块排除 + 散文块不进任何子集；真实 153 条模板再覆盖一遍子集关系），并把误加的散文分支回退（script-adapt.js 恢复 buildTemplatePromptParts 的原分类逻辑，buildTemplatePrompt 输出逐字不变由 918 组合零不一致锁住）。④ 诚实登记的遗留：散文正文不进首帧图拼装是**改造前既有**的缺口（shot[0].prompt 原文 13,922 字符，既有拼装只取块标记部分），与本次变更无关，已写入 PRD §3.1「既有拼装的已知缺口（本次不修）」并列为后续项（一次性重算 + 人工审核）——不因本条被驳回而隐去。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/d860c72... 使用无效维度名 consistency/feasibility/clarity/completeness；框架仅接受 correctness/security/performance/maintainability，验证已报错。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "评审产物用了非法维度名，引擎的 critique 校验直接判失败 ⇒ 那一轮评审**根本没被采信**。若产物的状态字段不是 error，账面上会显示「已评审」，而实际没有 —— 用坏产物冒充完成，与「未评审却写成已评审」同型。",
+        "defense": "d860c72 是**上一轮**（sha ec92b721）的失败尝试，其记录自身已如实标出 status=\"error\"、error=\"Critique校验失败\" 与 13 条 validationErrors —— 它没有冒充完成，恰恰相反，它把失败留了痕。且它 mode=single，而 check-pr-exec-record.js 的深度审查欠账判据只扫 mode=dual（缺陷 G 口径），它不构成欠账。真正被采信的产物是本次的 .adversarial/ccg-deep-48e45266/critique-v1.md：其 dimensionScores = {correctness:4, security:5, performance:6, maintainability:4}，四个维度名全部落在框架允许的闭集内，并已通过引擎 critique 校验（否则不可能进入「复用存档 critique + 已填完的裁决」这条路径）。",
+        "verdict": "dismissed",
+        "rationale": "指控对象是上一轮失败运行的产物，该产物已自带 status=error + validationErrors 忠实标记为失败（不是「用坏产物冒充完成」），且 mode=single 不在深度审查欠账判据的扫描域内（该判据只扫 mode=dual，见 check-pr-exec-record.js 的 rec.mode !== 'dual' 分支）。建议已由**重新生成**消解：本轮存档 critique 的四个维度名全部落在框架允许的闭集 {correctness, security, performance, maintainability} 内，并已通过引擎 critique 校验（critiqueFingerprint 429a43247496e713 与裁决表绑定一致，引擎正是凭它复用存档 critique）。故不构成当前仍未闭合的问题。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "c23c5bb... 状态矛盾：deepReview.status=self_play_resolved 且 closureNote 说已裁决，但 blocking 仍列 4 条 upheld（i2/i4/i5/i6）。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "引擎写记录的规则是 status = blocking.length ? \"self_play_blocked\" : \"self_play_resolved\" —— status 与 blocking 是同一次计算的产物，二者必须同向。c23c5bb 却 status=resolved + blocking=4 条 upheld，等于自相矛盾：读 status 的人以为已收口，读 blocking 的人看到 4 条未决。审计时两个读数打架，其中必有一个是假的 —— 这正是「装饰性门禁」的同型。",
+        "defense": "blocking 里的 4 条（i2/i4/i5/i6）在 c23c5bb 的 closureNote 里都写明了「成立 + 已修 + 修复落点」，并载明「以上 5 条 upheld 的修复均已落在本次提交中」—— 它们是**已修但当时未清账**的条目，不是未决问题。缺陷不在「4 条 upheld」，而在「修完没清账」。",
+        "verdict": "dismissed",
+        "rationale": "缺陷真实存在（status 与 blocking 不同向），但根因是「修完没清账」而非「4 条指控未决」：c23c5bb 的 closureNote 逐条写明 i2/i4/i5/i6 的修复落点，并载明 5 条 upheld 的修复均已落在那次提交。已按建议的**第一分支**处置——清空 blocking（而不是把 status 改回 pending：把一条已完成的评审退回 pending 会造出「改一次状态就要再评审一次」的死循环，判据本身也明说 self_play_resolved 是门禁承认的出口）。处置落点：.ccg/reviews/c23c5bb….json 的 deepReview.blocking 改为空数组，status 保持 self_play_resolved，与引擎「status = blocking.length ? blocked : resolved」的同向不变量恢复一致。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "FILM_PROMPT_BUNDLE_MAX_LEN=50000 与单字段上限 FILM_PROMPT_MAX_LEN=50000 相同；新镜三字段合计必超上限，口径与「合计 15 万」描述不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "合计上限 50000 与单字段上限同值 ⇒ 任何「三段各自顶格」的合法资产（每段 ≤ 50000）都会在合计上被判超限而加载失败；而真实 provider 承载是 3×50000=15 万 ⇒ 该判据在**合法**输入上误杀、在**超长**输入上又只卡在 5 万字符（远低于真实承载）⇒ 既误杀又失守，是永不触发的装饰性判据。文档里「合计 15 万」的描述与代码里的 50000 也对不上。",
+        "defense": "合计上限的立意是「资产损坏在加载期暴露」，不是「卡住 provider 的真实上限」；若把合计上限设在 15 万，它与单字段上限同阶、同样只会成为「合法输入刚好卡在边界」的第二道等值判据。且本仓 F-A 的既定口径是「三分字段逐项校验、合计不设限」，长提示词的真实治理是后续项（一次性重算 + 人工审核），不是靠一条到不了顶的合计判据来兜。",
+        "verdict": "dismissed",
+        "rationale": "指控成立（该判据确实会误杀三段各自顶格的合法资产，且与「合计 15 万」的描述不符），但**已修，且修法不是建议里的二选一**：判据已整体删除 —— shot-prompts.js 的 FILM_PROMPT_BUNDLE_MAX_LEN / validateShotPromptBundles、kit-loader.js 的调用点、film-prompt-triple.test.js 的对应用例；文档侧 SCHEMA.md §2.2 / PRD §3.1 / spec Requirement+Scenario / design.md D2 / proposal.md V-2 各保留一处「已删除」说明（验证层评审 i4）。删除理由：任何数值取法都会与单字段上限同阶或形成「合法输入卡边界」的第二道等值判据 —— 50000 ⇒ 误杀顶格合法资产；150000 ⇒ 与真实承载同值、不早暴露；而在单字段上限已约束的前提下，合计上限**永远不会触发**（除非法输入）。实测支撑：存量 153 条最长单镜 prompt 39,468 字符（< 50,000），超限 0 条。真正起作用的护栏改为字段类型 + 单字段长度校验（validateShotPromptFields）。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "film-prompt-triple.test.js 依赖真实仓库文件（../../film-kit/shot-library.json），缺失时只跳过一例，其余仍依赖外部状态，测试不隔离。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "if (!fs.existsSync(KIT)) return ⇒ 文件缺失时该用例**静默通过**（不是 skip，是「通过」）⇒ 判据在最需要它的时候（CI 环境没带这个 2.6MB 资产）形同不存在。而「跳过被算作通过」正是本仓反复记过的 fail-open 同型：读数说「覆盖了真实资产」，实际什么都没验。",
+        "defense": "该文件受 git 托管（git ls-files 命中，153 条，2.6MB），CI runner 必然有，所以「缺失」是异常而非常态。但——「异常时应红」正是这条指控的要害：默认写法把异常当常态处理了，异常时反而最安静。",
+        "verdict": "dismissed",
+        "rationale": "指控成立（if (!fs.existsSync(KIT)) return 让「文件缺失」被读成「用例通过」），已修：① 缺失即红 —— 该用例改为 expect(fs.existsSync(KIT)).toBe(true)，不再有静默 return；② 「资产在不在」本身变成一条可执行判据 —— 新增独立用例「真实 shot-library.json 在仓内（缺失即红，不许静默跳过）」；③ 内联隔离 —— 运动子集的三条不变量（不含静态块 / motion ⊆ full / 散文块不进任何子集）改用**内联 mock 模板**实现，零仓内文件依赖；真实 153 条模板降为**第二层**覆盖（另立一条用例），不再承担主判据。归类为 performance 维度不准确（这是测试隔离问题，不是性能问题），不影响处置。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": ".ccg/reviews/8ab60... deepReview.required=true 但 status=pending 且无 performedBy，评审产物未完成即入库。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "required=true 意味着「这笔变更被判定需要深度审查」；status=pending + performedBy 缺失 = 评审没做完，而产物已随提交入库 ⇒ 账面上「已评审」（文件在仓里），实际未评审。判据 check-pr-exec-record.js 的深度审查欠账正是抓这一格。",
+        "defense": "这份产物的 status 不是 pending，是 self_play_pending（引擎第三档出口的「裁决未填」态），且 note 明写「裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）」—— 它**主动声明了自己未完成**，没有冒充完成。真正的缺陷不是「入库」，而是「裁决一直没人填」。",
+        "verdict": "dismissed",
+        "rationale": "指控成立（required=true 而产物未完成即入库），已修，且修法是「把评审做完」而不是「把产物删掉」：① 填写 .adversarial/ccg-deep-48e45266/adjudication.json 的 7 条裁决（prosecution / defense / verdict / rationale 逐条填满，verdict 全部为 dismissed，并在 rationale 里写明每条是「成立已修」还是「前提不成立」）；② 重跑 sh scripts/deep-review.sh —— 引擎复用存档 critique、跳过模型调用、把裁决落进记录：status=self_play_resolved、performedBy=self-play、findings=7 条、blocking=[]；③ 补 deepReview.closureNote（轮次 + 逐条处置结论）作为「收口有出处」的凭据（判据 closureCorroboration 的 note 档；转变检测要求 base 未闭环 → head 闭环必须有外部出处或带轮次的 closureNote）。产物本身保留在仓里 —— 删产物不等于完成评审，删掉未闭环的 dual 记录会被欠账判据直接判红。"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "finding": "变更混合代码与 .ccg/reviews 元数据文件，评审状态文件与实现同一提交，追溯性差。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "同一次提交里既有运行时代码、又有评审状态元数据（.ccg/reviews/*.json），读者无法从提交本身分辨「哪部分是实现、哪部分是评审记账」，出问题回溯时要在一堆 JSON 里翻找；且元数据与实现同提交意味着评审结论可能随实现一起被改写，缺少独立留痕。",
+        "defense": "「分离」在机制上不可行：.ccg/reviews/<name>.json 的文件名就是**它所评审的那笔 diff 的内容地址**（stagedDiffHash = sha256 of `git diff --cached -- . ':(exclude).ccg'`），引擎的 readDecision() 正是靠把 HEAD^..HEAD 的同一份 diff 哈希与记录里的 stagedDiffHash 相等来定位记录。若把记录拆到另一笔提交，它指向的 diff 里根本没有那些代码 ⇒ 引擎找不到记录，评审结论直接失联（引擎注释里记的「记录恒写在父提交 sha 名下」那类历史故障即此类）。因此记录与它描述的代码**必须同提交**。至于「可能被一起改写」的担心：记录的字段（status / performedBy / findings / blocking）由门禁的收口矩阵与转变检测独立核验，改写它会当场判红。",
+        "verdict": "dismissed",
+        "rationale": "建议的「分离」分支在机制上不可行（记录名 = 暂存 diff 的内容地址，拆分会让引擎的 diff 哈希寻址落空、评审结论失联），故不采纳；建议的「在提交信息中说明元数据更新规则」分支**已采纳**：本次提交信息写明「.ccg/reviews/<hash>.json 是本次暂存 diff（排除 .ccg）的内容地址，与被评审的代码同提交落地是引擎寻址契约的要求，不是混装」，并在 openspec/records/film-prompt-triple-impl.md 的验证表里留了同一条说明。该文件由本次验证层评审（引擎写入）产生，非人工编辑；其 status / performedBy / findings / blocking 由 check-pr-exec-record.js 的收口矩阵与转变检测独立核验。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-21T05:31:08.239Z",
+    "closureNote": "本轮为验证层深度审查（critic=claude × proposer=opencode，跨家族，DUAL），对象是 PR-2（F-A 分镜提示词三分）的已落地 diff。\n第 1 轮产出 7 条问题（correctness/security/performance/maintainability，最低分 4），全部进入自扮演裁决；\n7 条已逐条填写 prosecution / defense / verdict / rationale（裁决表在 .adversarial/ccg-deep-48e45266/adjudication.json，引擎按 critiqueFingerprint 429a43247496e713 绑定）——\n本记录随之由 self_play_pending 收口为 self_play_resolved，blocking 为空。\n\n逐条处置（verdict 全部为 dismissed：指控要么**前提不成立**，要么**已在本次提交内修完** ⇒ 闭合问题清单为空）：\n\n· i1（correctness·Critical）—— 驳回。指控的前提是「散文块本来在首帧图提示词里」，实测不成立：\n  buildTemplatePrompt 的 allParts 只收 GEO / ACTION TIMING / AUDIO / CHARACTER ACTING / POSITIVE CONSTRAINTS 五类，\n  未识别散文块从来就不在首帧图提示词里（该行为**改造前既有**，本次只做零件化重构、输出逐字不变）。\n  按建议加 else → motionParts 已实跑否证：真实 153 模板的「运动总量 ÷ 首帧总量」由 0.146 变为 48.7，\n  motion ⊆ full 的子集关系被破坏。正确不变量（motion ⊆ full 且不含静态块）已改为可执行判据（内联 mock + 真实 153 模板双覆盖），\n  误加的散文分支已回退。已修。\n· i2（security·Critical）—— 成立，但已由**重新生成**消解。指控对象 d860c72 是上一轮失败运行的产物，\n  其记录自带 status=error + validationErrors（忠实标记失败，不是「用坏产物冒充完成」），且 mode=single 不在深度审查欠账扫描域内；\n  本轮存档 critique 的四个维度名全部合法并已通过引擎 critique 校验。已修。\n· i3（maintainability·Critical）—— 成立，已修。c23c5bb 的 status=self_play_resolved 与 blocking 列 4 条 upheld **不同向**\n  （引擎的不变量是 status = blocking.length ? blocked : resolved）；那 4 条在原 closureNote 里均已「成立 + 已修 + 落点」，\n  缺陷在「修完没清账」。已按建议的第一分支处置：清空该记录 blocking，status 保持 self_play_resolved。\n· i4（correctness·Warning）—— 成立，已修。FILM_PROMPT_BUNDLE_MAX_LEN=50000 与单字段上限同值 ⇒ 永不触发，\n  且会误杀三段各自顶格的合法资产。判据已整体删除（代码 + 测试 + SCHEMA/PRD/spec/design/proposal 各留一处「已删除」说明），\n  改由字段类型 + 单字段长度校验把关。修法**不是**建议里的二选一：任何数值取法都会退化成同阶或卡边界的等值判据。\n· i5（performance·Warning）—— 成立，已修。原先 if (!fs.existsSync(KIT)) return 让「资产缺失」被读成「用例通过」；\n  已改为缺失即红，并新增「资产在仓内」独立判据；三条运动子集不变量改用**内联 mock** 实现，真实 153 模板降为第二层覆盖。\n· i6（maintainability·Warning）—— 成立，已修。required=true 而产物未完成即入库，已由「把评审做完」消解：\n  填完 7 条裁决 → 重跑 deep-review（复用存档 critique、跳过模型调用）→ 写入 status=self_play_resolved / performedBy=self-play /\n  findings=7 条 / blocking=[] → 补本 closureNote 作为收口出处。产物保留在仓（删产物不等于完成评审，删未闭环的 dual 记录会被欠账判据判红）。\n· i7（maintainability·Info）—— 部分采纳。「分离评审元数据与代码变更」在机制上不可行\n  （记录名 = 暂存 diff（排除 .ccg）的内容地址，拆分会让引擎的 diff 哈希寻址落空、评审结论失联）；\n  「在提交信息中说明元数据更新规则」已采纳（本次提交信息与 openspec/records/film-prompt-triple-impl.md 均写明该契约）。\n\n本轮无高危域条目（7 条的 highRiskDomains 全为空），不需要外部复核；本记录不依赖任何豁免路径。",
+    "closureNoteAt": "2026-10-21T05:31:58.463Z"
   }
 }

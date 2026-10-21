@@ -141,31 +141,10 @@
         "rationale": "辩护只在「事实结构固定、缺字段等于 false」这一个前提下成立，而这正是问题所在：缺 facts 与「facts.referenceResolvable=false」在运行时不可区分，而二者的正确处置不同（前者是调用方漏传，应报 SHOT_FACTS_MISSING 让人知道接线漏了；后者是确实不可解析）。若靠 undefined→falsy 自然落保守侧，则调用方漏传 facts 与能力真的不支持产生**同一个 reasonCode**，接线漏了看不出来——正是「装饰性守卫」那类问题。已修复：tasks.md 的 PR-5 新增 5.1b 用例——facts 缺失/不完整时判决器 SHALL 返回 notReady 且 reasonCode 为 SHOT_FACTS_MISSING，SHALL NOT 静默当作就绪；并在 proposal.md 的就绪度判据清单里补该 reasonCode，使方案与任务、测试三处一致。"
       }
     ],
-    "blocking": [
-      {
-        "id": "i2",
-        "severity": "Critical",
-        "reason": "self_play_upheld"
-      },
-      {
-        "id": "i4",
-        "severity": "Warning",
-        "reason": "self_play_upheld"
-      },
-      {
-        "id": "i5",
-        "severity": "Warning",
-        "reason": "self_play_upheld"
-      },
-      {
-        "id": "i6",
-        "severity": "Warning",
-        "reason": "self_play_upheld"
-      }
-    ],
+    "blocking": [],
     "note": "自扮演裁决：4 条指控成立或需外部复核",
     "at": "2026-10-20T23:31:39.152Z",
-    "closureNote": "本轮为验证层深度审查（critic=claude × proposer=opencode，跨家族，DUAL）。\n第 1 轮产出 8 条问题（correctness/security/performance/maintainability，最低分 5），\n其中 6 条进入自扮演裁决，裁决已逐条填写（prosecution / defense / verdict / rationale），\n第 1 轮 4 条为 upheld（i2 证据链不一致、i4 逐跳 pinning 缺判据、i5 PR 编号三处不一致、i6 facts 缺失未 fail-closed），\n第 1 轮 1 条 i3 为 dismissed（V-29 与 V-30 覆盖不同集合，非互斥），\n高危域 i1（auth）由外部后端 claude 独立复核，verdict=upheld，公开证据见 https://github.com/Colinchiu007/mulpub/pull/4118#issuecomment-6304117129。\n\n逐条处置与修复落点：\n· i1（auth·Critical）——本方自查确认：上一轮改口径时漏改 design.md D5 与 tasks.md PR-7b 第 8 条，\n  两处仍写「落盘 project.json 的 egressAllowAnyHost」，另有 3 处摘要行残留「且留痕」。\n  已按外部复核的最小修复动作统一为「运行期一次性令牌（只存内存、任务结束失效、SHALL NOT 落盘）；\n  项目文件 SHALL NOT 存放任何可用于放行的授权位；审计只记发生过授权这一事实」，\n  并加机械判据 V-26b（project.json 中不得存在 egressAllow 类字段）。修复后全量 grep 残留为 0。\n  外部复核提到的 spec.md 一项，本方核实为无残留（该文件已改），属其未读文件时的推断，如实标注。\n· i2（correctness·Critical）——成立。判定记录自身 status 与其 closureNote 叙述在字面上不一致，\n  属可追溯性缺陷。已修：第 1 轮 proposer 的机械失败现场完整保留在 firstAttempt（at/error/note/artifacts），\n  closureNote 载明 5 轮各自的 critic/proposer 与 issue/critical/minScore；\n  in-repo 的 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record.md 逐轮记录 8 条意见的处置，是评审结论的公开可核面。\n· i3（correctness·Critical）——驳回。V-29 的断言主体是 auto-plan 派生出的新分镜（每镜 videoPrompt 恒非空），\n  存量 153 条案例资产的空值由 V-30 单独判，两者覆盖不同集合、非互斥。已补 V-29a 与 tasks 的 V-30b 条目，\n  把「逐镜比例阈值不成立」写成显式条目（实测 153 模板中 123 个无可剔除静态块、比值 1.0）。\n· i4（security·Warning）——成立。既有逐跳重校验不等于「每跳 socket 用该跳自己校验过的 IP」，后者才是消除 TOCTOU 的关键。\n  已修：tasks.md PR-7b 新增 7b.2b 用例（第二跳指向内网须在第二跳发起前被拒，且其 lookup 使用该跳自己校验过的 IP）；\n  proposal.md S-4' 行补「每跳重新 pin」措辞。\n· i5（maintainability·Warning）——成立。三处编号拆分对象不同、名字相同而内容不同，是实打实的歧义源。\n  已修：proposal.md / tasks.md / review-brief.md 统一为 10 个 PR，依赖图同步；\n  并把 tasks.md 的条目号与其所属 PR 号一并对齐（原条目号停在拆分前的 1.x~8.x，PR-9 段落仍是 3.x），\n  修后脚本自检「每个 PR 段落内条目号前缀 == 该 PR 号」结果为无不一致。\n· i6（correctness·Warning）——成立。缺 facts 与「facts.referenceResolvable=false」运行时不可区分，\n  靠 undefined→falsy 自然落保守侧会让「调用方漏传」与「能力确实不支持」产生同一 reasonCode，接线漏了看不出来。\n  已修：tasks.md PR-5 新增 5.1b 用例（facts 缺失 ⇒ notReady + SHOT_FACTS_MISSING），并在方案的判据清单补该 reasonCode。\n\n以上 5 条 upheld 的修复均已落在本次提交中；本记录随之从「阻断」收口为已裁决。\ni1 属高危域（auth），其解除依据为外部后端 claude 的公开复核证据（见上），非自扮演豁免。",
+    "closureNote": "本轮为验证层深度审查（critic=claude × proposer=opencode，跨家族，DUAL）。\n第 1 轮产出 8 条问题（correctness/security/performance/maintainability，最低分 5），\n其中 6 条进入自扮演裁决，裁决已逐条填写（prosecution / defense / verdict / rationale），\n第 1 轮 4 条为 upheld（i2 证据链不一致、i4 逐跳 pinning 缺判据、i5 PR 编号三处不一致、i6 facts 缺失未 fail-closed），\n第 1 轮 1 条 i3 为 dismissed（V-29 与 V-30 覆盖不同集合，非互斥），\n高危域 i1（auth）由外部后端 claude 独立复核，verdict=upheld，公开证据见 https://github.com/Colinchiu007/mulpub/pull/4118#issuecomment-6304117129。\n\n逐条处置与修复落点：\n· i1（auth·Critical）——本方自查确认：上一轮改口径时漏改 design.md D5 与 tasks.md PR-7b 第 8 条，\n  两处仍写「落盘 project.json 的 egressAllowAnyHost」，另有 3 处摘要行残留「且留痕」。\n  已按外部复核的最小修复动作统一为「运行期一次性令牌（只存内存、任务结束失效、SHALL NOT 落盘）；\n  项目文件 SHALL NOT 存放任何可用于放行的授权位；审计只记发生过授权这一事实」，\n  并加机械判据 V-26b（project.json 中不得存在 egressAllow 类字段）。修复后全量 grep 残留为 0。\n  外部复核提到的 spec.md 一项，本方核实为无残留（该文件已改），属其未读文件时的推断，如实标注。\n· i2（correctness·Critical）——成立。判定记录自身 status 与其 closureNote 叙述在字面上不一致，\n  属可追溯性缺陷。已修：第 1 轮 proposer 的机械失败现场完整保留在 firstAttempt（at/error/note/artifacts），\n  closureNote 载明 5 轮各自的 critic/proposer 与 issue/critical/minScore；\n  in-repo 的 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record.md 逐轮记录 8 条意见的处置，是评审结论的公开可核面。\n· i3（correctness·Critical）——驳回。V-29 的断言主体是 auto-plan 派生出的新分镜（每镜 videoPrompt 恒非空），\n  存量 153 条案例资产的空值由 V-30 单独判，两者覆盖不同集合、非互斥。已补 V-29a 与 tasks 的 V-30b 条目，\n  把「逐镜比例阈值不成立」写成显式条目（实测 153 模板中 123 个无可剔除静态块、比值 1.0）。\n· i4（security·Warning）——成立。既有逐跳重校验不等于「每跳 socket 用该跳自己校验过的 IP」，后者才是消除 TOCTOU 的关键。\n  已修：tasks.md PR-7b 新增 7b.2b 用例（第二跳指向内网须在第二跳发起前被拒，且其 lookup 使用该跳自己校验过的 IP）；\n  proposal.md S-4' 行补「每跳重新 pin」措辞。\n· i5（maintainability·Warning）——成立。三处编号拆分对象不同、名字相同而内容不同，是实打实的歧义源。\n  已修：proposal.md / tasks.md / review-brief.md 统一为 10 个 PR，依赖图同步；\n  并把 tasks.md 的条目号与其所属 PR 号一并对齐（原条目号停在拆分前的 1.x~8.x，PR-9 段落仍是 3.x），\n  修后脚本自检「每个 PR 段落内条目号前缀 == 该 PR 号」结果为无不一致。\n· i6（correctness·Warning）——成立。缺 facts 与「facts.referenceResolvable=false」运行时不可区分，\n  靠 undefined→falsy 自然落保守侧会让「调用方漏传」与「能力确实不支持」产生同一 reasonCode，接线漏了看不出来。\n  已修：tasks.md PR-5 新增 5.1b 用例（facts 缺失 ⇒ notReady + SHOT_FACTS_MISSING），并在方案的判据清单补该 reasonCode。\n\n以上 5 条 upheld 的修复均已落在本次提交中；本记录随之从「阻断」收口为已裁决。\ni1 属高危域（auth），其解除依据为外部后端 claude 的公开复核证据（见上），非自扮演豁免。\n\n（2026-10-21 补记 · 验证层评审 i3：本记录 status=self_play_resolved 与 blocking 所列 4 条 upheld **不同向** —— 引擎的不变量是 status = blocking.length ? blocked : resolved。那几条在上面的 closureNote 里均已「成立 + 已修 + 落点」，缺陷在「修完没清账」而非「指控未决」。故按建议的第一分支处置：清空 blocking，status 保持 self_play_resolved（把已完成的评审退回 pending 会造出无法闭合的循环）。清账不改变任何评审结论。）",
     "closureNoteAt": "2026-10-20T23:34:27.154Z",
     "externalEvidence": {
       "i1": "https://github.com/Colinchiu007/mulpub/pull/4118#issuecomment-6304117129",

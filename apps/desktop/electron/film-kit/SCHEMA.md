@@ -94,22 +94,20 @@
 | `videoPrompt` | **视频运动**提示词：只保留运镜 + 主体 + 时长内的变化，**不含**静态画面全量 | `??= ''`（**空**，**不回落 prompt**） | 视频生成（`video-gen.buildShotSubmitPayload`） |
 | `endFramePrompt` | **尾帧约束**：末帧应当是什么（衔接下一镜的起点） | `??= ''` | 本批次**只产出不消费**（消费前置见 OpenSpec spec） |
 
-**加载期归一化口径**（`kit-loader.normalizeShotPrompts`）：`imagePrompt ??= prompt`、`videoPrompt ??= ''`、`endFramePrompt ??= ''`。
+**加载期归一化口径**（`shot-prompts.normalizeShotPrompts`）：`imagePrompt ??= prompt`、`videoPrompt ??= ''`、`endFramePrompt ??= ''`。
 归一化后下游**不再有 `?? prompt` 分支**；消费侧回落链是 `videoPrompt → imagePrompt → prompt`（视频）与 `imagePrompt → prompt`（图片）。
 
 **为什么 `videoPrompt` 回落空串而不是 `prompt`**：回落 `prompt` 会让「存量分镜的视频提示词过长」这件事
 **被掩盖成已解决**（字段非空、长度不减）。留空 ⇒ 消费侧回落 `imagePrompt`，**边界在数据上可见**。
 存量长提示词的真正治理是后续项（一次性重算 + 人工审核），不在本批次。
 
-### 2.2 三分合计上限
+### 2.2 分镜提示词的字段校验
 
-- **数值**：`FILM_PROMPT_BUNDLE_MAX_LEN = 50000`
-- **单位**：**字符**（`String.length`，**不是字节**）
-- **计量对象**：`imagePrompt + videoPrompt + endFramePrompt` **三者之和**（旧字段 `prompt` **不计入**——它是 `imagePrompt` 的历史别名，计进去等于重复计量）
-- **超限处置**：kit 加载 **fail-closed**（`FILM_KIT_UNAVAILABLE`），**不静默截断**；错误文案含文件名、镜 id、实测长度与上限
+单字段长度上限仍是 `FILM_PROMPT_MAX_LEN = 50000`（**未放宽**），三分各自都受它约束。
 
-单字段上限仍是 `FILM_PROMPT_MAX_LEN = 50000`（**未放宽**）。合计上限是**新增**的：三分各 5 万 ⇒ 合计 15 万字符送进
-provider 必然被拒且失败点在下游、定位成本高；合计上限让**资产损坏在加载期就暴露**。
+**没有「三分合计上限」**：早期草案曾设 `FILM_PROMPT_BUNDLE_MAX_LEN = 50000`，但该值与单字段上限相同 ⇒ 三段各自顶格的**合法**资产会被误判死；而三段各自已被单字段上限约束，合计上限**永远不会触发**（除非法输入），是个装饰性判据。**已删除**（验证层评审 i4）。
+
+真正起作用的护栏是**字段类型与长度校验**（`validateShotPromptFields`）：三分字段存在即必须是字符串且不超单字段上限。
 
 ## 三、reference-registry.json
 
