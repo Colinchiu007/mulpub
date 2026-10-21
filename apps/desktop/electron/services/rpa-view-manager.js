@@ -243,7 +243,12 @@ class RpaViewManager {
       }
       // 2026-10-21（douyin-e2e-timeout-debug）：把本次 API 轨失败诊断并入返回，
       // 让 DOM 轨终态带上"之前走过 API 轨且失败"这一事实（历史据此可定位）。
+      // 同时补 `track`（实际使用的轨）与 `apiTrackAttempted`（是否走过 API 轨）——
+      // 这是 PRD §16.19.4 埋点清单的 ①「分轨切换原因」：没有这两个字段，
+      // 历史无法回答"这次到底用了哪条轨"，只能看到终态 error。
       const out = (result && typeof result === 'object') ? { ...result } : { success: !!result, platform: platform }
+      if (apiEnabled) out.apiTrackAttempted = true
+      out.track = apiEnabled ? 'api-then-dom' : 'dom'
       if (this._lastApiFailure && this._lastApiFailure.platform === platform) {
         out.apiTrackFailed = this._lastApiFailure
       }
@@ -253,6 +258,8 @@ class RpaViewManager {
       if (e && e.isCanceled) { log.info('RpaView','publish '+platform+': cancelled'); return { success:false, error:'Cancelled', code:-999, platform:platform } }
       log.error('RpaView','publish '+platform+': '+e.message+(e.stack?' | stack='+String(e.stack).split('\n').slice(0,3).join(' <- '):''))
       const out = { success:false, error:e.message, platform:platform }
+      if (apiEnabled) out.apiTrackAttempted = true
+      out.track = apiEnabled ? 'api-then-dom' : 'dom'
       if (this._lastApiFailure && this._lastApiFailure.platform === platform) out.apiTrackFailed = this._lastApiFailure
       return out
     }
