@@ -174,7 +174,6 @@ async function deleteS2VVoiceClone(voiceId) {
     if (d.getS2vConfig().voiceId === normalizedVoiceId) {
       const fallbackVoiceId = s2vVoiceOptions.value[0]?.id || ''
       d.getS2vConfig().voiceId = fallbackVoiceId
-      state.s2vPersistedVoiceId = ''
       if (fallbackVoiceId) await selectS2VVoice(fallbackVoiceId)
     }
   } finally {

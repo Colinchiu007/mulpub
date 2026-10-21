@@ -189,6 +189,80 @@ function formatTarget(mode, resolved) {
 // 角色/提示文案里绝不能出现清单分隔符，否则 sh 侧的 IFS='|' read 会错位。
 const FIELD_SEP = "|";
 
+/**
+ * 把「**评审时**请求的后端」回写进入口命中的那份判定记录。
+ *
+ * 为什么必须有这一步（2026-10-18 实操抓到，是 #3927 自身留下的假红）：
+ * `reviewBackends` 由 pre-commit 时的判定器写入，记的是**提交那一刻**的请求值；
+ * 而换后端这件事通常发生在**评审时**（`--critic` / `MP_QM6_CRITIC`）。
+ * 于是记录里写着 critic=claude、驱动回填 performedBy=codex，
+ * `judgeBackendMismatch` 判未闭合 —— 我自己的机制把它支持的那个用法判成违规。
+ *
+ * 三条口径：
+ *  ① **不销毁旧值**：提交时的请求整份挪到 `commitRequest` 保留，审计链仍能看到
+ *     "提交时请求的是谁 / 评审时改成了谁"；只覆盖顶层，会让一次换后端把先前的断言抹掉。
+ *  ② **只在真的覆盖过时写**（调用方负责这个判断）：默认路径不碰任何记录文件，
+ *     免得每个 PR 的产物都被无关写者改一遍时间戳。
+ *  ③ 读不到/解析不了记录一律 `ok:false` 并给原因，**不静默新建**：
+ *     新建一份记录等于伪造判定产物，比不写严重得多。
+ *
+ * 返回 { ok, reason, before, after }；调用方（入口）据此决定继续还是早退。
+ */
+function applyReviewRequestToRecord(recordPath, resolved, fsImpl) {
+  const f = fsImpl || fs;
+  if (!recordPath) return { ok: false, reason: "记录路径为空" };
+  if (!resolved || typeof resolved.critic !== "string" || !resolved.critic) {
+    return { ok: false, reason: "评审时请求值不完整（critic 缺失）" };
+  }
+  // proposer 与 critic 必须成对校验：本函数写的是「请求的是哪一对后端」，只校验一半会让
+  // 半个真源落盘（undefined 被 JSON.stringify 静默丢键），而对账侧读的正是这一对。
+  if (typeof resolved.proposer !== "string" || !resolved.proposer) {
+    return { ok: false, reason: "评审时请求值不完整（proposer 缺失）——只写一半等于给对账留个假源" };
+  }
+  let raw;
+  try {
+    raw = f.readFileSync(recordPath, "utf8");
+  } catch (e) {
+    return { ok: false, reason: `读不到判定记录（${e && e.code ? e.code : e}）——不新建，避免伪造判定产物` };
+  }
+  let rec;
+  try {
+    rec = JSON.parse(raw);
+  } catch (e) {
+    return { ok: false, reason: `判定记录不是合法 JSON（${e && e.message ? e.message : e}）` };
+  }
+  if (!rec || typeof rec !== "object" || Array.isArray(rec)) {
+    return { ok: false, reason: "判定记录顶层不是对象，拒绝改写" };
+  }
+  const before = rec.reviewBackends;
+  const next = {
+    critic: resolved.critic,
+    proposer: resolved.proposer,
+    from: resolved.from || null,
+    notes: resolved.notes || [],
+    overridden: resolved.overridden === true,
+  };
+  // 提交时那份只在"确实不同"时留档，避免每次重跑都叠一层。
+  // ⛔ 已留过档时必须**原样往下传**：第二次换不同后端时 `before` 已经是上一次的回写结果，
+  //    直接 next.commitRequest = before 会把「上一次评审请求的是谁」写成「提交时请求的是谁」，
+  //    于是 spec 那条「MUST NOT 被就地覆盖销毁」在最需要它的多轮换后端场景里失效。
+  if (before && typeof before === "object" &&
+      (before.critic !== next.critic || before.proposer !== next.proposer)) {
+    next.commitRequest = before.commitRequest || before;
+    next.rewrittenAt = before.rewrittenAt || new Date().toISOString();
+  } else if (before && typeof before === "object") {
+    if (before.commitRequest) next.commitRequest = before.commitRequest;
+    if (before.rewrittenAt) next.rewrittenAt = before.rewrittenAt;
+  }
+  rec.reviewBackends = next;
+  try {
+    f.writeFileSync(recordPath, JSON.stringify(rec, null, 2), "utf8");
+  } catch (e) {
+    return { ok: false, reason: `写入判定记录失败（${e && e.code ? e.code : e}）` };
+  }
+  return { ok: true, reason: "", before, after: next };
+}
+
 module.exports = {
   DEFAULTS,
   SOURCE_FILE,
@@ -202,20 +276,30 @@ module.exports = {
   roleOf,
   installHint,
   formatTarget,
+  applyReviewRequestToRecord,
 };
 
 // ---------- CLI（供需要 node 的路径消费；sh 侧另有纯 shell 读取方） ----------
-// 用法：node scripts/lib/ccg-review-backends.js [覆盖] <打印模式>
+// 用法：node scripts/lib/ccg-review-backends.js [覆盖] <模式>
 //   覆盖：  --critic <name> / --proposer <name>
-//   模式：  --print-names | --print-table | --print-json | --target <dual|single>
-// 未知旗标、缺值、打印模式数不为 1 一律 rc=2 —— 本仓纪律：参数不得静默忽略，
+//   打印：  --print-names | --print-table | --print-json | --target <dual|single>
+//   动作：  --record-request <判定记录路径>
+// 未知旗标、缺值、模式数不为 1 一律 rc=2 —— 本仓纪律：参数不得静默忽略，
 // 否则「我传了 --critic」与「传进去了」两种情况在产物上完全同形。
 if (require.main === module) {
   const a = process.argv.slice(2);
   const PRINT_FLAGS = ["--print-names", "--print-table", "--print-json", "--target"];
+  // --record-request 是「带值的动作模式」：把**评审时**请求的后端回写进那份判定记录。
+  // 它与打印模式互斥（同样受「模式数必须为 1」约束）：调用方要么读信息、要么改产物。
+  const ACTION_FLAGS = ["--record-request"];
   const VALUE_FLAGS = ["--critic", "--proposer"];
+  const MODE_FLAGS = PRINT_FLAGS.concat(ACTION_FLAGS);
+  // 带值的模式旗标：值必须一起消费掉，否则下一轮会把值当未知旗标 —— 那是把正确调用判成错。
+  // 值清单为 null 表示自由值（路径）：任意非空且不以 -- 开头。
+  const MODE_VALUE_ALLOW = { "--target": ["dual", "single"], "--record-request": null };
   const cli = {};
   const modes = [];
+  let recordPath = "";
   try {
     for (let i = 0; i < a.length; i++) {
       const t = a[i];
@@ -226,46 +310,65 @@ if (require.main === module) {
         }
         cli[t.slice(2)] = v;
         i++;
-      } else if (PRINT_FLAGS.includes(t)) {
+      } else if (MODE_FLAGS.includes(t)) {
         modes.push(t);
-        if (t === "--target") {
-          // --target 是「带值的打印模式」：值必须一起消费掉，否则下一轮会把 "dual"
-          // 当未知旗标 —— 那是把正确调用判成错。
+        if (Object.prototype.hasOwnProperty.call(MODE_VALUE_ALLOW, t)) {
           const v = a[i + 1];
-          if (v !== "dual" && v !== "single") {
-            throw new Error(`--target 只认 dual / single，实得 ${JSON.stringify(v)}`);
+          const allow = MODE_VALUE_ALLOW[t];
+          if (v === undefined || String(v).startsWith("--")) {
+            throw new Error(`旗标 ${t} 缺值（必须紧跟一个值，不能为空或下一个旗标）`);
           }
+          if (allow && !allow.includes(v)) {
+            throw new Error(`${t} 只认 ${allow.join(" / ")}，实得 ${JSON.stringify(v)}`);
+          }
+          if (t === "--record-request") recordPath = v;
           i++;
         }
       } else {
         throw new Error(
-          `未知旗标 ${JSON.stringify(t)}（只认 ${[...PRINT_FLAGS, ...VALUE_FLAGS].join(" / ")}）`
+          `未知旗标 ${JSON.stringify(t)}（只认 ${MODE_FLAGS.concat(VALUE_FLAGS).join(" / ")}）`
         );
       }
     }
     if (modes.length !== 1) {
       throw new Error(
-        `必须且只能指定一个打印模式（${PRINT_FLAGS.join(" / ")}），实得 ${modes.length} 个：${modes.join(" ") || "(无)"}`
+        `必须且只能指定一个模式（${MODE_FLAGS.join(" / ")}），实得 ${modes.length} 个：${modes.join(" ") || "(无)"}`
       );
     }
     const r = resolveBackends({ cli });
-    for (const n of backendNames(r)) {
-      if (roleOf(n, r).includes(FIELD_SEP) || installHint(n).includes(FIELD_SEP)) {
-        throw new Error(`文案里出现了分隔符 ${FIELD_SEP}，会打乱 sh 侧的按行读取`);
-      }
-    }
     const head = modes[0];
-    if (head === "--print-names") {
-      process.stdout.write(backendNames(r).join(" ") + "\n");
-    } else if (head === "--print-table") {
-      for (const n of backendNames(r)) {
-        process.stdout.write(`${n}${FIELD_SEP}${roleOf(n, r)}${FIELD_SEP}${installHint(n)}\n`);
+    if (head === "--record-request") {
+      // 不变式② 在这一层机械执行：**没覆盖就不写**。默认路径不得碰任何记录文件 ——
+      // 否则每个 PR 的判定产物都会被无关写者改一遍（mtime、键顺序都会动），
+      // 而「谁改过判定产物」正是这条链要审计的东西。
+      if (r.overridden !== true) {
+        throw new Error(
+          `评审时请求的后端与清单一致（critic=${r.critic} proposer=${r.proposer}）⇒ 不回写。只有真覆盖过才改记录。`
+        );
       }
-    } else if (head === "--target") {
-      const m = a[a.indexOf("--target") + 1];
-      process.stdout.write(formatTarget(m === "dual" ? "dual" : "single", r) + "\n");
+      const res = applyReviewRequestToRecord(recordPath, r);
+      if (!res.ok) throw new Error(res.reason);
+      process.stdout.write(
+        `✓ 已把评审时请求的后端写回 ${recordPath}：critic=${r.critic} proposer=${r.proposer}\n`
+      );
     } else {
-      process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+      for (const n of backendNames(r)) {
+        if (roleOf(n, r).includes(FIELD_SEP) || installHint(n).includes(FIELD_SEP)) {
+          throw new Error(`文案里出现了分隔符 ${FIELD_SEP}，会打乱 sh 侧的按行读取`);
+        }
+      }
+      if (head === "--print-names") {
+        process.stdout.write(backendNames(r).join(" ") + "\n");
+      } else if (head === "--print-table") {
+        for (const n of backendNames(r)) {
+          process.stdout.write(`${n}${FIELD_SEP}${roleOf(n, r)}${FIELD_SEP}${installHint(n)}\n`);
+        }
+      } else if (head === "--target") {
+        const m = a[a.indexOf("--target") + 1];
+        process.stdout.write(formatTarget(m === "dual" ? "dual" : "single", r) + "\n");
+      } else {
+        process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+      }
     }
     for (const note of r.notes || []) {
       process.stderr.write(`⚠ ${note}\n`);

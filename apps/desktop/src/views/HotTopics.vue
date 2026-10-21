@@ -333,6 +333,7 @@ import { hotTopicsFetch, hotTopicsGetCache } from '@/api/hot-topics'
 import { aiRewrite, draftSave } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import { buildCreateHandoffQuery } from '@/features/publish-destination/publish-destination-config'
 import HotTopicsGenVideoPicker from '@/components/HotTopicsGenVideoPicker.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiButton from '@/components/UiButton.vue'
@@ -663,16 +664,18 @@ function onPublishArticle() {
   startBatchRewrite()
 }
 
-function onPublishVideo(pipelineId) {
+function onPublishVideo(pipelineId, detail) {
   showPublishModal.value = false
   publishMode.value = 'video'
-  startBatchRewrite(pipelineId)
+  startBatchRewrite(pipelineId, detail?.configProfileId)
 }
 
-function startBatchRewrite(pipelineId) {
+function startBatchRewrite(pipelineId, configProfileId) {
   const selected = filteredTopics.value.filter(x => selectedIds.value.has(x.id))
   publishQueue.value = selected.map(x => ({
     id: x.id, topic: x.topic, status: 'pending', draftId: null, pipelineId: pipelineId || null,
+    // publish-config-picker：所选配置档案随队列项一路带到创作页（否则用户选的配置会丢）
+    configProfileId: configProfileId || null,
   }))
   publishing.value = true
   publishDone.value = false
@@ -803,7 +806,16 @@ function goToDestination() {
     if (okItems.length === 0) return
     if (publishMode.value === 'video') {
       const last = okItems[okItems.length - 1]
-      router.push({ path: '/create', query: { draft: last.draftId } })
+      // publish-config-picker：把「去发布」弹窗里选的流水线与配置档案一并带到创作页。
+      // 修复前这里只带 draft，弹窗里选的流水线被静默丢弃（选了等于没选）。
+      router.push({
+        path: '/create',
+        query: buildCreateHandoffQuery({
+          draftId: last.draftId,
+          pipelineId: last.pipelineId,
+          configProfileId: last.configProfileId,
+        }),
+      })
     } else {
       // 图文去向必须把**全部**成功草稿交给发布页：
       // 单条 → ?draft=<id>（单篇编辑器，保持既有语义）；

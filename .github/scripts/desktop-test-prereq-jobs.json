@@ -1,0 +1,27 @@
+{
+  "_comment": "会跑 apps/desktop vitest 的 CI job 登记表。判据见 .github/scripts/check-desktop-test-prereqs.js：域内 job 必须能在它之前重建 preload 产物（pnpm --filter @multi-publish/desktop build:preload）。新增域内 job 必须在这里登记并同步补前置构建步骤；条目陈旧（job 已不在域内/已不存在）会被判红，清单只能缩小。",
+  "_allowEmptyDomain": false,
+  "required": [
+    {
+      "workflow": "clock-shift-oracle.yml",
+      "job": "clock-shift-oracle",
+      "why": "完整两趟会把全域候选（含 apps/desktop）全部跑一遍；产物缺失会让基线段先红，而该判据在这一分支打印 ORACLE_NOT_AUTHORITATIVE 并以 rc=0 退出 ⇒ 审计看到绿灯但「该域内无引信」的结论已失效"
+    },
+    {
+      "workflow": "electron-ci.yml",
+      "job": "electron-tests",
+      "why": "pnpm --filter @multi-publish/desktop test 跑桌面全量 vitest，preload 产物必须在测试前重建"
+    },
+    {
+      "workflow": "quality-gate.yml",
+      "job": "coverage",
+      "why": "桌面 coverage 跑桌面 vitest（test:coverage），preload 产物必须在测试前重建"
+    },
+    {
+      "workflow": "quality-gate.yml",
+      "job": "desktop-shards",
+      "why": "桌面分片显示过滤后跑桌面 vitest，preload 产物必须在测试前重建"
+    }
+  ],
+  "exempt": []
+}

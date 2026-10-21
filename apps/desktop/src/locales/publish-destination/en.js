@@ -11,5 +11,13 @@ export default {
     videoDesc: 'Open the video pipeline page with text pre-filled',
     pipelineLabel: 'Pipeline',
     pipelineEmptyOption: '-- Choose a pipeline --',
+    // publish-config-picker (2026-10-21): "Configuration" lists the saved named
+    // configuration profiles of the selected pipeline. With none saved the trigger
+    // reads "Default" and the dropdown is empty, so "Default" is the only entry text.
+    configLabel: 'Configuration',
+    configDefaultOption: 'Default',
+    configEmpty: 'No saved configuration for this pipeline yet. Create one with "Save configuration" on the creation page.',
+    configLoading: 'Loading configurations…',
+    configLoadFailed: 'Could not load configurations. Selecting a configuration is unavailable for now.',
     close: 'Close',
   }

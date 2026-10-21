@@ -48,7 +48,7 @@ export default {
     strategyManual: 'Manual select',
     strategyPlaceholder: '-- Select strategy --',
     contentLabel: 'Content',
-    contentPlaceholder: 'Enter content to rewrite (up to 6000 characters)',
+    contentPlaceholder: 'Enter content to rewrite (up to 50000 characters)',
     rewriteBtn: '🔄 Rewrite',
     rewritingBtn: 'Rewriting...',
     applyBtn: 'Apply',

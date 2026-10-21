@@ -63,6 +63,11 @@ function unwrapObject (payload, key) {
   return payload
 }
 
+// 撤档留痕的判据是纯函数，单独住在 services/podcast-legacy-voice-ref.js：它原先住在本文件里,
+// 连注释 21 行把这本已很大的 handler 推过 500 行线、被 CI 的 FILES_OVER_500 熔断当场判红。
+// 正解是拆结构而不是上调基线（行为逐字不变，范围口径随函数一起搬走）。
+const { legacyChannelVoiceRefCarriesContent } = require('../services/podcast-legacy-voice-ref')
+
 /** 领域错误 → IPC envelope。不同排查方向的错误不得合并成一句话。 */
 function toIpcError (err) {
   const code = err && err.code
@@ -359,11 +364,6 @@ function registerHandlers (ipcMain, deps) {
       getVoiceCapability: (providerId, model) => catalog.getVoiceCapability(providerId, model),
     })
     planPreview = createEpisodePlanPreview({
-      channelRefOf: (channelId) => {
-        // 只读：getService 不带 writable ⇒ 走 assertChannelExists，预览永远拿不到写判据
-        const meta = getService(channelId).getChannel()
-        return meta && meta.voiceRef && typeof meta.voiceRef === 'object' ? meta.voiceRef : null
-      },
       defaultProviderOf: () => {
         const m = deps && deps.modelProviderManager
         if (!m || typeof m.getDefault !== 'function') {
@@ -426,12 +426,47 @@ function registerHandlers (ipcMain, deps) {
     return getEpisodeHost().cancelPublish(runId)
   })))
 
+  const TTS_VOICE_UNRESOLVED_CODE = require('../services/podcast-tts-compose').TTS_COMPOSE_ERRORS.VOICE_REF_INCOMPLETE
+  // 存量留痕的去重位（第五轮 P5）：撤档不回填该字段 ⇒ 这个状态对同一频道是常驻的，不去重就会
+  // 每开一次计费确认框刷同一句（本文件对同类常驻状态已有两条先例：stockShapeWarned、previewDepWarned，
+  // 口径「刷屏会把真信号冲掉」）。按 channelId 去重而不是全局一条布尔，否则第二个受影响频道的
+  // 现场会被第一个吃掉；消息里带上 channelId，让「哪几个频道还挂着历史字段」可直接从日志数出来。
+  const legacyVoiceRefTraced = new Set()
+  function traceLegacyChannelVoiceRef (meta, channelId) {
+    if (!legacyChannelVoiceRefCarriesContent(meta && meta.voiceRef)) return
+    const key = String(channelId)
+    if (legacyVoiceRefTraced.has(key)) return
+    legacyVoiceRefTraced.add(key)
+    log.warn('[ipc:podcast] channel ' + key + ' meta carries a legacy voiceRef, but the channel tier was dropped 2026-10-19; resolving via preference/capability')
+  }
+
   // 只读预览（PRD §7.10.4.1）。⛔ 通道名同样必须是字面量：electron/tests/ipc-contract.test.js 按字面量
   // 双向对账，收回变量或循环注册会让这条通道从对账里消失。
   ipcMain.handle('podcast:episode:planPreview', withSenderCheck(handlerFor('episode:planPreview', async (payload) => {
     const p = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
     const script = typeof p.script === 'string' ? p.script : (typeof p.content === 'string' ? p.content : '')
-    return getPlanPreview().previewEpisodePlan({ channelId: channelOf(payload), script })
+    const cid = channelOf(payload)
+    // 频道存在性判据（PRD §7.10.4.1）与存量留痕（QM6 i1/i3、第五轮 P1/P3/P4）。
+    // ⛔ 位置即判据，两条支方向相反、都要守住：
+    //  · 成功支——这次读必须排在 previewEpisodePlan **之后**。主干上它发生在分块与形状校验之后
+    //    （channelRefOf 是音色解析的入参求值），于是「正文太短 + 频道不存在」报 COPY_TOO_SHORT、
+    //    畸形 id 由形状层拒；挪到前面会让频道错误抢先，那是两个不同的用户可见错误码。
+    //  · 拒绝支——撤档把「命中频道档的成功」变成「两层全空的拒绝」，这一格最需要留痕，而原版把
+    //    整段留在 await 之后 ⇒ 一次都执行不到（P1）。这里只对「音色未解析」那**一个**码补读一次，
+    //    并让频道缺失照常抛出：主干上频道错误本就抢先于音色错误，用户看到的仍是「频道不存在，
+    //    可能已被删除」而不是「请检查服务商与音色设置」（P3）。其它码一律不补读，否则
+    //    COPY_TOO_SHORT 会被频道错误抢先——那是同一处判据的反面。
+    // 只读 ⇒ 不请求可写句柄（assertChannelWritable 一次都不许被调）；但首触频道会顺带触发存量固化
+    // 旁路写，与 podcast:channel:get 同路径（tasks 4.4b）——本层不新增第二处合法性判据、不回填 voiceRef。
+    let res
+    try {
+      res = await getPlanPreview().previewEpisodePlan({ channelId: cid, script })
+    } catch (e) {
+      if (e && e.code === TTS_VOICE_UNRESOLVED_CODE) traceLegacyChannelVoiceRef(getService(cid).getChannel(), cid)
+      throw e
+    }
+    traceLegacyChannelVoiceRef(getService(cid).getChannel(), cid)
+    return res
   })))
 
   // 文本出期（tasks 4.3②-b，PRD §7.10.1–§7.10.3）。⛔ 通道名必须是字面量：ipc-contract 按字面量双向对账。

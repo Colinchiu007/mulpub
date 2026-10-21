@@ -33,12 +33,16 @@
  * min/max 双向绑定 + 校验错误展示；校验逻辑在 useWordCountValidation composable。
  * 原生 min/max 属性同步读上限常量（rewrite-limits-50000，2026-10-19）：
  * 写死 5999/6000 会让鼠标 spinner 用户无法设到 50000（QM-6 Claude 轴 MINOR-2）。
+ *
+ * 2026-10-20 collection-ux-step-flow：prop 默认值由 800/2000 改为**空串**。
+ * 语义是「默认不设字数限制，由引擎自由发挥」；改写页显式传值（800/2000 + 自适应），
+ * 行为不变；采集页不传值 ⇒ 留空。
  */
 import { REWRITE_ENGINE_MAX_INPUT_CHARS, REWRITE_ENGINE_MAX_OUTPUT_CHARS } from '@/utils/rewrite-engine-limits'
 defineProps({
   label: { type: String, default: '' },
-  min: { type: [Number, String], default: 800 },
-  max: { type: [Number, String], default: 2000 },
+  min: { type: [Number, String], default: '' },
+  max: { type: [Number, String], default: '' },
   minPlaceholder: { type: String, default: '' },
   maxPlaceholder: { type: String, default: '' },
   unit: { type: String, default: '' },

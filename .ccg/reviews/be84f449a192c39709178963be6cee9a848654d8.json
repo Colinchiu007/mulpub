@@ -1,0 +1,221 @@
+{
+  "sha": "be84f449a192c39709178963be6cee9a848654d8",
+  "layer": "plan",
+  "mode": "dual",
+  "reason": "变更 203 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 203,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [
+      "apps/desktop/electron/film-kit/SCHEMA.md",
+      "SCHEMA.md"
+    ],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "plannedFiles": [
+    "01-docs/RESEARCH-AI-FILM-OPENSOURCE-2026-10-19.md",
+    "01-docs/PRD-FILM-PROMPT-ASSETS-2026-10-20.md",
+    "01-docs/RESEARCH-AI-FILM-REVIEW-2026-10-19.md",
+    "FilmAutoPanel.vue",
+    "auto-plan.js",
+    "auto-project.js",
+    "auto-runner.js",
+    "video-gen.js",
+    "kit-loader.js",
+    "story2video-stages.js",
+    "story-context-engine.js",
+    "useFilmCanvas.js",
+    "FilmEngineeringView.vue",
+    "film-kit/shot-grammar.json",
+    "film-kit/compliance-checklist.json",
+    "film-kit/palette.json",
+    "prompt-library.js",
+    "prompt-doctrine.json",
+    "shot-duration.js",
+    "shot-library.json",
+    "costCheck.shots",
+    "film-render.js",
+    "auto-plan-fingerprint.js",
+    "shared-utils/src/net/safe-fetch.js",
+    "shot-downloader.js",
+    "safe-fetch.js",
+    "packages/python-backend/src/multi_publish/core/doctor.py",
+    "doctor.py",
+    "story2video-engine/src/shotReadiness.ts",
+    "apps/desktop/electron/services/film-engineering/video-gen.js",
+    "film-video-checkpoint-integration.test.js",
+    "app.yumcut.com",
+    "project.json",
+    "apps/desktop/scripts/stage-media-tools.js",
+    "media-tools-lock.json",
+    "adapters/_base/base.js",
+    "production-runner.js",
+    "apps/desktop/electron/services/film-engineering/kit-loader.js",
+    "apps/desktop/electron/services/film-engineering/auto-plan.js",
+    "apps/desktop/electron/film-kit/SCHEMA.md",
+    "apps/desktop/electron/film-kit/shot-library.json",
+    "apps/desktop/electron/services/film-engineering/shot-readiness.js",
+    "apps/desktop/electron/services/film-engineering/egress-guard.js",
+    "apps/desktop/electron/services/film-engineering/shot-downloader.js",
+    "apps/desktop/electron/services/film-engineering/tool-doctor.js",
+    "apps/desktop/electron/services/film-engineering/auto-project.js",
+    "apps/desktop/electron/services/film-engineering/auto-runner.js",
+    "apps/desktop/src/views/film-auto/FilmAutoPanel.vue",
+    "apps/desktop/electron/services/story-context-engine.js",
+    "apps/desktop/electron/services/story2video-stages.js",
+    "apps/desktop/src/views/FilmEngineeringView.vue",
+    "apps/desktop/electron/services/film-engineering/film-engineering-service.js",
+    "shot-readiness.test.js",
+    "egress-guard.test.js",
+    "tool-doctor.test.js",
+    "auto-plan.test.js",
+    "auto-project.test.js",
+    "auto-runner.test.js",
+    "kit-loader.test.js",
+    "video-gen.test.js",
+    "01-docs/PRD-FILM-PIPELINE-V2-2026-10-21.md",
+    "egress-guard.js",
+    "shot-readiness.js",
+    "PRD-FILM-PROMPT-ASSETS-2026-10-20.md",
+    "core/doctor.py",
+    "stage-media-tools.js",
+    "apps/desktop/electron/tests/.../kit-loader.test.js",
+    "shot-downloader.test.js",
+    "film-render.test.js",
+    "scripts/check-locale-sync.js",
+    "scripts/check-no-brand-residue.js",
+    "scripts/check-gate-record-debt.js",
+    "SCHEMA.md",
+    ".test.js",
+    "scripts/classify-docs-only.js"
+  ],
+  "decidedAt": "2026-10-20T18:35:39.656Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "cleared",
+    "performedBy": "claude+codex",
+    "objectType": "plan",
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 2,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 6,
+          "clarity": 8,
+          "feasibility": 7,
+          "security": 6
+        },
+        "critic": "claude",
+        "proposer": "opencode"
+      },
+      {
+        "round": 2,
+        "issues": 8,
+        "critical": 2,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 6,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 6
+        },
+        "critic": "codex",
+        "proposer": "claude"
+      },
+      {
+        "round": 3,
+        "issues": 8,
+        "critical": 2,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 5,
+          "clarity": 6,
+          "feasibility": 5,
+          "security": 6
+        },
+        "critic": "codex",
+        "proposer": "claude"
+      },
+      {
+        "round": 4,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 5,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 6
+        },
+        "critic": "codex",
+        "proposer": "claude"
+      },
+      {
+        "round": 5,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 5,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 6
+        },
+        "critic": "codex",
+        "proposer": "claude"
+      }
+    ],
+    "firstAttempt": {
+      "at": "2026-10-20T18:38:02.123Z",
+      "error": "输入超长：22457 字符，超过 opencode 后端上限 7800 字符（实测边界 (8125, 8145]，非文档承诺）。该后端会同步拒绝（~120ms、exit 1、无任何错误信息）。",
+      "note": "第 1 轮 proposer 机械步骤同步拒绝（critic 侧已正常产出 8 条）；随后改用无长度上限的 codex/claude 组合重跑 4 轮，全部正常产出",
+      "artifacts": ".adversarial/run1-proposal-claude-2026-10-21"
+    },
+    "closureNote": "第 1 轮 proposer（opencode）因该后端 7800 字符单次输入上限同步拒绝（机械失败，critic 侧已正常产出 8 条），并非「评审从未发生」。此后共跑第 1~5 轮跨家族对抗评审（critic=claude 与 codex，proposer=opencode 与 claude），累计 40 条意见已逐条采纳并落到 proposal.md / design.md / specs/film-engineering/spec.md / PRD。其中 3 条为自引入漏洞已修正（乐观锁的 rename 不等于 CAS、授权落盘成持久免检标记、纯函数却要读文件）。剩余 5 项风险已在 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record.md §五之二 登记为 R-1~R-5，均不属本 PR 范围。本变更集只含 01-docs/**、openspec/**、.ccg/** —— 未命中任何高危面前缀（非判据本体 / workflows / 凭证登录态），故按 check-pr-exec-record.js 的合规出口 ② 以本 closureNote 收口。",
+    "artifacts": ".adversarial/run1-proposal-claude-2026-10-21 ; run2-proposal-codex-2026-10-21 ; run3-proposal-codex-2026-10-21 ; run4-proposal-codex-2026-10-21 ; ccg-plan-proposal-codex",
+    "at": "2026-10-21T01:58:00.000Z"
+  }
+}

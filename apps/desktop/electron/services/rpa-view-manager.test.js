@@ -113,7 +113,7 @@ describe('RpaViewManager API 路由', () => {
     vi.spyOn(manager, '_publish_wechat_mp').mockResolvedValue({ success: true, platform: 'wechat_mp' })
 
     await expect(manager.publish('wechat_mp', { accountId: 'acc-1' }, {}, 1000))
-      .resolves.toEqual({ success: true, platform: 'wechat_mp' })
+      .resolves.toEqual({ success: true, platform: 'wechat_mp', track: 'dom' })
 
     expect(publishViaApi).not.toHaveBeenCalled()
     expect(manager._createWindow).toHaveBeenCalledTimes(1)
@@ -145,7 +145,7 @@ describe('RpaViewManager API 路由', () => {
         proxy: { host: '127.0.0.1', port: 8080, type: 'http' },
       },
       1000,
-    )).resolves.toEqual({ success: true, platform: 'wechat_mp' })
+    )).resolves.toEqual({ success: true, platform: 'wechat_mp', track: 'dom' })
 
     expect(publishViaApi).not.toHaveBeenCalled()
     expect(win.webContents.session.setProxy).toHaveBeenCalledWith({ proxyRules: 'http://127.0.0.1:8080' })
@@ -183,7 +183,7 @@ describe('RpaViewManager API 路由', () => {
       { accountId: 'acc-storage' },
       { localStorage: { token: 'private' }, indexedDB: { auth: { tokens: [] } } },
       1000,
-    )).resolves.toEqual({ success: true, platform: 'wechat_mp' })
+    )).resolves.toEqual({ success: true, platform: 'wechat_mp', track: 'dom' })
 
     expect(events).toEqual([
       'load:https://mp.weixin.qq.com/',

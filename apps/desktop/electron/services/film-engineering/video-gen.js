@@ -72,9 +72,16 @@ function getFilmMediaRoot () {
  */
 function buildShotSubmitPayload ({ shot, aspect, seconds, model, referencePayload }) {
   const numFrames = pickFilmFrameCount(seconds)
+  // 影视工程 v2 · F-A：视频走 videoPrompt（运动子集）；为空则回落 imagePrompt（存量分镜）。
+  // 回落链与 kit-loader 的归一化口径一致：videoPrompt 为空 ⇒ 回落 imagePrompt ⇒ 再回落 prompt。
+  const prompt = (shot && typeof shot.videoPrompt === 'string' && shot.videoPrompt.trim())
+    ? shot.videoPrompt
+    : ((shot && typeof shot.imagePrompt === 'string' && shot.imagePrompt.trim())
+        ? shot.imagePrompt
+        : (shot && typeof shot.prompt === 'string' ? shot.prompt : ''))
   /** @type {Record<string, unknown>} */
   const payload = {
-    prompt: shot.prompt,
+    prompt,
     numFrames,
     frameRate: FILM_FRAME_RATE,
     num_frames: numFrames,

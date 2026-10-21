@@ -49,6 +49,17 @@ while true; do
   sleep "$POLL"
 done
 
+# 3b) 主干红 / 本 PR 新增红的闸门（判据唯一实现：scripts/lib/main-red.js，本入口只调用不判定）
+#     rc=1 本 PR 自己引入的红；rc=2 主干红着（往红的主干上合 = 把 required Gate Result 的红留给下一个会话）；
+#     rc=3 未证实（pending/零检查）；rc=4 闸门自身取不到数——一律停手，不得用重推掩盖。
+#     ⛔ 整段必须排在下面「本 PR 失败清单」之前（第五轮 C2，Critical）：主干红时每个 PR 的 required
+#     Gate Result 都跟着红，若先按「PR 有红」退出，闸门一次都不会被执行，而「只剩一句 CI 未通过、
+#     把真实原因（主干红）藏成我的 PR 有问题」正是本片立项要消灭的那句话。
+#     归因走环境变量 MAIN_RED_ALLOW（含空格，所以必须组数组，不能裸展开）。
+MAIN_RED_ARGS=()
+[[ -n "${MAIN_RED_ALLOW:-}" ]] && MAIN_RED_ARGS=(--allow-main-red "$MAIN_RED_ALLOW")
+node scripts/check-main-red.js --pr "$PR" ${MAIN_RED_ARGS[@]+"${MAIN_RED_ARGS[@]}"} || { echo "STOP：main-red 闸门拒绝合并 PR #$PR（rc=$?，读上一行 verdict）"; exit 7; }
+
 # 3) 解析结论（仅用 state，不依赖 conclusion 字段）
 mapfile -t FAILED < <(gh pr checks "$PR" --json name,state --jq \
   '.[] | select(.state=="FAILURE" or .state=="CANCELLED" or .state=="TIMED_OUT" or .state=="ERROR") | .name' 2>/dev/null) || FAILED=()
@@ -63,8 +74,10 @@ if [[ ${#FAILED[@]} -gt 0 ]]; then
 fi
 
 # 4) 合并（REST API 直接合并，无需 --yes，原子且可靠）
+PR_HEAD_SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid 2>/dev/null || echo '')
+[[ -n "$PR_HEAD_SHA" ]] || { echo "STOP：取不到 PR head sha——不传 sha 的合并落的是「执行那一刻的 head」，闸门验过的 sha 与真正进主干的产物可以不是同一笔（第五轮 C6）"; exit 7; }
 echo "==> CI 通过，合并 PR #$PR ($METHOD)..."
-MERGE_BODY=(-X PUT "repos/${REPO}/pulls/${PR}/merge" -f "merge_method=${METHOD}")
+MERGE_BODY=(-X PUT "repos/${REPO}/pulls/${PR}/merge" -f "merge_method=${METHOD}" -f "sha=${PR_HEAD_SHA}")
 [[ "$DELETE_BRANCH" -eq 1 ]] && MERGE_BODY+=(-f "delete_branch=true")
 if gh api "${MERGE_BODY[@]}" >/dev/null 2>&1; then
   echo "✓ PR #$PR 已合并。"

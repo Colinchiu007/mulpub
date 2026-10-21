@@ -1,0 +1,59 @@
+{
+  "sha": "f9315269f1d3e036d0a04410e16cd83e192dce72",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **顺手记下这个基线缺的那道锁**（留给门禁批次，不在本 PR 夹带）：现在 `--update` 是",
+      "- **新增 QM-2 必检项「第三方组件的属性转发面必须实测，标签↔控件关联的判据只能取 DOM 事实」**：现场依据是本日两次实测——Element Plus 的 `ElInput` 会**整个丢弃 `id`**（根 div 与内层 input/textarea 三处全空），但会转发 `aria-labelledby`；本仓自研 `UiInput` 此前没有 `id` prop，导致 `Publish.vue:456` 的 `<label for=\"publish-tags\">` 自写下之日起指向根 `div`，属规范级无效（labelable 只有 `button/input/meter/output/progress/select/textarea`，指到 div 不报错、不降级、也不回退到相邻文本）。规则要求关联类断言一律取 `control.labels` / `label.htmlFor`，宿主转发面 mount 一次实测并钉成契约锁，造 id 用 `useId()` 而**禁止 `Math.random()`**（同页撞车时 label 会指到别人的控件，比缺失更坏）。",
+      "- 2026-10-19 真实事故：MiniMax 订阅套餐账号克隆音色被服务端拒绝（`model_provider_logs` id=10030：`your current token plan not support model, voice_clone`，latency 1125ms——请求真实到达、鉴权通过、参数合规）。adapter 把它误判为额度类（`token\\s*plan` 被 isQuota 吃掉），service 折叠成 `VOICE_CLONE_PROVIDER_UNAVAILABLE`，用户看到「音色克隆服务暂时不可用，请稍后重试」——重试永不成功，误导用户反复尝试。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4403584fd85d9f16ee49a4d0f467bd54e6cf327697e2365234c39702cf2abccc",
+  "decidedAt": "2026-10-20T05:23:05.900Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

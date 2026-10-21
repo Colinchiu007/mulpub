@@ -6628,6 +6628,24 @@ Vue 展示组件
 
 #### Story2Video 页面术语、固定操作区与历史编辑合同（2026-08-17）
 
+#### 用户可见失败信息的稳定错误码合同（2026-10-20，error-message-user-friendly-audit）
+
+**需求**：所有面向用户的失败提示 SHALL 用当前语言的自然语言说明具体原因并给出可操作建议；MUST NOT 直出英文技术原文、i18n key 或未解析占位符。完整合同见 [PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md](./PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md)，事故复盘见 [BUGFIX-HISTORY-CARD-RAW-ENGLISH-ERROR-2026-10-20.md](./BUGFIX-HISTORY-CARD-RAW-ENGLISH-ERROR-2026-10-20.md)。
+
+**合同要点**：
+
+| 维度 | 要求 |
+| --- | --- |
+| 主进程 | apps/desktop/electron 下会被前端渲染的失败返回体 SHALL 带稳定 errorCode（封闭常量集合，如 COMPOSE_ERROR_CODES）+ 可插值 messageParams；message 仅诊断用 |
+| messageParams | 只含用户可读值（带单位体积、1-based 序号、格式化时长）；MUST NOT 含裸字节数、绝对路径、堆栈、HTTP 状态码 |
+| 穿透边界 | stage-executor → pipeline-engine._finalizeRun → run-state-store 快照 SHALL 一路带上；run.error / stage.error 保持字符串契约（恢复门控与阶段摘要依赖） |
+| 渲染端 | 取值优先级 = 原文归一化（存量兼容）→ 稳定码显式映射（COMPOSE_ERROR_KEY_MAP）→ 原文透传 → 通用兜底；MUST NOT 用字符串推导 locale key |
+| 存量数据 | 只有英文 run.error 的旧记录 SHALL 经原文模式归一化为同一自然语言文案 |
+| 多语言 | 文案一律 zh/en 成对写入 locales/story2video/{zh,en}.js；渲染端 src/ 非 locales 文件不得新增中文字面量（CJK 门禁） |
+| 机械判据 | scripts/check-compose-error-codes.js 校验「主进程常量 / 渲染端映射 / zh+en 文案 / messageParams 占位符」四侧一致，接入 quality-gate.yml 的 changes job（Gate 12g），漏改任一侧即红 |
+
+**验收标准**：① 新产生的 compose 预检失败卡片显示自然语言（含体积/场景号与建议），不含英文原文与 i18n key；② 英文界面显示英文文案；③ 存量记录同样归一化；④ 参数缺失不渲染空占位符；⑤ run.error 字符串契约零回归；⑥ 门禁 6 道变异反证全部 rc=1；⑦ locale 三项门禁 PASS。
+
 视频创作页面的详细产品合同已独立整理到 [PRD-S2V-PIPELINE-PAGE-UX.md](./PRD-S2V-PIPELINE-PAGE-UX.md)，本节作为主 PRD 索引。流水线选择后的配置/运行页统一称为“流水线启动页”；历史记录进入的任务查看与修改页统一称为“视频任务编辑页”，不再把旧详情弹窗称为任务详情页。固定底部操作条、顶部阶段进度、统一历史卡片字段、失败原因本地化、暂停/删除数据校验、分段跳转、AI 视频生成、音色目录回退和语速滑条均以该文档及 OpenSpec change 为准。
 
 #### Story2Video 历史断点恢复模型合同（2026-08-19）
@@ -6656,7 +6674,7 @@ Vue 展示组件
 | 项 | 规则 |
 |----|------|
 | 平台标识 | 仅允许 `[a-zA-Z0-9_-]+`，非法值拒绝 |
-| 重复账号 | `owner_subject + platform + name`（去空格、小写）唯一；重复返回 409，提示"此账号已添加过" |
+| 重复账号 | `owner_subject + platform + platform_account_id` 三者全同才唯一；重复返回 409，提示"此账号已添加过"。**同平台可添加多个账号**——`platform_account_id` 为空（平台不提供可采集的用户 ID）时允许入库，见 §「账号同平台多账号去重契约」 |
 | 登录验证 | 验证通过 `code=0 且 data.valid=true`；其余一律按"已失效"处理 |
 | 防抖/并发 | 单账号验证期间 `verifyingIds` 防重入；验证按钮 disabled |
 
@@ -7124,6 +7142,12 @@ store:delete-account 凭据删除失败 → return { code: -1, message: '删除�
 - apps/desktop/electron/ipc-handlers/store.js (+2/-1)
 - packages/python-backend/tests/test_server_account_lifecycle.py (+22/-2)
 - apps/desktop/electron/ipc-handlers/store.test.js (+9/-8)
+
+> **⚠️ 本节「修复 1」的 name 判据已于 2026-10-21 被修正并删除**（change: fix-multi-account-same-platform）。
+> 该判据把 `name`（`document.title` 落盘位，采不到平台用户 ID 时回落平台显示名）当成账号身份标识，
+> 导致同一平台的多个不同账号因同名被误判为「此账号已添加过」——用户实测「有 3 个头条号，加第 2 个即被拒」。
+> 现行契约见 PRD §「账号同平台多账号去重契约（2026-10-21）」：**只有 `platform_account_id` 是身份标识**。
+> 本节保留是为记录来路，其中的「判定规则表」与「测试覆盖」两表描述的是被删除的旧行为，不得照做。
 
 #### 8.1.1.1 URL 正文提取实现细节（v2.3.61 BUG 修复）
 
@@ -15575,7 +15599,7 @@ Vue 展示组件
 | 项 | 规则 |
 |----|------|
 | 平台标识 | 仅允许 `[a-zA-Z0-9_-]+`，非法值拒绝 |
-| 重复账号 | `owner_subject + platform + name`（去空格、小写）唯一；重复返回 409，提示"此账号已添加过" |
+| 重复账号 | `owner_subject + platform + platform_account_id` 三者全同才唯一；重复返回 409，提示"此账号已添加过"。**同平台可添加多个账号**——`platform_account_id` 为空（平台不提供可采集的用户 ID）时允许入库，见 §「账号同平台多账号去重契约」 |
 | 登录验证 | 验证通过 `code=0 且 data.valid=true`；其余一律按"已失效"处理 |
 | 防抖/并发 | 单账号验证期间 `verifyingIds` 防重入；验证按钮 disabled |
 
@@ -16043,6 +16067,12 @@ store:delete-account 凭据删除失败 → return { code: -1, message: '删除�
 - apps/desktop/electron/ipc-handlers/store.js (+2/-1)
 - packages/python-backend/tests/test_server_account_lifecycle.py (+22/-2)
 - apps/desktop/electron/ipc-handlers/store.test.js (+9/-8)
+
+> **⚠️ 本节「修复 1」的 name 判据已于 2026-10-21 被修正并删除**（change: fix-multi-account-same-platform）。
+> 该判据把 `name`（`document.title` 落盘位，采不到平台用户 ID 时回落平台显示名）当成账号身份标识，
+> 导致同一平台的多个不同账号因同名被误判为「此账号已添加过」——用户实测「有 3 个头条号，加第 2 个即被拒」。
+> 现行契约见 PRD §「账号同平台多账号去重契约（2026-10-21）」：**只有 `platform_account_id` 是身份标识**。
+> 本节保留是为记录来路，其中的「判定规则表」与「测试覆盖」两表描述的是被删除的旧行为，不得照做。
 
 #### 8.1.1.1 URL 正文提取实现细节（v2.3.61 BUG 修复）
 
@@ -19996,6 +20026,9 @@ apps/desktop/src/views/
 | 目录拉取失败时的选中项 | `catalogData` 为空**且克隆列表也未拿到权威结果**时，不得清空 `s2vConfig.voiceId`，并须把 `s2vPersistedVoiceId` 同步成同一值 | 一是刷新一次失败即抹掉刚克隆的音色且无提示（违反「已保存的 voiceId 不得静默丢失」）；二是两态不一致会让「默认」徽标与选中项脱节（QM-6 轮 B i2） |
 | 「取不到」与「权威为空」 | 目录/克隆列表只有 `code === 0` 且拿到数组才算**权威结果**；失败一律保留原值，绝不用空数组覆盖 | 克隆列表拉取失败被无条件赋 `[]` ⇒ 克隆音色从候选消失，选中项归一又因候选为空走到清空分支（两层叠加，本次 R3 的真身） |
 | 上下文切换清克隆 | 仅在 `providerId` 或解析出的 `model` **变化**时清空克隆列表；`tracking` 字段只在**目录成功返回后**更新 | ① 同上下文刷新也清 ⇒ 一次失败抹掉候选；② tracking 在请求开始就写 ⇒ 一次失败的切换污染记忆，切回原 provider 判定不出切换，候选永久丢失（QM-6 轮 B i3 / 轮 C i1） |
+| 只读 computed 与 `requireDeps` | 计算属性**只在真正消费 deps**（如 `d.t`）时才调用 `requireDeps()`；只读 state 的 computed 一律不得调用 | Vue 3 的 computed 在求值抛错时把 `_dirty` 置回 false 却**保留上一次的 `_value`**，且抛错那次没成功注册依赖订阅 ⇒ 此后 state 变化再也 trigger 不到它，**永久返回陈旧值**。`s2vVoiceOptions` 原有一行 `const d = requireDeps()` 且函数体从未使用 `d`，即因此让 6 例在 `--sequence.shuffle` 下稳定失败（2026-10-20 定位并修复） |
+| fail-closed 的归属层 | fail-closed 由**写路径方法**承担（`getS2VVoiceContext` / `selectS2VVoice` / `addS2VVoiceClone` 等）；只读 computed 在 deps 缺失时返回安全空值，**不得**抛错 | 让 computed 抛错会引入比它防住的更严重的缺陷（见上一条）。壳的注入顺序是「先 `setupTtsVoicesDeps` 再渲染」，正常路径下 computed 首读时 deps 已就位；把安全网建在会污染缓存的地方得不偿失 |
+| 状态最小面 | 不得为「方便断言」新增与权威状态重复的镜像 ref。`s2vConfig.voiceId` 是音色选择的唯一权威，`s2vPersistedVoiceId`（2026-10-20 移除）是它的冗余镜像且生产零读取 | 镜像会漂移（两态不一致正是 i1/i2 争议的来源），且「写了没人读」的状态只能靠测试断言养活，属设计债。需要「主进程归一后的 id」时应**回写权威**而不是另存镜像 |
 
 ### 流程（功能逻辑）
 
@@ -20353,3 +20386,64 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 - 判据与测试坐标见新 PRD §10/§11；门禁与真机证据见新 PRD §12；交付记录见 §13。
 - 采集页文案：`collection.collectErrors.security_challenge`（更新）、`collection.draftBlockedSecurityChallenge`（新增）；
   改写错误码文案：`userErrors.LLM_NOT_CONFIGURED`（新增）——三项均 zh/en 成对。
+
+## 账号同平台多账号去重契约（2026-10-21，fix-multi-account-same-platform）
+
+> **单一真源在 `01-docs/PRD-MULTI-ACCOUNT-SAME-PLATFORM-2026-10-21.md`**（含根因链、逃逸分析、
+> 测试坐标、变异反证、风险取舍与验收标准）。本节只登记**产品契约本身**，不重复推导过程。
+
+### 一、契约
+
+**同平台可添加多个账号。** 去重判据唯一：`同平台` + `同 owner_subject` + `同一 platform_account_id`，
+三者缺一不判重。
+
+| 新账号 ID | 已有账号 ID | 平台 | owner | 判定 |
+|---|---|---|---|---|
+| 有值 | 相同 | 相同 | 相同 | **409** `此账号已添加过` |
+| 有值 | 不同 | 相同 | 相同 | 200 允许 |
+| 有值 | 无 | 相同 | 相同 | 200 允许 |
+| 无 | 无 | 相同 | 相同 | 200 允许 |
+| 无 | 有值 | 相同 | 相同 | 200 允许 |
+| 任意 | 任意 | **不同** | 相同 | 200 允许 |
+| 相同 | 相同 | 相同 | **不同** | 200 允许 |
+
+判据唯一实现 `_account_identity_key(platform_account_id)`：只接受字符串，`None`/空串/空白/非字符串
+一律返回 `None`（= 无强标识 = 不参与判重）。`create_account` 与 `_dedup_accounts_on_startup`
+**共用**它——两者判据不同源会出现「创建时允许同平台多账号、重启后又把它们清成一条」的自相矛盾。
+
+### 二、⛔ name 不是身份标识
+
+| 字段 | 来源 | 身份标识 | 用途 |
+|---|---|---|---|
+| `platform_account_id` | `[data-account-id]` 等属性 | **是（唯一）** | 唯一去重判据 |
+| `account_name` | DOM 昵称选择器，回落 name | 否 | **显示名首选位** |
+| `name` | `document.title`，采不到时回落平台显示名 | **否** | 历史兼容位，永不作为显示名来源 |
+
+`name` 回落平台显示名是常态（头条号/百家号后台不带 `[data-account-id]`，见
+`account-profile.js:97-102`），所以多个同平台账号的 `name` 会全部相同——这正是 v5
+（commit `c84325baa`）误判「此账号已添加过」的根因。该判据已删除，v5 章节有 ⚠️ 废止说明。
+
+### 三、交互与提示
+
+- 保存成功：`accounts.saved`（既有文案）。
+- 命中唯一剩余的 409（同平台同一账号重复添加）：`此账号已添加过`（`accountsPage.duplicateAccount`，
+  zh/en 成对，既有文案）。该提示现在语义准确——只在真的同一账号时出现。
+- 不再出现「同平台第二个账号被拒」；用户无需额外操作即可添加第 2、第 3 个同平台账号。
+- 账号列表按平台分组，同平台多张卡片以 `account_name` 区分；为空回落平台名时可能与同平台另一张
+  卡片同名，但二者仍是独立记录，可分别启用/停用/删除/改名。
+
+### 四、回归保护
+
+`packages/python-backend/tests/test_server_account_lifecycle.py`：创建路径 9 例 + 启动路径 5 例
+（含用户实测场景、v5 判据反向锁、平台/owner 作用域、非字符串 ID 的写入 422 与读侧 fail-safe、
+启动去重不清无 ID 多账号）。变异反证：判据换回 v5 的 name 匹配，5 个创建路径用例当场变红。
+完整测试坐标表见单一真源文档 §八。
+
+### 五、风险与取舍
+
+- **代价**：同一平台同一账号在「两次都采不到 ID」时可重复入库（v5 想防的正是这个）。
+  缓解：采集器命中 ID 时判重照旧生效；用户可在账号页删除多余卡片。
+- **不做**：不给 name 加模糊匹配/相似度判据（只把误判边界从「完全相等」挪到「足够相似」）；
+  不做存量数据迁移（历史上被清掉的账号无法恢复，未受影响的存量账号在新判据下全部保留）。
+
+

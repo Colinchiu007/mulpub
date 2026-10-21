@@ -23,7 +23,7 @@
 const crypto = require('crypto')
 const os = require('os')
 const path = require('path')
-const { splitScript, buildTemplatePrompt } = require('./script-adapt')
+const { splitScript, buildTemplatePrompt, buildMotionPrompt } = require('./script-adapt')
 const { VIDEO_REFERENCE_PARAM_BY_PROVIDER } = require('./video-reference-inputs')
 const {
   MAX_CHARACTER_NAME_LENGTH, SLOT_ORDER, STOPWORDS,
@@ -267,6 +267,14 @@ function planAutoShots (input) {
       beatIndex: beat.index,
       title: beat.title || '',
       prompt,
+      // 影视工程 v2 · F-A：提示词三分。
+      //   imagePrompt = 当前拼装结果（**与 prompt 逐字相同**）⇒ 图片生成零回归；
+      //   videoPrompt = 运动子集（去掉空间/音频/约束等静态块）⇒ 视频模型只拿运动信息；
+      //   endFramePrompt = ''（尾帧约束文本来自任务级提示词库，随 F-I 落地；本批次不派生，
+      //     消费侧不发送该字段——见 openspec spec「尾帧提示词只产出不消费」）。
+      imagePrompt: prompt,
+      videoPrompt: buildMotionPrompt({ template, beatText: beat.text, characterMap }),
+      endFramePrompt: '',
       characterNames: Object.values(characterMap).filter((name) => String(beat.text || '').includes(name)),
       refPaths,
       seconds: Number(o.seconds),

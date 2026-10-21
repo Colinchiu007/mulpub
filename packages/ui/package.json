@@ -20,7 +20,7 @@
     "@storybook/vue3": "^8.4.7",
     "@storybook/vue3-vite": "^8.4.7",
     "storybook": "^8.4.7",
-    "vite": "^6.0.5",
+    "vite": "^6.4.4",
     "vitest": "^2.1.8"
   },
   "peerDependencies": {

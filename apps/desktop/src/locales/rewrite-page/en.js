@@ -60,12 +60,32 @@ export default {
     // result card when the engine trims output to the word-count/strategy cap;
     // length = actual output chars, max = effective cap
     outputTruncated: 'The rewrite was trimmed to the output limit: {length} chars written (limit {max}). The tail of the source text is not included. Raise the word-count cap for a full rewrite.',
+    // Post-check sensitive-content warning (rewrite-sensitive-precheck-relax follow-up, 2026-10-21):
+    // the pre-check block was removed (an 8000-char history piece was once rejected for the
+    // single word "explosion"), so post-check warnings are the only remaining signal.
+    // Warning level, not a red error — the rewrite succeeded; this only asks for review.
+    // words = matched terms (or the engine's note), joined from the warnings array.
+    rewriteSensitiveWarning: 'The rewrite may contain sensitive content — please review before publishing: {words}',
     // Model-side truncation (rewrite-segment-and-finish-reason): provider finished with
     // a length/max_tokens reason — distinct from engine trimming; raising the cap may not help.
     outputTruncatedByModel: 'The model hit its own generation limit and stopped: {length} chars written. This is a provider-side limit; raising the word-count cap may not help — consider segmented rewriting.',
     // Segmented rewriting (input over 50000 chars): pre-run notice + result metadata
     rewriteSegmented: 'The text is {length} chars, over the {max}-char single-pass limit, so it will be rewritten in segments. It takes longer and costs more, other AI features may slow down while it runs, and cross-segment consistency may degrade.',
     segmentedMeta: 'Segmented rewrite ×{count}',
+    // Cancellation (rewrite-cancel-and-truncation-summary): cooperative, takes effect
+    // after the current segment finishes — the button label must not imply instant stop.
+    cancelRewriteBtn: 'Cancel rewrite',
+    cancellingBtn: 'Cancelling…',
+    cancellingHint: 'Cancelling: the current segment will finish first, then no further segments start.',
+    rewriteCancelled: 'Rewrite cancelled: the {completed}/{total} finished segments are discarded, and model costs already incurred are not refunded.',
+    // Only some segments were cut by the model's per-response limit — name them,
+    // otherwise users assume the whole article is damaged.
+    outputTruncatedByModelSegments: 'Segment(s) {segments} were cut by the model per-response limit ({length} chars in total). This is a provider-side limit; shorten the source text or rewrite it in two passes.',
+    // Actual output size of the rewrite (collect-rewrite-wordcount, 2026-10-20): both
+    // numbers are needed to judge how much was lost — the rewritten count alone is
+    // one-sided. The collection page had no size display at all, so users could
+    // neither see the shortening nor see a tail cut.
+    rewriteOutputLength: 'Rewritten: {length} chars (original: {original} chars)',
     // ── Rewrite quality report (content-quality-eval desktop loop) ──
     qualitySection: 'Quality Assessment',
     qualitySufficiency: 'Rewrite sufficiency',

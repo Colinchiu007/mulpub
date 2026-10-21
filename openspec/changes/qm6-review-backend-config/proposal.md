@@ -51,3 +51,29 @@
 这件事**在仓外**，本 change 修不了。两条出口留给后续决策（都在 design.md 里）：
 修上游驱动那一分支；或按驱动自己的注释把引擎 vendor 进本仓 `scripts/`。
 在两者落地之前，`--critic` 对 diff 评审的实际效果就是"被对账判红"，而不是"换成功"。
+
+
+## Follow-up（2026-10-19 追加，同一 change 范围内的缺陷闭合）
+
+本 change 合并后（PR #3927，merge `d65f0b76`）留下一处**自己造出的假红**：
+proposal 与 AGENTS 都写了"请求过的后端会进判定记录 `reviewBackends`"，但实现只在
+**pre-commit 的 decider** 那一跳落盘 —— 写的是提交那天清单里的值；评审时通过
+`--critic` / `MP_QM6_CRITIC` 发起的覆盖**没有任何一跳**写进记录。
+于是 `judgeBackendMismatch` 两侧读的是两个时刻，每一次合法覆盖都被判"该条深度审查未闭合"。
+
+追加的变更：
+
+- `scripts/lib/ccg-review-backends.js`：新增纯函数 `applyReviewRequestToRecord` 与 CLI 动作模式
+  `--record-request <path>`（提交时那份挪进 `commitRequest` 留档，不销毁审计链；未覆盖一律拒写）
+- `scripts/deep-review.sh`：覆盖分支在把控制权交给驱动**之前**回写；失败 `exit 2` 且驱动一次都不起来；
+  dry-run 不回写但必须出声
+- 锁：`ccg-review-backends.test.js` 17 → 26、`deep-review-deps.test.js` 35 → 40
+  （新 5 条里 4 条是真跑 bash + 桩驱动的行为锁，"回写早于 exec"编进产物而非源码位置）
+- 不新增测试文件 ⇒ 不动 `quality-gate.yml`、不动"谁来守门"
+
+Affected code（追加）：`scripts/lib/ccg-review-backends.js`、`scripts/deep-review.sh`、
+`scripts/lib/ccg-review-backends.test.js`、`scripts/deep-review-deps.test.js`、AGENTS.md、CHANGELOG.md
+
+Out of scope 不变：驱动验证层是否应用覆盖（D-R1/D-R2）仍在仓外，需人工裁决。
+本刀只让**记录说真话** —— 它不改变"谁在评审"，只改变"记录是否声称了错误的评审者"。
+`plan-review.sh` 刻意不回写：决策链路没有该字段的消费者（见 design.md D13）。

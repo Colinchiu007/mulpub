@@ -654,7 +654,13 @@ test("真实仓库：接线资格清单只能缩小，且登记的锁确实住�
   )
   assert.deepEqual(
     Object.keys(checker.MUST_LIVE_IN_UNGATED_JOB).sort(),
-    ["scripts/openspec-sync-check.test.js", "scripts/quality-rhythm-spec-mirror.test.js"],
+    [
+      "scripts/aggregate-changelog.test.js",
+      "scripts/check-compose-error-codes.test.js",
+      "scripts/check-no-hot-carrier-edit.test.js",
+      "scripts/openspec-sync-check.test.js",
+      "scripts/quality-rhythm-spec-mirror.test.js",
+    ],
     "接线资格登记表只能缩小；新增登记须在同 PR 把点名补进不被跳过的 job",
   )
   for (const [file, ack] of Object.entries(checker.MUST_LIVE_IN_UNGATED_JOB)) {
