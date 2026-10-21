@@ -122,13 +122,29 @@
         <div v-if="zhihuFavStepHint" class="col-hint zb-mt6" data-testid="zhihu-fav-step-hint">
           {{ zhihuFavStepHint }}
         </div>
+        <!-- 字数区间（feat-zhihu-fav-batch-wordcount，2026-10-21）
+             知乎收藏批量此前**没有**字数入口：改写长度由 Python 的 length:'keep' 写死
+             （目标 1500 / 区间 300-3000），用户既改不了、也看不见改写稿多长。
+             控件与校验复用采集页同组件 / 同 composable（口径单一，不新造第二份）。 -->
+        <WordCountRangeInput
+          v-model:min="zhihuFavWordCountMin"
+          v-model:max="zhihuFavWordCountMax"
+          class="zb-mt6"
+          :label="$t('collection.wordCountLabel')"
+          :min-placeholder="$t('collection.wordCountMinPlaceholder')"
+          :max-placeholder="$t('collection.wordCountMaxPlaceholder')"
+          :unit="$t('collection.wordCountUnit')"
+          :error="zhihuFavWordCountError"
+          :disabled="zhihuFavBatching"
+          data-testid="zhihu-fav-word-count"
+        />
         <!-- 收藏夹清单（直选） -->
         <div v-if="zhihuFavItems.length" class="zb-list" data-testid="zhihu-fav-items">
           <div class="zb-list-head">
             <label class="zb-check"><input type="checkbox" :checked="zhihuFavAllSelected" @change="toggleZhihuFavAll($event.target.checked)" />{{ $t('collection.zhihuFav.selectAll') }}</label>
             <span class="col-hint">{{ $t('collection.zhihuFav.selectedCount', { count: String(zhihuFavSelectedItems.length) }) }}</span>
             <span class="zb-flex1"></span>
-            <button class="col-btn col-btn--primary" @click="runZhihuFavCollectRewrite" :disabled="zhihuFavBatching || !zhihuFavSelectedItems.length" data-testid="zhihu-fav-collect-rewrite">
+            <button class="col-btn col-btn--primary" @click="runZhihuFavCollectRewrite" :disabled="zhihuFavBatching || !zhihuFavSelectedItems.length || !!zhihuFavWordCountError" data-testid="zhihu-fav-collect-rewrite">
               {{ zhihuFavBatching ? $t('collection.zhihuFav.collecting') : $t('collection.zhihuFav.collectAndRewrite') }}
             </button>
             <button v-if="zhihuFavBatching" class="col-btn col-btn--secondary" @click="cancelZhihuFavBatch">{{ $t('collection.cancelBatch') }}</button>
@@ -184,6 +200,8 @@ import { useBatchPollGuard } from '@/composables/useBatchPollGuard'
 import { settingsDialogRevision } from '@/stores/settings-dialog'
 import { mapFavBatchResultsToItems } from '@/features/collection/collection-batch'
 import { normalizeCollectedItem } from '@/features/collection/collected-item'
+import { useWordCountValidation } from '@/composables/useWordCountValidation'
+import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import ColProgressBlock from './ColProgressBlock.vue'
 
 const props = defineProps({
@@ -447,6 +465,15 @@ const zhihuFavScope = ref('favlist')
 const zhihuFavCount = ref(50)
 const zhihuFavFullMode = ref(false)
 const zhihuFavIncludeCollected = ref(false)
+// 字数区间（feat-zhihu-fav-batch-wordcount，2026-10-21）：默认 800/2000（与采集页一致）。
+// 校验复用 useWordCountValidation（与采集页同 composable ⇒ 口径单一）；非法即禁用改写按钮。
+const zhihuFavWordCountMin = ref(800)
+const zhihuFavWordCountMax = ref(2000)
+const { error: zhihuFavWordCountError } = useWordCountValidation(
+  zhihuFavWordCountMin,
+  zhihuFavWordCountMax,
+  (key) => resolveNotifyText('collection.' + key).text
+)
 const zhihuFavItems = ref([])
 const zhihuFavChecked = ref(new Set())
 const zhihuFavListLoading = ref(false)
@@ -588,6 +615,11 @@ async function runZhihuFavCollectRewrite () {
     zhihuFavlistError.value = resolveNotifyText('collection.zhihuFavlist.noSelection').text
     return
   }
+  // 字数区间非法 ⇒ 早退不发 IPC（按钮已禁用，这里是第二道：程序化调用也不该带坏值）
+  if (zhihuFavWordCountError.value) {
+    notifyWarning('collection.wordCountInvalid')
+    return
+  }
   zhihuFavBatching.value = true
   zhihuFavlistError.value = ''
   zhihuFavSummary.value = ''
@@ -606,6 +638,10 @@ async function runZhihuFavCollectRewrite () {
     const r = await api.zhihuFavBatchRun({
       items,
       rewriteStyle: props.rewriteStyle,
+      // 字数区间（feat-zhihu-fav-batch-wordcount）：主进程归一后转成 Python 的
+      // min_word_count / max_word_count；缺省/非法时不带 ⇒ Python 回落 length 三档。
+      wordCountMin: zhihuFavWordCountMin.value,
+      wordCountMax: zhihuFavWordCountMax.value,
       imageLocalization: true,
       forceRecollect: zhihuFavIncludeCollected.value,
       collectedUrls: [...props.collectedUrlSet],
@@ -625,12 +661,20 @@ async function runZhihuFavCollectRewrite () {
     emit('collected', normalized)
     // 改写成功条目随 emit 上抛，由父级写文案库（fromKey 幂等由父级 collectFromKey 保证）
     emit('collected-rewrites', newItems.filter((x) => x.rewrittenContent && x.sourceUrl))
-    zhihuFavSummary.value = resolveNotifyText('collection.zhihuFav.progressSummary', {
+    // 摘要文案在 zhihuFavlist 命名空间下（feat-zhihu-fav-batch-wordcount 顺带修正）：
+    // 原调用 `collection.zhihuFav.progressSummary` 指向一个**不存在的 key** ⇒
+    // resolveNotifyText 返回 {text:'', resolved:false} ⇒ 批量摘要一直是空的。
+    zhihuFavSummary.value = resolveNotifyText('collection.zhihuFavlist.progressSummary', {
       success: String(data.completed || 0), failed: String(data.failed || 0),
       skipped: String(data.duplicateSkipped || 0), rewriteFailed: String(data.rewriteFailed || 0),
     }).text
       + (data.cancelled ? resolveNotifyText('collection.zhihuFavlist.batchDoneCancelledSuffix').text : '')
       + (data.circuitBroken ? resolveNotifyText('collection.zhihuFavlist.batchDoneCircuitBrokenSuffix').text : '')
+      // 超出设定上限的条数（feat-zhihu-fav-batch-wordcount）：Python 侧**不按 max 截断**
+      // （截断=静默丢内容），所以超限必须在这里告知，否则用户设了 6000 拿到 9000 字却毫无提示。
+      + (data.overLimit > 0
+        ? resolveNotifyText('collection.zhihuFavlist.overLimitSuffix', { count: String(data.overLimit) }).text
+        : '')
     // 收尾通知必须与实际结果一致（2026-10-18，change: fav-force-recollect）：
     // 原实现**无条件** notifySuccess('collection.collectSuccess')，即使整批采集失败或全部被
     // 去重跳过也弹「内容采集成功」——这是用户「显示完成但结果区 0 新增」感知的第二个来源。

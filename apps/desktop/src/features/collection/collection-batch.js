@@ -49,6 +49,9 @@ export function mapFavBatchResultsToItems (results, listItems, opts = {}) {
       images: Array.isArray(d.images) ? d.images : [],
       imageFallbacks: Array.isArray(d.imageFallbacks) ? d.imageFallbacks : [],
       rewrittenContent: d.rewrittenContent || undefined,
+      // 改写稿实际字数（feat-zhihu-fav-batch-wordcount）：主进程回传（Python 的 word_count，码点口径）。
+      // 缺省 ⇒ undefined（不伪造 0：0 会被读成「改写稿 0 字」）。
+      rewrittenWordCount: Number(d.rewrittenWordCount) > 0 ? Number(d.rewrittenWordCount) : undefined,
       rewriteFailed: d.rewriteFailed === true,
       createdAt: d.createdAt || new Date().toISOString(),
     })
