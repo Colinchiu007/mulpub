@@ -1428,8 +1428,14 @@ describe('RewriteView — 视觉契约', () => {
 
   it('视图必须仍然引用该 CSS 文件（防样式文件变成孤儿：文件在、但页面不引它）', () => {
     expect(viewSource).toMatch(/<style scoped src="\.\/rewrite-view\.css"><\/style>/)
-    // 反向：视图里不得再有内联 <style scoped>（否则就出现两份真相）
-    expect(viewSource).not.toMatch(/<style scoped>\s*\n/)
+    // 反向：视图里**只允许**那一个 <style> 标签（CC 外部评审 i5：原先用
+    // `not.toMatch(/<style scoped>\s*\n/)` 判断「没有内联 scoped 样式」，
+    // 判据是「某个具体写法不存在」—— 一旦换个写法（`<style scoped >`、
+    // 换行位置不同）就会漏判。改成「<style> 标签恰好一个，且就是那一个」，
+    // 与写法无关，且顺带挡住「两份真相」）。
+    const styleTags = viewSource.match(/<style\b[^>]*>/g) || []
+    expect(styleTags).toHaveLength(1)
+    expect(styleTags[0]).toBe('<style scoped src="./rewrite-view.css">')
   })
 })
 

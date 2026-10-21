@@ -12,8 +12,11 @@
  *   「过期结果不渲染」，**拦不住请求本身** —— 所以正文输入另配 300ms 防抖合并请求。
  * - **失败降级**：列表加载失败 ⇒ 策略列表为空（改写仍可用，走自动匹配）；预览失败 ⇒
  *   预览名降级为 `--`（不阻塞改写）。两者都不得把改写主流程带崩。
+ * - **监听有主人**：watch 与防抖定时器都收进本 composable 自建的 effectScope
+ *   （见下方 scope 段）。组件里调用 ⇒ 随组件 scope 自动回收；组件外调用 ⇒
+ *   调用方必须调 `dispose()`（CCG 外部评审 i1：早先那版把 watch 留在无主作用域里）。
  */
-import { ref, watch, onUnmounted, getCurrentInstance } from 'vue'
+import { ref, watch, effectScope, onScopeDispose } from 'vue'
 import { aiListRewriteStrategies, aiGetRecommendedStrategies } from '@/api/publisher'
 
 /** 正文连续键入的预览合并窗口（毫秒）—— 离散的下拉选择不受影响，可即时刷新 */
@@ -35,6 +38,7 @@ const CONTENT_PREVIEW_DEBOUNCE_MS = 300
  *   previewStrategyName: import('vue').Ref<string>,
  *   loadRewriteStrategies: () => Promise<void>,
  *   refreshStrategyPreview: () => Promise<void>,
+ *   dispose: () => void,
  * }}
  */
 export function useRewriteStrategy (deps) {
@@ -99,14 +103,31 @@ export function useRewriteStrategy (deps) {
       refreshStrategyPreview()
     }, CONTENT_PREVIEW_DEBOUNCE_MS)
   }
-  // 卸载时清掉防抖定时器，避免卸载后仍发一次预览请求。
-  // 守卫 getCurrentInstance()：本 composable 也会被独立单测直接调用（无组件实例），
-  // 此时 Vue 的 onUnmounted 会打出「没有活动组件实例」的警告 —— 那是噪音，不是缺陷。
-  if (getCurrentInstance()) {
-    onUnmounted(() => { if (contentPreviewTimer) clearTimeout(contentPreviewTimer) })
+
+  // 监听与定时器统一收进**本 composable 自带的 effectScope**（CCG 外部评审 i1）。
+  //
+  // 为什么不能只靠「组件卸载时自动清理」：Vue 确实会在组件卸载时停掉组件 scope 里的
+  // watch —— 但那是**组件 scope** 的行为。本 composable 若在组件外被调用（独立单测、
+  // 未来可能的工具函数），watch 会落进一个**没人负责**的作用域 ⇒ 监听器永不停止。
+  //
+  // 修法：把 watch 与 onScopeDispose 都注册进本 composable 自建的 scope。
+  //   · 在组件 setup 里调用 ⇒ effectScope() 默认挂在**当前 scope**（= 组件 scope）下
+  //     ⇒ 组件卸载时 scope 树被停 ⇒ watch 与定时器一并回收，无需任何手工清理；
+  //   · 在组件外调用 ⇒ 当前 scope 为空，scope 归本 composable 所有，
+  //     调用方用返回的 dispose() 显式停掉（单测里就是这么用的）。
+  //
+  // ⚠ 早先那版用 `if (getCurrentInstance()) onUnmounted(...)` 只清了定时器，
+  //   watch 仍留在无主作用域里 —— 正是 i1 指出的缺口，本版一并修掉。
+  const scope = effectScope()
+  scope.run(() => {
+    watch([platform, industry, purpose, tone], refreshStrategyPreview)
+    watch(content, scheduleContentPreview)
+    onScopeDispose(() => { if (contentPreviewTimer) clearTimeout(contentPreviewTimer) })
+  })
+  /** 停止本 composable 的全部监听与定时器（组件外调用时由调用方负责） */
+  function dispose () {
+    scope.stop()
   }
-  watch([platform, industry, purpose, tone], refreshStrategyPreview)
-  watch(content, scheduleContentPreview)
 
   return {
     strategyMode,
@@ -115,5 +136,6 @@ export function useRewriteStrategy (deps) {
     previewStrategyName,
     loadRewriteStrategies,
     refreshStrategyPreview,
+    dispose,
   }
 }
