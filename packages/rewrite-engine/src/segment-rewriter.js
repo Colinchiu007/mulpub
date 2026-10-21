@@ -115,8 +115,10 @@ async function rewriteSegmented (engine, params, ctx) {
 
   // 合并 + 全篇后处理（复用 _postProcess：AI 味去除/截断/结构标题剥离/截断契约
   // 全部走既有路径，不新造第三条截断语义）
+  // 2026-10-20 collection-ux-step-flow：freeformOutput 一并透传（用户明确不填字数区间时，
+  // 全篇上限取统一上限 MAX_OUTPUT_CHARS，策略级平台形态上限不参与）。
   const merged = segmentTexts.join('\n\n')
-  const { text: processed, truncatedAt } = engine._postProcess(merged, strategy, userSettings.wordCountRange)
+  const { text: processed, truncatedAt } = engine._postProcess(merged, strategy, userSettings.wordCountRange, userSettings.freeformOutput === true)
   const postCheck = engine._sensitiveCheck(processed, 'post')
 
   let quality

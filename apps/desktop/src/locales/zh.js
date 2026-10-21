@@ -10,6 +10,7 @@ import navZh from './nav/zh'
 import tabBarZh from './tab-bar/zh'
 import memberCenterZh from './member-center/zh'
 import collectionZh from './collection/zh'
+import collectionFlowZh from './collection-flow/zh'
 import createZh from './create/zh'
 import story2videoZh from './story2video/zh'
 import pipelinesZh from './pipelines/zh'
@@ -94,6 +95,7 @@ export default {
   filmEngineering: { ...filmEngineeringZh },
 
   collection: { ...collectionZh },
+  collectionFlow: { ...collectionFlowZh },
   rewriteEngine: { ...rewriteEngineZh },
   autoPipeline: { ...autoPipelineZh },
   comments: { ...commentsZh },

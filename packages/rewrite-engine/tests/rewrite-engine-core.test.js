@@ -494,6 +494,71 @@ describe('RewriteEngine', function () {
     expect(result.result.length).toBeLessThanOrEqual(2000)
   })
 
+  // ── collection-ux-step-flow（2026-10-20）：freeformOutput = 用户明确「不设字数限制」──
+  // 动因：采集页把字数区间默认留空后，若仍落回「策略 maxLength / 默认 3000」，
+  // 用户看到的是「我没填数字却被砍到 800 字 + 一条截断横幅」——与「自由发挥」直接矛盾。
+  // 契约：freeformOutput=true ⇒ 唯一上限是统一上限 MAX_OUTPUT_CHARS(50000)，
+  // 且**跳过策略级 postProcess.maxLength**；不传该参数时行为与历史完全一致。
+
+  test('F1 freeformOutput=true ⇒ 跳过策略 maxLength，输出不被砍尾（上限取统一上限 50000）', async function () {
+    var longText = 'x'.repeat(3000)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false, maxLength: 800 }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { freeformOutput: true } })
+    expect(result.outputTruncated).toBe(false)
+    expect(result.result.length).toBe(3000)
+  })
+
+  test('F2 freeformOutput=true ⇒ prompt 不注入【字数要求】（用户没给字数意图）', async function () {
+    // 断言口径用**注入指令的完整形状**而不是「字数要求」四字：策略/硬约束文案里也可能
+    // 出现该字样（实测 wireStrategy 的策略 systemPrompt 就带），用四字判会误报。
+    var INJECTED = '【字数要求】改写后的文本长度必须控制在'
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { freeformOutput: true } })
+    expect(captured.sys).not.toContain(INJECTED)
+    // 自反锁：同一断言在「给了区间」时必须命中，否则上面那条是恒真的空判据
+    var captured2 = null
+    var llm2 = { chat: async function (sys, user) { captured2 = { sys, user }; return '结果' } }
+    var engine2 = new RewriteEngine({ llmClient: llm2, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine2)
+    await engine2.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 800, max: 2000 } } })
+    expect(captured2.sys).toContain(INJECTED)
+  })
+
+  test('F3 不传 freeformOutput ⇒ 策略 maxLength 仍然生效（既有行为不变）', async function () {
+    var longText = 'x'.repeat(3000)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false, maxLength: 800 }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.outputTruncated).toBe(true)
+    expect(result.outputLength).toBe(800)
+  })
+
+  test('F4 freeformOutput 只认严格布尔 true（非布尔真值不激活新分支）', async function () {
+    // 外部评审 i3：共享引擎的新分支必须自守，否则未来重构把 === true 改成真值判断
+    // 就会静默改写输出上限策略。
+    var longText = 'x'.repeat(3000)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false, maxLength: 800 }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { freeformOutput: 'yes' } })
+    expect(result.outputLength).toBe(800)
+  })
+
   // ── rewrite-segment-and-finish-reason 第一刀：finish_reason 归一化 + modelTruncated ──
 
   test('L4 chat 返回 object（无 finishReason）⇒ 正常改写且 modelTruncated=false', async function () {
