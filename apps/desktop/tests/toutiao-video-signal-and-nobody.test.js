@@ -136,9 +136,9 @@ describe('⑤ computeBudgetMs 平台下界 + upload-waiter 接线', () => {
   const strat = require('../electron/services/upload-wait-strategy.js')
   const KB = 1024
 
-  test('toutiao 下界 = 300000ms，小文件也被抬到该值', () => {
-    expect(strat.PLATFORM_MIN_BUDGET_MS.toutiao).toBe(300000)
-    expect(strat.computeBudgetMs(143.9 * KB, { minMs: strat.PLATFORM_MIN_BUDGET_MS.toutiao })).toBe(300000)
+  test('toutiao 下界 = 600000ms（实测转码 >300s），小文件也被抬到该值', () => {
+    expect(strat.PLATFORM_MIN_BUDGET_MS.toutiao).toBe(600000)
+    expect(strat.computeBudgetMs(143.9 * KB, { minMs: strat.PLATFORM_MIN_BUDGET_MS.toutiao })).toBe(600000)
   })
 
   test('不传 minMs 时行为不变（143.9KB → 90000 默认下界）', () => {
