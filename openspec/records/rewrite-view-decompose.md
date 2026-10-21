@@ -115,3 +115,90 @@ date: 2026-10-21
 - **`.github/scripts/check-max-lines.test.js` 的 #36 存量红**：本机环境态（全局 git 配置），
   非本次引入，但它会让**本 PR 的 CI 在那条 step 上红** —— 需在 PR 里如实登记，不得读成
   「本 PR 引入的新红」。已在 §五 记下 A/B 两档读数（改动前 / 改动后同一条命令同一条挂）。
+
+## CHANGELOG 条目
+
+# refactor(改写): 改写页视图解耦 —— RewriteView.vue 拆 3 个 composable + 外置样式（1430 → 977 行）（rewrite-view-decompose）
+
+> 标题末尾按合同写 **record 名（= 分支名）**，本条即 `rewrite-view-decompose`。
+> 按 `changelog-record-carrier` 的合同，本条写在执行记录里，`CHANGELOG.md` 与
+> `01-docs/learnings.md` **零改动**（那两个是聚合器专属的归档写面，由
+> `node scripts/aggregate-changelog.js --write` 在发版时统一搬运，幂等键是 record 名）。
+
+- **问题**：`apps/desktop/src/views/RewriteView.vue` 实测 **1430 行**，正好等于行数门禁的**登记值**（`.github/scripts/max-lines-baseline.json` 的 `files` 表）。门禁 `growthAllowance = 200` ⇒ 硬天花板 **1630 行** ⇒ **这个文件此刻一点余量都没有**：下一次给改写页加功能（哪怕只加 201 行）就会撞 `LEDGER_GREW` 阻断。PR #4141 的 CHANGELOG 已把这条记进仓库（「解法是**拆 composable**……但 PR 未落地」），本次把那把刀补上。
+- **拆法**（**用户可见行为零变化，模板一行未改**）：① 全部 `<style scoped>`（321 行）外置为 `apps/desktop/src/views/rewrite-view.css`，视图改用 `<style scoped src="./rewrite-view.css">`（`scoped` + `src` 由 Vue SFC 编译器施加同一 scope id，`:deep()` 语义相同；仓库已有 5 处同型用法）；② 字数区间（状态 + 校验接线 + 自适应推导）→ `composables/useRewriteWordCount.js`；③ 策略（列表加载 + 预览 + 竞态守卫 + 300ms 防抖）→ `composables/useRewriteStrategy.js`；④ 文案库回写（两条互斥写入路径 + djb2 哈希）→ `composables/useRewriteLibrarySync.js`。
+- **结果**：`RewriteView.vue` **1430 → 977 行**，距天花板余量 200 → **653 行**；顺带把聚合债务账 `filesOver1000` 由 **29 降到 28**（`scripts/check-debt-budget.js` 实测读数）。
+- **回归保护**：3 个新测试文件共 **29 例**。其中「手动置位后自适应不得覆盖用户值」「竞态守卫」「300ms 正文防抖」三条是**搬出视图后第一次有独立测试锁住**的契约 —— 它们在视图里只是「一个 `let previewSeq` 加一个定时器」「一行 `if (!wordCountManuallySet)`」，此前没有任何测试守过。
+- **既有结构锁一条未削弱**：`utils/rewrite-lineage.test.js`（要求 `RewriteView.vue` 源码里能读到 `aiRewrite(` 与 `utils/rewrite-lineage` 引用）与 `views/CopyLibraryView.test.js`（要求能读到 `podcast.activeChannelId.value`、不得有 `|| await ensureChannel()` 死分支）—— 这正是「`aiRewrite` 调用 / 归因链 / 文本出期入口**不搬走**」的原因。
+- **顺带修掉一处脚手架脆弱点**：`RewriteView.sensitive-warning.test.js` 首测的 10s 预算被「Vite 一次性编译整张依赖图」（实测 3706ms → 4190ms）吃光，冷缓存同片并发时超时。改法：把一次性编译挪进 `beforeAll` 并给显式预算，**每条用例的断言窗口仍是 10s**（首测 6235ms → **159ms**）。**不全局抬 `testTimeout`** —— 那会让真正挂死的用例也一起放宽。
+- **CCG 外部双家族评审**：critic=claude（8 条问题 / 4 个维度 / 最低分 5）+ proposer=opencode（跨家族校验通过）。6 条争议逐条裁决：**i1 / i4 / i5 成立并已修**（策略监听收进 effectScope、补构建产物级证据、视觉契约断言改判据）；**i2 高危域**走外部复核（claude 独立判定不成立，证据在 PR 评论）；**i3 / i6 不成立**（i3 有 A/B 与 CI 两档读数，i6 有现网 16 条同类条目为证）。
+- **明确不做**（各自需另开 PRD）：改任何用户可见行为；拆**模板**成子组件（父组件 `scoped` 样式不作用于子组件内部元素）；下调 `max-lines-baseline` 登记值（属「改谁来守门」，需人工过目）；改 djb2 回写 key 算法（会让既有文案库记录失联）；全局抬高 `testTimeout`；处理其它 28 个 ≥1000 行的文件。
+- **文档**：新增 `01-docs/PRD-REWRITE-VIEW-DECOMPOSITION-2026-10-21.md`（逐模块写清数据校验判据与阈值、流程、功能逻辑、交互逻辑、显示项、提示文字原文）；`PRD-REWRITE-PAGE-UI-2026-09-16.md` / `PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md` / `PRD-REWRITE-STRATEGY-UI-2026-09-15.md` 各补一节「归属变更」附注。
+
+## learnings
+
+### lesson: 门禁的「登记值 + 容差」型天花板降不下去，杠杆只有把文件写短（rewrite-view-decompose）
+
+**现场**：`RewriteView.vue` 1430 行 = `max-lines-baseline.json` 的登记值，`growthAllowance=200` ⇒ 天花板 1630 ⇒ **余量为零**。想「降天花板」时发现：登记值**降不下去** —— `--update` 只做增量登记不动已有值（且 `--update --rewrite` 整份重写会顺手把别人十几个文件的漂移登记成新基线），`--prune` 要求文件已降到 limit 以下（视图不可能到 500 行）。
+
+**根因**：这类门禁把「历史欠账的位置」记在**登记值**上，欠账**位置**不随实际行数下降而下降 ⇒ 能动的只有实际行数。
+
+**可复用的三条**：
+1. 动手前先算**余量 = 登记值 + 容差 − 实际行数**，而不是看「这次要加几行」。余量小于本次改动量 ⇒ 先拆分再改。
+2. 余量的正确提法是「把文件写短」，不是「把基线调大」—— 后者是用一次便利换掉所有人的门禁。
+3. 拆完要**顺带核聚合账**：逐文件门禁降了不代表全仓聚合账降了。本次 `debt-budget` 的 `filesOver1000` 由 29 → 28（跨过 1000 线才会降），这才是「真降了一格」的读数。
+
+### lesson: 机械搬迁几百行要用带唯一匹配断言的脚本，搬完再扫残留符号（rewrite-view-decompose）
+
+**现场**：把 321 行样式 + 4 段逻辑从视图搬走。手改 400+ 行的风险不在「改错」，在**漏改** —— 而漏改在 Vue 里往往不报错，只表现为「行为悄悄变了」。
+
+**根因**：没有断言的文本替换，漏改是**静默**的。
+
+**可复用的三条**：
+1. 每处替换都断言**恰好命中 1 处**（0 处或 >1 处立刻退出非 0），把搬迁写成脚本；先支持只读演练模式看行数变化，再真跑。
+2. 搬完跑一次**残留符号扫描**：列出「搬走了的符号」逐个确认已不存在，「搬进来的符号」逐个确认能找到。这能挡住「搬走一半」。
+3. 同一批里顺手查**结构锁**：仓里常有「直接读某文件源文字符串」的测试在约束哪些内容必须留在原处（如 `rewrite-lineage.test.js` 要求改写入口文件里能读到 `aiRewrite(`）。先看锁，再决定搬什么。
+
+### lesson: 冷缓存下 vitest 首测超时的根因常是「一次性模块编译」，不是产品变慢（rewrite-view-decompose）
+
+**现场**：7 个相关测试文件同场冷跑时首测超时（10s），单独跑则通过。分段计时显示：`await import('./RewriteView.vue')` **3706ms**（拆出 composable 后 4190ms），而 `mount()` 只有 92ms、首个 `nextTick` 0ms。
+
+**根因**：首测那 5.8s 里绝大部分是 **Vite 把 SFC 及其整张依赖图编译一遍的一次性成本**，被默认 `testTimeout=10000` 吃光 ⇒ 冷缓存 + 同片并发编译时必超时。
+
+**可复用的三条**：
+1. 先量再判：把耗时拆成 import / mount / 首个 tick 三段打印出来。若大头在 import，那是**脚手架成本**，不是产品变慢。
+2. 修法是把一次性编译挪进 `beforeAll(async () => { await import(...) }, 显式预算)`，**每条用例的断言窗口仍是 10s**（产品行为变慢照样 10s 内报错）。实测首测 6235ms → 159ms。
+3. ⛔ **不要全局抬高 `testTimeout`**：那会让真正挂死的用例也跟着放宽，把缺陷藏进更长的等待里。正解是把脚手架成本挪出断言窗口，而不是把断言窗口拉长。
+
+### lesson: composable 里的 watch 必须有主人（rewrite-view-decompose）
+
+**现场**：外部评审（claude）判 i1：composable 无条件注册两个 `watch`，而 `onUnmounted` 只在 `getCurrentInstance()` 为真时注册 ⇒ 组件外调用时 watch 落在无主作用域，永不停止（每份实例都会真的发请求）。
+
+**根因**：组件 setup 里的 watch 归组件 scope，Vue 会自动停；**组件外调用**时没有任何东西负责。
+
+**可复用的三条**：
+1. 把 watch 与定时器清理都注册进**自建的 `effectScope()`** —— 组件内它挂当前 scope（组件 scope 的子 scope），卸载时随 scope 树被停；组件外它归 composable 所有，调用方用返回的 `dispose()`（= `scope.stop()`）显式停掉。
+2. ⛔ `if (getCurrentInstance()) onUnmounted(...)` 这类守卫**只清定时器**，watch 仍是无主的 —— 它看起来解决了问题，实际只解决了一半。
+3. 拆出去的 composable 应当**自带回归锁**：本例新增 2 例（`dispose()` 后设置项变化不再触发预览；`dispose()` 后防抖定时器被取消）。
+
+### lesson: 否定式匹配当存在性判据会漏判（rewrite-view-decompose）
+
+**现场**：视觉契约里写 `expect(src).not.toMatch(/<style scoped>\s*\n/)` 来表达「视图里不得再有内联 scoped 样式」。外部评审（claude）判 i5：换个写法（`<style scoped >`、换行位置不同、双空格）就能绕过。
+
+**根因**：「不要某个写法」与「只要那一个」不是一回事 —— 前者依赖写法细节，后者依赖语义。
+
+**可复用的三条**：
+1. 判据要陈述**要什么**：`const tags = src.match(/<style\b[^>]*>/g) || []; expect(tags).toHaveLength(1); expect(tags[0]).toBe('<具体那个>')` —— 与写法/空白无关。
+2. 顺带把「两份真相」也挡住：原判据只挡「内联 scoped」这一种形态，新判据挡的是**style 标签数量 ≠ 1**。
+3. 凡是「不想要 X」的断言，先问一句「我真正想要的那个是什么」—— 往往存在式 + 唯一性比否定式更短也更稳。
+
+### lesson: 判「测试红了是环境态还是自己引入」要先 A/B 证伪，再看 CI 的真实结论（rewrite-view-decompose）
+
+**现场**：`check-max-lines.test.js` 本机 35 过 1 挂。提案标成「环境态」并说「CI 会持续失败」。
+
+**根因（两条硬证据）**：① **A/B**：把全局 git 配置隔离（`GIT_CONFIG_GLOBAL` 指向空文件）后同一条命令 **36/36 全绿**；不隔离则 35/36 ⇒ 那一条挂的是**本机全局 git 配置**（`core.excludesFile`）造成的环境态。② **CI 读数**：承载该测试的 `债务熔断门禁` 作业在 main 的 push run（39602066073）**success**；本次 PR 同一作业也 **pass** ⇒ 「CI 会持续失败」不成立。
+
+**可复用的三条**：
+1. 写「环境态」之前先做 **A/B**：隔离掉可疑的环境变量（全局 git 配置、PATH、语言环境）再跑一遍。读数相同的才叫环境态。
+2. 再去查**承载该判据的 CI 作业在 main 上的真实结论**（`gh run list --workflow=…` + `gh api …/jobs` 看具体 step），而不是凭「这类测试通常红」推断。
+3. 环境态**不要用 skip 掩盖**（本仓门禁脚本本身不接受 skip，且 skip 会让真缺陷也一起消失）；正确落点是**执行记录里写下 A/B 两档读数与 CI run 号**，让下一个会话直接读到。
