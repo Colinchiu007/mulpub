@@ -49,11 +49,43 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为消除文档自相矛盾（还欠账）。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.1 小红书行（已改）与 §16.14 / §16.16 对照",
+    "confidenceWeight": 0.9,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "只是改一行表格，值得单独一个 PR 吗？会不会是凑产出？",
+        "verdict": "upheld_verified",
+        "rationale": "值得，因为改的是**总表**——它是读者最先看、最容易被当作权威口径引用的位置。 矛盾形态：总表说\"✅ 完成、剩余动作：无\"，而 §16.14/§16.16 用实测订正为 \"无可观测证据\"。若有人只看总表就会认为小红书已具备发布能力、无需再做任何事 —— 这与实测（406、草稿箱 0）直接冲突，且会误导排期决策。 另外这是**我自己在 §16.14 CCG i2 里登记过的欠账**（\"§16.1 原格留待后续清理\"）， 本轮是还账，不是新增。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "改成\"当前无可观测证据表明已落地\"—— 这个表述准确吗？会不会过于保守以致掩盖\"其实成功过\"的可能？",
+        "verdict": "upheld_verified",
+        "rationale": "准确，且刻意保守。依据三条实测：草稿箱(0)、无 draft_id 留存、实跑 401/406。 措辞\"当前无可观测证据表明\"而非\"从未成功\"，正是为了**不掩盖**\"可能成功过但草稿已删除/已发布\" 的情形 —— 这是 §16.16.2 明确写出的界线。 同时给出复核方式（留档 draft_id 即可推翻）⇒ 它是可证伪的，不是终局断言。 我认为在这种\"证据缺失\"场景下，保守表述是正确选择：宁可让后续去补证据， 也不要让一个证据不足的\"✅\"继续被引用。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "连续多轮都是文档动作，且本轮仍是。",
+        "verdict": "upheld_verified",
+        "rationale": "承认。本轮性质是\"还欠账 + 消除矛盾\"，属于收敛性工作，不是新探索。 若下一轮账号状态仍无变化，我已无欠账可还 —— 届时应纯汇报、不再产出。 四条阻塞（头条实名、抖音/视频号扫码、小红书授权抓包）全部依赖用户动作。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 3,
+      "note": "i1 论证总表口径被误引用的危害大于分节表述，且属已登记欠账；i2 论证保守措辞的准确性与可证伪性（不掩盖\"可能成功过\"）；i3 承认连续文档动作且下轮若无变化应纯汇报。"
+    },
+    "at": "2026-10-21T00:56:51.965Z"
   }
 }
