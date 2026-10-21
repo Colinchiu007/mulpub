@@ -47,11 +47,43 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为 PRD 埋点清单状态对齐。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.19.4（落地状态表 + 诊断解读规则）+ §16.20.3 同步",
+    "confidenceWeight": 0.9,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "你把 ③ 标为\"部分落地：URL 已有，时长未单独记\"—— \"URL 已有\"有证据吗？",
+        "verdict": "upheld_verified",
+        "rationale": "有，依据是 §16.19.3 已记录的代码事实：rpa-view-platforms.js:1056 的 warn 日志里带 `url=` + 当前 URL（`const fu=win.webContents.getURL()`）。所以\"URL 落进日志\"是**既有实现**，不是本轮新增，也不是我推测。⚠ 但我要精确一点：它落在**日志**里，不是\"落进历史记录\"（历史只有终态 error）。原文\"URL 已随终态 error 落入日志\"这个表述是准确的，没有夸大。时长未记：代码里没有 elapsedMs 类的记录点，我核过 rpa-view-platforms.js 的 douyin 段。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "主动放弃 ③ 的时长记录，理由是\"边际递减\" —— 这是不是为省事找的说法？",
+        "verdict": "upheld_verified",
+        "rationale": "我承认这个判断有主观性，但依据是：①②落地后已能回答\"卡在哪一轨\"，而时长只是\"卡了多久\"的量化，不改变定位结论。且加时长需要在 DOM 轨等响应的每一处都埋点（_waitForResponse / _waitForSuccessNavigation / _waitForVideoUploadComplete 三处以上），改造成本与收益不成比例。⚠ 诚实的边界：如果复跑后发现\"API 轨成功但 DOM 轨超时\"，那时长就有价值了（可判断是风控还是慢）。所以这不是\"永远不做\"，而是\"等有需要时再做\"——我在表里写的是\"主动放弃\"而非\"不需要\"，读者可自行判断。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "这轮仍是文档同步。",
+        "verdict": "upheld_verified",
+        "rationale": "是，但属必要的对齐：埋点已落地而 PRD 仍写\"下一步做埋点\"，会让后续会话重复做同样的事（或以为没做而不敢复跑）。且本轮把\"诊断解读规则\"从脚本注释搬进了 PRD —— 那是判断依据，放在只在跑脚本时才看得到的注释里，覆盖面太窄。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 3,
+      "note": "i1 用代码事实论证 URL 已落日志（且精确区分日志 vs 历史）；i2 承认\"边际递减\"有主观性但给出成本/收益依据，并把结论限定为\"等有需要时再做\"；i3 说明本轮是必要对齐 + 把判断依据从脚本注释搬进 PRD。"
+    },
+    "at": "2026-10-21T07:05:56.244Z"
   }
 }
