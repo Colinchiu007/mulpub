@@ -160,12 +160,17 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
   await sleep(1200)
 
   // 3) 设文件到**动态出现的 image input**
-  try {
-    await ctx._setFileInput(win, coverPath, 'input[type="file"][accept*="image"]')
-  } catch (e) {
-    if (log) log.warn('RpaView', '[' + platform + '] cover local upload: set file failed: ' + String(e && e.message).slice(0, 80))
-    return { ok: false, step: 'set-file-failed' }
+  const imageSel = 'input[type="file"][accept*="image"]'
+  let setErr = null
+  try { await setFileViaCdp(win, coverPath, imageSel) } catch (e1) {
+    setErr = e1
+    if (log) log.warn('RpaView', '[' + platform + '] cover cdp setFile failed: ' + String(e1 && e1.message).slice(0, 100))
+    try { await ctx._setFileInput(win, coverPath, imageSel); setErr = null } catch (e2) {
+      setErr = e2
+      if (log) log.warn('RpaView', '[' + platform + '] cover local upload: set file failed: ' + String(e2 && e2.message).slice(0, 100))
+    }
   }
+  if (setErr) return { ok: false, step: 'set-file-failed' }
   await sleep(2500)
 
   // 4) 等「下一步」可点（cannot-click 也要认出来）
@@ -203,4 +208,28 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
   if (log) log.info('RpaView', '[' + platform + '] cover local upload: dialog=' + (stillOpen ? 'open' : 'closed') + ' preview=' + (hasPreview ? 'yes' : 'no') + ' ok=' + ok)
   return { ok: ok, step: ok ? 'done' : 'no-effect' }
 }
-module.exports = { ensureCoverFromVideoFrame, ensureCoverViaLocalUpload }
+
+/**
+ * 纯 CDP 设文件（2026-10-22）。
+ *
+ * 为什么不用 `_setFileInput`：它在 CDP 失败时会**回退到 JS 注入**（`_setFileInputViaJs`），
+ * 而 JS 给 file input 赋 files 在 Chromium 里本来就不可行（FileList 只读）⇒
+ * 回退必然抛 `Script failed to execute`，把真正的 CDP 错误吞掉。
+ * 这里只走 CDP，并把 CDP 的**原始错误**抛出来，便于定位。
+ * @param {object} win BrowserWindow
+ * @param {string} filePath 本地文件
+ * @param {string} selector CSS 选择器
+ */
+async function setFileViaCdp (win, filePath, selector) {
+  const dbg = win.webContents.debugger
+  try { await dbg.attach("1.3") } catch (_e) { /* 已附加则忽略 */ }
+  await dbg.sendCommand("DOM.enable")
+  const doc = await dbg.sendCommand("DOM.getDocument", { depth: -1, pierce: true })
+  const rootId = doc && doc.root && doc.root.nodeId
+  if (!rootId) throw new Error("DOM document unavailable")
+  const q = await dbg.sendCommand("DOM.querySelector", { nodeId: rootId, selector: selector })
+  if (!q || !q.nodeId) throw new Error("No file input found for " + selector)
+  await dbg.sendCommand("DOM.setFileInputFiles", { files: [require("node:path").resolve(filePath)], nodeId: q.nodeId })
+  return true
+}
+module.exports = { ensureCoverFromVideoFrame, ensureCoverViaLocalUpload, setFileViaCdp }
