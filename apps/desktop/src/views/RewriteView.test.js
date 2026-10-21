@@ -1385,7 +1385,16 @@ describe('RewriteView — 文案库交接带入（合并版文案库【改写】
  * 防止「勾选框被 flex 拉伸」「质量报告卡片套卡片」「设置区无分组」等问题回退。
  */
 describe('RewriteView — 视觉契约', () => {
-  const source = fs.readFileSync(path.resolve(process.cwd(), 'src/views/RewriteView.vue'), 'utf8')
+  // 样式已外置到 src/views/rewrite-view.css（rewrite-view-decompose，2026-10-21）。
+  // 变的是**读取对象**，不是**被锁的契约**：下面 4 条视觉契约一条不减。
+  // 为什么必须改：外置前样式在 .vue 里，读 .vue 拿得到规则体；外置后 .vue 里
+  // 只有一个 <style scoped src="...">，规则体在 CSS 文件里 —— 不改读取对象，
+  // `ruleBody()` 会返回空串，4 条用例变成**恒真的假锁**（match 失败 ⇒ 断言红，
+  // 但红的原因是路径漂移而不是视觉回退，会把真问题淹没）。
+  const source = fs.readFileSync(path.resolve(process.cwd(), 'src/views/rewrite-view.css'), 'utf8')
+  // 反向锁：CSS 文件不能变成孤儿（文件在、但视图不引它 ⇒ 页面裸奔，
+  // 而上面 4 条只读 CSS 的锁会一直绿 —— 所以这条必须单独存在）。
+  const viewSource = fs.readFileSync(path.resolve(process.cwd(), 'src/views/RewriteView.vue'), 'utf8')
 
   function ruleBody (selector) {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -1415,6 +1424,12 @@ describe('RewriteView — 视觉契约', () => {
     const body = ruleBody('.cohere-section-title')
     expect(body).toMatch(/font-size:\s*var\(--font-size-base\)/)
     expect(body).toMatch(/font-weight:\s*600/)
+  })
+
+  it('视图必须仍然引用该 CSS 文件（防样式文件变成孤儿：文件在、但页面不引它）', () => {
+    expect(viewSource).toMatch(/<style scoped src="\.\/rewrite-view\.css"><\/style>/)
+    // 反向：视图里不得再有内联 <style scoped>（否则就出现两份真相）
+    expect(viewSource).not.toMatch(/<style scoped>\s*\n/)
   })
 })
 

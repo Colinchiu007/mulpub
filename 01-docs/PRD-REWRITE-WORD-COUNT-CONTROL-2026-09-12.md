@@ -209,3 +209,25 @@
 | 日期 | 变更 | 说明 |
 |------|------|------|
 | 2026-09-12 | 初版 | 移除最小字数 + 字数区间控制 + 3000 默认上限 |
+
+---
+
+## 附：状态层归属的变更（rewrite-view-decompose，2026-10-21）
+
+本 PRD 定义的**全部字数区间行为**（默认值 800/2000、五条校验规则与错误文案、按原文长度自适应、
+「用户手动改过就不被覆盖」的规则）**一条未改**。本次只把**状态层**从视图搬进 composable：
+
+| 项 | 变更前 | 变更后 |
+|---|---|---|
+| 输入控件 | `components/WordCountRangeInput.vue` | 不变 |
+| 状态 + 校验接线 + 自适应推导 | `views/RewriteView.vue` 内联 | `composables/useRewriteWordCount.js` |
+| 视图侧接线 | — | `useRewriteWordCount((key) => t('rewritePage.' + key))` |
+
+**校验与下发仍同源**：`wordCountError` 与下发给引擎的 `wordCountRange` 取的是**同一对 ref**，
+不会重演「校验用的值」与「下发用的值」分家（下限 0 被假值兜底吞掉）那类事故。
+
+新增回归锁：`composables/useRewriteWordCount.test.js`（7 例）。其中
+「手动置位后自适应不得覆盖用户值」是**搬出视图后第一次有独立测试锁住**的契约 ——
+它在视图里只是一行 `if (!wordCountManuallySet)`，此前没有任何测试守过。
+
+详见 `01-docs/PRD-REWRITE-VIEW-DECOMPOSITION-2026-10-21.md` §五。
