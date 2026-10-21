@@ -12,38 +12,21 @@
 
 ## PR-2 · F-A 分镜提示词三分
 
-- [ ] 2.
-
-- [ ]  方案件入库：`proposal.md` / `design.md` / `tasks.md` / `specs/film-engineering/spec.md` / `.openspec.yaml` / `review-brief.md` / `ccg-plan-review-record.md`
-- [ ] 2.
-- [ ]  `openspec validate film-pipeline-prompt-triple-and-guards --strict` 通过
-- [ ] 2.
-- [ ]  **TDD-RED**：`kit-loader.test.js` 新增「三分归一化」用例（存量 153 条 → 三字段非空 / `prompt` 不变）
-- [ ] 2.
-- [ ]  **TDD-RED**：`kit-loader.test.js` 新增「三分合计超上限 → fail-closed」用例
-- [ ] 2.
-- [ ]  **TDD-RED**：`video-gen.test.js` 新增「图片用 imagePrompt / 视频用 videoPrompt / 缺 videoPrompt 回落 imagePrompt」用例
-- [ ] 2.
-- [ ]  实现：`kit-loader.js` 归一化 + 合计上限（`FILM_PROMPT_BUNDLE_MAX_LEN`）
-- [ ] 2.
-- [ ]  实现：`auto-plan.js` 派生三分（首帧全文 / 视频精简 / 尾帧 frame_constraint）
-- [ ] 2.
-- [ ]  实现：`video-gen.js` 消费三分
-- [ ] 2.
-- [ ]  `SCHEMA.md` 补三字段规格与合计上限口径
-- [ ] 2.
-- [ ] 0 验证：影视工程定向测试全绿；`shot-library.json` 零改动断言（`git diff --stat` 为空）
-- [ ] 2.
-- [ ] 1 QM-1 打包：`electron-builder --win --x64` exit 0 + asar 清单核对
-- [ ] 2.
-- [ ] 2 文档：`01-docs/PRD-FILM-PIPELINE-V2-2026-10-21.md` 起草（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）
-- [ ] 2.
-- [ ] 3 执行记录：`openspec/records/film-pipeline-prompt-triple-and-guards.md`（含 `| 远程同步 | 由门禁推导 |` 表行 + 对应 bullet）
-- [ ] 2.
-- [ ] 4 门禁：`classify-docs-only --base=origin/main --head=HEAD`（commit 之后）+ `check-gate-record-debt` + `check-no-brand-residue` + `check-locale-sync`
-- [ ] 2.
-- [ ] 5 PR-1 推送 → CI 全绿 → 自动合并 → **回读 main push 的 workflow 读数**
-
+- [ ] 2.1  方案件入库：`proposal.md` / `design.md` / `tasks.md` / `specs/film-engineering/spec.md` / `.openspec.yaml` / `review-brief.md` / `ccg-plan-review-record.md`
+- [ ] 2.2  `openspec validate film-pipeline-prompt-triple-and-guards --strict` 通过
+- [ ] 2.3  **TDD-RED**：`kit-loader.test.js` 新增「三分归一化」用例（存量 153 条 → 三字段非空 / `prompt` 不变）
+- [ ] 2.4  **TDD-RED**：`kit-loader.test.js` 新增「三分字段非法（非字符串 / 超单字段上限）→ fail-closed」用例
+- [ ] 2.5  **TDD-RED**：`video-gen.test.js` 新增「图片用 imagePrompt / 视频用 videoPrompt / 缺 videoPrompt 回落 imagePrompt」用例
+- [ ] 2.6  实现：`shot-prompts.js` 归一化 + 字段级校验（单字段上限 `FILM_PROMPT_MAX_LEN`；**不设**合计上限 —— 验证层评审 i4 已删）
+- [ ] 2.7  实现：`auto-plan.js` 派生三分（首帧全文 / 视频精简 / 尾帧 frame_constraint）
+- [ ] 2.8  实现：`video-gen.js` 消费三分
+- [ ] 2.9  `SCHEMA.md` 补三字段规格与字段级校验口径（无合计上限）
+- [ ] 2.10 验证：影视工程定向测试全绿；`shot-library.json` 零改动断言（`git diff --stat` 为空）
+- [ ] 2.11 QM-1 打包：`electron-builder --win --x64` exit 0 + asar 清单核对
+- [ ] 2.12 文档：`01-docs/PRD-FILM-PIPELINE-V2-2026-10-21.md` 起草（数据校验/流程/功能逻辑/交互逻辑/显示项/提示文字）
+- [ ] 2.13 执行记录：`openspec/records/film-pipeline-prompt-triple-and-guards.md`（含 `| 远程同步 | 由门禁推导 |` 表行 + 对应 bullet）
+- [ ] 2.14 门禁：`classify-docs-only --base=origin/main --head=HEAD`（commit 之后）+ `check-gate-record-debt` + `check-no-brand-residue` + `check-locale-sync`
+- [ ] 2.15 PR-1 推送 → CI 全绿 → 自动合并 → **回读 main push 的 workflow 读数**
 ---
 
 ## PR-3 · F-I / F-H / F-J 资产接线与 UI
@@ -55,7 +38,7 @@
 - [ ] 3.5 实现：导入 IPC 传 `requireAssets: true`（资产缺失在导入时暴露）
 - [ ] 3.6 i18n：`locales/film-engineering/{zh,en}.js` 新增文案成对
 - [ ] 3.7 QM-4 视觉：真机截图留证（方法论分区渲染）
-- [ ] 3.8 文档同步 + 执行记录 + 门禁 + PR-2
+- [ ] 3.8 文档同步 + 执行记录 + 门禁 + PR-3
 
 ---
 
@@ -71,7 +54,7 @@
 - [ ] 4.8 实现：`auto-project.js` 落 `durationMs` / `durationSource` / `durationRawSec`
 - [ ] 4.9 UI：`FilmAutoPanel.vue` 逐镜行显示锁标记 + 锁定/解锁交互 + **失败回滚为服务端真值** + i18n 成对
 - [ ] 4.10 断言 `preload.test.js` 的通道计数**不变**（锁镜未新增 IPC 通道）
-- [ ] 4.11 文档 + 执行记录 + 门禁 + PR-3
+- [ ] 4.11 文档 + 执行记录 + 门禁 + PR-4
 
 ---
 
@@ -83,7 +66,7 @@
 - [ ] 5.3 **TDD-RED**：`video-gen.test.js` 新增「`costCheck.readiness` 内联 + provider 调用数 = 0」用例
 - [ ] 5.4 实现：`video-gen.js` 的 `costCheck` 加 `readiness`（含 `SHOT_LOCKED`，依赖 PR-3）
 - [ ] 5.5 **断言既有锁未被削弱**：`film-video-checkpoint-integration.test.js` **只读不改**且仍绿
-- [ ] 5.6 文档 + 执行记录 + 门禁 + PR-4
+- [ ] 5.6 文档 + 执行记录 + 门禁 + PR-5
 
 ---
 
@@ -94,7 +77,7 @@
 - [ ] 6.3 `video-gen.js` 改为调用新模块（**行为零变化**）
 - [ ] 6.4 **TDD-RED**：新模块等价性用例（http 允许 / 3xx 跟随 / 写目标文件 —— 与原实现逐项对齐）
 - [ ] 6.5 验证：`video-gen.test.js` 19+7 例仍全绿；「无行为差异」声明写入执行记录
-- [ ] 6.6 执行记录 + 门禁 + PR-5
+- [ ] 6.6 执行记录 + 门禁 + PR-6
 
 ---
 
@@ -105,7 +88,7 @@
 - [ ] 7a.3 实现：把 `shot-downloader.js` 的出站合同**原样**抽成 `egress-guard.js`（**行为零变化**）
 - [ ] 7a.4 实现：`shot-downloader.js` 改为调用 `egress-guard`（依赖单向：`shot-downloader` → `egress-guard`）
 - [ ] 7a.5 验证：`shot-downloader.test.js` 既有 23 例全绿；`egress-guard.test.js` 全绿
-- [ ] 7a.6 执行记录 + 门禁 + PR-6a
+- [ ] 7a.6 执行记录 + 门禁 + PR-7a
 
 ## PR-7b · F-C 出站安全加固
 
@@ -119,8 +102,8 @@
 - [ ] 7b.7 配置面：模型服务商新增可选 `assetDownloadHosts` / `assetDownloadPorts`（缺省 ⇒ 只认 API 同源主机 + 443）
 - [ ] 7b.8 实现：确认卡「本次允许从外部素材域名下载」勾选 ⇒ 产生**运行期一次性令牌**（**只存内存、任务结束失效、不落盘**）；`project.json` 中**不得出现任何可放行的授权位**（机械核对：无 `egressAllow` 类字段）；审计只记「发生过授权」这一事实
 - [ ] 7b.9 验证：`shot-downloader.test.js` 既有 23 例全绿；`film-video-downloader.test.js` 全绿
-- [ ] 7b.9b **TDD-RED**：**真实 kit 的合计上限回归**——加载全部 153 条存量分镜，断言逐条 `imagePrompt+videoPrompt+endFramePrompt ≤ FILM_PROMPT_BUNDLE_MAX_LEN`；并断言存量 `videoPrompt` **全为空串**（走回落，不假装已解决）。实测：最大合计 **39,468** 字符（< 50,000），超限 0 条（2026-10-21）
-- [ ] 7b.10 文档（出站合同 + 可信主机 + 端口集写进 PRD）+ 执行记录 + 门禁 + PR-6b
+- [ ] 7b.9b **TDD-RED**：**真实 kit 的字段级回归**——加载全部 153 条存量分镜，断言逐条 `imagePrompt` 非空且等于原 `prompt`、`videoPrompt` / `endFramePrompt` **全为空串**（走回落，不假装已解决），且逐条 `imagePrompt.length ≤ FILM_PROMPT_MAX_LEN`。实测：最长单镜 `prompt` **39,468** 字符（< 50,000），超限 0 条（2026-10-21）。**不设合计上限**（验证层评审 i4 已删）
+- [ ] 7b.10 文档（出站合同 + 可信主机 + 端口集写进 PRD）+ 执行记录 + 门禁 + PR-7b
 
 ---
 
@@ -130,7 +113,7 @@
 - [ ] 8.2 实现：`tool-doctor.js`（新建）
 - [ ] 8.3 实现：`video-gen.js` 出片前体检 + 可操作错误码
 - [ ] 8.4 验证：`film-render.test.js` 既有 20+2 例全绿
-- [ ] 8.5 文档 + 执行记录 + 门禁 + PR-7
+- [ ] 8.5 文档 + 执行记录 + 门禁 + PR-8
 
 ---
 
@@ -148,9 +131,9 @@
 
 ## 10 · 验证（贯穿）
 
-- [ ] 8.1 每个 PR：影视工程定向测试全绿 + `check-locale-sync --keys/--cjk` + `check-no-brand-residue` + `check-gate-record-debt` + `check-pr-exec-record`
-- [ ] 8.2 每个 PR：`classify-docs-only --base=origin/main --head=HEAD`（**commit 之后**跑）
-- [ ] 8.3 涉及主进程的 PR：QM-1 打包证据
-- [ ] 8.4 涉及 UI 的 PR：QM-4 视觉证据
-- [ ] 8.5 每次合并：**回读 main push 的 workflow 读数**（按「(merge SHA, workflow)」这一格判）
-- [ ] 8.6 全部合并后：PRD / ARCH / 用户手册同步；沉淀记忆（内置 / 外部 / EverOS）
+- [ ] 10.1 每个 PR：影视工程定向测试全绿 + `check-locale-sync --keys/--cjk` + `check-no-brand-residue` + `check-gate-record-debt` + `check-pr-exec-record`
+- [ ] 10.2 每个 PR：`classify-docs-only --base=origin/main --head=HEAD`（**commit 之后**跑）
+- [ ] 10.3 涉及主进程的 PR：QM-1 打包证据
+- [ ] 10.4 涉及 UI 的 PR：QM-4 视觉证据
+- [ ] 10.5 每次合并：**回读 main push 的 workflow 读数**（按「(merge SHA, workflow)」这一格判）
+- [ ] 10.6 全部合并后：PRD / ARCH / 用户手册同步；沉淀记忆（内置 / 外部 / EverOS）

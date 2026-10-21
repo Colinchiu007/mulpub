@@ -42,33 +42,69 @@ function splitScript (script) {
 }
 
 /**
- * 组装模板提示词：剧情替换 + 影视项目案例块结构复刻。
+ * 拆出模板提示词的**拼装零件**（影视工程 v2 · F-A 提示词三分）。
+ *
+ * 为什么要有这一层：`buildTemplatePrompt` 把「场景头 + 剧情 + 角色行 + 模板块」拼成一坨，
+ * 于是「首帧图」与「视频运动」必须共用同一段文本——单镜提示词一段到底（G-1）。
+ * 要拆成三份提示词，就得先把「哪些零件是静态（空间/音频/约束）、哪些是运动（动作/表演）」
+ * 在**同一次拼装**里分开，否则两套拼装逻辑必然漂移（两份真相源）。
+ *
+ * 口径（按模板块的**首行**判定，散文正文不参与分类）：
+ *   - 运动类：ACTION TIMING / CHARACTER ACTING
+ *   - 静态类：GEO SPATIAL LAYOUT / AUDIO / POSITIVE CONSTRAINTS
+ *
+ * ⚠️ 拼装**顺序与内容逐字保持**原样：`buildTemplatePrompt` 改为消费本函数的产物，
+ * 输出与改造前逐字节一致（有回归锁断言）。新增的只有 `motionParts` / `staticParts` 两个分类视图。
+ *
  * @param {object} opts
  * @param {object} opts.template - kit 模板分镜
  * @param {string} opts.beatText - 用户剧情段落
  * @param {object} opts.characterMap - 角色映射
- * @returns {string}
+ * @returns {{head: string[], characterLines: string[], motionParts: string[], staticParts: string[], allParts: string[]}}
  */
-function buildTemplatePrompt ({ template, beatText, characterMap }) {
+function buildTemplatePromptParts ({ template, beatText, characterMap }) {
   const tpl = String(template.prompt || '')
   const storyLines = String(beatText || '').split('\n').map((l) => l.trim()).filter(Boolean)
-  const parts = []
+  /** @type {string[]} */
+  const head = []
+  /** @type {string[]} */
+  const characterLines = []
+  /** @type {string[]} */
+  const motionParts = []
+  /** @type {string[]} */
+  const staticParts = []
   const firstLine = tpl.split('\n')[0]
   const isSceneHeading = /^(INT|EXT|INT\.\/EXT|INT\.|EXT\.)/i.test(String(firstLine || '').trim())
-  parts.push(isSceneHeading ? firstLine.trim() : (storyLines[0] || 'SCENE'))
-  if (storyLines.length > 0) parts.push(storyLines.join(' '))
-  const characterLines = tpl.split('\n').filter((l) => /\[CHARACTER:/.test(l))
-  for (const cl of characterLines) {
+  head.push(isSceneHeading ? firstLine.trim() : (storyLines[0] || 'SCENE'))
+  if (storyLines.length > 0) head.push(storyLines.join(' '))
+  const rawCharacterLines = tpl.split('\n').filter((l) => /\[CHARACTER:/.test(l))
+  for (const cl of rawCharacterLines) {
     const m = cl.match(/\[CHARACTER:\s*([A-Z0-9_]+)\]/i)
     if (m) {
       const hgName = m[1].toUpperCase()
       const userRole = characterMap && characterMap[hgName]
-      parts.push(cl.trim() + (userRole ? '（' + userRole + '）' : ''))
+      characterLines.push(cl.trim() + (userRole ? '（' + userRole + '）' : ''))
     } else {
-      parts.push(cl.trim())
+      characterLines.push(cl.trim())
     }
   }
   const blocks = tpl.split(/\n{2,}/)
+  for (const block of blocks) {
+    const trimmed = block.trim()
+    if (!trimmed) continue
+    if (/\[CHARACTER:/.test(trimmed)) continue
+    if (/^ACTION TIMING/i.test(trimmed) || /^CHARACTER ACTING/i.test(trimmed)) {
+      motionParts.push(trimmed)
+      continue
+    }
+    if (/^GEO SPATIAL LAYOUT/i.test(trimmed) ||
+        /^AUDIO/i.test(trimmed) ||
+        /^POSITIVE CONSTRAINTS/i.test(trimmed)) {
+      staticParts.push(trimmed)
+    }
+  }
+  // allParts：与原实现完全同序（head → characterLines → 块）
+  const allParts = [...head, ...characterLines]
   for (const block of blocks) {
     const trimmed = block.trim()
     if (!trimmed) continue
@@ -78,10 +114,39 @@ function buildTemplatePrompt ({ template, beatText, characterMap }) {
         /^AUDIO/i.test(trimmed) ||
         /^CHARACTER ACTING/i.test(trimmed) ||
         /^POSITIVE CONSTRAINTS/i.test(trimmed)) {
-      parts.push(trimmed)
+      allParts.push(trimmed)
     }
   }
-  return parts.join('\n\n')
+  return { head, characterLines, motionParts, staticParts, allParts }
+}
+
+/**
+ * 组装模板提示词：剧情替换 + 影视项目案例块结构复刻。
+ * @param {object} opts
+ * @param {object} opts.template - kit 模板分镜
+ * @param {string} opts.beatText - 用户剧情段落
+ * @param {object} opts.characterMap - 角色映射
+ * @returns {string}
+ */
+function buildTemplatePrompt ({ template, beatText, characterMap }) {
+  return buildTemplatePromptParts({ template, beatText, characterMap }).allParts.join('\n\n')
+}
+
+/**
+ * 组装**视频运动提示词**（影视工程 v2 · F-A）：场景头 + 剧情 + 角色行 + 运动类块。
+ *
+ * 与首帧图提示词的差别：去掉**静态类块**（空间布局 / 音频 / 正向约束）——
+ * 视频模型不需要「静态空间地图」，给它反而稀释动作约束。
+ *
+ * ⚠️ 当模板**没有任何静态块**时，本函数的结果与首帧图提示词**逐字相同**（该镜无可剔除内容，
+ * 属正常态而非缺陷）。调用方据此判定「是否真的派生了运动子集」，不得用长度比硬凑。
+ *
+ * @param {object} opts - 同 buildTemplatePrompt
+ * @returns {string}
+ */
+function buildMotionPrompt ({ template, beatText, characterMap }) {
+  const parts = buildTemplatePromptParts({ template, beatText, characterMap })
+  return [...parts.head, ...parts.characterLines, ...parts.motionParts].filter(Boolean).join('\n\n')
 }
 
 /**
@@ -215,6 +280,8 @@ module.exports = {
   ScriptAdapter,
   splitScript,
   buildTemplatePrompt,
+  buildTemplatePromptParts,
+  buildMotionPrompt,
   buildRoleBindings,
   normalizeSceneId,
 }
