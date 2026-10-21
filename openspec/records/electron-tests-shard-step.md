@@ -9,7 +9,7 @@ branch: electron-tests-shard-step
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 混合 PR（`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=false files=12`）；改动集 = `.github/workflows/electron-ci.yml`、`.github/workflows/quality-gate.yml`、`.github/scripts/workflow-contract.test.js`、`apps/desktop/tests/gui-ci-exit-contract.test.js`、`.gitignore`、`scripts/electron-ci-desktop-step{,.test}.js`、`scripts/electron-ci-shard-audit{,.test}.js`、`CHANGELOG.md`、`docs/electron-ci-step-budget-baseline.md`、本记录。隔离 worktree `D:/Data/projects/mp-worktrees/mp-electron-tests-shard-step` / 裸分支 `electron-tests-shard-step`，起始基线 `origin/main=e8799536c`；**合并前两次 re-sync**（→ `11e7d0ca8`，再 → `2f5c0a32f`），两次与上游改动集的交集都只有 `CHANGELOG.md` 一处顶部插入，按「主干每行都在 ∧ 我的块还在」解，现场读数 `MARKERS_LEFT=0 / MAIN_LOST=0 / MINE_LOST=0 / REST_LOST=0`；rebase 后全套重跑（见 §7 命令）仍全绿 |
+| 变更类型与隔离 | PASS | 混合 PR（`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` ⇒ `docs-only=false files=12`）；改动集 = `.github/workflows/electron-ci.yml`、`.github/workflows/quality-gate.yml`、`.github/scripts/workflow-contract.test.js`、`apps/desktop/tests/gui-ci-exit-contract.test.js`、`.gitignore`、`scripts/electron-ci-desktop-step{,.test}.js`、`scripts/electron-ci-shard-audit{,.test}.js`、`CHANGELOG.md`、`docs/electron-ci-step-budget-baseline.md`、本记录。隔离 worktree `<仓库父目录>/mp-worktrees/mp-electron-tests-shard-step` / 裸分支 `electron-tests-shard-step`，起始基线 `origin/main=e8799536c`；**合并前两次 re-sync**（→ `11e7d0ca8`，再 → `2f5c0a32f`），两次与上游改动集的交集都只有 `CHANGELOG.md` 一处顶部插入，按「主干每行都在 ∧ 我的块还在」解，现场读数 `MARKERS_LEFT=0 / MAIN_LOST=0 / MINE_LOST=0 / REST_LOST=0`；rebase 后全套重跑（见 §7 命令）仍全绿 |
 | 第一性原因（QM-5 ①） | PASS | 不是"套件变慢了"。三条同源前提各自有出处：① 该步把**整轮桌面全量**塞进一个串行 `pnpm … test`，墙钟随文件数线性涨；② `BUDGET_SECONDS=2100` 与计数锚在 workflow 内联 bash 里各存一份，**没有回归锁**（判据与产物口径分裂）；③ 计数锚 `^[[:space:]]+[✓×↓-]` 对 vitest 真实行恒 0（行首是 `033[32m✓`，`od -c` 实测），所以"跑满预算"在现场读起来是"一条都没跑"，把可归因的墙伪装成不可归因 |
 | 逃逸分析（QM-5 ②） | PASS | ① **单元层**：`gui-ci-exit-contract.test.js` 旧版断言的是"这四行字符串存在于 YAML"，而性质是"这四行会在 `bash -e -o pipefail` 下真执行" ⇒ 判据域错位，锁恒绿（#2525 的自证块从未真跑过一次，2026-10-20 已现场否证）；② **集成层**：该步骤 `if: github.event_name != 'pull_request'` ⇒ **PR 侧永远不跑**，PR 全绿对 push 红零信息量；③ **审查层**：预算数字与耗时基线的关系写在注释里，没有任何东西在它不成立时变红 |
 | 系统性漏洞定位（QM-5 ③） | PASS | 两类具体漏洞：**(a)「判据住在 workflow 正文里」** —— CI 的 required check 由一个无锁的 bash 块产出，改它不需要任何人同意，也不会有任何东西因它变红（本仓范式是"收回单一实现 + 脚本自带锁"，先例 `agent-review-gate.js` / `main-red.js`）；**(b)「计数的锚没被证明能命中真实字节」** —— 一个恒 0 的计数器和一个"真的什么都没跑"的现场同形，而修复动作（改锚）与结论（跑没跑完）只能靠一次 `od -c` 分开 |
@@ -72,7 +72,7 @@ branch: electron-tests-shard-step
 
 ## 4. 变异反证 T1–T10
 
-驱动：`D:/tmp/p320-mut90b.js`（每刀跑**三套**取红集并集：`electron-ci-desktop-step.test.js` 12 条、`electron-ci-shard-audit.test.js` 9 条、`gui-ci-exit-contract.test.js` 46 条）。控制跑自证健康：`CONTROL_OK src=12/12 audit=9/9 wf=46/46`。还原自证：`RESTORED_BYTE_IDENTICAL=true`。
+驱动：`<会话临时目录>/p320-mut90b.js`（每刀跑**三套**取红集并集：`electron-ci-desktop-step.test.js` 12 条、`electron-ci-shard-audit.test.js` 9 条、`gui-ci-exit-contract.test.js` 46 条）。控制跑自证健康：`CONTROL_OK src=12/12 audit=9/9 wf=46/46`。还原自证：`RESTORED_BYTE_IDENTICAL=true`。
 
 | ID | 这一刀 | 指名的锁（必须红） | 结果 |
 |---|---|---|---|
