@@ -1,0 +1,59 @@
+{
+  "sha": "495cd3513b1886dc74e5aa02b67c49412c5f75fd",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| `node scripts/check-no-hot-carrier-edit.js --base=c5087351d --head=495cd3513 --mode=enforce`（对本 PR 自己，**提交后实跑**） | `HOT-CARRIER MODE=enforce base=c5087351d head=495cd3513 差量文件=10 命中热写面=0 授权=n/a 判定=PASS` rc=0 —— 加门禁的这笔 PR 自己过这道门禁 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "be3445a350b999c14bfc528a76b04635d920970c907b93defd946fac0c916b7e",
+  "decidedAt": "2026-10-21T02:34:31.318Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

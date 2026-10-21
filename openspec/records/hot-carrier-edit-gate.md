@@ -31,7 +31,10 @@ date: 2026-10-21
 | --- | --- |
 | `node --test scripts/check-no-hot-carrier-edit.test.js` | `# tests 14 / pass 14 / fail 0`（git 夹具重，约 28–34s，在 changes 作业预算内） |
 | 变异驱动（一次性，落 `%TEMP%`） | 8/8 CAUGHT，红集互不相同，还原 md5 一致 |
-| `node scripts/check-no-hot-carrier-edit.js --base=<实际 merge-base> --head=HEAD --mode=enforce`（对本 PR 自己） | **提交后实跑**，读数随 PR 评论给出（此刻工作树未提交，跑它得到的是空差量，不构成证据） |
+| `node scripts/check-no-hot-carrier-edit.js --base=c5087351d --head=495cd3513 --mode=enforce`（对本 PR 自己，**提交后实跑**） | `HOT-CARRIER MODE=enforce base=c5087351d head=495cd3513 差量文件=10 命中热写面=0 授权=n/a 判定=PASS` rc=0 —— 加门禁的这笔 PR 自己过这道门禁 |
+| `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` | rc=1，唯一理由是 `CCG 深度审查欠账 1 条`（本片命中高危面，待真跑 `deep-review` 后回填）；记录存在性那一档是 `新增记录 1 篇`（本篇） |
+| `node scripts/aggregate-changelog.js --dry-run`（真仓，含本片记录） | `records=610 missing=604 malformed=1 learningsShape=1 landed=5 learningsLanded=5 duprisk=0` |
+| 真仓读数暴露的两件事（都不是本片的缺陷，是采纳现场的证据） | ① **已有别的会话自发按新合同写**：`chore-dep-audit-prune-resolved` 的条目里逐字写着「本条按 `changelog-record-carrier` 的新合同写在执行记录里，`CHANGELOG.md` 与 `01-docs/learnings.md` 零改动」⇒ `landed=5` 里 3 条不是我写的。② **两条形状真不合规**（`collection-ux-step-flow`：小节正文首行是 `- 现场：…` 没有条目标题 ⇒ MALFORMED；其 learnings 用 `## 标题` + `### lesson:` 的倒置层级，被"下一个顶层 H2 收口"切短 ⇒ LEARNINGS_SHAPE）。两者都**出声**、都没被静默搬进台账 —— 但也说明**模板还没定**（片4），别人只能在猜 |
 | `node scripts/check-unwired-tests.js` / `check-step-failfast.js` / `check-workflow-structure.js` / `workflow-contract.test.js` | 全 rc=0；本机按 CI 的 `Gate 2c` 完整 argv 整条复跑（上一片漏跑自测导致 required 红的直接后果） |
 
 ### 遗留（不假装已闭合）

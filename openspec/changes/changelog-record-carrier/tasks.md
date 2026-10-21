@@ -39,7 +39,7 @@
 - [x] 3.3 授权出口 ⇒ 只认本次差量 `status=A` 的 `scripts/hot-carrier-write-authorization.json`，`applies_to_base` 须逐字等于实际 merge-base，`authorizedPaths` 须逐个覆盖命中项；用例 `T5`(放行)/`T5b`(路径未覆盖→拒)/`T6`+`T6b`+`T6c`(常驻证→拒)/`T7`(坐标不符→拒)，变异 MC/MD/MH 分别指名 T6c/T7/T5b
 - [x] 3.4 落点与档位 ⇒ `Gate 2b9 - Hot-carrier edit gate (changes job, advisory)`（编 2b9：2b2–2b8 已占用，`Gate 2b5` 由 #3724 合入后用掉）；首行打印 `MODE=`，`T8` 断言两档点名逐字一致、只在是否阻断上分档；base 取 merge-base 并回落 base ref（更严方向）
 - [x] 3.5 接线三处同改 ⇒ `.gitignore` 反选本体 + `MUST_LIVE_IN_UNGATED_JOB` 登记 + **同 PR 改 `check-unwired-tests.test.js` 那份 deepEqual 钉死的清单**（上一片 #4109 首笔提交漏这一步把 required 的 `QG Static` 跑红，教训见 `openspec/records/changelog-carrier-aggregate.md`）；本机按 CI 的 `Gate 2c` 完整 argv 复跑
-- [ ] 3.6 对本 PR 自己实跑 ⇒ **未做，留人/下个会话执行**：`node scripts/check-no-hot-carrier-edit.js --base=<实际 merge-base> --head=HEAD --mode=enforce`，预期 `判定=PASS`（本 PR 未碰台账）。现在勾它会是一次空头承诺 —— 未提交时差量为空，跑出来的绿不是证据
+- [x] 3.6 对本 PR 自己实跑 ⇒ 提交后 `node scripts/check-no-hot-carrier-edit.js --base=c5087351d --head=495cd3513 --mode=enforce` → `差量文件=10 命中热写面=0 判定=PASS` rc=0（加门禁这笔 PR 自己过这道门禁）。**提交前故意没勾**：未提交时差量为空，跑出来的绿不是证据
 
 **动代码前的差异审计（补记）**：查到 `openspec/changes/hot-carrier-atomic-landing/`（规格已合入、实现未做），其 D4 明确把 `AGENTS.md`/`CHANGELOG.md`/`01-docs/learnings.md` 移出它的热点载体清单，理由"没量过"，且 tasks 1.2(d) 计划立锁防止后人"顺手补全"。判定为**不同机制、不同读数**（它量共享根未提交窗口，本判据量跨 worktree 的 PR 差量冲突），故不冲突；已在 `specs/changelog-ledger-integrity/spec.md` 新增一条 Requirement 禁止两份清单合并，并写明本处读数**不满足**它设定的重进前提。
 ## 4. 发版接入 + 规范改写 + 转 blocking（独立一片，需人工过目）
