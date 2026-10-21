@@ -70,6 +70,20 @@ sync_backfill_owner: none-derived-from-trunk
 - 本机 CCG 未安装 ⇒ pre-commit 实测打印「未找到 CCG（run_skill.js），已跳过 CCG 门禁」⇒ **不产出 dual 产物**，`check-pr-exec-record.js` 的 `evaluateDeepReviewDebt`（只对 `mode === 'dual'` 的产物求闭合）因此**无从判红**。这是"闸门没电"不是"闸门绿"。
 - 两条外部通道实测病因（沿用本日早先的复测，未在此重跑即引用会失真）：`codeagent-wrapper` 对 claude 后端固定走 stdin 模式并拼出 `--setting-sources` 空值 ⇒ `exit 1`；opencode 免费档被 IP 信誉拦截。**不伪造 `cleared`，也不写 `self_play_resolved`。**
 
+### 5.1 本 PR 上真跑了四次 `deep-review.sh`（闸门给的出口①），链路与脚本文案不一致 —— 逐次现场读数
+
+| 次 | 调用形态 | 现场读数 | 抓到什么 |
+|---|---|---|---|
+| 1 | `sh scripts/deep-review.sh --base origin/main` | `✗ 未知旗标：--base（本入口只认 --force / --dry-run / --check-deps / --critic / --proposer / --help）`，rc=2 | 入口**拒绝静默忽略参数**并打印合法清单 —— 这是正例，不是故障 |
+| 2 | PowerShell 正规入口 `scripts/ccg-review.ps1 -Mode Deep`（它自己打印 `GitBash: C:\Program Files\Git\usr\bin\bash.exe`） | `✗ 找不到 ccg-deep-review.js`，rc=2 | **脚本文案给的根因被当场否证**：该闸声称病因通常是「裸 bash 解析到 WSL shim」，而这里 shell 就是 Git Bash |
+| 3 | `CCG_ARL_DIR=C:/Users/to_co/.qoder-cn/skills/adversarial-review-loop/scripts sh scripts/deep-review.sh` | **引擎找到了**，继续往下跑 | **脚本文案的第二条断言也被否证**：它写「不要去查、不要去设 `CCG_ARL_DIR`，该变量三级作用域都不存在，追它是死路」。实测它是本机**唯一**能定位到引擎的那一格——候选表第 3 项硬编码 `$HOME/.claude/skills/…`，而本机 Qoder 的真实技能根是 `~/.qoder-cn/skills`（这是已知机器事实，不是新发现） |
+| 4 | 同第 3 次（引擎已在） | `⚠ 本提交有 799 行非 .ccg 改动，却找不到任何判定记录 … 请先提交一次（pre-commit 会生成 .ccg/reviews/<sha>.json）`，rc=1（fail-closed） | 真正的断点是 **pre-commit 没写 `<HEAD sha>.json`**：本仓 pre-commit 的 CCG 步骤打印「未找到 CCG（run_skill.js），已跳过」。而 `deep-review.sh` 只认 HEAD 键记录，不认我手动跑 `ccg-review-decider.js` 落盘的 **stagedDiffHash 键**记录（`4b4a0fb7….json`，`check-pr-exec-record.js` 判 dual 欠账时读的正是后者） |
+
+**结论（不写成"已闭合"）**：出口① 在本机今天走不通，且断点不是"后端坏了"而是**两把键不同名**——判定器按 `stagedDiffHash` 落盘、评审驱动按 `HEAD sha` 读取，而连接两者的 pre-commit 步骤因 CCG 未安装而整段跳过。三条修法都**不该由 agent 单方面做**：a) `npx ccg-workflow` 装第三方工具链；b) 把引擎 vendor 进本仓 `scripts/`；c) 给候选表加 `~/.qoder-cn/skills/…` 这一格 —— c 是改「谁来守门」，须人工过目。**本 PR 因此停在 enforce 红（CCG 深度审查欠账 1 条）不合并，产物与读数原样入库。**
+
+方法论：这条链上**两次**把工具自己写的「根因」当结论用都会被实测否证（WSL 说、幻影变量说）。口径：**报错文案里的因果句也是主张，引用前要先做一次同探针 A/B**；本文件的第 2、3 次就是那次 A/B（唯一变量分别是 shell 与 `CCG_ARL_DIR`）。
+
+
 ## 六、未覆盖（如实登记，不扩范围）
 
 1. **audit-15（陈旧看门狗）不在本批**：`lastEventAt` 写 4 次读 0 次，需要定「N 分钟无更新」的中性态阈值并解禁关闭按钮 —— 属产品口径，另片处理。
