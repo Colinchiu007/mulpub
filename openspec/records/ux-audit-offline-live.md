@@ -21,7 +21,8 @@ date: 2026-10-21
 
 ## 一、验证现场（全部当场跑过）
 
-- 三套件：`useOfflineStatus.test.js` 11 + `useOfflineStatus.live.test.js` 9 + `OfflineIndicator.test.js` 12 ⇒ `Tests 32 passed (32)`
+- 三套件（最终）：`useOfflineStatus.test.js` 11 + `useOfflineStatus.live.test.js` 12 + `OfflineIndicator.test.js` 12 ⇒ `Tests 35 passed (35)`；
+  挂载了本组件的相邻套件 `App.sidebar-collapse.test.js` + `shell-mode-6a.test.js` ⇒ 12 passed
 - 聚合 eslint（**CI Gate 11 同一条命令**，不是"改动文件逐个 lint"）：
   `cd apps/desktop && eslint electron/ src/ --quiet` ⇒ `AGG_RC=0`
 - 门禁：`check-css-var-defined` PASS（未定义 0 / 基线 64）、`check-color-literals` PASS（**125 / 基线 129**，本次减 4）、
@@ -44,8 +45,26 @@ M10 CAUGHT red=1 颜色退回 hex
 M11 CAUGHT red=1 去掉 prefers-reduced-motion 守卫
 M12 CAUGHT red=1 图标不再 aria-hidden
 M13 CAUGHT red=1 计数段改为恒渲染
-ALL_CAUGHT（13 条）；两个被改文件 md5 还原一致
+M14 CAUGHT red=1 摘掉**复核**的迟到响应守卫
+M15 CAUGHT red=2 摘掉 **init 读回**的迟到响应守卫
+ALL_CAUGHT（15 条）；两个被改文件 md5 还原一致
+红集（逐条打印，供人核对同异）：M1:7 M2:2 M3:5 M4:1 M5:1 M6:3 M7:1 M8:1 M9:1 M10:1 M11:1 M12:1 M13:1 M14:1 M15:2
 ```
+
+## 二之二、QM-6 i1 采纳：并发写同两个字段时必须有新鲜度序号
+
+外部评审的 i1 指出：`init` 的首次读回与每次事件后的复核**都是异步写同两个 ref**，
+而实现无任何新鲜度判据 —— 正确性依赖「Electron IPC 同一通道按发起顺序响应」这个**未声明的假设**。
+
+采纳并实现为**两条写入路径共用一把 epoch**（`readEpoch` 自增，回调里 `epoch !== readEpoch` 即丢弃）；
+分两把计数器不行（各自单调，跨路径的先后关系仍然丢失）。
+
+反证逼出的两个形态，各自一条独立用例：
+- **M15**（摘掉 init 的守卫）→ 红 2：init 迟到响应把已确认的离线改回在线。
+- **M14**（摘掉复核的守卫）→ 起初 **MISSED**：只测「init 迟到 + 复核新鲜」时，
+  摘掉复核守卫不改变任何可观测结果（另一条守卫仍在守住那条场景）——**等价变异 ≠ 锁没牙，但也 ≠ 已覆盖**。
+  缺的是「**两次复核之间**谁先发起、谁后返回」这一格，于是补
+  `offline(A 慢) → online(B 快) → A 后返回` 用例；补后 M14 独立 CAUGHT。
 
 - 对比度为按 WCAG 公式现算（非目测）：浅档 `#92400e` on `#fef3c7` = **6.37:1**；暗档 `#fbbf24` on `#33240c` = **9.00:1**。
 
@@ -84,6 +103,44 @@ ALL_CAUGHT（13 条）；两个被改文件 md5 还原一致
 - 待发布数为 0 时不再显示「0 个待发布」。
 
 ## learnings
+
+### lesson: 没 dispose 的 composable 实例会在后续用例里继续消费 mock ——「跨用例泄漏」的第三种落点
+
+**现场**：给 `useOfflineStatus` 加迟到响应守卫时，两条新用例（`mockImplementationOnce` 依次给 A/B 响应）
+稳定失败在「期望 true 得到 false」。逐层排查后确认实现是对的：
+前面用例里 `create()` + `init()` 过的实例**从未 dispose**，它们的 window 监听器仍挂在全局，
+于是新事件被**多个实例同时收到**，旧实例抢先消费了 `once` 实现 —— 当前实例拿到的是排在后面的默认 mock。
+
+**根因**：`init()` 注册宿主级监听（window / IPC / 事件总线）而清理靠调用方自觉；
+测试夹具只写 `beforeEach` 重置 mock，没有重置"谁还在监听"。
+mock 的 `once` 队列是**全局计数**，它对"哪个实例拿到了第几号响应"完全盲目。
+
+**可复用的 N 条**：
+
+1. 任何「注册宿主级监听」的 composable，测试里的构造函数必须把 `dispose` 记进清理队列
+   （本仓现写法：`disposers.push(api.dispose)` + `afterEach` 逐个调用），
+   **不要**只清 mock 不清监听。
+2. 用 `mockImplementationOnce` 序列区分"第几次调用"的用例，前提是**只有一个消费者**。
+   消费者可能多于一个时，要么在断言里显式证明消费者身份（本用例改为按"值不同"断言），
+   要么先保证上一个实例已 dispose。
+3. 「期望 X 得到 非 X」且实现看着没错时，第一个要查的不是时序竞态，而是
+   **有没有别的对象也在写同一个东西**。
+
+### lesson: 反证驱动不得把「文件没编译」读成「变异没造出红」
+
+**现场**：新增的两条用例里有一处笔误（`async () {` 漏了 `=>`），整个文件编译失败。
+驱动读到 vitest 汇总行 `Tests  no tests`，正则找不到 `N failed` ⇒ 返回 0 ⇒ 打印 `MISSED red=0`，
+把「探针根本没跑起来」报成「这条锁没有牙」。同时基线档也因同一原因为 `red=2`（文件级失败）而被拦住，
+两条信号混在一起极易误读。
+
+**根因**：子进程输出解析里「没有失败记录」与「没有测试」是两个不同的状态，
+把它们折叠成一个 0 就是把工具故障判成实现无罪 —— 与「0 命中先证明我的坐标是旧的」互为镜像。
+
+**可复用的 N 条**：
+
+1. 汇总行存在但内容是 `no tests` 一律返回 `-1`，并单独成档 `PROBE_BLIND`（两个同族驱动都已补，判据同源）。
+2. `rc != 0` 而 `red == 0` 时优先怀疑**运行本身**，不是判据强度。
+3. 驱动打印必须同时给出 `rc` 与 `red`（本驱动已如此），只给一个数就会让下一次排查从零开始。
 
 ### lesson: 「init 的异步回调」会替被测事件写状态，事件类用例必须先让 init 那一轮落地
 

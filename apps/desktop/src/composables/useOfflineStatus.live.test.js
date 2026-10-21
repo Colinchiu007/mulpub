@@ -50,6 +50,11 @@ describe('useOfflineStatus — 实时检测（浏览器 online/offline）', () =
 
   function create () {
     const api = useOfflineStatus()
+    // ⛔ 必须把 dispose 记进清理队列：init() 会往 window 上挂监听，
+    // 未 dispose 的旧实例在后续用例里仍然活着，它们的 handler 会抢先消费
+    // offlineStatusMock 的 once 实现 —— 于是"当前实例拿到第几号响应"
+    // 变成前面跑过几条用例的函数（本仓实测：正是这条泄漏把新鲜度守卫的用例喂成假失败）。
+    disposers.push(api.dispose)
     return api
   }
 
@@ -131,6 +136,71 @@ describe('useOfflineStatus — 实时检测（浏览器 online/offline）', () =
     expect(warnSpy.mock.calls.length).toBeGreaterThan(0)
     expect(warnSpy.mock.calls.some((c) => String(c.join(' ')).includes('offline'))).toBe(true)
     warnSpy.mockRestore()
+  })
+
+  it('迟到的复核响应必须丢弃（QM-6 i1：多次复核不得按到达顺序覆盖）', async () => {
+    // 让第 1 次（init）挂起，第 2 次（事件后复核）先返回，再放行第 1 次。
+    // 无新鲜度守卫时，第 1 次的过期结论会最后落地并把状态改回旧值。
+    let releaseFirst = null
+    const first = new Promise((resolve) => { releaseFirst = () => resolve({ code: 0, data: { offline: false, cachedCount: 0 } }) })
+    offlineStatusMock
+      .mockImplementationOnce(() => first)
+      .mockImplementationOnce(() => Promise.resolve({ code: 0, data: { offline: true, cachedCount: 7 } }))
+    const { isOffline, cachedTaskCount, init } = create()
+    init()
+    await flush()
+    fireWindowEvent('offline')
+    await flush()
+    expect(isOffline.value).toBe(true)
+    expect(cachedTaskCount.value).toBe(7)
+
+    releaseFirst()
+    await flush()
+    expect(isOffline.value, '过期响应不得把已确认的离线改回在线').toBe(true)
+    expect(cachedTaskCount.value, '过期响应不得把队列深度改回旧值').toBe(7)
+  })
+
+  it('init 那一次读回也参与同一把新鲜度序号（它不是"更早的合法写者"）', async () => {
+    // 场景：init 的读回挂起 → 用户此刻断网 → 事件后复核先返回「离线」→ init 的迟到响应说「在线」
+    // 与上一条同构，但强调**两条写入路径共用一个 epoch**，不得各自计数。
+    let releaseInit = null
+    const initPromise = new Promise((resolve) => { releaseInit = () => resolve({ code: 0, data: { offline: false, cachedCount: 0 } }) })
+    offlineStatusMock
+      .mockImplementationOnce(() => initPromise)
+      .mockImplementationOnce(() => Promise.resolve({ code: 0, data: { offline: true, cachedCount: 2 } }))
+    const { isOffline, init } = create()
+    init()
+    fireWindowEvent('offline')
+    await flush()
+    expect(isOffline.value).toBe(true)
+    releaseInit()
+    await flush()
+    expect(isOffline.value).toBe(true)
+  })
+
+  it('两次复核之间也要丢弃迟到者（守卫不得只防 init，M14 逼出来的形态）', async () => {
+    // 快速连点/网络抖动会产生**并发复核**：先发起的那次可能后返回。
+    // 场景：offline(A) → online(B)，B 先回（在线），A 后回（离线）。
+    // 迟到守卫只在 init 上有、复核上没有的话，A 会把用户已经恢复的网络重新报成离线。
+    let releaseA = null
+    const promiseA = new Promise((resolve) => { releaseA = () => resolve({ code: 0, data: { offline: true, cachedCount: 5 } }) })
+    offlineStatusMock
+      .mockImplementationOnce(() => Promise.resolve({ code: 0, data: { offline: false, cachedCount: 0 } })) // init
+      .mockImplementationOnce(() => promiseA)                                                              // 第 1 次复核（offline 事件）
+      .mockImplementationOnce(() => Promise.resolve({ code: 0, data: { offline: false, cachedCount: 0 } })) // 第 2 次复核（online 事件）
+    const { isOffline, cachedTaskCount, init } = create()
+    init()
+    await flush()
+    fireWindowEvent('offline')
+    await flush()
+    fireWindowEvent('online')
+    await flush()
+    expect(isOffline.value).toBe(false)
+
+    releaseA()
+    await flush()
+    expect(isOffline.value, '先发起的复核后返回时不得覆盖更新的结论').toBe(false)
+    expect(cachedTaskCount.value).toBe(0)
   })
 
   it('init 返回的 API 形状必须包含 dispose（组件卸载链要用它）', () => {

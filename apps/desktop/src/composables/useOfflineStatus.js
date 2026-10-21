@@ -29,6 +29,12 @@ export function useOfflineStatus() {
 
   let attached = false
   let unsubscribeRestored = null
+  /**
+   * 新鲜度序号：init 的首次读回与每次事件后的复核**共用**一个计数器。
+   * 没有它时「谁最后到达谁说话」，而 IPC 不保证多次调用的响应按发起顺序到达 ——
+   * 一次迟到的旧结论会把已确认的离线改回在线（也抹掉队列深度），且日志里完全正常。
+   */
+  let readEpoch = 0
 
   function onBrowserOnline () { setByBrowser(false) }
   function onBrowserOffline () { setByBrowser(true) }
@@ -43,8 +49,10 @@ export function useOfflineStatus() {
   function reconcile () {
     const api = getApi()
     if (!api || !api.offlineStatus) return
+    const epoch = ++readEpoch
     try {
       Promise.resolve(api.offlineStatus()).then(function (res) {
+        if (epoch !== readEpoch) return
         if (res && res.code === 0 && res.data) {
           isOffline.value = !!res.data.offline
           cachedTaskCount.value = res.data.cachedCount || 0
@@ -66,8 +74,10 @@ export function useOfflineStatus() {
 
     const api = getApi()
     if (api && api.offlineStatus) {
+      const epoch = ++readEpoch
       try {
         Promise.resolve(api.offlineStatus()).then(function (res) {
+          if (epoch !== readEpoch) return
           if (res && res.code === 0 && res.data) {
             isOffline.value = !!res.data.offline
             cachedTaskCount.value = res.data.cachedCount || 0
