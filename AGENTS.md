@@ -128,7 +128,7 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - squash 合并后**分支 tip 不是 `origin/main` 的祖先**，用 `git merge-base --is-ancestor <branch> origin/main` 判「已合并」必然为假（`git branch -d` 同因拒绝）。删本地分支前的判据**面必须收敛到本 PR 自己的改动集，并按文件类别拆两半**（2026-10-16 由 #3674 立；下面每条假阳性率都取自当天 5 次真实合并的实测，不得当修辞）：
   先取改动集 `FILES=$(git diff --name-only "$(git merge-base origin/main <branch-tip>)" <branch-tip>)`。
   ① **普通文件**逐字节比 blob：`[ "$(git rev-parse <branch-tip>:<f>)" = "$(git rev-parse <merge-SHA>:<f>)" ]`，逐文件要求相等。
-  ② **多会话共用写面**（`CHANGELOG.md`、`01-docs/learnings.md`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`、`scripts/doc-abs-paths-baseline.json` 这类追加/置顶型文件）**只能按行级多重集判，且必须双向**：
+  ② **多会话共用写面**（`CHANGELOG.md`、`01-docs/learnings.md`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`、`scripts/doc-abs-paths-baseline.json` 这类追加/置顶型文件；其中 `CHANGELOG.md` 与 `01-docs/learnings.md` 自 2026-10-21 起**只由聚合器写入**、PR 不得直接编辑，口径见「参考文件」节的 `CHANGELOG.md` 条目）**只能按行级多重集判，且必须双向**：
      ⚠️ 下面两行是 **v1/v2 的旧写法**，已被下一行的实测否证并整体替换 —— 保留只为说明来路，**不要照抄**（照抄就会复刻那三类假阳性）。
      用 `git diff --unified=0 <base> <branch-tip> -- <f>` 取出**我的新增行**，逐条要求在 `<merge-SHA>:<f>` 中出现次数 ≥ 我给的次数；
      再取出**我的删除行**（去重、去空白、`trim` 后比较），逐条要求其**不出现**在主干该文件里——单向只证"我的东西都在"，证不出"我删掉的那行没被后续合并带回来"。
@@ -414,7 +414,7 @@ CRITICAL 必须修复才能继续。
 
 - `01-docs/DEVELOPMENT_REPORT.md` — 开发报告
 
-- `CHANGELOG.md`（仓库根）— 变更日志
+- `CHANGELOG.md`（仓库根）— 变更日志。**⛔ 不由 PR 直接编辑**（`01-docs/learnings.md` 同）：每个 PR 把变更说明写进自己的 `openspec/records/<分支名>.md` 里的 `## CHANGELOG 条目` 小节（**一条变更一个 H1 标题块**，正文首行必须是台账级 H1），台账由 `node scripts/aggregate-changelog.js --write` 在**发版时**统一搬运，幂等键是记录名（= 分支名），不是标题文本。动因是实测：往这两个文件顶部插块时，任意两个在飞 PR 结构上必撞（2026-10-20 对 4 个可判定的 CONFLICTING PR 跑 `git merge-tree`，冲突文件**只有**这两个），CI 全绿也合不进去。现状由 `scripts/check-no-hot-carrier-edit.js`（CI `Gate 2b9`，advisory 档）按 PR 差量点名；**发版前必须先跑聚合器再收口**，`scripts/release-gate.mjs` 会在拿不到聚合器读数或有 N 条待搬时直接判红（`AGGREGATE_FAIL` / `AGGREGATE_PENDING`）。
 
 - `01-docs/DESIGN.md` — 设计规范
 
@@ -611,7 +611,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **Prompt 批量结果内容合同**：`OPTIMIZE_BATCH` 不得只校验 prompt-engine 返回数组的数量；每项必须是非空字符串，或按资产阶段实际读取顺序包含非空 `prompt` / `optimized_prompt` / `optimized`。等长的 `{}`、`null`、空白字段必须在 `StageExecutor` 立即 fail closed。回归测试必须经真实 `PromptBridge`、`ServiceBus` 和本机临时 HTTP 服务覆盖包装响应，不能只 mock 最终数组。
 
 - **打包状态优先于开发环境变量**：许可证、调试入口、logger 和开发短路必须以 `app.isPackaged === false` 为前提；`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让已打包应用进入开发权限或开发日志路径。测试必须同时覆盖打包/未打包状态和残留环境变量。
-- **发版版本级别 ↔ 改动规模匹配**：合并发版 PR / 打 tag 前，确认 `pnpm version:bump` 的级别与改动匹配（0.x 基线：新功能 / 破坏性变更 bump `minor`，修复 bump `patch`）；`release-gate` 会硬性拦截「未 bump 就打 tag」「CHANGELOG 未收口」，并对「破坏性变更却 `patch` 级」软警告（属人工判断，不阻断）。
+- **发版版本级别 ↔ 改动规模匹配**：合并发版 PR / 打 tag 前，确认 `pnpm version:bump` 的级别与改动匹配（0.x 基线：新功能 / 破坏性变更 bump `minor`，修复 bump `patch`）；`release-gate` 会硬性拦截「未 bump 就打 tag」「CHANGELOG 未收口」，并对「破坏性变更却 `patch` 级」软警告（属人工判断，不阻断）。**2026-10-21 起它还拦第三件事：台账没由聚合器收口**（`AGGREGATE_FAIL` = 取不到 `scripts/aggregate-changelog.js --dry-run` 的读数，含 `records=0` 这种"采集面退化"；`AGGREGATE_PENDING` = 确有 N 条执行记录条目还没搬进台账）。两条文案刻意不合并成一句，因为解法不同：前者要修聚合器，后者只要跑 `node scripts/aggregate-changelog.js --write`。所以发版 SOP 的顺序是 ①`--write` 搬台账 → ②把顶部 `## [未发布]` 收口成 `## [vX.Y.Z]` → ③bump → ④打 tag；顺序反了会在 `CHANGELOG 未收口` 那条上白红一次。
 
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
 

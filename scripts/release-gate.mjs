@@ -11,6 +11,7 @@
 // 纯函数 runGate() 与 CLI 分离，便于 node --test 单测（见 release-gate.test.mjs）。
 import fs from 'node:fs'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..')
@@ -33,14 +34,86 @@ export function compareLevel (target, prev) {
   return 'patch'
 }
 
+/**
+ * 解析聚合器首行读数（`AGGREGATE records=… landed=… learningsLanded=… mode=dry`）。
+ *
+ * 为什么判据是"读不出数"而不是"读不到就算 0"：`aggregate-changelog.js` 的采集面退化
+ * （openspec/records 读不到）与"本轮没有待搬条目"在文案上完全同形，只数 landed 会把前者
+ * 读成后者 —— 发版门禁于是安静地放行一份缺整批条目的 CHANGELOG。同 Gate 2b8 的
+ * `records=[1-9]` 下界口径。
+ *
+ * @returns {{ok: boolean, reason?: string, records?: number, landed?: number, learningsLanded?: number}}
+ */
+export function parseAggregateReading (stdout) {
+  const line = String(stdout || '').split(/\r?\n/).find((l) => /^AGGREGATE\s/.test(l))
+  if (!line) return { ok: false, reason: '输出里没有 AGGREGATE 首行' }
+  const num = (key) => {
+    const m = new RegExp(`\\b${key}=(\\d+)\\b`).exec(line)
+    return m ? Number(m[1]) : null
+  }
+  const records = num('records')
+  const landed = num('landed')
+  const learningsLanded = num('learningsLanded')
+  if (records === null || landed === null || learningsLanded === null) {
+    return { ok: false, reason: '读数里 landed / learningsLanded / records 不是非负整数', line }
+  }
+  if (records === 0) {
+    return { ok: false, reason: 'records=0 —— 采集面退化（不等于没有待搬条目）', records, landed, learningsLanded, line }
+  }
+  return { ok: true, records, landed, learningsLanded, line }
+}
+
+const AGGREGATE_CMD = 'node scripts/aggregate-changelog.js'
+
+// 唯一允许传给聚合器的旗标（发版**校验**只读取数；真写入台账由人跑 --write，见 AGGREGATE_PENDING 文案）。
+export const AGGREGATE_READ_ARGS = ['--dry-run']
+
 // 纯函数：给定已读取的数据，返回门禁结果。不触碰文件系统，便于测试。
 //   rootVersion:   根 package.json 的 version 字符串
 //   desktopVersion: apps/desktop/package.json 的 version 字符串（可为 null）
 //   changelog:     CHANGELOG.md 全文
 //   tag:           tag 名（如 "v0.2.0"），本地自检时为 null
-export function runGate ({ rootVersion, desktopVersion = null, changelog = '', tag = null }) {
+//   aggregate:     聚合器读数，形状 `{ status: number, stdout: string, stderr?: string }`
+//                  （main() 由 spawnSync 原样交出，不做剥壳）。**缺席即硬失败** —— 给默认值
+//                  等于允许"没取证也能过"，那正是本片要消灭的形态。
+export function runGate ({ rootVersion, desktopVersion = null, changelog = '', tag = null, aggregate }) {
   const errors = []
   const warnings = []
+
+  // ── 聚合器读数排在版本小节校验之前（tasks 4.1）──
+  // 三条文案必须可分辨，否则人会去手改 CHANGELOG 而不是修聚合器：
+  //   AGGREGATE_FAIL    聚合器本身没跑成 / 采集面退化 / 没取证 —— 此刻**没有资格**判台账状态
+  //   AGGREGATE_PENDING 取证成功且确有 N 条待搬 —— 给出能直接跑的那条命令
+  //   CHANGELOG 未收口  原有语义，一字不变（只在取证干净且无待搬时才可能报出）
+  const snippet = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 160)
+  if (!aggregate || typeof aggregate !== 'object') {
+    errors.push(
+      'AGGREGATE_FAIL：本次没有聚合器读数（未调用或取不到）。这一步的作用是确认台账已由聚合器收口；' +
+        '拿不到读数**不等于**"没有待搬条目"。先手工跑 `' + AGGREGATE_CMD + ' --dry-run` 看它报什么，再回来发版。'
+    )
+  } else if (aggregate.status !== 0) {
+    errors.push(
+      `AGGREGATE_FAIL：聚合器 rc=${aggregate.status}，本条发版门禁无从判定台账状态。` +
+        `先修聚合器（它的原文：「${snippet(aggregate.stdout)}${snippet(aggregate.stderr)}」），不要手改 CHANGELOG。`
+    )
+  } else {
+    const a = parseAggregateReading(aggregate.stdout)
+    if (!a.ok) {
+      errors.push(
+        `AGGREGATE_FAIL：${a.reason}（现场首行「${snippet(a.line || aggregate.stdout)}」）。` +
+          '读数不可用时不得默认成"0 条待搬"。'
+      )
+    } else if (a.landed > 0 || a.learningsLanded > 0) {
+      errors.push(
+        `AGGREGATE_PENDING：执行记录里还有 ${a.landed + a.learningsLanded} 条没搬进台账` +
+          `（CHANGELOG ${a.landed} 条 / learnings ${a.learningsLanded} 条，records=${a.records}）。` +
+          `请先跑 \`${AGGREGATE_CMD} --write\` 由聚合器写入台账，再把顶部 "## [未发布]" 收口为目标版本小节。` +
+          '注意 `--write` 会改动仓库文件：那批变更必须**先提交**，再重跑本门禁，否则台账在 working tree 里收了口、HEAD 上还没收。'
+      )
+    }
+  }
+  // 聚合器这一格没测出来之前，任何"读 CHANGELOG 内容"的判据都在拿未知状态做结论 —— 短路掉。
+  const aggregateBlocked = errors.some((e) => e.startsWith('AGGREGATE_'))
 
   const rootVer = parseVersion(rootVersion)
   if (!rootVer) errors.push(`根 package.json 的 version "${rootVersion}" 不是合法 semver`)
@@ -66,7 +139,7 @@ export function runGate ({ rootVersion, desktopVersion = null, changelog = '', t
     }
   }
 
-  if (rootVer) {
+  if (!aggregateBlocked && rootVer) {
     const escaped = rootVer.raw.replace(/\./g, '\\.')
     const headingRe = new RegExp(`^#+\\s*\\[?v?${escaped}\\]?\\b`, 'm')
     if (!headingRe.test(changelog)) {
@@ -77,7 +150,7 @@ export function runGate ({ rootVersion, desktopVersion = null, changelog = '', t
   // 软警告：破坏性变更标记 vs 本次级别（0.x 基线：破坏性应 bump minor，不得 patch）
   // 只扫描「目标版本小节」内部，避免被更早的 [未发布]/历史小节里的标记误触发。
   const breakingRe = /BREAKING\s*CHANGE:|破坏性变更|破坏性改动|breaking change/i
-  if (target) {
+  if (!aggregateBlocked && target) {
     const lines = changelog.split(/\r?\n/)
     const escapedT = target.raw.replace(/\./g, '\\.')
     const targetHeadingRe = new RegExp(`^#+\\s*\\[?v?${escapedT}\\]?\\b`)
@@ -115,6 +188,18 @@ function main () {
   const tagEnv = process.env.GITHUB_REF_NAME || ''
   const tag = tagArg || (tagEnv.startsWith('v') ? tagEnv : '')
 
+  // 先取证、再判据：聚合器读数必须排在任何"读 CHANGELOG 内容"的判据之前（tasks 4.1）。
+  // 只读取数（AGGREGATE_READ_ARGS）—— 写入台账是发版动作，由人按 AGGREGATE_PENDING 的文案去跑。
+  // 同步阻塞的实测上界（本机，活数，引用前重取）：`aggregate --dry-run` 冷启 2596ms、
+  // 热态整条 `release-gate` 1213ms。聚合器只读本地文件、无网络 ⇒ 不加超时、不改异步：
+  // 一条发版 CLI 没有并发需求，改 async 只会把 main() 的错误处理复杂化（QM-6 i8 的处置）。
+  const agg = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'aggregate-changelog.js'), ...AGGREGATE_READ_ARGS], { encoding: 'utf8' })
+  const aggregate = {
+    status: agg.status,
+    stdout: agg.stdout || '',
+    stderr: (agg.stderr || '') + (agg.error ? ` ${agg.error.message}` : ''),
+  }
+
   let rootPkg
   try {
     rootPkg = JSON.parse(fs.readFileSync(ROOT_PKG, 'utf8'))
@@ -140,7 +225,8 @@ function main () {
     rootVersion: rootPkg.version,
     desktopVersion,
     changelog,
-    tag: tag || null
+    tag: tag || null,
+    aggregate,
   })
 
   for (const e of result.errors) console.error(`❌ release-gate: ${e}`)
@@ -156,4 +242,4 @@ function main () {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) main()
 
-export default { parseVersion, compareLevel, runGate }
+export default { parseVersion, compareLevel, runGate, parseAggregateReading, AGGREGATE_READ_ARGS }
