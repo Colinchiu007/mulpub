@@ -96,6 +96,20 @@ function makeRepoSnapshot () {
   copyInto(root, 'package.json');
   copyInto(root, path.join('apps', 'desktop', 'package.json'));
   copyInto(root, REGISTRY_REL);
+  // 委托形态（2026-10-21 起 electron-ci 把桌面全量交棒给 scripts/electron-ci-desktop-step.js）
+  // 的判据读的是**被委托脚本自己的源码**，而它按 collect 传入的 root 取文件 —— 快照根里若不带上
+  // 这些源码，`electron-ci.yml#electron-tests` 就会在夹具里"不在域内"，于是每条反证都被 STALE_REQUIRED
+  // 掩盖成另一种红（夹具与真仓判的不是同一件事）。所以：扫快照里所有 workflow 文本，
+  // 凡 `node scripts/<x>.js` 点名的脚本，真仓有就带上。
+  const delegated = new Set();
+  for (const name of names) {
+    const text = readFixtureFile(root, path.join(WORKFLOWS_REL, name));
+    for (const m of text.matchAll(/node\s+scripts\/([\w.-]+\.js)/g)) delegated.add(m[1]);
+  }
+  for (const file of delegated) {
+    const rel = path.join('scripts', file);
+    if (fs.existsSync(path.join(REPO_ROOT, rel))) copyInto(root, rel);
+  }
   return root;
 }
 
@@ -440,6 +454,22 @@ test('T6 合成夹具：五形态的每个判定分支逐条钉住 + 未知形�
   ]);
   writeFixtureWorkflow(root, 'zz-j.yml', [{ id: 'nx-direct', steps: [PRELOAD_STEP, NX_DIRECT] }]);
   writeFixtureWorkflow(root, 'zz-k.yml', [{ id: 'config-scoped', steps: [PRELOAD_STEP, CONFIG_SCOPED] }]);
+  // ⑥ delegate 形态：三锚齐 ⇒ 域内；缺一锚 ⇒ 域外；**遮挡**（注释里先出现另一个脚本名）仍须域内。
+  writeFixtureFile(root, 'scripts/zz-delegate-desktop.js',
+    "const DESKTOP_PKG = '@multi-publish/desktop';\n"
+    + "module.exports = { build() { return ['--filter', DESKTOP_PKG, 'test', '--shard=1/2']; } };\n");
+  writeFixtureFile(root, 'scripts/zz-delegate-no-shard.js',
+    "const DESKTOP_PKG = '@multi-publish/desktop';\n"
+    + "module.exports = { build() { return ['--filter', DESKTOP_PKG, 'test']; } };\n");
+  writeFixtureWorkflow(root, 'zz-m.yml', [
+    { id: 'delegate-desktop', steps: [PRELOAD_STEP, { name: 'Delegated', run: 'node scripts/zz-delegate-desktop.js\n' }] },
+    // 注释里点名另一个脚本：`viewFlat` 已剥注释 ⇒ 不得凭空多出一条域内/域外条目
+    { id: 'delegate-comment', steps: [PRELOAD_STEP, { name: 'DelegatedComment', run: '# 复测入口 node scripts/zz-delegate-no-shard.js\nnode scripts/zz-delegate-desktop.js\n' }] },
+    // 两个**都是可执行**的候选：必须扫全部并按语义判定 —— 只取第一个会把真委托档在后面（PR #4192 实测的同型缺陷）
+    { id: 'delegate-two-candidates', steps: [PRELOAD_STEP, { name: 'DelegatedTwo', run: 'node scripts/zz-delegate-no-shard.js && node scripts/zz-delegate-desktop.js\n' }] },
+    { id: 'delegate-no-shard', steps: [PRELOAD_STEP, { name: 'DelegatedNoShard', run: 'node scripts/zz-delegate-no-shard.js\n' }] },
+    { id: 'delegate-missing-file', steps: [PRELOAD_STEP, { name: 'DelegatedMissing', run: 'node scripts/zz-delegate-absent.js\n' }] }
+  ]);
   writeFixtureWorkflow(root, 'zz-l.yml', [
     { id: 'unknown-script', steps: [PRELOAD_STEP, UNKNOWN] },
     { id: 'prefixed-unknown', steps: [PRELOAD_STEP, PREFIXED_UNKNOWN] }
@@ -447,7 +477,8 @@ test('T6 合成夹具：五形态的每个判定分支逐条钉住 + 未知形�
   writeRegistry(root, [
     'zz-a.yml#guard-pass', 'zz-b.yml#filter-after', 'zz-c.yml#paginator-only', 'zz-d.yml#transitive',
     'zz-e.yml#vitest-inline', 'zz-f.yml#union-root', 'zz-h.yml#root-nx-included', 'zz-i.yml#oracle-full',
-    'zz-j.yml#nx-direct', 'zz-l.yml#prefixed-unknown'
+    'zz-j.yml#nx-direct', 'zz-l.yml#prefixed-unknown',
+    'zz-m.yml#delegate-desktop', 'zz-m.yml#delegate-comment', 'zz-m.yml#delegate-two-candidates'
   ].map((key) => {
     const parts = key.split('#');
     return { workflow: parts[0], job: parts[1], why: '夹具正控：这条 job 会跑桌面 vitest，用于逐条验证判定分支' };
@@ -481,12 +512,25 @@ test('T6 合成夹具：五形态的每个判定分支逐条钉住 + 未知形�
     'zz-h.yml#root-nx-included': ['desktop-filter|build:preload|no-vitest-in-closure',
       'root-nx|test:all|nx-invokes-desktop-tests', 'pnpm-verb|test:all|nx-invokes-desktop-tests'],
     'zz-i.yml#oracle-full': ['desktop-filter|build:preload|no-vitest-in-closure',
-      'oracle-cli|scripts/check-clock-shift-oracle.js|oracle-cli'],
-    'zz-i.yml#oracle-dry': ['oracle-cli|scripts/check-clock-shift-oracle.js|dry-run-only'],
+      'oracle-cli|scripts/check-clock-shift-oracle.js|oracle-cli',
+      'delegate|scripts/check-clock-shift-oracle.js|delegate-not-desktop-suite'],
+    'zz-i.yml#oracle-dry': ['oracle-cli|scripts/check-clock-shift-oracle.js|dry-run-only',
+      'delegate|scripts/check-clock-shift-oracle.js|delegate-not-desktop-suite'],
     'zz-j.yml#nx-direct': ['desktop-filter|build:preload|no-vitest-in-closure',
       'nx-direct|(nx-direct)|nx-invokes-desktop-tests'],
     'zz-k.yml#config-scoped': ['desktop-filter|build:preload|no-vitest-in-closure',
       'desktop-filter|test:startup|config-scoped-vitest'],
+    'zz-m.yml#delegate-desktop': ['desktop-filter|build:preload|no-vitest-in-closure',
+      'delegate|scripts/zz-delegate-desktop.js|delegate-runs-desktop-suite'],
+    'zz-m.yml#delegate-comment': ['desktop-filter|build:preload|no-vitest-in-closure',
+      'delegate|scripts/zz-delegate-desktop.js|delegate-runs-desktop-suite'],
+    'zz-m.yml#delegate-two-candidates': ['desktop-filter|build:preload|no-vitest-in-closure',
+      'delegate|scripts/zz-delegate-no-shard.js|delegate-not-desktop-suite',
+      'delegate|scripts/zz-delegate-desktop.js|delegate-runs-desktop-suite'],
+    'zz-m.yml#delegate-no-shard': ['desktop-filter|build:preload|no-vitest-in-closure',
+      'delegate|scripts/zz-delegate-no-shard.js|delegate-not-desktop-suite'],
+    'zz-m.yml#delegate-missing-file': ['desktop-filter|build:preload|no-vitest-in-closure',
+      'delegate|scripts/zz-delegate-absent.js|delegate-not-desktop-suite'],
     'zz-l.yml#unknown-script': ['desktop-filter|build:preload|no-vitest-in-closure',
       'pnpm-verb|totally-unknown|unknown-script'],
     'zz-l.yml#prefixed-unknown': ['desktop-filter|build:preload|no-vitest-in-closure',
@@ -502,6 +546,11 @@ test('T6 合成夹具：五形态的每个判定分支逐条钉住 + 未知形�
     'zz-f.yml#union-root': true,
     'zz-g.yml#root-nx-excluded': false,
     'zz-h.yml#root-nx-included': true,
+    'zz-m.yml#delegate-desktop': true,
+    'zz-m.yml#delegate-comment': true,
+    'zz-m.yml#delegate-two-candidates': true,
+    'zz-m.yml#delegate-no-shard': false,
+    'zz-m.yml#delegate-missing-file': false,
     'zz-i.yml#oracle-full': true,
     'zz-i.yml#oracle-dry': false,
     'zz-j.yml#nx-direct': true,
@@ -523,6 +572,11 @@ test('T6 合成夹具：五形态的每个判定分支逐条钉住 + 未知形�
     'zz-i.yml#oracle-dry': [],
     'zz-j.yml#nx-direct': [0],
     'zz-k.yml#config-scoped': [0],
+    'zz-m.yml#delegate-desktop': [0],
+    'zz-m.yml#delegate-comment': [0],
+    'zz-m.yml#delegate-two-candidates': [0],
+    'zz-m.yml#delegate-no-shard': [0],
+    'zz-m.yml#delegate-missing-file': [0],
     'zz-l.yml#unknown-script': [0],
     'zz-l.yml#prefixed-unknown': [0]
   };
@@ -557,9 +611,14 @@ test('T6 合成夹具：五形态的每个判定分支逐条钉住 + 未知形�
   const delta = {};
   for (const form of lock.FORM_KEYS) delta[form] = result.formCounts[form] - baseline.formCounts[form];
   assert.deepEqual(delta, {
-    'desktop-filter': 18, 'pnpm-verb': 6, 'root-nx': 2, 'nx-direct': 1, 'oracle-cli': 2
+    'desktop-filter': 23, 'pnpm-verb': 6, 'root-nx': 2, 'nx-direct': 1, 'oracle-cli': 2, delegate: 8
   }, '夹具的形态增量变了（真仓基线 ' + JSON.stringify(baseline.formCounts) +
     '，夹具 ' + JSON.stringify(result.formCounts) + '）');
+  // delegate 增量的逐条来源必须可枚举（8 = zz-m 的 6 条 + zz-i 两条 oracle 步骤各 1 条）：
+  // 这一句把"数字对上了但不知道多在哪"挡掉——增量必须能逐项归因，否则它只是另一个漂移的数。
+  const delegateRefs = result.jobs.filter((j) => j.key.startsWith('zz-'))
+    .reduce((n, j) => n + j.entries.filter((e) => e.form === 'delegate').length, 0);
+  assert.equal(delegateRefs, 8, 'delegate 条目应逐条来自夹具的 6+2 处 `node scripts/*.js`，实测 ' + delegateRefs);
 });
 
 // ---------------------------------------------------------------- T7：登记表判据的分支
@@ -743,4 +802,43 @@ test('T9 CLI：三档退出码、两种 --root 写法、JSON 载荷与 GitHub �
   }
   assert.equal(lock.parseArgs(['--json', '--root', 'scripts']).json, true);
   assert.equal(lock.parseArgs(['--root=scripts']).root, path.resolve('scripts'));
+});
+
+// ---------------------------------------------------------------- T10：委托形态的真仓归属
+
+test('T10 真仓：electron-tests 必须**因为委托判据**留在域内，删登记与"认名字"都不是修法', () => {
+  const real = lock.collect({ root: REPO_ROOT });
+  const job = real.jobs.find((j) => j.key === 'electron-ci.yml#electron-tests');
+  assert.ok(job, 'electron-ci.yml#electron-tests 必须仍在扫描域里（作业被删了就要同步删登记，不许留着）');
+  assert.equal(job.inDomain, true,
+    '这一步现在委托给 scripts/electron-ci-desktop-step.js ⇒ 若本条变 false，说明委托判据退化，'
+    + '而退化的现场是 STALE_REQUIRED 红 ⇒ 最省事的"修法"会是删登记，那正好把这条 required 检查的覆盖关掉');
+  const codes = job.entries.map((e) => e.verdict.code);
+  assert.ok(codes.includes('delegate-runs-desktop-suite'), '域内判定必须来自委托形态，实测 ' + JSON.stringify(codes));
+  // ⛔ 反向：那一步（step 8）不得再有任何"workflow 自己写桌面命令"的命中 ——
+  // 若哪天有人把内联命令塞回来，本条会红，而那正是"两份实现"的开端（唯一真源在脚本里）。
+  const testStepIdx = job.entries.find((e) => e.verdict.code === 'delegate-runs-desktop-suite').index;
+  assert.ok(!job.entries.some((e) => e.index === testStepIdx && e.form !== 'delegate'),
+    'electron-ci 的测试步不该再自带桌面 --filter/pnpm 调用（判据与形状的唯一实现是 scripts/electron-ci-desktop-step.js），实测 '
+      + JSON.stringify(job.entries.filter((e) => e.index === testStepIdx).map((e) => e.form + '|' + e.ref)));
+  // 下界必须真实存在且非 0：否则"扫不到 delegate"与"仓库里没有委托"不可区分
+  assert.ok(lock.MIN_FORM_COUNTS.delegate >= 1, 'delegate 形态下界缺失 ⇒ 扫描器失明会被读成合规');
+  assert.ok(real.formCounts.delegate >= lock.MIN_FORM_COUNTS.delegate,
+    '真仓 delegate 命中数低于下界：实测 ' + real.formCounts.delegate);
+  // 登记表那条 why 不得继续描述被搬走的旧形态（注释替实现说谎 = 下一个会话照抄错前提）
+  const reg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, lock.REGISTRY_REL), 'utf8'));
+  const item = reg.required.find((r) => r.workflow === 'electron-ci.yml' && r.job === 'electron-tests');
+  assert.ok(item && /委托|delegate/.test(item.why),
+    'electron-ci 登记项的 why 必须改成描述委托形态，实测 ' + JSON.stringify(item && item.why));
+  assert.ok(!/pnpm --filter @multi-publish\/desktop test/.test(item.why),
+    'why 里不得再写已被搬走的内联命令形态');
+  // 委托判据读的是**传入 root 那棵树**里的脚本源码：把脚本从快照里摘掉 ⇒ 该 job 立刻不在域内
+  const snapshot = makeRepoSnapshot();
+  fs.rmSync(path.join(snapshot, 'scripts', 'electron-ci-desktop-step.js'));
+  const orphan = lock.collect({ root: snapshot });
+  const orphanJob = orphan.jobs.find((j) => j.key === 'electron-ci.yml#electron-tests');
+  assert.equal(orphanJob.inDomain, false,
+    '摘掉被委托的脚本后仍判域内 ⇒ 说明判据在按名字/白名单认，而不是按被点名脚本自己的源码');
+  assert.ok(orphan.problems.some((p) => p.code === 'STALE_REQUIRED'),
+    '读不到委托源码必须走 fail-closed（"没有委托"），并让登记表把它作为陈旧项点名');
 });

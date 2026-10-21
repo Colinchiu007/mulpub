@@ -112,7 +112,29 @@ branch: electron-tests-shard-step
 | F3 | `runStep` 的等待块形如 `while (…) { … break }`，实际只等一轮 | MINOR（异味） | 未在本片收敛：改动落在 T2/T8 锚的邻域，会让"ALL_CAUGHT 对 shipped 文本成立"这条证据重新变脏。登记为遗留（§6-③） |
 | F4 | 两个新脚本 + 两个新测试文件都落在 `scripts/`，而第 106 行 `scripts/*.js` 静默忽略新建脚本 | MAJOR（已在写代码时避免） | 两条 `!scripts/*.js` 反选 + 反选在位断言（同族第 5/6 次，症状是本地全绿、CI 上 `Cannot find module`）；`.gitignore` 里注释一律 `#` 开头 —— 本轮确实先误写成 `! 说明文字`（三条永远匹配不到的坏模式），由审计的接线锁顺手钉成判据 |
 
-## 5.1 CI 现场红一条（本机绿、CI 红 ⇒ 归因按"这一维可否本地配置"）
+## 5.2 第二条 CI 现场红：我把调用形态换了，却没跑完"消费者并集"（本机绿、CI 红，QG Static）
+
+第二跑（run `39624408918` / job `119307239517`）红在 `.github/scripts/check-desktop-test-prereqs.test.js`
+（`QG Static`，本机我没跑过这个文件）。读数：
+
+```
+[DEBT:STALE_REQUIRED] electron-ci.yml#electron-tests 已不在域内（判据或 workflow 变了）⇒ 请删掉这条登记
+::error title=STALE_REQUIRED::…
+```
+
+| 问 | 答 |
+|---|---|
+| 是不是既有缺陷 | **不是**。控制对照：该 checker 在本 PR 的第一个提交上 `rc=0`，在委托形态落地后 `rc=1` ⇒ 我引入 |
+| 为什么本机全绿 | 我跑的"验证范围"是自己想到的两条锁（`workflow-contract`、`gui-ci-exit-contract`）。而"这一步到底还跑不跑桌面全量"这一事实**还有第三个消费者**：`check-desktop-test-prereqs.js` 自己有一套五形态识别器，它不认委托形态 ⇒ `electron-tests` 从它的域内消失 ⇒ 登记表被判陈旧 |
+| 红文案诱导的错修法 | "请删掉这条登记"。删掉 = 关掉 `electron-ci` 这条 required 检查的前置构建覆盖，而那个覆盖正是 #3782 之后为修 main 长期红加的。**正解是教第三个消费者认委托形态**，不是删登记 |
+| 修法 | 给 checker 加第六形态 `delegate`：认委托成立的条件仍是**被点名脚本自己的源码**里三锚齐命中（桌面包常量 + `['--filter', DESKTOP_PKG, 'test']` + `--shard=`），读不到文件按"没有委托"fail-closed。锚写在 checker 里，但**判定语义与 `workflow-contract` 那条一致**（两处各自有反证，见下） |
+| 顺带修的一处设计缺陷 | 委托判据原来硬编码读 `REPO_ROOT/scripts/…`，而 `collect({root})` 可以指向别的树 ⇒ 夹具根的委托脚本永远读不到，正控分支**结构性不可表示**。改为按传入的 `root` 取文件，并让 `makeRepoSnapshot()` 把 workflow 里 `node scripts/*.js` 点名的脚本一并复制进快照（否则每条反证都会被 STALE_REQUIRED 掩盖成另一种红） |
+| 新增的锁（本文件 9 → **10** 条；T6 逐条投影另加 4 个夹具 job，T10 六条断言） | ① 夹具里三锚齐 ⇒ 域内、缺一锚 ⇒ 域外、**读不到文件 ⇒ 域外且报 STALE**（双向 + fail-closed）；② 两个可执行候选 ⇒ 必须**扫全部**（只取第一个会把真委托档在后面，PR #4192 自己踩过的同型）；③ 注释里的同名串不得凭空造条目；④ 真仓 `electron-tests` 必须**因为** `delegate-runs-desktop-suite` 留在域内，且该步不得再有任何非 delegate 的桌面命令命中（把"两份实现"焊死）；⑤ `MIN_FORM_COUNTS.delegate ≥ 1` 且真仓命中数不低于它（扫描器失明与仓库里没这种用法必须可区分）；⑥ 登记表那条 `why` 必须描述委托形态、不得再写被搬走的内联命令（注释替实现说谎 = 下一个会话照抄错前提） |
+| 由此改的验证口径 | 改"调用形态"时，验证域不得由我脑子里的清单决定。本轮之后固定为：`git grep -l` 出所有引用该 workflow/该步名的判据文件，逐个跑 —— 本轮跑完的并集是 `check-desktop-test-prereqs` 10/10、`classify-ci-failure` 23/23、`check-coverage-budget` 26/26、`check-step-failfast` 19/19、`workflow-contract` 45/45、`gui-ci-exit-contract` 46/46、`electron-ci-desktop-step` 12/12、`electron-ci-shard-audit` 9/9 |
+
+
+
+## 5.1 第一条 CI 现场红：本机绿、CI 红 ⇒ 归因按"这一维可否本地配置"
 
 首跑（run `39612728047` / job `119265564600`，ubuntu `changes` job）红在：
 
