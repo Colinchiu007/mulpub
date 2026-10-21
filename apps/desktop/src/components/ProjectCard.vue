@@ -1,7 +1,7 @@
 <template>
   <div class="project-card" :class="'status-' + statusClass" @click="handleClick">
     <div class="project-card-thumb">
-      <img v-if="project.thumbnail" :src="project.thumbnail" :alt="project.name"  loading="lazy" decoding="async"/>
+      <img v-if="project.thumbnail" :src="project.thumbnail" :alt="project.name" loading="lazy" decoding="async"/>
       <span v-else class="thumb-placeholder"><el-icon><VideoCamera /></el-icon></span>
     </div>
     <div class="project-card-body">

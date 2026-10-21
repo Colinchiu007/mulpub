@@ -22,7 +22,7 @@
           <input ref="fileInput" type="file" multiple accept="image/*" @change="onPickImages" />
           <div v-if="selectedImages.length" class="thumb-list">
             <div v-for="(img, i) in selectedImages" :key="i" class="thumb-item">
-              <img :src="img.url" :alt="img.name"  loading="eager" decoding="async"/>
+              <img :src="img.url" :alt="img.name" loading="eager" decoding="async"/>
               <span class="thumb-name">{{ img.name }}</span>
               <button class="btn-remove" @click="removeImage(i)">✕</button>
             </div>

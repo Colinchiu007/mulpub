@@ -44,7 +44,7 @@
           <tr v-for="(item, idx) in items" :key="item.id">
             <td>{{ (page - 1) * pageSize + idx + 1 }}</td>
             <td :title="recrawlTooltip(item)">{{ item.title || '-' }}</td>
-            <td><img v-if="item.cover_url" :src="item.cover_url" style="width:60px;height:60px;object-fit:cover;border-radius:4px"  loading="lazy" decoding="async"/></td>
+            <td><img v-if="item.cover_url" :src="item.cover_url" style="width:60px;height:60px;object-fit:cover;border-radius:4px" loading="lazy" decoding="async"/></td>
             <td>{{ item.author || '-' }}</td>
             <td>{{ (item.content || '').slice(0, 80) }}{{ (item.content || '').length > 80 ? '...' : '' }}</td>
             <td>

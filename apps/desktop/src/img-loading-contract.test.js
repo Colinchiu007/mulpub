@@ -31,17 +31,36 @@ const ALLOWED_DECODING = ['sync', 'async', 'auto']
 export { ALLOWED_LOADING, ALLOWED_DECODING }
 
 /**
- * eager 白名单（文件 → 理由）。**只能缩小**，且条目对应文件不再用 eager 时必须报陈旧。
- * 口径：只给「用户刚要它出现的内容」与「不滚动的应用外壳」；列表/网格一律 lazy。
+ * eager 白名单 —— **粒度是「一张图」而不是「一个文件」**（QM-6 评审 i3）。
+ *
+ * 第一版是 `{ 文件: 理由 }`，锁只检查"含 eager 的文件在不在白名单"。后果是文件级豁免：
+ * 已在名单上的文件（如 `CreateView.vue` 本来就有 2 个本地预览 eager）**再新增第三个毫无理由的
+ * eager** 时，unauthorized 与 stale 两条断言全部放行 —— 与合同标题「eager 逐条给理由」不符。
+ * 现在每条必须给一个 `match` 锚点（该 `<img>` 开标签里唯一可辨的特征串），
+ * 于是"授权"落到具体那一张图上。
+ *
+ * `match` 的取法：优先 `data-testid` / `class`，其次 `:src` 表达式 —— 必须是**该文件内唯一**，
+ * 否则同文件多个锚点会互相认领（下面「锚点必须互不重叠」那条锁就是在防这件事）。
+ *
+ * 口径三条（与 PRD 的《图片加载合同》同源，改这里必须同步改 PRD）：
+ *  ① **单例、不滚动的应用外壳**（侧栏 logo）；
+ *  ② **用户这次操作刚点开/刚要编辑的那张图本身**（预览弹窗、裁剪器输入、灯箱大图）；
+ *  ③ **本地内容的预览**：src 是 `FileReader` 的 data URL 或 `URL.createObjectURL(file)` ——
+ *     数据已经在内存里，lazy 不省一个字节，只推迟可见。③ 允许出现在 v-for 里（每选一张就立刻要看到哪张）。
+ *  反向：**远程**列表/网格缩略图一律 lazy（含壳层里 v-for 出来的小图标，如标签栏的平台图标）。
  */
-export const EAGER_ALLOWLIST = {
-  'layouts/MpSidebar.vue': '全局侧栏 logo：属于不滚动的应用外壳，首屏恒可见，lazy 只会让它晚一帧出现。',
-  'components/CoverPreviewDialog.vue': '封面预览弹窗：图片本身就是用户点开的对象，lazy 会让弹窗先空一帧，用户会读成"封面没生成"。',
-  'components/CoverCropDialog.vue': '封面裁剪弹窗：同上，裁剪器的输入就是这张图，延迟加载等于让用户对着空框操作。',
-  'views/ResultView.vue': '素材预览面：用户从列表点开的就是这张图，预览空一帧会被读成加载失败。',
-  'views/CreateView.vue': '刚选中的本地图片预览：src 是 blob URL，本地数据不省流量，懒加载只推迟可见。',
-  'views/PromptEvalView.vue': '待评测图片本身：评测视图的内容就是这张图，lazy 无收益且会打断"图在哪"的判断。',
-}
+export const EAGER_ALLOWLIST = [
+  { file: 'layouts/MpSidebar.vue', match: 'data-testid="mp-sidebar-logo"', reason: '全局侧栏 logo：属于①不滚动的应用外壳，首屏恒可见，lazy 只会让它晚一帧出现。' },
+  { file: 'components/CoverPreviewDialog.vue', match: 'data-testid="cover-preview-image"', reason: '封面预览弹窗：图片本身就是用户点开的对象（②），lazy 会让弹窗先空一帧，用户会读成"封面没生成"。' },
+  { file: 'components/CoverCropDialog.vue', match: 'class="crop-img"', reason: '封面裁剪弹窗：同上（②），裁剪器的输入就是这张图，延迟加载等于让用户对着空框操作。' },
+  { file: 'views/ResultView.vue', match: ':src="sceneMaterialPreview.url"', reason: '素材预览面：用户从列表点开的就是这张图（②），预览空一帧会被读成加载失败。' },
+  { file: 'views/video-creation/SceneAssetSelection.vue', match: 'data-testid="sas-preview-image"', reason: '候选素材灯箱大图：点开缩略图后才出现的这张就是操作对象（②），与 ResultView 的同类预览必须同口径。' },
+  { file: 'views/CreateView.vue', match: ':src="img.preview"', reason: '刚选中的本地图片预览（③）：src 是 FileReader 的 data URL，本地数据不省流量，懒加载只推迟可见。' },
+  { file: 'views/PromptEvalView.vue', match: ':src="img.url"', reason: '待评测图片本身（③）：src 由 URL.createObjectURL(file) 生成本地 blob，lazy 无收益且会打断"图在哪"的判断。' },
+]
+
+/** 空话词表：命中任一即理由不合格。理由的**强弱**由人评审，这条只把"最省事写法"挡在门外。 */
+const EMPTY_REASON_RE = /以后再说|先这样|回头再说|顺手|都行|随便|默认值|默认的/
 
 function listVueFiles (dir, out = []) {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
@@ -97,9 +116,55 @@ export function blankOutNonTemplate (src) {
   return out
 }
 
-function attr (attrs, name) {
-  const m = new RegExp('(?:^|\\s)' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\')').exec(attrs)
-  return m ? (m[1] !== undefined ? m[1] : m[2]).trim() : null
+/**
+ * 属性 tokenizer（QM-6 评审 i4）。
+ *
+ * 第一版是 `attr(attrs,name)` 直接在**整段属性串**上跑正则
+ * `(?:^|\s)name\s*=\s*(?:"…"|'…')`。它自称引号感知，却漏了同族另一种形态：
+ * **属性名字面量出现在别的属性值里**。实测两向都会错 ——
+ * `:alt='loading="lazy"'` 被判成"已声明 loading"（假绿），
+ * `:class="'loading=bad'"` 被判成非法值（假红）。
+ * 所以这里按「名字 → (可选) = → 带引号的值」逐个 token 走，**值内部不再参与名字匹配**。
+ *
+ * 只认静态字面量声明：`:loading="x"` 属动态绑定，本合同的口径是"声明必须是看得见的字面量"，
+ * 判为缺席（红）是保守方向 —— 动态绑定把 eager/lazy 的决定推迟到运行时，正是要消灭的歧义。
+ */
+export function attrTokens (attrText) {
+  const toks = []
+  let i = 0
+  while (i < attrText.length) {
+    while (i < attrText.length && /\s/.test(attrText[i])) i += 1
+    if (i >= attrText.length) break
+    const ns = i
+    while (i < attrText.length && !/[\s=]/.test(attrText[i])) i += 1
+    const name = attrText.slice(ns, i)
+    let k = i
+    while (k < attrText.length && /\s/.test(attrText[k])) k += 1
+    if (attrText[k] !== '=') { toks.push({ name, value: null }); i = k; continue }
+    k += 1
+    while (k < attrText.length && /\s/.test(attrText[k])) k += 1
+    const q = attrText[k]
+    if (q === '"' || q === "'" || q === '`') {
+      const vs = k + 1
+      let j2 = vs
+      while (j2 < attrText.length && attrText[j2] !== q) j2 += 1
+      toks.push({ name, value: attrText.slice(vs, j2) })
+      k = j2 + 1
+    } else {
+      const vs = k
+      let j2 = vs
+      while (j2 < attrText.length && !/\s/.test(attrText[j2])) j2 += 1
+      toks.push({ name, value: attrText.slice(vs, j2) })
+      k = j2
+    }
+    i = k
+  }
+  return toks
+}
+
+function attr (attrText, name) {
+  const hit = attrTokens(attrText).find((t) => t.name === name && t.value !== null)
+  return hit ? hit.value.trim() : null
 }
 
 /** 扫出一份文件里所有 `<img>` 的声明情况 */
@@ -118,6 +183,8 @@ export function scanImgTags (relPath, rawSrc) {
       loading: attr(ot.attrs, 'loading'),
       decoding: attr(ot.attrs, 'decoding'),
       srcKind: /:src\s*=/.test(ot.attrs) ? 'bound' : 'static',
+      // 逐张授权的锚点域：只在这段属性串里找 EAGER_ALLOWLIST 的 match
+      attrs: ot.attrs.replace(/\s+/g, ' '),
     })
     i = ot.end + 1
   }
@@ -148,16 +215,26 @@ describe('img 加载合同：每个 <img> 必须显式写 loading，eager 必须
     expect(badDecoding, 'decoding 取值不在闭合词表：' + badDecoding.map((h) => h.file + ':' + h.line).join(' | ')).toEqual([])
   })
 
-  it('eager 必须逐条有理由，白名单只能缩小且不得虚挂', () => {
-    const eagerFiles = [...new Set(all.filter((h) => h.loading === 'eager').map((h) => h.file))]
-    const unauthorized = eagerFiles.filter((f) => !Object.prototype.hasOwnProperty.call(EAGER_ALLOWLIST, f))
-    expect(unauthorized, '出现没有理由的 eager（默认值不该被当成"决定"）：' + unauthorized.join(' | ')).toEqual([])
-    const stale = Object.keys(EAGER_ALLOWLIST).filter((f) => !eagerFiles.includes(f))
-    expect(stale, '白名单条目已不再使用 eager ⇒ 必须删除（留着就是永久豁免）：' + stale.join(' | ')).toEqual([])
-    for (const [f, why] of Object.entries(EAGER_ALLOWLIST)) {
-      expect(why, 'eager 条目 ' + f + ' 缺理由').toBeTruthy()
-      expect(why.length, 'eager 条目 ' + f + ' 的理由过短').toBeGreaterThan(20)
-      expect(why, 'eager 条目 ' + f + ' 的理由必须说清"为什么必须立刻加载"').toMatch(/首屏|弹窗|点开|本地|内容就是|外壳/)
+  it('eager 必须逐张有理由：授权按「文件 + 那张图的锚点」，白名单只能缩小且不得虚挂', () => {
+    const eager = all.filter((h) => h.loading === 'eager')
+    const unauthorized = eager.filter((h) => !EAGER_ALLOWLIST.some((e) => e.file === h.file && h.attrs.includes(e.match)))
+      .map((h) => h.file + ':' + h.line)
+    expect(unauthorized, '出现没有理由的 eager（默认值不该被当成"决定"）。注意授权粒度是**单张图**：'
+      + '同文件里已有一张被批准的 eager，不会替你新加的那张背书：' + unauthorized.join(' | ')).toEqual([])
+    const stale = EAGER_ALLOWLIST.filter((e) => !eager.some((h) => h.file === e.file && h.attrs.includes(e.match)))
+      .map((e) => e.file + ' [' + e.match + ']')
+    expect(stale, '白名单条目已不再对应任何 eager ⇒ 必须删除（留着就是永久豁免）：' + stale.join(' | ')).toEqual([])
+    // 锚点不得互相认领：同一张 eager 若被两条条目同时命中，"逐张授权"就退化成"任挑一条挂着"
+    const doubleCovered = eager.filter((h) => EAGER_ALLOWLIST.filter((e) => e.file === h.file && h.attrs.includes(e.match)).length > 1)
+      .map((h) => h.file + ':' + h.line)
+    expect(doubleCovered, '这些 eager 同时被两条白名单命中 ⇒ 锚点重叠，逐张授权不成立：' + doubleCovered.join(' | ')).toEqual([])
+    for (const e of EAGER_ALLOWLIST) {
+      expect(e.match, '条目 ' + e.file + ' 缺 match 锚点（文件级豁免就是这么来的）').toBeTruthy()
+      expect(e.reason, 'eager 条目 ' + e.file + ' [' + e.match + '] 缺理由').toBeTruthy()
+      expect(e.reason.length, 'eager 条目 ' + e.file + ' 的理由过短').toBeGreaterThan(20)
+      expect(EMPTY_REASON_RE.test(e.reason), 'eager 条目 ' + e.file + ' 的理由是空话词表里的写法（' + e.reason + '）').toBe(false)
+      expect(e.reason, 'eager 条目 ' + e.file + ' 的理由必须点名三条口径之一（①外壳 / ②点开或操作对象 / ③本地内容）')
+        .toMatch(/①|②|③|外壳|点开|操作对象|本地/)
     }
   })
 
@@ -185,6 +262,33 @@ describe('img 加载合同：每个 <img> 必须显式写 loading，eager 必须
     const t = scanImgTags('FixtureC.vue', tricky)
     expect(t, '含 `>` 的属性值把开标签截断 ⇒ 该站点静默漏扫').toHaveLength(1)
     expect(t[0].loading).toBe('lazy')
+
+    // i4：属性名字面量出现在**别的属性值里**，不得被当成声明（第一版在整段属性串上跑正则，两向都错）
+    const fake = ['<template>', '  <img :src="url" :alt="\'loading=\\"lazy\\" 这段只是说明文字\'" decoding="async" />', '</template>'].join('\n')
+    const f = scanImgTags('FixtureE.vue', fake)
+    expect(f).toHaveLength(1)
+    expect(f[0].loading, '属性值里的 "loading=\\"lazy\\"" 字面量被当成真声明 ⇒ 漏写会被读成已写（假绿）').toBeNull()
+    // 反向：单引号值里含 loading= 也不得被误判成非法值（假红）
+    const fake2 = ['<template>', '  <img :src="url" alt=\'a loading=b\' loading="lazy" decoding="async" />', '</template>'].join('\n')
+    const f2 = scanImgTags('FixtureF.vue', fake2)
+    expect(f2).toHaveLength(1)
+    expect(f2[0].loading, '值里的 "loading=b" 抢走了真正的 loading 声明 ⇒ 合法写法被误判').toBe('lazy')
+    // tokenizer 自身：无值属性（disabled）与动态名都要有确定行为
+    expect(attrTokens(' disabled :src="u" alt=\'x\' ").').map((x) => x.name))
+      .toEqual(['disabled', ':src', 'alt', '").'])
+  })
+
+  it('理由词表自身：空话必须被拒、在册真实理由必须被放行（否则"理由不得是空话"只是装饰）', () => {
+    // 与「词表本身必须闭合」同族的反向锁：仓里现在没有人写空话理由 ⇒
+    // "空话词表在工作"这句话**无法**由存量观测到，只能由 fixture 直接测判据本身。
+    // （M12 就是把 EMPTY_REASON_RE 改成恒不匹配 —— 没有这条 fixture，那一道变异会 MISSED。）
+    expect(EMPTY_REASON_RE.test('以后再说：这张就是用户点开的图，先放着。'), '空话写法没被拒 ⇒ 逐条理由退化成走过场').toBe(true)
+    expect(EMPTY_REASON_RE.test('都行，反正这图就是弹窗里点开看的那张'), '空话写法没被拒').toBe(true)
+    expect(EMPTY_REASON_RE.test('默认值而已，这张是本地内容'), '空话写法没被拒').toBe(true)
+    for (const e of EAGER_ALLOWLIST) {
+      expect(EMPTY_REASON_RE.test(e.reason), '在册理由被空话词表误杀：' + e.file + ' [' + e.reason + ']').toBe(false)
+      expect(/①|②|③|外壳|点开|操作对象|本地/.test(e.reason), '在册理由没点名三条口径之一：' + e.file).toBe(true)
+    }
   })
 
   it('词表本身必须闭合：不在 {lazy,eager} / {sync,async,auto} 里的值一律算违规', () => {

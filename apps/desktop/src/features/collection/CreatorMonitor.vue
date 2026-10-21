@@ -358,7 +358,7 @@ async function loadPlatforms () {
           :data-testid="'creator-item-' + c.id"
           @click="activeCreatorId = c.id; loadDiscoveries()"
         >
-          <img v-if="c.avatar_url" class="creator-avatar" :src="c.avatar_url" alt=""  loading="lazy" decoding="async"/>
+          <img v-if="c.avatar_url" class="creator-avatar" :src="c.avatar_url" alt="" loading="lazy" decoding="async"/>
           <div class="creator-meta">
             <span class="creator-name">
               <!-- 平台徽标（PRD §7）：多平台列表混排时必须一眼可分 -->
@@ -413,7 +413,7 @@ async function loadPlatforms () {
 
       <ul v-else class="creator-discoveries" data-testid="creator-discoveries">
         <li v-for="d in discoveries" :key="d.id" class="creator-discovery" :data-testid="'discovery-' + d.id">
-          <img v-if="d.thumbnail_url" class="creator-thumb" :src="d.thumbnail_url" alt=""  loading="lazy" decoding="async"/>
+          <img v-if="d.thumbnail_url" class="creator-thumb" :src="d.thumbnail_url" alt="" loading="lazy" decoding="async"/>
           <div class="creator-meta">
             <span class="creator-title">{{ d.title }}</span>
             <span class="creator-quality" :data-quality="d.content_quality">
