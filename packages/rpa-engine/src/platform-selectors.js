@@ -91,6 +91,10 @@ module.exports = {
       file_input: ['input[type="file"]'],
       title_input: ['input[placeholder*="标题"]', '[class*="title"] input', '.title-input'],
       desc_textarea: ['textarea', '[class*="desc"] input', '[class*="desc"] textarea'],
+      // 正文编辑器（2026-10-22 真机：该平台被登记为「无标题平台」，标题与正文都写进这里，ditor 缺失，ditor sel=none，pre-submit gate blocked: content-not-filled）。
+      editor: ['div.input-editor', '.weui-desktop-form__textarea [contenteditable="true"]', '[contenteditable="true"]', '.ql-editor', 'div[contenteditable]'],
+      // 封面（若页面存在 image input 则可用；无则由封面步骤 warn）
+      cover_input: ['input[type="file"][accept*="image"]'],
       publish_btn: ['button:has-text("发表")', 'button:has-text("发布")', '[class*="publish"] button', '.submit-btn', '[class*="submit"] button', 'button[class*="primary"]'],
     },
     kuaishou: {
@@ -150,6 +154,13 @@ module.exports = {
       editor: ['textarea.byte-textarea.abstract', '[contenteditable="true"]', '[contenteditable]', '.ProseMirror'],
       // 话题标签（可选）
       tag_input: ['input.arco-input-tag-input', 'input[placeholder*="话题"]'],
+      // 封面（**必填**，页面标签带红星 `*封面`）：2026-10-22 真机截图证明——
+      // 未传封面时点「发布」平台校验不通过、页面停在上传页 ⇒ 验证必然超时。
+      // 该页封面区是 dashed 框「+ 上传封面」，内部通常是隐藏的 image file input。
+      cover_input: ['input[type="file"][accept*="image"]', '.upload-cover input[type="file"]', '.byte-upload-cover input[type="file"]', '.xigua-cover input[type="file"]'],
+      // 封面触发器：页面是 dashed 框「+ 上传封面」，点它才出现上传面板/选择器。
+      // 2026-10-22 真机：不点触发器直接设 image file input 会抛 `Script failed to execute`。
+      cover_trigger: ['[class*="cover"] [class*="upload"]', '.xigua-cover-upload', '.upload-cover-trigger'],
       // 上传完成信号：上传成功后容器出现「上传成功」文案
       upload_complete: ['.xigua-upload-video-success', '[class*="upload-success"]', '.byte-upload-list-item-done'],
       // 发布按钮：精确类优先（避开同排「定时发布」）

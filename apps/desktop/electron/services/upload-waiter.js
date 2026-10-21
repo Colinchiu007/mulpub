@@ -53,24 +53,64 @@ const uploadWaiterMixin = {
     //   pagePercent = 页面自报百分比（(\d{1,3})\s*%，无则 null）→ 真实进度上报
     //   positive = https 视频预览 || 编辑器输入 || location.href 含 post/video
     //   structural = 任意可见 video（含 blob 预览）|| 编辑器输入 || 上传完成类文案
-    const probe = 'function(){var t=(document.body&&document.body.innerText)||"";'
+    // 2026-10-22（关键）：RPA 窗口是**隐藏窗口**，`innerText` 依赖渲染/布局，可能返回空串；
+    // 而西瓜上传页**只靠文本判据**（无 <video>、无编辑器输入），一旦 t 恒空 ⇒
+    // doneCopy/doneText/uploadingText/百分比全部失效，只能等预算耗尽。
+    // 实测：17:49:07 开始上传 → 17:59:08（整整 600s）仍报未检测到；而外部探测同页可见「上传成功」。
+    // 故文本取值改为 innerText || textContent（textContent 不依赖渲染），并上报 textLen 以便诊断。
+    const probe = 'function(){var t=(document.body&&(document.body.innerText||document.body.textContent))||"";'
       + 'var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading],[class*=percent],[class*=Percent]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;'
       + 'var m=t.match(/(\\d{1,3})\\s*%/);var pct=m?Number(m[1]):-1;'
-      + 'var uploading=/上传中[….]{1,3}|正在上传|剩余时间[:\uff1a]|转码中|上传失败/.test(t)||pv>0||(pct>=0&&pct<100);'
+      + 'var uploadingText=/上传中[….]{1,3}|正在上传|剩余时间[:\uff1a]|转码中|上传失败/.test(t);'
+      + 'var uploading=uploadingText||pv>0||(pct>=0&&pct<100);'
       + 'var vv=[...document.querySelectorAll("video")].some(function(v){var s=v.currentSrc||v.src||"";return s.indexOf("https:")===0&&v.getClientRects().length>0});'
       + 'var ed=!!document.querySelector(\'input[placeholder*="标题"],textarea[placeholder],[contenteditable="true"]\');'
       + 'var vu=[...document.querySelectorAll("video")].some(function(v){return v.getClientRects().length>0});'
       + 'var doneText=/重新上传|重新选择|上传完成|上传成功/.test(t);'
-      + 'return {uploading:!!uploading,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||location.href.indexOf("post/video")!==-1),structural:!!(vu||ed||doneText)}}'
+      // doneCopy：强完成文案（只认「成功/完成/完毕」，不认「重新上传」这类可能是静态提示的词）。
+      // 2026-10-21 真机取证（西瓜上传页）：上传成功后页面明写「上传成功」+「重新上传 删除」，
+      // 但 videoCount=0、无 textarea/contenteditable、placeholder 不含「标题」、URL 不含 post/video
+      // ⇒ 旧 positive 的四个判据全落空 ⇒ P4(positive && !uploading) 永不成立 ⇒ 干等满预算。
+      // 强完成文案是**平台无关的语义信号**，补进 positive 才能让该类页面正常收敛。
+      + 'var doneCopy=/上传成功|上传完成|上传完毕/.test(t);'
+      // 2026-10-22：把「强完成文案」(doneStrong) 与「纯文本上传中」(uploadingText) 单列上报。
+      // 原因：uploading 里的 pv>0 是弱 DOM 形状判据（容器类名即可命中），它会让 P4 永不成立——
+      // 与 L48-50 记的抖音同型故障一模一样。西瓜页实测：页面已显示「上传成功」但仍有
+      // xigua-upload-video* 容器 ⇒ uploading 恒真。强语义证据不得被弱形状判据否决。
+      + 'return {uploading:!!uploading,uploadingText:!!uploadingText,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||doneCopy||location.href.indexOf("post/video")!==-1),doneStrong:!!doneCopy,structural:!!(vu||ed||doneText),textLen:t.length}}'
     const bytes = Number(opts && opts.fileBytes)
-    const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes) : (timeoutMs || 900000)
+    const minMs = (require('./upload-wait-strategy').PLATFORM_MIN_BUDGET_MS || {})[platform]
+const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { minMs }) : (timeoutMs || 900000)
     const startedAt = Date.now()
     let prevPagePercent = null
     let stableSince = startedAt
     let lastReported = null
     for (;;) {
       const now = Date.now()
-      const signal = await this._probeUploadSignal(win, probe)
+      // 2026-10-22（真机挂死现场）：任务卡在 uploading file... 后**一小时无任何进展**、
+      // 连 300s 的 best-effort 日志都没出现 ⇒ `_probeUploadSignal` 的 Promise 永不 resolve
+      // （executeJavaScript 依赖渲染进程应答；窗口被隐藏/节流/渲染进程挂起时可能永不应答），
+      // 而循环里**没有单次探测的超时**，于是整条发布链永久挂起（连预算判定都执行不到）。
+      // 修法：每次探测都套一层**硬超时**，超时按「无效帧」处理（不刷新停滞计时、不判完成），
+      // 让预算与停滞判定继续生效 —— 循环终止性优先于单次采集成功。
+      const PROBE_TIMEOUT_MS = 15000
+      const signal = await Promise.race([
+        this._probeUploadSignal(win, probe),
+        new Promise((resolve) => setTimeout(() => resolve({
+          uploading: false, uploadingText: false, pagePercent: null,
+          positive: false, doneStrong: false, structural: false, probeTimedOut: true,
+        }), PROBE_TIMEOUT_MS)),
+      ])
+      // 首帧记录文本长度：这是判断「探针读不到页面文本」与「页面真的没渲染」的唯一分界。
+      if (this._probeTextLenLogged !== true) {
+        this._probeTextLenLogged = true
+        log.info('RpaView', '[' + platform + '] upload probe textLen=' + signal.textLen + ' (innerText||textContent)')
+      }
+      // 超时可见化：否则「探测一直不返回」与「页面一直没完成」在日志上完全同形。
+      if (signal.probeTimedOut) {
+        this._probeTimeoutCount = (this._probeTimeoutCount || 0) + 1
+        if (this._probeTimeoutCount === 1 || this._probeTimeoutCount % 20 === 0) log.warn('RpaView', '[' + platform + '] upload probe timed out x' + this._probeTimeoutCount + '（渲染进程未应答，按无效帧继续）')
+      }
       // 评审整改 C4（2026-10）：只有**有效百分比帧**且与上一有效值不同才重置停滞计时；
       // 连续无效帧（pagePercent=null，页面 DOM 未就绪/executeJavaScript 容错路径）
       // 不得刷新 stableSince，否则停滞判定永远凑不满 180s（预算形同虚设的变体）。
@@ -86,6 +126,8 @@ const uploadWaiterMixin = {
         uploading: signal.uploading,
         positiveSignal: signal.positive,
         structuralSignal: signal.structural,
+        doneStrong: signal.doneStrong,
+        uploadingText: signal.uploadingText,
         stableSinceMs: now - stableSince,
       })
       // 进度只增不减（页面百分比抖动不至于让用户看到进度条倒退）
@@ -186,7 +228,12 @@ const uploadWaiterMixin = {
    * @returns {Promise<{uploading:boolean,pagePercent:number|null,positive:boolean,structural:boolean}>}
    */
   async _probeUploadSignal(win, probeFn) {
-    const empty = { uploading: false, pagePercent: null, positive: false, structural: false }
+    // ⚠ 这里加字段必须与下方 return **同步**（2026-10-22 血的教训）。
+    // 本方法会把页面返回值**按白名单重建**——新增的上游字段若不加进白名单，
+    // 会在这一层被静默丢弃：doneStrong/uploadingText/textLen 就这样丢了整整两轮，
+    // 表现为「页面明明显示上传成功，判定层永远收不到」，且没有任何报错。
+    // 与 router 丢 track/apiTrackFailed（PR #4185）是同一类缺陷：翻译层白名单漏字段。
+    const empty = { uploading: false, uploadingText: false, pagePercent: null, positive: false, doneStrong: false, structural: false, textLen: null }
     if (typeof probeFn !== 'string' || !probeFn) return empty
     try {
       const raw = await win.webContents.executeJavaScript('(' + probeFn + ')()')
@@ -195,11 +242,15 @@ const uploadWaiterMixin = {
       // 进而让判定长期卡在「百分比 <100」分支（等待预算形同虚设）。
       const rawPct = raw.pagePercent === null || raw.pagePercent === undefined ? null : Number(raw.pagePercent)
       const pct = rawPct !== null && Number.isFinite(rawPct) && rawPct >= 0 && rawPct <= 100 ? rawPct : null
+      const rawLen = Number(raw.textLen)
       return {
         uploading: Boolean(raw.uploading),
+        uploadingText: Boolean(raw.uploadingText),
         pagePercent: pct,
         positive: Boolean(raw.positive),
+        doneStrong: Boolean(raw.doneStrong),
         structural: Boolean(raw.structural),
+        textLen: Number.isFinite(rawLen) ? rawLen : null,
       }
     } catch (_e) {
       return empty

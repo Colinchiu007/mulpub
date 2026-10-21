@@ -31,6 +31,29 @@ const NO_TITLE_PLATFORMS = Object.freeze(
   Object.keys(data.platforms).filter(id => data.platforms[id].titleMode === 'caption')
 )
 
+/**
+ * 「视频发布无正文位」平台清单（toutiao video，2026-10-21 真机取证）。
+ *
+ * 西瓜上传页（/profile_v4/xigua/upload-video）上传成功后实测：
+ *   仅有 1 个可见 input（input.xigua-input，标题 30 字）+ 封面 + 发布按钮；
+ *   textareaCount=0、contenteditable=0 ⇒ **没有任何正文/简介输入位**。
+ * 因此该平台的视频发布只能用标题，正文无处可填；发布前置门禁 P4
+ *（有正文 ⇒ 正文必须写入成功）对它不适用。
+ *
+ * 注意：这只是「视频形态」的事实；头条图文（graphic/publish）有 ProseMirror 正文。
+ */
+const NO_BODY_VIDEO_PLATFORMS = Object.freeze([...(data.noBodyVideoPlatforms || [])])
+
+/**
+ * 该平台的**视频**发布是否没有正文输入位。
+ * 未知平台/未声明一律返回 false（fail-closed 到默认判据，不放宽）。
+ * @param {unknown} platformId
+ * @returns {boolean}
+ */
+function isNoBodyVideoPlatform (platformId) {
+  return NO_BODY_VIDEO_PLATFORMS.includes(String(platformId || ''))
+}
+
 const COMMON_FORM_FIELDS = Object.freeze(
   data.commonFormFields.map(field => Object.freeze({ ...field, platforms: Object.freeze([...field.platforms]) }))
 )
@@ -396,6 +419,8 @@ function resolvePublishChannel (platformId, options = {}) {
 module.exports = {
   PLATFORM_PUBLISH_META,
   NO_TITLE_PLATFORMS,
+  NO_BODY_VIDEO_PLATFORMS,
+  isNoBodyVideoPlatform,
   getPlatformPublishMeta,
   isNoTitlePlatform,
   getNoTitlePlatforms,

@@ -2136,6 +2136,111 @@ auth_data = {"errCode":300330,"errMsg":"request failed"}
 
 ⇒ 三者都需要**复跑一次带诊断的版本**才能区分 —— 与 §16.30.3 结论一致：
   剩余唯一信息缺口是运行时诊断。
+### 16.32 头条视频双缺陷定位并修复：上传完成探针 + 无正文位门禁（2026-10-21）
+
+> §16.31 把头条卡点定位在「上传完成信号检测」。本节用**发布窗口实时采样**拿到页面真实形状，
+> 证明它其实是**两个代码缺陷**（不是平台问题），并给出修法与验证口径。
+
+#### 16.32.1 取证方法（可复用）
+
+发布期间应用会创建一个专用 RPA 窗口 ⇒ 它作为独立 page target 出现在 CDP `/json/list` 里。
+用外部脚本每 8s 采样一次该页面，即可在**不改产品代码、不加日志**的前提下拿到上传前后真实 DOM。
+
+#### 16.32.2 西瓜上传页上传成功后的真实形状（实测）
+
+```
+url        = /profile_v4/xigua/upload-video
+fullText   = 「…添加视频 上传成功 dy-small.mp4 大小: 143.9KB 视频时长: 12s
+              重新上传 删除 发布设置 标题 4/30 封面 上传封面 … 发布 手机预览效果…」
+inputs     = 仅 1 个可见：input.xigua-input，placeholder=「请输入 0～30 个字符」
+buttons    = 「添加视频」「发布」（发布 disabled=false）
+videoCount = 0    textareaCount = 0    contenteditable = 0
+```
+
+⇒ **上传其实成功了**（页面明写「上传成功」「重新上传 删除」+ 文件名/大小/时长）。
+
+#### 16.32.3 缺陷 A：上传完成探针 `positive` 对西瓜页恒为 false
+
+`upload-waiter.js` 的探针对 `positive` 的定义（旧）：
+```js
+positive = 存在 https <video> || 存在 input[placeholder*="标题"]/textarea[placeholder]/[contenteditable=true]
+           || location.href 含 "post/video"
+```
+
+对西瓜页逐条落空：
+
+| 判据 | 实测 | 结果 |
+| --- | --- | --- |
+| https `<video>` | `videoCount=0` | ❌ |
+| `input[placeholder*="标题"]` | 实际 placeholder「请输入 0～30 个字符」，**不含"标题"** | ❌ |
+| `textarea[placeholder]` / `[contenteditable=true]` | 页面上一个都没有 | ❌ |
+| URL 含 `post/video` | 实际 `/profile_v4/xigua/upload-video` | ❌ |
+
+而 `decideUploadWait` 的 P4 是 `positiveSignal && !uploading` ⇒ **永不成立** ⇒ 只能等满
+90s 预算后 best-effort（实测日志 `13:51:39 video upload-complete signal not detected`，
+正好是开始上传后 90s）。
+
+**关键**：页面上的「上传成功」此前只进了 `structural`（用于停滞判定的辅助），没进 `positive`。
+
+#### 16.32.4 缺陷 B：该页没有正文输入位，但门禁 P4 强制要求正文写入
+
+实测 `textareaCount=0`、`contenteditable=0`，页面只有「标题」+「封面」+「发布」。
+而 `toutiao_video.editor` 登记了 4 个候选（`textarea.byte-textarea.abstract` /
+`[contenteditable="true"]` / `[contenteditable]` / `.ProseMirror`）—— 一个都不存在：
+
+```
+13:48:42 waitForElement timeout sel=textarea.byte-textarea.abstract
+13:48:45 waitForElement timeout sel=[contenteditable="true"]
+13:48:48 waitForElement timeout sel=[contenteditable]
+13:48:51 waitForElement timeout sel=.ProseMirror
+13:48:51 content editor not found among 4 candidates
+```
+
+⇒ 门禁 P4「有正文 ⇒ 正文必须写入成功」**必然失败**。**即使上传确认修好，也发不出去。**
+
+#### 16.32.5 修法（两处，都有回归锁）
+
+**A. 探针补「强完成文案」正向判据**（平台无关的语义信号）：
+```js
+var doneCopy = /上传成功|上传完成|上传完毕/.test(t);   // 只认强文案，不认「重新上传」
+positive = !!(vv || ed || doneCopy || location.href.indexOf("post/video") !== -1)
+```
+不把「重新上传」放进 positive 的理由：它可能是**静态提示**（上传前的说明文案），
+而「上传成功/上传完成/上传完毕」只会在真的传完之后出现。
+
+**B. 新增平台能力声明 `isNoBodyVideoPlatform`**（不硬编码平台名到门禁里）：
+
+| 层 | 改动 |
+| --- | --- |
+| `publish-capabilities.json` | 新增顶层 `"noBodyVideoPlatforms": ["toutiao"]` |
+| `publish-capabilities.js` | 导出 `NO_BODY_VIDEO_PLATFORMS` + `isNoBodyVideoPlatform(id)`（未知平台 false） |
+| `publish-precondition.js` | 入参 `noBodyPlatform` ⇒ **P4 在该平台不适用**（与既有 `noTitlePlatform` 对称） |
+| `rpa-view-platforms.js` | 计算 `noBodyPlatform = isNoBodyVideoPlatform(platform) && !!article.video_path`；跳过正文填充并记 `fillReport.content = { ok: true, skipped: "no-body-field" }` |
+
+**三条设计纪律**：
+1. 只对**视频形态**生效（`&& !!article.video_path`）—— 头条图文有 ProseMirror 正文，不受影响；
+2. 未知/未声明平台一律 false ⇒ **fail-closed 到默认判据**，不放宽；
+3. 跳过填充仍**显式记账**（`skipped: "no-body-field"`），不是静默丢弃。
+
+#### 16.32.6 验证口径（TDD）
+
+新增 `apps/desktop/tests/toutiao-video-signal-and-nobody.test.js`（8 例，先红后绿）：
+
+| 组 | 锁什么 |
+| --- | --- |
+| ① | `positive` 引用 `doneCopy`，且 `doneCopy` 的文案含「上传成功/完成/完毕」；`structural` 不回归 |
+| ② | 声明 `noBodyPlatform` ⇒ 通过；**未声明 ⇒ 仍 `content-not-filled`** |
+| ③ | `isNoBodyVideoPlatform("toutiao")=true`、`"douyin"=false`、未知/undefined=false |
+
+相关回归：`publish-precondition(.wiring)` / `upload-wait-strategy` / `publish-upload-order` /
+`publish-capabilities` 共 **56 例全绿**。
+
+#### 16.32.7 行数门禁的一个实录
+
+`rpa-view-platforms.js` 是**零增长容差点名还账**文件（目标 1484 行，改动前 1482）。
+本次改动先 +3 行 ⇒ 1485 超线；把一处 3 行注释压成 2 行（信息不丢失）后回到 **1484** 转绿。
+⇒ 纪律：在该文件上加代码必须**同次**在文件内压缩等量注释，不得靠上调 targets 过关。
+
 ### 16.33 小红书 406 的字段级取证：竞品端点 + 线上 bundle 的真实 payload 字段族（2026-10-21）
 
 > §16.11/§16.12/§16.15 已排除「缺请求头」「缺 /api 前缀」「sign-URI 形态」三条假设，
@@ -2216,3 +2321,128 @@ privacy  images_list  biz_relations  label_map
 
 > 顺带说明：若页面侧「存草稿」能成功，则**草稿目标已达成**（DOM 轨），
 > 捕获到的 payload 还可反过来修 API 轨 —— 两条收益一次取证。
+
+### 16.34 头条里程碑：上传门禁打通（第 6 个真因=翻译层白名单）+ 暴露封面与标题两个新缺陷（2026-10-22）
+
+#### 16.34.1 决定性真因：`_probeUploadSignal` 的白名单把新字段全丢了
+
+`upload-waiter._probeUploadSignal` 会把页面返回值**按固定白名单重建**：
+```js
+return { uploading, pagePercent, positive, structural }   // 旧
+```
+⇒ 前两轮新增的 `doneStrong` / `uploadingText` / `textLen` **全在这一层被静默丢弃**，且**零报错**。
+
+**指纹**：首帧日志 `upload probe textLen=undefined`（来自兜底对象，正常应为页面文本长度）。
+
+**同类缺陷史**：PR #4185 修的是 `RpaVmPublisher` 重新构造返回对象丢 `track/apiTrackFailed`。
+两处同型：**翻译层白名单漏字段 ⇒ 上游埋点/字段白做，且没有报错可查**。
+
+**修法**：`empty` 兜底与 `return` **两处同步**补 `uploadingText / doneStrong / textLen`，
+并在注释里写死「加字段必须两处同步」。
+
+#### 16.34.2 修好后的真机对比（决定性）
+
+| 项 | 修前 | 修后 |
+| --- | --- | --- |
+| 首帧日志 | `textLen=undefined` | **`textLen=125`** |
+| 上传完成信号 | 永远收不到（90s/300s/600s 全部耗尽） | **147 秒**命中（P3.5 认出「上传成功」） |
+| 结果 | 卡在上传门禁 | **`filling title...` → `publishing...`** |
+
+⇒ 之前所有「预算耗尽」都是**假象**：判定层从未收到任何信号。
+（§16.31/§16.32/§16.33 三次给预算加下界，方向都不对——这条要作为方法论教训记住。）
+
+#### 16.34.3 新缺陷 A：封面是**必填**，而 `toutiao_video` 没有 `cover_input` 选择器
+
+发布后截图（`toutiao-verify-*.png`）显示页面标签为 **`*封面`**（红星=必填），封面区仍是
+「+ 上传封面」空白；点「发布」后页面**停在上传页不动** ⇒ 平台校验不通过 ⇒ 验证必然超时。
+
+而 `PLATFORM_PUBLISH_SELECTORS.toutiao_video` 此前**没有 `cover_input`**，
+`rpa-view-platforms` 的封面步骤条件是 `if (article.cover_path && sel.cover_input)` ⇒ **静默跳过、日志无痕**。
+
+**修法**：① 给 `toutiao_video` 登记 `cover_input`（image file input 四个候选）；
+② 封面步骤增加「有 cover_path 但平台无 cover_input ⇒ warn」——**未实现必须可见**。
+
+#### 16.34.4 新缺陷 B：标题被平台自动填成**文件名**，我们的填充没有回读校验
+
+同一张截图：标题输入框内容为 **`dy-small`**（= 视频文件名，4/30 字），
+而日志只打了 `title input hasTitle=true` + `filling title...`，**没有任何回读**。
+⇒ 两种情况无法区分：(a) 我们的写入没生效；(b) 写入后被平台的「按文件名自动填充」覆盖。
+
+**待办**：标题填充后必须**回读 `el.value` 并与期望值比较**，不一致则重试一次并留日志
+（抖音链路已有 `douyin title: fill not applied (readback=0)` 同款判据，头条侧缺失）。
+
+#### 16.34.5 验证阶段：三条兜底全失效（下一个要修的）
+
+```
+confirm dialog probe: NO_DIALOG
+verifying...
+page console: Uncaught SyntaxError: Unexpected token )   ← 需查是否我们注入的验证脚本写坏
+artifact lookup 未命中 （作品可能仍在审核队列或该 API 口径已变）
+publish verify snapshot: 页面仍在上传页（未跳转）
+publish verification timeout endpoint=.../xigua/upload-video
+[toutiao-xhr] code=undefined reason=NO_BODY
+[toutiao-direct] 签名失败 via=page → SIGN_FAILED
+```
+
+要点：**西瓜页发布后不跳转**（与头条图文同型，见 §16.34.1 上方 2026-09-30 记录），
+所以 `success_mode=url` 天然不适用；正解是查**作品列表 API** 的 `ArticleAttr.Status`
+（2=已发布 / 6=审核中），这条路竞品验证过。
+
+#### 16.34.6 确定性边界（不夸大）
+
+| 结论 | 强度 |
+| --- | --- |
+| 白名单丢字段是真因、修好后上传门禁通过 | **实测**（textLen 125 vs undefined；147s vs 600s） |
+| 发布被点击（`publishing...`） | **实测**（日志） |
+| 封面必填且此前未传 | **实测**（截图 `*封面` + 空白） |
+| 标题=文件名、我们未回读 | **实测**（截图 `dy-small` + 日志无回读） |
+| **是否已真正发出去** | **未证实** —— 验证超时且三条兜底全失效；需查作品列表 |
+
+### 16.35 标题填充改为「等值回读 + 不一致重填」（2026-10-22）
+
+#### 16.35.1 为什么旧的"读回校验"不够
+
+`_fillInput` 内建回读的判据是：**读回值为空且待填值非空 ⇒ 抛错**。
+它挡得住"根本没写进去"，但挡不住"**写进去又被平台改成别的值**"：
+
+| 读回结果 | 旧判据 | 新判据 |
+| --- | --- | --- |
+| 空 | 抛错 ✅ | 抛错 ✅ |
+| 等于期望值 | 成功 ✅ | 成功 ✅ |
+| **非空但不等于期望值** | **判成功 ❌（漏判）** | 判不一致 → 重填一次 ⚠ |
+
+#### 16.35.2 真机证据
+
+`toutiao-verify-*.png`（发布后截图）显示标题输入框内容为 **`dy-small`**（= 视频文件名，4/30），
+而本次发布的标题是「被误解的明朝：西方史料里的另一个大明」；日志里只有 `filling title...`，
+**没有任何回读痕迹** ⇒ 无法区分「没写进去」与「写进去后被平台的按文件名自动填充覆盖」。
+
+#### 16.35.3 实现（独立模块，避免零增长门禁）
+
+`apps/desktop/electron/services/title-fill-verify.js`：
+
+| 导出 | 职责 |
+| --- | --- |
+| `readValue(win, sel)` | 读 `el.value`（回退 `textContent`），任何异常返回空串（不抛） |
+| `fillAndVerifyTitle(ctx, win, sel, value, opts)` | 填 → 读 → 比对（trim）；不一致**重填一次**并 warn；返回 `{ ok, readback, retried }` |
+
+调用点（`rpa-view-platforms`）由两行换成一行（净 -1 行），`fillReport.title` 现在带 `readback`，
+**历史与诊断可查**（不再只看 `{ok:true}`）。
+
+#### 16.35.4 为什么"仍不一致只告警不失败"
+
+标题被平台改写属于**平台行为**，硬失败会把一次本可成功的发布判死；
+但**必须可见**——否则用户会看到文件名当标题而无人知道。故：重试一次 + 两次 warn + 回读值入账。
+
+#### 16.35.5 读数
+
+| 项 | 读数 |
+| --- | --- |
+| 新增 `title-fill-verify.test.js` | **4 passed**（等值成功 / 重填成功 / 平台反复覆盖 / 取不到元素不抛） |
+| desktop 相关回归 | rpa-view-platforms + 头条信号 **105 passed** |
+| 行数门禁 | `rpa-view-platforms.js` 1483（目标 1484，未超） |
+
+#### 16.35.6 未验证
+
+尚未真机复跑：**不知道**回读会不会真的抓到 `dy-small`（若抓到，说明是"被覆盖"，
+那还需要在**发布前**再校验一次；若是"没写进去"，说明选择器命中错了元素）。
