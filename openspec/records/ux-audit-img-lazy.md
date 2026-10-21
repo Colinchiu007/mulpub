@@ -14,7 +14,7 @@ sync_backfill_owner: none-derived-from-trunk
 |---|---|---|
 | 变更类型与隔离 | ✅ | 运行时代码变更 ⇒ 独立 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-img-lazy`（非 C 盘），分支同名裸名；判据取产物：`rev-parse --abbrev-ref HEAD` = `ux-audit-img-lazy`、`rev-parse --show-toplevel` 可进入、`node scripts/verify-worktree-deps.js` 打印「消费方解析通过 11 项 … OK」 |
 | 质量节拍 pre-flight | ✅ | 编辑前确认非共享根 `main`；共享根全程未写入 |
-| 自测（新增锁） | ✅ | `apps/desktop/src/img-loading-contract.test.js` 5 条全绿；驱动控制跑 `[BASE] rc=0 collected=5 red=0` |
+| 自测（新增锁） | ✅ | `apps/desktop/src/img-loading-contract.test.js` **6 条**全绿；驱动控制跑 `[BASE] rc=0 collected=6 red=0`（**13 道变异 M1–M13 全 CAUGHT**，含 M13「合规形态必须绿」正控）。⚠ 本行原写「5 条 / collected=5」——那是第一轮前的当日读数，被 QM-6 外部评审按"声称与提交集不同源"抓出后按当场重取的值改写 |
 | 自测（消费者并集） | ✅ | 判据取「消费者并集」：按被改组件名 + `\.vue` 精确匹配反查测试消费者（**不能按裸词匹配**——按裸词会把 151 个只在散文里提到 "Home"/"TabBar" 的文件拉进来），结果 **82** 个测试文件 + 本锁全跑 = **1655 passed / 0 failed / 2 skipped**。第一跑曾报 **1 failed**，但不是回归：`overlay-view-suspension.test.js` 读的是构建产物 `electron/preload/index.bundle.js`，新 worktree 里从未构建 ⇒ `ENOENT`。这是**环境缺失伪装成 UI 失败**的同型（AGENTS.md 对像素门禁写过同一条判据）：正解是补 `pnpm run build:preload` 再跑，**不是**把那条用例 skip 掉或记成"已知红" |
 | 反证（8 道） | ✅ | `node scripts/img-loading-contract-mutate.js` → `COUNTERPROOF=ALL_CAUGHT`；红集互不相同（M6=2，其余各 1），八条均 `还原字节一致=OK`；M8 第一版 MISSED（见 §三），改正后才 CAUGHT |
 | 模板编译核验 | ✅ | 批量属性插入的专用检查：用 `@vue/compiler-sfc` 的 `parse` + `compileTemplate` 逐个核验 26 个改动文件 → `VUE_FILES=26 含img=26 BAD=0`；探针自身要求 diff 非空且 `parse/compileTemplate` 存在，否则拒绝报 OK |

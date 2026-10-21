@@ -13,6 +13,17 @@
 - **一处实现与规则分叉被纠正**（i2）：`SceneAssetSelection.vue` 的候选素材**灯箱大图**原写 `lazy`，与 `ResultView.vue` 的素材预览面语义相同（都是"用户点开才出现的那一张"）⇒ 改 `eager` 并按②登记；同文件的**候选缩略图网格仍 lazy**（远程、v-for、列表）。PRD 的 eager 口径同时改为三条并写明反向清单：壳层里 v-for 出来的小图标（标签栏 16px 平台图标）**不算**「外壳单例」，一律 lazy。
 - **格式噪声收敛 + 编译复验**（i5）：批量插入留下双空格与错位缩进共 15 个文件，一次脚本化归一（缩进取自同标签上一行，不写死空格数），15 个 `.vue` 经 `@vue/compiler-sfc` 复验 **BAD=0**。
 - **反证从 8 道扩到 12 道，`COUNTERPROOF=ALL_CAUGHT`（控制跑 `collected=6 red=0`）**：M9 造「同文件第三个 eager」、M10 造「两条锚点互相认领」、M11 把解析退回整串正则、M12 摘掉空话词表；其中 **M12 第一版 MISSED** —— 摘掉守卫不产生红，因为仓里没有空话理由可拦，于是补一条 fixture「理由词表自身」直接测判据本身（与 M8 的「词表闭合」同形：**存量观测不到的守卫必须由 fixture 观测**）。
+- **反证从 8 道扩到 **13 道（M1–M13）**，`COUNTERPROOF=ALL_CAUGHT`（控制跑 `collected=6 red=0`；条数是当日读数，验收以门禁现场为准）**：M9 造「同文件第三个 eager」、M10 造「两条锚点互相认领」、M11 把解析退回整串正则、M12 摘掉空话词表；其中 **M12 第一版 MISSED** —— 摘掉守卫不产生红，因为仓里没有空话理由可拦，于是补一条 fixture「理由词表自身」直接测判据本身（与 M8 的「词表闭合」同形：**存量观测不到的守卫必须由 fixture 观测**）。
+# [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
+
+- **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。
+- **根因**：Electron 默认给应用装一份「默认应用菜单」，本仓从未替换过它——`Menu.setApplicationMenu` 全仓**零调用**，所以每个窗口都自带这行菜单。**它不是渲染层画出来的 DOM，是原生窗口框架的一部分**，改 CSS 改不掉。
+- **修复**：新增 `apps/desktop/electron/services/native-menu.js` 作单一真源，分两级移除：① **全局** `Menu.setApplicationMenu(null)` 移除默认菜单**模板**（根因级，之后创建的窗口不再自带这行）；② **窗口** 主窗 `autoHideMenuBar: true` + `win.setMenu(null)`，把「这个窗口没有菜单栏」钉死在窗口自己身上——将来即便有人再调 `setApplicationMenu` 装了个菜单，主窗口也不会重新长出这行，按 Alt 也唤不回。两级缺一不可：只做全局，窗口若先于菜单设置创建仍会带菜单；只做窗口，其它窗口（登录窗、授权窗）仍会带菜单。
+- **平台策略**：macOS **保留**原生菜单（它的菜单在屏幕顶部且承载 Cmd+C/V/Q 等平台级快捷键，移除会破坏平台惯例）；本仓 electron-builder 只配了 win（nsis），保留 darwin 分支是为了将来出 mac 包时不至于静默坏掉。
+- **明确不做**：不动托盘右键菜单（`system-tray.js` 是另一套，用户要的是窗口内那一行）、不动应用内导航菜单（`app-menu-config.js` 是运营中心下发的侧边栏配置）、不改任何既有快捷键语义、内嵌视图布局不受影响（`view-bounds.js` 早已统一走 `getContentBounds()` 客户区，菜单栏消失后视图自动铺满新客户区，无任何硬编码偏移）。
+- **回归保护**：新增 `electron/services/native-menu.test.js` 15 例（平台策略 / 全局移除 / 窗口移除 / API 缺失不抛错 / 幂等 / **真实依赖锁**：直接读已安装 Electron 的 `electron.d.ts` 核对 `Menu.setApplicationMenu(Menu|null)`、`BrowserWindow.setMenu(Menu|null)`、`autoHideMenuBar?: boolean` 三处签名，不靠记忆）+ `window.test.js` 2 例（`autoHideMenuBar=true`、`setMenu(null)`）+ `main.test.js` 2 例（启动即置空应用菜单、且发生在窗口创建之前）。
+- **变异反证**：撤掉实现（删 `removeWindowMenuBar(mainWindow)` / `autoHideMenuBar` / `removeApplicationMenu`）后 **4 条新锁当场变红**（window 2 条 + main 2 条），确认不是「恒绿的装饰性断言」。
+- **验证**：3 个测试文件 101 例全绿；eslint（改动 6 文件）rc=0；**QM-1 打包 PASS**（`electron-builder --win --x64` exit 0，产出 `Multi-Publish.Setup.0.2.0.exe`）；**真机验证**：启动打包产物并抓原生窗口截图，标题栏下**直接就是侧边栏与内容区**，File/Edit/View/Window 那一行已消失。
 
 # [未发布] docs(changelog): 把 #2842 squash 漏带的那一行「顺带修复」条目逐字节搬回主干（restore-2842-changelog-entry）
 
