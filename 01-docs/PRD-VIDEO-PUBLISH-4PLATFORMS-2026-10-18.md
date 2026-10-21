@@ -1840,9 +1840,14 @@ ctx.cookies('https://creator.douyin.com') → 0 条
 | ② | 排除 URL 导航判定（`_waitForSuccessNavigation`） | 该判据要求 URL 含 `success` / `publish/success`（`rpa-view-navigation-helpers.js`），而 `result.url` 是 `content/post/video` ⇒ **不是**这条路径 |
 | ③ | 发布页表单**仍持着本次内容** | 重新打开发布页：`hasUploadArea=false`（上传区已消失 ⇒ 视频已上传）、正文本字匹配（「你还记得大明是"东亚病夫"吗…」）、描述计数 `170/1000` ⇒ 内容确实进入过发布流程，不是空表单 |
 
-⇒ 由 ② 反推：只可能命中 `rpa-view-platforms.js:1050` —— 等到了 `aweme/create_v2` / `create` / `post`
-  的**真实网络响应**（`_waitForResponse` 监听 session 响应，`rpa-view-helpers.js`）。
-  ⇒ **服务端确认创建**，不是"按钮点了但没反应"。
+⇒ 由 ② 反推：**大概率**命中 `rpa-view-platforms.js:1050` —— 等到了 `aweme/create_v2` / `create` / `post`
+  的**真实网络响应**（`_waitForResponse` 监听 session 响应，`rpa-view-helpers.js`），
+  若如此则意味着**服务端确认创建**，而非"按钮点了但没反应"。
+
+> ⚠ **推理边界**（CCG i2 指出后修正）：② 只证明了"**不是** `_waitForSuccessNavigation` 这条路径"，
+> **没有**穷尽 `_publish_douyin` 里所有 `return {success:true}` 的分支（未通读整个函数）。
+> 因此"命中 L1050 / 服务端确认创建"是**高概率推断，不是定论**。
+> 要证成它，需在 L1050 附近加埋点，把 `resp`（服务端响应体）落进历史 —— 那也正是下一步 ②。
 
 #### 16.22.3 为什么内容管理页（作品 238）没看到它
 
