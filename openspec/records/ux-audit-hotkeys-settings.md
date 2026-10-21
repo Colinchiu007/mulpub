@@ -128,6 +128,31 @@ advisory 意味着任何人看这条 PR 的 checks 全绿，只有跑到自动�
 要么给"upheld 且已修"一个机械出口（例如引擎支持 `needs_revision` 的回写路径），
 要么把这条欠账做成 required check 上可见的红——两者都属"改谁来守门"，本会话不代做。
 
+## 五之二、CI 首跑红：Gate 7（现场归因，非推演）
+
+PR #4210 首跑 `QG Static` 红在 `Gate 7 - locale content sync`，`Gate Result` 连带红
+（`gh api .../runs/39682495515/jobs` → 失败步骤名 `Gate 7 - locale content sync (zh/en paired + renderer CJK + key existence + python CJK)`）。
+
+- **红来自门禁自己的单元测试，不是那条直扫命令。** 现场日志里 Gate 7 的步骤正文是
+  `node --test .github/scripts/check-locale-sync.test.js` → `--pair-base` → `--cjk` → `--keys` → `--py-cjk`，
+  每条后面跟 `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`。第一步（自测）非零即中止，
+  所以**后四条直扫在 CI 上一次都没跑**——整份日志里 `[locale-sync] FAIL` 只出现 1 次，
+  且它落在 `not ok 10 - check-locale-sync --cjk：行号漂移不产生假阳性（回归：PR #1732 事故）` 的断言消息里。
+- **真因**：`src/utils/main-shortcuts-harness.js` 的两条内部诊断串把中文写进了渲染端字符串字面量
+  （`SHORTCUTS_ANCHOR_MISSING …` / `SHORTCUTS_END_ANCHOR_MISSING …`）。那条"行号漂移"用例会把
+  `PlatformOverridePanel.vue` 整体下移一行再跑**真实**扫描，于是它顺带当了直扫的探针：
+  它断言"行号漂移不该产生假阳性"，而扫描返回的是真新增 2 处。
+- **处置**：两条诊断串改英文（该 harness 只被测试 import，`grep` 全仓确认无消费者断言这两句文案），
+  **不**更新基线、**不**放宽判据。改后本机读数：
+  `--cjk` → `CJK scan PASS（基线 1330 条，当前 1124 条，无新增硬编码）`；
+  `--keys` → `key existence check PASS（2219 个使用中的 key 均存在于 zh/en）`；
+  `node --test .github/scripts/check-locale-sync.test.js` → `tests 16 / pass 16 / fail 0`；
+  消费该 harness 的 `hotkey-labels.test.js` + `HotkeysSettings.test.js` → `37 passed (37)`。
+
+留一条判据线索给下一个会话：**Gate 7 的 fail-fast 顺序把"门禁自测"排在"直扫"之前**，
+所以任何一次自测红都会让四条直扫命令在 CI 上零执行——想知道"直扫到底会不会红"必须本机跑，
+CI 日志里取不到它的读数。
+
 ## 六、遗留
 
 1. **视觉基线未刷新**：`settings-general`（浅/暗）必须由同一次 CI 渲染刷新，见门禁表 QM-4 行。

@@ -32,9 +32,9 @@ export function mainAccelerators (src) {
     path.resolve(DESKTOP_ROOT, 'electron/services/hotkeys.js'), 'utf8',
   )
   const start = text.indexOf('const SHORTCUTS')
-  if (start < 0) throw new Error('SHORTCUTS_ANCHOR_MISSING 主进程快捷键表起点锚读不到')
+  if (start < 0) throw new Error('SHORTCUTS_ANCHOR_MISSING cannot read main-process shortcut table start anchor')
   const end = text.indexOf('\n}', start)
-  if (end < 0) throw new Error('SHORTCUTS_END_ANCHOR_MISSING 终点锚失配时 slice 会把负数当「到末尾」')
+  if (end < 0) throw new Error('SHORTCUTS_END_ANCHOR_MISSING end anchor mismatch would make slice treat -1 as end-of-file')
   const block = text.slice(start, end)
   return [...block.matchAll(/^\s*'([^']+)':\s*\{\s*route:/gm)].map((m) => m[1])
 }
