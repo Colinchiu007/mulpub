@@ -1,6 +1,7 @@
 import accountsCloudSyncEn from './accounts-cloud-sync/en'
 import identityDiagnosticsEn from './identity-diagnostics/en'
 import signerEn from './signer/en'
+import announcementEn from './announcement/en'
 import tabsEn from './tabs/en'
 import commonEn from './common/en'
 import loginGateEn from './login-gate/en'
@@ -57,6 +58,7 @@ import podcastEn from './podcast/en'
 
 export default {
   signer: { ...signerEn },
+  announcement: { ...announcementEn },
   tabs: { ...tabsEn },
   common: { ...commonEn },
   loginGate: { ...loginGateEn },

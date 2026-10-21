@@ -441,6 +441,15 @@
 - feat(登录): 头条号进入登录期观测面：会话级记监测域内的失败请求与 HTTP≥400（字节自家 CDN 的 504 此前完全无痕），CDP 记**慢请求耗时**、**图形验证码组件加载完成**（用户看到的灰显遮罩结束的时刻）与监测域请求失败；未登记平台的过滤面**一字不变**，观测层**永不读响应体**。
 - refactor(登录): 按仓内行数门禁拆出三个模块（`auth-login-slot.js` 槽位规则 / `login-network-monitor.js` 观测口径 / `auth-view-saved-account.js`「打开已保存账号」纯平移，特征测试先钉住当前行为）；监测域匹配改为按平台编译正则并缓存（O(1) 查表）。
 - docs(登录): 新增 `01-docs/PRD-LOGIN-SLOT-REUSE-2026-10-21.md`（数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 不做什么 / 取舍）与 `01-docs/TROUBLESHOOT-TOUTIAO-LOGIN-SLOW-2026-10-21.md`（用户侧排障手册）。
+# [未发布] feat(外壳): 运营公告横幅接回应用外壳 —— 接线、文案迁 locale、22 条锁与 7 道反证（ux-audit-announcement-mount)
+
+- **问题**：`AnnouncementBanner.vue` 与数据源 `useOpsCenterRuntime` 都已实现，但实测 `grep -rna "AnnouncementBanner" src electron` **零命中**（连一条测试都没有）⇒ 运营下发的「系统维护」「重要提醒」在界面上永远不可见，与 1.1 的 `useTheme`、1.3 的死组件同形。
+- **挂载点是有意偏离审计预设的**：审计行只给"登记浮层挂起 owner"或"布局避让"两个出口。当场读到的事实是内嵌视图矩形由主进程常量 `BROWSER_CHROME_TOP = 76` 决定、渲染端不上报内容矩形，而 `computeEmbeddedViewBounds` 的 `topOffset` 虽已存在却**四个消费点都没传过非默认值** ⇒ 真布局避让要新增一条渲染端→主进程的高度通道并改动 `electron/`（触发 QM-1）。本批取"挂内容列顶部、不动几何"，**代价如实登记**：浏览器/登录标签前台时横幅被原生图层遮住，后续批已登记。
+- **文案**：新增 `locales/announcement/{zh,en}`（区域名 / 关闭名 / 三档 severity），并把 `useOpsCenterRuntime` 里写死中文的 `SEVERITY_LABELS` 换成机器值 `SEVERITIES` —— 那张表就是英文界面露中文的直接原因。成对判据不借 CI Gate 7：它只比根级 `zh.js`/`en.js`，对拆分文件实测"删掉 en 键仍打 PASS"（任务 #20），故自锁键集合相等 + 取值非空 + 组件零硬编码中文。
+- **交互合同（22 条锁）**：空列表不渲染任何容器与 landmark；`maintenance` 档**不得有关闭按钮**（维护通告不可被消音）；未知/缺失 severity 落 `info` 但**不得丢弃整条**；关闭记忆必须归因到具体一条（按下标记会让已关的那条复活、无辜的新条消失 —— 正反两个方向都有用例）；`id=0` 是合法 id；坏 JSON 回落"都没关过"而不是"全关掉了"；接线位置必须在 `NavBar` 之后、工作区之前且只渲染一次。
+- **本批最有价值的一条是自己引入的回归**：接线后全域 `vitest run src` 打 `407 files passed / 6420 passed / 0 failed`，却 `Errors 5 errors` + rc=1 —— 五条 Unhandled Rejection 全来自横幅 `onMounted(() => loadRuntime())` 这个浮空 promise（凡 mount `App.vue` 的测试都会执行它，而那些测试对 `@/api/electron-bridge` 做的是缺 `invokeWithFallback` 的部分 mock）。**断言面完全看不见它**，只有 `Errors` 行与退出码看得见。修法落在边界：`loadRuntime()` 改成永不 reject、以 `{code:-1, message, data:null}` 表达失败（并确保失败态与"今天没有公告"可区分），而不是每个调用点补 `.catch`；第二跑 407 files / 6422 passed / 0 failed / 无 Errors / rc=0。
+- **反证**：`scripts/announcement-mount-contract-mutate.js` 7 道（摘掉挂载 / 挂进壳态分支 / 空列表也渲染 / 维护档可关 / 记忆退化成常量键 / 未知档位落空 / 可访问名退回硬编码中文），末跑 `[BASELINE] collected=22 rc=0` → `CAUGHT=7/7`，每条 `RESTORE_OK`（还原后独立 md5 回读），驱动 rc=0。
+
 
 # [未发布] feat(ci): electron-ci 桌面全量收回单一实现 —— 同一步两片并行 + 共享预算 2700s + 剥 ANSI/时间戳的现场计数
 

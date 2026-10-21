@@ -1,21 +1,26 @@
 <template>
-  <div v-if="visibleAnnouncements.length > 0" class="announcement-banners" role="region" aria-label="运营公告">
+  <div
+    v-if="visibleAnnouncements.length > 0"
+    class="announcement-banners"
+    role="region"
+    :aria-label="t('announcement.regionLabel')"
+  >
     <div
-      v-for="(a, i) in visibleAnnouncements"
-      :key="'ann-' + i"
+      v-for="a in visibleAnnouncements"
+      :key="dismissKey(a)"
       class="announcement-banner"
-      :class="'severity-' + (a.severity || 'info')"
+      :class="'severity-' + severityOf(a)"
       role="alert"
     >
-      <span class="ann-badge">{{ SEVERITY_LABELS[a.severity] || '提示' }}</span>
+      <span class="ann-badge">{{ t(severityLabelKey(a)) }}</span>
       <div class="ann-body">
         <div class="ann-title">{{ a.title }}</div>
         <div v-if="a.content" class="ann-content">{{ a.content }}</div>
       </div>
       <button
-        v-if="a.severity !== 'maintenance'"
+        v-if="severityOf(a) !== 'maintenance'"
         class="ann-close"
-        aria-label="关闭公告"
+        :aria-label="t('announcement.closeLabel')"
         @click="dismiss(a)"
       >✕</button>
     </div>
@@ -24,29 +29,60 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useOpsCenterRuntime } from '@/composables/useOpsCenterRuntime'
+import { useI18n } from 'vue-i18n'
+import { useOpsCenterRuntime, SEVERITIES } from '@/composables/useOpsCenterRuntime'
 
-const { announcements, SEVERITY_LABELS, loadRuntime } = useOpsCenterRuntime()
-const dismissedKeys = ref(new Set())
+const { t } = useI18n()
+const { announcements, loadRuntime } = useOpsCenterRuntime()
+const dismissedKeys = ref(readDismissed())
 
-try {
-  const raw = localStorage.getItem('announcement-banner-dismissed')
-  if (raw) dismissedKeys.value = new Set(JSON.parse(raw))
-} catch (_) { /* 忽略存储异常 */ }
+const DISMISSED_STORAGE_KEY = 'announcement-banner-dismissed'
 
-const visibleAnnouncements = computed(() => {
-  return (announcements.value || []).filter(a => !dismissedKeys.value.has(dismissKey(a)))
-})
+const visibleAnnouncements = computed(() =>
+  (announcements.value || []).filter((a) => !dismissedKeys.value.has(dismissKey(a)))
+)
 
+// 分档只认闭合词表里的机器值；未知或缺失一律落 info。
+// 这里刻意**不**丢弃整条：公告是"运营要让用户看到"的东西，
+// 分档失败可以降级样式，不可以降级成"看不见"。
+function severityOf (a) {
+  return SEVERITIES.includes(a && a.severity) ? a.severity : 'info'
+}
+
+function severityLabelKey (a) {
+  return 'announcement.severity.' + severityOf(a)
+}
+
+// 记忆键必须能归因到"具体一条"。优先后端稳定 id；
+// 旧数据无 id 时降级为内容摘要，**不得**用数组下标——新公告插到前面会让
+// 已关闭的那条复活、且无辜的新那条消失（两个方向同时错）。
+// id=0 是合法 id，所以判存在用 `!= null` 而不是真值。
 function dismissKey (a) {
-  // 优先用后端稳定 id；旧数据无 id 时回退内容摘要
-  if (a.id !== undefined && a.id !== null && a.id !== '') return 'id:' + a.id
-  return (a.severity || 'info') + ':' + (a.title || '') + ':' + (a.content || '')
+  if (!a) return 'invalid'
+  const id = a.id
+  if (id !== undefined && id !== null && id !== '') return 'id:' + id
+  return (severityOf(a)) + ':' + (a.title || '') + ':' + (a.content || '')
 }
 
 function dismiss (a) {
-  dismissedKeys.value.add(dismissKey(a))
-  try { localStorage.setItem('announcement-banner-dismissed', JSON.stringify([...dismissedKeys.value])) } catch (_) { /* ignore */ }
+  dismissedKeys.value = new Set([...dismissedKeys.value, dismissKey(a)])
+  try {
+    localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...dismissedKeys.value]))
+  } catch (_) {
+    // 存储不可用（隐私模式 / 配额）只影响"下次还记得吗"，不影响本次可见性
+  }
+}
+
+function readDismissed () {
+  try {
+    const raw = localStorage.getItem(DISMISSED_STORAGE_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw)
+    return new Set(Array.isArray(parsed) ? parsed : [])
+  } catch (_) {
+    // 坏 JSON 必须回落"都没关过"，不能让整块公告消失（读失败不是"用户关掉了全部"）
+    return new Set()
+  }
 }
 
 onMounted(() => { loadRuntime() })

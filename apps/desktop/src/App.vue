@@ -68,6 +68,12 @@
                账号域 tab 已由 Accounts.vue 页内 tablist 承担（S1a），
                home 域是自指空壳、publish 域本就返回 []，故组件整体下线。
                删除后页面顶部少一层，视觉基线需重建（QM-4）。 -->
+          <!-- 运营公告横幅（UX 审计 1.2）：此前组件与数据源都在，但全仓零渲染方 ⇒
+               后台发了公告、用户在界面上永远看不到。挂在 NavBar 之后、工作区之前，
+               既不动主进程 BROWSER_CHROME_TOP=76 的几何契约，也不会与壳态分支重复渲染。
+               ⚠ 浏览器/登录标签前台时，内嵌 WebContentsView 覆盖内容矩形，横幅会被一起遮住——
+               这是本挂载点的定义性代价，详见 openspec/changes/ux-audit-announcement-mount/design.md D1/D6。 -->
+          <AnnouncementBanner />
           <!-- 主内容区 -->
           <main class="mp-workspace cohere-main" data-testid="mp-workspace">
             <RouteLoadError v-if="routeLoadError" v-bind="routeLoadError" @retry="retryRouteLoad" @refresh="refreshRouteLoad" />
@@ -106,6 +112,7 @@ import TabBar from '@/components/TabBar.vue'
 import NavBar from '@/components/NavBar.vue'
 import OfflineIndicator from '@/components/OfflineIndicator.vue'
 import UpdateNotification from '@/components/UpdateNotification.vue'
+import AnnouncementBanner from '@/components/AnnouncementBanner.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
 import BackToTop from '@/components/BackToTop.vue'
 import PipelineBackgroundToast from '@/components/PipelineBackgroundToast.vue'

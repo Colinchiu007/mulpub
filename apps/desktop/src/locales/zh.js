@@ -1,6 +1,7 @@
 import accountsCloudSyncZh from './accounts-cloud-sync/zh'
 import identityDiagnosticsZh from './identity-diagnostics/zh'
 import signerZh from './signer/zh'
+import announcementZh from './announcement/zh'
 import tabsZh from './tabs/zh'
 import commonZh from './common/zh'
 import loginGateZh from './login-gate/zh'
@@ -57,6 +58,7 @@ import podcastZh from './podcast/zh'
 
 export default {
   signer: { ...signerZh },
+  announcement: { ...announcementZh },
   tabs: { ...tabsZh },
   common: { ...commonZh },
   loginGate: { ...loginGateZh },
