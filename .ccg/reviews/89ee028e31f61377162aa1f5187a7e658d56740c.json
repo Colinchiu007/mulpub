@@ -1,0 +1,113 @@
+{
+  "sha": "89ee028e31f61377162aa1f5187a7e658d56740c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1113 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1113,
+    "fileCount": 11,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- fix(门禁): 第五轮由**只读 fresh-context 对抗评审**（子代理，不是 QM-6 那一轴、不产闭环状态）命中四处会让这道闸门重新变成「一次都拦不了」或「拦错东西」的形态，逐条现场取证后全部成立并已修：① **Critical** 判据只给 PR 侧设了零检查档，主干侧 `mainRows=[]` 时三个集合全空，一路走到最后一档打印「主干绿、本 PR 无红」并 exit 0（与文件开头要防的「把工具的失明读成结论」同型，且这个输入正是第四轮 i3 自己写下的真实形态）；② 闸门在两个合并入口里被排在「本 PR 失败清单」之后，于是在**立项的那个场景**（主干红 ⇒ 每个 PR 的 required `Gate Result` 跟着红）它一次都不会执行、rc=2 在入口路径上不可达，而接线锁当时只断言「在 REST 合并之前」——那个弱性质照样成立，所以 25 条锁全绿却测不到它；③ `--allow-main-red` 点到任意一条主干红就放行整批，且 `indexOf` 是裸子串匹配（`Gate Result` 会在 `Gate Result 2：修它` 里命中并替相邻键名顶罪），未点名的红连名字都不再出现在读数里；④ `merge-when-green.ps1` 的 `Fail()` 在 `$ErrorActionPreference='Stop'` 下先 `Write-Error` 抛终止错误、`exit $code` 永不执行，本机对照实跑 `stop_rc=1 / host_rc=7` ⇒ 文档化的 2/3/4/5/6/7 全塌成一档。另两处顺带收紧：接线锁改为**剥注释**（注释里的同款文字不得再算接线）、合并请求必须带 `-f \"sha=<被验过的那个 head>\"`（不传时 GitHub 合的是执行那一刻的 head）。三个 commit status 态 `EXPECTED/NO_STATE/STARTING` 归 pending 而不是 unknown（评审自己标注「本仓现在没有 commit status，属将来时」，但落 unknown 的后果是接了外部 CI 后闸门恒 rc=4）。回归锁 25→32 全绿（7 条新锁先见证指名红再实现），新增变异反证 R6-R14 共 9 道全部 CAUGHT、逐条还原 md5 相同；两个入口改完都过真解释器（`bash -n` OK、`Parser::ParseFile` 在 5.1 与 pwsh 7 各一遍 `TOKENS=716 ERRORS=0`）。",
+      "| 判据自身可跑性 | ✅ | 两个入口都过了**真解释器**解析：`bash -n scripts/merge-when-green.sh` OK；`scripts/merge-when-green.ps1` 用 `Language.Parser::ParseInput` 实跑 → `PS_PARSE_OK tokens=670`（不是目测 YAML/文本）。改 workflow 正文后跑 `.github/scripts/check-workflow-structure.js` → `files=14 violations=0`；`scripts/check-unwired-tests.js` → 域内 109 个测试文件「全部已接线或按欠账登记」（本 PR 新测试已点名进 Gate 2b8，不是靠它自动被发现）。 |",
+      "| 第五轮回归与变异现值 | ✅ | `node --test scripts/check-main-red.test.js` = **32 passed / 0 failed**（第四轮 25 条 + 本轮 7 条；TDD 现场：实现前先跑，7 条红且红集恰是那 7 条新锁，其余 25 条不受影响 ⇒ 红可归因）。变异反证新增 **R6-R14 共 9 道全部 CAUGHT**，每条还原后 md5 逐字节相同：R6 摘主干零读数档／R7 退回「点一条放行整批」／R8 点名退回裸子串／R9 摘 commit-status 归类／R10 把真实调用换成同样文字的注释行／R11 把闸门挪回失败出口之后／R12-R13 两个入口的合并体去掉 `sha=`／R14 `Fail()` 退回 `Write-Error`。**红集重合如实记**：R10 与 R11 打红的是同一条「接线锁必须剥注释，且闸门要排在第一个失败出口之前」（一把锁一次守两格），不是两条独立的锁；R12 与 R13 同理共用「绑定 head sha」那条。两个入口改完都过真解释器：`bash -n scripts/merge-when-green.sh` OK；`.ps1` 经 `Language.Parser::ParseFile` 在 Windows PowerShell 5.1 与 pwsh 7 各一遍，均 `TOKENS=716 ERRORS=0`。"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"      \\\"- fix(门禁): 第五轮由**只读 fresh-context 对抗评审**（子代理，不是 QM-6 那一轴、不产闭环状态）命中四处会让这道闸门重新变成「一次都拦不了」或「拦错东西」的形态，逐条现场取证后全部成立并已修：① **Critical** 判据只给 PR 侧设了零检查档，主干侧 `mainRows=[]` 时三个集合全空，一路走到最后一档打印「主干绿、本 PR 无红」并 exit 0（与文件开头要防的「把工具的失明读成结论」同型，且这个输入正是第四轮 i3 自己写下的真实形态）；② 闸门在两个合并入口里被排在「本 PR 失败清单」之后，于是在**立项的那个场景**（主干红 ⇒ 每个 PR 的 required `Gate Result` 跟着红）它一次都不会执行、rc=2 在入口路径上不可达，而接线锁当时只断言「在 REST 合并之前」——那个弱性质照样成立，所以 25 条锁全绿却测不到它；③ `--allow-main-red` 点到任意一条主干红就放行整批，且 `indexOf` 是裸子串匹配（`Gate Result` 会在 `Gate Result 2：修它` 里命中并替相邻键名顶罪），未点名的红连名字都不再出现在读数里；④ `merge-when-green.ps1` 的 `Fail()` 在 `$ErrorActionPreference='Stop'` 下先 `Write-Error` 抛终止错误、`exit $code` 永不执行，本机对照实跑 `stop_rc=1 / host_rc=7` ⇒ 文档化的 2/3/4/5/6/7 全塌成一档。另两处顺带收紧：接线锁改为**剥注释**（注释里的同款文字不得再算接线）、合并请求必须带 `-f \\\\\\\"sha=<被验过的那个 head>\\\\\\\"`（不传时 GitHub 合的是执行那一刻的 head）。三个 commit status 态 `EXPECTED/NO_STATE/STARTING` 归 pending 而不是 unknown（评审自己标注「本仓现在没有 commit status，属将来时」，但落 unknown 的后果是接了外部 CI 后闸门恒 rc=4）。回归锁 25→32 全绿（7 条新锁先见证指名红再实现），新增变异反证 R6-R14 共 9 道全部 CAUGHT、逐条还原 md5 相同；两个入口改完都过真解释器（`bash -n` OK、`Parser::ParseFile` 在 5.1 与 pwsh 7 各一遍 `TOKENS=716 ERRORS=0`）。\\\",\",",
+      "      \"      \\\"| 判据自身可跑性 | ✅ | 两个入口都过了**真解释器**解析：`bash -n scripts/merge-when-green.sh` OK；`scripts/merge-when-green.ps1` 用 `Language.Parser::ParseInput` 实跑 → `PS_PARSE_OK tokens=670`（不是目测 YAML/文本）。改 workflow 正文后跑 `.github/scripts/check-workflow-structure.js` → `files=14 violations=0`；`scripts/check-unwired-tests.js` → 域内 109 个测试文件「全部已接线或按欠账登记」（本 PR 新测试已点名进 Gate 2b8，不是靠它自动被发现）。 |\\\",\",",
+      "      \"      \\\"| 第五轮回归与变异现值 | ✅ | `node --test scripts/check-main-red.test.js` = **32 passed / 0 failed**（第四轮 25 条 + 本轮 7 条；TDD 现场：实现前先跑，7 条红且红集恰是那 7 条新锁，其余 25 条不受影响 ⇒ 红可归因）。变异反证新增 **R6-R14 共 9 道全部 CAUGHT**，每条还原后 md5 逐字节相同：R6 摘主干零读数档／R7 退回「点一条放行整批」／R8 点名退回裸子串／R9 摘 commit-status 归类／R10 把真实调用换成同样文字的注释行／R11 把闸门挪回失败出口之后／R12-R13 两个入口的合并体去掉 `sha=`／R14 `Fail()` 退回 `Write-Error`。**红集重合如实记**：R10 与 R11 打红的是同一条「接线锁必须剥注释，且闸门要排在第一个失败出口之前」（一把锁一次守两格），不是两条独立的锁；R12 与 R13 同理共用「绑定 head sha」那条。两个入口改完都过真解释器：`bash -n scripts/merge-when-green.sh` OK；`.ps1` 经 `Language.Parser::ParseFile` 在 Windows PowerShell 5.1 与 pwsh 7 各一遍，均 `TOKENS=716 ERRORS=0`。\\\"\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T04:06:58.623Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "judge() 在 mainRows.length===0 分支里嵌了 mainFail.size>0 的判断（约第140行），但 mainRows 为空时 mainFail 必为空，该分支永远不可达，属于死代码，说明原设计未完全清理，易误导后续维护者误以为存在独立的“主干红+无PR”路径。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：`mainFail.size > 0` 那条守卫被嵌进 `if (mainRows.length === 0) {`，而 mainRows 为空时 mainFail 必为空 ⇒ 该分支永不可达，是一条装饰性死档；它还会误导后续维护者以为存在独立的「主干红 + 无 PR 读数」路径。",
+        "defense": "行号可当场重取，指控把两个早退分支认成了一个：全文件 `if (mainFail.size > 0) {` **只有一处**，在第 122 行，嵌于第 116 行的 `if (prRows.length === 0) {`；而 `if (mainRows.length === 0) {` 在第 171 行，其体内没有任何 mainFail 判断。可达性有两条独立证明：① 用例 35「PR 零读数但主干已红 ⇒ 必须报 STOP_MAIN_RED」注入 `prRows: [] + mainRows 含一条 failure`，断言 `verdict=STOP_MAIN_RED / code=2` 并**通过**（36/36 全绿）；② 变异 R19 把这条守卫改成 `if (false && …)` 后，红的正是用例 35（`CAUGHT rc=1 | 指名命中=true`）——一条不可达的分支不可能被\"改成不执行\"打红。维护者误导的一面也由同一行注释消掉：第 117-121 行写明「这条必须排在『PR 侧零读数 ⇒ INCOMPLETE』之前，test(…第八轮 i1/i2) 钉住它，变异 R19 钉住把它挪回去会怎么红」。",
+        "verdict": "dismissed",
+        "rationale": "L1 反例：可达性有通过的用例与被指名打红的变异双向证明，而指控定位的行号（140 附近、mainRows 分支）与实读（122 在 116 的 prRows 分支内）不符。判据：说\"死代码\"必须同时给出「没有任何用例能因它变红」的证据，本案恰好相反。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "judge() 先判 newRed>0（rc=1）再判 mainFail>0（rc=2）；当 PR 自身新增红且主干同时红时，输出 rc=1 而非 rc=2，规格未明确定义哪一档应优先，导致“主干红”信号被 PR 新增红覆盖，行为不确定。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：`newRed > 0` 判在 `mainFail > 0` 之前，于是「本 PR 自己引入红 + 主干也红」输出 rc=1 而不是 rc=2；规格没写哪档优先，主干红的信号被 PR 新增红覆盖，行为不确定。",
+        "defense": "优先级是刻意定的、且三处可读：代码注释「新增红**先于**任何 pending 判定（第三轮 i3）：一条已落地的红不会被别的格子还没跑完撤销」；AGENTS 判据第 2 条写明四档一律不得合并；采集层 `check-main-red.js` 自第五轮起**无条件**打印「主干失败格子：…」，所以 rc=1 的读数里主干红照样可见、可归因。语义上这个顺序也是唯一不自相矛盾的排法：新增红不可豁免（它的答案是「你这条 PR 得先修自己」），而主干红在「本 PR 正是去修它」时有唯一出口 `--allow-main-red`；若反过来先报 rc=2，一个带着自己新增红的 PR 拿到豁免字符串就能被放行——第九轮刚堵掉的洞会以另一种形态被重新打开。指控要求的其实只是「把优先级写下来」，这一点本轮采纳（AGENTS 那条与执行记录各补一句，不改判据行为）。",
+        "verdict": "dismissed",
+        "rationale": "L3 权衡 + 部分采纳：行为本身有依据且被测试钉住（用例「PR 的红与主干的红同名、且主干仍红 ⇒ STOP_MAIN_RED」与「新增红先于 pending」两条都在），故不成立\"行为不确定\"；但\"优先级没写在文档里\"成立，已按指控的第二半补 AGENTS/记录措辞。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "judge() 是单体 130+ 行函数，内嵌可变 Set、两次 counts 闭包、多层嵌套分支；修改任一档（如新增退出码）极易引入顺序或计数偏移，缺乏模块化边界。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：`judge()` 是 130+ 行单体函数，内嵌 Set、两次 counts 闭包、多层嵌套分支；新增一档退出码极易造成顺序或计数偏移，缺模块化边界。",
+        "defense": "这条指控的风险被本片的实际历史反证了一半：顺序偏移**确实**发生过两次（第四轮 i2 的 pending 抢在主干红之前、第八轮 i1 的零读数早退抢在主干红之前），而两次的处置都不是拆函数，是「把顺序变成被钉住的判据」——每格都补了一条正控用例 + 一条\"挪回去必须变红\"的变异（R10/R11、R19），36 条锁里 12 条就是顺序与计数锁。把这个函数拆成 verifyShape/computeDiff/mapVerdict 会移动全部 36 条锁与被变异打中的锚点，代价是**当场撤销这些锁与判据的同源关系**（锚点漂移过一次的驱动本会话已踩过），收益只是行数。规模也在既有约束内：`scripts/lib/main-red.js` 317 行，`check-debt-budget.js` 现场 `filesOver500: 95 (baseline 95)` 不含它；纯函数、零依赖、单文件可读，是本仓判据本体的既有形状（`scripts/lib/merge-ledger.js` 同形）。",
+        "verdict": "dismissed",
+        "rationale": "L3：模块化在此处会让回归锁与判据脱钩，而\"顺序易错\"这一真实风险已经由「用例 + 变异」双向机械覆盖。若将来新增档位的成本被证实变高，正解是把顺序本身做成声明式表（判据本体跟着改），不是按行数拆函数。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "AGENTS.md 变更把一大段说明（>400 字）压成单行无换行，破坏可读性，未来 diff 将整行标红，难以定位具体修改点。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：AGENTS.md 把一大段说明（>400 字）压成单行无换行，破坏可读性，未来的 diff 会整行标红、难以定位改动点。",
+        "defense": "这条与 AGENTS.md 自身的形状相反：当场量给全文件 294 条 `- ` bullet，中位 142 字、最长 4250 字、超过 800 字的有 43 条；我要补的那条判据在改之前已是 700+ 字的一行（改后 1072）。本文件的「一条规则 = 一个 bullet」是既有约定，拆行会让一条规则的编号被切断、并让「按规则 grep」失效；而 diff 整行标红这一后果对**所有**在该行上的会话同形，不是本片引入的。指控若成立，正解应是全文件重排（属另一类改动，且会让本 PR 的 diff 从 1 行变成几百行）。",
+        "verdict": "dismissed",
+        "rationale": "L2 约束：仓库文档的既有形状就是长 bullet（43/294 条 >800 字），单条规则拆行会破坏编号与检索；分布数可一句话重取（读 AGENTS.md 的 `- ` 行长分布）。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-21T04:17:11.361Z"
+  }
+}
