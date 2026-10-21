@@ -7,6 +7,7 @@
 **根因**：采集页把字数区间传成 `userSettings.targetWordCount`（**Python 聚合层**的旧契约），而桌面改写引擎读的是 **`userSettings.wordCountRange`**：`_getWordCountInstruction` 取不到 ⇒ 不注入「【字数要求】…」指令；`_postProcess` 取不到 ⇒ 回落 `DEFAULT_MAX_OUTPUT_LENGTH(3000)` ⇒ 输出被硬砍到 3000 码点，且砍尾是 `codePoints.slice(0, max)` 的硬切 ⇒ 停在半句上。连带主进程 `max_tokens` 也永远按兜底 3000 推导。
 
 **教训**：引擎测试断言的是「**收到 `wordCountRange` 时**」的行为，**没有任何用例断言「采集页传出去的键名」**；而采集页是全仓唯一传 `targetWordCount` 的地方 —— 两页共用同一套 UI 组件，评审默认两边一致。**凡是跨进程传参，第一步是找到「消费方真正读哪个键」并给它加一条断言**，而不是照抄另一条链路的字段名。
+（本条已由 `collect-rewrite-wordcount`（#4111）落地：它还额外修了**引擎侧** `min=0` 的指令形态——`0 到 6000 字之间` 会被模型读成「可以任意短」⇒ 实测 3515 字原文被改写成 1229 字摘要。）
 
 ## 【数值/默认值】用户可能显式填 0 的数值，不能用 `x || default` 兜底——0 是 falsy，会被静默改写（fix-collection-rewrite-publish-flow，2026-10-20）
 

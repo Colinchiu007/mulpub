@@ -2,7 +2,7 @@
  * collection.quickCollect 命名空间文案（从 locales/collection/zh.js 拆出，2026-10-20）。
  *
  * 拆分动因：逐文件行数门禁（check-max-lines，500 行硬限）对 locale 同样生效，
- * 而 collection/{zh,en}.js 已逼近上限，采集页新增「视频创作进度浮层」文案无处可放。
+ * collection/{zh,en}.js 在合并 main 后逼近上限，采集页新增「视频创作进度浮层」文案无处可放。
  * 键名与拆出前**完全一致**（仍是 collection.quickCollect.*），装配处按既有范式展开。
  *
  * 文案口径：所有用户可见文字都在这里；内置指令正文属产品内容，在主进程（不进渲染端 CJK 扫描面）。

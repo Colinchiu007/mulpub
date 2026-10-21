@@ -356,23 +356,6 @@ export default {
       cancelled: 'Video creation was cancelled.',
       noContent: 'There is no rewritten copy to work with, so video creation cannot start. Run an AI rewrite first.',
     },
-    // ── Video creation progress overlay (fix-collection-rewrite-publish-flow, 2026-10-20) ──
-    // "Publish → Video creation" on the collection page no longer navigates to the
-    // video creation page; it opens the in-place pipeline progress overlay instead.
-    videoCreate: {
-      title: 'Video creation',
-      pipelineLabel: 'Pipeline: {pipeline}',
-      starting: 'Starting video creation…',
-      textTruncated: 'The copy is {length} characters, over the {max}-character limit for video creation. The first {max} characters are used. To keep the full copy, lower the rewrite word-count limit or shorten the source text.',
-      view: 'View video',
-      publish: 'Publish',
-      retry: 'Retry',
-      cancel: 'Cancel generation',
-      close: 'Close',
-      pipelineFailed: 'Video creation failed. Please retry; if it keeps failing, check the app logs.',
-      cancelled: 'Video creation was cancelled.',
-      noContent: 'There is no rewritten copy to work with, so video creation cannot start. Run an AI rewrite first.',
-    },
     cancel: 'Cancel', resultTitlePrefix: 'Collected',
     hasCoverImage: 'Has cover image', quickNewDraft: 'New draft',
     quickClipboard: 'Import from clipboard', quickGroupNew: 'New',

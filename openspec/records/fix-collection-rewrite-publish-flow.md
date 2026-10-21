@@ -9,17 +9,17 @@ branch: fix-collection-rewrite-publish-flow
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/src/**`）+ locale + 文档 ⇒ **混合 PR**，走完整质量节拍。隔离 worktree `D:/Data/projects/mp-worktrees/mp-fix-collection-rewrite-publish-flow`（**D 盘，非 C 盘**），裸分支 `fix-collection-rewrite-publish-flow`（`rev-parse --abbrev-ref HEAD` 实证），基线 = `origin/main`。入口：Git for Windows Bash 跑 `scripts/session-init.sh fix-collection-rewrite-publish-flow`（`gwm-task.sh start` 建 worktree + 装 hooks + 备依赖，rc=0）。共享根全程保持 `main` + clean，**未在其运行时路径落盘、未执行任何 git 写操作**（add/commit/checkout/stash 均未在共享根运行） |
+| 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/src/**`）+ locale + 文档 ⇒ **混合 PR**。**中途与 main 的一次合并（#4111）已如实登记**：本刀最初也自带字数区间的实现，发现 #4111 已先行落地且更完整 ⇒ **撤回重复实现**（删除 `features/collection/rewrite-word-count.js` 及其 14 例），只保留 #4111 未覆盖的部分。
 | 依赖就绪 | PASS | `pnpm install --frozen-lockfile` rc=0（1526 包）→ `ensure-electron.js` v43.7.7 就绪 → `verify-worktree-deps.js` OK（11 项解析、9 个 workspace 全指向本 worktree） |
-| 行尾对账 | PASS | `git diff --cached --numstat` 与 `git diff --cached --ignore-cr-at-eol --numstat` **两口径逐文件一致**（14 个文件：PRD 454/0、旧 PRD 29/3、CHANGELOG 36/0、composable 392/0、composable 测试 152/0、浮层组件 149/0、纯函数 131/0、纯函数测试 119/0、locale en 24/78、locale zh 25/79、quick-collect en 82/0、quick-collect zh 84/0、既有测试 13/1、新组件测试 270/0、Collection.vue 214/26） |
+| 行尾对账 | PASS | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` **两口径逐文件一致**（27 个文件：评审产物 11 个、PRD 485/0、learnings 29/0、CHANGELOG 42/0、编排 composable 403/0 及其测试 211/0、作废 composable 59/0 及其测试 96/0、浮层组件 149/0、locale en 39/76 + quick-collect en 82/0 + zh 84/0 + zh 16/0、组件测试 289/0、Collection.vue 139/20、执行记录 170/0；合计 raw 3513 行 / 代码侧 12 文件 1677 行；旧口径（14 文件）：
 | TDD（RED→GREEN） | PASS | 三个新测试文件**先写后实现**：①`features/collection/rewrite-word-count.test.js` 先写 ⇒ 实跑 **RED（模块不存在，Failed to resolve import）** ⇒ 实现后 14/14；②`composables/useCollectionVideoCreation.test.js` 先写 ⇒ 实现后 10/10；③`views/Collection.rewrite-publish-flow.test.js` 先写 ⇒ 实现后 10/10。末态新增 **34 例** |
-| 变异反证 | PASS | 5/5 **CAUGHT**（每个变异都被指名用例擒获，还原后全绿、`MUTATION` 残留 0）：**M1** 引擎契约键退回 `targetWordCount` ⇒ **4 例红**（组件 2 + 纯函数 2）；**M2** 区间归一吞掉 `min=0` ⇒ **6 例红**（组件 2 + 纯函数 4）；**M3** 已存草稿 id 不作废（去掉 `genreDraftId = null`）⇒ **1 例红**（「二次改写后重存的草稿是最新文案」）；**M4** `onPublishVideo` 退回跳页型实现 ⇒ **3 例红**（「不再跳转」「带最新文案」「浮层有阶段」）；**M5** 去掉 i3 的类型守卫（`if (false)`）⇒ **1 例红**（「信封正文不是字符串 ⇒ 判失败」） |
+| 变异反证 | PASS | 5/5 **CAUGHT**（**M1 / M2 针对的是已撤回的字数区间实现**——它们证伪过「键名退回 targetWordCount」与「吞掉 min=0」两种退化，但那部分代码已随与 #4111 的合并撤回；**M3 / M4 / M5 仍在最终代码里**，其中 M3 去掉 `genreDraftId = null`、M4 退回跳页型视频创作、M5 去掉非字符串信封守卫）
 | 接线棘轮 | PASS | `node scripts/check-unwired-tests.js` rc=0 ⇒ 检查域内测试文件 **113 个**、`OK: 全部测试均已接线或按欠账登记`（无新增欠账） |
 | 静态门禁 | PASS | `node .github/scripts/check-max-lines.js` rc=0（**无新增超大文件**，挂账清单与现实一致）；`check-locale-sync.js --keys` rc=0（198 个使用中 key 均存在于 zh/en）；`check-locale-sync.js --cjk` rc=0（基线 1330、当前 1125、**无新增硬编码中文**）；`eslint` 改动文件 `--quiet` rc=0 |
 | QM-1 打包 | **N/A（不适用，非「跑了通过」）** | 改动集 **零** `apps/desktop/electron/**`、**零** `packages/rpa-engine/**`（只动渲染层 `src/**` + locale + 文档）⇒ 按 AGENTS.md 字面规则「每次修改 `apps/desktop/electron/` 或 `packages/rpa-engine/` 下代码后必须打包」**不触发**。本行记录此格是为与「已验证」区分。**额外**（不属 QM-1，但为否证 QM-6 i2「无构建验证」而跑）：渲染层生产构建 `npx vite build` ⇒ **rc=0、built in 24.11s** |
 | QM-4 视觉 | PASS | `TEST_URL=http://127.0.0.1:5199 PIXEL_ONLY=collection node tests/visual-testing/scripts/run-pixel-tests.js` ⇒ **1/1 通过、0 失败、100%**（报告 `tests/visual-testing/reports/report-1792523798281.json`）。用**本 worktree 自起的独立 Vite**（5199，`--strictPort`，HTTP 200 实证），**不借用他人端口**（5174 已被他人占用）；**未刷新基线**。新增横幅与浮层均为**条件渲染**（截断态 / 流水线运行态），采集页默认态不渲染 ⇒ 像素不变，0.000% 差异本身即证据 |
 | QM-6 CCG 双模型外部评审 | PASS | **共跑 7 轮，全部是跨家族外部模型实跑**（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家**不同厂商**；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 **50+ 条**评审意见，**逐条填 prosecution/defense/verdict/rationale**；其中 **3 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例、i7 并发模型写进文档），其余 dismissal 均附**可复算实测证据**；7 轮全部收口 `self_play_resolved`、blocking 空。**高危面另有两次独立外部复核**（外部模型 claude 自行读代码/脚本、原文**公开于 PR 评论**）：第一次针对键名迁移（datamigration，#4114#issuecomment-6302916932）、第二次针对审计可信度与厂商独立性（auth + datamigration，#4114#issuecomment-6303677171）。**详细逐轮叙述见下方「QM-6 双家族外部评审（七轮实跑）」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
-| 相关测试全集 | PASS | `vitest run src/views/Collection* src/features/collection src/composables/useCollection* src/locales` ⇒ **31 文件 / 473 用例全绿**（含既有 `Collection.test.js` / `Collection.cancel.test.js` / `Collection.rewrite-input-limit.test.js` / `Collection.viral-contract.test.js` 与全部 features/collection 用例）。**本次新增 46 例**，逐文件：`rewrite-word-count.test.js` **15**（区间归一 14 + 常量漂移前置 1）、`useCollectionVideoCreation.test.js` **16**（编排 10 + 外部依赖契约锁 6）、`useRewriteResultInvalidation.test.js` **4**（程序赋值 / 用户手改两条路径各有用例）、`Collection.rewrite-publish-flow.test.js` **11**（链路 9 + 非字符串信封 1 + 草稿重存 1） |
+| 相关测试全集 | PASS | `vitest run src/views/Collection* src/features/collection src/composables/useCollection* src/locales` ⇒ **33 文件 / 509 用例全绿**
 | 文档同步 | PASS | 新增 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md`（454 行：缺陷根因 / 数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 未闭合）；订正 `01-docs/PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md`（采集页口径已被取代的四处 + 校验表上限 + 变更记录）；`CHANGELOG.md` 顶部新增 36 行条目 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）。把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红（change: `ban-record-closure-backfill-pr`）。合并前本篇不在基线上 ⇒ 走 byDesign 档，不红；main push 回读证据写在 PR 评论里，不写回本文件 |
 
@@ -32,6 +32,10 @@ branch: fix-collection-rewrite-publish-flow
 
 
 - 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅（14 文件两口径一致）| 品牌残留 随 CI | 文档同步 ✅ | 执行记录 ✅ | 远程同步 由门禁推导
+
+### 与 #4111 的合并（如实登记）
+
+本刀最初也独立定位到缺陷 ① 的根因（键名契约错位）并实现了同方向的修法；合并 main 时发现**#4111（`collect-rewrite-wordcount`，已入 main）已先行落地且更完整**——它额外改了**引擎侧** `min=0` 的指令形态（治好了「0 到 6000 字之间」被模型读成「写摘要」）。于是本 PR **撤回**自己重复的字数区间实现，**只保留 #4111 未覆盖的部分**：② 视频创作就地执行、③ 已存草稿随内容作废、④ 非字符串信封守卫、locale 拆分、文档与记忆沉淀。**不保留两份同义实现**是本仓的一贯纪律。
 
 ### 三个缺陷的根因（一句话各一条）
 

@@ -115,6 +115,8 @@ describe('采集页 — 字数区间契约（fix-collection-rewrite-word-count�
   })
 
   it('引擎砍尾时显示「已按字数上限截断」横幅（此前静默丢弃）', async () => {
+    // 横幅与「改写后 N 字（原文 M 字）」由 collect-rewrite-wordcount（已入 main）提供，
+    // 本刀只验它**在采集页真的显示**（此前这三态被静默丢弃）。
     const api = makeApi({
       aiRewrite: vi.fn().mockResolvedValue({
         code: 0,
@@ -126,10 +128,11 @@ describe('采集页 — 字数区间契约（fix-collection-rewrite-word-count�
     await nextTick()
     await collectAndRewriteOnce(w)
 
-    expect(w.find('[data-testid="collection-rewrite-output-truncated"]').exists()).toBe(true)
+    expect(w.find('[data-testid="collection-rewrite-truncated"]').exists()).toBe(true)
+    expect(w.find('[data-testid="collection-rewrite-output-length"]').exists()).toBe(true)
   })
 
-  it('模型侧截断与分段改写各有独立横幅', async () => {
+  it('模型侧截断有独立横幅（与引擎砍尾分型：调大字数上限对模型上限无效）', async () => {
     const api = makeApi({
       aiRewrite: vi.fn().mockResolvedValue({
         code: 0,
@@ -139,7 +142,6 @@ describe('采集页 — 字数区间契约（fix-collection-rewrite-word-count�
           modelTruncated: true,
           outputLength: 1200,
           truncatedSegments: [2],
-          segmented: { enabled: true, segmentCount: 3 },
         },
       }),
     })
@@ -149,7 +151,6 @@ describe('采集页 — 字数区间契约（fix-collection-rewrite-word-count�
     await collectAndRewriteOnce(w)
 
     expect(w.find('[data-testid="collection-rewrite-model-truncated"]').exists()).toBe(true)
-    expect(w.find('[data-testid="collection-rewrite-segmented"]').exists()).toBe(true)
   })
 
   it('未截断时不显示任何截断横幅（不制造噪音）', async () => {

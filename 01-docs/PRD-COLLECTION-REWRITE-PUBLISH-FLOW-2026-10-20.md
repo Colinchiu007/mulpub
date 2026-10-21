@@ -3,6 +3,38 @@
 > change：`fix-collection-rewrite-publish-flow`
 > 分支：`fix-collection-rewrite-publish-flow`
 > 执行记录：`openspec/records/fix-collection-rewrite-publish-flow.md`
+>
+> ## ⚠️ 与 #4111（`collect-rewrite-wordcount`）的关系（2026-10-21 补记，如实说明）
+>
+> 用户报障里**第一条**（字数区间不生效 + 截断不可见）在**另一个会话**的 PR **#4111**
+> （`01-docs/PRD-COLLECTION-REWRITE-WORD-COUNT-2026-10-20.md`、
+> 执行记录 `openspec/records/collect-rewrite-wordcount.md`）里已经落地到 main，
+> 且**比本刀最初的方案更深**：
+>
+> - 它同样定位到「采集页传 `targetWordCount`、引擎只认 `wordCountRange`」这一根因，
+>   并把区间归一放进**共享的** `useWordCountValidation`（`range` computed），
+>   渲染层不再有第二份实现；
+> - 它额外发现了本刀最初**没看到**的一层：`min=0` 时引擎注入的指令是
+>   「长度必须控制在 **0** 到 6000 字之间」⇒ **模型把它读成「可以任意短」**
+>   （实测 3515 字原文 + 区间 0-6000 ⇒ 输出 1229 字摘要），于是它改了
+>   **引擎侧**的指令形态（`packages/rewrite-engine/src/word-count-instruction.js`：
+>   `min=0` 走「不得超过 {max} 字 + 目标篇幅约 {target} 字 + 不得压缩成摘要」），
+>   并加了「改写后 N 字（原文 M 字）」与两类截断横幅。
+>
+> ⇒ **本 PR 与 #4111 的关系**：本刀最初也独立定位到了同一根因并实现了同方向的修法，
+> 但在合并 main 时发现 #4111 **已先行落地且更完整**，于是**主动撤回**了本刀在
+> 字数区间的重复实现（删除本 PR 自带的 `features/collection/rewrite-word-count.js`
+> 及其测试），**只保留 #4111 没有覆盖的部分**：
+>
+> | 报障 | 归属 | 本 PR 状态 |
+> |---|---|---|
+> | ① 字数区间不生效 / 截断不可见 | **#4111**（已入 main） | 本 PR **撤回**重复实现，只保留「消费者清单」这一迁移判据的文档化（§2.4） |
+> | ② 「视频创作」跳页而非就地出进度浮层 | **本 PR** | 保留（§3.2 / §5.2 / §6.2） |
+> | ③ 二次改写带的是第一次的旧文案 | **本 PR** | 保留（§3.3 / §4 / §5.3） |
+> | ④（评审派生）改写信封缺类型守卫 | **本 PR** | 保留（§3.4） |
+>
+> 本文档其余部分描述**本 PR 实际交付**的行为；凡涉及字数区间的部分，
+> 以 #4111 的 PRD 与实现为准（本文只保留迁移影响面的判据说明）。
 
 ## 1. 背景与目标
 
@@ -129,8 +161,8 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 
 ### 2.4 契约迁移说明（键名变更的影响面与向后兼容判定）
 
-本刀把采集页送出的字数区间键名从 `targetWordCount` 改为 `wordCountRange`。这一变更
-**只发生在「渲染层 → 桌面改写引擎」这一条 IPC 契约上**，但它涉及两个不同的「字数契约」，
+**这一变更由 #4111 落地**（本刀在合并 main 时已撤回自己的重复实现，见文首的关系说明）。
+它**只发生在「渲染层 → 桌面改写引擎」这一条 IPC 契约上**，但涉及两个不同的「字数契约」，
 必须分清，否则会误判影响面：
 
 | 契约 | 拥有者 | 字段名 | 本次是否受影响 |
@@ -419,16 +451,20 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 
 | 文件 | 变更 | 理由 |
 |---|---|---|
-| `apps/desktop/src/features/collection/rewrite-word-count.js` | **新增**：区间归一 + `userSettings` 构造 + `targetLength` 三档 | 单一真源；纯函数可单测 |
-| `apps/desktop/src/features/collection/rewrite-word-count.test.js` | **新增** 14 例 | 区间归一与键名契约的回归锁 |
+| `apps/desktop/src/composables/useRewriteResultInvalidation.js` | **新增**：改写结果变化时的「已存草稿 / 归因链」作废契约 | 判据单一实现、可脱离视图单测；程序赋值与用户手改两条路径各有独立用例 |
+| `apps/desktop/src/composables/useRewriteResultInvalidation.test.js` | **新增** 6 例 | 含两条**交错边界**用例（程序赋值后立即手改 ⇒ 归因链被清、不假挂） |
 | `apps/desktop/src/composables/useCollectionVideoCreation.js` | **新增**：就地编排状态机 + 文案裁切 | 复用热门选题的阶段跟踪/启动参数/run 跟踪层 |
-| `apps/desktop/src/composables/useCollectionVideoCreation.test.js` | **新增** 10 例 | 编排层回归锁 |
+| `apps/desktop/src/composables/useCollectionVideoCreation.test.js` | **新增** 16 例 | 编排层回归锁 + 6 条**外部依赖契约锁**（被复用模块的导出名与类型） |
 | `apps/desktop/src/features/collection/CollectionVideoProgressModal.vue` | **新增**：纯受控进度浮层 | 与视频创作页/热门选题同款 |
-| `apps/desktop/src/views/Collection.vue` | 改：`rewriteViaEngine` 传参；新增截断三态消费；`watch(rewriteResult)` 作废已存草稿；`onPublishVideo` 改就地执行 | 三个缺陷的落点 |
-| `apps/desktop/src/views/Collection.rewrite-publish-flow.test.js` | **新增** 9 例 | 组件级回归锁 |
-| `apps/desktop/src/views/Collection.rewrite-input-limit.test.js` | 改：meta 形状断言（新增 2 字段） | 契约扩展的同步 |
-| `apps/desktop/src/locales/collection/{zh,en}.js` | 改：字数上限文案修正 + 新增 `videoCreate` 命名空间 | 显示项与提示文字 |
-| `apps/desktop/src/locales/collection/quick-collect/{zh,en}.js` | **新增**（从 collection/{zh,en}.js 拆出） | 逐文件行数门禁（500 行硬限）对 locale 同样生效，collection/{zh,en}.js 已 498 行 |
+| `apps/desktop/src/views/Collection.vue` | 改：`applyRewriteResult` 统一落地（**含非字符串信封的类型守卫**）；接上作废 composable；`genreDraftId` 改 `ref`；`onPublishVideo` 改就地执行 | 本 PR 三个缺陷 + 一条评审派生项的落点 |
+| `apps/desktop/src/views/Collection.rewrite-publish-flow.test.js` | **新增** 11 例 | 组件级回归锁 |
+| `apps/desktop/src/locales/collection/{zh,en}.js` | 改：新增 `videoCreate` 命名空间 | 显示项与提示文字 |
+| `apps/desktop/src/locales/collection/quick-collect/{zh,en}.js` | **新增**（从 collection/{zh,en}.js 拆出） | 逐文件行数门禁（500 行硬限）对 locale 同样生效，collection/{zh,en}.js 当时已 498 行 |
+
+> **已撤回的重复实现**：本刀最初也自带 `features/collection/rewrite-word-count.js`（区间归一纯函数）
+> 与 14 例回归锁；合并 main 时发现 #4111 已把区间归一放进共享的 `useWordCountValidation`
+> （`range` computed）且实现更完整 ⇒ 本 PR **删除**自己的重复实现，只保留「消费者清单」
+> 这一迁移判据的文档化（§2.4）。**不保留两份同义实现**是本仓的一贯纪律。
 
 **复用而非重写**：视频创作编排复用了热门选题一键成片的
 `gen-video-stage-tracking.js` / `gen-video-view-model.js` / `gen-video-pipelines.js` /
@@ -441,28 +477,30 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 
 | 文件 | 用例 | 覆盖 |
 |---|---|---|
-| `features/collection/rewrite-word-count.test.js` | 14 | min=0 保留、非法值回落、max<min 收敛、越界夹取、键名为 `wordCountRange`、三档 `targetLength` |
-| `composables/useCollectionVideoCreation.test.js` | 10 | 输入即当前文案、浮层先于请求打开、阶段无 `rewrite_copy`、启动失败留失败态、空文案拒启、裁切披露、取消走 `pipelineCancelRun`、码点裁切不劈 emoji |
-| `views/Collection.rewrite-publish-flow.test.js` | 9 | 0-6000 原样送达、旧键消失、min=0 不被吞、三条截断横幅、未截断不显示、二次改写带最新文案、不跳 `/create`、浮层有阶段、无文案不启动 |
+| `composables/useRewriteResultInvalidation.test.js` | 6 | 程序赋值（草稿作废、归因链**保留**）/ 用户手改（两者都作废）/ 清空 / **两条交错边界** |
+| `composables/useCollectionVideoCreation.test.js` | 16 | 输入即当前文案、浮层先于请求打开、阶段无 `rewrite_copy`、启动失败留失败态、空文案拒启、裁切披露、取消走 `pipelineCancelRun`、码点裁切不劈 emoji + **6 条外部依赖契约锁** |
+| `views/Collection.rewrite-publish-flow.test.js` | 11 | 0-6000 原样送达、旧键消失、min=0 不被吞、引擎砍尾横幅、模型侧截断横幅、二次改写带最新文案、**去发布重存的草稿是最新文案**、不跳 `/create`、浮层有阶段、无文案不启动、非字符串信封判失败 |
 
 **既有回归**：`vitest run src/views/Collection* src/features/collection src/composables/useCollection* src/locales`
-⇒ **31 文件 / 473 用例全绿**。
+⇒ **33 文件 / 509 用例全绿**（含 #4111 带入的 `Collection.rewrite-wordcount.test.js`）。
 
 ---
 
 ## 9. 验收标准
 
-- [x] 采集页把字数区间设成 0-6000，引擎收到的 `wordCountRange` 恰为 `{min:0, max:6000}`；
-- [x] `userSettings` 中不再出现 `targetWordCount`；
-- [x] min 填 0 时送进引擎的仍是 0（不被吞成 800）；
-- [x] 引擎砍尾 / 模型侧截断 / 分段改写三个信号在采集页**各自可见**；
-- [x] 二次改写后「去发布 → 视频创作」带进流水线的是**第二次**的文案；
-- [x] 点「视频创作」后发布浮层消失、**不跳转**、进度浮层弹出；
-- [x] 进度浮层展示流水线阶段（非空壳）；
-- [x] 文案超流水线上限时裁切并如实披露；
+- [x] **（#4111 已交付）** 采集页把字数区间设成 0-6000，引擎收到的 `wordCountRange` 恰为 `{min:0, max:6000}`；
+- [x] **（#4111 已交付）** `userSettings` 中不再出现 `targetWordCount`；
+- [x] **（#4111 已交付）** min 填 0 时送进引擎的仍是 0（不被吞成 800），且引擎对 min=0 改用「不得超上限 + 目标篇幅」形态的指令（不再被模型读成「写摘要」）；
+- [x] **（#4111 已交付）** 引擎砍尾 / 模型侧截断在采集页**各自可见**，并显示「改写后 N 字（原文 M 字）」；
+- [x] **（本 PR）** 二次改写后「去发布 → 视频创作」带进流水线的是**第二次**的文案；
+- [x] **（本 PR）** 「去发布」重存的草稿内容是**最新**那次改写的结果（图文发布路径同样不被旧草稿带偏）；
+- [x] **（本 PR）** 点「视频创作」后发布浮层消失、**不跳转**、进度浮层弹出；
+- [x] **（本 PR）** 进度浮层展示流水线阶段（非空壳）；
+- [x] **（本 PR）** 文案超流水线上限时裁切并如实披露；
+- [x] **（本 PR）** 引擎信封的正文不是字符串 ⇒ 判失败（不写正文、不挂归因链、不报成功）；
 - [x] zh/en locale 成对（`check-locale-sync --keys` PASS）；
 - [x] 逐文件行数门禁 PASS（locale 同受约束，已按范式拆分）；
-- [x] 采集页相关测试全集全绿（473 例）。
+- [x] 采集页相关测试全集全绿（509 例）。
 
 ---
 
@@ -470,16 +508,23 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 
 1. **端到端真机复核未执行**：本刀只做了组件级与纯函数级验证，**未在真机上跑一遍
    「0-6000 改写 → 看实际字数」**。判据 = 实际输出字数应落在 [0, 6000] 且不再出现
-   句子戛然而止。需用户侧复核。
+   句子戛然而止。需用户侧复核。（该修复由 #4111 交付，本 PR 不重复实现。）
 2. **视频创作浮层未做视觉回归（QM-4）**：浮层复用 `UiModal variant="progress"` +
    `StageProgress`（与视频创作页/热门选题同款），但采集页是**新入口**，像素基线未覆盖。
 3. **运营中心 `storyTextLimit` 未接线**：采集页用内置默认上限（10000 码点），
    若运营中心把上限调高，采集页仍按 10000 裁切（会少用一段文案）。
    本刀按「不订阅运营中心运行时块」处理，已如实记录。
-4. **Python 聚合层的 `target_word_count` 契约保留**：采集页不再使用，但该链路仍在
-   （旧客户端兼容）。两套契约并存是历史包袱，本次只保证采集页不再误用。
+4. **Python 聚合层的 `target_word_count` 契约保留**：采集页不再使用（#4111 已交付），
+   但该链路仍在（旧客户端兼容）。两套契约并存是历史包袱，本 PR 只保证采集页不再误用。
 5. ~~**`genreDraftId` 仍是模块级 `let`**~~ —— **已销账**（QM-6 深审 i5 采纳后落地）：改为
    `const genreDraftId = ref(null)`，6 处读写同步改为 `.value`。理由：它是**跨异步边界**的状态
    （存草稿是异步的、内容变化是同步的），裸 `let` 让「读到它」与「写它」之间没有可追踪的时序。
    同时，作废逻辑已抽到 `composables/useRewriteResultInvalidation.js`，程序赋值与用户手改
    **两条路径各有独立行为级用例**（含「快速二次编辑交错」边界）。
+6. **QM-6 深审的轮次是在「合并 main 之前」的代码上跑的**：本刀最初也自带字数区间的实现，
+   与 #4111 重复；合并时已撤回该部分（见文首）。**仍在最终代码里的**评审结论（i3 类型守卫、
+   i5 抽 composable、i7 并发模型文档化）都保持成立；**已被 #4111 取代**的那部分结论
+   （键名契约、截断可见化）以 #4111 的实现与记录为准。
+7. **未做「视频创作」的真机端到端**：浮层与流水线的对接只在组件级与 composable 级验证
+   （真实 `pipelineStartOrchestrated` 调用被 mock）。判据 = 真机上点「视频创作」后
+   浮层出现、阶段进度推进、成片可「查看/去发布」。
