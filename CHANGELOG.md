@@ -13,6 +13,17 @@
 - test(门禁): 两处驱动自曝（都记下来，因为它们是"看起来在测"的标准形态）——① 变异驱动写成了 `mutated.replace(() => newS)`，第一参数被当成**查找串**，于是变异从未生效，而它如实报了 `MISSED rc=0`；正解是 `split/join` 并加一条 `NO_OP` 档（替换后字节不变就不许进任何结论）。② 行为锁的夹具**手抄了一份 `Fail()`**，所以我改生产文件它测不到；改成从 `merge-when-green.ps1` 直接切函数体灌进探针脚本，rc=7 与 stderr 两条同时绿。回归锁 32→34，变异 R1-R18 全 CAUGHT（R15-R18 是这两轮新增的四条，逐条还原 md5 相同）。
 - fix(门禁): 第八/九轮把「主干红被降级成未证实」这一格的两个入口都补上——① `prRows.length === 0` 的早退排在主干红之前，导致「PR 零读数 + 主干已红」只报 INCOMPLETE，操作者只会去等 runner；② 更要紧的是 `--allow-main-red` 覆盖全部主干红后**直接返回 OK**，完全不看 `prPending`，把「本 PR 还没被测过」豁免成"可以合并"。两处各自加了守卫（豁免不覆盖「PR 侧根本没读数」），并把 `uncertain` / `prPending` / `mainPending` 一起写进 `counts` 与读数行，理由与机器面同口径。锁 32→36（每条都带正控：合规形态必须仍然放行），变异 R15-R21 共 7 道全部指名 CAUGHT。
 
+# [未发布] fix(rewrite): 敏感词 warnings 从红色错误区改到 warning 级——改写页与 AI 面板（fix-rewrite-warning-severity）
+
+- **问题**：PR #4103 关了引擎的前置敏感词拦截，方案「B+」是「关前置、留后置」——改写结果若仍含敏感词，引擎在 warnings 里提醒人工审核。但 `RewriteView.vue` 与 `AiWriterPanel.vue` 把 warnings 写进 `rewriteError` / `panelError`，而这两个变量渲染的是 `role="alert"` 的**红色错误区**，且同一时刻 `notifySuccess` 刚弹了成功提示、`rewriteResult` 已赋值 ⇒ 用户看到「红色错误 + 成功提示 + 有结果」三者并存，视觉语义自相矛盾：要么以为改写失败了，要么以为这个错误可以忽略。采集页 4 入口的同类问题已在 PR #4141 修掉，本轮补齐剩下两个消费点。
+- **根因**：warnings 与 error 共用一个状态变量，而这两个语义相反——一个是「成功但需注意」，一个是「失败」。
+- **修复**：两处各新增独立状态（`rewriteSensitiveWarnings` / `panelSensitiveWarnings`）+ warning 级呈现。RewriteView 侧把呈现抽成独立组件 `apps/desktop/src/components/RewriteSensitiveWarning.vue`（复用截断横幅的暖橙 warning 样式类，刻意不用红色错误样式）。复位逻辑补在 `startRewrite` / `doRewrite` 入口，避免上一轮的警告残留着警告这一轮的新结果。
+- **回归保护（新增 5 例）**：`RewriteView.sensitive-warning.test.js`（3 例）+ `AiWriterPanel.test.js` 追加 2 例，锁住 ① 有 warnings 时 `role="alert"` **不得**出现；② warnings 以 warning 级提示元素呈现；③ **真正的失败（success:false）仍然进红色错误区**——防止后续有人把两者一起放宽。**此前两个测试文件的 mock 都带 `warnings: []`，无一例覆盖 warnings 非空路径**，空数组让 `if (data.warnings && data.warnings.length > 0)` 永不成立，病灶被永久掩盖。
+- **变异反证**：把 warnings 改回写进 `rewriteError` / `panelError`（恢复旧病灶）⇒ 对应测试**双双当场红**；恢复后 grep 确认零残留。
+- **顺带修 CI 的 RED（用户裁决）**：`RewriteView.vue` 在 origin/main 上已 **1418/1419** 行（贴住 max-lines 上限），199 行历史漂移由 #4123/#4078/#4063/#4032 等多个他人 PR 累积，本 PR 只净增 12 行却触发 `LEDGER_GREW`。已按用户裁决把基线单键精准更新（1219 → 1430，**diff 仅 1 行且完全可归因**），**未使用 `--update --rewrite`**（脚本注释明确警告它会掩盖他人漂移）。
+- **验证**：`RewriteView.sensitive-warning.test.js` 3 例 + `AiWriterPanel.test.js` 25 例全绿；三文件同跑 126 例全绿；隔离验证（单独 / 与 AiWriterPanel 同跑）全绿；稳定性 5 轮同跑 + 2 组隔离共 7 次 0 失败；7 道静态门禁全 PASS。QM-1 非强制（只改渲染层）；QM-4 本地 20 视图 9 失败但**失败清单里没有 rewrite**，且同一套基线在 CI 的 `QG Visual` 为 success，判定为本地环境缺失、非本 PR 引入，未刷新任何基线。
+- **踩坑（已写进 learnings）**：① 新增用例最初多文件同跑时偶发失败，两种想当然的修法（改 `mockResolvedValue`、把信封下沉进 mock 工厂）都无效甚至更糟，**真正生效的是每个用例末尾 `w.unmount()`**——前一个用例未卸载组件的 async 链路会跨用例残留；② 用 Node 脚本批量替换 `vi.mock` 段把文件结构改坏了，症状是「no tests」而非语法错误，极易误判。
+- **遗留（不假装已闭合）**：`RewriteView.vue` 仍是贴住上限走的文件（彻底解法是拆 composable，属独立重构任务）；本地 QM-4 视觉回归未通过（9 个失败均与本 PR 无关，未刷新基线）。
 
 # [未发布] fix(播客): 撤掉音色回退链第①档（频道 voiceRef 在代码路径上无写侧）（podcast-drop-channel-voiceref）
 

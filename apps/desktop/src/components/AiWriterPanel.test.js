@@ -493,4 +493,51 @@ describe("AiWriterPanel", () => {
     expect(binding[1]).toMatch(/article\.rewriteHistoryId\s*=\s*lineage\s*\|\|\s*null/);
     expect(binding[1], "正文赋值必须仍来自第一参").toMatch(/article\.content\s*=\s*text/);
   });
+
+  // ── 敏感词警告的严重级（fix-rewrite-warning-severity，2026-10-21）──
+  //
+  // 事故形态：PR #4103 关了引擎的前置敏感词拦截，方案「B+」是「关前置、留后置」——
+  // 改写结果若仍含敏感词，引擎在 warnings 里提醒人工审核。但本面板把 warnings 写进
+  // panelError，而 panelError 是 role="alert" 的**红色错误区**，且同一时刻结果已成功落地
+  // ⇒ 用户看到「红色错误 + 有结果」并存，要么以为改写失败了，要么以为这个错误能忽略。
+  //
+  // 采集页 4 入口已在 PR #4141 修掉（warning 级提示条），本文件锁 AI 面板这半条。
+
+  it("敏感词警告走 warning 级：有 warnings ⇒ 红色错误区（role=\"alert\"）不出现，结果照常落地", async () => {
+    const w = await rewriteAndApply({
+      warnings: ["改写结果可能包含敏感内容，请人工审核"],
+      sensitiveHits: [{ word: "爆炸", index: 0, length: 2, category: "暴力" }],
+    });
+    // 结果必须照常落地（warnings 不是失败，不能挡住结果）
+    expect(w.text()).toContain("这是应用后的改写文案内容");
+    // 关键契约：红色错误区不得出现
+    expect(w.find('[role="alert"]').exists()).toBe(false);
+    expect(w.vm.panelError).toBeFalsy();
+    // warnings 必须以 warning 级呈现（独立提示元素，非红色错误）
+    const banner = w.find('[data-testid="panel-sensitive-warning"]');
+    expect(banner.exists()).toBe(true);
+    expect(banner.text()).toContain("敏感");
+  });
+
+  it("敏感词警告不得把真失败一起放宽：success:false 仍进红色错误区", async () => {
+    window.electronAPI.aiIsConfigured.mockResolvedValue({ code: 0, data: true });
+    window.electronAPI.aiListRewriteStrategies = vi.fn().mockResolvedValue({ code: 0, data: [] });
+    window.electronAPI.aiRewrite = vi.fn().mockResolvedValue({
+      code: 0,
+      data: { success: false, error: "内容包含敏感词，无法改写", errorCode: "SENSITIVE_CONTENT" },
+    });
+    const w = mount(AiWriterPanel, { props: { sourceContent: "这是一段需要改写的测试文案内容，长度超过二十个字" }, global: { plugins: [i18n] } });
+    await waitConfig();
+    await w.findAll("button").find(b => b.text().includes("AI 改写")).trigger("click");
+    await nextTick();
+    await w.find("textarea").setValue("这是一段需要改写的测试文案内容，长度超过二十个字");
+    await w.findAll("button").find(b => b.text().includes("开始改写")).trigger("click");
+    await nextTick();
+
+    // 失败仍然必须是红色错误（这条不能被本轮放宽破坏）
+    expect(w.find('[role="alert"]').exists()).toBe(true);
+    expect(w.vm.panelError).toBeTruthy();
+    // 且不得出现敏感词提示条（那不是失败路径）
+    expect(w.find('[data-testid="panel-sensitive-warning"]').exists()).toBe(false);
+  });
 });
