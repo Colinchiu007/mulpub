@@ -497,6 +497,17 @@
 - **不对称纪律**：扩面后做过 8+8 run 定点复测（`runs_total=16 jobs=32 samples=168 ready.max=10933ms`，其中 electron-ci.yml/electron-tests 独贡 56 条）。该读数**低于**既有 provenance 的 12762ms ⇒ **不收紧预算**；定点窗口也不构成「扩面后 max 不会更高」的证据，`--runs=26` 的足量重测仍是欠账，已写进 `source` 与执行记录。
 - **过程自错两条（改正的是期望与驱动，不动断言）**：① 驱动把 vitest 全绿时不打 `Tests N failed` 段读成「不健康」，整轮误报 PROBE_BLIND；② 变异锚写 `\n` 而该文件工作副本是 **CRLF**（`i/lf w/crlf`）⇒ ANCHOR_MISS，现驱动按文件真实行尾展开锚。同族第 N 次踩行尾，所以归一化进驱动而不是靠人记。
 - **边界**：回归锁加在既有 `apps/desktop/electron/services/windows-file-lock.test.js`（已点名进 `quality-gate.yml` Gate 2b），未新增测试文件；`docs/windows-lock-budget-provenance.md` §4 第 6 条同步改写，避免「本片未扩」那句自述在扩完后仍留在原地。
+# [未发布] feat(desktop): 暗色主题入口接线——设置页新增「外观」三态开关，useTheme 改应用级单例（ux-audit-theme-entry）
+
+- **这一格修的是"可达性"而不是"实现"**：`useTheme` 早已完成（读偏好 / 跟随系统 / 写 data-theme），但全仓**零生产消费方**（`git grep useTheme -- apps/desktop/src` 只命中它自己与它的测试）⇒ 70+ 处 `[data-theme="dark"]` 分支在运行期永不激活，上一轮「深色低对比 61→0」的整改**没有验收对象**。最隐蔽的一层是：视觉 runner 自己注入 `data-theme` 拍暗档，于是"暗色看起来被测过"的全部证据都来自测试侧 —— **runner 能把它拍成暗色 ≠ 用户能把它切成暗色**，这是「装饰性链路」的又一种落点。
+- **入口**：设置弹窗新增「外观设置」Tab（位于「通用设置」之后，默认停留 Tab 不变）+ `AppearanceSettings.vue` 三态单选（跟随系统 / 浅色 / 暗色），radiogroup 语义 + roving tabindex（组内一个 Tab 停靠点，方向键移动即选中、越界回绕）。焦点态沿用既有 `cohere-btn` 类，**刻意不新建可聚焦变体**：新变体必须同步登记进焦点环契约，否则它会掉在 3.6 按钮族锁与 `tabindex="0"` 全域锁之间，成为"看着有焦点环、实际没人守"。
+- **`useTheme` 单例化**：状态提到模块级（任意数量消费者读到同一份），宿主 `matchMedia` 监听改**引用计数**（首个注册一次、最后一个卸载才收回）。取舍：不引入 Pinia store，也不留 `_resetForTest` 后门（AGENTS 禁测试专用开关），改由"注册/注销对称"承担可测性。
+- **偏好词表闭合 `light|dark|system`**：`system` 是**可写的值**（不是"删除键"——删除与"从没设过"在存储面不可区分，界面就表达不出这一态）；词表外值归一为 `system` 并 `console.warn` 出声；键缺失/`null`/空串继续等价 `system` ⇒ **零迁移**。
+- **首帧不闪 + 真源优先**：`main.js` 在 `mount()` 之前调 `applyKnownThemeBeforeMount()` 落同步镜像色，异步读回真源后无条件校准。一条只有实测才会发现的盲区：`watch` 只在值变化时触发，而"镜像写着 dark、真源是 system"恰是一次**无变化**赋值 ⇒ `init()` 必须显式 commit，否则界面永久停在过期镜像色上（变异 M7 打出这一格）。
+- **同步更正一处会误导下一个会话的注释**：`test-runner.js:511` 原写"data-theme 是应用唯一主题开关，useTheme 的 applyTheme 写的就是它"——接线不存在时该句为假；现按事实写明生产写入者与 runner 注入的分工（runner 只服务拍摄暗档，不落持久层）。
+- **验证**：`useTheme.test.js` + `AppearanceSettings.test.js` + `SettingsDialog.test.js` 三把锁当场 `[BASE] rc=0 collected=47 red=0`；消费者并集（含 `settings-panel-layout` / `App.sidebar-collapse` / `styles/focus-ring`）6 文件 69 passed；locale 成对与 CJK 门禁 PASS（基线 1330、当前 1124、无新增硬编码 —— 开发态日志改写为 ASCII，因为 CJK 扫描连日志串一起算，为吸收自己新写的串去 `--update-baseline` 正是该门禁禁止的动作）；两处 `.vue` 过 `@vue/compiler-sfc` 编译零错误。
+- **反证驱动入库** `scripts/theme-entry-contract-mutate.js`：**14 道全 CAUGHT**（含正控 M10"改措辞不得红"），逐道打印红集、按字节还原。其中两道第一版选错靶子并如实记下：M6 只改失败分支 ⇒ 对成功读回路径**等价**，红数=0 不是"锁没牙"而是"变异没造出来"；M7 红了另外三条而没红目标那条，根因是我的用例**依赖了跨用例存活的单例状态**，改为先构造再断言后才有牙。M2 与 M1 分测"没调用"与"调用顺序错"，因为只断"存在调用"的锁对 `mount()` 之后的写法照样绿。
+- **残余（不读成已完成）**：暗色下个别视图未适配不在本批逐个修（按文件登记欠账）；`settings-general` 浅/暗两张基线须按同一次 CI 渲染重建，禁本机截图；`*-contract-mutate.js` 驱动本身**尚无任何 workflow 引用**，`check-unwired-tests.js` 的后缀表也不含它 ⇒ "入库"不等于"被守"，已单独立项。
 
 # [未发布] fix(离线): 主进程补上「进入离线」方向的推送通道，断网横幅不再只靠浏览器事件（ux-audit-offline-live 第二半）
 

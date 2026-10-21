@@ -15,10 +15,22 @@ export default {
     title: 'Settings',
     tabModel: 'Model Settings',
     tabGeneral: 'General Settings',
+    tabAppearance: 'Appearance',
     tabPublish: 'Publish Settings',
     tabAccount: 'Account Settings',
     tabComingSoon: 'Coming Soon',
     placeholder: 'This feature is under development. Stay tuned.',
+    appearance: {
+      themeGroup: 'Interface theme',
+      themeHint: 'Takes effect immediately and is remembered across launches.',
+      optSystem: 'Follow system',
+      optLight: 'Light',
+      optDark: 'Dark',
+      systemDesc: 'No fixed theme; the interface follows your operating system setting.',
+      fixedDesc: 'Locked to {name}. System light/dark changes no longer affect the interface.',
+      currentEffective: 'Current interface: {name}',
+      darkNotice: 'Dark mode is still being verified page by page. If you spot low contrast or an unstyled area, please report it.',
+    },
     publishFrequency: {
       title: 'Publish Frequency Policy',
       tierSummary: (ctx) => ctx.named('tier') + ' (' + ctx.named('count') + ' platforms, e.g. ' + ctx.named('sample')

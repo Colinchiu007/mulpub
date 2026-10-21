@@ -3,6 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
+    画布底色必须在任何 JS 跑起来之前就正确，否则会先闪一帧浏览器默认白底
+    （`applyKnownThemeBeforeMount()` 再早也得等 module 执行）。
+    ⚠ 这里刻意用 UA 原生 `color-scheme` 而**不是**内联脚本读镜像：
+    本页 CSP 是 `script-src 'self'`，内联脚本会被直接拒绝；
+    为消一帧底色去放宽 CSP 是拿安全边界换观感，不做（有锁钉住这条，见 AppearanceSettings.test.js）。
+    因此残余是：OS 与用户显式偏好相反时，可能看到一帧按 OS 落的画布底色；
+    **内容层**的底色由镜像 + 真源保证不闪（那部分是精确的）。
+  -->
+  <meta name="color-scheme" content="light dark" />
   <title>汤姆鱼</title>
   <!-- CSP 保持为单一策略，避免 Electron session 级响应头影响其他页面。 -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*; connect-src 'self' ws: wss: https: http://localhost:* http://127.0.0.1:*; font-src 'self' data:; media-src 'self' blob: http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'self';" />
