@@ -529,6 +529,17 @@
 - docs(changelog): 现场取证 —— 落地判据对 `fix-rewrite-paragraph-preserve` 报一行 LOST（`落地版本=版本不同@1292b6555(主干独有0行/我这版独有1行)`、`份数=short 1(base=0 tip=1 main=0 可解释容量=0)` ⇒ `onlyInMerge=0`），`--allow-different-landing` 按 §12 收紧后的谓词**拒绝放行**；逐 blob 比对给出的方向是：squash 落地的 CHANGELOG blob `a12acd8a8` 与分支倒数第二笔 `49165a742` **逐字节同一份**，而那一行由最后一笔 `214cbb2e2` 写下，其提交时间 14:55:12Z 比合并时刻 14:43:15Z **晚 12 分钟** ⇒ 产物是 tip 的严格子集，不是"另一版"。
 - docs(changelog): 正解只有"逐字节搬回"这一种：判据按行比较，改写那一行（哪怕补一句出处）不会清除 LOST，只会把一条记录变成两条互相对不上的记录。实质内容当年已由 `e5fb069b7`（#2852，提交主题直写「#2842 合并时序错位漏带」）追平落地，所以本片补的是**记录**不是**行为**，零运行时变更。
 - docs(prd): `01-docs/PRD-BRANCH-MERGED-CHECKER-2026-10-16.md` 追加 §13 ——「合并之后又往分支推提交」这一形态判据只能读成 `onlyInMerge=0` 的 different，是 §12 那一刀（谓词要求 `onlyInMerge>0`）第一次在真实分支上拒绝放行；同时如实留下一格未关：没有任何门禁在看"closed PR 之后 head 又动了"这件事。
+# [未发布] a11y: 采集页 6 张快捷卡片补键盘可达四件套，并清点出 3 处「leaf 角色吃掉子树」的存量违规（ux-audit-nonbutton-keys）
+
+- `Collection.vue` 的 `.col-stat-card-click`（新建草稿 / 剪贴板导入 / 草稿箱 / 微博·百度·头条来源入口）按 PRD §三 补 `role="button"` + `tabindex="0"` + `@keydown.enter.prevent` + `@keydown.space.prevent`，两个 keydown 表达式与 `@click` 逐字一致。此前这些卡片只有 `@click` ⇒ 键盘用户完全无法触达（视觉、鼠标、单测、构建全都不报错）。
+- 新增行为+结构+禁令三类锁 `Collection.keyboard-cards.test.js`（4 条）：结构锁逐个标签验四件套与表达式一致；行为锁对 Enter / Space **各**断一次路由跳转；负控锁证明「只有 @click 时按 Enter 不产生任何调用」（否则行为断言退化成测 mount 副作用）；后代锁用 `innerHTML`（**不是** `wrapper.html()` —— 后者含元素自己的 `tabindex="0"`，会把正确修法判成缺陷）断言卡片子树无真控件。
+- 反证按 §三 口径重造「未补全的原始标签」：指名红 2 条（结构锁 + 行为锁），还原后逐字节相同。
+- 本批顺带做了一次存量清点（`role="button"` 17 处 / 违规 3 处：账号卡批量复选框、文案库卡片的播客入口按钮、采集记录卡片的标签编辑按钮），三处均读到源码确认。修法涉及交互设计取舍（撤销 role = 键盘可达回退；改成卡内真按钮 = 改信息层级），**登记为待裁决项，不在本批代拍**。
+- 消费者并集：`Collection.test.js` / `Collection.viral-contract.test.js` / `Collection.rewrite-input-limit.test.js` 与新文件同跑 4 passed。
+- **QM-6 评审（双模型，head `dbfdb9e06`）8 条发现的处置** —— 其中 **i1 是 Critical 且当场证实**：本批只补了 `tabindex="0"` 就宣告完成，而 3.6 的焦点环锁判定域按设计只收按钮类 ⇒ 两把锁之间留缝，6 张卡片键盘焦点**没有可见环**（WCAG 2.4.7），且本批的验收手段恰好检测不到。修法：`collection-page-legacy.css` 加 `.col-stat-card-click:focus-visible`（环色取 `--color-focus-ring`，浅/暗各有映射故不写暗色覆盖）+ 新增锁 `src/focusable-ring-contract.test.js`（判定域 = 全仓 `tabindex="0"` 站点；实测读数 `.vue=186 站点=17 缺环=1 环色违规=10`，缺环按文件登记且只能缩小、环色按计数基线并每次打印现值）。
+- **真 Chromium 实测把两条评审主张各自定案**（`div[role=button][tabindex=0]` 挂三个监听后按 Enter/Space）：Enter/Space **都不合成 click** ⇒ i2 担忧的「双重激活」路径不可达，但也因此 **keydown 处理器是唯一的键盘通路**；原生 `<button>` 的 Space 是 **keyup 才激活** ⇒ i7 成立，本批采用 keydown 激活并在 PRD §三-B 写明取舍（`.prevent` 只能挂 keydown，挪到 keyup 就要留一条空处理器、破掉「表达式逐字一致」这条可核对契约）与代价（按下即跳转，无法移焦取消）。
+- **锁自身被重写了一轮**（i3/i4/i6/i8 全部采纳）：结构判据从「整行正则」改为 `@vue/compiler-sfc` **模板 AST**（判据不再绑排版，属性名的 `.` 也不再靠未转义正则）；判定域从「`tags.length >= 6`」改为**逐张点名**（6 张卡各补 `data-testid` 作为定位锚与身份）；行为锁从 1 张扩到 **6 张**并断**恰一次**（`toHaveBeenLastCalledWith` 对重复触发免疫）；目的地断言**归一化**（对象形态的 `push` 不该让锁红）。
+- **反证驱动入库** `scripts/keyboard-cards-contract-mutate.js`（同 `scripts/leaf-role-contract-mutate.js` 的形态纪律：脚本躺在临时目录里，「锁的牙」就只存在于文字叙述中）**14 道全数 CAUGHT**，其中 **M10 与 M9 各抓到一次锁自身的错**：M10 MISSED 暴露「类名匹配用 `includes` ⇒ `.col-stat-card-click-ghost` 被算成命中」，改成整词正则并加一条匹配器自锁（M14 钉住它不许退回）；M9 MISSED 暴露我把两格棘轮的语义读反（违规上涨由计数上界拦、额度调松由「基线不得变松」拦），拆成 M9/M12 两道各测一格。M11 是**合规形态必须绿**的正控（`push` 改对象形态不得红）。
 
 # [未发布] fix(gates): CLI e2e 用例预算的采样域补齐两根轴——workflow × 作业名的生产者登记表，覆盖度逐轴判（case-timeout-audit-coverage-domain）
 

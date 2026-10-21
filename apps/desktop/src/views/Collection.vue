@@ -295,11 +295,11 @@
         <section class="col-quick__group">
           <div class="col-quick__group-title">{{ $t('collection.quickGroupNew') }}</div>
           <div class="col-quick__cards">
-            <div class="cohere-stat-card col-stat-card-click" role="button" tabindex="0" @click="createDraft" @keydown.enter.prevent="createDraft" @keydown.space.prevent="createDraft">
+            <div class="cohere-stat-card col-stat-card-click" data-testid="quick-create-draft" role="button" tabindex="0" @click="createDraft" @keydown.enter.prevent="createDraft" @keydown.space.prevent="createDraft">
               <div class="stat-value"><el-icon><EditPen /></el-icon></div>
               <div class="stat-label">{{ $t('collection.quickNewDraft') }}</div>
             </div>
-            <div class="cohere-stat-card col-stat-card-click" role="button" tabindex="0" @click="importFromClipboard" @keydown.enter.prevent="importFromClipboard" @keydown.space.prevent="importFromClipboard">
+            <div class="cohere-stat-card col-stat-card-click" data-testid="quick-clipboard-import" role="button" tabindex="0" @click="importFromClipboard" @keydown.enter.prevent="importFromClipboard" @keydown.space.prevent="importFromClipboard">
               <div class="stat-value"><el-icon><DocumentCopy /></el-icon></div>
               <div class="stat-label">{{ $t('collection.quickClipboard') }}</div>
             </div>
@@ -317,19 +317,19 @@
         <section class="col-quick__group">
           <div class="col-quick__group-title">{{ $t('collection.quickGroupSources') }}</div>
           <div class="col-quick__cards">
-            <div class="cohere-stat-card col-stat-card-click" role="button" tabindex="0" @click="openCollection('weibo')" @keydown.enter.prevent="openCollection('weibo')" @keydown.space.prevent="openCollection('weibo')">
+            <div class="cohere-stat-card col-stat-card-click" data-testid="source-entry-weibo" role="button" tabindex="0" @click="openCollection('weibo')" @keydown.enter.prevent="openCollection('weibo')" @keydown.space.prevent="openCollection('weibo')">
               <div class="stat-value">{{ $t('collection.sourceWeibo').slice(0, 1) }}</div>
               <div class="stat-label">{{ $t('collection.sourceWeibo') }}</div>
             </div>
             <!-- 知乎热榜已撤下（/hot 强制登录，匿名点开只会落到安全验证页）→ 百度热搜；
                  头条热榜改为今日头条首页（官方无渲染版热榜页，热榜 JSON 接口直接打开是一屏文本）。
                  依据与不可回退约束见 features/collection/useSourceEntry.js 的文件头表。 -->
-            <div class="cohere-stat-card col-stat-card-click" role="button" tabindex="0" @click="openCollection('baidu')" @keydown.enter.prevent="openCollection('baidu')" @keydown.space.prevent="openCollection('baidu')">
+            <div class="cohere-stat-card col-stat-card-click" data-testid="source-entry-baidu" role="button" tabindex="0" @click="openCollection('baidu')" @keydown.enter.prevent="openCollection('baidu')" @keydown.space.prevent="openCollection('baidu')">
               <!-- 图标用 el-icon 而非 emoji：放大镜 emoji 命中 icon-usage.test.js 的功能图标位黑名单（T1-5） -->
               <div class="stat-value"><el-icon><Search /></el-icon></div>
               <div class="stat-label">{{ $t('collection.sourceBaidu') }}</div>
             </div>
-            <div class="cohere-stat-card col-stat-card-click" role="button" tabindex="0" @click="openCollection('toutiao')" @keydown.enter.prevent="openCollection('toutiao')" @keydown.space.prevent="openCollection('toutiao')">
+            <div class="cohere-stat-card col-stat-card-click" data-testid="source-entry-toutiao" role="button" tabindex="0" @click="openCollection('toutiao')" @keydown.enter.prevent="openCollection('toutiao')" @keydown.space.prevent="openCollection('toutiao')">
               <div class="stat-value">{{ $t('collection.sourceToutiao').slice(0, 1) }}</div>
               <div class="stat-label">{{ $t('collection.sourceToutiao') }}</div>
             </div>
