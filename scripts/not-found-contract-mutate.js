@@ -197,6 +197,8 @@ function parseRed (outRaw) {
   // vitest：汇总行 "  Tests  2 failed | 11 passed (13)"，全绿时是 "  Tests  13 passed (13)"
   const line = out.split('\n').find((l) => /^\s*Tests\s+\S/.test(l))
   if (!line) return -1
+  // 「Tests  no tests」= 文件没编译/没收集；读成 0 红会让变异假装"没牙"（同源坑见离线驱动）
+  if (/no tests/.test(line)) return -1
   const failed = /(\d+) failed/.exec(line)
   return failed ? Number(failed[1]) : 0
 }
