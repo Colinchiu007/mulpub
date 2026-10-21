@@ -125,6 +125,15 @@ i/lf  w/lf    attr/text=auto   openspec/records/ux-audit-404-route.md
 
 ### 遗留（不假装已闭合）
 
+- **`QG Browser E2E` 在 head `c34d56c51` 红一次**（`collection.functional`：点 `[data-testid="collection-collect-btn"]`
+  在 `performing click action` 阶段 3000ms 超时；该 spec 4 项检查 3 绿，且 `consoleErrors=[]`、`pageErrors=[]`、
+  `transientRecoveries=[]` —— 没有任何页面侧异常）。定责取证：上一个 head `52154aa8c` 同一门禁 **SUCCESS**
+  （16:59 完成），两次之间我的 diff **不含任何运行时文件**（只动门禁判据 / 测试 / 反证驱动 / 文档），
+  且同窗口 theme、offline 等分支该门禁全部 SUCCESS ⇒ 判为 flake 候选，不是本 PR 引入。
+  但按本仓既有口径「绿跑不能证明无 flake」，此处**只登记不结案**：这次推送会自然产出第二个样本；
+  若第二样本仍红，就必须去查 `collection` 那条点击的等待语义（3s 预算是否本来就贴脸），
+  **不得**用"重跑绿了"消化。
+
 ## 五、QM-6 外部评审处置（critic=claude，8 条 findings，逐条附可重取证据）
 
 判定 `DUAL`（907 行），外部 critic 真实跑过（产物 `.adversarial/ccg-deep-21a7b3d5/critique-v1.md`，
