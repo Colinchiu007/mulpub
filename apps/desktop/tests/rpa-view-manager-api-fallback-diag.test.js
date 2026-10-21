@@ -31,9 +31,9 @@ __registerMock('@multi-publish/api-publish-engine', {
   shouldUseApi: vi.fn().mockReturnValue(true),
 })
 
-__registerMock('path', { join: vi.fn(), resolve: vi.fn(), basename: vi.fn() })
-__registerMock('fs', { existsSync: vi.fn().mockReturnValue(false) })
-
+// 本文件只测「降级诊断的字段形状与合并契约」这类纯逻辑，不跑真实发布链路，
+// 因此**不需要** mock fs（盲目 mock 整个 fs 属 blanket 夹具，违反仓库 fs mock 纪律，
+// 会被 check-blanket-fs-mock 棘轮拦下）。
 const RpaViewManager = require('../electron/services/rpa-view-manager')
 
 describe('RpaViewManager API→DOM 降级诊断留存', () => {
