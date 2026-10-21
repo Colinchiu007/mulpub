@@ -843,6 +843,31 @@ fi
 # 现在即便正则被放宽，值也只会被当作**一个参数**交给 node，不构成第二道防线依赖。
 # （这也是为什么 scripts/deep-review-deps.test.js 里有一条 doesNotMatch 禁这个变量名 ——
 #   禁词锁不剥注释，所以本注释刻意不提那个名字。）
+# ---------- 5a. 真跑出口：驱动返回之后写回，最后以**驱动的 rc** 退出 ----------
+# 为什么这里不能再用 exec：exec 是把当前进程**换成**驱动，写在它之后的任何动作永远执行不到
+# （本仓「释放必须发生在控制流正确位置」的同型）。而收口矩阵要的 tier/evidence 必须由
+# 驱动返回之后这一步补齐，顺序只能由控制流保证，不能由"写在文件哪一行"约定。
+#
+# ⛔ `exit` 的参数必须是 _wb_rc：写回器按合同**恒返回 0**（旁路语义），
+#   把它接成 `exit $?` 会把"评审失败"原地变成"评审成功"。
+#   行为锁：scripts/deep-review-entry-rc.test.js 用假驱动分别跑 rc=0/1/2 三档断言逐字相等。
+run_driver_with_writeback() {
+  # 动手前的字节哈希只能在这里取：写回器要据此判断"本次驱动到底写过这条记录没有"。
+  # 口径必须与判据侧一致（原始字节 sha256，与本脚本内容寻址段用的 sha256sum 同形），
+  # 两侧不同形时 no-write 那一格会永久点不到火 —— 见 ccg-review-writeback.test.js ④-a2。
+  _wb_before="$(sha256sum < "$REC" 2>/dev/null | cut -d' ' -f1)"
+  # 动手前的**语义指纹**必须由共享实现算（`--print-fingerprint`），不得在 shell 里重抄规范化算法；
+  # 只给字节哈希是不够的——外部深审 round 2 i1 就是漏了这一半，「只有时间戳在动」那一格
+  # 在真实调用路径上永远触发不了。
+  _wb_before_fp="$(node scripts/lib/ccg-delivery-digest.js --print-fingerprint="$REC" 2>/dev/null || true)"
+  node "$DRIVER" "$@"
+  _wb_rc=$?
+  node scripts/ccg-review-writeback.js \
+    --record="$REC" --expected-critic="$RB_CRITIC" --before-sha256="$_wb_before" --before-fingerprint="$_wb_before_fp" \
+    || say "⚠ 写回器自身未能运行（它不改评审 rc）—— 本次 tier/evidence 不会被补齐，需人工核对记录。"
+  exit "$_wb_rc"
+}
+
 if [ "$DRY" -eq 1 ]; then
   if [ "${DRY_NO_DRIVER:-0}" -eq 1 ]; then
     say ""
@@ -873,6 +898,6 @@ if [ -n "$RB_OVERRIDE_NOTE" ]; then
   node scripts/lib/ccg-review-backends.js --critic "$RB_CRITIC" --proposer "$RB_PROPOSER" \
     --record-request "$REC" \
     || { say "✗ 评审时请求的后端没能写回 $REC —— 停止，不启动审查"; exit 2; }
-  exec node "$DRIVER" --sha "$SHA" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
+  run_driver_with_writeback --sha "$SHA" --proposer "$RB_PROPOSER" --critic "$RB_CRITIC"
 fi
-exec node "$DRIVER" --sha "$SHA"
+run_driver_with_writeback --sha "$SHA"

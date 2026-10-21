@@ -1,0 +1,61 @@
+{
+  "sha": "1dc7417ed634410a2b45b8f47faa04f2ddd43391",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2132 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2132,
+    "fileCount": 20,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 8,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **`tier=external` 自 2026-10-22 起由工具写**（change: `qm6-closure-writeback`）：`sh scripts/deep-review.sh` 在**驱动返回之后**调 `scripts/ccg-review-writeback.js`，五条合取（闭环 status / findings 非空 / `performedBy` 等于清单里的 critic / 动手前后字节与语义指纹都变了 / 记录路径由入口显式透传）全部成立才写 `tier=external` + `evidence=delivery@<sha256(deepReview.findings)>`；任一不成立 ⇒ 不写、不改 status、点名缺哪一条（`not-closed` / `empty-findings` / `backend-mismatch` / `no-write` / `no-new-delivery` / `before-state-missing` / `record-unreadable`）。三条要记住的边界：① **写回是旁路**，恒不改评审 rc（`deep-review-entry-rc.test.js` 用假驱动分别断言 rc=0/1/2 逐字相等与信号终止的实测映射）；② **`delivery@` 不是签名**——任何填写方一条命令可自算，判据只做\"形状 + 就地重算自洽\"，失配降 `external-unverified` 而不是指控伪造；③ 由会话手写 `tier` 仍然是**能过判据**的，但那属代用，`closureNote` 里必须写明「tier 由会话手写」并给轮次与逐条处置，不得说成工具产物。评审引擎本身（仓外 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`）全文 `tier` 出现 0 次、收口是 `rec.deepReview = deepReview` 的**整体替换**（会把初值里的 `tier`/`evidence` 键吃掉）——这就是本模块必须存在于**驱动返回之后**的原因。",
+      "- [ ] 9.2 **两个规范化不得合并**（i1 + i7）：证据摘要 = `sha256(findings)`；本次产出指纹 = `sha256(deepReview 去掉 at)`。各一个函数名、各一条向量用例；把任一改成另一个必须当场红",
+      "- [x] 9.2 **两个规范化不得合并**（i1 + i7）：证据摘要 = `sha256(findings)`；本次产出指纹 = `sha256(deepReview 去掉 at)`。各一个函数名、各一条向量用例；把任一改成另一个必须当场红"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "918d6061ffda71430d12544cce53bf1893a20e5f5c1b83902256a2a32f8d35e1",
+  "decidedAt": "2026-10-21T18:35:28.297Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
