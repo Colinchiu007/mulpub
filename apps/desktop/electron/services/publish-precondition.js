@@ -129,6 +129,8 @@ function describeFailure (reason, platform, ctx) {
  * @param {object} [input.fillReport] 填表结果（用 `upload` / `title` / `content`）
  * @param {boolean} [input.draftOnly] 草稿模式（不点发布，前置判据只关心落库）
  * @param {boolean} [input.noTitlePlatform] 平台无独立标题框（标题并入描述，P3 不适用）
+ * @param {boolean} [input.noBodyPlatform] 该平台**视频**发布无正文输入位（P4 不适用；
+ *   由 publish-capabilities 的 isNoBodyVideoPlatform 声明，不在此处硬编码平台名）
  * @returns {{ ok: true } | { ok: false, reason: string, message: string, detail?: string }}
  */
 function evaluatePublishPreconditions (input) {
@@ -174,8 +176,8 @@ function evaluatePublishPreconditions (input) {
     if (!title || title.ok !== true) return fail(REASONS.TITLE_NOT_FILLED, title && title.error)
   }
 
-  // P4：正文
-  if (hasContent) {
+  // P4：正文（noBodyPlatform=该平台视频发布没有正文位，例如头条视频只有标题+封面）
+  if (hasContent && !src.noBodyPlatform) {
     const content = report.content
     if (!content || content.ok !== true) return fail(REASONS.CONTENT_NOT_FILLED, content && content.error)
   }
@@ -222,6 +224,7 @@ async function assertReady (p) {
     selectors: input.selectors,
     fillReport: input.fillReport,
     noTitlePlatform: Boolean(input.noTitlePlatform),
+    noBodyPlatform: Boolean(input.noBodyPlatform),
   })
   if (gate.ok) return { ok: true }
   const report = input.fillReport || {}

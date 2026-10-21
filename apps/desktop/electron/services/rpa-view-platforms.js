@@ -15,7 +15,7 @@ const log = require('./logger')
 const { getConfigPath } = require('./config-resolver')
 const PlatformConfig = require('@multi-publish/shared-utils/src/platform-config')
 // 发布能力注册表（publish-capability-registry）：无标题平台单一真源——视频号/快手/微博/X/Instagram/TikTok 无独立标题框，标题经 _composeEditorCaption 合并进描述首行。
-const { isNoTitlePlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
+const { isNoTitlePlatform, isNoBodyVideoPlatform } = require('@multi-publish/shared-utils/src/publish-capabilities')
 const { platformSelectors } = require('@multi-publish/rpa-engine')
 const { resolvePublishSelectors } = require('@multi-publish/rpa-engine/src/publish-selectors-by-content-type')
 const { getPublishUrl } = require('@multi-publish/api-publish-engine/src/platform-entries')
@@ -91,9 +91,8 @@ function parsePublishResponseEvidence (body, response) {
 }
 
 
-// draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）。
-// 判据本体、三条红线与不变量见该模块头部注释。本文件只留薄调用点——它自己是逐文件行数
-// 门禁的**点名还账**文件（零增长容差），每多一行都在挤压一个已经压线的额度。
+// draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）；
+// 判据本体/三条红线/不变量见该模块头部注释，本文件只留薄调用点（它自己也是零增长的点名还账文件）。
 const draftOnlyConfirm = require('./draft-only-confirm')
 // 发布前置门禁（publish-precondition-gate，2026-10-18）：点发布按钮之前断言
 // 「内容真的进去了」。动因是 2026-10-17 批量发布里头条/抖音的真实根因被
@@ -307,6 +306,7 @@ const platformsMixin = {
     // 10s 超时——此前靠选择器解析失败的隐式回退，行为正确但不可声明、白等超时），
     // 标题直接经下方编辑器合并路径写入描述首行（_composeEditorCaption）。
     const noTitlePlatform = isNoTitlePlatform(platform)
+    const noBodyPlatform = isNoBodyVideoPlatform(platform) && !!article.video_path
     const titleSel = (article.title && !noTitlePlatform) ? await this._resolveSelector(win, sel.title_input, 10000, 3000) : null
     if (noTitlePlatform && article.title) {
       log.info('RpaView', '[' + platform + '] no-title platform (registry), skip title_input resolution, title merges into editor caption')
@@ -326,9 +326,8 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling title...', 20)
           const titleTarget = titleSel || captionSel
           const titleValue = (captionSel && !titleSel) ? this._composeEditorCaption(article, config.max_content) : article.title
-          // 读回校验已内建于 `_fillInput`（读回 0 且待填值非空即抛错）。
-          await this._fillInput(win, titleTarget, titleValue); retry.markDone('title')
-          fillReport.title = { ok: true }
+          // _fillInput 的回读只判「非 0」；等值回读 + 不一致重填在 title-fill-verify（2026-10-22 西瓜页标题被填成文件名）。
+          fillReport.title = await require('./title-fill-verify').fillAndVerifyTitle(this, win, titleTarget, titleValue, { log, platform }); retry.markDone('title')
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
           if (!retry.retry('title')) { fillReport.title = { ok: false, error: e.message }; break; }
@@ -342,7 +341,8 @@ const platformsMixin = {
 
     // content
     const cs = sel.editor || sel.content_textarea || sel.textarea
-    if (article.content && cs && cs.length > 0) {
+    if (noBodyPlatform) fillReport.content = { ok: true, skipped: 'no-body-field' }
+    if (article.content && !noBodyPlatform && cs && cs.length > 0) {
       if (captionSel && !titleSel) {
         // 标题已作为作品描述写进同一编辑器（快手），正文已在合并文案里，跳过避免覆写标题
         log.info('RpaView', '[' + platform + '] content already composed into editor caption, skip separate fill')
@@ -369,7 +369,10 @@ const platformsMixin = {
     }
 
     // cover
-    if (article.cover_path && sel.cover_input) {
+    // 封面（2026-10-22）：头条/西瓜页面**没有 image file input**，走弹窗「封面截取 → 下一步」；其它平台仍走 cover_input，且有封面却无选择器时必须出声。
+    if (platform === 'toutiao' && article.video_path) { const tc = require('./toutiao-cover'); const r = article.cover_path ? await tc.ensureCoverViaLocalUpload(this, win, article.cover_path, { log, platform }) : await tc.ensureCoverFromVideoFrame(this, win, { log, platform }); if (!r.ok) log.warn('RpaView', '[' + platform + '] cover path failed: ' + r.step) }
+    else if (article.cover_path && !sel.cover_input) log.warn('RpaView', '[' + platform + '] cover skipped: platform has no cover_input selector')
+    if (platform !== 'toutiao' && article.cover_path && sel.cover_input) {
       try {
         this._emitProgress(platform,'uploading cover...',65)
         const coverSel = 'input[type="file"][accept*="image"], input[type="file"][accept*="jpg"], input[type="file"][accept*="jpeg"], input[type="file"][accept*="png"]'
@@ -392,7 +395,7 @@ const platformsMixin = {
           await this._setFileInput(win, article.cover_path, sel.cover_input[0])
         }
         await this._sleep(2000)
-      } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
+      } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message+' | sel='+String((sel.cover_input||[]).join(' , ')).slice(0,120)) }
     }
 
     // tags
@@ -462,7 +465,7 @@ const platformsMixin = {
     // 必然未发生 ⇒ 显式标 definitelyNotSent，由队列回滚发布间隔窗口（视频号 60′ 不再被假失败吃掉）。
     // 取证（MP_DOM_DUMP=1）+ 判定 + 结果形状都在 publish-precondition.assertReady 里。
     {
-      const gate = await publishPrecondition.assertReady({ win, platform, article, selectors: sel, fillReport, noTitlePlatform: isNoTitlePlatform(platform), logger: log })
+      const gate = await publishPrecondition.assertReady({ win, platform, article, selectors: sel, fillReport, noTitlePlatform: isNoTitlePlatform(platform), noBodyPlatform, logger: log })
       if (!gate.ok) return gate.result
     }
 
@@ -1454,9 +1457,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       }
       await this._click(win,pubBtn)
       this._emitProgress('zhihu','verifying...',95)
-      // 2026-10-15 报障修复（「显示成功但没有真实发布」）：知乎发布是**两段式** —— 首次点
-      // 「发布」只落成草稿并跳到 /p/<id>/edit，该页需再点一次才真发布；旧判据 `/\/p\/\d+/`
-      // 恰好命中草稿编辑页 ⇒ 假成功（真机 2026-10-15T12:40:19Z→22Z）。确认逻辑见模块。
+      // 2026-10-15 报障修复（「显示成功但没有真实发布」）：知乎发布是**两段式** —— 首次点；「发布」只落成草稿并跳到 /p/<id>/edit，该页需再点一次才真发布；旧判据 `/\/p\/\d+/`；恰好命中草稿编辑页 ⇒ 假成功（真机 2026-10-15T12:40:19Z→22Z）。确认逻辑见模块。
       const confirm = await zhihuPublishState.confirmZhihuPublished({
         readUrl: () => win.webContents.getURL(),
         waitForElement: (sel,ms) => this._waitForElement(win,sel,ms),

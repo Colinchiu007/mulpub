@@ -12,6 +12,7 @@
     "captchaAutoSolveWhitelist": [],
     "stealthChannelPlatforms": ["douyin", "xiaohongshu", "shipinhao"]
   },
+  "noBodyVideoPlatforms": ["toutiao"],
   "platforms": {
     "wechat_mp": { "titleMode": "title", "limits": { "titleMax": 64, "contentMax": 20000 } },
     "zhihu": { "titleMode": "title", "limits": { "titleMax": 50, "contentMax": 100000 } },

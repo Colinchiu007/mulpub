@@ -58,11 +58,33 @@ function clamp (value, lo, hi) {
  * @param {number|null|undefined} fileBytes 视频字节数
  * @returns {number} 预算毫秒数
  */
-function computeBudgetMs (fileBytes) {
+/**
+ * 平台级预算下界（ms）：某些平台的完成信号只在**服务端转码后**才出现，
+ * 与文件体积无关 ⇒ 按体积算出来的 90s 下界不够，会先耗尽预算、把已完成的
+ * 上传判成「未检测到完成信号」。
+ *
+ * 头条实测（2026-10-21/22 三次）：同一个 143.9KB / 12s 视频——
+ *   90s 用满时页面无「上传成功」（15:51:18 best-effort）；
+ *   300s 用满时仍无（17:18:04 best-effort）；
+ *   而该窗口稍后（约 17:2x）已显示「上传成功 + 视频时长 12s」。
+ * ⇒ 平台侧转码延迟 **> 5 分钟**，与文件体积无关；按体积算的下界对它没有意义。
+ * 故取 600s（10 分钟）作为头条下界。预算只是**上界**：doneCopy 一旦命中就提前返回，
+ * 放宽不会拖慢正常路径；整体发布超时仍是 1800s，安全。
+ */
+const PLATFORM_MIN_BUDGET_MS = Object.freeze({ toutiao: 600000 })
+
+/**
+ * 按视频体积计算上传等待预算（ms）。
+ * @param {number|null|undefined} fileBytes 视频字节数
+ * @param {{ minMs?: number }} [opts] minMs：平台级下界（会再夹到 MAX 以内）
+ * @returns {number} 预算毫秒数
+ */
+function computeBudgetMs (fileBytes, opts) {
+  const floor = Number(opts && opts.minMs) > 0 ? Number(opts.minMs) : MIN_BUDGET_MS
   const bytes = Number(fileBytes)
   if (!Number.isFinite(bytes) || bytes <= 0) return MAX_BUDGET_MS
   const raw = BUDGET_BASE_MS + (bytes / BYTES_PER_MB) * BUDGET_MS_PER_MB
-  return Math.round(clamp(raw, MIN_BUDGET_MS, MAX_BUDGET_MS))
+  return Math.round(clamp(raw, floor, MAX_BUDGET_MS))
 }
 
 /**
@@ -138,6 +160,12 @@ function decideUploadWait (input) {
     return { action: 'wait', reportPercent }
   }
 
+  // P3.5：**强完成文案 + 无上传中文案 ⇒ 真完成**（2026-10-22）。
+  // 排在 P4 之前的原因：uploading 含 pv>0（可见的 [class*=progress]/[class*=percent] 元素）这类
+  // 弱 DOM 形状判据，容器类名即可命中 ⇒ 上传完成后仍为 true，P4 永不成立（抖音实测过同型：
+  // 残留 progress 元素导致白等满 15 分钟）。强完成文案是语义证据，弱形状不得否决它。
+  if (Boolean(opts.doneStrong) && !Boolean(opts.uploadingText)) return { action: 'done', reportPercent }
+
   // P4 负向信号消失 + 正向结构信号命中 → 真完成
   if (positiveSignal && !uploading) return { action: 'done', reportPercent }
 
@@ -156,6 +184,7 @@ module.exports = {
   REPORT_SPAN_RATIO,
   REPORT_MAX_PERCENT,
   computeBudgetMs,
+  PLATFORM_MIN_BUDGET_MS,
   computeReportPercent,
   decideUploadWait,
 }
