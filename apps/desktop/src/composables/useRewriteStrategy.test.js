@@ -177,3 +177,27 @@ describe('useRewriteStrategy — 竞态守卫与防抖', () => {
     expect(aiGetRecommendedStrategies).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('useRewriteStrategy — 监听有主人（CCG 外部评审 i1）', () => {
+  it('dispose() 之后不再响应设置项变化（watch 必须能被真正停掉，不能留在无主作用域）', async () => {
+    const { deps, dispose } = setup()
+    dispose()
+    deps.platform.value = 'douyin'
+    await nextTick()
+    expect(aiGetRecommendedStrategies).not.toHaveBeenCalled()
+  })
+
+  it('dispose() 之后防抖定时器也被取消（不得在停止后再发一次预览请求）', async () => {
+    vi.useFakeTimers()
+    try {
+      const { deps, dispose } = setup()
+      deps.content.value = '第一段。'
+      await nextTick()
+      dispose()
+      await vi.advanceTimersByTimeAsync(300)
+      expect(aiGetRecommendedStrategies).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
