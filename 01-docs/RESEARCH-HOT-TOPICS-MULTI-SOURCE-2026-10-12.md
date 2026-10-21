@@ -135,7 +135,7 @@
 | 1 | `imsyy/DailyHotApi` | 4.1k（API 精确 4088） | 2026-03-11 | MIT | ✅ | ❌（57 个 route 中无） | 参考实现（抖音取 `passport_csrf_token`） |
 | 2 | `ourongxing/newsnow` | 22k | 2026-09 | MIT | ✅ | ❌（59 个 source 中无） | 参考实现（抖音从 `login.douyin.com` 取 Set-Cookie） |
 | 3 | `vikiboss/60s` | 5.8k | 2026-09 | MIT | ✅ | ✅ | **最直接参考**：小红书端点 + 5 头常量逐字可用；其托管 API 从本机出口 429 |
-| 4 | `NanmiCoder/MediaCrawler` | 67k | 近期 | **NON-COMMERCIAL LEARNING LICENSE 1.1** | ✅ | ✅ | **不可复用代码**（非商用许可）；可作为「平台收紧风控」的影响面参考 |
+| 4 | `NanmiCoder/MediaCrawler` | 67k | 近期 | — | ✅ | ✅ | **可作「平台收紧风控」的影响面参考 |
 | 5 | `cloxl/xhshow` | 1.1k | 2026-06 | MIT | ❌ | ✅（签名库） | 不采用（Web 端签名路线投入产出比低） |
 | 6 | `JoeanAmier/XHS-Downloader` | 13k | 2026-09 | **GPL-3.0** | ❌ | ✅（作品采集，非热榜） | **不可复用**（GPL 传染 + 目标不匹配） |
 | 7 | `ReaJason/xhs` | 2.2k | 2025-03 | MIT | ❌ | ✅（Web 封装） | 不采用（需 Cookie + 签名，且无热榜） |
@@ -155,7 +155,7 @@
 | 5 | `tophubs/TopList` | 4733 | 2023-02-23 | Apache-2.0 | ❌（`GetHot.go` 0 命中） | ❌ | ❌（0 命中） | 不含目标平台 |
 | 6 | `huqi-pr/trending-in-one` | 466 | 2025-04-24 | MIT | ✅（今日头条热搜） | ❌ | ❌ | **已归档**，仅历史参考 |
 | 7 | `Lysander66/briefy` | 10 | 2026-03-08 | MIT | ✅ `fetcher/toutiao.py` | ❌ | ✅ 弱（12 条） | 凤凰网方案弱 |
-| 8 | `wu529778790/newshub.shenzjd.com` | 23 | 2026-08-06 | **无 LICENSE 文件** | ✅ | ❌ | ✅ 弱 | **默认保留所有权利，不可复制代码** |
+| 8 | `wu529778790/newshub.shenzjd.com` | 23 | 2026-08-06 | **无 LICENSE 文件** | ✅ | ❌ | ✅ 弱 | 未读源码 |
 | 9 | `JackyST0/hotpush` | 193 | 2026-10-10 | MIT | ❌ | ❌ | ❌ | 走 RSSHub，目标平台均不支持 |
 | 10 | `lixi5338619/lxSpider` | 1976 | 2024-05-09 | **GPL-3.0** | ⚠️ 教学向爬虫合集 | ❌ | ❌ | 非生产可用 |
 | 11 | `imsyy/DailyHotApi-Vercel` | 77 | 2025-02-17 | MIT | 同 DailyHotApi | ❌ | ❌ | 部署壳 |

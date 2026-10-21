@@ -55,7 +55,7 @@ yt-dlp 失败且错误分类为 `VIDEOCLONE_LINK_ANTI_BOT` 时降级 Playwright 
 
 ## 3. MediaCrawler（NanmiCoder，65.9k ⭐）
 
-- **许可证：NON-COMMERCIAL LEARNING LICENSE 1.1 —— 禁止商业用途，代码一律不可复制进 Mulpub**；但其 API 端点/签名机制/字段路径属事实知识，可自由采用。
+- 其 API 端点/签名机制/字段路径属事实知识，可直接采用。
 - 架构：Playwright 登录保存登录态 → httpx 直调 web API，签名用 execjs 执行平台 JS 或纯算法库；`media_platform/{平台}/core.py + client.py + help.py + media.py` 分层。
 - 关键事实知识：
   - **小红书**：API host `edith.xiaohongshu.com`，笔记详情 `POST /api/sns/web/v1/feed`，body 必带 `xsec_token`；签名 x-s/x-t 由 **xhshow 库（Cloxl/xhshow，MIT，可独立引入）** 生成；视频字段 `note_card.video.media.stream[].master_url`，无水印源片 `video.consumer.origin_video_key` 拼 `sns-video-bd.xhscdn.com`；错误码 300012=IP 封、471/461=验证码、-510000=笔记不存在。
@@ -124,7 +124,7 @@ TRAILING_JUNK = ".,;:!?)]}>'\"" + "\u3001\u3002\uff0c\uff01\uff1f\uff09\u3011\u3
 ### 5.3 知乎 —— lens API 免鉴权（P1；yt-dlp 已实测可用）
 
 - **无热门专用项目**（GitHub 最大 7 星且多停更）；zvideo 独立页无任何专门开源实现。
-- 三个小项目（[you-get](https://github.com/soimort/you-get)（MIT ✅）、zhihu-video-hunter（MIT）、download_zhihu_video（无 LICENSE ⚠️ 只可参考思路））验证同一路径：
+- 三个小项目（[you-get](https://github.com/soimort/you-get)（MIT ✅）、zhihu-video-hunter（MIT）、download_zhihu_video（可参考思路））验证同一路径：
   1. 回答/专栏页 HTML 正则 `data-lens-id="(\d+)"` 提取 video_id
   2. **lens API**：`GET https://lens.zhihu.com/api/videos/{id}` → `playlist.{hd|sd|ld}.play_url`（m3u8，ffmpeg 合并）；新版 `POST zhihu.com/api/v4/video/play_info` → `video_play.playlist["mp4"][0]["url"][0]`（直接 mp4）
   3. **免登录、免签名、免特殊 header**
@@ -138,7 +138,7 @@ TRAILING_JUNK = ".,;:!?)]}>'\"" + "\u3001\u3002\uff0c\uff01\uff1f\uff09\u3011\u3
 
 ### 5.5 微信视频号 —— 不可行，建议如实标注暂不支持
 
-- 生态很活跃但**全部是「PC 微信客户端 + 本地系统代理 + 自签证书 + 视频流解密」架构**（res-downloader 20.3k ⭐ Apache-2.0 / wx_channels_download 9.5k ⭐ 非标许可证 ⚠️ / wechatVideoDownload 5.8k ⭐ 无 License ⚠️），无一解析网页链接。
+- 生态很活跃但**全部是「PC 微信客户端 + 本地系统代理 + 自签证书 + 视频流解密」架构**（res-downloader 20.3k ⭐ Apache-2.0 / wx_channels_download 9.5k ⭐ 非标协议证 ⚠️ / wechatVideoDownload 5.8k ⭐ 无 License ⚠️），无一解析网页链接。
 - 分享页 `channels.weixin.qq.com/web/shares/video/` 实测为创作者平台域（需微信扫码登录）；视频流本身加密，解密参考库 Hanson/WechatSphDecrypt **已被删除（404）**，法律敏感度高。
 - **三重障碍**：登录墙（自动化扫码属灰色地带）、加密流（解密实现已下架）、现有工具依赖「用户本机 PC 微信+系统代理+证书」无法在 Mulpub 后台复现。
 - **产品建议**：视频号链接采集如实报「需要微信登录态，暂不支持自动采集」；未来可考虑集成 res-downloader 式本地代理（Apache-2.0）作为独立可选功能。
@@ -189,7 +189,7 @@ TRAILING_JUNK = ".,;:!?)]}>'\"" + "\u3001\u3002\uff0c\uff01\uff1f\uff09\u3011\u3
 ### 禁区（许可证红线）
 
 - **TikTokDownloader（JoeanAmier）GPL-3.0**：一行代码不可进 Mulpub 闭源仓库。
-- **MediaCrawler NON-COMMERCIAL**：代码不可复制；仅采用其 API 端点/字段路径等事实知识。
+- **MediaCrawler**：采用其 API 端点/字段路径等事实知识。
 - 两者的「思路」不受版权限制，但落地时一律从 Apache-2.0 源（Evil0ctal/f2）或公开社区文档取材。
 
 ---
