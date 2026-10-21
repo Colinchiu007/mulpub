@@ -787,6 +787,18 @@ test('生产默认装配真跑：不注入任何 seam 也必须量到那一笔�
     assert.ok(!world.logs.some((l) => /verdict=UNJUDGEABLE/.test(l)), '任何一档 UNJUDGEABLE 都意味着默认链没接通')
     assert.equal(world.rc, 0, `量到了且合规必须退 0；实际 rc=${world.rc} 日志=${JSON.stringify(world.logs)}`)
     assert.ok(world.logs.some((l) => /MEASURED=1/.test(l)), '测量留痕行必须由 live() 真打出来（只在纯函数里存在 = 装饰）')
+    // 每笔 PR 用完必须把只读 worktree 与临时 ref 清掉。这一格是外部评审第 2 轮"清理永不执行"那条
+    // 指控的**真半截**：它的前提是错的（`!deps.worktreeAdd` 判的是调用方有没有注入，生产侧为真 ⇒ 会执行），
+    // 但"会执行"从没被断言过——清理坏掉时本文件一条用例都不会红。长期仓库里残留注册会让下一次
+    // `worktree add` 报"already registered"，进而被本工具读成 merge-worktree-fault。
+    const list = spawnSync('git', ['-C', world.clone, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' })
+    assert.equal(list.status, 0, 'worktree list 读不到 = 探针坏了，不得读成"已清理"：' + list.stderr)
+    const entries = String(list.stdout).split('\n').filter((l) => l.startsWith('worktree '))
+    assert.equal(entries.length, 1,
+      `一轮跑完只应剩下克隆自己那一条注册项；实际=${JSON.stringify(entries)}`)
+    const refs = spawnSync('git', ['-C', world.clone, 'for-each-ref', '--format=%(refname)', 'refs/recheck'], { encoding: 'utf8' })
+    assert.equal(String(refs.stdout).trim(), '',
+      '临时 refs/recheck/* 必须逐笔删除，不能留在仓库里；实际=' + JSON.stringify(String(refs.stdout).trim()))
   } finally {
     try { fs.rmSync(world.root, { recursive: true, force: true }) } catch { /* 夹具 */ }
   }

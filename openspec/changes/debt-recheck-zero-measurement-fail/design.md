@@ -145,7 +145,19 @@ hazard 不是推演，是五格探针实测（两个临时仓库，各自有一�
 | i5 | Warning | **upheld，已落码** | 见 D9。`-c` 身份 + 默认装配锁跑在无身份现场 + 对照探针放在 env 还原之前；结构侧断言两处 `commit-tree` 都挂同一份常量（漏一处=只修一半） |
 | i6/i7/i8 | Info | i6 无动作；i7 **dismissed**、i8 **采纳** | i7 说混合轮的 conflict 被隐藏——同一轮 `summarizeLine` 已经打印 `UNJUDGEABLE=<n>` 且逐条日志每行都带档名与 detail，`measurementLine` 的职责只是"量到了几笔"，两个数分居相邻两行是刻意分工。i8 采纳：D9/记录里固定了下一次真实运行要读的三行格式 |
 
+## D10b 实现层第 2 轮（最终树）：引擎交付丢失，改直接派发只读复核
+
+盖章必须在**最终树**上跑（第 1 轮的载荷是 `070cae15`，而 i4/i5 的改动在其后）。执行时引擎那一跑**没有产出**：critic 回了内容，但引擎的 schema 校验把 `dimension` 枚举卡死（拒收 `consistency` / `feasibility` / `clarity`，而决策层那一轮同样这些值是合法的）⇒ 整份交付被丢弃、不落 `critique-v1.md`、只在日志里留 400 字符预览。这是「跑完但零交付」的第 19 种形态，且入口仍返回可读退出码——按"看 rc"的口径会被读成"审过了"。
+
+处置：直接对 claude 派发一次**只读**复核（载荷内联三份实现 + 规格 + "上一轮已处置勿重复"清单，输出形态硬约束）。交付 **1 条 Critical**：
+
+- `worktree-cleanup-never-runs`：称 `live()` 的清理块 `if (!deps.worktreeAdd)` 永远为假（因为默认闭包"总会提供非空值"），于是 worktree 注册与 `/tmp/debt-recheck-*` 每轮累积，同一 PR 再算时 `worktree add` 报"already registered" ⇒ 被读成 `merge-worktree-failed`，等于把工具自己的卫生问题报成对别人 PR 的判决。
+  - **前提不成立**：`deps.worktreeAdd` 判的是**调用方有没有注入**，默认闭包是在传给 `evaluatePr` 的实参里现造的，不改写 `deps` ⇒ 生产侧 `!deps.worktreeAdd` 为真，清理会执行。这一点现在有实证，不再靠读代码断言。
+  - **但它戳到了一格真空**：清理是否执行**从未被断言过**——它坏掉时全套 39 条用例一条都不会红。这正是本仓「断言缺失型装饰」的形状，采纳的是这一半。
+  - 落点：§27 第一条用例新增两条断言（一轮跑完 `worktree list` 只剩克隆自己那一条注册项；`refs/recheck/*` 必须为空），并配变异 **M-D15**（把清理条件改成恒假）指名红。
+
 ## D11 合并后的第一件事：让下一次真实运行把根因报出来
+
 
 
 本刀落地后立刻 `workflow_dispatch` 一次重算（该 workflow 自带 `workflow_dispatch`），读它自己打印的 `verdict=…/<档名> :: <失败命令首行>`。三种可能各自对应不同的下一刀：

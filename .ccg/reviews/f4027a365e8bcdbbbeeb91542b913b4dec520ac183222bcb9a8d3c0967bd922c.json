@@ -51,10 +51,27 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "performedBy": "claude",
+    "findings": 1,
+    "error": "Critique校验失败",
+    "validationErrors": [
+      "issues[0].dimension无效:consistency",
+      "issues[2].dimension无效:feasibility",
+      "issues[6].dimension无效:clarity"
+    ],
+    "at": "2026-10-21T18:22:24.624Z",
+    "tier": "external",
+    "evidence": "PR #4204 评论（第 2 轮：引擎交付丢失的现场 + 1 条 Critical 的逐条处置 + 15 个变异复跑读数）：https://github.com/Colinchiu007/mulpub/pull/4204#issuecomment-6323770284 ；产物目录 .adversarial/ccg-deep-03995f3b/",
+    "externalReview": {
+      "performedBy": "claude",
+      "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4204#issuecomment-6323770284",
+      "reviewedAt": "2026-10-21T18:44:15.653Z"
+    },
+    "dispositions": {
+      "r2-i1 worktree-cleanup-never-runs": "前提 dismissed（`!deps.worktreeAdd` 判的是调用方是否注入，生产侧为真 ⇒ 清理会执行，且现已由 §27 的两条断言实证）；其戳到的\"清理从未被断言\"这一格 upheld ⇒ 新增 worktree list / refs/recheck 两条断言 + 变异 M-D15 指名红"
+    },
+    "closureNote": "本轮引擎那一跑无交付：critic 回了内容但被 dimension 枚举校验整份拒收（consistency/feasibility/clarity 不合法），不落 critique 文件、入口仍返回可读退出码 ⇒ 改派一次直接只读复核承担本轮外部评审（199 秒、1 条 Critical）。落码后反证整表重跑：控制跑 tests=39 pass=39 fail=0、15 个变异全 CAUGHT、drift=0。诚实边界：tier=external 由本次会话手写，非工具产物；deepReview.error/validationErrors 原样保留，不抹掉引擎失败的那一格。",
+    "closedAt": "2026-10-21T18:44:15.653Z"
   }
 }
