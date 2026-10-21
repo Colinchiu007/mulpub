@@ -1,0 +1,97 @@
+{
+  "sha": "46fad32fab7fa4da2539c8a7e7ec1d28ea0335ec",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 283 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 283,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 23,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 7,
+    "ccgSensitiveContentSample": [
+      "        \"prosecution\": \"指控成立。`.ccg/reviews/` 下多条 `mode=dual status=pending` 记录属实，`deepReview.performedBy` 为 null、`findings` 为 null，即判定已下、评审未跑。而本次改动确实落在资金链路（微信验签与 AEAD 解密、落账、免登录 webhook），是 highRiskDomains 点名的 auth 面。单模型评审 + 78 例注入式契约锁不构成跨家族交叉验证：注入式测试只能证明我想到的场景对，不能证明我没想的场景不会错——本 PR 已有反例（event_type 读错层级时，夹具跟着错实现写，测试全绿而生产必坏）。更具体：deep-review.sh 首次执行因 /c/Users/… 被拼成 D:\\\\c\\\\Users\\\\… 抛 MODULE_NOT_FOUND；随后直接调引擎时它按「仅最后一个 commit」判成 docs-only SKIP。即长 diff 从未被任何外部模型完整读过一遍。\",",
+      "        \"rationale\": \"判定记录以 diff 内容哈希为键、按 commit 生成，skip 只对该 commit 的差量成立，不是分支级结论。可核证据：node scripts/ccg-review-decider.js --base origin/main 本轮输出 DUAL（3374 行 / 35 文件），而 1a2a2d9f 对应纯记录提交。附带记一条真实风险：若将来有人把单 commit 的 skip 记录当分支级免检凭据，就会重演装饰性门禁——建议在 check-pr-exec-record 补一条「skip 记录不得用于分支级放行」的判据（本次未改判据，属建议）。\"",
+      "        \"prosecution\": \"指控成立且是本次最需外部复核的一条。_handlePaymentWebhook 被放在 Bearer/API-key 鉴权之前（这是 webhook 的正确位置），但它是一个早期 return 点。一旦内部判断写错（例如把全等判断写成前缀判断，或将来有人复制这个块改成别的路由），鉴权链会被整体绕过，而没有任何测试会红。现有 payment-api.test.js 20 例全是直接调用 mixin 方法的白盒测试，一条都没走完整请求管线，因此证明不了「未登录请求到 /api/v1/me/checkout 会被 401」。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1f40639fb419b8af0df233f1bd182a2a5761e0766c012d296936a9a141fef32e",
+  "decidedAt": "2026-10-21T17:01:00.953Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-c4941d28\\adjudication.json",
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
+    "at": "2026-10-21T17:02:25.887Z",
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4187#issuecomment-6322086100",
+    "reviewedAt": "2026-10-21T17:18:00Z",
+    "findings": 8,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对分支相对 origin/main 的完整支付 diff（54 文件 / 4663 insertions / 99,065 字符）独立审阅，原始输出逐字公开于 evidence。该 diff 范围严格覆盖本条记录对应的 commit 差量。评审给出 8 条发现 / VERDICT: BLOCK，逐条核验后 5 条为真缺陷并已在 907fbd017 修复：①金额读 payer_total 而非 total（对账静默断裂）②裸 Base64 一律当证书导致微信支付公钥模式全部拒签 ③签名 Base64 字符类含 -/_ 造成解码歧义 ④弹窗轮询非 0 码时泄漏 setInterval ⑤order-status 未要求登录态。另 3 条判定为非目标/已覆盖/规范误解，理由在同一条评论的核验表。配套回归锁 7 例与判据缺口补测 16 例。"
+  }
+}

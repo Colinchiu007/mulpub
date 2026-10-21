@@ -227,6 +227,58 @@ class CommerceMethods {
     return result.rows || []
   }
 
+  // ——— 006 微信 Native 支付（最小闭环） ———
+
+  /**
+   * 落一笔待支付订单。**白名单列**：不写 provider_sub_id（本期恒 NULL）、
+   * 不让调用方指定 status（恒 pending，只能由 webhook 推进）。
+   *
+   * 为什么不复用 INSERT_ORDER：那条 SQL 硬编码 `status='paid', paid_at=NOW()`——
+   * 它是兑换码/后台开通的语义（一经写入即已授予），支付路径必须先 pending 再等回调。
+   * 混用会让「下单即视为已支付」，是最危险的形态。
+   */
+  async createPendingOrder({ id, userId, plan, amount, currency = 'CNY', period }) {
+    const result = await this.pool.query(
+      `INSERT INTO identity_orders (id, user_id, plan, amount, currency, channel, status, period)
+       VALUES ($1, $2, $3, $4, $5, 'payment', 'pending', $6)
+       RETURNING *`,
+      [id, userId, plan, amount, currency, period],
+    )
+    return result.rows[0] || null
+  }
+
+  async getOrderById(orderId) {
+    const result = await this.pool.query('SELECT * FROM identity_orders WHERE id = $1', [orderId])
+    return result.rows[0] || null
+  }
+
+  /** pending → paid。条件更新（只从 pending 迁），并发重复回调不会二次改写。 */
+  async markOrderPaid(orderId, { paidAt = null, providerOrderId = null } = {}) {
+    const result = await this.pool.query(
+      `UPDATE identity_orders
+          SET status = 'paid', paid_at = COALESCE($2::timestamptz, NOW()), provider_order_id = COALESCE($3, provider_order_id)
+        WHERE id = $1 AND status = 'pending'
+        RETURNING *`,
+      [orderId, paidAt, providerOrderId],
+    )
+    return result.rows[0] || null
+  }
+
+  /** 用户 ↔ 供应商客户映射（webhook 回传 openid 时反查 user_id 用）。 */
+  async upsertPaymentCustomer({ userId, provider, providerCustomerId = null, email = null }) {
+    const result = await this.pool.query(
+      `INSERT INTO identity_payment_customers (user_id, provider, provider_customer_id, email)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (provider, user_id) DO UPDATE SET
+         provider_customer_id = COALESCE(EXCLUDED.provider_customer_id, identity_payment_customers.provider_customer_id),
+         email = COALESCE(EXCLUDED.email, identity_payment_customers.email),
+         updated_at = NOW()
+       RETURNING *`,
+      [userId, provider, providerCustomerId, email],
+    )
+    return result.rows[0] || null
+  }
+
   async createRedeemCodes(records) {
     if (!Array.isArray(records) || records.length === 0) return []
     const result = await this.pool.query(

@@ -63,6 +63,8 @@ test('PostgresIdentityRepository', async (t) => {
       'identity_webhook_events', 'identity_user_sessions',
       'identity_orders', 'identity_redeem_codes', 'identity_notifications',
       'cloud_accounts', 'cloud_account_tombstones',
+      // 006 微信 Native 支付：新表进 readiness 清单（缺一张即 ready 检查发现不了生产缺表）
+      'identity_payment_customers',
     ]
     const pool = {
       async query(text, values) {
@@ -95,6 +97,8 @@ test('PostgresIdentityRepository', async (t) => {
       'identity_webhook_events', 'identity_user_sessions',
       'identity_orders', 'identity_redeem_codes', 'identity_notifications',
       'cloud_accounts', 'cloud_account_tombstones',
+      // 006 微信 Native 支付：新表进 readiness 清单（缺一张即 ready 检查发现不了生产缺表）
+      'identity_payment_customers',
     ]
     const makeRepository = (ledgerRows) => {
       const pool = {
@@ -140,7 +144,7 @@ test('PostgresIdentityRepository', async (t) => {
 
   await t.test('生产 PostgreSQL 迁移与运行时所需表保持一致', () => {
     const migrationDirectory = path.resolve(__dirname, '../../../migrations/postgresql')
-    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql', '004_member_commerce.sql', '005_cloud_accounts.sql']
+    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql', '004_member_commerce.sql', '005_cloud_accounts.sql', '006_payment_orders.sql']
       .map((name) => fs.readFileSync(path.join(migrationDirectory, name), 'utf8'))
       .join('\n')
     for (const table of [
@@ -148,6 +152,7 @@ test('PostgresIdentityRepository', async (t) => {
       'identity_entitlement_usage', 'identity_webhook_events', 'identity_user_sessions',
       'identity_orders', 'identity_redeem_codes', 'identity_notifications',
       'cloud_accounts', 'cloud_account_tombstones',
+      'identity_payment_customers',
     ]) {
       assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`))
     }

@@ -20,6 +20,7 @@ const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
 const { applyRedeemCodeAdminHelpers } = require("./auth/publish-api-redeem-code-admin")
+const { applyPaymentHelpers } = require("./auth/publish-api-payment")
 const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
 const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
 const mediaResolver = require("./publish/resolve-request-media")
@@ -757,6 +758,7 @@ class PublishApiServer {
       return;
     }
 
+    if (await this._handlePaymentWebhook(req, res, method, url)) return;
     // 路径前缀守卫：业务 API 仅接管 /api/v1/，其他路径（如 Logto 自身的 /api/users、/api/forgot-password）
     // 必须由 Nginx 反代到 Logto container 而非业务 API container。
     // 误路由时返回 404 + 明确错误码，避免误导为鉴权问题（QM-5 回归：forgot-password 报 "Valid API key required" bug）。
@@ -945,6 +947,8 @@ class PublishApiServer {
         return;
       }
 
+      if (await this._handleMemberCheckout(req, res, method, url)) return;
+      if (await this._handleMemberOrderDetail(req, res, method, url)) return;
       if (url === "/api/v1/me/orders" || url === "/api/v1/me/notifications" || url === "/api/v1/me/notifications/read" ||
         url === "/api/v1/me/sessions" || url === "/api/v1/me/sessions/revoke-others" || url === "/api/v1/me/profile") {
         const commerceRepository = this._commerceRepository();
@@ -1417,7 +1421,9 @@ p{color:#6e6e73}
           { m: "GET", p: "/api/v1/me/sessions", d: "List active device sessions (scope profile:read)" },
           { m: "POST", p: "/api/v1/me/sessions/revoke-others", d: "Revoke other device sessions. Requires valid X-Device-ID header to keep current device (scope profile:write)" },
           { m: "PATCH", p: "/api/v1/me/profile", d: "Update own displayName/avatarUrl. Body: { displayName?, avatarUrl? } (scope profile:write)" },
-          { m: "POST", p: "/api/v1/admin/member/grant", d: "Admin grants a plan. Body: { userId, plan, durationDays } (scope admin:users)" },
+          { m: "POST", p: "/api/v1/me/checkout", d: "Create a WeChat Native payment order. Body: { plan, period }. Amount is computed server-side from plan-matrix; client-supplied amount is ignored (scope profile:write)" },
+          { m: "GET", p: "/api/v1/me/orders/{id}", d: "Get own order by id. Other users' orders return 404 (scope profile:read)" },
+          { m: "POST", p: "/api/v1/webhooks/payment", d: "WeChat Pay APIv3 webhook. No bearer auth; verified via platform certificate RSA-SHA256 (Wechatpay-Signature/Serial/Timestamp/Nonce). Internal errors still return 2xx to avoid WeChat retry storms" },          { m: "POST", p: "/api/v1/admin/member/grant", d: "Admin grants a plan. Body: { userId, plan, durationDays } (scope admin:users)" },
           { m: "POST", p: "/api/v1/admin/member/redeem-codes", d: "Admin batch-generates redeem codes. Body: { plan, durationDays, count, batch?, expiresAt? }. 409 REDEEM_BATCH_INCOMPLETE when collision top-up exhausts (response carries already-issued codes)" },
           { m: "GET", p: "/api/v1/admin/member/redeem-codes", d: "List redeem codes. Query: { plan?, status?, batch?, limit?, offset?, reveal }. Codes are masked unless reveal=true (audited)" },
           { m: "POST", p: "/api/v1/admin/member/redeem-codes/disable", d: "Disable a redeem code. Body: { code }. 200 idempotent:true when already disabled, 409 REDEEM_CODE_ALREADY_USED when used, 404 when absent (scope admin:users)" },
@@ -1550,6 +1556,7 @@ p{color:#6e6e73}
 
 applyCommerceHelpers(PublishApiServer);
 applyRedeemCodeAdminHelpers(PublishApiServer);
+applyPaymentHelpers(PublishApiServer);
 applyCloudAccountHelpers(PublishApiServer);
 applyCapabilitiesHelpers(PublishApiServer);
 

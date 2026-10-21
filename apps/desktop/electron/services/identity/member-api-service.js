@@ -25,7 +25,22 @@ const ME_API_PATHS = new Map([
   // 会员激活码核销：只放 POST。GET 拿不到兑换码语义，且放开 GET 等于
   // 允许用查询参数传码（会进 access log 与浏览器历史）。
   ['/api/v1/redeem', { methods: ['POST'] }],
+  // 微信 Native 支付下单：只放 POST。body 白名单在 ipc-handlers/wechat-pay.js 里收窄到
+  // plan/period 两个字段，金额由服务端按 plan-matrix 计算（客户端传 amount 一律丢弃）。
+  ['/api/v1/me/checkout', { methods: ['POST'] }],
 ])
+
+/**
+ * 带路径参数的白名单（**前缀 + 参数形状**双层锁）。
+ *
+ * 为什么不能只做前缀匹配：/api/v1/me/orders/<任意> 若只比前缀，renderer 就能把
+ * ../../admin/member/grant 之类的路径拼进来（路径穿越），把 token 外泄面重新打开。
+ * 参数必须再命中 paramPattern，且拼接前不做任何解码。
+ */
+const ME_API_PREFIXES = [
+  // 订单详情轮询：orderId 形状与服务端 OUT_TRADE_NO_PATTERN 同源
+  { prefix: '/api/v1/me/orders/', methods: ['GET'], paramPattern: /^wp[a-z0-9]{8,64}$/ },
+]
 
 const QUERY_ALLOWLIST = new Set(['view'])
 const QUERY_VALUES = { view: new Set(['digest', 'full']) }
@@ -51,7 +66,19 @@ function createMemberApiService({ entitlementService, tokenProvider } = {}) {
       if (!entitlementService.canReadMembership || !entitlementService.canReadMembership(subject)) {
         throw new IdentityError('ENTITLEMENT_SESSION_MISMATCH', '登录会话已变更，请重试')
       }
-      const route = ME_API_PATHS.get(apiPath)
+      let route = ME_API_PATHS.get(apiPath)
+      if (!route) {
+        // 带路径参数的白名单：前缀命中还不够，**参数本身必须命中形状**。
+        // 只比前缀会让 renderer 把 `../../admin/...` 拼进来（路径穿越），把 token 外泄面重开。
+        for (const candidate of ME_API_PREFIXES) {
+          if (!apiPath.startsWith(candidate.prefix)) continue
+          const param = apiPath.slice(candidate.prefix.length)
+          // 参数里不得再有 `/`（否则可拼二级路径）；不做事后解码
+          if (!candidate.paramPattern.test(param)) continue
+          route = candidate
+          break
+        }
+      }
       if (!route) throw new IdentityError('MEMBER_API_PATH_NOT_ALLOWED', '请求路径不在会员接口白名单内')
       const resolvedMethod = method || route.methods[0]
       if (!route.methods.includes(resolvedMethod)) {
@@ -81,4 +108,4 @@ function createMemberApiService({ entitlementService, tokenProvider } = {}) {
   }
 }
 
-module.exports = { createMemberApiService, ME_API_PATHS, buildQuery }
+module.exports = { createMemberApiService, ME_API_PATHS, ME_API_PREFIXES, buildQuery }

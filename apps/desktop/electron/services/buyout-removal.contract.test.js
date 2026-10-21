@@ -124,6 +124,37 @@ describe('买断授权模型移除契约锁', () => {
       expect(codeOnly, 'UpgradeModal 仍有「永久」买断文案').not.toContain('永久')
       expect(codeOnly, 'UpgradeModal 仍在调用下单 API').not.toMatch(/paymentCreateOrder|paymentSimulate|paymentCancel/)
     })
+
+    /**
+     * 正向锁（2026-10-21 wechat-native-payment 追加）：
+     * 上面的断言只证明「payment: 前缀零命中」——那是**否定面**。零命中也可以由
+     * 「整个支付功能被删光」满足，所以还需要一条**肯定面**：在线支付确实存在，
+     * 且它的通道名被精确限制在这两条。
+     *
+     * 为什么要精确到"只有两条"：`wechat-pay:` 是新的信任面（能触发真实扣款的下单入口）。
+     * 只写"存在"的话，下一个会话顺手加第三条（比如免登录的 `wechat-pay:refund`）不会被任何
+     * 判据拦住。写死枚举后，新增通道必然红，逼人回来改这张表并想清楚权限级别。
+     */
+    it('微信支付通道：恰好两条，且不得借用 payment: 前缀（正向锁）', () => {
+      const acl = stripComments(read('../ipc-handlers/license-access-control.js'))
+      const preload = stripComments(read('../preload/wechat-pay.js'))
+      const handler = stripComments(read('../ipc-handlers/wechat-pay.js'))
+
+      // ① 通道名必须出现在 handler 的 ipcMain.handle 字面量里（循环注册对静态扫描不可见）
+      expect(handler).toMatch(/ipcMain\.handle\('wechat-pay:create-order'/)
+      expect(handler).toMatch(/ipcMain\.handle\('wechat-pay:order-status'/)
+
+      // ② preload 必须且只能暴露这两个桥接
+      const exposed = preload.match(/\bwechatPay[A-Z]\w+/g) || []
+      expect([...new Set(exposed)].sort()).toEqual(['wechatPayCreateOrder', 'wechatPayOrderStatus'])
+
+      // ③ 两条通道都**不得**进 PUBLIC_CHANNELS（下单能触发真实扣款，必须登录）
+      expect(acl).not.toMatch(/['"]wechat-pay:/)
+
+      // ④ 反向：payment: 前缀在 acl/preload 两侧仍为零（与上面既有断言同向，防止改名回退）
+      expect(acl.match(/['"]payment:[a-z-]+['"]/g) || []).toEqual([])
+      expect(preload.match(/\bpayment[A-Z]\w+/g) || []).toEqual([])
+    })
   })
 
   describe('② 本地授权写入路径必须已移除（订阅只由服务端授予）', () => {
