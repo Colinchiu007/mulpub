@@ -24,7 +24,7 @@
 - [x] 3.1 `node scripts/not-found-contract-mutate.js` → 基线三套件 `red=0`；`M1..M9` 全部 `CAUGHT`；`ALL_CAUGHT（9 条）`；5 个被改文件 `md5 identical=true`
 - [x] 3.2 `node .github/scripts/check-route-registry.js` → `router 路由 37 / 登记 37 / 菜单项 22 / 暗路由 11 / 兜底 1` + `PASS`
 - [x] 3.3 受影响套件实跑：`NotFound`(13) + `useTabDocumentTitle`(17) + `route-registry-entry-hosts`(4) + `useSpaNavHistory`(7) + `locales/structure-lock`(4) 全绿
-- [x] 3.4 eslint 改动 8 文件 `ESLINT_RC=0`
+- [x] 3.4 eslint 按 CI Gate 11 同口径实跑：`cd apps/desktop && eslint electron/ src/ --quiet` → `ESLINT_AGG_RC=0`（不是只 lint 改动文件）
 - [x] 3.5 行尾对账：`git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径均为 1512（相等 ⇒ 无行尾改写）；`git ls-files --eol` 逐文件读数与归因写在执行记录「行尾现场」
 - [x] 3.6 门禁实跑：`check-locale-sync.js --pair-base HEAD` PASS、`--cjk` PASS（基线 1330 / 当前 1124，无新增硬编码）、`check-no-brand-residue.js` PASS
 - [ ] 3.7 桌面端全量 vitest 实跑（本 PR 只跑了受影响套件；全量由 CI Gate 4 承担，本地未跑即如实留空）

@@ -101,7 +101,9 @@ ALL_CAUGHT（9 条）
 - `vitest run src/views/NotFound.test.js` → 13 passed
 - `vitest run src/composables/useTabDocumentTitle.test.js` → 17 passed（含新增 4 条）
 - 邻近套件：`route-registry-entry-hosts` / `useSpaNavHistory` / `locales/structure-lock` 全绿
-- eslint：8 个改动文件零错（`ESLINT_RC=0`）
+- eslint：**按 CI Gate 11 的同一条聚合命令跑**（`cd apps/desktop && eslint electron/ src/ --quiet`）→ `ESLINT_AGG_RC=0`。
+  口径来自 #4197 的同期教训：只 lint「我改过的 8 个文件」会漏掉"一个文件里两份同名真源"这类
+  聚合口径才显形的缺陷 —— CI 的判定域是整个 `electron/` + `src/`。
 
 ### 行尾现场（当场量，不凭记忆）
 
