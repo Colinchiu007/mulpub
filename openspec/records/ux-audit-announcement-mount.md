@@ -15,12 +15,13 @@ sync_status: PENDING
 | 变更类型与隔离 | ✅ | 运行时代码变更（`src/App.vue` + 组件 + composable + locales）⇒ 隔离 worktree `mp-ux-audit-announcement-mount`，裸分支 `ux-audit-announcement-mount`，非 C 盘 |
 | TDD | ✅ | 先写 3 个测试文件（组件 13 条 + 接线锁 4 条 + locale 成对 5 条 = **新增 22 条**），首跑 **14 条红**（12 条组件/接线断言 + `announcement-copy.test.js` 因 `locales/announcement/*` 尚不存在而整份收集失败）。实现后定向四文件（含既有的 `useOpsCenterRuntime.test.js` 3 条）`--reporter=json` 读数 **25 passed / 0 failed**；再把 `locales/structure-lock.test.js`（4 条）一起跑为 **29 passed / 0 failed** |
 | 自测（全域） | ✅ | 全域 `vitest run src` **两跑**：第一跑 **407 files passed / 6420 passed / 2 skipped，但 `Errors 5 errors` + rc=1** —— 五条全是 Unhandled Rejection（`No "invokeWithFallback" export is defined on the "@/api/electron-bridge" mock`），是**本批接线自己引入的真实回归**（横幅 `onMounted(() => loadRuntime())` 是浮空 promise，而 mount App.vue 的测试对桥做部分 mock）。修法落在边界：`useOpsCenterRuntime.loadRuntime()` 改成**永不 reject**，以 `{code:-1, message, data:null}` 表达失败，并加 2 条行为锁（失败必须可读、失败态与空态必须可区分）。第二跑 **407 files / 6422 passed / 2 skipped / 0 failed，无 Errors 行，rc=0**。 前置：先跑 `pnpm run build:preload`，否则 bundle 新鲜度断言会因 gitignored 产物缺失报 ENOENT。聚合 eslint 见下
-| 反证（7 道） | ✅ | `node scripts/announcement-mount-contract-mutate.js` ⇒ `[BASELINE] rc=0 failed=0 passed=22 collected=22 errors=0 blind=false`；`[SUMMARY] 共 7 条：CAUGHT=7 其余=0`，驱动 rc=0，且每条打 `RESTORE_OK`（还原后独立 md5 回读一致）。C1 摘掉挂载 / C2 挂载搬进壳态分支 / C3 空列表也渲染 / C4 维护档给了关闭按钮 / C5 关闭记忆退化成常量键 / C6 未知 severity 产出空档位 / C7 可访问名退回硬编码中文
-| 静态门禁 | ✅ | `check-unwired-tests.js` → 检查域内测试文件 119 个 / OK；`check-no-brand-residue.js` → PASS（11564 个 tracked 文件）；`check-doc-abs-paths.js` → PASS（counts=1161 domain=5130 files=561 canJudge=true）；`check-locale-sync.js --cjk` → PASS（基线 1330 条 → 当前 1120 条，本批净减硬编码）；locale 成对由本批自锁 `src/locales/announcement-copy.test.js` 承担（Gate 7 对拆分文件实测失明，见任务 #20）；聚合 eslint 限定 10 个改动文件 rc=0；另跑 `check-locale-sync.js --pair-base origin/main` 打 PASS 但报两个根装配文件 `变更=false`，而该次跑是在**未提交态**取的——提交后复测一次，按复测读数判断它到底看不看得到本批改动的成对面
+| 反证（7 道） | ✅ | `node scripts/announcement-mount-contract-mutate.js` ⇒ `[BASELINE] rc=0 failed=0 passed=22 collected=22 errors=0 blind=false`；`[SUMMARY] 共 7 条：CAUGHT=7 其余=0`，驱动 rc=0，且每条打 `RESTORE_OK`（还原后独立 md5 回读一致）。C1 摘掉挂载 / C2 挂载搬进壳态分支 / C3 空列表也渲染 / C4 维护档给了关闭按钮 / C5 关闭记忆退化成常量键 / C6 未知 severity 产出空档位 / C7 可访问名退回硬编码中文。<br>**QM-6 处置后复跑**（基线 23 条，含新增重启态锁）⇒ collected=23 / CAUGHT=7 其余=0 / 驱动 rc=0，读数见 §四之二
+| 静态门禁 | ✅ | `check-unwired-tests.js` → 检查域内测试文件 119 个 / OK；`check-no-brand-residue.js` → PASS（11564 个 tracked 文件）；`check-doc-abs-paths.js` → PASS（counts=1161 domain=5130 files=561 canJudge=true）；`check-locale-sync.js --cjk` → PASS（基线 1330 条 → 当前 1120 条，本批净减硬编码）；locale 成对由本批自锁 `src/locales/announcement-copy.test.js` 承担（Gate 7 对拆分文件实测失明，见任务 #20）；聚合 eslint 限定 10 个改动文件 rc=0；另跑 `check-locale-sync.js --pair-base origin/main`：**已按承诺在提交后复测**，读数为
+  `zh.js 变更=true / en.js 变更=true` + RC=0（先前那次 `变更=false` 是未提交态取证，属取证顺序问题，见 §四之二）
 | 行尾对账 | ✅ | 暂存后 `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` **两口径逐字一致：add 1223 / del 31**（不一致即说明行尾被改）。新建文件一律 LF；改既有 CRLF 文档（CHANGELOG / 审计文档）由补丁脚本逐行保留各自行尾 |
 | QM-1 打包 | N/A | 本批不改 `electron/` 主进程代码（挂载点方案 C 的定义：不动几何契约） |
 | QM-4 视觉 | ⏳ | `announcements` 为空时组件不渲染任何节点 ⇒ 预期零像素回归；若 CI 报回归，只允许按"同一次 CI 渲染"刷新，禁止本机截图与 `--update-baseline`
-| QM-6 双模型 | ⏳ | `node scripts/ccg-review-decider.js --base origin/main --head HEAD` 判定与处置回填本节；未闭合前本条 PR **不自动合并**（且须知：enforce RC=0 只说明"没有可查的产物"，不说明"评审过了"）
+| QM-6 双模型 | ❌ 未闭合（如实） | 判定 DUAL（764 行）；critic=claude / proposer=opencode 轮 1 出 12 条 → 引擎自扮演待裁 4 条。裁决 i1=dismissed、i2/i3/i4=upheld 且**均已在本批修完**，产物 `.ccg/reviews/1dd164f4….json` 记 `self_play_blocked` ⇒ enforce RC=1 ⇒ **本条 PR 不自动合并**。逐条依据与复跑读数见 §四（机制缺"upheld 且已修"出口，属任务 #19 的人工裁决账）（且须知：enforce RC=0 只说明"没有可查的产物"，不说明"评审过了"）
 | 远程同步 | 由门禁推导 | PR #pending —— 合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导收口，不手写状态词、不另开回填 PR |
 
 ## 一、用户可见变化
@@ -60,8 +61,47 @@ sync_status: PENDING
 
 ## 四、QM-6
 
-待补。判定读数与逐条处置回填在本节，评审产物入库到 `.ccg/reviews/`（gitignored 的
-`.adversarial/` 不构成可复核证据）。
+判定：`scripts/ccg-review-decider.js --base origin/main --head HEAD` → **DUAL**（变更 764 行 > 200 行阈值）。
+跨家族：`proposer=opencode` / `critic=claude`（通过校验）。轮 1 出 12 条问题，4 个维度最低分 4 →
+引擎收敛判 `status=self_play reason=selfPlay`（无真跨家族第二轮），进第三档自扮演裁决，
+待裁 4 条、高危域必须外部复核 0 条。产物已入库 `.ccg/reviews/1dd164f4….json`
+（gitignored 的 `.adversarial/` 里的裁决模板不构成可复核证据）。
+
+| id | 级别 | 裁决 | 依据（可验证） |
+| --- | --- | --- | --- |
+| i1 | Critical | **dismissed** | 指控"`const dismissedKeys = ref(readDismissed())` 排在 `const DISMISSED_STORAGE_KEY` 之前 ⇒ TDZ ⇒ try/catch 吞成空集合 ⇒ 持久化恒失效"。**判据不是源文件书写顺序，而是编译后 setup 函数体的顺序**：对本文件跑 `@vue/compiler-sfc` 的 `parse` + `compileScript`，产物里 `const DISMISSED_STORAGE_KEY = …` 被提升到 `setup(__props, …) {` **之上**（模块作用域），调用点不存在 TDZ。行为侧同向证据：本轮新增一条**重启态锁**（先向 localStorage 预置 `id:9`、本会话不点关闭、首挂载只应渲染"没关过"的那条）——若指控成立该锁必红，实跑 23 passed / 0 failed。 |
+| i2 | Warning | **upheld（已修）** | 驱动 `spawnSync('pnpm.cmd', …)` 是 Windows 专有文件名；任务 #23 要把这类驱动接进 CI（Linux runner），POSIX 上 spawn 失败会让基线读成 blind ⇒ 7 道反证一条不跑还"看起来像环境问题"。改为按平台选 `RUNNER`。**同型缺陷在另外三个 contract-mutate 驱动里也存在**，收敛点统一放在 #23 那次，不在各自 PR 里散改。 |
+| i3 | Warning | **upheld（已修）** | A1 原写成无条件"外壳顶部可见"，而同文档 §8.1 与 design D6 自己登记"浏览器/登录标签前台时横幅被原生 `WebContentsView` 覆盖"——验收标准与残留限制自相矛盾。改写为"挂在渲染层外壳、文案/可访问名可读"并显式写出**测量域**（判 DOM 与读屏可达，不判像素可见）。未把"可见"改成无条件为真：那需要 design D1 方案 B 的几何双向通道，属已登记后续批。 |
+| i4 | Warning | **upheld（已修）** | 变异清单跨文档漂移：D5 列 6 条且 C2/C6 语义与脚本不同，tasks.md 写 `C1–C6` / `CAUGHT=6/6`，而脚本实为 `C1–C7`。脚本是唯一可执行真源 ⇒ D5 按脚本逐条回写 + 加"清单以脚本 `MUTATIONS` 为准"的防漂移锚，tasks.md 改 7 道。 |
+
+i1 虽然被否证，但它闻到的**脆弱性是真的**：正确性目前挂在一条编译器优化上——取值一旦从字面量
+改成非静态表达式（`const KEY = import.meta.env.X`），同一行序立刻变成真 TDZ，而那个 `try/catch`
+会把这一下吞成"什么都没关过"。因此同批做两处加固：① 把该 const 移到调用点之前（reader 顺序 = 求值顺序）；
+② 补上面那条重启态锁（历史快照不改写，本条按当前 HEAD 重放后判定）。
+
+裁决后引擎读数（复用存档 critique，零模型调用）：
+`♻ 复用存档 critique（12 条）+ 已填完的裁决 —— 跳过模型调用` → `🔴 自扮演裁决判定存在阻断项 3 条`
+（i2/i3/i4 `self_play_upheld`），驱动 rc=1，产物 `status=self_play_blocked`。
+
+**所以本条 PR 不自动合并**（自动合并判据第 4 条 enforce 不 OK）。三条 upheld 均已在本批修完，
+但机制里没有"upheld 且已修"这个出口——这正是任务 #19 记的那笔待人工裁决的账：
+要么给引擎加 `needs_revision` 的回写路径，要么把这笔欠账做成 required check 上可见的红。
+两者都在改"谁来守门"，本会话不代做。
+
+### 四之二、处置后的复跑读数
+
+- `pnpm exec vitest run src/announcement-mount-wiring.test.js src/components/AnnouncementBanner.test.js src/locales/announcement-copy.test.js`
+  → `Test Files 3 passed (3) / Tests 23 passed (23)`（新增 1 条 = 22 → 23）。
+- `node scripts/announcement-mount-contract-mutate.js --keep-going`
+  → `[BASELINE] rc=0 failed=0 passed=23 collected=23 errors=0 blind=false`，`[SUMMARY] 共 7 条：CAUGHT=7 其余=0`，
+  七条 `RESTORE_OK`，驱动 rc=0。C5 的红集现在**包含**那条重启态锁（红 5 条），说明新增的锁确实站在被保护的行为上。
+- `node .github/scripts/check-locale-sync.js --pair-base origin/main` → RC=0，
+  `zh.js 变更=true / en.js 变更=true`。**这条兑现了门禁表里承诺的复测**：
+  门禁表首次写的是未提交态读数（两个根装配文件 `变更=false`），提交后同一命令读到 `变更=true`，
+  说明它看的是"相对 ref 的差量"，未提交时差量为空 ⇒ 那次 PASS 不构成"它看不见本批成对改动"的证据。
+  （注意：脚本那行文案自称"覆盖 locale 目录下全部 zh/en 文件"，与任务 #20 的实测"拆分文件失明"**不同源**，
+  文案是宣传不是判据——#20 的实测反证仍然是有效的。）
+- 全域 `vitest run src` 的复跑待回填：本轮改了组件与测试文件，旧读数（407 files / 6422 passed）属上一提交。
 
 ## 五、遗留
 

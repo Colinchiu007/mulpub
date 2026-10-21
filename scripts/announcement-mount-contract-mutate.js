@@ -90,8 +90,13 @@ const MUTATIONS = [
   },
 ]
 
+// QM-6 i2：`pnpm.cmd` 是 Windows 专有文件名，POSIX 上 spawn 直接失败 ⇒ 基线读成 blind，
+// 7 道反证一条都不跑却"看起来只是环境问题"。任务 #23 要把这类驱动接进 CI（Linux runner），
+// 所以命令名必须按平台选，不能只在这台机器上成立。
+const RUNNER = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+
 function runVitest () {
-  const res = spawnSync('pnpm.cmd', ['exec', 'vitest', 'run', ...TEST_FILES], {
+  const res = spawnSync(RUNNER, ['exec', 'vitest', 'run', ...TEST_FILES], {
     cwd: DESKTOP, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell: true,
   })
   const raw = (res.stdout || '') + (res.stderr || '')

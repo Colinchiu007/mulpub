@@ -59,11 +59,16 @@ MUST NOT 改成按下标记忆（下标位移会让 A 复活、B 消失）。
 接线类改动最容易被"测试自己 mount 组件"骗过去，故必须做写型反证：
 
 - C1 把 `App.vue` 里的挂载删掉 ⇒ 接线锁必须红（证"注册≠渲染"这道锁真有牙）
-- C2 把 `v-if="visibleAnnouncements.length > 0"` 改成恒真 ⇒ 空列表不渲染那条必须红
-- C3 让 `maintenance` 也渲染关闭按钮 ⇒ 不可关那条必须红
-- C4 把 `dismissKey` 的 `id` 优先改成按下标 ⇒ 新增公告用例必须红
-- C5 把 severity 兜底从 `info` 改成"整条丢弃" ⇒ 未知 severity 必须红
-- C6 在组件里塞回一句硬编码中文 aria-label ⇒ locale 锁必须红
+- C2 把挂载搬进内嵌主页的壳态分支（而非工作台分支）⇒ 「只渲染一次 / 不在壳态区域渲染」两条必须红
+- C3 把 `v-if="visibleAnnouncements.length > 0"` 改成恒真 ⇒ 空列表不渲染那条必须红
+- C4 让 `maintenance` 也渲染关闭按钮 ⇒ 不可关那条必须红
+- C5 把 `dismissKey` 退化成常量键（关掉一条＝关掉全部）⇒ 逐条记忆的用例必须红
+- C6 把 severity 兜底从 `info` 改成产出空档位 ⇒ 未知 severity 必须红
+- C7 在组件里塞回一句硬编码中文 aria-label ⇒ locale 锁必须红
+
+> 清单以脚本为准（`scripts/announcement-mount-contract-mutate.js` 的 `MUTATIONS`，现 7 条 C1–C7）。
+> 初版 D5 只写了 6 条且 C2/C6 的语义与脚本不一致，QM-6 i4 命中后按脚本逐条回写——
+> 变异清单跨文档漂移时，按 spec 无法复验「反证 N 道逐条 CAUGHT」，所以这条注释本身就是防漂移的锚。
 
 ## D6 残留限制（写给下一个读的人）
 

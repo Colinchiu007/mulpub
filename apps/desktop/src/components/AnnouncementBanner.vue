@@ -34,9 +34,12 @@ import { useOpsCenterRuntime, SEVERITIES } from '@/composables/useOpsCenterRunti
 
 const { t } = useI18n()
 const { announcements, loadRuntime } = useOpsCenterRuntime()
-const dismissedKeys = ref(readDismissed())
-
 const DISMISSED_STORAGE_KEY = 'announcement-banner-dismissed'
+// 声明顺序刻意排在上面这次调用之前：`<script setup>` 现在会把字面量 const 提升到 setup 之外
+// （实测 `@vue/compiler-sfc` 生成的产物里它已在 `setup()` 上方，所以旧顺序不会 TDZ），
+// 但那是编译器优化不是语言保证——把值换成非静态表达式就会落回 setup 内，
+// 而 readDismissed() 的 try/catch 会把 ReferenceError 吞成「什么都没关过」。
+const dismissedKeys = ref(readDismissed())
 
 const visibleAnnouncements = computed(() =>
   (announcements.value || []).filter((a) => !dismissedKeys.value.has(dismissKey(a)))

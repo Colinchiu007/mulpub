@@ -198,6 +198,19 @@ describe('AnnouncementBanner 关闭记忆', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY))).toEqual(['id:0'])
   })
 
+  it('重启态（存储里已有已关闭项、本次会话没点过关闭）首挂载必须读回它', () => {
+    // 上一条走的是「同会话内点关闭 → 再挂载」，读的是刚被 dismiss() 写进去的值；
+    // 真实故障形态是**冷启动**：存储先有值、组件第一次 setup 就要读对。
+    // 恢复类用例若不让目标存储预置非空，"根本没读"与"读了但读错"在断言里同形（同仓 cookie 恢复复盘）。
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(['id:9']))
+    setAnnouncements([
+      { id: 9, severity: 'info', title: '已关过' },
+      { id: 10, severity: 'warning', title: '没关过' },
+    ])
+    const wrapper = mountBanner()
+    expect(wrapper.findAll('.ann-title').map((n) => n.text())).toEqual(['没关过'])
+  })
+
   it('localStorage 里是坏 JSON 时不得整块横幅消失（读失败按未关闭处理）', () => {
     localStorage.setItem(STORAGE_KEY, '{ not json')
     setAnnouncements([{ id: 1, severity: 'info', title: 'A' }])

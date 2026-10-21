@@ -19,14 +19,14 @@
 - [x] 2.3 `AnnouncementBanner.vue`：全部文案走 `useI18n()`，severity 标签按 locale 取，未知值兜 `info`
 - [x] 2.4 `App.vue`：在 `.mp-shell-main` 的 `NavBar` 之后、工作区 `main` 之前挂载组件
 - [x] 2.5 若 `structure-lock.test.js` 因新域报错，按它要求的形状补齐（不得改宽它的判据）
-- [x] 2.9 **接线过程中自己引入的回归**：横幅 `onMounted` 的浮空 promise 让全域出现 5 条 Unhandled Rejection（测试全绿，只有 `Errors` 行看得见）。
+- [x] 2.6 **接线过程中自己引入的回归**：横幅 `onMounted` 的浮空 promise 让全域出现 5 条 Unhandled Rejection（测试全绿，只有 `Errors` 行看得见）。
       修在边界（`loadRuntime()` 永不 reject）而不是每个调用点补 `.catch`，并加 2 条行为锁。见记录"自测（全域）"行。
 
 ## 3. 反证
 
-- [x] 3.1 `scripts/announcement-mount-contract-mutate.js`：C1–C6 逐个注入（形态规矩沿用 1.3：
+- [x] 3.1 `scripts/announcement-mount-contract-mutate.js`：C1–C7 逐个注入（形态规矩沿用 1.3：
       必须可执行、不得攻击断言本身、解析前剥 ANSI、`collected > 0` 下界、`RUN_UNCLEAN` 档）
-- [x] 3.2 末跑必须 `CAUGHT=6/6` 且驱动 rc=0
+- [x] 3.2 末跑必须 `CAUGHT=7/7` 且驱动 rc=0
 
 ## 4. 文档与验证
 

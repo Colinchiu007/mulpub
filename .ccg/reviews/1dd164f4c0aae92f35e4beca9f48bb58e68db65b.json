@@ -1,0 +1,120 @@
+{
+  "sha": "1dd164f4c0aae92f35e4beca9f48bb58e68db65b",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 764 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 764,
+    "fileCount": 22,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "  因此预期零像素回归。若 CI 实测出现回归，按「基线只能取自同一次 CI 渲染」的既有口径刷新，禁止用本机截图或 `--update-baseline` 消化。",
+      "      若 CI 报回归，只允许按\"同一次 CI 渲染\"刷新，禁止本机截图与 `--update-baseline`",
+      "| QM-4 视觉 | ⏳ | `announcements` 为空时组件不渲染任何节点 ⇒ 预期零像素回归；若 CI 报回归，只允许按\"同一次 CI 渲染\"刷新，禁止本机截图与 `--update-baseline`"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T22:50:11.581Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "AnnouncementBanner.vue 的 <script setup> 中，`const dismissedKeys = ref(readDismissed())` 位于 `const DISMISSED_STORAGE_KEY = 'announcement-banner-dismissed'` 的声明之前；readDismissed() 在调用点同步执行并求值 DISMISSED_STORAGE_KEY，此时该 const 处于 TDZ，抛出 ReferenceError，被函数内 try/catch 吞掉后恒返回空 Set ⇒ 每次挂载 dismissedKeys 都为空，『重开应用仍隐藏已关闭项』的持久化完全失效。按本 diff 所示顺序，AnnouncementBanner.test.js 的『关闭后写入 localStorage，重挂载仍然只隐藏那一条』与『运营新增公告不得让已关闭项复活』两条用例在第二次 mount 时必然读到空集合而红——这与执行记录声称的『22 collected / 0 failed』、反证基线干净、『CAUGHT=7/7』直接矛盾。要么仓库文件顺序与 diff 不一致，要么记录中的测试结果失真，二者必居其一。",
+        "highRiskDomains": [],
+        "prosecution": "指控：`dismissedKeys = ref(readDismissed())` 写在 `const DISMISSED_STORAGE_KEY` 之前，setup 逐句执行 ⇒ 调用时该 const 处于 TDZ，ReferenceError 被 readDismissed 的 try/catch 吞掉 ⇒ 每次挂载恒空集合，持久化整体失效；且这与记录里 22 passed / CAUGHT=7/7 矛盾，二者必有一假。",
+        "defense": "辩护：判据不是「源文件里的书写顺序」，而是「编译后 setup 函数体里的顺序」。`<script setup>` 会把静态字面量 const 提升到 setup 之外。取证：对当前工作树文件跑 `@vue/compiler-sfc` 的 parse+compileScript，生成的产物里 `const DISMISSED_STORAGE_KEY = ...` 出现在 `setup(__props, ...) {` **之前**（模块作用域），因此 line 37 的调用点不存在 TDZ。行为侧同向证据：本轮新增一条「重启态」锁（先向 localStorage 预置 id:9，再首挂载，断言只渲染未关闭那条）在改动前即通过，全文件 23 passed / 0 failed，变异 C5（把 key 退化成常量）红 5 条且包含这条新用例。",
+        "verdict": "dismissed",
+        "rationale": "指控的机制在本仓当前编译器版本下不成立，且被一条直指该机制的行为锁否证 ⇒ dismissed。但它闻到的**脆弱性是真的**：正确性目前挂在一条编译器优化上，取值一旦从字面量改成非静态表达式（例如 `const KEY = import.meta.env.X`），同一行序就立刻变成真 TDZ，而 try/catch 会把这一下吞成「什么都没关过」。故同批做两处加固：①把该 const 移到调用点之前（reader 顺序 = 求值顺序，不再依赖优化）；②补上面那条重启态锁。历史快照不改写，本条按当前 HEAD 重放后判定。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "announcement-mount-contract-mutate.js 的 runVitest() 硬编码 `spawnSync('pnpm.cmd', ..., { shell: true })`，这是 Windows 专有命令。该驱动按 §8.5 与任务 #23 明确要接入 CI（Linux runner），POSIX 上 `pnpm.cmd` 不存在，spawn 返回非 0 且无输出 ⇒ 基线直接判定 blind/rc≠0 ⇒ 驱动永远在基线检查处返回 2，7 道反证一条都不跑。",
+        "highRiskDomains": [],
+        "prosecution": "指控：驱动硬编码 spawnSync(\"pnpm.cmd\", ...)，Windows 专有；任务 #23 明确要把这类驱动接进 CI（Linux runner），POSIX 上该文件不存在 ⇒ 基线读成 blind/rc≠0，驱动永远在基线检查处返回 2，7 道反证一条不跑还看起来像环境问题。",
+        "defense": "辩护：无。当前驱动确实只在 Windows 上成立；本地全绿不构成反证，因为失效方向恰好是\"基线不就绪 ⇒ 直接退出\"，不会留下红。",
+        "verdict": "upheld",
+        "rationale": "upheld 并已修：驱动改为 `const RUNNER = process.platform === \"win32\" ? \"pnpm.cmd\" : \"pnpm\"`，注释写明为何不能只在这台机器上成立。同型缺陷存在于另外三个 contract-mutate 驱动（dead-components / first-run / 本条），收敛点统一放在任务 #23 接线那次，避免在各自 PR 里散改。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "验收标准 A1 写成无条件的『有公告 ⇒ 外壳顶部可见』，但 PRD §8.1 与 design D6 自己登记：浏览器/登录标签前台时横幅被内嵌 WebContentsView 覆盖（横幅正落在 y≥76 的内容矩形内）。即本批的头号用户可见承诺在应用的主要使用态（浏览第三方页面 / 登录标签前台）下为假，A1 与残留限制自相矛盾。",
+        "highRiskDomains": [],
+        "prosecution": "指控：A1 写成无条件的「有公告 ⇒ 外壳顶部可见」，而同文档 §8.1 与 design D6 自己登记「浏览器/登录标签前台时横幅被原生 WebContentsView 覆盖」，即头号承诺在主要使用态下为假，验收标准与残留限制自相矛盾。",
+        "defense": "辩护（部分）：实现与测试测的是「外壳 DOM 里有它、读屏读得到」，从来不是像素可见；矛盾只存在于 A1 那句话的措辞。但措辞是验收标准，读者会按字面去复验 ⇒ 措辞本身就是缺陷。",
+        "verdict": "upheld",
+        "rationale": "upheld 并已修：A1 改写为「挂在渲染层外壳且文案/可访问名可读」并显式写出测量域与不含项，指向 §8.1 与 D6。未把\"可见\"改成无条件为真——那需要几何双向通道（design D1 方案 B），属已登记的后续批，不在本批谎报。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "变异清单跨文档自相矛盾：design.md D5 列 C1–C6（C2=空列表也渲染、C6=可访问名退回硬编码中文），而脚本实际为 C1–C7（C2=挂载搬进壳态分支、C7=可访问名退回硬编码中文）；tasks.md §3.1/§3.2 仍写『C1–C6 逐个注入』与『CAUGHT=6/6』，与脚本 / 执行记录 / PRD 声称的 7 道不一致。按 spec 无法复验 A9 的『反证 7 道逐条 CAUGHT』。",
+        "highRiskDomains": [],
+        "prosecution": "指控：变异清单跨文档漂移——design.md D5 列 6 条且 C2/C6 语义与脚本不同，tasks.md 3.1/3.2 写 C1–C6 与 CAUGHT=6/6，而脚本实为 C1–C7、记录与 PRD 写 7 道。按 spec 无法复验 A9。",
+        "defense": "辩护：无。脚本是唯一可执行真源，文档没跟上就是文档错。",
+        "verdict": "upheld",
+        "rationale": "upheld 并已修：D5 按脚本 7 条逐条回写（含 C2=挂载搬进壳态分支、C5=退化成常量键），tasks.md 改 C1–C7 与 CAUGHT=7/7，并在 D5 末尾加一条「清单以脚本 MUTATIONS 为准」的防漂移锚。修后实跑：[BASELINE] collected=23 failed=0，C1–C7 全 CAUGHT，驱动 rc=0，七条 RESTORE_OK。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：3 条指控成立或需外部复核",
+    "at": "2026-10-21T23:20:59.611Z"
+  }
+}
