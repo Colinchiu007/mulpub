@@ -64,3 +64,31 @@ describe('title-fill-verify', () => {
     expect(await readValue(win, 'input.x')).toBe('')
   })
 })
+
+describe('pickVisibleTarget 接线', () => {
+  test('优先用可见元素打标记后的唯一选择器去填', async () => {
+    const state = { value: '' }
+    const used = []
+    const win = {
+      webContents: {
+        executeJavaScript: async (code) => {
+          if (String(code).indexOf('data-mp-title-target') >= 0 && String(code).indexOf('setAttribute') >= 0) return '[data-mp-title-target="1"]'
+          return state.value
+        },
+      },
+    }
+    const ctx = { _fillInput: async (w, sel, v) => { used.push(sel); state.value = String(v) } }
+    const r = await fillAndVerifyTitle(ctx, win, 'input.xigua-input', '标题A', {})
+    expect(used[0]).toBe('[data-mp-title-target="1"]')
+    expect(r.readback).toBe('标题A')
+  })
+
+  test('找不到元素时回退原选择器', async () => {
+    const state = { value: '' }
+    const used = []
+    const win = { webContents: { executeJavaScript: async () => '' } }
+    const ctx = { _fillInput: async (w, sel, v) => { used.push(sel); state.value = String(v) } }
+    await fillAndVerifyTitle(ctx, win, 'input.x', '标题B', {})
+    expect(used[0]).toBe('input.x')
+  })
+})
