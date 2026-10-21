@@ -12,10 +12,10 @@ sync_backfill_owner: none-derived-from-trunk
 
 | 门禁 | 状态 | Fresh 证据（当场实跑，非引用） |
 |---|---|---|
-| 变更类型与隔离 | ✅ | 运行时代码变更 ⇒ 独立 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-knowledge-error-classify`（非 C 盘），分支 `ux-audit-knowledge-error-classify`（`rev-parse --abbrev-ref HEAD` 回读同值）。共享根 `D:/Data/projects/Mulpub` 全程未写入 |
+| 变更类型与隔离 | ✅ | 运行时代码变更 ⇒ 独立 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-knowledge-error-classify`（非 C 盘），分支 `ux-audit-knowledge-error-classify`（`rev-parse --abbrev-ref HEAD` 回读同值）。共享仓库根（main-only 协调目录）全程未写入 |
 | 质量节拍 pre-flight | ✅ | 编辑前确认当前分支非共享根 `main`；`git status` 起始仅本次改动集（8 个文件），无他人未提交内容 |
 | 自测（消费者并集） | ✅ | 判据不是「我改过的文件」而是**消费者并集**：对 6 个被改组件 + `user-facing-error` 模块逐个 `git grep -l` 反查测试消费者，得 16 个测试文件 ⇒ `vitest run` 该并集 = **301 passed / 1 skipped（302）/ 16 files**，含 `PublishFrequencySettings.test.js`、`SettingsDialog.test.js`、`PerformanceInsights.test.js`、`RewriteView.test.js`（98）、`ipc-exposure-contract.test.js`（20） |
-| 反证（4 道） | ✅ | `node D:/tmp/mw-38-mutate.cjs` → `COUNTERPROOF=ALL_CAUGHT`，`rc=0` 基线趟 `collected=11 red=[]`；M1/M2/M3/M4 **红集互不相同**，每条 `restoreByteIdentical=OK`。M3 另断言「点名清单里的锁不得因本变异而红」= OK，证明全域棘轮与点名锁是**两个保护面**而不是同一条锁 |
+| 反证（4 道） | ✅ | `node <临时脚本目录>/mw-38-mutate.cjs`（变异驱动落在本机临时目录、未入库）→ `COUNTERPROOF=ALL_CAUGHT`，`rc=0` 基线趟 `collected=11 red=[]`；M1/M2/M3/M4 **红集互不相同**，每条 `restoreByteIdentical=OK`。M3 另断言「点名清单里的锁不得因本变异而红」= OK，证明全域棘轮与点名锁是**两个保护面**而不是同一条锁 |
 | 静态门禁 | ✅ | `check-locale-sync.js --cjk` → **PASS（基线 1330 条，当前 1125 条，无新增硬编码）**：本批未新增任何用户可见字符串，只改「取哪份文案」这一步 ⇒ **不需要**成对改 locales；`check-max-lines` → 无新增超大文件、挂账清单与现实一致（`PublishFrequencySettings.vue` 495→496，仍在 500 以下）；`check-no-brand-residue` → PASS；`check-doc-abs-paths` → PASS（counts=1161 domain=4757 files=561，本记录一律用 `<仓库父目录>/…` 占位） |
 | 行尾对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **逐字相等**（8 个代码文件 2/1、5/4、110/0、21/1；文档 19/0、10/0）。本轮**当场抓到并修掉一处自造全文改写**，见「三、行尾那一刀」 |
 | QM-1 打包 | N/A | 只改 `apps/desktop/src/**`（渲染端），未触碰 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` ⇒ 打包判据不触发；理由写在这里，不留给下一个会话猜 |
