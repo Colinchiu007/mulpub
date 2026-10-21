@@ -109,12 +109,15 @@ dismissed 那条（i6：`.gitignore` 反选可能是死规则）附的是**当�
 缺的是让引擎把外部复核记成 `tier=external` 的一次完整跨家族收敛），或人工判 `needs_revision`/`cleared`。
 后者属"改谁来守门"，本会话不代替人做；已并入任务 #19（现为 7 个 dual PR）。
 
-**一处必须上报的机制错配**：把引擎回写的那份 `self_play_blocked` 产物提交进本 PR，
-会让 CI 的 `check-pr-exec-record` 直接判红（它把非闭环状态算作变更集欠账）；不提交则变更集里
-没有 dual 产物、门禁报 OK —— 于是"如实提交评审状态"的代价是把 required check 弄红，
-而"什么都不提交"才是绿的。这是**激励反向**，不是操作选择。
-本批处置：评审原文照提交（`hotkeys-settings-r1-critique.md` + family-snapshot，可复核证据），
-状态产物留在本地未跟踪，并把这段写进记录与本 PR 评论，交人裁决（改门禁或改闭环语义都属"改谁来守门"）。
+**一处必须上报的机制错配（本批已现场发生，不是推演）**：pre-commit 的 CCG 步骤把引擎回写的
+`self_play_blocked` 产物**自动 stage 进了处置提交**（`git commit` 输出里的
+`create mode .ccg/reviews/b6a78361….json` 就是现场），于是本 PR 的 `QG Changes` 会因
+"变更集内 `mode=dual` 产物状态不在闭环白名单"而判红 —— 也就是说，
+**"如实提交评审状态"的代价是把 required check 弄红，而"不提交产物"才是绿的**（不提交时变更集里
+没有 dual 产物，同一道检查报 OK；PR #4197 的 enforce 读数为 OK 就是这个原因）。
+这是**激励反向**。本批选择保留产物并接受那条红（删产物换绿灯等于拆锁），并把它写进记录与 PR 评论交人裁决：
+要么给"upheld 且已修"一个机械出口（例如引擎支持 `needs_revision` 的回写路径），
+要么改闭环白名单 —— 两者都属"改谁来守门"，本会话不代做。
 
 ## 六、遗留
 
