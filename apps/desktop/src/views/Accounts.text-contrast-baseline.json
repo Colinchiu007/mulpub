@@ -1,0 +1,615 @@
+{
+  "_comment": "只能缩小。生成与校验共用 src/styles/text-contrast-sites.js 这一份采集实现，重算/落盘由 scripts/gen-text-contrast-baseline.mjs 执行（QM-6 可维护性轴把\"两套口径\"与\"重跑靠临场手写脚本\"点名为本单元最高危单点）。exemptions 每条目 = 一处裸 hex 文字色；per 里 surface = 判据沿候选链实际取到的那块底色（自己 → 祖先前缀/类名词干 → 页面 inset，取第一个能解析成实色的，遇 rgba 即停并记 unresolved）。needs-design = 不过 AA，或暗色档底色是 rgba 半透明而判据读不出合成结果 ⇒ 两者都属设计裁决/人工核对，脚本不得代拍（换成中性灰或主色紫都是删语义）。compliant-bare = 现值两档都过 AA、只是没收成 token ⇒ 令牌体系欠账，不是视觉缺陷。reason（可选）写明该条为什么落在这一档，尤其\"为什么这里必须留裸值\"。surfaces = 本批未修的底色/边框/描边裸 hex 清单（暗色档出现浅底的真凶）。",
+  "exemptions": [
+    {
+      "selector": ".account-sort-controls button",
+      "value": "#5048e5",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 5.87,
+          "surface": "#f8f9fc",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 5.87,
+          "surface": "#f8f9fc",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".account-sort-controls select",
+      "value": "#5f6475",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#5f6475",
+          "ratio": 5.59,
+          "surface": "#f8f9fc",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#5f6475",
+          "ratio": 5.59,
+          "surface": "#f8f9fc",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".account-view-toggle button[aria-pressed=\"true\"]",
+      "value": "#5048e5",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 6.18,
+          "surface": "#ffffff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "var(--color-sidebar-accent)",
+          "ratio": 6.75,
+          "surface": "#232329",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".batch-delete",
+      "value": "#c43d4d",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#c43d4d",
+          "ratio": 4.76,
+          "surface": "#faf6f8",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#c43d4d",
+          "ratio": 3.26,
+          "surface": "#1e1e23",
+          "unresolved": []
+        }
+      ],
+      "status": "needs-design",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".batch-status",
+      "value": "#5048e5",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 6.18,
+          "surface": "#ffffff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 6.18,
+          "surface": "#ffffff",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".clear-search",
+      "value": "#92939c",
+      "per": [
+        {
+          "theme": "light",
+          "need": 3,
+          "value": "#92939c",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "<positioned-surface-unknown>"
+          ]
+        },
+        {
+          "theme": "dark",
+          "need": 3,
+          "value": "#92939c",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "<positioned-surface-unknown>"
+          ]
+        }
+      ],
+      "status": "needs-design",
+      "tokenCandidates": [],
+      "reason": "QM-6 引擎 critic 轴 i2：该规则 position: absolute 且不画有效底色，实际坐在 .group-search-box input / .platform-search input 的裸 #fafbfe（暗色档不随主题走）上。判据不解析 DOM ⇒ 记为读不出而不是回落页面底色（旧口径据此算出浅色 5.58 / 暗色 8.02 的假绿）。现场实测：主干原值 #92939c 对 #fafbfe 为 2.95:1（两档都不过 3:1 的非文本阈值），本批因此**不收编**、保留原值并登记 needs-design；收成 var(--color-text-secondary) 会让暗色档掉到 2.00:1（暗色槽值被提亮而底不变）。正解=先给那块 input 底色接上主题，再一次性裁决图标色，属设计决策。"
+    },
+    {
+      "selector": ".filter-tabs button",
+      "value": "#6f7079",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#6f7079",
+          "ratio": 4.59,
+          "surface": "#faf6f8",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "var(--color-text-secondary)",
+          "ratio": 8,
+          "surface": "#1e1e23",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".filter-tabs button.active",
+      "value": "#5048e5",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 6.18,
+          "surface": "#ffffff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "var(--color-sidebar-accent)",
+          "ratio": 6.75,
+          "surface": "#232329",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".floating-close-button",
+      "value": "#fff",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#fff",
+          "ratio": 4.21,
+          "surface": "#d34d5d",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#fff",
+          "ratio": 4.21,
+          "surface": "#d34d5d",
+          "unresolved": []
+        }
+      ],
+      "status": "needs-design",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".login-state",
+      "value": "#3d378f",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#3d378f",
+          "ratio": 8.85,
+          "surface": "#f3f2ff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#3d378f",
+          "ratio": 8.85,
+          "surface": "#f3f2ff",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": [],
+      "reason": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。 "
+    },
+    {
+      "selector": ".login-state span",
+      "value": "#6e69a0",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#6e69a0",
+          "ratio": 4.52,
+          "surface": "#f3f2ff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#6e69a0",
+          "ratio": 4.52,
+          "surface": "#f3f2ff",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": [],
+      "reason": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。 "
+    },
+    {
+      "selector": ".login-state-actions .complete-login",
+      "value": "#fff",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#fff",
+          "ratio": 6.18,
+          "surface": "#5048e5",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#fff",
+          "ratio": 6.18,
+          "surface": "#5048e5",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": [],
+      "reason": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。 "
+    },
+    {
+      "selector": ".login-state-actions button",
+      "value": "#5048e5",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 5.58,
+          "surface": "#f3f2ff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 5.58,
+          "surface": "#f3f2ff",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": [],
+      "reason": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。 所在横幅 .login-state 的底色 #f3f2ff 是固定浅底、未随主题走 ⇒ 这里必须留裸值；收成 var(--color-primary) 会让暗色档变成浅字坐浅底（实测 2.75:1，QM-6 引擎 critic 轴 Critical i1）。横幅 token 化属设计裁决，本批不代拍。"
+    },
+    {
+      "selector": ".page-button",
+      "value": "#4d4e57",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#4d4e57",
+          "ratio": 8.26,
+          "surface": "#ffffff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "var(--color-text-secondary)",
+          "ratio": 7.53,
+          "surface": "#232329",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".page-button.danger",
+      "value": "#fff",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#fff",
+          "ratio": 3.76,
+          "surface": "#d85a68",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#fff",
+          "ratio": 3.76,
+          "surface": "#d85a68",
+          "unresolved": []
+        }
+      ],
+      "status": "needs-design",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".page-button.primary",
+      "value": "#fff",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#fff",
+          "ratio": 6.18,
+          "surface": "#5048e5",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "#fff",
+          "ratio": 6.18,
+          "surface": "#5048e5",
+          "unresolved": []
+        }
+      ],
+      "status": "compliant-bare",
+      "tokenCandidates": []
+    },
+    {
+      "selector": ".platform-filter-panel button.active",
+      "value": "#5048e5",
+      "per": [
+        {
+          "theme": "light",
+          "need": 4.5,
+          "value": "#5048e5",
+          "ratio": 5.36,
+          "surface": "#efedff",
+          "unresolved": []
+        },
+        {
+          "theme": "dark",
+          "need": 4.5,
+          "value": "var(--color-sidebar-accent)",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "rgba(139, 133, 255, .18)"
+          ]
+        }
+      ],
+      "status": "needs-design",
+      "tokenCandidates": [],
+      "reason": "浅色档 color 是裸 #5048e5 不随主题走；暗色档该规则的底色写成 rgba(139, 133, 255, .18) 半透明 ⇒ 判据读不出合成结果（属文件头声明的边界 2，不得穿透祖先层冒充读数）。两档该落到哪一组槽属设计裁决。"
+    },
+    {
+      "selector": ".search-icon",
+      "value": "#92939c",
+      "per": [
+        {
+          "theme": "light",
+          "need": 3,
+          "value": "#92939c",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "<positioned-surface-unknown>"
+          ]
+        },
+        {
+          "theme": "dark",
+          "need": 3,
+          "value": "#92939c",
+          "ratio": null,
+          "surface": null,
+          "unresolved": [
+            "<positioned-surface-unknown>"
+          ]
+        }
+      ],
+      "status": "needs-design",
+      "tokenCandidates": [],
+      "reason": "QM-6 引擎 critic 轴 i2：该规则 position: absolute 且不画有效底色，实际坐在 .group-search-box input / .platform-search input 的裸 #fafbfe（暗色档不随主题走）上。判据不解析 DOM ⇒ 记为读不出而不是回落页面底色（旧口径据此算出浅色 5.58 / 暗色 8.02 的假绿）。现场实测：主干原值 #92939c 对 #fafbfe 为 2.95:1（两档都不过 3:1 的非文本阈值），本批因此**不收编**、保留原值并登记 needs-design；收成 var(--color-text-secondary) 会让暗色档掉到 2.00:1（暗色槽值被提亮而底不变）。正解=先给那块 input 底色接上主题，再一次性裁决图标色，属设计决策。"
+    }
+  ],
+  "surfaces": [
+    {
+      "selector": ".page-button.primary",
+      "prop": "background",
+      "value": "#5048e5"
+    },
+    {
+      "selector": ".page-button.primary",
+      "prop": "border-color",
+      "value": "#5048e5"
+    },
+    {
+      "selector": ".page-button.danger",
+      "prop": "background",
+      "value": "#d85a68"
+    },
+    {
+      "selector": ".page-button.danger",
+      "prop": "border-color",
+      "value": "#d85a68"
+    },
+    {
+      "selector": ".page-button:focus-visible, .clear-search:focus-visible, .filter-tabs button:focus-visible, .batch-toolbar button:focus-visible, .login-state button:focus-visible, .floating-close-button:focus-visible",
+      "prop": "outline",
+      "value": "2px solid #5048e5"
+    },
+    {
+      "selector": ".search-box input:focus",
+      "prop": "border-color",
+      "value": "#5048e5"
+    },
+    {
+      "selector": ".batch-status",
+      "prop": "background",
+      "value": "#fff"
+    },
+    {
+      "selector": ".batch-status",
+      "prop": "border",
+      "value": "1px solid #c9c5ff"
+    },
+    {
+      "selector": ".login-state",
+      "prop": "background",
+      "value": "#f3f2ff",
+      "note": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。"
+    },
+    {
+      "selector": ".login-qr-preview",
+      "prop": "border",
+      "value": "1px solid #dcd9ff"
+    },
+    {
+      "selector": ".login-state-actions .complete-login",
+      "prop": "background",
+      "value": "#5048e5",
+      "note": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。"
+    },
+    {
+      "selector": ".login-state-actions .complete-login",
+      "prop": "border",
+      "value": "1px solid #5048e5",
+      "note": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。"
+    },
+    {
+      "selector": ".platform-filter-panel button:hover",
+      "prop": "background",
+      "value": "#f6f6f9"
+    },
+    {
+      "selector": ".platform-filter-panel button.active",
+      "prop": "background",
+      "value": "#efedff"
+    },
+    {
+      "selector": ".platform-filter-panel button:focus-visible",
+      "prop": "outline",
+      "value": "2px solid #5048e5"
+    },
+    {
+      "selector": ".platform-filter-icon",
+      "prop": "background",
+      "value": "#f3f3f6"
+    },
+    {
+      "selector": ".group-search-box input",
+      "prop": "background",
+      "value": "#fafbfe"
+    },
+    {
+      "selector": ".group-search-box input",
+      "prop": "border-color",
+      "value": "#e9eaf0"
+    },
+    {
+      "selector": ".floating-close-button",
+      "prop": "background",
+      "value": "#d34d5d",
+      "note": "⚠ 死样式：全仓无模板/脚本产出该类名（模板在 645b86684 删，CSS 留下）⇒ 本条读数不是用户可见缺陷，登记只为让判据不骗自己；删除属死代码清理单元。"
+    },
+    {
+      "selector": ".account-sort-controls select",
+      "prop": "background",
+      "value": "#f8f9fc"
+    },
+    {
+      "selector": ".account-sort-controls select",
+      "prop": "border",
+      "value": "1px solid #e8ebf2"
+    },
+    {
+      "selector": ".account-sort-controls button",
+      "prop": "background",
+      "value": "#f8f9fc"
+    },
+    {
+      "selector": ".account-sort-controls button",
+      "prop": "border",
+      "value": "1px solid #e8ebf2"
+    },
+    {
+      "selector": ".account-sort-controls button:focus-visible",
+      "prop": "outline",
+      "value": "2px solid #5048e5"
+    },
+    {
+      "selector": ".account-toolbar-selects select",
+      "prop": "background",
+      "value": "#f8f9fc"
+    },
+    {
+      "selector": ".account-toolbar-selects select",
+      "prop": "border",
+      "value": "1px solid #e8ebf2"
+    },
+    {
+      "selector": ".account-view-toggle",
+      "prop": "background",
+      "value": "#f8f9fc"
+    },
+    {
+      "selector": ".account-view-toggle",
+      "prop": "border",
+      "value": "1px solid #e8ebf2"
+    },
+    {
+      "selector": ".batch-check-spinner",
+      "prop": "border",
+      "value": "4px solid #e6e4f7"
+    },
+    {
+      "selector": ".batch-check-bar",
+      "prop": "background",
+      "value": "#f0f0f5"
+    },
+    {
+      "selector": ".batch-check-bar-inner",
+      "prop": "background",
+      "value": "linear-gradient(90deg, #6a62f0, #5048e5)"
+    }
+  ]
+}

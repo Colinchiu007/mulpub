@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）；6 条逐条给 prosecution/defense/verdict/rationale，rationale 一律取可复量证据（grep 结果、行号、测试名、变异编号）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核：i1/i2/i4 的 `auth` 域标记由引擎给出，本文件的 adjudicatedBy 保持 self-play、deepReview.status 保持 pending，不改写为 cleared/self_play_resolved。",
+  "requiresExternalReview": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    }
+  ],
+  "critiqueFingerprint": "c05b8b44d6f5ad6a",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "本变更把 `.login-state-actions button` 从裸 `#5048e5` 收编成 `var(--color-primary)`，而暗色档 `--color-primary` 被 tokens.css:338 提亮为 `#8b85ff`（本变更集自己的评审文件与测试夹具都标注此值）。该按钮是 `.login-state` 固定横幅（`background: #f3f2ff`，surfaces 清单第 9 条登记为未修的裸底、无暗色覆盖——`.login-state`/`.login-state span` 两条豁免的 light/dark surface 与 ratio 完全相同可证）的子元素。真实暗色比值为 contrast(#8b85ff, #f3f2ff) ≈ 2.75:1 < 4.5（连非文本 3:1 都不过），而 `surfaceCandidates` 按选择器前缀只走到无 background 的 `.login-state-actions`，回落到页面 inset `#1e1e23`，模型算出 5.47:1 放行。即收编前裸值在真容器上 5.57:1 合规，收编后暗色实测 2.75:1——这是本变更亲手制造的一处暗色 AA 回归，且判据宣称两档都过，正是本批自述要消灭的『判据说合规、用户看不见』形态。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": "指控：本批把 `.login-state-actions button` 收成 `var(--color-primary)`，暗色档该槽 `#8b85ff` 坐在不随主题走的 `#f3f2ff` 上是 2.75:1；而候选链只按选择器前缀找祖先，读不到 `.login-state` 这层 DOM 承载，于是算出 5.47:1 放行 —— 判据说合规、用户看不见。",
+      "defense": "辩护：前缀祖先匹配在 CSS 里确实是唯一可读的承载线索，DOM 嵌套不产生选择器关系；且该处色值在两档都过浅档判据、本批的\"保住浅色原值\"目标函数已满足。",
+      "verdict": "upheld",
+      "rationale": "机制部分成立并已修：新增「类名词干」候选（`classStems`，三段以上才产词干，单段前缀不产），`surfaceCandidates` 现把 `.login-state` 的 `#f3f2ff` 带进链；锁 `color-token-reader.test.js > 祖先底色还要包括\"类名词干\"`，变异 M3 摘掉词干候选即指名变红。前提部分被我自己否证：`grep -rna \"login-state\" --include=*.vue --include=*.js`（全仓，apps/desktop + packages + ops-center）只有样式声明与我自己写的注释/测试，**没有任何模板或脚本产出该类名** —— 模板在 `645b86684`「认证页改为内嵌主窗口全屏标签」时被删、CSS 留下 ⇒ 这是死样式，2.75:1 不是用户可见缺陷。处置仍按机制结论执行：色值退回主干原值（`#5048e5`），因为给死样式收 token 只会新增一个不可核对的\"两档合格\"读数；浅色档计算值逐条相等（`resolveColor(#5048e5,light)` 与 `resolveColor(var(--color-primary),light)` 同为 `#5048e5`）⇒ 四张 `accounts-list*` 基线无需重捕。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "`.group-search-box .search-icon` 与该框内 `.clear-search` 收编为 `var(--color-text-secondary)`（暗色 `#b4b2c6`），真实坐落在 `.group-search-box input` 的裸 `background: #fafbfe` 上（surfaces 第 17 条，暗色不随主题）。因 input 不是这两个图标的选择器前缀，模型按页面 inset 算出 dark ≈ 8.02:1；真实渲染 contrast(#b4b2c6, #fafbfe) ≈ 1.98:1，低于非文本 UI 的 3:1 与正文 4.5:1。收编前裸 `#92939c` 在 `#fafbfe` 上约 2.9:1 本就不过（浅色档），本批换令牌并『认证两档合规』是在已知欠账之上新增一层假绿；同根因下 `.group-search-box input` 自身没有 color 声明，其继承色（暗色 `--text-primary`≈`#f5f5f7` 时在该浅底上约 1.7:1）完全在判据视野之外。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": "指控：`.group-search-box .search-icon` / `.clear-search` 收编成 `var(--color-text-secondary)` 后，真实承载底是同容器内 `input` 的裸 `#fafbfe`（暗色不随主题），因 input 不是这两个图标的选择器前缀，判据按页面 inset 算出 dark ≈8.02:1 放行，屏幕上是 ≈1.98:1；这是在已知欠账之上新增一层假绿。",
+      "defense": "辩护：判据的声明边界第 1 条写着\"祖先按选择器前缀猜、不解析真实 DOM\"，兄弟/定位承载本就在覆盖范围之外；且收编前 `#92939c` 在同一块底上也只有 2.9:1，本来就不过。",
+      "verdict": "upheld",
+      "rationale": "成立，且这一条是**真的用户可见缺陷**（图标在暗色档近乎不可见）。边界的\"不解析 DOM\"只能免我**算错**，不能免我**把算错的读数登记成合规**，故判据补两格出声而非扩判：`position: absolute|fixed` 且自己不画底 → 记 `<positioned-surface-unknown>`；承载底出现在同前缀兄弟后代上 → 记 `sibling-painted(<选择器>)`。两处都 `hex=null` 且 `worstContrast` 停在该层，`siteFails` 判不通过。现场读数：`.search-icon`/`.clear-search` 两档 ratio 由 5.58/8.02 变为 `null` 并登记 needs-design；两处**退回主干原值**（收成令牌会把暗色档从 2.95 再压到 2.00（本仓 `contrast()` 复量；评审原报 2.9→1.98），浅色档的改善不构成理由，因为同一条规则要求\"只动确实读得出且不合格的点\"）。锁 `color-token-reader.test.js > 定位面与兄弟承载面…`（含两条反向对偶：祖先画了实色仍按祖先算、静态定位仍走页面兜底）+ `text-contrast-sites.test.js` 的 rgba 停层锁；变异 M13/M14 分别摘掉两格出声即指名变红。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "`loadThemeOverrides` 对目标选择器做 `replace(/\\s*:\\s*/g, ': ')`，把任一伪类键 `.page-button:focus-visible`、`button:hover` 归一成 `.page-button: focus-visible`（CSS 里是非法选择器）；而 SFC 侧 `parseRules` 只压空白不压冒号。于是 tokens.css 里任何 `html[data-theme='dark'] .x:hover / .x:focus-visible / .x:active` 覆盖层与 SFC 选择器永远无法命中、整层静默不生效——与本批『主题覆盖层要按选择器读、不得双向出错』的合同正面冲突；现有哨兵只钉了无伪类的 `.account-view-toggle` 一个选择器，识别不出这一类漏读。",
+      "highRiskDomains": [],
+      "prosecution": "指控：`loadThemeOverrides` 对目标选择器做 `replace(/\\s*:\\s*/g, ': ')`，把伪类键归一成 `.x: hover` 这种 CSS 里非法的选择器，而 SFC 侧 `parseRules` 只压空白 ⇒ 任何 `html[data-theme=dark] .x:hover` 覆盖层永不命中、整层静默失效；既有哨兵只钉了无伪类的 `.account-view-toggle`。",
+      "defense": "辩护：本仓 tokens.css 的具类覆盖以无伪类为主，实际影响面可能为零。",
+      "verdict": "upheld",
+      "rationale": "成立且**影响面非零**：`grep -n \"data-theme=.dark\" src/styles/tokens.css` 现场读到 `:396 html[data-theme='dark'] .mp-profile:hover { background: rgba(44,44,52,.9); }` —— 该层在归一后永不可命中。修法为只做空白折叠（`m[2].replace(/\\s+/g,' ').trim()`）。锁 `color-token-reader.test.js > 主题覆盖层的键必须原样保留伪类…`：三格合一（键集合 `toEqual(['.card', '.mp-profile:hover'])`、真跑 `declsWithOverrides` 取到 `#2c2c34`、不带伪类时不被 hover 层污染），另加\"至少一条伪类覆盖被读到\"的反失明正控；变异 M11 把归一退回来即指名变红。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "PRD/判据合同写『界面文字 color 必须来自在暗色根块里也有声明的令牌』，但 `loadThemes` 返回 `dark = new Map([...light, ...dark])`（color-token-reader.js:71），暗色档先天包含全部浅色槽，『该槽是否在暗色根块显式声明』在数据结构上不可区分；叠加 `resolveColor` 对 `var(--x, #hex)` 在 `--x` 缺失时静默取回退值，一个拼错/失效的令牌名只要回退 hex 恰好两档都过 AA 就会被判『已收编、双档合格』。现存 `.accounts-page { color: var(--text-primary, #28282f) }`（Accounts.vue:1287）用的正是合同白名单（--color-text-*/--color-primary）之外的旧别名，其合格完全靠回退值参与判定。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "prosecution": "指控：`loadThemes` 返回 `dark = new Map([...light, ...dark])`，\"该槽是否在暗色根块显式声明\"在数据结构上不可区分，于是合同\"文字色必须来自暗色根块也有声明的令牌\"无法核对；叠加 `resolveColor` 对 `var(--x, #hex)` 缺槽时静默取回退，一个拼错的槽只要回退 hex 两档都过就会被判\"已收编、双档合格\"。举证 `.accounts-page { color: var(--text-primary, #28282f) }` 靠回退值参与判定。",
+      "defense": "辩护：`--text-primary` 在 tokens.css 里是真实别名（`:59` 浅块、`:319` 暗块双声明），回退值从不参与判定；而\"暗色继承浅色\"本身是合法设计。",
+      "verdict": "upheld",
+      "rationale": "结构主张成立、举证的例子被否证。否证取证：`loadThemes(tokens.css)` 后 `darkDeclared.has('--text-primary') = true` 且两档分别解析为 `#1e1b4b` / `#e8e8ed` ⇒ 回退值不在判定路径上。结构修法：`loadThemes` 额外返回**只由暗色根块填充**的 `darkDeclared` 集合，判据问它而不是问 `dark`。锁 `Accounts.text-contrast.test.js > 界面文字引用的令牌必须在暗色根块也有声明…`：现场 4 个被文字色引用的槽全部暗色块声明过 ⇒ 违规集为空；同时打印 `light=134 / darkDeclared=61` ⇒ 73 个浅色专属槽一旦被文字色引用就判红（这条有牙）；另加一格\"同一槽两档解析同色也要点名\"。变异 M15 不返回 `darkDeclared` 即指名变红。"
+    },
+    {
+      "id": "i7",
+      "severity": "Warning",
+      "finding": "『底色候选集必须分主题解析』这条一面写注释主张『不是钉住某一条选择器……那是脆而不是严』，一面又把 `.account-view-toggle button` 的暗色 surface 硬钉成 `#1e1e23`、浅色钉成 `#f8f9fc`；下一批按既定计划把 `.account-view-toggle` 的底色（surfaces 第 27/28 条）换成令牌后，这里会假红，而其注释给出的理由恰恰声称这种合法变化不得判失败。",
+      "highRiskDomains": [],
+      "prosecution": "指控：`底色候选集必须分主题解析` 那条一边在注释里写\"钉住某一条选择器是脆而不是严\"，一边把 `.account-view-toggle button` 的两档 surface 硬钉成 `#f8f9fc` / `#1e1e23` ⇒ 下一批按既定计划把该容器换成 token 后必然假红。",
+      "defense": "辩护：钉字面量能在判据漂掉时立刻出声，比\"从同一份真源推导\"更严格。",
+      "verdict": "upheld",
+      "rationale": "成立。\"严格\"的说法不成立：推导式期望值同样出声，而它不会把**合法变更**判成失败——字面量版把\"容器底色换 token\"这一本审计计划内的动作变成一次红，那是脆。改法：从 `scanStyleRules` 取该容器自己的 `background` 声明，浅色档过 `resolveColor(·, light)`、暗色档过 `declsWithOverrides(·, overrides.dark, '.account-view-toggle')` 再解析，然后逐档比对；并保留 `wantDark !== wantLight` 那一格作为\"覆盖层真的生效\"的现场证据（否则两句复读）。"
+    },
+    {
+      "id": "i8",
+      "severity": "Warning",
+      "finding": "`loadThemes`（读 tokens.css 真源）用的是扁平 `matchAll(/([^{}]+)\\{([^{}]*)\\}/g)`，而 SFC 扫描的 `parseRules` 已是递归下降——同一批代码里存在两代扫描器。tokens.css 的根块一旦被包进 `@media`/`@supports` 或出现嵌套，扁平正则会把根块截断、浅色槽被整块吞掉（暗色继承让下游表现为『解析不出』之外的静默）；目前仅靠『暗色根块被读到』哨兵里几个槽位恰好在块首才兜得住。",
+      "highRiskDomains": [],
+      "prosecution": "指控：`loadThemes`（读 tokens.css 真源）用扁平 `matchAll(/([^{}]+)\\{([^{}]*)\\}/g)`，而 SFC 扫描的 `parseRules` 已是递归下降 —— 同一批代码存在两代扫描器；根块一旦被包进 `@media`/`@supports` 或出现嵌套，扁平正则会截断、浅色槽整块失踪，而目前只靠\"暗色根块被读到\"哨兵里几个恰好在块首的槽位兜住。",
+      "defense": "辩护：本仓 tokens.css 今天没把根块包进 at-rule，扁平正则对现状是对的。",
+      "verdict": "upheld",
+      "rationale": "成立，且为它补的**对账锁当场抓出一个此前没看见的真 bug**（不是推演）：`parseRules` 的属性名正则写成 `([a-z-]+)`，凡名字带数字的自定义属性在冒号前最后一个是数字 ⇒ 整条声明静默不匹配。对账第一跑给出 9 项差集（`--spacing-1,2,3,4,5,6,8,10,16`，另有 EP 桥的 `--el-color-primary-light-5` 同形）。症状是\"这一格不存在\"，下游只是少几笔欠账，永远不会红。修法：声明解析改为按 `;` 切段、取首个 `:` 前的属性名并做形状校验 `^-{0,2}[a-zA-Z][-\\w]*$`。锁：`color-token-reader.test.js > 两代扫描器不得给出不同的槽集合…` —— 夹具侧断言 `@media` 里的 `:root` 两代同读 + 数字名属性被 `parseRules` 读到；真实 `tokens.css` 侧断言 `loadThemes` 读到而 `parseRules` 读不到的集合为空，并带 `light.size > 50` 的规模下界（防两代一起瞎）。判定域如实收窄到**浅色槽集合**：at-rule 包裹的根块两代读法本就不同（`parseRules` 会把 `@supports …` 记进选择器串），这一格不作对账、只留形状正控。变异 M12 把属性名正则退回 `([a-z-]+)` 即指名变红。"
+    }
+  ],
+  "resolvedExternally": false,
+  "dispositionNote": "verdict 全为 upheld，但 i1 与 i4 各有一半主张被现场取证否证（i1 的\"用户可见\"前提、i4 的举例），否证与成立都写在同一条 rationale 里，不拆成两条以便归属。"
+}

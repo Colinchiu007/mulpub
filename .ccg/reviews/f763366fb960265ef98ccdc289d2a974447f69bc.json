@@ -1,0 +1,83 @@
+{
+  "sha": "f763366fb960265ef98ccdc289d2a974447f69bc",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1503 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1503,
+    "fileCount": 22,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 10,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "- Info - <工作区根>/apps/desktop/src/views/Accounts.text-contrast-baseline.json:56（配合 tokens.css:396）- 基线把 `.account-toolbar-selects select` 记成暗色 needs-design（2.48:1），但 tokens.css 的 `html[data-theme='dark']` 覆盖已把它的暗色底色/文字换成 token；判据只读根块、不读这些覆盖，会保留一笔实际已不存在的欠账。",
+      "- 非用户可见的诊断串一律用 ASCII：`surfaceCandidates().from` 与 `per.unresolved` 的占位（`=> page-bg` / `page-bg (caller supplied)` / `(absent)`）不会渲染到界面，但写在 `src/` 里的中文字面量会被 Gate 7 的 `--cjk` 记为新增硬编码。**正解不是 `--update-baseline`**（那是给存量行号漂移用的显式销账通道，用它等于给自己开\"新硬编码先入库再说\"的路），而是照判据的要求改成 ASCII。另一处陷阱：`--cjk` 的剥注释先走**非贪婪块注释正则**，所以行注释里出现字面 `/* … */` 会把该行截断、后半行的引号内容被误当字符串字面量命中——写解释性注释时不要内联块注释符号。",
+      "- **本批没修的那一类也留了现场**：`Accounts.text-contrast-baseline.json` 另记 31 处「底色/边框/描边写成裸 hex」，它们才是暗色档里嵌一块浅色面板的真凶（`.account-sort-controls select` 的 `#f8f9fc` 让 `--color-text-secondary` 在暗色档只剩 **1.97:1**）。清单只能缩小，且测试断言\"现场条数 == 基线条数\"，脱钩即红（M14 实测）。"
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-20T05:52:45.026Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-f763366f\\adjudication.json",
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i7, i8）",
+    "at": "2026-10-20T06:02:56.193Z"
+  }
+}

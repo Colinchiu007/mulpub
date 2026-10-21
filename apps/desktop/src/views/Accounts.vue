@@ -1286,7 +1286,7 @@ onUnmounted(() => {
 .accounts-page { min-height: 100%; background: var(--color-bg-inset); color: var(--text-primary, #28282f); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .accounts-header { min-height: 72px; box-sizing: border-box; padding: 18px 24px 12px; background: var(--color-bg-card); border-bottom: 1px solid #edf0f7; }
-.accounts-header .page-title { color: #1f2340; font-size: var(--font-size-lg); font-weight: 700; }
+.accounts-header .page-title { color: var(--color-text-primary); font-size: var(--font-size-lg); font-weight: 700; }
 .accounts-header .page-actions { margin-top: 0; }
 .accounts-header { gap: 16px; }
 .page-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
@@ -1334,36 +1334,40 @@ onUnmounted(() => {
   border: 1px solid var(--border, #dedee5);
   border-radius: 6px;
   background: var(--color-bg-card);
-  color: #28282f;
+  color: var(--color-text-primary);
   font-size: var(--font-size-sm);
   outline: none;
 }
 .search-box input:focus { border-color: #5048e5; box-shadow: 0 0 0 2px rgba(80, 72, 229, 0.1); }
+/* ⛔ 这两个图标不收编（QM-6 critic 轴 i2）：position: absolute 且不画底，实际坐在 .group-search-box input
+   的裸 #fafbfe（暗色不随主题走）上，换 token 会把暗色档 2.95:1 压到 2.00:1。取证与正解见 PRD 3a 与执行记录。 */
 .search-icon { position: absolute; left: 11px; z-index: 1; width: 15px; height: 15px; color: #92939c; }
 .clear-search { position: absolute; right: 6px; width: 26px; height: 26px; display: grid; place-items: center; border: 0; background: transparent; color: #92939c; cursor: pointer; }
 .clear-search svg { width: 13px; height: 13px; }
 .filter-tabs { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 7px; background: var(--color-bg-inset); }
 .filter-tabs button { min-height: 30px; padding: 4px 9px; border: 0; border-radius: 5px; background: transparent; color: #6f7079; font-size: var(--font-size-sm); white-space: nowrap; cursor: pointer; }
 .filter-tabs button.active { background: var(--color-bg-card); color: #5048e5; box-shadow: 0 1px 3px rgba(28, 28, 35, 0.12); }
-.account-count { color: #85858f; font-size: var(--font-size-xs); white-space: nowrap; }
+.account-count { color: var(--color-text-secondary); font-size: var(--font-size-xs); white-space: nowrap; }
 .batch-toolbar { min-height: 42px; display: flex; align-items: center; gap: 12px; padding: 6px 24px; border-bottom: 1px solid #e8e8ec; background: var(--color-bg-inset); }
 .batch-toolbar label { display: inline-flex; align-items: center; gap: 7px; font-size: var(--font-size-sm); cursor: pointer; }
 .batch-toolbar input { width: 15px; height: 15px; accent-color: #5048e5; }
-.selected-count { color: #5048e5; font-size: var(--font-size-sm); font-weight: 600; }
+.selected-count { color: var(--color-primary); font-size: var(--font-size-sm); font-weight: 600; }
 .batch-toolbar button { min-height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; font-size: var(--font-size-xs); cursor: pointer; }
 .batch-toolbar svg { width: 14px; height: 14px; }
 .batch-status { border: 1px solid #c9c5ff !important; color: #5048e5; background: #fff !important; }
 .batch-status:disabled { opacity: .55; cursor: not-allowed; }
 .batch-delete { color: #c43d4d; }
-.batch-cancel { color: #5f6069; }
+.batch-cancel { color: var(--color-text-secondary); }
 .login-state { position: fixed; top: 56px; left: 280px; right: 0; z-index: 9700; height: 44px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 7px 24px; border-bottom: 1px solid #dcd9ff; background: #f3f2ff; color: #3d378f; }
 .login-state > svg { width: 20px; height: 20px; }
 .login-state div { display: flex; align-items: baseline; gap: 9px; flex: 1; min-width: 0; overflow: hidden; }
 .login-state strong { flex: 0 0 auto; font-size: var(--font-size-sm); }
 .login-state span { min-width: 0; overflow: hidden; color: #6e69a0; font-size: var(--font-size-xs); text-overflow: ellipsis; white-space: nowrap; }
 .login-state-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
-.login-qr-preview { position: fixed; top: 108px; right: 24px; z-index: 9701; width: 188px; display: grid; justify-items: center; gap: 8px; padding: 12px; border: 1px solid #dcd9ff; border-radius: 8px; background: var(--color-bg-card); box-shadow: 0 8px 24px rgba(46, 43, 110, 0.16); color: #6e69a0; font-size: var(--font-size-xs); text-align: center; }
+.login-qr-preview { position: fixed; top: 108px; right: 24px; z-index: 9701; width: 188px; display: grid; justify-items: center; gap: 8px; padding: 12px; border: 1px solid #dcd9ff; border-radius: 8px; background: var(--color-bg-card); box-shadow: 0 8px 24px rgba(46, 43, 110, 0.16); color: var(--color-text-secondary); font-size: var(--font-size-xs); text-align: center; }
 .login-qr-preview img { width: 164px; height: 164px; object-fit: contain; border-radius: 4px; background: var(--color-bg-card); }
+/* ⛔ 死样式：全仓无模板/脚本产出 login-state* 类名（模板在 645b86684 被删、CSS 留下）⇒ 此处比值不是用户可见
+   缺陷，收 token 只会造不可核对的"两档合格"读数（QM-6 i1）。删除属死代码清理单元，需配消费者取证。 */
 .login-state-actions button { border: 0; background: transparent; color: #5048e5; font-size: var(--font-size-xs); cursor: pointer; }
 .login-state-actions .complete-login { min-height: 28px; padding: 4px 9px; border: 1px solid #5048e5; border-radius: 5px; background: #5048e5; color: #fff; }
 .login-state-actions button:disabled { opacity: 0.58; cursor: not-allowed; }
@@ -1379,7 +1383,7 @@ onUnmounted(() => {
   padding: 16px 12px 24px;
   background: var(--color-bg-card);
 }
-.platform-filter-heading { padding: 0 8px 7px; color: #85858f; font-size: var(--font-size-xs); }
+.platform-filter-heading { padding: 0 8px 7px; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
 .platform-filter-panel button {
   min-width: 0;
   min-height: 42px;
@@ -1391,7 +1395,7 @@ onUnmounted(() => {
   border-radius: 6px;
   padding: 6px 9px;
   background: transparent;
-  color: #595a64;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   text-align: left;
   cursor: pointer;
@@ -1400,26 +1404,26 @@ onUnmounted(() => {
 .platform-filter-panel button.active { background: #efedff; color: #5048e5; font-weight: 600; }
 .platform-filter-panel button:focus-visible { outline: 2px solid #5048e5; outline-offset: 2px; }
 .platform-filter-panel button > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.platform-filter-panel button strong { color: #9697a0; font-size: var(--font-size-xs); font-weight: 500; }
+.platform-filter-panel button strong { color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: 500; }
 .platform-filter-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; background: #f3f3f6; font-size: var(--font-size-xs); }
 .platform-filter-panel button.active .platform-filter-icon { background: var(--color-bg-card); }
 .group-filter-section { display: flex; flex-direction: column; gap: 4px; margin-top: 18px; padding-top: 14px; border-top: 1px solid #eff0f4; }
-.group-filter-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 5px; color: #85858f; font-size: var(--font-size-xs); }
-.group-filter-heading label { display: inline-flex; align-items: center; gap: 5px; color: #999ba6; font-size: var(--font-size-xs); cursor: pointer; }
+.group-filter-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 5px; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.group-filter-heading label { display: inline-flex; align-items: center; gap: 5px; color: var(--color-text-secondary); font-size: var(--font-size-xs); cursor: pointer; }
 .group-filter-heading input { width: 14px; height: 14px; accent-color: #5048e5; }
 .group-search-box { padding: 0 0 2px; }
 .group-search-box input { height: 32px; padding: 5px 28px; border-color: #e9eaf0; background: #fafbfe; font-size: var(--font-size-xs); }
 .group-search-box .search-icon { left: 9px; width: 14px; height: 14px; }
 .group-filter-section button { min-height: 36px; grid-template-columns: 24px minmax(0, 1fr) auto; padding: 5px 9px; font-size: var(--font-size-xs); }
-.group-filter-icon { width: 17px; height: 17px; color: #8e91a5; }
-.group-filter-section button.active .group-filter-icon { color: #5048e5; }
-.group-empty { padding: 12px 8px 4px; color: #9b9ca6; font-size: var(--font-size-xs); text-align: center; }
+.group-filter-icon { width: 17px; height: 17px; color: var(--color-text-secondary); }
+.group-filter-section button.active .group-filter-icon { color: var(--color-primary); }
+.group-empty { padding: 12px 8px 4px; color: var(--color-text-secondary); font-size: var(--font-size-xs); text-align: center; }
 .account-results-panel { min-width: 0; padding: 24px 32px 32px; background: var(--color-bg-inset); }
 .account-card-grid { display: grid; align-items: start; }
-.loading-state, .empty-state { min-height: 260px; display: flex; align-items: center; justify-content: center; color: #85858f; font-size: var(--font-size-sm); }
+.loading-state, .empty-state { min-height: 260px; display: flex; align-items: center; justify-content: center; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
 .empty-state { flex-direction: column; gap: 10px; }
-.empty-state svg { width: 38px; height: 38px; color: #b3b4bc; }
-.empty-state h2 { margin: 0; color: #696a73; font-size: var(--font-size-base); font-weight: 600; }
+.empty-state svg { width: 38px; height: 38px; color: var(--color-text-secondary); }
+.empty-state h2 { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-base); font-weight: 600; }
 .floating-close-button {
   position: fixed;
   right: 22px;
@@ -1479,9 +1483,9 @@ onUnmounted(() => {
 .account-sort-controls select { width: 92px; min-width: 0; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 10px; background: #f8f9fc; color: #5f6475; font-size: var(--font-size-sm); text-overflow: ellipsis; }
 .account-sort-controls button { width: 36px; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; color: #5048e5; font-size: var(--font-size-md); line-height: 1; cursor: pointer; }
 .account-sort-controls button:focus-visible { outline: 2px solid #5048e5; outline-offset: 2px; }
-.account-toolbar-selects select { flex: 1 1 0; min-width: 0; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 8px; background: #f8f9fc; color: #9aa0b2; font-size: var(--font-size-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-toolbar-selects select { flex: 1 1 0; min-width: 0; height: 36px; border: 1px solid #e8ebf2; border-radius: 8px; padding: 0 8px; background: #f8f9fc; color: var(--color-text-secondary); font-size: var(--font-size-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .account-view-toggle { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid #e8ebf2; border-radius: 8px; background: #f8f9fc; }
-.account-view-toggle button { width: 32px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: #8b92a7; font-size: var(--font-size-md); cursor: pointer; }
+.account-view-toggle button { width: 32px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--color-text-secondary); font-size: var(--font-size-md); cursor: pointer; }
 .account-view-toggle button[aria-pressed="true"] { background: var(--color-bg-card); color: #5048e5; box-shadow: 0 1px 3px rgba(44, 48, 77, .12); }
 .account-card-grid.account-list-view { display: flex; flex-direction: column; gap: 12px; }
 .account-list-view :deep(.account-card) { min-height: 0; flex-direction: row; align-items: center; }
@@ -1539,20 +1543,20 @@ onUnmounted(() => {
 }
 
 .batch-check-detail {
-  color: #6b6b78;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
 .batch-check-title {
-  color: #2b2b35;
+  color: var(--color-text-primary);
   font-size: var(--font-size-base);
   font-weight: 600;
 }
 
 .batch-check-progress {
   min-height: 18px;
-  color: #85858f;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
 }
 
