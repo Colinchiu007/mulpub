@@ -463,6 +463,17 @@
 - **既有断言的归因**：第七个 Tab 让 `SettingsDialog.test.js` 两条**按索引**的既有断言变红。处置是改成按文案定位并把 `Coming Soon` 收窄到最后一个 Tab —— 按索引会把"顺序变了"表达成"某个 Tab 名字不对"，掩盖真实原因；这是更精确而非更宽。
 - **QM-1**：本批改了 `electron/services/hotkeys.js`（仅注释）⇒ 按规则实跑 `pnpm run build:dir` 成功，打包产物以隔离 `--user-data-dir` 启动，8 秒内存活且 stderr 为空。
 - **未闭合（如实登记）**：① 视觉基线 `settings-general`（浅/暗）必须由同一次 CI 渲染刷新，本批**不**自称"视觉无回归"；② 界面显示的是"应该有的"快捷键而非"注册成功的" —— `globalShortcut.register` 的失败只写主进程日志，`getShortcuts()` 不回传结果，需主进程配合另批处理；③ 反证驱动尚未接进 CI。
+# [未发布] chore(ui): 撤下两个"存在但无人渲染"的组件 —— TrialBanner / LoadingState（ux-audit-dead-components-retire）
+
+- **问题**：UX 审计 1.3 要求 `TrialBanner` 接进会员中心或删除、`LoadingState` 接上或删除，判据是「不允许存在但无人渲染」。取证：`<TrialBanner>` 生产模板用法 0（只有测试自己 mount 它）；`LoadingState` 在 `main.js` 全局注册但 `<LoadingState>` 用法 0，骨架屏实际由 `EmptyState`/`UiSkeleton` 承担。
+- **为什么选删除而不是接线**：判据不是"哪个设计更好"，而是**会不会与已编码的 UX 契约冲突**。`views/Dashboard.style-guard.test.js` 留着 2026-10-17 的用户决策"方案 C：撤下"，理由是「当前为免费版，部分功能受限」在看板页属误导（该页三个数据源门禁都是**登录**而非套餐），套餐差异改由**区块锁占位**真实表达（PRD §3.2）。把同一句话换一页去挂等于绕过那次决策，并新增第二份"套餐差异"真源。
+- **最有价值的一条是验证域纠偏**：只 `grep apps/desktop/src` 判"零引用"是错的 —— `apps/desktop/test-setup.js`（**在 src 之外**）把 `LoadingState` 注册进测试全局组件表（镜像 `main.js`），首次删除后 **4 个与删除无关的测试文件**整片 `Failed to resolve import`。同一份全局组件表在本仓有**两个写者**，判"是否还有人用"必须两个都查；这条已写进 spec 并配一条直接锁 `test-setup.js` 的用例，不让下一个会话靠记忆。
+- **防复活锁按语义切而不是按字符串出现切**：`Dashboard.style-guard.test.js` / `Dashboard.test.js` 的**代码行**里必然含 `<TrialBanner`（它们就是在断言"它不存在"），粗判据会把防回潮的锁本身判成违规。处置是剥行注释 + 显式豁免 + **再加一条对偶锁验证豁免文件仍在做缺席断言**（没有对偶，豁免就是可复用的洞）。
+- **删除面**：5 个文件 `git rm`（两个组件 + 两个自测 + `more-tests.test.js` —— 删掉 4 条用例后它剩零用例，vitest 报 `No test suite found` 是红不是跳过，其 `UpgradeModal` import 本就未被该文件使用），2 处注册点同步去掉，2 处指向已删文件的注释改为 `git log --follow` 取证写法。
+- **用户可见变化：无。** 两组件本就不渲染，故本批不新增显示面、不动 locales（只减不增）、不改像素基线。
+- **测试与反证**：新增 `components/dead-components.test.js` 11 条（组件文件不得复活 / 两处名字不得再出现在代码行 / `main.js` 与 `test-setup.js` 不再注册 / 反向守卫本身仍在 / 扫描域规模下界防空集合假绿）；`scripts/dead-components-contract-mutate.js` 8 道变异（C1–C8）逐条指名变红，末跑 CAUGHT=8/8 且每条 RESTORE_OK。现场读数与全域对照见 `openspec/records/ux-audit-dead-components-retire.md`。
+- **一条方法论**：**"有绿测试"不等于"已接线"** —— 被删的两个组件都有自己的测试，因为它们 mount 的是自己。这是 AGENTS「注册≠注入≠生效」的同型，只是这次的注册点是全局组件表而不是依赖注入表。
+
 
 # [未发布] feat(ci): electron-ci 桌面全量收回单一实现 —— 同一步两片并行 + 共享预算 2700s + 剥 ANSI/时间戳的现场计数
 
