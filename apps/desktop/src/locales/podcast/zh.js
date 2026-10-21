@@ -171,7 +171,6 @@ export default {
     planCodepoints: '合计 {n} 码点',
     planVoice: '服务商 {provider} · 模型 {model} · 音色 {voice}',
     billingNotice: '文本出期会逐块调用 TTS 服务商并产生计费，请先确认用量与费用',
-    originChannel: '来自频道设置',
     originPreference: '来自你的音色偏好',
     originProviderDefault: '来自服务商默认',
       detail: '详情：{detail}',

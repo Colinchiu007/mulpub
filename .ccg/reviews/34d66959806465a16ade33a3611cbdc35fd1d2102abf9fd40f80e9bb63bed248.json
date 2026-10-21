@@ -1,0 +1,59 @@
+{
+  "sha": "26ddea64f117be553e895feb616c4d755428e6ba",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 60 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 60,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 变异反证 | ✅ | 8 条各让**指名**用例变红、红集互不相同：MA 判据读工作树现状→T4；MB advisory 也阻断→T8；MC 授权只看存在→T6c；MD 不核坐标→T7；ME 清单被撑大→T11；MF 取证失败静默→T9；MG 红文案无正解→T1；MH 未登记路径也放行→T5b。驱动断言 `# tests >= 14`；还原 md5 一致 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "34d66959806465a16ade33a3611cbdc35fd1d2102abf9fd40f80e9bb63bed248",
+  "decidedAt": "2026-10-21T04:31:24.400Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

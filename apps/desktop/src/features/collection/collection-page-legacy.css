@@ -107,6 +107,18 @@
   background: var(--color-info-soft);
   color: var(--color-info-text);
 }
+/* 敏感词警告横幅（rewrite-sensitive-precheck-relax 收尾，2026-10-21）：
+   与 col-error-banner 同构但 warning 语义 —— 改写成功了，只是提醒人工审核，
+   不能用红色错误条（那会让用户以为改写失败）。 */
+.col-warn-banner {
+  margin-top: var(--spacing-2);
+  padding: var(--col-banner-pad);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
 
 /* ============================ 进度块 ============================ */
 .col-progress-box { margin-top: var(--spacing-3); padding: var(--col-card-pad); background: var(--color-bg-inset); border-radius: var(--radius-sm); }

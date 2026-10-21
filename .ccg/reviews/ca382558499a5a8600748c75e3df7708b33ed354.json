@@ -1,0 +1,43 @@
+{
+  "sha": "ca382558499a5a8600748c75e3df7708b33ed354",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 4,
+        "dimensionScores": {
+          "completeness": 5,
+          "consistency": 5,
+          "clarity": 6,
+          "feasibility": 4,
+          "security": 5
+        }
+      }
+    ],
+    "error": "Revision校验失败",
+    "validationErrors": [
+      "edits[0]before 在方案原文中不存在（逐字匹配失败）：\"驱动在调用引擎**之前**读一次目标记录文件的字节，调用之后交给写回器比对——*\"",
+      "edits[1]before 在方案原文中不存在（逐字匹配失败）：\"先补一条\\\"三种 rc 各跑一遍入口\\\"的行为锁，再动代码（示踪弹先行）。\"",
+      "edits[2]before 在方案原文中不存在（逐字匹配失败）：\"内容变了才算本次产出，没变就不写。不用 pid / mtime / 临时清单：\"",
+      "edits[4]before 在方案原文中不存在（逐字匹配失败）：\"`CLOSED_DEEP_REVIEW_STATUSES`（复用判据那份闭集，不\"",
+      "edits[6]before 在方案原文中不存在（逐字匹配失败）：\"对对象**递归按键名码点升序**排序，数组**保持原序**（findings 的\"",
+      "responses[0]decision=accepted 但没有对应的 edit（issueId=i1）——方案将原封不动，循环无法收敛",
+      "responses[1]decision=accepted 但没有对应的 edit（issueId=i2）——方案将原封不动，循环无法收敛",
+      "responses[2]decision=accepted 但没有对应的 edit（issueId=i3）——方案将原封不动，循环无法收敛",
+      "responses[4]decision=accepted 但没有对应的 edit（issueId=i5）——方案将原封不动，循环无法收敛",
+      "responses[6]decision=accepted 但没有对应的 edit（issueId=i7）——方案将原封不动，循环无法收敛"
+    ],
+    "note": "第 1 轮修订失败",
+    "artifacts": ".adversarial\\ccg-plan-qm6-cw-design-reviewcopy-b-codex",
+    "at": "2026-10-21T02:51:14.699Z"
+  }
+}
