@@ -1957,3 +1957,119 @@ POST 返回的是 **403 `invalid csrf token`**（而非 `no login`）——
 
 「该账号在西瓜上传接口上没有登录态」这一真因**已从单点读数升级为 A/B 验证过的结论**。
 阻塞性质不变：**需要用户在西瓜创作平台侧完成账号授权**（代码侧无解）。
+### 16.28 视频号首次真机发布失败 + API 轨早已存在（2026-10-21）
+
+> 视频号的**第一次**完整链路真机尝试。失败，但定位到关键事实。
+
+#### 16.28.1 实测终态
+
+```json
+{
+  "id": "task_3_1792579422985",
+  "platform": "tencent_video",
+  "status": "failed",
+  "error": "视频号 正文未写入，已中止，未点击发布。本次未向平台提交任何内容，也未占用发布间隔。
+           请重试；若反复失败请检查正文字数是否超平台上限。",
+  "submitAttempted": false,
+  "startedAt":   "2026-10-21T10:47:59.674Z",
+  "completedAt": "2026-10-21T10:49:07.452Z",
+  "lastAttemptNotSubmitted": true
+}
+```
+
+⇒ fail-closed 生效（未提交、未占间隔）。**68 秒**即失败（10:47:59→10:49:07）⇒ 不是超时，
+  是填充阶段就失败。另注意 `createdAt`→`startedAt` 隔了 **4分17秒**（窗口创建 + cookie 恢复）。
+
+#### 16.28.2 关键事实：视频号 **API 轨早已存在且完整**
+
+`config/platforms.yaml` 视频号：`has_api: true` + `publishMode: api-then-dom`
+（2026-10-06 修正过 `has_api=false` 与 `api-then-dom` 的矛盾）。
+
+`packages/api-publish-engine/src/publish/platforms/shipinhao-video.js`（288 行）已实现：
+
+| 环节 | 内容 |
+| --- | --- |
+| 上传 | 分片上传（`applyuploaddfs` / `uploadpartdfs` / `completepartuploaddfs`） |
+| CDN 主机 | **2026-10-18 已修**：旧 `finderassistancea.video.qq.com` 返 404 ⇒ 新 `finder.video.qq.com`（取自创作页自身代码 `finder-helper-web/chunk-common`），旧主机保留兜底 |
+| 提交 | `post_create` / **`post_draft`** 双分支 |
+| 描述合成 | 无标题平台 ⇒ 标题并入描述（`post_create` 请求体无标题字段） |
+| 测试 | `test/shipinhao-video-chain.test.js` 存在 |
+
+⇒ 本次失败的是 **DOM 轨**（"正文未写入"），说明 **API 轨先失败并降级**，
+  但**失败原因没有留档**（任务历史只记终态 error）—— 与 §16.19.4 同型缺口。
+
+#### 16.28.3 竞品逆向成果（视频号完整 API 链，按用户指示复用）
+
+`05-<参考产品>-materials/RPA分析报告.md` §2.2：
+
+| 功能 | API |
+| --- | --- |
+| **发布（草稿）** | `/micro/content/cgi-bin/mmfinderassistant-bin/post/post_draft` |
+| 发布 | `/micro/content/cgi-bin/mmfinderassistant-bin/post/post_create` |
+| 权限数据 | `/cgi-bin/mmfinderassistant-bin/auth/auth_data` |
+| 账号状态 | `/cgi-bin/mmfinderassistant-bin/post/check_finder_comm_face` |
+| 上传 | 分片到 `finderassistancea.video.qq.com`（apply/uploadpart/completepart） |
+| 数据格式 | **XML**（`<p>` 段落 / `<topic>` 话题 / `<friend>` @好友） |
+| 签名 | `Content-MD5` + `X-Arguments` |
+
+⇒ 与我们 `shipinhao-video.js` 的实现**同源**（分片 + Content-MD5 + post_draft/post_create 双分支）
+  —— 证明方向正确，无需重做；差异在 CDN 主机（已按创作页实测更新）。
+
+#### 16.28.4 剩余工作
+
+| # | 事项 | 性质 |
+| --- | --- | --- |
+| 1 | **重启应用**（加载 #4150/#4155 的分轨埋点）后重跑视频号 ⇒ 看 `apiTrackFailed` 真实原因 | 前置 |
+| 2 | 若 API 轨仍败，按竞品成果核对 `post_draft` 请求体（XML 结构 / Content-MD5 / X-Arguments） | 代码 |
+| 3 | 修 DOM 轨的正文填充（`desc_textarea` 首个候选是裸 `textarea`，可能取错元素） | 代码 |
+
+#### 16.28.5 探测方法修正（本轮教训）
+
+本轮一开始用**用户手开的视频号页面**探测，得到 `cookieLen=0` / `auth_data=300330` /
+页面空白 —— 差点误判成"视频号未登录"。真因是**那个页面不在应用窗口池里，从未走过
+cookie 恢复**（`rpa-view-manager.js` L222 只在 `!reused` 时执行）。
+
+⇒ 判据域教训（已单列小节，见 §16.29）：**非应用管理的页面不能用于判定登录态**。
+### 16.29 探测方法纪律：非应用管理的页面不能用于判定登录态（2026-10-21）
+
+> §16.28.5 提到"已单列小节"，本节即该小节。
+
+#### 16.29.1 本轮真实经历
+
+探测视频号发布页时，我用了 `ctx.pages()[0]`（用户手开的「视频号助手」标签页），得到：
+
+```
+title     = 视频号助手        （HTML 框架加载成功）
+bodyLen   = 186458           （DOM 有内容）
+innerText = ""                （渲染不出任何文本）
+cookieLen = 0                 （页面 cookie 为空）
+auth_data = {"errCode":300330,"errMsg":"request failed"}
+```
+
+⇒ 若就此下结论，会写成"视频号未登录"—— **错误**。
+
+#### 16.29.2 真因
+
+那个页面是**用户手动打开的标签页**，不在应用管理的窗口池里 ⇒
+**从未走过 cookie 恢复**（`rpa-view-manager.js` L222 `_restoreCookies` 只在 `!reused`
+即应用自己新建窗口时执行）⇒ 页面 cookie 为空 ⇒ 接口全失败 ⇒ 渲染不出内容。
+
+#### 16.29.3 纪律（三条）
+
+| # | 纪律 |
+| --- | --- |
+| ① | **判定平台登录态，只能用应用管理的页面/链路**（`publishBatch` 或 `_acquireWindow` 建的窗口） |
+| ② | 用户手开页面只能用于"HTML 框架是否可达"，**不能**用于"接口是否已授权" |
+| ③ | 探测时若改了应用主窗口的 URL，**测完必须恢复**（本轮把应用主页导航走了，已恢复） |
+
+#### 16.29.4 与既有教训的关联
+
+| 既有 | 本条 |
+| --- | --- |
+| §16.18.2 分区凭据 ≠ 信封库凭据 | 同源：凭据源不同，结论不能互推 |
+| §16.21 分区 cookie 外部读不出 | 同源：外部/非管理页面无有效凭据 |
+| §16.25 `mp.toutiao.com` 已登录但 `xigua/api/upload` no login | 同源：**页面能打开 ≠ 接口已授权** |
+| §16.23.3 API 轨预演 ≠ 发布链就绪 | 同源：判据域必须跟着被测轨道走 |
+
+⇒ 五条同型，可归纳为一句：**判据域必须跟着被测性质走；不同源/不同轨/不同管理面的
+   读数不能互相外推。**
