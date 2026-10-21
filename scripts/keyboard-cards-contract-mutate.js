@@ -38,6 +38,8 @@ const RING = '每个可聚焦元素都要有一条命中它的 :focus-visible �
 const RATCHET = '欠账基线不得变松'
 const WORD = '类名匹配必须整词'
 const AST = '解析器自身（AST 化）'
+const PARSE_TOKEN = '解析器自身（三轮 i1）'
+const PARSE_BRACE = '解析器自身（三轮 i1·解析侧）'
 const NORM = '归一化器自身'
 const KBTEST = path.join(DESKTOP, 'src', 'views', 'Collection.keyboard-cards.test.js')
 const RINGTEST = path.join(DESKTOP, 'src', 'focusable-ring-contract.test.js')
@@ -163,6 +165,18 @@ const MUTANTS = [
     // 「扫描域非空」那条有规模下界，但这里顶层仍有 template 根节点 ⇒ 只有 fixture 与真计数会红
     expectRed: [AST, '判定域非空'],
     edits: [{ from: '    for (const k of (node && node.children) || []) walkAst(k)', to: '    // 变异：不下钻' }],
+  },
+  {
+    id: 'M20', file: RINGTEST, label: '注释涂白退回"只剥选择器"（三轮 i1 的被禁形态本身：正文硬编码 + 注释里抄令牌）',
+    // 两条红各测一格理由，**不许合并计一条**（本仓实测：写在同一个 it 里时第一条断言失败即中止，
+    // 解析侧那一格永远拿不到自己的现场证据）：
+    //   ① 判据侧 —— body 上的 includes 被注释里的 `var(--color-focus-ring)` 骗过；
+    //   ② 解析侧 —— `[^{}]+{…}` 把注释内的花括号当成规则边界，伪规则进域。
+    expectRed: [PARSE_TOKEN, PARSE_BRACE],
+    edits: [{
+      from: "  const src = cssText.replace(/\\r\\n/g, '\\n')\n    .replace(/\\/\\*[\\s\\S]*?\\*\\//g, (m) => ' '.repeat(m.length))\n  const re = /([^{}]+)\\{([^{}]*)\\}/g\n  for (let m; (m = re.exec(src));) {\n    const selector = m[1].trim()",
+      to: "  const src = cssText.replace(/\\r\\n/g, '\\n')\n  const re = /([^{}]+)\\{([^{}]*)\\}/g\n  for (let m; (m = re.exec(src));) {\n    const selector = m[1].replace(/\\/\\*[\\s\\S]*?\\*\\//g, '').trim()",
+    }],
   },
 ]
 

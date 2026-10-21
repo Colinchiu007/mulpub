@@ -133,3 +133,26 @@ branch: ux-audit-nonbutton-keys
 | M19 AST 只扫顶层不下钻 | CAUGHT（红 4 条） | 站点与规则双双消失，`判定域非空` 与 fixture 一起红 —— 这条正是「扫描域退化时零违规读起来完全像通过」的实测形态 |
 
 其余 15 道（M1–M7、M9–M16）沿用首轮判据，指名命中各自那一格且按字节还原。
+
+## 5-D 三轮 QM-6（`.adversarial/ccg-deep-8a519c90/`，5 条 Warning、0 Critical）逐条处置
+
+评审引擎第三轮 stall 后走自扮演出口，模板落盘时 5 条 verdict 全为 null。
+本会话**对当前 HEAD 逐条重放取证**后再填裁决（评审的 finding 可能只是它读取时的旧 tip），
+结果分成三类：**改实现 / 改文档 / 否证并附落点**。
+
+| id | 级别 | 裁决 | 现场证据与落点 |
+|---|---|---|---|
+| i1 | Warning | **upheld，改实现** | `focusVisibleRules` 的 body 保留注释原文，而两格欠账判据跑在 `body.includes(…)` 上 ⇒「正文硬编码环色 + 注释里抄一遍 `var(--color-focus-ring)`」同时骗过两格，`[RING-TOKEN-DEBT]` 读数还会从 10 掉到 9、**看起来像收敛了一处**。修法：规则切分**之前**按原长度整段涂白。一次解决两个独立病因——判据侧（body 不再含注释）与**解析侧**（`[^{}]+{…}` 对注释内花括号无免疫力；旧实现下探针实测读出 `['/* .ghost:focus-visible', …]`，伪规则确曾进判定域，非推测）。两条理由**拆成两个 `it`**：合写时 vitest 首条断言失败即中止，解析侧那一格永远拿不到自己的现场证据。**M20** 把涂白退回"只剥选择器"这一被禁形态本身，实测红 2 条、指名命中 2/2 |
+| i2 | Warning | **dismissed，否证附落点** | 机制层成立（本锁确实不测声明），隐含前提「无人守这一格」经当场 `grep -na color-focus-ring` 核实为**假**：`apps/desktop/src/styles/focus-ring.test.js:109` 即「`--color-focus-ring` 在浅色与暗色两个块内各声明恰一次」，`:130-131` 另断暗色块显式声明。不补第二份判据（两份真源必然漂移），也不写"断言对方源码里出现了某种读法"的记录性断言（AGENTS.md 明令禁止）。可执行整改＝消除"不可见"：本锁头注释点名该落点 |
+| i3 | Warning | **upheld，改文档；判据一字未动** | 代数事实无误：`实测 ≤ 基线` 与 `基线 ≤ 实测` 合取即 `实测 === 基线`。按「文档与代码谁错」裁决是**文档错**——等式是设计意图：只留前一半则「只能缩小」无执行体（修好 3 处而常量仍 10，后续 3 处新违规会被"还剩 7 个额度"合法吃掉）。已把两条基线注释改写为「语义是钉死当前实测，不是全时上限」，并写明**收敛一批必须同一次提交把常量改小，那条红不是假红**；残余风险（常量仍可被同案改写，M12/M16 靠打印现值而非代数自证）如实入注释 |
+| i4 | Warning（高危域 `datamigration`，不自扮演豁免） | **dismissed 归因与修法，事实层认账** | 子断言当场全部可验：本 PR 的 4 份产物中 `5afa9d36`/`dbfdb9e0` 为 `self_play_pending`+`findings:null`，`8c616578`/`6b1a40fa` 为 `pending`；同 head 两份 `changedLines` 不一致（673 vs 134）；`6b1a40fa…` 文件名与对象内 sha 不同名。**但不是本批引入、也不是本批能修**：当场清点 `git ls-tree -r --name-only origin/main -- .ccg/reviews \| wc -l` = **1793** 份，抽样 400 份状态分布 `pending` 327 / `self_play_resolved` 31 / `cleared` 14 / `self_play_pending` 6（本批只新增 4 份）；命名与 stall 语义落在 `scripts/ccg-review-decider.js` 与上游引擎，属「改谁来守门」，已由任务 #19 单独追踪。删历史 pending 产物＝销毁审计痕迹，伪造 findings＝更坏。**⚠ 一处做不到必须点名**：引擎没有"只结算已填裁决"的入口（`process.argv` 仅 `--base`/`--allow-whole-commit`/`--dry-run`），要触发 `writeBack` 必须重跑一整轮外部评审；而本条 `highRiskDomains` 非空 ⇒ `blockingFromAdjudication` 无论 verdict 都判阻断 ⇒ 自扮演出口只能得 `self_play_blocked`，不在 `check-pr-exec-record.js:470` 的闭合态集合内。**所以本 PR 的产物预期仍停在 pending/blocked，闭合需外部复核或人工**，本会话不把手写 findings 冒充成已裁决 |
+| i5 | Warning | **upheld，改测试** | 边界锁第一版只 trigger `quick-drafts-box`（重复代价＝对同一 tab 再 push 一次，**无害**），而 §三-B 写明的真代价在来源卡（`createNewTabPage` 无幂等键 ⇒ 多开标签页）。文档自称"把已知代价钉在测试里"而测试钉的是无害路径 ⇒ 将来加 `event.repeat` 守卫时全仓不会因此变红。修法：断言分两段，先在 `source-entry-weibo` 连发两次 Enter 断 `createNewTabPage` **恰 2 次**（当场实跑为真），草稿箱那半段降为无害侧对照。**未覆盖如实登记**：该修法**没有对应变异**——「删掉新加的那半段、其余全绿」在驱动语义里是 MISSED 而非 CAUGHT，它只证明两条断言相互独立；其价值是前瞻性的（将来加守卫时必须变红）。不是每条采纳的意见都能配反证，但配不上的必须点名，不能沉默 |
+
+### 三轮反证与回归现场
+
+- `node scripts/keyboard-cards-contract-mutate.js`：**20 道全 CAUGHT**（`COUNTERPROOF=ALL_CAUGHT`），
+  含新增 M20；`[BASE] rc=0 collected=13 red=0`，逐道打印红集，所有源文件按字节还原（`还原字节一致=OK` × 20）。
+- 两把锁当场读数：`focusable-ring-contract.test.js` **8 条**、`Collection.keyboard-cards.test.js` **7 条**、
+  连同 3.6 的 `styles/focus-ring.test.js` 合跑 **27 passed**（三轮新增 2 条解析器用例）。
+- 裁决文本落 `.adversarial/ccg-deep-8a519c90/adjudication.json`（gitignored 工作产物）——
+  **未**据此改写任何 `.ccg/reviews/*.json`，理由见 i4 那格的"做不到"。

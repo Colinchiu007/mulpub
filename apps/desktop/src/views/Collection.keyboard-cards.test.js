@@ -284,16 +284,32 @@ describe('Collection.vue · 快捷卡片键盘可达（行为：六张全覆盖 
     expect(() => normalizeTarget({ query: { a: 1 } }), '既无 path 又无 name 必须出声').toThrow()
   })
 
-  it('边界（二轮 i3）：keydown 自动重复会再次触发 —— 当前实现如此，代价与缓解写在 PRD §三-B', () => {
+  it('边界（二轮 i3 / 三轮 i5）：keydown 自动重复会再次触发 —— 代价在哪张卡上就钉哪张', async () => {
     // 这条不是"希望如此"的行为锁，而是**把已知代价钉在测试里**：将来若给卡片加 `event.repeat` 守卫，
     // 本条必须同步改成"repeat 不触发"，否则它就在保护一个已经不存在的形态（反向锁）。
+    // 三轮 i5 的纠正：第一版**只测草稿箱卡**，而那张的重复代价是"重复 push 同一个 tab"—— 无害；
+    // §三-B 写的真代价在**来源卡**（`createNewTabPage` 无幂等键 ⇒ 按住 Space 连开多个标签页）。
+    // 只钉无害路径 = 声称"把已知代价钉在测试里"而实际钉住了另一张卡，故两张都要断。
     const w = mountView()
-    return flushPromises().then(async () => {
-      const box = w.find('[data-testid="quick-drafts-box"]')
-      pushSpy.mockClear()
-      await box.trigger('keydown.enter')
-      await box.trigger('keydown.enter', { repeat: true })
-      expect(pushSpy, '按住 Enter 会连发 keydown ⇒ 这里断的是"当前确实每次都触发"；加 repeat 守卫时同步改这条').toHaveBeenCalledTimes(2)
-    })
+    await flushPromises()
+
+    // ① 来源卡：连发两次 Enter ⇒ 真的开两个标签页（这才是要显形的那笔代价）
+    const draftSave = vi.fn().mockResolvedValue({ code: 0, data: { draftId: 'd-kb' } })
+    const { createNewTabPage } = stubElectron(draftSave)
+    const srcCard = w.find('[data-testid="source-entry-weibo"]')
+    expect(srcCard.exists(), '来源卡不见了，边界锁无从触发').toBe(true)
+    createNewTabPage.mockClear()
+    await srcCard.trigger('keydown.enter')
+    await srcCard.trigger('keydown.enter', { repeat: true })
+    await flushPromises()
+    expect(createNewTabPage, '来源卡连发两次 Enter 当前会开出两个标签页 —— 这是 PRD §三-B 记的代价；'
+      + '若加 repeat 守卫，本条必须同时改成"恰 1 次"').toHaveBeenCalledTimes(2)
+
+    // ② 草稿箱卡（二轮原样保留）：连发两次 Enter ⇒ 两次 push
+    pushSpy.mockClear()
+    const box = w.find('[data-testid="quick-drafts-box"]')
+    await box.trigger('keydown.enter')
+    await box.trigger('keydown.enter', { repeat: true })
+    expect(pushSpy, '按住 Enter 会连发 keydown ⇒ 这里断的是"当前确实每次都触发"；加 repeat 守卫时同步改这条').toHaveBeenCalledTimes(2)
   })
 })
