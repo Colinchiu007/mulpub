@@ -599,17 +599,15 @@ class RpaVmPublisher {
           // draft 透传（此前被丢：小红书只落草稿箱，草稿被当成「未获取作品 ID」）
           ...(result.draft === true ? { draft: true } : {}),
           ...(diagnostics ? { diagnostics } : {}),
+          ...require('./publish-diag-fields').pickDiagFields(result), // 分轨诊断透传 2026-10-21
         }
       }
       // publish-frequency-policy-v2 P0-1：登录态失效族**可确证未送出**（RPA 在发布页导航后
       // 先判登录态并 early-return，早于任何表单填充/提交）⇒ 打标后由队列回滚间隔窗口。
       // 词表是封闭的（services/publish-not-submitted.js），未命中一律按已提交处理（保守侧）。
       const rpaErr = new Error(result.error || 'RPA 发布失败')
-      // publish-precondition-gate 的显式标优先，封闭词表兜底（见 markNotSentByResult）
-      markNotSentByResult(rpaErr, result)
-      // P0-1：RPA 轨也会回传结构化风控信号（如微信/知乎轨的 code），一并搬运，
-      // 否则上层只能靠文本关键词猜 —— 猜错的代价是冻结账号。
-      attachRiskSignals(rpaErr, result)
+      // notSent 显式标 + 结构化风控信号 + 分轨诊断，三个装饰动作合并为一次调用（2026-10-21）
+      require('./publish-diag-fields').decorateRpaError(rpaErr, result, { markNotSentByResult, attachRiskSignals })
       throw rpaErr
     } finally {
       signal?.removeEventListener('abort', onAbort)
