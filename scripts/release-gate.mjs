@@ -73,7 +73,9 @@ export const AGGREGATE_READ_ARGS = ['--dry-run']
 //   desktopVersion: apps/desktop/package.json 的 version 字符串（可为 null）
 //   changelog:     CHANGELOG.md 全文
 //   tag:           tag 名（如 "v0.2.0"），本地自检时为 null
-//   aggregate:     聚合器读数 { status, stdout }；**缺席即硬失败**（可选等于留旁路）
+//   aggregate:     聚合器读数，形状 `{ status: number, stdout: string, stderr?: string }`
+//                  （main() 由 spawnSync 原样交出，不做剥壳）。**缺席即硬失败** —— 给默认值
+//                  等于允许"没取证也能过"，那正是本片要消灭的形态。
 export function runGate ({ rootVersion, desktopVersion = null, changelog = '', tag = null, aggregate }) {
   const errors = []
   const warnings = []
@@ -105,7 +107,8 @@ export function runGate ({ rootVersion, desktopVersion = null, changelog = '', t
       errors.push(
         `AGGREGATE_PENDING：执行记录里还有 ${a.landed + a.learningsLanded} 条没搬进台账` +
           `（CHANGELOG ${a.landed} 条 / learnings ${a.learningsLanded} 条，records=${a.records}）。` +
-          `请先跑 \`${AGGREGATE_CMD} --write\` 由聚合器写入台账，再把顶部 "## [未发布]" 收口为目标版本小节。`
+          `请先跑 \`${AGGREGATE_CMD} --write\` 由聚合器写入台账，再把顶部 "## [未发布]" 收口为目标版本小节。` +
+          '注意 `--write` 会改动仓库文件：那批变更必须**先提交**，再重跑本门禁，否则台账在 working tree 里收了口、HEAD 上还没收。'
       )
     }
   }
@@ -187,6 +190,9 @@ function main () {
 
   // 先取证、再判据：聚合器读数必须排在任何"读 CHANGELOG 内容"的判据之前（tasks 4.1）。
   // 只读取数（AGGREGATE_READ_ARGS）—— 写入台账是发版动作，由人按 AGGREGATE_PENDING 的文案去跑。
+  // 同步阻塞的实测上界（本机，活数，引用前重取）：`aggregate --dry-run` 冷启 2596ms、
+  // 热态整条 `release-gate` 1213ms。聚合器只读本地文件、无网络 ⇒ 不加超时、不改异步：
+  // 一条发版 CLI 没有并发需求，改 async 只会把 main() 的错误处理复杂化（QM-6 i8 的处置）。
   const agg = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'aggregate-changelog.js'), ...AGGREGATE_READ_ARGS], { encoding: 'utf8' })
   const aggregate = {
     status: agg.status,

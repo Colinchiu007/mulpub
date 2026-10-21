@@ -48,10 +48,90 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "datamigration"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i1",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4158#issuecomment-6311366242"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "`.ccg/reviews/` JSON 记录的 sha 是 `e297ccc73`（上一 commit），而非方案 head `f7d9f5ad`；stats `changedLines: 302` 也与方案标注的 650 行不符。若自动化依赖此文件索引，会指向错误 diff。",
+        "highRiskDomains": [
+          "datamigration"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4158#issuecomment-6311366242",
+          "reviewedAt": "2026-10-21T06:58:46.347Z"
+        },
+        "prosecution": "若自动化按产物的 sha 字段去索引 diff，它会指向父提交 e297ccc73 而不是被评审那一笔 f7d9f5ad，且 changedLines=302 与载荷 663 行不符 ⇒ 索引到错误 diff。",
+        "defense": "sha=父提交与文件名=stagedDiffHash 都是设计值：pre-commit 时新 commit 尚未生成，deep-review.sh 现场原文写着「判定记录写在父 sha 上——这是预期行为」，并按 9bf3d2c0（stagedDiffHash）命中本笔（dry-run 与真跑都打印了命中）。302 与 663 是两种作用域：前者=本笔 staged diff（排除 .ccg，判定器口径），后者=分支 vs origin/main 的评审载荷（脚本自印「变更基线: origin/main（663 行）」）。消费侧核对：grep -na \"\\.sha\\b|rec\\.sha|artifact\\.sha\" scripts/check-pr-exec-record.js 只命中一处与本产物无关的文档串（pull_request.head.sha），没有任何东西按该字段找 diff。",
+        "verdict": "dismissed",
+        "rationale": "两个数与两个命名都是同一次判定的不同作用域读数，不是索引错误；\"自动化会指向错误 diff\"这一失败场景在本仓没有消费者。已在执行记录里把两个数写成演进链而非并置。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "`runGate` 现在解构 `aggregate` 而无默认值（`aggregate`），任何未提供新参数的外部调用者（如其他脚本直接 import `runGate`）会抛 `TypeError`。方案只更新了 `main()`，未审计仓库内其余调用点。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "新增无默认值的参数会打断既有调用者：任何 runGate({...}) 的老形状调用点都受影响，而方案只改了 main()。",
+        "defense": "机制上不成立：解构缺席属性得到 undefined，不是 TypeError；老形状调用走进 !aggregate 分支，产出 AGGREGATE_FAIL（R1 钉住，当场 # tests 23 / pass 23）。调用点已审计：grep -rna runGate --include=*.mjs --include=*.js . 现读，本模块的 runGate 只被 scripts/release-gate.mjs:218 与 scripts/release-gate.test.mjs 使用；其余命中是 ccg-gate.js / check-doc-abs-paths.test.js 等各自同名的局部 helper，以及 governance.js 的 runGates（多一个 s，另一模块）。",
+        "verdict": "dismissed",
+        "rationale": "建议里的\"aggregate = null 默认值\"恰是不能采纳的那一半：给默认等于允许\"没取证也能过\"，而缺席即硬失败正是本片判据（变异 m1 把缺席改成放行 ⇒ R1 指名红）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`parseAggregateReading` 对 `records === 0` 判 `AGGREGATE_FAIL`（采集面退化），这意味着空记录的仓库永远无法发版，且无引导初始化路径。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "records===0 判 AGGREGATE_FAIL 会让空记录仓永远无法发版，且没有引导初始化路径。",
+        "defense": "本仓 openspec/records 现读 records=620，_ 前缀与 _exempt/ 被显式排除，因此\"零记录\"不是合法态而是采集面退化（读不到目录 / 被 gitignore 吞 / checkout 坏），此时放行等于发一份空台账并报告合规。同一条下界已被 CI 接受：Gate 2b8 断言 ^AGGREGATE records=[1-9][0-9]* ，records=0 当场 FAIL 并写明\"采集面退化，不等于没有待搬条目\"。",
+        "verdict": "dismissed",
+        "rationale": "代价如实记下：真正从零起仓的项目需先有一条记录才能发版，这条出口本片未写进 AGENTS —— 已登记在执行记录「遗留」里，与 4.3、模板机器化并列，不在本笔偷偷放宽判据。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`.ccg/reviews/` JSON 的 `deepReview` 仍为 `pending` 且 `tier: unknown`（QM-6 未完成），却已被提交为“已完成”证据，易误导后续审阅。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "产物里 deepReview.status=pending、tier=unknown，却被提交成\"已完成\"证据，会误导后续审阅。",
+        "defense": "本 PR 执行记录的 QM-6 那行状态写的就是 PENDING，并逐字说明深审在本笔提交后跑（载荷是 committed diff，先提交才能被内容寻址命中）、结果与逐条处置追加在本节下方。钩子按设计在提交时落 pending（不阻断提交，也从不被当\"已评审\"读）；本评论与后续那一笔把状态推到闭环值，正是这条指控要求的收口动作本身。",
+        "verdict": "dismissed",
+        "rationale": "\"完成 QM-6 后再提交该文件\"在本仓机制上不可执行：产物由 pre-commit 生成并自动 stage，不存在\"评审完了才提交\"的时序。描述的是流程中间态而非缺陷。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "`main()` 通过 `spawnSync` 执行 `aggregate-changelog.js`，未在执行前检查文件存在或完整性；若路径被替换或缺失，会直接执行未知内容。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "spawnSync 前不检查文件存在/完整性：路径被替换会执行未知内容，缺失会静默通过。",
+        "defense": "缺失场景已真跑取证：故意不放 scripts/aggregate-changelog.js 的夹具跑 CLI ⇒ rc=1，stderr=「AGGREGATE_FAIL：聚合器 rc=1 …Cannot find module」，静默放行(rc=0)=false —— 缺失走的就是\"取不到数即拦下\"那一档。\"路径被替换\"半条不成立：目标由 path.join(ROOT, 'scripts', …) 求得，ROOT 来自模块自身位置上溯两级，不接受外部输入；能替换该文件者已拥有整仓。",
+        "verdict": "dismissed",
+        "rationale": "采纳的是\"这一格此前没有测试钉住\"：已补 R14 真跑锁（缺失 ⇒ rc=1 + AGGREGATE_FAIL + 不得同时报未收口）。如实标注：R14 与 R2 走同一条 status!==0 分支，不新增判定分支，因此它不算第四条变异，只是把已核实为安全的格子钉住。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-21T08:20:57.184Z"
   }
 }

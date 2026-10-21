@@ -259,3 +259,16 @@ test('R13 结构锁：发版校验只读聚合器，MUST NOT 自己写台账（�
     .replace(/^\s*\/\/.*$/gm, '')
   assert.match(src, /--dry-run/, '调用聚合器必须显式声明只读取数')
 })
+
+test('R14 真跑：聚合器文件缺失 ⇒ fail-closed 到 AGGREGATE_FAIL，绝不静默放行（QM-6 i5 的处置锁）', () => {
+  // 评审问的是"没检查文件存在会不会执行未知内容 / 静默通过"。取证答案是：node 自己以
+  // rc=1 失败（Cannot find module），而 rc≠0 走的就是 AGGREGATE_FAIL 那一档 —— 本条把
+  // 这个"已核实为安全"的格子钉住，否则下一个人改 spawn 错误处理时它就漂了。
+  const dir = mkFixture({ changelog: CHANGELOG_WITH('0.9.0'), aggregateScript: '' })
+  fs.unlinkSync(path.join(dir, 'scripts', 'aggregate-changelog.js'))
+  const r = runCli(dir)
+  assert.equal(r.status, 1, `聚合器缺失必须拦下发版：\n${r.stdout}${r.stderr}`)
+  assert.match(r.stderr, /AGGREGATE_FAIL/)
+  assert.ok(!r.stderr.includes(UNCLOSED), '取证不成时不得同时报"未收口"')
+  assert.ok(!r.stderr.includes('✅'), '不得把"没跑到"读成"通过"')
+})
