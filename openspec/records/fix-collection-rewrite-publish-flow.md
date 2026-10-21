@@ -266,11 +266,21 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
    结论是：**该基线相对当前 CI runner 的渲染已过期**（流水线卡片的渐变背景栅格化
    在不同 runner 镜像上结果不同；工作流注释里「同一差值在两个不同 head 上逐字相同 ⇒
    与 head 无关」记的是同一类现象）。
-   **处置**：按本仓口径「基线的**权威渲染**是 CI 套件产出的图」，用 **CI 实际渲染**
-   刷新 `apps/desktop/tests/visual-testing/base-screenshots/create-editor.png`
-   （新基线 vs 该 CI 渲染 = **0 px**；内容守卫 `assertBaselineContent` 只拦空白基线，
-   本图是真渲染 ⇒ 通过）。**未改任何创作页代码**。
-   **如实登记的代价**：本地渲染仍与旧基线一致、与新基线有差 ⇒ 本地全量像素跑会报
-   create-editor 漂移（CI 才是该门禁的判定域）；本 PR 自己的 QM-4 证据仍是
-   `collection` 视图（1/1、100%），未用全量 UPDATE_BASELINE 把无关视图的环境差
-   一并烘进基线。
+   **④ 根因定位（补测后才有）**：本仓的视觉门禁有**两个渲染域**，而基线只能匹配其中一个：
+   - **像素套**（`run-pixel-tests.js`）产出 `<name>-current.png`，与基线比、阈值 **6%**；
+   - **views 套件**产出 `<name>.png`，是 **Gate 7b 基线新鲜度**的判定域（阈值 **0 px**），
+     且 `findRender` **优先取它**。
+   实测这两个域对 `/create` 的渲染**相差 582150 px（28%）**：仓库现有的
+   `create-editor.png` 基线匹配的是**像素套**渲染（与像素套差 4366 px = 0.21% ⇒ 像素套绿），
+   与 **views 渲染**差 582150 px ⇒ **Gate 7b 报它过期**。
+   ⇒ **「用 CI 渲染刷新基线」这条路走不通**：换成 views 渲染后像素套立刻红
+   （586516 px = 28.28% > 6%）——只是把红从一道门禁挪到另一道。
+   （工作流注释里记的「同一次 run 内 dashboard 差 350 px、collection 差 67870 px」
+   正是同一类现象：**两个域渲染本就不是同一张图**。）
+   **最终处置**：**回滚基线刷新**（保持仓库原状），只保留取证与披露；**未改任何创作页代码**。
+   **为何这不是本 PR 的问题**：本 PR 与绿灯 PR（#4149 / #4153）的 `CreateView.vue`、
+   `create-editor.png`、视觉夹具**逐字相同**，而它们在 CI 上 Gate 7b 是绿的
+   ⇒ views 域渲染**逐 run 不稳定**（同一份代码，有的 run 与基线一致、有的差 28%），
+   属**主干侧该视图的基线抖动**，需主干侧处理（重采基线或让渲染确定化）。
+   本 PR 的 QM-4 证据仍是 `collection` 视图（本地 1/1、100%），**未**用全量
+   UPDATE_BASELINE 把无关视图的环境差烘进基线。
