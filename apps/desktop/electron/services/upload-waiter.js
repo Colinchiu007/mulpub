@@ -69,7 +69,8 @@ const uploadWaiterMixin = {
       + 'var doneCopy=/上传成功|上传完成|上传完毕/.test(t);'
       + 'return {uploading:!!uploading,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||doneCopy||location.href.indexOf("post/video")!==-1),structural:!!(vu||ed||doneText)}}'
     const bytes = Number(opts && opts.fileBytes)
-    const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes) : (timeoutMs || 900000)
+    const minMs = (require('./upload-wait-strategy').PLATFORM_MIN_BUDGET_MS || {})[platform]
+const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { minMs }) : (timeoutMs || 900000)
     const startedAt = Date.now()
     let prevPagePercent = null
     let stableSince = startedAt

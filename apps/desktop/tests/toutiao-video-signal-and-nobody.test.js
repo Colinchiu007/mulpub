@@ -127,3 +127,31 @@ describe('④ 用真机记录的页面文本反证「旧探针必失败 / 新探
     expect(Boolean(vv || ed || doneCopy || urlHit)).toBe(true)
   })
 })
+
+// ── ⑤ 上传等待预算：平台级下界（2026-10-21 23:5x 真机二次实测后补）──────────
+// 现象：doneCopy 已修好、代码确实在跑，但 143.9KB 视频在 **90s 内**页面仍无「上传成功」
+// （日志 15:49:48 开始上传 → 15:51:18 预算耗尽），而同页更晚时刻已显示上传成功 ⇒ 转码延迟。
+// 预算只是上界：doneCopy 命中即提前返回，放宽不影响正常路径。
+describe('⑤ computeBudgetMs 平台下界 + upload-waiter 接线', () => {
+  const strat = require('../electron/services/upload-wait-strategy.js')
+  const KB = 1024
+
+  test('toutiao 下界 = 300000ms，小文件也被抬到该值', () => {
+    expect(strat.PLATFORM_MIN_BUDGET_MS.toutiao).toBe(300000)
+    expect(strat.computeBudgetMs(143.9 * KB, { minMs: strat.PLATFORM_MIN_BUDGET_MS.toutiao })).toBe(300000)
+  })
+
+  test('不传 minMs 时行为不变（143.9KB → 90000 默认下界）', () => {
+    expect(strat.computeBudgetMs(143.9 * KB)).toBe(90000)
+  })
+
+  test('minMs 不得突破上界：96MB + minMs 仍夹到 900000', () => {
+    expect(strat.computeBudgetMs(96 * 1024 * KB, { minMs: 300000 })).toBe(900000)
+  })
+
+  test('upload-waiter 按平台取下界并传给 computeBudgetMs', () => {
+    const src = fs.readFileSync(svc('upload-waiter.js'), 'utf8')
+    expect(/PLATFORM_MIN_BUDGET_MS \|\| \{\}\)\[platform\]/.test(src)).toBe(true)
+    expect(/computeBudgetMs\(bytes, \{ minMs \}\)/.test(src)).toBe(true)
+  })
+})
