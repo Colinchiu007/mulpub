@@ -1,3 +1,9 @@
+# [未发布] docs(changelog): 把 #2842 squash 漏带的那一行「顺带修复」条目逐字节搬回主干（restore-2842-changelog-entry）
+
+- docs(changelog): 现场取证 —— 落地判据对 `fix-rewrite-paragraph-preserve` 报一行 LOST（`落地版本=版本不同@1292b6555(主干独有0行/我这版独有1行)`、`份数=short 1(base=0 tip=1 main=0 可解释容量=0)` ⇒ `onlyInMerge=0`），`--allow-different-landing` 按 §12 收紧后的谓词**拒绝放行**；逐 blob 比对给出的方向是：squash 落地的 CHANGELOG blob `a12acd8a8` 与分支倒数第二笔 `49165a742` **逐字节同一份**，而那一行由最后一笔 `214cbb2e2` 写下，其提交时间 14:55:12Z 比合并时刻 14:43:15Z **晚 12 分钟** ⇒ 产物是 tip 的严格子集，不是"另一版"。
+- docs(changelog): 正解只有"逐字节搬回"这一种：判据按行比较，改写那一行（哪怕补一句出处）不会清除 LOST，只会把一条记录变成两条互相对不上的记录。实质内容当年已由 `e5fb069b7`（#2852，提交主题直写「#2842 合并时序错位漏带」）追平落地，所以本片补的是**记录**不是**行为**，零运行时变更。
+- docs(prd): `01-docs/PRD-BRANCH-MERGED-CHECKER-2026-10-16.md` 追加 §13 ——「合并之后又往分支推提交」这一形态判据只能读成 `onlyInMerge=0` 的 different，是 §12 那一刀（谓词要求 `onlyInMerge>0`）第一次在真实分支上拒绝放行；同时如实留下一格未关：没有任何门禁在看"closed PR 之后 head 又动了"这件事。
+
 # [未发布] fix(gates): CLI e2e 用例预算的采样域补齐两根轴——workflow × 作业名的生产者登记表，覆盖度逐轴判（case-timeout-audit-coverage-domain）
 
 - **这是 PR #4072 记下的同族第二处，且已当场取证**：`scripts/case-timeout-audit.js` 过去把「域」写成**两个单数常量各持一根轴**（`WORKFLOW = quality-gate.yml` + `JOB_RE = /QG Desktop Shards/`），于是「还有别的 workflow 在跑这条用例吗」这个问题在代码里不可表示。逐份作业日志按**目标用例全名**过滤 verbose 行实测：`QG Coverage` 1 条 = **1705ms**、`Shards (1/2)` 1 条 = 1261ms、`Shards (2/2)` **0 条**；而**另一个 workflow** `electron-ci.yml` 的 `electron-tests` 也产同一行 = **1331ms**（同 run 的 `Changes` 作业 0 条）⇒ 两条都不在旧域里，现存 `maxObservedMs=12744` 是旧域读数 = **下界**。
@@ -7252,6 +7258,7 @@ override 只改本仓解析结果，不改对外声明。
 - 01-docs/PRD-REWRITE-ENGINE.md 新增 §十五（15.1-15.9，88 行）：三 pass 流水线实现（Pass 1 杀 AI 词汇 128 条映射+人类基线密度保护 / Pass 2 破 AI 结构 13 条开场铺垫正则+连接词标点 / Pass 3 句长节奏段内修复）+ 反注入护栏与 AI 味评分语义澄清；设置面三级结构（策略级 removeAITaste 唯一开关 / 引擎级 intensity 固定 / 终端用户级无 UI）与运营中心→桌面端完整传播链；与敏感词改写/内容质量评估的机制边界澄清；词表运营中心化等 4 项 P2 登记不落地。
 # [未发布] fix(rewrite): 改写结果分段保留——去 AI 味后处理压平段落修复（2026-10-03，fix-rewrite-paragraph-preserve）
 
+- 顺带修复（用户确认同 PR 处理）：ops-center 平台种子回落快照 weibo contentMax 5000→10000，对齐注册表 #2766（「微博 contentMax 放宽至 10000（用户确认）」）——#2766 只改了注册表未同步该回落快照，test_platform_def_seed_limits 漂移即红，挡住本 PR CI；test_platform_def_seed_limits 4/4 绿。
 ### 根因（QM-5 五步取证）
 - 用户反馈「改写后的文案是一整段没有正常分段」。是 bug 不是没处理：提示词层早要求空行分段（运营中心种子 hard-constraint-default-v1 第 2 条，2026-09-18），LLM 也遵守了；压平发生在本地后处理——`AITasteRemover` Pass 3 的句长节奏修复 `_mergeUniformSentences`（v2 重构 `36a09e5c` 2026-09-09 引入）对全文按终止标点切句后 `join('。')` 重组，换行全丢；次级缺陷：切句剥离标点导致段尾标点丢失、语气标点被统一改写成句号。
 - 逃逸链：remover 单测 6 例全是单段短文本零换行断言（无测试）；引擎 core 测试 mock 全是单行英文（场景缺失）；评审只验 AI 味指标下降未审计结构副作用（审查盲区）。
