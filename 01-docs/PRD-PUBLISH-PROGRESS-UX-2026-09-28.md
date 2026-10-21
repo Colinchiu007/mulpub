@@ -362,6 +362,7 @@ _listenersBound: boolean       // init() 幂等
 | `summarySucceeded`（panel-refine，取代 summaryDone） | 成功 {succeeded}/{total} | {succeeded}/{total} succeeded |
 | `summaryFailed` | · {count} 个失败 | · {count} failed |
 | `summaryCancelled`（panel-refine） | · {count} 个已取消 | · {count} cancelled |
+| `summaryPosition`（ux-audit-aggregate-progress，audit-14） | · 第 {index} / 共 {total} 项 | · item {index} of {total} |
 | `sessionTitleTimeFallback`（panel-refine，取代 sessionTitleFallback） | 发布 · {time} | Publish · {time} |
 | `recoveredTitle` | 恢复跟踪的发布任务 | Recovered publish tasks |
 | `sessionRunning` | 进行中 | Running |
@@ -412,6 +413,67 @@ _listenersBound: boolean       // init() 幂等
 - 形态：ElMessage info，6 秒，可关闭；文案 `firstHideToast`。
 - 持久化：localStorage key `mp-publish-first-hide-toast-shown` = `'1'`；仅提示一次（跨会话记忆）。
 - 之后每次最小化不重复 toast（胶囊常驻提示承担持续提醒）。
+
+### 8.6 聚合进度条的软权重口径（2026-10-21，ux-audit-aggregate-progress / audit-14）
+
+> 本节修的是 audit-14：**发 1 篇要 3 分钟，头部「成功 0/1」+ 进度条恒定 0%**，用户判断不了「在跑」还是「卡了」。
+> 根因不是「少渲染了一个数」，而是**进度语义被定义成"终态占比"**——运行中的任务对进度条的贡献被硬性记为 0。
+
+#### 8.6.1 数据校验（输入资格与归一口径）
+
+| 输入 | 归一 | 为什么 |
+|---|---|---|
+| `task.percent` 为 0..100 的有限数 | 取用，但**封顶 0.95** | 主进程事件带的就是真完成度；不封顶会出现「条子满格但还没成功」，比「条子不动」更误导 |
+| `task.percent` 为 `null`/`undefined`/`NaN`/负数/>100 | 退回 `stageKey` 软权重（负数夹到 0、超 100 夹到 0.95） | store 已有 `normalizePercent` 把非法值归一为 `null`；纯逻辑再兜一层，不信任上游 |
+| `task.phase === 'queued'` | 权重 **0** | 排队中的任务没开始，不能替它编进度 |
+| `stageKey` 不在权重表里（新增阶段） | 中位值 0.3 | 「未知 = 0」会让任何新阶段一上线就退化成"条子不动"，正是本条要消灭的症状 |
+| 任务对象为 `null`/非对象 / 数组非数组 | 权重 0 / 全零形状，**不抛错** | 进度显示不是关键路径，不能成为新故障源 |
+
+阶段软权重表（`publishProgressWeight.js` 的 `STAGE_WEIGHTS`，唯一真源）：`prepare 0.05 · detail 0.1 · upload 0.35 · fill 0.55 · submit 0.8 · verify 0.85 · waiting 0.9 · released 0.92`，终态 `done/failed` 为 1。取值口径 = **「用户此刻离结果还有多远」的单调刻度**，不是阶段数量占比；`waiting`/`released` 排在提交之后是因为频控等待与验证码放行确实发生在 `submit` 后。表由一条**单调不减**断言钉住（`prepare → released` 逐个比较，且末值 <1）——倒挂会让进度条倒退，是比"不动"更难解释的现象。
+
+#### 8.6.2 功能逻辑（百分比怎么算）
+
+```
+weighted = Σ taskWeight(每个任务)        // 终态记 1，运行中记 0..0.95，排队记 0
+percent  = total === 0 ? 0
+           : running === 0 ? 100          // 只有"全部终态"才配 100%
+           : min(99, round(weighted / total * 100))
+```
+
+三条不可破：
+① **`done/succeeded/failed/cancelled` 的口径一字未改**——软权重只进 `weighted`/`percent`，不进终态计数。汇总行的「成功 N/M」是用户核对结果的依据，把它换成小数等于毁掉唯一的确定性读数（本条有专项锁）。
+② **还有非终态任务时百分比严格 <100**（封顶 99）。四舍五入自己够到 100 的那一档（99 个终态 + 1 个 0.95 ⇒ 99.95 → 100）必须被夹回 99，这条有专门用例，不是靠"通常算不到"过关。
+③ **单一实现**：纯逻辑在 `apps/desktop/src/stores/publishProgressWeight.js`（零依赖、可脱离 pinia 单测，与 `publishProgressSessionMerge.js` 同例外置）；store 只负责「按会话顺序摊平任务数组」，面板只读 `store.aggregate.percent`。**渲染层不得再自己 `done / total`**（结构锁双向：正向断言读 `aggregate.percent`，反向断言模板里不出现除法）。
+
+#### 8.6.3 显示项与交互逻辑（用户看到什么）
+
+| 显示项 | 何时出现 | 内容 | 交互 |
+|---|---|---|---|
+| 进度条填充宽度 | 面板可见时常驻 | `aggregate.percent`% | 无交互（纯观测） |
+| `aria-valuenow` | 同上 | **与条宽取同一个数**（同一个 `progressPercent` computed） | 读屏播报与视觉不得各算一份 |
+| 「第 N / 共 M 项」 | `M>0` 且 `N>0`（= 还有非终态任务） | `publish-progress-position` 段，M=全部任务数，N=**第一个非终态任务的 1-based 序号**（含排队中） | 无交互 |
+| 「第 N / 共 M 项」 | 全部终态时 | **不出现** | 那时汇总行已有「成功 N/M」，再显「第 0/共 5 项」是噪声 |
+
+序号语义刻意包含 `queued`：批量发布时用户关心的是"排到第几个"，而不是"第几个真的在传"。M 的口径与进度条分母一致（同一个摊平数组的长度），两处不得分别计数。
+
+#### 8.6.4 退化行为（aggregate 形状缺字段）
+
+`progressPercent` 对 `percent` 做 `Number.isFinite` 检查，缺字段时取 0。测的不是"真源会缺字段"这种正常态，而是**缺字段时的视觉后果**：`undefined%` 是非法 CSS，条子会停在任意位置并被读成"进度显示错乱"；`0%` 至少与"刚开始"一致。该场景由一条专项用例钉住（不是装饰性 guard：`summarize` 之外的消费者若自带一份 aggregate 就会撞上）。
+
+#### 8.6.5 回归与反证
+
+- `src/stores/publishProgressWeight.test.js`（17 条）：权重表/边界/单调性/`summarize` 形状/接线结构锁（store 走 summarize、面板不自己除、两个读数同源、zh/en 成对）。
+- `src/stores/publishProgress.test.js` 新增 1 条**接线行为锁**：真实事件驱动真实 store，断言 `percent` 65→90（旧口径在这里只能给 50→100）。
+- `src/components/PublishProgressPanel.test.js` 新增 4 条：条宽与 `aria-valuenow` 取 `percent` 且**不是** `done/total` 的那个值、「第 N/共 M」出现与消失两档、en 档文案、缺字段退化为 0%。  同文件 10 处 aggregate 夹具改用 `mkAggregate()` 补全四个新字段——**夹具缺字段会让面板静默渲染 0%，"零回归"读起来像通过**（缺省值刻意沿用旧口径，好既有用例断言不动）。
+- 六道变异各自指名红、红集互不相同：M1 面板退回 `done/total`（4 红）｜M2 `taskWeight` 忽略 percent（6 红）｜M3 去掉 99 夹取（1 红）｜M4 「第 N/共 M」不渲染（2 红）｜M5 去掉缺字段 guard（1 红）｜M6 序号退回 0-based（2 红）。跑完三份文件 md5 回原值。
+- **Gate 7 的成对校验对拆分 locale 文件是装饰性的（本轮现场复测）**：摘掉 `publish-page/en.js` 里的 `summaryPosition`，`check-locale-sync.js --pair-base origin/main` 照打 PASS（它只对根级 `zh.js`/`en.js` 是否"变更"做门控）；  真正拦住它的是本批新增的那条「zh/en 成对」结构锁（摘 en 键 ⇒ 该用例当场红）。**引用一条门禁前必须先做"摘掉我新增的东西它是否变红"的反证**，否则会把没有牙的门禁当防线。
+
+#### 8.6.6 未覆盖（如实登记）
+
+1. **会话内单任务行**的百分比仍走各自 `task.percent` 直显，不参与软权重（它本来就是单任务口径，无需二次加权）。
+2. audit-15（陈旧看门狗：`lastEventAt` 全仓零读取）**不在本批**——它需要定「N 分钟无更新」的中性态阈值与解禁关闭按钮的产品口径，属独立决策。
+3. 阶段权重表的数值是**序数校准**（单调、边界正确），不是耗时实测分布；若将来主进程给每个 stage 带上真实耗时统计，应改用实测比例而不是这张表（届时 `STAGE_WEIGHTS` 的锁要跟着改口径，不得只删表）。
+
 
 ## 9. 异常态矩阵
 

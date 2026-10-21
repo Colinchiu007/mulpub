@@ -130,6 +130,23 @@ describe('publishProgress store — 全局承载（publish-progress-ux）', () =
     expect(store.aggregate).toMatchObject({ total: 2, done: 2, succeeded: 1, failed: 1 })
   })
 
+  // 审计 2.5 / audit-14 的**接线**锁：aggregate 必须真的走 publishProgressWeight.summarize。
+  // 纯逻辑自己的测试（publishProgressWeight.test.js）证明不了 store 调了它——本仓「注册≠注入≠生效」
+  // 反复出现，所以这一条按真实事件驱动真实 store，并断言旧口径**给不出**的那两个数。
+  it('运行中的任务必须把百分比推进 aggregate.percent（旧口径 done/total 在这里恒等于终态占比）', async () => {
+    const store = await makeStore()
+    store.registerSession({ taskIds: ['t-1', 't-2'], title: 'x' })
+    // 排队态：percent 0，但序号已经指向第 1 项
+    expect(store.aggregate).toMatchObject({ total: 2, done: 0, running: 2, percent: 0, currentIndex: 1 })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'success', stageKey: 'done', percent: 100 }))
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', phase: 'progress', stageKey: 'upload', percent: 30 }))
+    expect(store.aggregate).toMatchObject({ total: 2, done: 1, succeeded: 1, running: 1, currentIndex: 2 })
+    expect(store.aggregate.percent, '(1 + 0.3) / 2 = 65%；旧口径只会给 50%').toBe(65)
+    // 同一任务继续推进 ⇒ 百分比必须跟着走（实现若把 percent 忽略，这一条先红）
+    store.handleProgressEvent(progressEvent({ taskId: 't-2', phase: 'progress', stageKey: 'submit', percent: 80 }))
+    expect(store.aggregate.percent).toBe(90)
+  })
+
   it('未知 taskId + 已登记 batchId → 事件归入批量会话并动态建任务', async () => {
     const store = await makeStore()
     store.registerSession({ batchId: 'batch-1', title: '批量' })

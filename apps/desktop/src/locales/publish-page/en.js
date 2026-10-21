@@ -166,6 +166,9 @@ export default {
       summarySucceeded: (ctx) => ctx.named('succeeded') + '/' + ctx.named('total') + ' succeeded',
       summaryFailed: (ctx) => '· ' + ctx.named('count') + ' failed',
       summaryCancelled: (ctx) => '· ' + ctx.named('count') + ' cancelled',
+      // 2026-10-21 ux-audit-aggregate-progress (audit-14): while any task is non-terminal show
+      // "item N of M" so a barely-moving bar still has a checkable ordinal next to it.
+      summaryPosition: (ctx) => '· item ' + ctx.named('index') + ' of ' + ctx.named('total'),
       sessionTitleTimeFallback: (ctx) => 'Publish · ' + ctx.named('time'),
       recoveredTitle: 'Recovered publish tasks',
       sessionRunning: 'Running',
