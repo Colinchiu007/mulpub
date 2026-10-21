@@ -76,7 +76,10 @@ async function fillAndVerifyTitle (ctx, win, sel, value, opts) {
   const platform = o.platform || ""
   const want = String(value === undefined || value === null ? "" : value).trim()
   // 先挑「可见」的那个（页面可能有隐藏的同名副本），失败则回退原选择器。
-  const target = (await pickVisibleTarget(win, sel)) || sel
+  const picked = await pickVisibleTarget(win, sel)
+  // 只接受本模块自己打出的标记选择器；其它返回值（含测试桩的任意真值）一律回退原选择器，
+  // 否则会把不是选择器的字符串交给 _fillInput，表现为「填充无效」且难以定位。
+  const target = /^\[data-mp-title-target/.test(String(picked)) ? picked : sel
   await ctx._fillInput(win, target, value)
   let got = (await readValue(win, target)).trim()
   let retried = false
