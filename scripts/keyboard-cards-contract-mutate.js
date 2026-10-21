@@ -37,7 +37,13 @@ const BEHAV = '六张卡片的 click / Enter / Space 各自都把用户带到同
 const RING = '每个可聚焦元素都要有一条命中它的 :focus-visible 规则'
 const RATCHET = '欠账基线不得变松'
 const WORD = '类名匹配必须整词'
+const AST = '解析器自身（AST 化）'
+const NORM = '归一化器自身'
+const KBTEST = path.join(DESKTOP, 'src', 'views', 'Collection.keyboard-cards.test.js')
 const RINGTEST = path.join(DESKTOP, 'src', 'focusable-ring-contract.test.js')
+// vitest 的 ESM 入口（hoisted 布局在仓库根 node_modules）；用它而不是 `pnpm exec vitest`，
+// 见 run() 里 i5 的注释。解析失败即走 blind 档，不得静默当成"没有红 ⇒ 全过"。
+const VITEST = path.join(ROOT, 'node_modules', 'vitest', 'vitest.mjs')
 
 const MUTANTS = [
   {
@@ -82,8 +88,11 @@ const MUTANTS = [
   },
   {
     id: 'M8', file: CSS, label: '摘掉整条焦点环规则（可聚焦但看不见焦点在哪）',
+    // 锚点必须**跟着当前形态走**：二轮 i1 之后这条规则多了一行 transition override，
+    // 旧锚点（只含 outline + offset）就命中 0 次 ⇒ MUTATE-FAIL（第一版就是这么挂的）。
+    // MUTATE-FAIL 与 MISSED 是两种病：前者是"变异没造出来"，后者才是"锁没牙"。
     expectRed: [RING],
-    edits: [{ from: `.col-stat-card-click:focus-visible {\n  outline: 2px solid var(--color-focus-ring);\n  outline-offset: 2px;\n}`, to: `` }],
+    edits: [{ from: `.col-stat-card-click:focus-visible {\n  outline: 2px solid var(--color-focus-ring);\n  outline-offset: 2px;\n  transition: outline-color 0s, outline-width 0s, outline-offset 0s;\n}`, to: `` }],
   },
   {
     id: 'M9', file: CSS, label: '环色硬编码，不走 --color-focus-ring 单一真源',
@@ -121,6 +130,40 @@ const MUTANTS = [
     edits: [{ from: "  return new RegExp('\\\\.' + escapeRe(cls) + '(?![\\\\w-])').test(selector)",
       to: '  return selector.includes(\'.\' + cls)' }],
   },
+  // ── 二轮评审（head 5afa9d36）新增：i1 transition / i2 归一化不对称 / i4 解析层 / 递归完整性 ──
+  {
+    id: 'M15', file: CSS, label: '摘掉刚补的 transition override（回到二轮 i1 的缺陷形态）',
+    // 实测从 10 涨到 11 ⇒ 由「环色与 transition 两格的欠账只能缩小」那一格拦下
+    expectRed: [RING],
+    edits: [{ from: '\n  transition: outline-color 0s, outline-width 0s, outline-offset 0s;', to: '' }],
+  },
+  {
+    id: 'M16', file: RINGTEST, label: '把 transition 基线从 10 调到 12（只放宽额度，不收敛违规）',
+    expectRed: [RATCHET],
+    edits: [{ from: 'export const TRANSITION_DEBT_BASELINE = 10', to: 'export const TRANSITION_DEBT_BASELINE = 12' }],
+  },
+  {
+    id: 'M17', file: RINGTEST, label: '把整份 SFC 文本当成 style 源返回（模板/脚本里的字面量会变成伪规则 —— 二轮 i4）',
+    // 第一版这道变异打在"聚合处"（allCss 里把 styles 换成 raw）——**MISSED**：往 CSS 里**加**伪规则
+    // 只会让缺环计数变小，不会让任何断言红，那不是"没牙"，是我造错了对称轴。
+    // 正解是打在**产出处**：让 styles 直接返回整份文本，fixture「st3[0] 不得含模板文本」当场红。
+    expectRed: [AST],
+    edits: [{ from: 'return { sites, styles: descriptor.styles.map((s) => s.content) }', to: 'return { sites, styles: [vueSrc] }' }],
+  },
+  {
+    id: 'M18', file: KBTEST, label: '摘掉"统一补前导斜杠"那一步（二轮 i2：name 与 path 形态重新分叉）',
+    // 第一版打在 `else if (arg.name) path = arg.name` 上 —— **MISSED**：下一行的通用兜底
+    // `if (!path.startsWith('/')) path = '/' + path` 会把它补回来，于是这道变异根本没改变任何行为。
+    // 归一化的牙正是那句通用兜底，所以变异必须摘它。
+    expectRed: [NORM],
+    edits: [{ from: "  if (!path.startsWith('/')) path = '/' + path", to: '  // 变异：摘掉统一补斜杠' }],
+  },
+  {
+    id: 'M19', file: RINGTEST, label: 'AST 遍历不再下钻子节点（只扫顶层 ⇒ 域静默缩水，站点与规则双双消失）',
+    // 「扫描域非空」那条有规模下界，但这里顶层仍有 template 根节点 ⇒ 只有 fixture 与真计数会红
+    expectRed: [AST, '判定域非空'],
+    edits: [{ from: '    for (const k of (node && node.children) || []) walkAst(k)', to: '    // 变异：不下钻' }],
+  },
 ]
 
 /**
@@ -151,10 +194,16 @@ function apply (text, m) {
 function run () {
   fs.mkdirSync(path.dirname(OUT), { recursive: true })
   fs.rmSync(OUT, { force: true })
-  const r = spawnSync('pnpm.cmd', ['exec', 'vitest', 'run',
+  // 二轮评审 i5：不得用 `spawnSync('pnpm.cmd', …, {shell:true})` ——
+  // ① `pnpm.cmd` 只存在于 Windows，Linux/macOS 上直接 ENOENT，与"从干净 checkout 一条命令可复跑"矛盾；
+  // ② `shell:true` 时 args 按空格无引号拼接，`--outputFile=` 指向的临时目录一旦含空格就断成两个参数。
+  // 正解：用**当前这个 node 可执行文件**直接跑 vitest 的 ESM 入口，无 shell、无平台分支、无引号面。
+  if (!fs.existsSync(VITEST)) return { blind: true, rc: null, rawTail: 'vitest 入口不存在：' + VITEST }
+  const r = spawnSync(process.execPath, [VITEST, 'run',
     'src/views/Collection.keyboard-cards.test.js', 'src/focusable-ring-contract.test.js',
     '--reporter=json', '--outputFile=' + OUT],
-  { cwd: DESKTOP, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell: true })
+  { cwd: DESKTOP, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  if (r.error) return { blind: true, rc: null, rawTail: 'spawn 失败 ' + r.error.code + ' ' + r.error.message }
   if (!fs.existsSync(OUT)) return { blind: true, rc: r.status, rawTail: 'no-json ' + String((r.stdout || '') + (r.stderr || '')).slice(-300) }
   let j
   try { j = JSON.parse(fs.readFileSync(OUT, 'utf8')) } catch (e) { return { blind: true, rc: r.status, rawTail: 'unparsable ' + e.message } }

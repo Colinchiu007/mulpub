@@ -532,7 +532,7 @@
 # [未发布] a11y: 采集页 6 张快捷卡片补键盘可达四件套，并清点出 3 处「leaf 角色吃掉子树」的存量违规（ux-audit-nonbutton-keys）
 
 - `Collection.vue` 的 `.col-stat-card-click`（新建草稿 / 剪贴板导入 / 草稿箱 / 微博·百度·头条来源入口）按 PRD §三 补 `role="button"` + `tabindex="0"` + `@keydown.enter.prevent` + `@keydown.space.prevent`，两个 keydown 表达式与 `@click` 逐字一致。此前这些卡片只有 `@click` ⇒ 键盘用户完全无法触达（视觉、鼠标、单测、构建全都不报错）。
-- 新增行为+结构+禁令三类锁 `Collection.keyboard-cards.test.js`（4 条）：结构锁逐个标签验四件套与表达式一致；行为锁对 Enter / Space **各**断一次路由跳转；负控锁证明「只有 @click 时按 Enter 不产生任何调用」（否则行为断言退化成测 mount 副作用）；后代锁用 `innerHTML`（**不是** `wrapper.html()` —— 后者含元素自己的 `tabindex="0"`，会把正确修法判成缺陷）断言卡片子树无真控件。
+- 新增行为+结构+禁令三类锁 `Collection.keyboard-cards.test.js`（首轮 4 条 ⇒ QM-6 二轮后 6 条，验收以门禁现场通过数为准，条数只是当日读数）：结构锁逐个标签验四件套与表达式一致；行为锁对 Enter / Space **各**断一次路由跳转；负控锁证明「只有 @click 时按 Enter 不产生任何调用」（否则行为断言退化成测 mount 副作用）；后代锁用 `innerHTML`（**不是** `wrapper.html()` —— 后者含元素自己的 `tabindex="0"`，会把正确修法判成缺陷）断言卡片子树无真控件。
 - 反证按 §三 口径重造「未补全的原始标签」：指名红 2 条（结构锁 + 行为锁），还原后逐字节相同。
 - 本批顺带做了一次存量清点（`role="button"` 17 处 / 违规 3 处：账号卡批量复选框、文案库卡片的播客入口按钮、采集记录卡片的标签编辑按钮），三处均读到源码确认。修法涉及交互设计取舍（撤销 role = 键盘可达回退；改成卡内真按钮 = 改信息层级），**登记为待裁决项，不在本批代拍**。
 - 消费者并集：`Collection.test.js` / `Collection.viral-contract.test.js` / `Collection.rewrite-input-limit.test.js` 与新文件同跑 4 passed。
@@ -540,6 +540,17 @@
 - **真 Chromium 实测把两条评审主张各自定案**（`div[role=button][tabindex=0]` 挂三个监听后按 Enter/Space）：Enter/Space **都不合成 click** ⇒ i2 担忧的「双重激活」路径不可达，但也因此 **keydown 处理器是唯一的键盘通路**；原生 `<button>` 的 Space 是 **keyup 才激活** ⇒ i7 成立，本批采用 keydown 激活并在 PRD §三-B 写明取舍（`.prevent` 只能挂 keydown，挪到 keyup 就要留一条空处理器、破掉「表达式逐字一致」这条可核对契约）与代价（按下即跳转，无法移焦取消）。
 - **锁自身被重写了一轮**（i3/i4/i6/i8 全部采纳）：结构判据从「整行正则」改为 `@vue/compiler-sfc` **模板 AST**（判据不再绑排版，属性名的 `.` 也不再靠未转义正则）；判定域从「`tags.length >= 6`」改为**逐张点名**（6 张卡各补 `data-testid` 作为定位锚与身份）；行为锁从 1 张扩到 **6 张**并断**恰一次**（`toHaveBeenLastCalledWith` 对重复触发免疫）；目的地断言**归一化**（对象形态的 `push` 不该让锁红）。
 - **反证驱动入库** `scripts/keyboard-cards-contract-mutate.js`（同 `scripts/leaf-role-contract-mutate.js` 的形态纪律：脚本躺在临时目录里，「锁的牙」就只存在于文字叙述中）**14 道全数 CAUGHT**，其中 **M10 与 M9 各抓到一次锁自身的错**：M10 MISSED 暴露「类名匹配用 `includes` ⇒ `.col-stat-card-click-ghost` 被算成命中」，改成整词正则并加一条匹配器自锁（M14 钉住它不许退回）；M9 MISSED 暴露我把两格棘轮的语义读反（违规上涨由计数上界拦、额度调松由「基线不得变松」拦），拆成 M9/M12 两道各测一格。M11 是**合规形态必须绿**的正控（`push` 改对象形态不得红）。
+
+# [未发布] docs(changelog): 把 #2842 squash 漏带的那一行「顺带修复」条目逐字节搬回主干（restore-2842-changelog-entry）
+
+- docs(changelog): 现场取证 —— 落地判据对 `fix-rewrite-paragraph-preserve` 报一行 LOST（`落地版本=版本不同@1292b6555(主干独有0行/我这版独有1行)`、`份数=short 1(base=0 tip=1 main=0 可解释容量=0)` ⇒ `onlyInMerge=0`），`--allow-different-landing` 按 §12 收紧后的谓词**拒绝放行**；逐 blob 比对给出的方向是：squash 落地的 CHANGELOG blob `a12acd8a8` 与分支倒数第二笔 `49165a742` **逐字节同一份**，而那一行由最后一笔 `214cbb2e2` 写下，其提交时间 14:55:12Z 比合并时刻 14:43:15Z **晚 12 分钟** ⇒ 产物是 tip 的严格子集，不是"另一版"。
+- docs(changelog): 正解只有"逐字节搬回"这一种：判据按行比较，改写那一行（哪怕补一句出处）不会清除 LOST，只会把一条记录变成两条互相对不上的记录。实质内容当年已由 `e5fb069b7`（#2852，提交主题直写「#2842 合并时序错位漏带」）追平落地，所以本片补的是**记录**不是**行为**，零运行时变更。
+- docs(prd): `01-docs/PRD-BRANCH-MERGED-CHECKER-2026-10-16.md` 追加 §13 ——「合并之后又往分支推提交」这一形态判据只能读成 `onlyInMerge=0` 的 different，是 §12 那一刀（谓词要求 `onlyInMerge>0`）第一次在真实分支上拒绝放行；同时如实留下一格未关：没有任何门禁在看"closed PR 之后 head 又动了"这件事。
+- **QM-6 第二轮双模型评审（head `5afa9d36e`，8 条发现，维度分 correctness 7 / security 9 / performance 9 / maintainability 6）的处置** —— 其中 **i1 又是一条契约自相矛盾**：PRD §一「交互逻辑」早就写明焦点规则必须显式写 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`（组件族带 `transition: all` ⇒ Tab 后 0ms 读到过渡起点 = 「焦点慢半拍」），而本批刚加的环规则没写这三行、环锁也完全不看这一项。修法：补 override + 新增**第二格计数棘轮**（实测 10），并把 M9/M15（违规上涨）与 M12/M16（额度调松）拆成两两对偶四道 —— 缺任一方向，那一格就是恒绿的装饰。
+- **i4 是自我一致性抓出来的**：§三-C 刚以「判据绑排版」为由把键盘锁的整行正则退役，而**环锁自己还在用源码正则扫标签、并把整份 SFC 当 CSS 喂进选择器解析器**。迁到模板 AST 后**当场显形一个旧判据从未看见的真站点**（`views/CreateHistory.vue` 的运行中横幅：`tabindex="0"` 写在换行后的属性里，`[^>]*` 不跨行 ⇒ 漏扫，且它确实没有焦点环），已按文件登记欠账。另两处空窗（`<script>` 里的 tabindex 字符串变假站点、模板文本里的 `:focus-visible {` 变**伪规则**）各配一条 fixture —— 伪规则只会让缺环计数**变小**，属"只会放行、不会报错"那一类，比漏扫更危险。
+- **i3 把时序取舍的代价写完整**：浏览器对按住不放的键连发 `keydown`（`repeat=true`），`.prevent` 不挡重复；原生 `<button>` 的 Space 在 keyup 激活 ⇒ 按住只算一次，本批放在 keydown ⇒ **按住即连发**。后果分两写：草稿路径由 `draftSave` 内容指纹幂等吸收（不会拿到 N 份草稿），**来源入口路径没有幂等键 ⇒ 会多开标签页**。不在本批加 `event.repeat` 守卫的理由是它会破掉「keydown 表达式与 `@click` 逐字一致」这条可机械核对的契约，属契约变更 + 交互裁决 ⇒ 上报不代拍；改为加一条**边界锁**把该代价钉住（注释写明"将来加守卫时这条必须同步改"），防止下一批把它读成已修。
+- **i2/i5/i8 三条落在守卫自身**：① 归一化器曾有**两处**各补一次前导斜杠，于是反证 M18「摘掉统一补斜杠」照样全绿 —— 重复逻辑让变异测不到它声称测的东西，改为单点补斜杠后 M18 才真有牙；② 两个反证驱动都用 `spawnSync('pnpm.cmd', …, {shell:true})`，`pnpm.cmd` 只在 Windows 存在、且 `shell:true` 下 args 无引号拼接会让含空格临时目录断成两个参数 —— 改为 `process.execPath` 直跑 vitest 的 ESM 入口（无 shell、无平台分支、无引号面）；③ 行为锁注释曾写「双重激活会在这里现形」，实为言过其实 —— JSDOM 与真 Chromium 都不为 `div[role=button]` 合成 click，该风险由 §三-B 的真浏览器取证承保，注释已改为如实口径。
+- **反证从 14 道扩到 19 道，`COUNTERPROOF=ALL_CAUGHT`**（`[BASE] collected=13 red=0`，逐条按字节还原）。本轮新增的 M17/M18 第一版**都是 MISSED**，两种成因都值得记：M17 打在"聚合处"（往 CSS 里**加**伪规则只会让缺环计数变小，根本不会红）—— 变异必须打在**产出处**；M18 被实现里的重复兜底吃掉（见上）。另 M8 因规则新增一行而锚点失效（`MUTATE-FAIL`）：**MUTATE-FAIL 与 MISSED 是两种病**，前者是"变异根本没造出来"，后者才是"锁没牙"，混读会把工具失明当成通过。
 
 # [未发布] fix(gates): CLI e2e 用例预算的采样域补齐两根轴——workflow × 作业名的生产者登记表，覆盖度逐轴判（case-timeout-audit-coverage-domain）
 

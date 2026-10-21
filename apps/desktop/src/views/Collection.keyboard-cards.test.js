@@ -120,24 +120,34 @@ function stubElectron (draftSave) {
 }
 
 /**
- * 目的地归一化（i6）：`push('/publish?tab=drafts')` 与 `push({ path:'/publish', query:{tab:'drafts'} })`
- * 必须得到同一个串 —— 锁断的是"用户被带去哪"，不是 `router.push` 的入参写法。
+ * 目的地归一化（i6 + 二轮 i2）：**所有形态必须过同一条规范化路径**，否则"归一化"本身是假的。
+ * 第一版的毛病：字符串与 `{path,query}` 得到 `/publish?tab=drafts`（带前导斜杠），
+ * 而 `{name,query}` 得到 `publish?tab=drafts`（不带）—— 于是实现一旦从 path 改成 name 跳转，
+ * 锁会在"用户被带去哪"完全没变时假红；而把这种不对称固化进断言（第一版就是这么写的）
+ * 等于把守卫的洞当契约钉住。正解：`name` 补上前导斜杠、query 键排序、值做 URL 编码。
  * 取不到的形态一律抛错（静默返回 '' 会把"断言没比上任何东西"读成通过）。
  */
 export function normalizeTarget (arg) {
+  let path = ''
+  let query = null
   if (typeof arg === 'string') {
-    const [path, query] = arg.split('?')
-    const pairs = [...new URLSearchParams(query || '').entries()].sort()
-    return path + (pairs.length ? '?' + pairs.map(([k, v]) => k + '=' + v).join('&') : '')
+    const qi = arg.indexOf('?')
+    path = qi < 0 ? arg : arg.slice(0, qi)
+    query = qi < 0 ? {} : Object.fromEntries(new URLSearchParams(arg.slice(qi + 1)))
+  } else if (arg && typeof arg === 'object') {
+    if (arg.path) path = arg.path
+    else if (arg.name) path = arg.name
+    else throw new Error('路由入参既无 path 也无 name：' + JSON.stringify(arg))
+    query = arg.query || {}
+  } else {
+    throw new Error('无法归一化路由入参形态：' + String(arg))
   }
-  if (arg && typeof arg === 'object') {
-    const path = arg.path || arg.name || ''
-    const q = arg.query || {}
-    const pairs = Object.keys(q).sort().map((k) => k + '=' + q[k])
-    if (!path && !pairs.length) throw new Error('无法归一化路由入参形态：' + JSON.stringify(arg))
-    return path + (pairs.length ? '?' + pairs.join('&') : '')
-  }
-  throw new Error('无法归一化路由入参形态：' + String(arg))
+  // 前导斜杠**只在这一处**补。写成 `path = '/' + arg.name` 再叠这一句是重复逻辑，
+  // 重复逻辑的后果实测过：反证 M18「摘掉统一补斜杠」照样全绿（另一处把斜杠补回来了），
+  // 于是那道变异根本没测到它声称测的东西 —— 判据的牙必须是单点的。
+  if (!path.startsWith('/')) path = '/' + path
+  const pairs = Object.keys(query).sort().map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(String(query[k])))
+  return path + (pairs.length ? '?' + pairs.join('&') : '')
 }
 
 describe('Collection.vue · 快捷卡片键盘可达（结构：模板 AST + 逐张点名）', () => {
@@ -233,8 +243,10 @@ describe('Collection.vue · 快捷卡片键盘可达（行为：六张全覆盖 
       const seen = []
       for (const event of ['click', 'keydown.enter', 'keydown.space']) {
         const calls = await fireOnce(w, card, event)
-        // 恰一次：双重激活（如浏览器为 role=button 合成 click）会在这里现形，
-        // 而 toHaveBeenLastCalledWith 对它结构性免疫。
+        // 恰一次。⚠ 如实口径（二轮 i8）：这条**不能**捕获"浏览器为 role=button 合成 click ⇒ 双重激活"，
+        // 因为本锁跑在 JSDOM，而 JSDOM 与真 Chromium 一样都不为 div[role=button] 合成 click
+        // —— 后者由 PRD §三-B 的真浏览器取证承保（静态夹具实测：Enter/Space 读数里都没有 click）。
+        // 这条真正防的是**我们自己**把同一动作绑两遍（如 keydown 与 click 都接上且各自再调一次）。
         expect(calls, card.testid + ' 在 ' + event + ' 上触发了 ' + calls + ' 次，应为恰 1 次').toBe(1)
         if (wantTarget[card.testid]) seen.push(normalizeTarget(pushSpy.mock.calls[0][0]))
       }
@@ -258,10 +270,30 @@ describe('Collection.vue · 快捷卡片键盘可达（行为：六张全覆盖 
     expect(handler).toHaveBeenCalledTimes(1)
   })
 
-  it('归一化器自身：字符串与对象两种 push 形态必须得到同一个目的地（否则锁在钉实现形态）', () => {
-    expect(normalizeTarget('/publish?tab=drafts')).toBe(normalizeTarget({ path: '/publish', query: { tab: 'drafts' } }))
-    expect(normalizeTarget('/publish?a=1&b=2')).toBe(normalizeTarget({ path: '/publish', query: { b: 2, a: 1 } }))
-    expect(normalizeTarget({ name: 'publish', params: {}, query: { tab: 'drafts' } })).toBe('publish?tab=drafts')
+  it('归一化器自身：四种 push 写法必须得到同一个目的地（否则锁在钉实现形态）', () => {
+    const want = '/publish?tab=drafts'
+    expect(normalizeTarget('/publish?tab=drafts')).toBe(want)
+    expect(normalizeTarget({ path: '/publish', query: { tab: 'drafts' } })).toBe(want)
+    // 二轮 i2：name 形态过去少一个前导斜杠 ⇒ 同一条断言直接抓这条不对称
+    expect(normalizeTarget({ name: 'publish', query: { tab: 'drafts' } }), 'name 与 path 形态必须同串').toBe(want)
+    expect(normalizeTarget('/publish?b=2&a=1'), 'query 顺序不该影响归一化').toBe(normalizeTarget({ path: '/publish', query: { a: 1, b: 2 } }))
+    // 值里带 & / = 时必须编码，否则两个不同目的地会归一成同一个串
+    expect(normalizeTarget({ path: '/p', query: { q: 'a&b' } })).toBe('/p?q=a%26b')
+    expect(normalizeTarget({ path: '/p', query: { q: 'a' , x: 'b' } })).not.toBe(normalizeTarget({ path: '/p', query: { q: 'a&x=b' } }))
     expect(() => normalizeTarget(42), '取不到的形态必须出声，不能静默返回空串').toThrow()
+    expect(() => normalizeTarget({ query: { a: 1 } }), '既无 path 又无 name 必须出声').toThrow()
+  })
+
+  it('边界（二轮 i3）：keydown 自动重复会再次触发 —— 当前实现如此，代价与缓解写在 PRD §三-B', () => {
+    // 这条不是"希望如此"的行为锁，而是**把已知代价钉在测试里**：将来若给卡片加 `event.repeat` 守卫，
+    // 本条必须同步改成"repeat 不触发"，否则它就在保护一个已经不存在的形态（反向锁）。
+    const w = mountView()
+    return flushPromises().then(async () => {
+      const box = w.find('[data-testid="quick-drafts-box"]')
+      pushSpy.mockClear()
+      await box.trigger('keydown.enter')
+      await box.trigger('keydown.enter', { repeat: true })
+      expect(pushSpy, '按住 Enter 会连发 keydown ⇒ 这里断的是"当前确实每次都触发"；加 repeat 守卫时同步改这条').toHaveBeenCalledTimes(2)
+    })
   })
 })

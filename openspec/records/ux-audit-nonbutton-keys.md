@@ -56,7 +56,7 @@ branch: ux-audit-nonbutton-keys
 | 消费者并集 | PASS | 首轮 4 文件 4 passed；重写后按「消费者并集 = 谁断言被改模块的行为」重取：Collection 族 + 环锁 **9 files / 165 passed**，另 3.6 环锁 12 passed、两个 CSS 消费者 71 passed |
 | QM-4 视觉 | 由 CI 代跑 | **本批第二轮起有视觉变化**（键盘焦点态的 2px 环），但只在 `:focus-visible` 下绘制 ⇒ 全页像素回归对焦点态结构性失明，**不得**据此自称「无回归」。环的存在性改由环锁守；`role`/`tabindex`/`data-testid` 不入绘制流 |
 | QM-1 | N/A | 未触 electron 主进程 / rpa-engine |
-| 焦点环（i1） | PASS | 新增 `src/focusable-ring-contract.test.js` 4 条：域非空并打印读数、缺环按文件登记且只能缩小、环色按计数基线、匹配器整词自锁；与 3.6 的 `styles/focus-ring.test.js`（12 passed）同跑互不破坏 |
+| 焦点环（i1） | PASS | 新增 `src/focusable-ring-contract.test.js`（首轮 4 条 ⇒ 二轮 6 条）：域非空并打印读数、缺环按文件登记且只能缩小、环色按计数基线、匹配器整词自锁；与 3.6 的 `styles/focus-ring.test.js`（12 passed）同跑互不破坏 |
 | CJK / 品牌 / 绝对路径 / 行尾 | 见 PR 当场读数 | 新增诊断与文案不入生产源码（测试文件不受 CJK 门禁统计） |
 | 旧载体冻结 | PASS | 只写本篇 `openspec/records/` |
 | 远程同步 | 由门禁推导 | 不写状态词、不做回填提交 |
@@ -99,3 +99,37 @@ branch: ux-audit-nonbutton-keys
 | M12 环色基线 10 → 12 | 「基线不得变松」 | 与 M9 互为对偶 |
 | M13 摘掉欠账登记 | 环锁「缺环」 | 清单只是豁免，不是判据的例外 |
 | M14 匹配器退回子串 `includes` | 匹配器自锁 | M10 的成因不许复发 |
+
+## 5-B 第二轮外部评审（head `5afa9d36e`，8 条发现）：逐条处置
+
+判定与产物：`node scripts/ccg-review-decider.js --base origin/main`（索引干净 ⇒ 回落父 sha 命名）
+⇒ `mode=dual`（变更 705 行 > 200），产物 `.ccg/reviews/5afa9d36….json`；
+评审链产物 `.adversarial/ccg-deep-5afa9d36/critique-v1.md`（维度分 correctness 7 / security 9 / performance 9 / maintainability 6）。
+⚠ 一条链路现场值得记：本轮第一次启动时 `deep-review.sh` **静默跳过**（head 是一个只含判定产物的提交，
+按 head 命名取不到记录），而它**照样 rc=0** 并打印「跳过深度审查」—— 那是「观察器什么都没看到却报平安」的形态，
+处置不是改脚本，是先把内容提交当作 head 再跑。
+
+| id | 级别 | 处置 | 现场证据 |
+|---|---|---|---|
+| i1 | Warning | **采纳并修** —— 又是一条契约自相矛盾 | PRD §一「交互逻辑」明文要求焦点规则写 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`（组件族带 `transition: all` ⇒ Tab 后 0ms 读到过渡起点 = 焦点慢半拍），而本批刚加的环规则没写、环锁也完全不看这一项。修法：补 override + **第二格计数棘轮**；M9/M15 测「违规上涨」、M12/M16 测「额度被调松」，四道两两对偶 |
+| i2 | Warning | **采纳**，并顺带抓到重复逻辑 | `normalizeTarget` 对 `{name}` 少一个前导斜杠，而第一版 fixture 把这种不对称**固化成期望**。修法：前导斜杠只在**一处**补。反证 M18 第一版打在「name 分支不加斜杠」上 ⇒ **MISSED**：通用兜底把斜杠补回来了，两道重复互为保证 ⇒ 变异测不到它声称测的东西。摘掉通用兜底后 M18 才真有牙 |
+| i3 | Warning | **采纳为文档 + 边界锁，实现不改（属契约变更，上报不代拍）** | 浏览器对按住不放的键连发 `keydown`（`repeat=true`），`.prevent` 只挡滚动不挡重复。后果分两写：草稿路径由 `draftSave` 内容指纹幂等吸收（不会拿到 N 份草稿）；**来源入口路径无幂等键 ⇒ 会多开标签页**，这是已知未修的代价。不加 `event.repeat` 守卫的理由：表达式一旦带 `$event` 就不再与 `@click` 逐字一致，破掉 §三 那条可机械核对的契约。改为加一条**边界锁**断言「连发两次 ⇒ 触发两次」，注释写明将来加守卫时必须同步改 —— 把代价钉在测试里，防止下一批读成已修 |
+| i4 | Warning | **采纳，且是被自我一致性逼出来的** | §三-C 刚以「判据绑排版」为由退役键盘锁的整行正则，而**环锁自己还在用源码正则扫标签、并把整份 SFC 当 CSS**。迁到模板 AST 后**当场显形一个旧判据从未看见的真站点**：`views/CreateHistory.vue` 的运行中横幅，`tabindex="0"` 写在换行后的属性里（`[^>]*` 不跨行 ⇒ 漏扫），且它确实没有焦点环 ⇒ 按文件登记欠账。另两处空窗各配 fixture：`<script>` 里的 `tabindex` 字符串不得算站点；模板文本里的 `:focus-visible {` 不得变成伪规则（**伪规则只会让缺环计数变小**，属「只会放行、不会报错」那一类，比漏扫更危险）。反证 M17 第一版打在**聚合处** ⇒ MISSED（往 CSS 里加东西不会让任何断言红）；改打**产出处**（styles 直接返回整份文本）后 CAUGHT |
+| i5 | Warning | **采纳（两个驱动一起改）** | 两个反证驱动都写 `spawnSync('pnpm.cmd', …, {shell:true})`：`pnpm.cmd` 只在 Windows 存在 ⇒ 与「从干净 checkout 一条命令可复跑」直接矛盾；且 `shell:true` 下 args 无引号拼接，临时目录含空格就会断成两个参数。改为 `process.execPath` 直跑 `node_modules/vitest/vitest.mjs` —— 无 shell、无平台分支、无引号面，入口不存在时走 blind 档而不是静默当通过 |
+| i6 | Info | **如实登记，不改判据** | 提交集里 `.ccg/reviews/dbfdb9e0….json` 写 `self_play_pending` 而 §5 说「已逐条处置」；同 head 有两个产物、行数口径也不一致（673 vs 134）。这是 QM-6 链路的既有形状（判定记录按内容寻址命名、与评审时的 head 差一个提交），本轮把裁决填进产物并**新增**与最终 head 同源的那份，不改命名规则（属"改谁来守门"） |
+| i7 | Info | **采纳** | CHANGELOG 写「4 条」、记录写环锁「4 条」，实际分别是 6 与 6 —— 条数是当日读数，PRD §五 自己警告过会漂移。本轮把这些数字统一改成**带出处的当场读数**并注明"下一次改动即漂移"，验收一律以门禁现场通过数为准 |
+| i8 | Info | **采纳（注释口径纠正）** | 行为锁注释写「双重激活会在这里现形」言过其实：本锁跑在 JSDOM，而 JSDOM 与真 Chromium 都不为 `div[role=button]` 合成 click —— 该风险由 §三-B 的真浏览器取证承保，不在 CI 里。注释改为如实口径；这条与「i2 的否证」是同一件事的两面：**否证一个风险 ≠ 你的锁能测它** |
+
+## 5-C 反证驱动扩到 19 道（`node scripts/keyboard-cards-contract-mutate.js`）
+
+`[BASE] rc=0 collected=13 red=0` → `COUNTERPROOF=ALL_CAUGHT`，逐道打印红集并要求源文件按字节还原。
+本轮新增 M15–M19（对应二轮 i1/i1/i4/i2/递归完整性），其中**两道第一版 MISSED、一道 MUTATE-FAIL**，三种病因要分开记：
+
+| 变异 | 结果 | 病因分类 |
+|---|---|---|
+| M17 摘掉 transition override（第一版打在 CSS 聚合处） | **MISSED** | 变异对象选错：往 CSS 里**加**伪规则只会让「缺环」计数变小 ⇒ 永不红。改打**产出处**（`styles` 返回整份文本）后 CAUGHT |
+| M18 归一化不加前导斜杠 | **MISSED** | 实现里有**两处**各补一次斜杠 ⇒ 摘掉任一处另一处仍然兜住，变异根本没改变行为。先做成单点，再摘它，才 CAUGHT |
+| M8 摘掉整条环规则 | **MUTATE-FAIL** | i1 修完锚点就过期了（规则多了一行 transition）。**MUTATE-FAIL 与 MISSED 是两种病**：前者是"变异没造出来"，后者才是"锁没牙"，混读等于把工具失明当成通过 |
+| M19 AST 只扫顶层不下钻 | CAUGHT（红 4 条） | 站点与规则双双消失，`判定域非空` 与 fixture 一起红 —— 这条正是「扫描域退化时零违规读起来完全像通过」的实测形态 |
+
+其余 15 道（M1–M7、M9–M16）沿用首轮判据，指名命中各自那一格且按字节还原。
