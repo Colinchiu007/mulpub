@@ -129,7 +129,7 @@ computeStaleInfo(sessions, now, staleAfterMs = DEFAULT_STALE_AFTER_MS)
    M16 判据自带第二份终态清单、M17 把兜底误写成"参与全局 max"（红 11 条）。
    另有两条变异首跑暴露的是**我自己的探针问题**，不是锁没牙：M3 因判别用例遍历被测集合本身而
    `MISSED`（改成测试侧字面量成员清单 + 闭合断言后红 2 条）；M4 因注入产出不可编译源码而
-   `PROBE_BLIND`（换成合法的同害注入后红 3 条）。
+   `PROBE_BLIND`（换成合法的同害注入后红 4 条）。最终一次干净跑的各条红数为 M3=2 / M4=4 / M5=14 / M15=5 / M16=1 / M17=11，其余各 1–3 条。
 4. 真 store 取证 **2 条**（评审 i4）：断 `Number.isFinite(session.createdAt)`，并据此端到端判出陈旧。
    三个测试文件合计实测 `Tests 126 passed`（纯函数 39 / 面板文件 49 / store 38）。
 5. `pnpm exec eslint electron/ src/ --quiet`（CI 同款聚合命令）rc=0。
