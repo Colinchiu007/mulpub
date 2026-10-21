@@ -97,8 +97,20 @@ branch: fix-collection-rewrite-publish-flow
 | 轮 5 | 记录更新提交的 delta | 8 条 | 7 条 | 7 dismissed；**首次出现高危域（i7 datamigration）** ⇒ 触发**独立外部复核** |
 | 轮 6 | `genreDraftId` 改 ref 的 delta | 8 条 | 7 条 | 7 dismissed；**3 条建议被直接采纳并已实现** |
 | 轮 7 | 交错边界用例 + 审计口径声明的 delta | 8 条 | 7 条 | 7 dismissed；**3 条高危（i1 auth / i3 / i4 datamigration）** ⇒ 第二次**独立外部复核** |
+| 轮 8 | 记录更新 + 外部复核摘要入库的 delta | 8 条 | 6 条 | 6 dismissed；**2 条建议采纳**：外部复核正文 sha256 摘要写入 `externalReview.evidenceDigestSha256`、审计口径的显式复算命令 |
+| 轮 9 | 与 #4111 融合后的提交 | 7 条 | 6 条 | 6 dismissed（**1 条高危 datamigration/auth** ⇒ 独立外部复核 + 摘要入库） |
+| 轮 10 | 惰性取用修复的提交 | 8 条 | 6 条 | 6 dismissed；**3 条建议采纳**：产物内补 `statsAudit`（双口径 + 复算命令）与 `authoredBy` 角色分离、入口显式终止前一轮 run、composable 头注释写明依赖契约 |
+| 轮 11 | 采纳项落地后的提交 | — | — | 见下方「深审采纳项落地」段 |
 
-**被采纳并已实现的（3 条）**：
+**被采纳并已实现的（6 条）**：
+
+- **i3（轮 2，Critical，correctness）**：「`watch(rewriteResult,{flush:'sync'})` 缺类型守卫，引擎返回非字符串结果可能污染草稿态」。核实后**部分成立**——watcher 体内不含字符串运算 ⇒ 不会抛错；但「非字符串真值进 `rewriteResult`」是**真缺口**（IPC 外部边界；字符串口径分叉 ⇒ watcher 误判「程序赋值」⇒ **归因链错挂**）。**已实现**：`applyRewriteResult` 入口加 `typeof content !== 'string' || !content` 守卫 ⇒ 非字符串一律判失败（不写正文、不挂归因链、不报「改写完成」，如实报「AI 改写失败」）；新增行为级用例 + **变异反证 M5**（守卫改成 `if (false)` ⇒ 该用例当场红，还原即绿）。
+- **i5（轮 3，Warning，maintainability）**：「作废逻辑埋在 2000+ 行视图里，且**程序赋值与用户手改两条路径没有分别的用例**」。后半句**属实**。**已实现**：抽出 `composables/useRewriteResultInvalidation.js`（判据单一实现、可脱离视图单测）+ 6 例（程序赋值 / 用户手改 / 清空 / **两条交错边界**）+ `rewrite-word-count.test.js` 补常量漂移前置断言 + `genreDraftId` 由模块级 `let` 改为 `ref`。
+- **i7（轮 6，Info，performance）**：「并发模型要在文档里写明」。**已实现**：`useCollectionVideoCreation.js` 头注释新增「并发模型」段 —— 并发由 **UI 层按钮禁用**串行化、`videoSeq` 是第二道防线（让在途响应作废而非覆盖新状态），并写明未来若引入后台重试/多路并行必须补真正的取消/版本守卫。
+- **i4（轮 9）**：外部复核证据「仅用 URL」⇒ **已整改**：13 份产物逐条补 `evidenceDigestSha256`（公开评论正文的 sha256，可自行重算），原文全文落盘 `.adversarial/ccg-deep-*/external-review-*.md`。
+- **i3 / i5（轮 10）**：审计要「不读提案正文」就能独立核对两个口径、且要能分辨引擎输出与人工插值 ⇒ **已实现**：13 份产物新增**自填** `deepReview.statsAudit`（`scope` / `codeFileCount` / `codeTotalLines` / `allFileCount` / `allTotalLines` / 两条可粘贴的 numstat 复算命令 / `authoredBy`）与三个角色标记（`findingsAuthoredBy` / `closureAuthoredBy` / `statsAudit.authoredBy`）；**引擎写回的 `stats` 与 `findings` 一字未改**。
+- **i7（轮 10）**：「不要只靠 UI 禁用标志做并发控制」⇒ **已实现**：`startPipelineRun` 入口**显式终止前一轮 run**（`pipelineCancelRun(prevRunId)` + 清 `videoRunId`），把「启动 ⇒ 其它 run 一定不在跑」写死在编排边界上（编排层管理的是外部进程，只丢响应会让前一个 run 在后台空转）。
+
 
 - **i3（轮 2，Critical，correctness）**：「`watch(rewriteResult,{flush:'sync'})` 缺类型守卫，引擎返回非字符串结果可能污染草稿态」。核实后**部分成立**——watcher 体内不含字符串运算 ⇒ 不会抛错；但「非字符串真值进 `rewriteResult`」是**真缺口**（IPC 外部边界；字符串口径分叉 ⇒ watcher 误判「程序赋值」⇒ **归因链错挂**）。**已实现**：`applyRewriteResult` 入口加 `typeof content !== 'string' || !content` 守卫 ⇒ 非字符串一律判失败（不写正文、不挂归因链、不报「改写完成」，如实报「AI 改写失败」）；新增行为级用例 + **变异反证 M5**（守卫改成 `if (false)` ⇒ 用例当场红，还原即绿）。
 - **i5（轮 3，Warning，maintainability）**：「作废逻辑埋在 2000+ 行视图里，且**程序赋值与用户手改两条路径没有分别的用例**」。后半句**属实**。**已实现**：抽出 `composables/useRewriteResultInvalidation.js`（判据单一实现、可脱离视图单测）+ `useRewriteResultInvalidation.test.js` 6 例（程序赋值 / 用户手改 / 清空 / **两条交错边界**）+ `rewrite-word-count.test.js` 补常量漂移前置断言 + `genreDraftId` 由模块级 `let` 改为 `ref`。

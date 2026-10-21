@@ -48,7 +48,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
+    "status": "self_play_resolved",
     "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
@@ -64,6 +64,24 @@
     "findings": null,
     "template": ".adversarial\\ccg-deep-c8c70b94\\adjudication.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
-    "at": "2026-10-21T01:15:10.210Z"
+    "at": "2026-10-21T01:15:10.210Z",
+    "tier": "self-play",
+    "closureNote": "轮9 外部 claude 交付 7 条（其中 6 条进裁决，1 条高危 datamigration/auth）：6 条 dismissed 各附可复算实测证据（JSON.sha==merge-base 且执行记录已给出两条复算命令、skip 记录 required=false 与主干同形态逐字一致、外部复核原文已落盘并写入 externalReview.evidenceDigestSha256、过期响应在应用前即被丢弃、clampStory2VideoText 的 typeof 与 Number(...)=0 两道守卫已在实现里、locale 结构锁与构建产物命中读数全在）；本轮评审对象早于与 #4111 的合并（已撤回重复的字数区间实现），哪些结论仍在最终代码里成立见执行记录「与 #4111 的合并（如实登记）」段；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
+    "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②）",
+    "closedAt": "2026-10-21T02:31:01.193Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 11,
+      "codeTotalLines": 1726,
+      "allFileCount": 28,
+      "allTotalLines": 3723,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
   }
 }

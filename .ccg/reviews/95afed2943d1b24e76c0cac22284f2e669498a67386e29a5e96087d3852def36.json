@@ -110,6 +110,20 @@
     ],
     "blocking": [],
     "note": "自扮演裁决：全部指控不成立",
-    "at": "2026-10-20T20:18:24.093Z"
+    "at": "2026-10-20T20:18:24.093Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 11,
+      "codeTotalLines": 1726,
+      "allFileCount": 28,
+      "allTotalLines": 3723,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
   }
 }

@@ -59,6 +59,20 @@
     "tier": "self-play",
     "closureNote": "轮6 外部 claude 交付 8 条（其中 7 条进裁决，0 条高危域命中）：7 条 dismissed 各附可复算实测证据（JSON.sha==merge-base 且已写入「审计口径的显式声明」小节给出两条复算命令、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、seq 守卫已实装、类型守卫已实现且经变异反证 M5 验证、模块级 let 已按 i5 改为 ref）；3 条建议被直接采纳并已实现：①i8 交错边界用例（程序赋值后立即手改 ⇒ 归因链被清、不假挂；手改后程序赋值 ⇒ 不再作废归因链）、②i1 审计口径显式声明、③i4 CHANGELOG 迁移影响面；逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-7f23b3bd/adjudication.json；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
     "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②）",
-    "closedAt": "2026-10-20T23:02:23.403Z"
+    "closedAt": "2026-10-20T23:02:23.403Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 11,
+      "codeTotalLines": 1726,
+      "allFileCount": 28,
+      "allTotalLines": 3723,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
   }
 }

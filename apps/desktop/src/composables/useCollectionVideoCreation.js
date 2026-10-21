@@ -30,6 +30,14 @@ import { useI18n } from 'vue-i18n'
 // 抛「No X export is defined on the mock」——具名解包会在**组件挂载时**就炸，
 // 让那些只关心别的功能的用例整片红。惰性取用（箭头函数在调用时才取属性）
 // 把「取不到就报错」推迟到真正要用流水线的那一刻。
+//
+// **本模块依赖的导出契约**（来自 `@/api/publisher`，缺一即在调用时抛）：
+//   pipelineStartOrchestrated(name, params) → { code, data: { runId, success, stages } }
+//   pipelineCancelRun(runId)                → { code }
+//   pipelineGetRunContext(runId)            → { code, data: { runId, status: { status, progress, stages } } }
+//   onPipelineUpdate(cb)                    → 取消订阅函数
+//   storeGetSetting(key)                    → 设置值
+// 测试可用 `opts.deps` 覆盖其中任意一项（见下方 `deps` 合并处）。
 import * as publisherApi from '@/api/publisher'
 import {
   buildGenVideoStartParams,
@@ -174,6 +182,19 @@ export function useCollectionVideoCreation (opts = {}) {
 
   /** 组装启动参数并启动流水线（启动 / 重试共用这一条路径，避免两份实现漂移） */
   async function startPipelineRun (seq, text) {
+    // 入口显式终止**前一轮** run（第二道防线）。
+    // 当前产品形态下它不可达（UI 按钮禁用已把「同一时刻一个 run」串行化，
+    // 重试只发生在 failed 态 ⇒ 前一轮已结束），但编排层管理的是**外部进程**，
+    // 「启动 ⇒ 其它 run 一定不在跑」这条不变量值得在边界上写死：
+    // 万一将来加了「后台重试 / 多路并行」，前一个 run 会被显式停掉，
+    // 而不是只靠「丢弃过期响应」让它在后台空转。
+    if (videoRunId.value) {
+      const previousRunId = videoRunId.value
+      videoRunId.value = null
+      try {
+        await deps.pipelineCancelRun(previousRunId)
+      } catch (_e) { /* 取消失败不阻断新 run：前一轮的响应会被 seq 守卫丢弃 */ }
+    }
     let snapshot = null
     try {
       snapshot = await deps.storeGetSetting('story2video.lastOptions.v1')

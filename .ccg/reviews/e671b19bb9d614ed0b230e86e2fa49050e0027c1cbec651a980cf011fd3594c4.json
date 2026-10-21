@@ -133,6 +133,20 @@
     "tier": "self-play",
     "closureNote": "轮2 外部 claude（proposer=opencode 跨家族校验通过）交付 6 条：1 upheld（i3 改写信封非字符串正文缺类型守卫）已实现并经变异反证 M5 验证（去掉守卫⇒用例当场红，还原即绿）、5 dismissed 各附可复算实测证据（JSON.sha==merge-base、code_total=1839==changedLines、vite build rc=0、StageProgress props 逐个对上、seq 守卫已实装、非法输入由 UI+契约两层显性拦截）、2 Info 登记处置；本记录非高危面（不涉判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 的合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
     "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②：非高危面 + closureNote）",
-    "closedAt": "2026-10-20T21:49:18.944Z"
+    "closedAt": "2026-10-20T21:49:18.944Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 11,
+      "codeTotalLines": 1726,
+      "allFileCount": 28,
+      "allTotalLines": 3723,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
   }
 }
