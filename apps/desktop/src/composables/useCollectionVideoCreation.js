@@ -106,9 +106,13 @@ export function clampStory2VideoText (text, maxChars = DEFAULT_STORY2VIDEO_TEXT_
  * **不是**靠序号强制。本模块内的 `videoSeq` 是**第二道**防线：它让在途响应在
  * 「序号已前进」时**作废**（`seq !== videoSeq` ⇒ 直接丢弃该响应），而不是让过期响应覆盖新状态。
  *
- * 若将来引入「后台重试 / 多路并行视频创作」，必须补一个真正的取消/版本守卫
- * （例如把 run 的 token 独立化，并在入口显式 abort 前一个 run）——那时 UI 层的禁用不再成立，
- * 只靠 `videoSeq` 丢弃响应是不够的（**丢弃响应 ≠ 停止前一个 run**）。
+ * 现状（单一 run 形态）另有**第三道**、且是唯一能真正**停掉**前一个 run 的那道：
+ * 入口在启动新 run 前**显式终止**上一轮（`pipelineCancelRun(prevRunId)`，见 `startPipelineRun`）——
+ * 因为**丢弃响应 ≠ 停止前一个 run**（前者只改前端状态，后者才停主进程里的编排）。
+ *
+ * 若将来引入「后台重试 / 多路并行视频创作」，上面三道都不够用：那时每条 run 要**各自持有
+ * 取消句柄**（run 的 token 独立化），入口那次「终止前一轮」也不再成立（并行时本就该都活着），
+ * UI 层的禁用同样不再成立。那是**另一个产品形态**，需要另设判据，不在本刀范围内。
  */
 export function useCollectionVideoCreation (opts = {}) {
   const router = useRouter()
