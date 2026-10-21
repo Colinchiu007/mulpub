@@ -2,6 +2,17 @@ name: Cleanup Artifacts
 
 # 定时清理过期 CI artifact，避免免费额度耗尽导致后续上传失败（infra 失败源之一）。
 # 跑在 GitHub 托管的 ubuntu-latest，不挤占唯一的 Windows 自托管 runner。
+#
+# ⚠ 2026-10-21 重写这一段的原因（不是风格问题）：原来这里内联着一条
+#   `gh api --paginate … | while read … done`，把 54 页上游列举绑成一个管道，
+#   任意一页 5xx 就整步退出；而 gh 对空体响应（GitHub 的 500 就是 Content-Length: 0）
+#   报的是 `unexpected end of JSON input`，读起来像"我们的脚本坏了"。当天实测同一 URL
+#   先 500 后 200 ⇒ 间歇性故障，--paginate 无重试 ⇒ schedule 自 2026-10-14 起日日红，
+#   而它不是 required check，所以没有任何东西在看它。
+# 逻辑搬进 scripts/cleanup-artifacts.js（逐页列举 + 每页重试 + 失败如实计入 pages_degraded，
+# 首页失败判 UNPROVEN 且一条都不删），行为锁 scripts/cleanup-artifacts.test.js 由
+# quality-gate.yml 的 changes 作业点名执行 —— 本作业是 schedule，红在 PR 侧不可见，
+# 所以测试不能只接在这里。
 on:
   schedule:
     - cron: '23 3 * * *'   # 每日 03:23 UTC
@@ -20,20 +31,12 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Delete artifacts older than 5 days
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          DAYS: 5
         run: |
-          set -euo pipefail
-          cutoff=$(date -u -d "-${DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
-          echo "Deleting artifacts created before $cutoff"
-          gh api --paginate "repos/${REPO}/actions/artifacts?per_page=100" \
-            --jq ".artifacts[] | select(.expired==false) | select(.created_at < \"${cutoff}\") | .id" \
-            | while read -r id; do
-                [ -z "$id" ] && continue
-                gh api -X DELETE "repos/${REPO}/actions/artifacts/${id}" \
-                  && echo "deleted artifact $id"
-              done
-          echo "Cleanup done."
+          node scripts/cleanup-artifacts.js --write --days=5
