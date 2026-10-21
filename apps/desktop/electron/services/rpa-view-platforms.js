@@ -326,9 +326,8 @@ const platformsMixin = {
           this._emitProgress(platform, 'filling title...', 20)
           const titleTarget = titleSel || captionSel
           const titleValue = (captionSel && !titleSel) ? this._composeEditorCaption(article, config.max_content) : article.title
-          // 读回校验已内建于 `_fillInput`（读回 0 且待填值非空即抛错）。
-          await this._fillInput(win, titleTarget, titleValue); retry.markDone('title')
-          fillReport.title = { ok: true }
+          // _fillInput 的回读只判「非 0」；等值回读 + 不一致重填在 title-fill-verify（2026-10-22 西瓜页标题被填成文件名）。
+          fillReport.title = await require('./title-fill-verify').fillAndVerifyTitle(this, win, titleTarget, titleValue, { log, platform }); retry.markDone('title')
         } catch(e) {
           log.warn('RpaView', '['+platform+'] title: '+e.message)
           if (!retry.retry('title')) { fillReport.title = { ok: false, error: e.message }; break; }
