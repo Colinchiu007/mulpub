@@ -33,7 +33,8 @@ class PublishApiPaymentHelpers {
       this._json(res, 405, { success: false, error: "METHOD_NOT_ALLOWED" })
       return true
     }
-    const provider = this._paymentProvider
+    // provider 与订阅服务同源（唯一注入点），不再在 server 上另存引用 —— 避免两处配置各改一半
+    const provider = this._paymentProvider || (this._subscriptionService && this._subscriptionService.paymentProvider)
     if (!provider || typeof provider.parseWebhook !== "function") {
       // 未配置商户凭据：404 让微信侧配置错误一眼可见（不是"验证通过"）
       this._json(res, 404, { success: false, error: "PAYMENT_WEBHOOK_NOT_CONFIGURED" })

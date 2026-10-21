@@ -143,9 +143,6 @@ class PublishApiServer {
     this._entitlementProvider = this._opts.entitlementProvider || null
     this._entitlementSigner = this._opts.entitlementSigner || null
     this._subscriptionService = this._opts.subscriptionService || null
-    // 支付通道与订阅服务同源：provider 挂在 subscriptionService 上（唯一注入点），
-    // 服务器不再单独持有第二个引用，避免"两处配置各改一半"的漂移。
-    this._paymentProvider = (this._subscriptionService && this._subscriptionService.paymentProvider) || null
     this._readinessProbe = this._opts.readinessProbe || null
     this._publishViaApi = typeof this._opts.publishViaApi === "function" ? this._opts.publishViaApi : publishViaApi
     this._log = this._opts.log || logger
@@ -761,8 +758,6 @@ class PublishApiServer {
       return;
     }
 
-    // 微信支付 webhook：免登录 · 强验签（平台证书 RSA-SHA256）。
-    // 必须排在 Bearer/API-key 鉴权之前 —— 微信不带我们的 Bearer，验签本身就是信任边界。
     if (await this._handlePaymentWebhook(req, res, method, url)) return;
     // 路径前缀守卫：业务 API 仅接管 /api/v1/，其他路径（如 Logto 自身的 /api/users、/api/forgot-password）
     // 必须由 Nginx 反代到 Logto container 而非业务 API container。
@@ -952,9 +947,6 @@ class PublishApiServer {
         return;
       }
 
-      // 微信 Native 支付：下单 + 订单详情（用户态）。
-      // 必须排在下面的 /api/v1/me/orders 集合分支之前 —— 订单详情是 /me/orders/{id}，
-      // 前缀匹配会先命中的话就永远走不到详情分支。
       if (await this._handleMemberCheckout(req, res, method, url)) return;
       if (await this._handleMemberOrderDetail(req, res, method, url)) return;
       if (url === "/api/v1/me/orders" || url === "/api/v1/me/notifications" || url === "/api/v1/me/notifications/read" ||
