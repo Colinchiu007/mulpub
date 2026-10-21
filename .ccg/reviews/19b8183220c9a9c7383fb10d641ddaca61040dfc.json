@@ -1,0 +1,75 @@
+{
+  "sha": "19b8183220c9a9c7383fb10d641ddaca61040dfc",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 195 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 195,
+    "fileCount": 7,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| 触发条件 | 容器声明**叶子角色**（`role=\"button\"` / `link` / `tab` / `menuitem` / `checkbox` / `radio` / `img`），而其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |",
+      "| 触发条件 | 容器声明叶子角色，其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |",
+      "      变更 195 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处"
+    ],
+    "ccgSensitiveContentHits": 4,
+    "ccgSensitiveContentSample": [
+      "  \"reason\": \"变更 195 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处\",",
+      "      \"| 触发条件 | 容器声明**叶子角色**（`role=\\\"button\\\"` / `link` / `tab` / `menuitem` / `checkbox` / `radio` / `img`），而其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |\",",
+      "      \"| 触发条件 | 容器声明叶子角色，其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T11:37:29.634Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-19b81832\\adjudication.json",
+    "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i4）",
+    "at": "2026-10-21T11:42:35.516Z"
+  }
+}
