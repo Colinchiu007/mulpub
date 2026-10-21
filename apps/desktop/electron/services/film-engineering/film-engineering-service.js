@@ -182,7 +182,10 @@ class FilmEngineeringService {
     const results = []
     for (let i = 0; i < selectedShots.length; i++) {
       const shot = selectedShots[i]
-      const prompt = shot && typeof shot.prompt === 'string' ? shot.prompt : ''
+      // 影视工程 v2 · F-A：图片走 imagePrompt（首帧图）；为空则回落 prompt（存量分镜）。
+      const prompt = shot && typeof shot.imagePrompt === 'string' && shot.imagePrompt.trim()
+        ? shot.imagePrompt
+        : (shot && typeof shot.prompt === 'string' ? shot.prompt : '')
       if (!prompt.trim()) {
         return { ok: false, error: '第 ' + (i + 1) + ' 个分镜提示词为空' }
       }

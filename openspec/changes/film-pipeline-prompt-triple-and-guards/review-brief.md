@@ -6,6 +6,9 @@
 依据：`01-docs/RESEARCH-AI-FILM-OPENSOURCE-2026-10-19.md`（19 个 AI 影视开源项目调研）§4.2 梯队 + §5.2 批次二/三。
 **批次一已落地**（PR #4052，2026-10-20）：`film-kit` 已有 `shot-grammar.json` / `compliance-checklist.json` / `palette.json` / `prompts/tasks/**`；`prompt-doctrine` v2（11 blocks）；`shot-duration.js`（`durationMs` 四级来源链）。**本批次不重复做这些。**
 
+> **后续修订说明（2026-10-21，验证层评审之后）**：本简报是**送审时**的快照，原文不改。其中 C1 描述的「合计上限 `FILM_PROMPT_BUNDLE_MAX_LEN=50000`」已在验证层评审 i4 中**删除**（该值与单字段上限同值 ⇒ 永不触发且误杀三段顶格的合法资产），现行口径为「**逐字段校验 + 不设合计上限**」，见 `design.md` D2 与 `specs/film-engineering/spec.md`。
+> 另：PR 编号在 F-A 插入为 PR-2 后整体前移过一轮，现行编号以 `proposal.md` §5.0 表格为准（PR-1..PR-9 + PR-7a/PR-7b 共 10 个）；本简报抬头写的「6 个 PR」是送审时的旧数。
+
 ## 一、选定项与许可证结论
 
 | 编号 | 内容 | 来源 | 许可证 | 结论 |
