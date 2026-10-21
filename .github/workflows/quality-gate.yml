@@ -430,6 +430,21 @@ jobs:
         run: |
           node --test scripts/check-branch-merged.test.js
 
+      # --- Gate 2b8：「主干红着就别往里合」判据的回归锁（AGENTS「PR 自动合并」判据第 2 条的执行体） ---
+      # 动因（2026-10-19 实测）：判据第 2 条「gh pr checks 零 pending、零 fail」比 GitHub 的 required
+      # 清单更严，却只以散文存在、每轮由会话临场判断。一条**非 required** 的分片红先合进 main，
+      # main 转红后反过来把之后每个 PR 的 required `Gate Result` 判红 —— 两个 PR 被冻约 40 分钟，
+      # 冻住它们的不是自己的改动。散文挡不住，所以给它执行体 scripts/check-main-red.js +
+      # scripts/lib/main-red.js，并由 merge-when-green.{sh,ps1} 两个入口共用（判据只有一份）。
+      # 落点必须是 changes 作业（同 2b2/2b3/2b4 口径：static-gates 带 docs-only 门槛，守门判据落在
+      # 会被自己防的那道短路里的作业，等于给自己关掉校验）；本作业没有 Install deps ⇒ 判据只能
+      # require node 内置模块（本判据另接 gh 子进程，但测试一律注入假 collector，零真实出站）。
+      # 接线锁在测试文件内：两个合并入口必须调用本判据、且必须排在 REST 合并动作之前。
+      - name: "Gate 2b8 - Main-red merge gate (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-main-red.test.js
+
       # --- Gate 2b7：全仓 CI 作业超时常量的取证对账（2026-10-20 起覆盖全部 24 格） ---
       # 编 2b7 而不是 2b5：#3724（未合并）占用 "Gate 2b5 - CCG evidence anchor"，2b6 已被收敛探针占用，
       # 同号会在 squash 后撞成两步同名（`check-unwired-tests.js` 的"同名 basename 必须写全相对路径"会读成一条）。
