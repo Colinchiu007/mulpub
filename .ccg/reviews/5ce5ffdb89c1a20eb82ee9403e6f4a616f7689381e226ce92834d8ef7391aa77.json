@@ -51,11 +51,44 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为抖音视频发布 E2E 真实失败记录。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.19（执行过程/错误出处/历史对照/埋点方案）",
+    "confidenceWeight": 0.85,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "你把 publish timeout 归因为\"API 轨失败降级 DOM\"—— 但任务历史根本没记录 API 轨是否被调用。这是不是又一次把猜测写成定位？",
+        "verdict": "upheld_partial",
+        "rationale": "部分成立，我在文档里已用 ⚠ 明确标注这是**推断而非实测**，并说明了原因 （任务历史只记终态 error，未记分轨过程）。 但我承认：标题写\"双轨失败定位\"**语气过强**，容易让人以为已定位。 实际状态是\"错误串出自 DOM 轨\"（这是实测，代码出处可查）+\"为何走到 DOM 轨\"（这是推断）。 更准确的标题应为「publish timeout 出自 DOM 轨；降级原因待埋点确认」。 这是本节的主要欠缺：**把可证的事实与推断用了同等强度的措辞**。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "第一次发布用了含\"自检\"的标题，被你（用户）指出后才取消 —— 这个流程错误暴露了什么？",
+        "verdict": "upheld_verified",
+        "rationale": "暴露了一个**我事前就该做的检查**：用户在本轮消息中明确要求\"标题和正文不要用测试之类的词语，用真实文案\"， 而我是在用户指出**之后**才取消重发 —— 说明我在发起发布前**没有把这条约束纳入自查**。 正确流程应是：发起任何真实发布前，先检查内容是否符合\"真实文案\"要求。 值得肯定的一面：取消机制**按设计生效**（submitAttempted:false，平台侧无残留）——  这正是 fail-closed 设计的价值：即使我流程出错，也不会造成平台侧垃圾内容。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "历史里有 DOM 轨成功的一次，也有 timeout 的两次 —— 你据此说\"偶发/状态相关\"。这排除\"DOM 轨必坏\"了吗？",
+        "verdict": "upheld_partial",
+        "rationale": "排除了一半：至少证明 DOM 轨**不是必坏**（10-18 成功过一次）。 但\"偶发/状态相关\"仍是**假设**，未经验证；它与其他解释（如内容长度、视频规格、 账号风控状态）并存，我列的三个猜测（风控/页面未就绪/上传未完成即点发布）也没有证据排序。 文档里用了\"更可能\"这种限定词，但读者仍可能把它当结论。 诚实的表述应是：**已知 DOM 轨能成功、timeout 重复出现；成因待分轨埋点后确认**。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 2,
+      "upheldVerified": 1,
+      "note": "i1 承认标题\"双轨失败定位\"措辞过强（错误串出自 DOM 轨是实测，降级原因是推断）；i2 承认流程错误（未在发布前检查\"真实文案\"约束），但取消机制 fail-closed 生效避免了平台侧垃圾；i3 承认\"偶发\"仍是假设而非结论。"
+    },
+    "at": "2026-10-21T03:25:35.143Z"
   }
 }
