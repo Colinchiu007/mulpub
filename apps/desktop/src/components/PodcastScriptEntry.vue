@@ -47,14 +47,10 @@ import { releaseEmbeddedViewsForOverlay, suspendEmbeddedViewsForOverlay } from '
 
 const OVERLAY_OWNER = 'podcast-script-entry-overlay'
 const ORIGIN_KEYS = {
-  channel: 'podcast.episode.originChannel',
   preference: 'podcast.episode.originPreference',
   providerDefault: 'podcast.episode.originProviderDefault',
 }
-// §8.2.9 判据 2：三档里**只有 ②③ 需要标注**。`channel` 是用户自己填进频道的东西，
-// 再告诉他一遍来源只会让他以为那是一层回退结果；所以这张表是「要不要出声」的白名单，
-// 不是「有哪些档」的清单——判据 1 的闭集仍是上面那三把键，别把这里当闭集用。
-const ANNOTATED_ORIGINS = ['preference', 'providerDefault']
+// 2026-10-19 撤掉音色回退链的频道档后，上面这张表就是闭集本身，每一项都要标注；§8.2.9 判据 2（命中频道档不标注）随该档一起退役，不再需要第二张「要不要出声」的表。
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -84,7 +80,6 @@ const originLabel = computed(() => {
     console.warn('[podcast-script-entry] voice.origin out of closed set, origin line hidden:', origin)
     return ''
   }
-  if (!ANNOTATED_ORIGINS.includes(origin)) return ''
   return t(ORIGIN_KEYS[origin])
 })
 // 相位文案取 §6.4.2 既有表；相位枚举由主进程给，前端不抄相位清单。
