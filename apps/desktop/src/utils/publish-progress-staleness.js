@@ -22,8 +22,10 @@
  */
 export const DEFAULT_STALE_AFTER_MS = 180_000
 
-/** 与 store 的 TERMINAL_PHASES 同语义：进入这些相位后不再期待新事件。 */
-const TERMINAL_PHASES = new Set(['success', 'failed', 'cancelled'])
+/** 终态相位的唯一定义在 publish-phases.js（store 与本文件共用，QM-6 i2） */
+import { PUBLISH_TERMINAL_PHASES } from './publish-phases.js'
+
+const TERMINAL_PHASES = PUBLISH_TERMINAL_PHASES
 
 function isFiniteNumber(v) {
   return typeof v === 'number' && Number.isFinite(v)
@@ -54,17 +56,27 @@ export function computeStaleInfo(sessions, now, staleAfterMs = DEFAULT_STALE_AFT
   let lastEventAt = null
   for (const session of sessions) {
     if (!session || session.status !== 'running') continue
+    const sessionCreated = isFiniteNumber(session.createdAt) ? session.createdAt : null
+    let sessionAnchor = null
     const tasks = session.tasks
-    if (!tasks || typeof tasks !== 'object') continue
-    for (const key of Object.keys(tasks)) {
-      const t = tasks[key]
-      if (!t || TERMINAL_PHASES.has(t.phase)) continue
-      // 任务尚未产出任何事件时，回落「我们知道它存在」的那一刻
-      const anchor = isFiniteNumber(t.lastEventAt) ? t.lastEventAt
-        : (isFiniteNumber(session.createdAt) ? session.createdAt : null)
-      if (anchor === null) continue
-      if (lastEventAt === null || anchor > lastEventAt) lastEventAt = anchor
+    if (tasks && typeof tasks === 'object') {
+      for (const key of Object.keys(tasks)) {
+        const t = tasks[key]
+        if (!t || TERMINAL_PHASES.has(t.phase)) continue
+        // 任务尚未产出任何事件时，回落「我们知道它存在」的那一刻
+        const anchor = isFiniteNumber(t.lastEventAt) ? t.lastEventAt : sessionCreated
+        if (anchor === null) continue
+        if (sessionAnchor === null || anchor > sessionAnchor) sessionAnchor = anchor
+      }
     }
+    // 这个会话推不出任何任务锚点（tasks 为空；或全部任务已终态而会话还没被移成 done 的
+    // 异常形态）时，退回会话登记时刻：否则 hasRunning 为真而 stale 恒 false，
+    // × 会被永久钉死 —— 与本 PR 要消灭的症状同形（QM-6 i1）。
+    // 注意这是**逐会话**的兜底，不是全局取 max(createdAt, 任务锚点)：
+    // 后者会把「刚登记的会话里那条早就停住的任务」洗成新鲜，正常场景反而判不出来。
+    if (sessionAnchor === null) sessionAnchor = sessionCreated
+    if (sessionAnchor === null) continue
+    if (lastEventAt === null || sessionAnchor > lastEventAt) lastEventAt = sessionAnchor
   }
   if (lastEventAt === null) return idle
 

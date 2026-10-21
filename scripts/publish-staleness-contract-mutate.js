@@ -27,6 +27,7 @@ const DESKTOP = path.join(REPO, 'apps', 'desktop')
 const F_UTILS = path.join(DESKTOP, 'src/utils/publish-progress-staleness.js')
 const F_COMPOSABLE = path.join(DESKTOP, 'src/composables/usePublishProgressStaleness.js')
 const F_PANEL = path.join(DESKTOP, 'src/components/PublishProgressPanel.vue')
+const F_PHASES = path.join(DESKTOP, 'src/utils/publish-phases.js')
 
 const SUITES = [
   'src/utils/publish-progress-staleness.test.js',
@@ -91,20 +92,20 @@ const MUTATIONS = [
     to: 'if (!session) continue',
   },
   {
-    id: 'M3', label: '终态集合去掉 cancelled（已取消的任务被当成还在等更新）',
-    file: F_UTILS, from: "new Set(['success', 'failed', 'cancelled'])",
+    id: 'M3', label: '共享终态表去掉 cancelled（已取消的任务被当成还在等更新）',
+    file: F_PHASES, from: "new Set(['success', 'failed', 'cancelled'])",
     to: "new Set(['success', 'failed'])",
   },
   {
     // v2：v1 把 `: now` 拼在三元首行末尾，破坏了后续行的三元链 ⇒ 文件根本编译不过，
     // 报成 PROBE_BLIND 而不是 CAUGHT。改成替换整条兜底支路，注入的是同一种危害的合法 JS。
     id: 'M4', label: '锚点缺席时当作「刚有事件」（死字段继续没人读）',
-    file: F_UTILS, from: ': (isFiniteNumber(session.createdAt) ? session.createdAt : null)',
-    to: ': now',
+    file: F_UTILS, from: 'const anchor = isFiniteNumber(t.lastEventAt) ? t.lastEventAt : sessionCreated',
+    to: 'const anchor = isFiniteNumber(t.lastEventAt) ? t.lastEventAt : now',
   },
   {
     id: 'M5', label: '跨任务/跨会话改取最旧锚点（任一任务刚有事件也报无更新）',
-    file: F_UTILS, from: 'if (lastEventAt === null || anchor > lastEventAt) lastEventAt = anchor',
+    file: F_UTILS, from: 'if (sessionAnchor === null || anchor > sessionAnchor) sessionAnchor = anchor',
     to: 'if (lastEventAt === null || anchor < lastEventAt) lastEventAt = anchor',
   },
   {
@@ -152,6 +153,26 @@ const MUTATIONS = [
     file: F_PANEL, from: 'v-if="staleness.stale" class="ppp__pill-hint"',
     to: 'v-if="store.hasRunning" class="ppp__pill-hint"',
   },
+  {
+    // QM-6 i1 的修复本体：摘掉逐会话兜底锚点 ⇒ running 但推不出任务锚点的会话（tasks 为空、
+    // 或异常地全部终态）永远不陈旧，× 又被永久钉死。
+    id: 'M15', label: '摘掉 running 会话的登记时刻兜底（空任务会话再次锁死关闭入口）',
+    file: F_UTILS, from: '    if (sessionAnchor === null) sessionAnchor = sessionCreated',
+    to: '    // M15: 兜底锚点被摘掉',
+  },
+  {
+    // QM-6 i2 的修复本体：把共享语义表换成第二份本地清单（结构锁必须当场发现）。
+    id: 'M16', label: '判据自带第二份终态清单（新增相位时静默漂移）',
+    file: F_UTILS, from: "const TERMINAL_PHASES = PUBLISH_TERMINAL_PHASES",
+    to: "const TERMINAL_PHASES = new Set(['success', 'failed', 'cancelled'])",
+  },
+  {
+    // 我本轮真实犯过的错（被自己的用例抓到）：把兜底锚点写成"始终参与全局 max"，
+    // 于是刚登记的会话会把手上那条早停住的任务洗成新鲜 —— 正常场景反而判不出来。
+    id: 'M17', label: '兜底锚点误改成全局参与 max（新会话把停滞任务洗白）',
+    file: F_UTILS, from: '    if (sessionAnchor === null) sessionAnchor = sessionCreated',
+    to: '    if (sessionCreated !== null && (sessionAnchor === null || sessionCreated > sessionAnchor)) sessionAnchor = sessionCreated',
+  },
 ]
 
 function main() {
@@ -180,16 +201,28 @@ function main() {
       console.log(`${mut.id} PROBE_BLIND  ${e.message}`)
       continue
     }
-    fs.writeFileSync(handle.file, handle.next, 'utf8')
-    const out = runSuites()
-    // 立刻还原并逐字节核对，任何情况下不把源码留在变异态
-    fs.writeFileSync(handle.file, handle.original, 'utf8')
+    // QM-6 i3：注入→跑测试→还原整段都必须在保护之内。变异写入成功到还原写入之间
+    // 任何一次抛错（Windows 文件占用、磁盘写满、spawnSync 自身失败）都会把源码留在变异态，
+    // 而 md5 核对永不执行 —— 那正是「护栏说的比做的多」。还原放进 finally，且还原失败即中止。
+    let out = null
+    let runError = null
+    try {
+      fs.writeFileSync(handle.file, handle.next, 'utf8')
+      out = runSuites()
+    } catch (e) {
+      runError = e
+    } finally {
+      fs.writeFileSync(handle.file, handle.original, 'utf8')
+    }
     const restored = md5(fs.readFileSync(handle.file, 'utf8')) === md5(handle.original)
     if (!restored) {
       console.error(`${mut.id} RESTORE_FAILED —— 源码可能仍是变异态，已中止`)
       process.exit(4)
     }
-    if (out.blind) {
+    if (runError) {
+      results.push({ id: mut.id, verdict: 'PROBE_BLIND', note: `跑测试自身抛错：${runError.message}` })
+      console.log(`${mut.id} PROBE_BLIND  探针自身失败（已确认还原），不得读成「锁没抓住」`)
+    } else if (out.blind) {
       results.push({ id: mut.id, verdict: 'PROBE_BLIND', note: '跑不出用例（编译/收集失败）' })
       console.log(`${mut.id} PROBE_BLIND  未变异前该文件能跑，变异后收集失败`)
     } else if (out.failed > 0) {

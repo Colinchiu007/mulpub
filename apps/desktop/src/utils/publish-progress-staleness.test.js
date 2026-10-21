@@ -17,6 +17,7 @@ import {
   DEFAULT_STALE_AFTER_MS,
   computeStaleInfo,
 } from './publish-progress-staleness.js'
+import { PUBLISH_TERMINAL_PHASES } from './publish-phases.js'
 import * as stalenessModule from './publish-progress-staleness.js'
 
 const T0 = 1_700_000_000_000 // 固定基准时刻，避免用例受真实时钟影响
@@ -139,14 +140,19 @@ describe('computeStaleInfo —— 「无事件即陈旧」的判据本体', () =
     expect(computeStaleInfo(afterTerminal, T0 + 185_000, 180_000).stale).toBe(true)
   })
 
-  it('终态任务与终态会话一律不参与判定（已结束的不再等更新）', () => {
+  it('终态相位不进射程；会话已 done 一律不催更', () => {
     const phases = ['success', 'failed', 'cancelled']
     for (const phase of phases) {
-      expect(computeStaleInfo([withTasks([task({ phase, lastEventAt: T0 })])], T0 + 9e5, 180_000).stale)
+      // done 会话里的终态任务：整条会话都不在射程
+      expect(computeStaleInfo([withTasks([task({ phase, lastEventAt: T0 })], { status: 'done' })], T0 + 9e5, 180_000).stale)
         .toBe(false)
     }
     // 会话已 done：即便内部还有非终态任务（异常形态）也不催更
     expect(computeStaleInfo([withTasks([task()], { status: 'done' })], T0 + 9e5, 180_000).stale).toBe(false)
+    // 而「running 会话 + 全部任务已终态」这一异常形态**必须仍可判陈旧**（i1）：
+    // store 的 _recomputeSessionStatus 正常会把它移成 done，移不到就是面板被永久锁死的那条路。
+    expect(computeStaleInfo([withTasks([task({ phase: 'success', lastEventAt: T0 })])], T0 + 9e5, 180_000).stale)
+      .toBe(true)
   })
 
   it('非终态相位（queued/progress/start/blocked）都在射程内', () => {
@@ -199,10 +205,12 @@ describe('computeStaleInfo —— 「无事件即陈旧」的判据本体', () =
     expect(computeStaleInfo(sessions, T0 + 180_000, 180_000).stale).toBe(false)
   })
 
-  it('脏数据不抛错：非数组、null 会话、tasks 非对象一律按无结论处理', () => {
+  it('脏数据不抛错：非数组、null 会话、tasks 非对象一律按无结论或登记时刻处理', () => {
     expect(computeStaleInfo(null, T0, 180_000).stale).toBe(false)
     expect(computeStaleInfo([null, undefined], T0, 180_000).stale).toBe(false)
-    expect(computeStaleInfo([session({ tasks: null })], T0 + 9e5, 180_000).stale).toBe(false)
+    // tasks 坏掉的 running 会话与 tasks 为空的 running 会话同类（i1）：
+    // 退回登记时刻，不能让面板因数据形状异常而永久锁死。
+    expect(computeStaleInfo([session({ tasks: null })], T0 + 9e5, 180_000).stale).toBe(true)
     // 任务对象连 lastEventAt 这个键都没有：与「有键但为 null」同判（回落会话登记时刻），
     // 不得因为字段缺席就当「刚有事件」而永远不陈旧。
     expect(computeStaleInfo([withTasks([{ taskId: 'x', phase: 'progress' }])], T0 + 9e5, 180_000).stale).toBe(true)
@@ -239,5 +247,100 @@ describe('接线：判据只有一个真源，消费方不得各抄一份阈值'
   ])('%s 源码的代码行不得自带 180000 这个阈值字面量', (_label, rel) => {
     const code = codeLines(fs.readFileSync(path.resolve(__dirname, rel), 'utf-8'))
     expect(code).not.toMatch(/18[\s_]*0[\s_]*0[\s_]*0/)
+  })
+})
+
+// QM-6 i1：running 却推不出任何任务锚点的会话（tasks 为空；或全部任务已终态而会话尚未被
+// 移成 done 的异常形态）必须仍可判陈旧。否则 hasRunning 为真而 stale 恒 false，
+// × 会被永久钉死 —— 与本 PR 要消灭的症状同形。
+describe('running 会话的兜底锚点（i1）', () => {
+  it('tasks 为空：以会话登记时刻为锚点，超阈值即陈旧', () => {
+    const sessions = [session({ tasks: {} })]
+    expect(computeStaleInfo(sessions, T0 + 180_000).stale).toBe(true)
+    expect(computeStaleInfo(sessions, T0 + 179_999).stale).toBe(false)
+  })
+
+  it('全部任务已终态但会话仍 running：同样可判陈旧（不让异常态锁死关闭入口）', () => {
+    const sessions = [withTasks([task({ phase: 'success', lastEventAt: T0 - 10_000 })])]
+    expect(computeStaleInfo(sessions, T0 + 180_000).stale).toBe(true)
+  })
+
+  it('登记时刻在未来（时钟回跳）时不判陈旧', () => {
+    expect(computeStaleInfo([session({ tasks: {} })], T0 - 1000, 180_000).stale).toBe(false)
+  })
+
+  it('登记时刻也取不到时仍不产出结论（i1 不得把「无判据」翻转成「谎报」）', () => {
+    expect(computeStaleInfo([session({ tasks: {}, createdAt: null })], T0 + 9e5, 180_000)).toEqual({
+      stale: false, minutes: 0, lastEventAt: null,
+    })
+  })
+})
+
+// QM-6 i2：终态相位集合必须只有一份。判据 import store 会形成循环依赖，
+// 所以提到中立模块 publish-phases.js；两条锁一起钉：结构（谁引用它、谁不得再抄一份清单）
+// 与行为（逐相位与 store 的判定一致）。
+describe('终态相位单点（i2）', () => {
+  const TERMINAL_LITERAL = "['success', 'failed', 'cancelled']"
+  const selfCode = codeLines(fs.readFileSync(path.resolve(__dirname, 'publish-progress-staleness.js'), 'utf-8'))
+  const storeCode = codeLines(fs.readFileSync(path.resolve(__dirname, '../stores/publishProgress.js'), 'utf-8'))
+
+  it('判据与 store 都引用共享语义表', () => {
+    expect(selfCode).toContain('publish-phases')
+    expect(storeCode).toContain('publish-phases')
+  })
+
+  it('两个消费方都不自带第二份终态清单（新增相位只需改中立表 + PHASE_ENUM）', () => {
+    expect(selfCode).not.toContain(TERMINAL_LITERAL)
+    expect(storeCode).not.toContain(TERMINAL_LITERAL)
+  })
+
+  // 成员清单**刻意写成字面量**，不用 Array.from(PUBLISH_TERMINAL_PHASES)：
+  // 遍历被测集合自身的用例，对"集合少了一个成员"结构性失明（变异 M3 实测因此 MISSED）。
+  const TERMINAL_PHASE_NAMES = ['success', 'failed', 'cancelled']
+  const NON_TERMINAL_PHASE_NAMES = ['progress', 'queued', 'blocked', 'retry', 'captcha']
+
+  it('共享终态表是闭合清单：增删相位都必须显式改这里（不得靠遍历自证）', () => {
+    expect(Array.from(PUBLISH_TERMINAL_PHASES).sort()).toEqual([...TERMINAL_PHASE_NAMES].sort())
+  })
+
+  it('行为一致：清单里每个相位都不再作为锚点，清单外的相位照旧作为锚点', () => {
+    // 判据要能分辨：会话登记于 T0，唯一的任务在 T0+179_000 有事件。
+    // 相位若算终态 ⇒ 该任务不进射程，只剩会话兜底锚点 T0 ⇒ 判陈旧；
+    // 相位若非终态 ⇒ 锚点是 T0+179_000 ⇒ 不判陈旧。两种结果恰好相反，才构成判别。
+    for (const phase of TERMINAL_PHASE_NAMES) {
+      const sessions = [withTasks([task({ phase, lastEventAt: T0 + 179_000 })])]
+      expect(computeStaleInfo(sessions, T0 + 180_000).stale, phase).toBe(true)
+    }
+    for (const phase of NON_TERMINAL_PHASE_NAMES) {
+      const sessions = [withTasks([task({ phase, lastEventAt: T0 + 179_000 })])]
+      expect(computeStaleInfo(sessions, T0 + 180_000).stale, phase).toBe(false)
+    }
+  })
+})
+
+// QM-6 i4：R4 的回落锚点绑在 session.createdAt 的类型上，而 diff 里没有任何证据表明
+// 它是 number。用**真 store** 补一条现场取证（不是读注释、也不是手搓形状）。
+describe('锚点前提取证：session.createdAt 的类型（i4）', () => {
+  it('真 store 建出的会话，createdAt 必须是有限数字（否则 R4 静默退化成无结论）', async () => {
+    const { usePublishProgressStore } = await import('@/stores/publishProgress')
+    const { createPinia, setActivePinia } = await import('pinia')
+    setActivePinia(createPinia())
+    const store = usePublishProgressStore()
+    store.handleProgressEvent({ taskId: 't-1', platform: 'douyin', phase: 'progress' })
+    expect(Number.isFinite(store.sessions[0].createdAt)).toBe(true)
+    // 端到端一格：登记后从未收到事件的会话，过期后确实可判陈旧（R4 + i1 的合成现场）
+    store.sessions[0].tasks['t-1'].lastEventAt = null
+    store.sessions[0].createdAt = Date.now() - 200_000
+    expect(computeStaleInfo(store.sessions, Date.now()).stale).toBe(true)
+  })
+
+  it('组合式经真 store 会话也能读到同一结论（读者真的在链路上）', async () => {
+    const { usePublishProgressStore } = await import('@/stores/publishProgress')
+    const { createPinia, setActivePinia } = await import('pinia')
+    setActivePinia(createPinia())
+    const store = usePublishProgressStore()
+    store.handleProgressEvent({ taskId: 't-9', platform: 'zhihu', phase: 'progress' })
+    store.sessions[0].tasks['t-9'].lastEventAt = Date.now() - 200_000
+    expect(computeStaleInfo(store.sessions, Date.now()).minutes).toBeGreaterThanOrEqual(3)
   })
 })

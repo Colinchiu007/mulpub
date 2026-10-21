@@ -23,7 +23,7 @@ export const STALE_TICK_INTERVAL_MS = 15_000
 
 /**
  * @param {object} deps
- * @param {import('vue').Ref<boolean>|import('vue').ComputedRef<boolean>} deps.hasRunning 是否有运行中任务
+ * @param {import('vue').Ref<boolean>|import('vue').ComputedRef<boolean>} deps.hasRunning 是否有运行中会话
  * @param {() => Array<object>} deps.sessions 取当前会话数组（在 computed 内调用以保持响应性）
  * @returns {{staleness: import('vue').ComputedRef<{stale: boolean, minutes: number, lastEventAt: number|null}>}}
  */

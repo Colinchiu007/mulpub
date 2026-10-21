@@ -32,10 +32,13 @@ computeStaleInfo(sessions, now, staleAfterMs = DEFAULT_STALE_AFTER_MS)
 | 编号 | 规则 | 为什么这样定（不是随手选的） |
 | --- | --- | --- |
 | R1 | 射程只含 `status === 'running'` 的会话里的**非终态**任务 | 已结束的会话不必再"催更"；把 done 会话算进来会让面板在完成态也亮红 |
-| R2 | 终态集合 = `success \| failed \| cancelled`，与 store 的 `TERMINAL_PHASES` 同语义 | 漏掉 `cancelled` 会把用户主动取消的任务说成"卡住了" |
+| R2 | 终态集合 = `success \| failed \| cancelled`，定义在 `src/utils/publish-phases.js` 的 `PUBLISH_TERMINAL_PHASES`，**store 与本判据共用同一份** | 漏掉 `cancelled` 会把用户主动取消的任务说成"卡住了"；而两份各抄一遍时，新增相位只改一处会静默漂移（QM-6 i2）。提中立模块而非让判据 import store —— 后者会形成循环依赖（store 也要用停滞判据） |
 | R3 | 锚点取**全局最近一次事件**（跨会话、跨任务取最大） | 面板回答的是"还要不要等下去"这个集合级问题；逐任务判会造出"有的任务在动、面板说没动静"的自相矛盾 |
 | R4 | 任务 `lastEventAt` 缺席（登记了但一个事件都没来过）⇒ 回落 `session.createdAt` | "从没动过"不等于"刚刚才动"。回落成 `now` 会让 `lastEventAt` 继续是个死字段 |
 | R5 | 连 `session.createdAt` 都取不到 ⇒ **不产出结论**（`stale=false`，`lastEventAt=null`） | 无判据时不得凭空给用户一个"可点"的解禁按钮，也不得谎报分钟数 |
+| R5b | 但 running 会话**推不出任何任务锚点**时（`tasks` 为空，或异常地全部任务已终态而会话还没被移成 `done`），退回该会话的 `createdAt` | 不退回就是 `hasRunning` 为真而 `stale` 恒 false ⇒ × 被永久钉死，与本 PR 要消灭的症状同形（QM-6 **i1**）。兜底是**逐会话**的、不参与全局 max；写成"始终参与 max"会让刚登记的会话把早已停住的任务洗成新鲜（该误形本轮真实出现过，由变异 M17 守住） |
+| R5b | 但 **running 会话推不出任何任务锚点时**（`tasks` 为空；或异常地全部任务已终态而会话还没被移成 `done`），退回该会话的 `createdAt` 作锚点 | 不退回就是 `hasRunning` 为真而 `stale` 恒 false ⇒ × 被永久钉死，与本 PR 要消灭的症状同形（QM-6 i1）。这个兜底是**逐会话**的，不参与全局 max —— 写成"始终参与 max"会让刚登记的会话把早已停住的任务洗成新鲜（该误形本轮真实出现过，由变异 M17 守住） |
+| R5c | 兜底锚点只在"这个会话一个可用任务锚点都没有"时启用，因此正常场景的读数与 R3/R4 逐字一致 | 判据不能因为一条防御性分支而改变主路径结论；`tasks: null` 之类的坏形状同样落进 R5b（异常数据形态不该让面板锁死） |
 | R6 | 阈值默认 `180000`（3 分钟），非法取值（非有限正数）回落默认 | 坏阈值若不回落，会被当成 0 用 ⇒ 面板从"永不解禁"翻成"恒解禁"，两个方向都不可接受 |
 | R7 | `elapsed >= 阈值` 即陈旧（边界含等号） | 与审计原文"无事件 3 分钟后"一致；`>` 会让"恰好 3 分钟"这一格永远不亮 |
 | R8 | `minutes = max(1, floor(elapsed / 60000))` | 阈值被改到小于 1 分钟时，不钳位就会输出"已 0 分钟无更新"这种自相矛盾的文案 |
@@ -111,17 +114,51 @@ computeStaleInfo(sessions, now, staleAfterMs = DEFAULT_STALE_AFTER_MS)
 
 ## 6. 验收
 
-1. 纯函数用例 **28 条**（实测 `Tests 28 passed`）：阈值、边界（含等号/差 1ms）、射程、终态集合、锚点回落与缺席、
+1. 纯函数用例 **39 条**（实测 `Tests 39 passed`）：阈值、边界（含等号/差 1ms）、射程、
+   终态相位的成员清单与逐相位判别、running 会话的逐实体兜底（R5b）、锚点回落与缺席、
    全局取最大、分钟钳位、非法阈值、脏输入、时钟回跳、导出面契约、"不得自带 env 旋钮"结构锁、
-   三份消费方源码不得自带 `180000` 字面量。
-2. 面板行为锁：本 PR 在 `PublishProgressPanel.test.js` 新增 **17 条**（该文件实测 `Tests 49 passed`，
-   其余 32 条为既有用例未受影响）——含"同一份会话数据只改 `lastEventAt` 就能翻转徽标"这条
+   三份消费方源码不得自带 `180000` 字面量、两个消费方不得自带第二份终态清单。
+2. 面板行为锁：本 PR 在 `PublishProgressPanel.test.js` 新增 **18 条**（该文件实测 `Tests 49 passed`，
+   其余 31 条为既有用例未受影响）——含"同一份会话数据只改 `lastEventAt` 就能翻转徽标"这条
    "字段真的有读者"的可证伪形式、假时钟下的时间路径锁、定时器计数正控（`getTimerCount() === 1`）、
-   三态 tooltip、× 的实际动作与"会话未被丢弃"、胶囊提示替换、en 无中文残留、locales 成对、
-   样式 token 与两档覆盖、不新增可聚焦元素。
-3. 变异反证 14 条（`node scripts/publish-staleness-contract-mutate.js`）逐条实测变红，
-   还原后逐字节一致（驱动外另用 grep 独立回读三处被改文件）。
-4. `pnpm exec eslint electron/ src/ --quiet`（CI 同款聚合命令）rc=0。
+   三态 tooltip、× 的实际动作与"会话未被丢弃"、胶囊提示替换、**最小化后分钟数自己往前走**（评审 i7）、
+   en 无中文残留、locales 成对、样式 token 与两档覆盖、不新增可聚焦元素。
+3. 变异反证 **17 条**（`node scripts/publish-staleness-contract-mutate.js`）一次干净跑全部变红
+   （`[SUMMARY] 共 17 条：CAUGHT=17 其余=0`，rc=0），还原后逐字节一致（驱动外另用 `grep -c` 独立回读
+   四处被改文件，各命中 1 次）。其中三条是评审采纳后才有的：M15 摘掉逐会话兜底、
+   M16 判据自带第二份终态清单、M17 把兜底误写成"参与全局 max"（红 11 条）。
+   另有两条变异首跑暴露的是**我自己的探针问题**，不是锁没牙：M3 因判别用例遍历被测集合本身而
+   `MISSED`（改成测试侧字面量成员清单 + 闭合断言后红 2 条）；M4 因注入产出不可编译源码而
+   `PROBE_BLIND`（换成合法的同害注入后红 3 条）。
+4. 真 store 取证 **2 条**（评审 i4）：断 `Number.isFinite(session.createdAt)`，并据此端到端判出陈旧。
+   三个测试文件合计实测 `Tests 126 passed`（纯函数 39 / 面板文件 49 / store 38）。
+5. `pnpm exec eslint electron/ src/ --quiet`（CI 同款聚合命令）rc=0。
+
+## 6b. 输入契约（判据读取的字段、违反后的实际行为、由谁保证）
+
+判据是纯函数，不校验写入方；下表是**它对被读数据的假设**，每条都写了"假设不成立时
+实际会发生什么"以及"哪条用例在取证"——不是设想，是跑出来的行为。
+
+| 字段 | 期望类型 | 不成立时判据的行为 | 谁来保证 | 取证 |
+| --- | --- | --- | --- | --- |
+| `sessions` | `Array<object>` | 非数组 ⇒ 无结论（不陈旧、不谎报分钟数） | store 的 `ref([])` | 脏数据用例 |
+| `session.status` | `'running' \| 'done'` | 非 `running` ⇒ 整条会话不进射程 | `_recomputeSessionStatus` | 「done 会话不催更」用例 |
+| `session.createdAt` | **有限数字**（epoch ms） | 非数字 ⇒ 该会话推不出锚点 ⇒ 不产出结论（R5） | `publishProgress.js` 的 `_createSession`：`createdAt: Date.now()` | QM-6 **i4** 采纳后新增：用**真 store** 断 `Number.isFinite(createdAt)`，并据此端到端判出陈旧 |
+| `task.phase` | 属于 `PHASE_ENUM` | 未列出的相位按非终态处理（进射程） | store 事件入口的相位归一化 | 逐相位行为锁（R11）：同一份数据下终态相位退回登记时刻、非终态相位用任务锚点 |
+| `task.lastEventAt` | 有限数字或 `null` | `null`/键缺失/非数字 ⇒ 回落 `session.createdAt`（R4） | store 三处写入点 | 变异 M4（回落改成 `now` 必红） |
+| `task` 元素本身 | 对象 | `null`/undefined ⇒ 跳过该任务，不抛错 | `_ensureTask` | 脏数据用例 |
+| `now`（调用方注入） | 有限数字 | 非数字 ⇒ 无结论 | 组合式传 `Date.now()` | 脏数据用例 |
+| 阈值 `staleAfterMs` | 有限正数 | 非法 ⇒ 回落默认 180000（既不恒解禁也永不解禁） | 判据本体 | `it.each` 七种非法取值 |
+
+**为什么单列这一张表**：本轮外部评审（i4）指出「R4 的回退依赖 `createdAt` 是数字，而 diff
+里没有任何证据」。这条批评成立 —— 一个类型假设如果被违反后表现为"永不解禁"，
+它与本 PR 要修的 Bug **完全同形**，而界面测试永远看不见它。所以补的是从**真 store** 出发的
+取证用例，而不是在注释里写"我们假定它是数字"。
+
+**R11（新增判据）**：终态相位的定义只在 `src/utils/publish-phases.js` 一处，判据与 store
+都 import 它。提中立模块而不是让判据 import store —— store 也要用停滞判据，直接互相
+require 会形成循环依赖。钉住它的两条锁：结构锁（两个消费方源码都不得再出现第二份终态清单）
++ 上表最后一行的逐相位行为锁。
 
 ## 7. 边界与遗留（不假装已闭合）
 

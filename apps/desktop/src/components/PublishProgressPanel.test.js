@@ -824,6 +824,7 @@ describe('PublishProgressPanel.vue — 无更新看门狗（阶段 1.8）', () =
     wrapper = mountPanel()
     await nextTick()
     expect(body().querySelector('[data-testid="publish-progress-stale"]')).toBeNull()
+    // 必须经 reactive 代理写入：直改原始对象不触发重渲染（本文件顶部同款口径）
     store.sessions[0].tasks['t-1'].lastEventAt = Date.now() - STALE_MS
     await nextTick()
     expect(body().querySelector('[data-testid="publish-progress-stale"]')).not.toBeNull()
@@ -943,6 +944,24 @@ describe('PublishProgressPanel.vue — 无更新看门狗（阶段 1.8）', () =
     const pill = body().querySelector('[data-testid="publish-progress-pill"]')
     expect(pill.textContent).toContain('已 4 分钟无更新')
     expect(pill.textContent).not.toContain('请勿关闭应用')
+  })
+
+  // QM-6 i7：胶囊文本与徽标共用同一个采样读数，所以「最小化后组件是否还在跑」必须被实测，
+  // 不能靠"根节点没被卸载"的推理 —— 那正是「已 N 分钟」冻在收起那一刻的成因。
+  it('最小化后看门狗仍在跑：胶囊的分钟数自己往前走（i7）', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_700_000_000_000)
+    runningSession({ lastEventAt: Date.now() - 185_000 })
+    storeStateRaw.panelVisible = false
+    storeStateRaw.panelMinimized = true
+    wrapper = mountPanel()
+    await nextTick()
+    expect(body().querySelector('[data-testid="publish-progress-pill"]').textContent).toContain('已 3 分钟无更新')
+    expect(vi.getTimerCount(), '收起面板时采样不得一起停（否则分钟数冻在收起那一刻）').toBe(1)
+
+    await vi.advanceTimersByTimeAsync(7 * 60_000)
+    await nextTick()
+    expect(body().querySelector('[data-testid="publish-progress-pill"]').textContent).toContain('已 10 分钟无更新')
   })
 
   it('英文 locale：徽标与 tooltip 走 en 文案且无中文残留', async () => {
