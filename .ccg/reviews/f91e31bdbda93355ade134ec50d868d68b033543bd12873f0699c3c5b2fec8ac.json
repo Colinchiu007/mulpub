@@ -51,11 +51,44 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为草稿箱(0) 直接读数（收敛 §16.14 的\"待核\"）。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.16（页面文本节选 + 0 条 draft/note 响应 + 三点合看 + 引用口径）",
+    "confidenceWeight": 0.85,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "草稿箱(0) 只能说明\"此刻没有草稿\"，你却把它写成\"草稿落地无可观测证据\" —— 是不是把\"现在为空\"偷换成\"从未成功\"？",
+        "verdict": "upheld_verified",
+        "rationale": "我在文中**明确划清了这条界线**：§16.16.2 写\"这不等于证明从未成功过 —— 草稿可能被删除或已发布\"， 并把举证责任放在主张方（\"在拿到 draft_id 之前不应当作已达成能力\"）。 所以本节结论是**\"当前无可观测证据支持\"，不是\"证明失败\"** —— 二者不同，我没有偷换。 另外我把结论写成**可证伪**形式：留档 draft_id 即可推翻/升级本节结论。 这正是吸取 §16.12 的教训（上次把\"未观察到影响\"写成了过强的\"不是成因\"）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "捕获 draft/note 响应 0 条 —— 这个\"0 条\"能作为证据吗？会不会只是没触发相关请求？",
+        "verdict": "upheld_partial",
+        "rationale": "不能单独作为证据，文中也**没有单独用它**：三点合看里它是第三点（\"所有尝试未落库\"的旁证）， 主力证据是**页面文本里的\"草稿箱(0)\"**（直接读数）。 ⚠ 但\"0 条响应\"确实可能是\"页面用了缓存/未触发该接口\"，我把它写进文档时标注为 \"捕获 draft/note 相关响应：0 条\"这一**事实描述**，未据此推论 —— 这点处理是对的，但读者应注意它证明力弱。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "本轮仍是文档；且结论是\"没有证据\"这类否定性产出。",
+        "verdict": "upheld_verified",
+        "rationale": "否定性产出在这里有价值：它**阻止把一个证据不足的结论当作已达成能力来决策**（§16.1 总表曾把小红书写成 ✅）。 但我也承认：**连续多轮的产出都是\"排除/订正\"，没有一次\"成功\"**。 诚实的整体判断：当前四条阻塞（头条实名、抖音/视频号扫码、小红书授权抓包）**全部需要用户动作**， 在用户动作之前，继续产出只会重复。下一步应停下并等待。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 1,
+      "upheldVerified": 2,
+      "note": "关键自查是 i1：文中已明确划清\"此刻为空\"与\"从未成功\"的界线、并把结论写成可证伪形式（留档 draft_id 即可推翻），未偷换概念；i2 承认\"0 条响应\"证明力弱、仅作旁证；i3 承认连续多轮均为排除/订正、无成功产出，四条阻塞全需用户动作，应停下等待。"
+    },
+    "at": "2026-10-21T00:44:43.114Z"
   }
 }
