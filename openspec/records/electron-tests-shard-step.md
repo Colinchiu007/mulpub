@@ -139,9 +139,9 @@ not ok 8 - realSpawn 必须真能把 pnpm 起起来（win32 上 pnpm 是 .cmd sh
 
 | 项 | 读数 |
 |---|---|
-| 既有文件的 EOL 档位 | `i/lf w/crlf attr=text=auto`（`CHANGELOG.md`、`docs/electron-ci-step-budget-baseline.md` 等） |
-| 本片新建的 4 个文件 | 工作副本 LF（`w/lf`），git 入库归一为 `i/lf` ⇒ 与主干形态一致，checkout 方按仓库既有约定物化 |
-| `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` | 两口径逐文件对数见 PR 评论现场 |
+| 对账命令与结果 | `git diff --cached --numstat` 与 `git diff --cached --ignore-cr-at-eol --numstat` 逐文件**完全相同**（11 个文件，+764 / −60）⇒ 没有一行是"只因行尾变了"而进 diff 的 |
+| 既有文件的 EOL 档位 | `i/lf w/crlf attr=text=auto`（`CHANGELOG.md`、`docs/electron-ci-step-budget-baseline.md`、两份 workflow、既有两份测试）——`CHANGELOG.md` 顶部插入按**文件自身行尾**物化（当场量得 crlf=23530、lf_only=0 ⇒ 取 CRLF），并自证 `MAIN_IS_TAIL=true`、块数 567→568、冲突标记 Δ=0（存量 5 处 `=======` 属历史记录，非本次引入） |
+| 本片新建的 4 个文件 | 工作副本 LF；git 按 `* text=auto` 归一入库为 `i/lf` ⇒ 与主干形态一致；checkout 侧按仓库既有约定物化（`warning: LF will be replaced by CRLF` 是既有事实，不是本次改动） |
 
 **遗留（不假装闭合）**
 
