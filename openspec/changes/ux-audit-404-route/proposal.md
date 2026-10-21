@@ -27,8 +27,11 @@
 4. **门禁学会 catchAll**：`.github/scripts/check-route-registry.js` 新增规则 6（catchAll 唯一性 +
    路径形状 + 与 `internal`/`navEntry` 互斥），并让规则 2 只对 `catchAll: true` 的登记项跳过
    「必须回答入口」。同 PR 更新 `.github/scripts/check-route-registry.test.js`。
-5. **tab 标题映射补齐**：`useTabDocumentTitle.js` 的 `ROUTE_TITLE_KEYS` 增加该路径的标题键，
-   避免 404 页的标签标题回退成品牌名。
+5. **标签标题走 routeName 分支**：`useTabDocumentTitle.js` 的 `resolveRouteTabTitle(path, routeName)`
+   新增第二个参数，仅当 `routeName === 'NotFound'` 时返回「页面不存在」。
+   ⛔ **不是**往 `ROUTE_TITLE_KEYS` 补一条 `/:pathMatch(.*)*`：那个 key 是**匹配模式**，
+   永远不会等于任何真实 path，补进去就是一个运行时永不命中的死键（QM-6 外部评审 i4 指出
+   本文与 design.md 的旧表述与实现相反，已按实现改正；实现侧的既有覆盖度测试已把 catchAll 排除）。
 
 ## 为什么不复用 `internal` + `entryFrom`
 

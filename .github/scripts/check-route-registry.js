@@ -20,7 +20,8 @@
  *      字段缺失或写成 `false` 都不获得豁免（fail-closed），普通暗路由的约束逐字不变。
  *    - `catchAll: true` 的 path 必须全等于 '/:pathMatch(.*)*'（不写形态匹配：
  *      含 `(.*)` / 以 `*` 结尾的判据会把参数路由认成兜底，等于给普通路由开后门）；
- *      且不得同时声明 navEntry / internal / redirect 视图。
+ *      且不得同时声明 navEntry / internal / entryFrom / redirect 视图；
+ *      name 必须与 router 声明逐字一致（标题分支认名字，改一处不同步就静默回退品牌名）。
  *    - 登记面与 router 声明面各至多一条（多条时后者永不生效，是静默失配不是报错）。
  *    - 「本仓必须有一条兜底路由」这条**完整性**判据不写在门禁里（否则任何最小夹具都要带它），
  *      而由 .github/scripts/check-route-registry.test.js 的真实文件断言 `catchAllRoutes === 1` 锁住。
@@ -349,6 +350,9 @@ function checkRouteRegistry (input) {
       }
       if (entry.navEntry) errors.push(`catchAll 不得声明侧边栏入口：${entry.path}（兜底页不是菜单项）`)
       if (entry.internal) errors.push(`catchAll 不得标 internal:true：${entry.path}（兜底路由没有单一宿主）`)
+      // QM-6 外部评审 i2：只禁 internal 不够 —— `catchAll:true + entryFrom:'/'` 当时能过门禁，
+      // 而规则 5 的死链检查只在 internal 为真时才跑，等于给「假宿主」留了侧门。
+      if (entry.entryFrom) errors.push(`catchAll 不得声明宿主入口：${entry.path}（它从任何地址进来，entryFrom 必须为 null，当前 '${entry.entryFrom}'）`)
       if (isRedirect) errors.push(`catchAll 必须指向真实视图：${entry.path}（view 为空 = redirect，未知地址会重新落到空白页）`)
       continue
     }
@@ -386,6 +390,12 @@ function checkRouteRegistry (input) {
   const catchAllRoutes = routes.filter((r) => r.path === CATCH_ALL_PATH)
   if (catchAllRoutes.length > 1) {
     errors.push(`router/index.js 出现多条兜底（catch-all）路由（path '${CATCH_ALL_PATH}' 共 ${catchAllRoutes.length} 条）—— 后者永不生效，属静默失配`)
+  }
+  // QM-6 外部评审 i7：标题正确性同时依赖「登记表 name」「router 声明 name」与
+  // useTabDocumentTitle 里的 CATCH_ALL_ROUTE_NAME 三处字面量。本门禁能核对前两处，
+  // 第三处（渲染层）由 NotFound.test.js 断言「CATCH_ALL_ROUTE_NAME == 真实路由表的兜底 name」。
+  if (catchAllEntries.length === 1 && catchAllRoutes.length === 1 && catchAllEntries[0].name !== catchAllRoutes[0].name) {
+    errors.push(`catchAll 的 name 必须与 router 声明逐字一致：登记表 '${catchAllEntries[0].name}' ≠ router '${catchAllRoutes[0].name}'`)
   }
 
   // 规则 3：navEntry key 集合 == SIDEBAR_MENU_KEY_ORDER（= 侧边栏派生结果 key 集合）

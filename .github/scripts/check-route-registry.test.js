@@ -247,6 +247,21 @@ test('规则 6：router 侧出现两条兜底形状路由 → 失败（后者永
   )
 })
 
+test('规则 6：catchAll 不得声明宿主入口 entryFrom（QM-6 外部评审 i2）', () => {
+  // 只禁 internal 是不够的：规则 5 的死链检查仅在 internal 为真时执行，
+  // 于是 `catchAll:true + entryFrom:'/'` 当时能过门禁 —— 假宿主从侧门进表。
+  const registry = CATCH_REGISTRY.replace('    entryFrom: null,\n    catchAll: true,', "    entryFrom: '/',\n    catchAll: true,")
+  assert.notEqual(registry, CATCH_REGISTRY, '夹具锚点未命中（登记表条目形状变了？）')
+  expectError(run(CATCH_ROUTER, registry), 'catchAll 不得声明宿主入口')
+})
+
+test('规则 6：catchAll 的 name 必须与 router 声明逐字一致（QM-6 外部评审 i7）', () => {
+  // 标题分支认的是**名字**；登记面与声明面若改名不同步，404 页标题会静默回退品牌名。
+  const registry = CATCH_REGISTRY.replace("    name: 'NotFound',", "    name: 'NotFond',")
+  assert.notEqual(registry, CATCH_REGISTRY, '夹具锚点未命中')
+  expectError(run(CATCH_ROUTER, registry), 'catchAll 的 name 必须与 router 声明逐字一致')
+})
+
 test('规则 6 不得放宽普通暗路由：internal:true 缺 entryFrom 仍然失败', () => {
   const router = CATCH_ROUTER.replace(
     ']\n',

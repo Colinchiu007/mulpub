@@ -66,6 +66,23 @@ beforeEach(() => {
   resetSession()
 })
 
+describe('三处 catch-all 字面量必须成对（QM-6 外部评审 i7 的渲染层半边）', () => {
+  it('登记表 name == router 声明 name == 标题判据 CATCH_ALL_ROUTE_NAME', async () => {
+    // 标题分支认名字，不认路径。三处字面量里：
+    //   登记表 ↔ router 声明 由门禁规则 6 核对；
+    //   渲染层 CATCH_ALL_ROUTE_NAME ↔ router 声明 由本用例核对（门禁读不到 src/）。
+    // 任何一处改名而另一处没跟上，404 页标题就会静默回退品牌名，且没有其它判据会出声。
+    const { ROUTE_REGISTRY } = await import('@/config/route-registry')
+    const { CATCH_ALL_ROUTE_NAME } = await import('@/composables/useTabDocumentTitle')
+    const catchAllRoute = routes.find((r) => r.path === '/:pathMatch(.*)*')
+    const catchAllEntry = ROUTE_REGISTRY.find((e) => e.catchAll)
+    expect(catchAllRoute, 'router 声明里必须有一条兜底路由').toBeDefined()
+    expect(catchAllEntry, '登记表里必须有一条 catchAll').toBeDefined()
+    expect(catchAllEntry.name).toBe(catchAllRoute.name)
+    expect(CATCH_ALL_ROUTE_NAME).toBe(catchAllRoute.name)
+  })
+})
+
 describe('真实路由表能接住未知地址（消费 router/index.js 的 routes）', () => {
   it('未登记的地址解析到 NotFound，而不是「匹配不到任何记录」', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes })

@@ -140,9 +140,15 @@
 - [ ] `node .github/scripts/check-route-registry.js` 打 `PASS` 且现场读数含 `兜底 1 条`
 - [ ] `node scripts/not-found-contract-mutate.js` → `ALL_CAUGHT（9 条）`，且基线三套件 `red=0`
 
-**已知盲区（不假装已闭合）**：`NotFound.vue` 不进任何视觉注册表 ⇒ QM-4 像素门禁对它失明；
-它的暗色档目前只靠 token 层的既有色值，没有像素判定证据。补基线要走「同一次 CI 渲染」的口径，
-不能拿本机截图。
+**已知盲区（不假装已闭合）**：
+
+- **焦点迁移未做**（QM-6 外部评审 i8）：键盘/读屏用户落到兜底页时焦点仍停在原处，新渲染的
+  「页面不存在」不会被宣告。常规修法是给 `<h1>` 加 `tabindex="-1"` 并在挂载时 `focus()`，
+  但本 PR 有一条用例明确禁止本页出现 `tabindex`（为了不扩大既有焦点环基线）——
+  这是一个**刻意保留的可达性债务**，要修必须单独变更并同步更新那条禁令，不得"顺手加个 tabindex"。
+- `NotFound.vue` 不进任何视觉注册表 ⇒ QM-4 像素门禁对它失明；暗色档目前只有 token 层色值保障。
+- 反证驱动未接进 CI（欠账 #23，与 `img-loading-contract-mutate.js` 等同族）。
+- 桌面端全量 vitest 本地未跑，由 CI Gate 4 承担。
 
 ## 9. 关联落点
 

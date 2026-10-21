@@ -125,6 +125,28 @@ i/lf  w/lf    attr/text=auto   openspec/records/ux-audit-404-route.md
 
 ### 遗留（不假装已闭合）
 
+## 五、QM-6 外部评审处置（critic=claude，8 条 findings，逐条附可重取证据）
+
+判定 `DUAL`（907 行），外部 critic 真实跑过（产物 `.adversarial/ccg-deep-21a7b3d5/critique-v1.md`，
+dimensionScores：correctness 7 / security 10 / performance 10 / maintainability 6）。
+
+| # | 级别 | 裁决 | 依据（现场取证） | 处置 |
+| --- | --- | --- | --- | --- |
+| i1 | Warning | **dismissed** | 评审称规则 6 的 `continue` 会跳过规则 4 的 view 核对。实测规则 4 是**独立遍历**（在规则 2 之前，不看 catchAll 标记）；探针 A：把真实登记表 catchAll 的 view 改成 `NotFoundPage.vue` → `ok=false`，原文「视图不一致：/:pathMatch(.*)* …」 | 不改判据；把这条「独立遍历」写进 design.md §7 以免下轮再被提 |
+| i2 | Warning | **upheld** | 探针 B：`entryFrom: null` → `'/'` 后 `ok=true`。规则 5 只在 `entry.internal` 为真时查 entryFrom，catchAll 条目 internal 为假 ⇒ 假宿主从侧门进表，而规格 Requirement 3 写了「不声明宿主入口」 | 判据补 `catchAll 不得声明宿主入口`；夹具用例 + 反证 **M11 CAUGHT**；脚本头部规则清单同步 |
+| i3 | Info | **dismissed** | 评审称「router 侧删掉兜底时门禁单独跑是绿的」。探针 D：删掉 router 那行 → `ok=false`，原文「陈旧登记：/:pathMatch(.*)* 在 router/index.js 中已不存在」 | 不改；spec 的「与路由器声明一致」确有判据支撑 |
+| i4 | Warning | **upheld** | 真问题：proposal.md 第 5 点与 design.md §5 仍写「ROUTE_TITLE_KEYS 必须新增该 path 的条目 / 漏加即红」，而实现把 catchAll **排除**出映射覆盖要求（模式路径永不等于真实 path，补进去是死键）。文档与实现互相否定 | proposal 第 5 点与 design §5/§7 全部按实现改写，并把「漏加即红」明确标注为**不成立** |
+| i5 | Info | **upheld** | 驱动循环里 `restoreAll()` 被调用两次，且 `restored` 只进日志不参与判定 —— 单条还原失败会在脏基底上继续跑后续变异 | 删重复调用；`restored !== true` 当场 `return 4` 中止 |
+| i6 | Info | **成立但描述不准** | 评审问「看不到命中该否定的父规则」。父规则确实存在：`.gitignore` 的 `scripts/*.js`（AGENTS.md 亦写明「新脚本须补 negation」），故 `!scripts/not-found-contract-mutate.js` 不是死配置 | 在此登记父规则名，避免下轮再问 |
+| i7 | Info | **upheld** | 探针 C：登记表 name 改成 `NotFond` → `ok=true`。三处字面量（登记表 name / router 声明 name / `CATCH_ALL_ROUTE_NAME`）里没有任何一处一致性断言 | 判据补「catchAll 的 name 必须与 router 声明逐字一致」+ 反证 **M12 CAUGHT**；渲染层半边由 `NotFound.test.js` 新增的三处成对用例锁 |
+| i8 | Info | **upheld（记为债务）** | 兜底页不做焦点迁移；而本页「禁止出现 tabindex」的用例正好堵掉常规修法（`h1 tabindex=-1` + focus） | 写进 PRD §8 已知盲区，注明「要修必须单独变更并同步更新那条禁令」，不静默留洞 |
+
+**闭合状态（如实）**：`deepReview.status = self_play_blocked`、`performedBy = self-play`。
+两条 Warning 成立 ⇒ 引擎自扮演出口判阻断，且本 PR 触到判据本体属高危面，
+**closure 只认 `tier=external`**（AGENTS.md「QM-6 残留风险」+ 任务 #19）。
+所有成立项均已在实现中修掉并有变异反证，但**不得**为了过 `check-pr-exec-record` 手工改写
+`status` 字段 —— 那正是本仓记录的「装饰性门禁」同型。合并动作待人工过目。
+
 - QM-6 外部评审闭合：本 PR 改到门禁判据本体，属高危面，自扮演豁免不够格；结果待回填本文件 §五（处置表），不得手写 `status` 凑闭环。
 - 反证驱动未接进 CI（与 `img-loading-contract-mutate.js` 等三个同族驱动一并挂在任务 #23）。
 - `NotFound.vue` 不进视觉基线判定域（QM-4 对它失明），因此它的暗色档目前只有 token 层的既有色值保障，无人做过像素判定。

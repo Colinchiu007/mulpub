@@ -51,8 +51,13 @@ vue-router 4 在 `createRouter` 时按** matcher score **排序，不依赖数�
 
 - 键全部进 `locales/common/{zh,en}.js`（该命名空间是**平铺**结构，消费方写 `t('common.xxx')`，
   与 `common.pageLoadFailed` 同族）。
-- `useTabDocumentTitle.js` 的 `ROUTE_TITLE_KEYS` 必须新增该 path 的条目——
-  既有测试 `route-registry 全部非 redirect 路由被映射表覆盖` 会在漏加时变红，这条就是它的兜底。
+- 标签标题走 `resolveRouteTabTitle(path, routeName)` 的**名字分支**，只认 `routeName === 'NotFound'`。
+  两条都是 QM-6 外部评审逼出来的（i4/i7）：
+  ① **不往 `ROUTE_TITLE_KEYS` 补模式路径** —— `/:pathMatch(.*)*` 永远不等于任何真实 path，
+     补进去是运行时永不命中的死键；既有覆盖度测试因此把 catchAll 条目排除出映射要求，
+     「漏加即红」这句话对本条**不成立**（本文件旧版写过，已纠正）。
+  ② 既然映射表不再兜底，名字就成了唯一接缝：**登记表 name ↔ router name** 由门禁规则 6 核对，
+     **router name ↔ `CATCH_ALL_ROUTE_NAME`** 由 `NotFound.test.js` 核对；任一处改名不同步即红。
 - 页面只回显 `route.fullPath` 原样文本，**不回显** `route.name`、chunk 名或任何 error 对象
   （那是 `setRouteLoadError` 的域，两种故障不得混用同一份文案）。
 
@@ -76,7 +81,9 @@ vue-router 4 在 `createRouter` 时按** matcher score **排序，不依赖数�
 | 真实文件 PASS + 规模下界 | 同上 | 解析退化时规模断言红 |
 | 兜底页渲染 / 回显路径 / 两个出口 | `apps/desktop/src/views/NotFound.test.js` | 摘掉 `v-if="canGoBack"`、摘掉 fullPath 回显 |
 | 不复用 history.length | 同上 | 把 composable 换成 `history.length > 1` 必须红 |
-| 标题映射覆盖 | `useTabDocumentTitle.test.js`（既有） | 不加新条目即红 |
+| 标题映射覆盖 | `useTabDocumentTitle.test.js`（既有，**已排除 catchAll 模式路径**） | 反证 M8：摘掉 routeName 分支必须红 |
+| catchAll 不得声明宿主入口（QM-6 i2） | `.github/scripts/check-route-registry.test.js` | 夹具把 `entryFrom: null` 改成 `'/'` 必须红 |
+| catchAll 的 name 三处成对（QM-6 i7） | 门禁（登记表↔router）+ `NotFound.test.js`（router↔`CATCH_ALL_ROUTE_NAME`） | 把任一处 name 改掉必须各自变红 |
 
 ## 8. 明确不做
 

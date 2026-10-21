@@ -123,6 +123,22 @@ const MUTATIONS = [
     verify: V_TITLE,
   },
   {
+    id: 'M11',
+    name: '摘掉 catchAll 的 entryFrom 侧门锁（QM-6 i2 的修复本身）',
+    file: F.gate,
+    from: "      if (entry.entryFrom) errors.push(`catchAll 不得声明宿主入口：${entry.path}（它从任何地址进来，entryFrom 必须为 null，当前 '${entry.entryFrom}'）`)\n",
+    to: '',
+    verify: V_GATE,
+  },
+  {
+    id: 'M12',
+    name: '摘掉 catchAll 的 name 成对锁（QM-6 i7 的修复本身）',
+    file: F.gate,
+    from: "  if (catchAllEntries.length === 1 && catchAllRoutes.length === 1 && catchAllEntries[0].name !== catchAllRoutes[0].name) {\n    errors.push(`catchAll 的 name 必须与 router 声明逐字一致：登记表 '${catchAllEntries[0].name}' ≠ router '${catchAllRoutes[0].name}'`)\n  }\n",
+    to: '',
+    verify: V_GATE,
+  },
+  {
     id: 'M10',
     name: '正控：不做任何改动，基线必须 0 红（由驱动主流程执行，此条仅占位说明）',
     file: null,
@@ -271,7 +287,12 @@ function main () {
       console.log(`${m.id} MISSED red=${res.red} rc=${res.rc} suite=${m.verify.target} —— ${m.name}`)
       missed += 1
     }
-    restoreAll()
+    // QM-6 外部评审 i5：还原不成立必须**当场停**，不能只打进日志继续跑下一条 ——
+    // 后续变异会在脏基底上继续，而 md5 对账要到循环结束才做（那时已污染了两条以上）。
+    if (!restored) {
+      console.error(`${m.id} 还原失败：文件仍处于变异态，中止后续变异并请求人工恢复`)
+      return 4
+    }
   }
 
   // 还原完整性：被改文件必须与开工前逐字节一致（不一致 = 把变异态留在了工作树里）
