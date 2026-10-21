@@ -11,5 +11,12 @@ export default {
     videoDesc: '打开视频创作流水线页，改写文本将自动填入文案输入框',
     pipelineLabel: '流水线选择',
     pipelineEmptyOption: '-- 选择流水线 --',
+    // publish-config-picker（2026-10-21）：「配置选择」= 该流水线下已保存的命名组合配置。
+    // 无配置时触发器显示「默认」且下拉内容为空，故这里的「默认」是**唯一**入口文案。
+    configLabel: '配置选择',
+    configDefaultOption: '默认',
+    configEmpty: '该流水线还没有保存过配置，可在创作页用「保存配置」创建',
+    configLoading: '正在加载配置…',
+    configLoadFailed: '配置列表加载失败，暂时无法选择配置',
     close: '关闭',
   }

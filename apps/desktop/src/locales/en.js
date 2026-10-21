@@ -10,6 +10,7 @@ import navEn from './nav/en'
 import tabBarEn from './tab-bar/en'
 import memberCenterEn from './member-center/en'
 import collectionEn from './collection/en'
+import collectionFlowEn from './collection-flow/en'
 import createEn from './create/en'
 import story2videoEn from './story2video/en'
 import pipelinesEn from './pipelines/en'
@@ -94,6 +95,7 @@ export default {
   filmEngineering: { ...filmEngineeringEn },
 
   collection: { ...collectionEn },
+  collectionFlow: { ...collectionFlowEn },
   rewriteEngine: { ...rewriteEngineEn },
   autoPipeline: { ...autoPipelineEn },
   comments: { ...commentsEn },

@@ -48,7 +48,7 @@ export default {
     strategyManual: '手动选择',
     strategyPlaceholder: '-- 选择策略 --',
     contentLabel: '输入文案',
-    contentPlaceholder: '输入需要改写的文案内容（最多 6000 字）',
+    contentPlaceholder: '输入需要改写的文案内容（最多 50000 字）',
     rewriteBtn: '🔄 开始改写',
     rewritingBtn: '改写中...',
     applyBtn: '应用',

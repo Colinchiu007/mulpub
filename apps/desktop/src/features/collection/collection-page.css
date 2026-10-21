@@ -22,6 +22,27 @@
       （新槽亮暗两档 / hex=0 / 消费⇒有定义 / 死类 0 消费）。
    ========================================================================== */
 
+/* ---- 历史类名收编（历史类名收编文件）----
+ * ⚠️ 必须留在**本文件最顶部**（任何限定规则之前），不得下移。
+ *
+ * 为什么（collection-ux-step-flow，2026-10-20 事故复盘）：
+ *   CSS 规范要求 `@import` 出现在样式表的**所有限定规则之前**，否则浏览器
+ *   **静默忽略**这条 @import（不报错、不警告）。本文件此前把这条 @import 写在
+ *   文件末尾（第 381 行，前面已有约 380 行规则）⇒ collection-page-legacy.css
+ *   整块从未进入浏览器 ⇒ 承载的 `.compare-textarea`（对比文本框尺寸）、
+ *   `.col-result-box`（结果框底色）、`.col-chip-row`、`.col-compare-title`
+ *   集体失效 ⇒ 用户真机看到「改写后两个文本框只有默认的迷你尺寸」。
+ *
+ *   既有门禁只断「类名在 CSS 文件里出现过」，**不断这条规则会不会真的生效**
+ *   —— 典型的装饰性门禁。机械判据已补进
+ *   src/features/collection/collection-page-css-contract.test.js
+ *   （「CSS 文件里的 @import 必须早于任何限定规则」）。
+ *
+ *   Vue 的 scoped 编译**不会内联 @import**（实测：@vue/compiler-sfc 编译
+ *   Collection.vue 样式块，产物里 @import 原样保留、无 compare-textarea 规则），
+ *   所以这条位置约束对「构建期 + 浏览器运行期」都成立。 */
+@import './collection-page-legacy.css';
+
 /* ---- 采集域专属变量（默认值镜像；tokens.css 的 :root 同名槽为权威来源）----
  * 这里再声明一份的原因：本文件可能被单独 import，而 Vue scoped 的 @import
  * 不保证注入顺序在 tokens.css 之后；镜像一份可在极端顺序下兜住。
@@ -429,6 +450,5 @@ html .cohere-page-header {
 .col-btn-retry-sm { font-size: var(--font-size-xs); padding: 2px 10px; margin-left: var(--spacing-2); min-height: 24px; }
 
 /* 其余历史类名收编（区块标题/输入族/进度块/结果框/chip 行/对比双栏/类别标签/
-   文案库预览弹窗/ASR 弹窗）已拆到 collection-page-legacy.css，由本文件 @import。
-   拆分原因：check-max-lines 的 500 行硬限（NEW_OVER_LIMIT 会阻断新代码）。 */
-@import './collection-page-legacy.css';
+   文案库预览弹窗/ASR 弹窗）已拆到 collection-page-legacy.css，由本文件**顶部**
+   的 @import 引入（位置约束见文件开头注释：后置 @import 会被浏览器静默忽略）。 */

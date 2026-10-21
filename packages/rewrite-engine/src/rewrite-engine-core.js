@@ -14,6 +14,14 @@ const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 const logger = require('./logger-fallback')
 const { normalizeChatResult, isTruncatedFinishReason } = require('./llm-result')
 const { rewriteSegmented } = require('./segment-rewriter')
+// 字数区间指令的措辞（独立模块，collect-rewrite-wordcount）：核心文件的行数挂账只剩几行余量，
+// 而区间**校验**必须留在本文件（渲染层结构锁要求 `range.max <= MAX_OUTPUT_CHARS` 逐字在此）。
+const { buildWordCountInstruction } = require('./word-count-instruction')
+// 结构标题剥离（独立模块，collect-rewrite-wordcount 拆分）：核心文件的行数挂账只剩几行余量
+const { stripStructureHeadings } = require('./structure-headings')
+// 输出上限判定（用户区间 / 统一上限 / 策略形态上限 / 兜底）抽到 ./output-cap.js：
+// 核心文件贴近 max-lines 容差上限，这条规则有三种输入形态（详见该文件头注释）。
+const { resolveOutputCap } = require('./output-cap')
 
 // 无显式字数控制时的默认输出上限（3000 字以下）。
 // 注意：这只是「用户没给任何字数意图」时的保守兜底；用户显式 wordCountRange.max
@@ -280,7 +288,7 @@ class RewriteEngine {
     // rewrite-limits-50000（2026-10-19）：截断必须可见——旧行为把超限输出静默砍尾，
     // 用户拿到的稿子不完整且不知道（比 TOO_LONG 更隐蔽的缺陷）。截断事实经
     // _postProcess 返回值进入 result.outputTruncated / result.outputLength。
-    const { text: processed, truncatedAt } = this._postProcess(result, strategy, userSettings.wordCountRange)
+    const { text: processed, truncatedAt } = this._postProcess(result, strategy, userSettings.wordCountRange, userSettings.freeformOutput === true)
 
     // 7. 敏感词后置检测
     const postCheck = this._sensitiveCheck(processed, 'post')
@@ -492,7 +500,8 @@ class RewriteEngine {
     // 模式特定的系统提示补充
     const modeInstructions = this._getModeInstructions(mode, userSettings)
     // 字数区间指令（wordCountRange 优先于 targetLength 三档）
-    const wordCountInstruction = this._getWordCountInstruction(userSettings)
+    // 传入原文长度：min=0 时用它推导「与原文相当」的目标篇幅（见 _getWordCountInstruction 注释）
+    const wordCountInstruction = this._getWordCountInstruction(userSettings, [...content].length)
 
     // 改写硬约束（最高优先级）：注入 systemPrompt 最前置段落，位于策略 systemPrompt 之前。
     // 显式声明冲突裁决规则——与后续任何策略/模式指令冲突时，以硬约束为准。
@@ -539,7 +548,7 @@ class RewriteEngine {
 
     // 纯文案输出约束已升级为运营中心可维护的硬约束（rewrite-hard-constraints，2026-09-18）：
     // 引擎不再硬编码该约束，由桌面端从运营中心同步默认版本并经 setHardConstraints 注入。
-    // 硬约束缺失时引擎行为不变（_stripStructureHeadings 后处理兜底仍保留）。
+    // 硬约束缺失时引擎行为不变（structure-headings 模块的后处理兜底仍保留）。
 
     return { systemPrompt, userPrompt }
   }
@@ -633,16 +642,20 @@ class RewriteEngine {
   }
 
   /**
-   * 构建字数区间指令：wordCountRange {min,max} 优先；未提供时不注入（由后处理默认上限兜底）
+   * 构建字数区间指令：wordCountRange {min,max} 优先；未提供时不注入（由后处理默认上限兜底）。
+   * 区间**校验留在本文件**（渲染层结构锁要求 `range.max <= MAX_OUTPUT_CHARS` 逐字在此），
+   * 措辞在 `word-count-instruction.js`。整数性守在这里：引擎是共享契约点，非 UI 调用方
+   * （Python 链路 / 插件 / 未来新入口）可能送来 1.5 这样的值——「1.5 到 6000 字之间」是坏指令。
    * @param {object} userSettings
+   * @param {number} [originalLength] - 原文码点数（用于推导「与原文相当」的目标篇幅）
    * @returns {string}
    */
-  _getWordCountInstruction(userSettings) {
+  _getWordCountInstruction(userSettings, originalLength) {
     const range = userSettings && userSettings.wordCountRange
     if (!range || typeof range.min !== 'number' || typeof range.max !== 'number') return ''
-    // 范围防御：与前端/PRD 契约一致（min 0-49999、max 1-50000、max >= min），无效区间不注入
+    if (!Number.isInteger(range.min) || !Number.isInteger(range.max)) return ''
     if (!(range.min >= 0 && range.min <= MAX_OUTPUT_CHARS - 1) || !(range.max >= 1 && range.max <= MAX_OUTPUT_CHARS) || range.max < range.min) return ''
-    return `【字数要求】改写后的文本长度必须控制在 ${range.min} 到 ${range.max} 字之间。`
+    return buildWordCountInstruction(range, originalLength)
   }
 
   /**
@@ -665,7 +678,7 @@ class RewriteEngine {
     return this._knowledgeBase.getContextSummary()
   }
 
-  _postProcess(text, strategy, wordCountRange) {
+  _postProcess(text, strategy, wordCountRange, freeformOutput) {
     let result = text
 
     // 去 AI 味
@@ -688,12 +701,9 @@ class RewriteEngine {
     }
 
     // 长度限制（Unicode 码点计数，与 _validate 一致；避免代理对被切断产生乱码）
-    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 3000（DEFAULT_MAX_OUTPUT_LENGTH）
-    // rewrite-limits-50000（2026-10-19）：截断必须可见——返回值改为 { text, truncatedAt }，
-    // truncatedAt = 截断后的长度（码点）；未截断为 null。调用方写入 result.outputTruncated。
-    const maxLength = (wordCountRange && typeof wordCountRange.max === 'number' && wordCountRange.max > 0)
-      ? wordCountRange.max
-      : (postProcess.maxLength || DEFAULT_MAX_OUTPUT_LENGTH)
+    // 上限取谁（用户区间 / 统一上限 / 策略形态上限 / 兜底）见 ./output-cap.js 的优先级说明；
+    // 截断必须可见：truncatedAt = 截断后的长度（码点）；未截断为 null。
+    const maxLength = resolveOutputCap(wordCountRange, postProcess.maxLength, freeformOutput, MAX_OUTPUT_CHARS, DEFAULT_MAX_OUTPUT_LENGTH)
     let truncatedAt = null
     const codePoints = [...result]
     if (codePoints.length > maxLength) {
@@ -704,43 +714,9 @@ class RewriteEngine {
     // 结构标题剥离兜底（2026-09-18）：即使提示词已约束输出格式，模型仍可能输出
     // 「开头（悬念钩子）」「**中间（情感转折）**」「## 结尾」等小节标题行。
     // 逐行识别结构标题行并移除（仅剥离标题行本身，不触碰正文内容）。
-    result = this._stripStructureHeadings(result)
+    result = stripStructureHeadings(result)
 
     return { text: result.trim(), truncatedAt }
-  }
-
-  /**
-   * 剥离改写结果中的结构标题行（纯文案输出契约兜底）。
-   *
-   * 识别规则（按行）：
-   * - 行首可选 Markdown 标记（#、##、**、-、数字序号等）
-   * - 行内含结构关键词：开头 / 中间 / 结尾 / 悬念 / 钩子 / 情感转折 / 共鸣 / 号召 / 正文 / 结尾段
-   * - 行长度 ≤ 30 字符（结构标题短，正文长句不误伤）
-   *
-   * 仅移除标题行本身；标题行后的正文内容原样保留。
-   * @param {string} text
-   * @returns {string}
-   */
-  _stripStructureHeadings(text) {
-    if (typeof text !== 'string' || !text) return text
-    const lines = text.split('\n')
-    // 结构标题关键词：仅在「标题位」（行首）命中才剥离，避免误删正文中出现的普通句子
-    // （如「故事的结尾不需要太多解释。」「引发共鸣，才有传播。」——关键词不在行首，不剥离）
-    // 匹配模式（去 Markdown 标记后）：
-    //   1. 行首即关键词，且关键词后紧跟结构标记（（ ： ( : 「或行尾）
-    //   2. 关键词带装饰（**开头**、## 开头、- 开头 等）由前面的标记剥离处理
-    const STRUCTURE_HEADING_RE = /^(开头|中间|结尾|悬念|钩子|情感转折|共鸣|号召|正文|结尾段)(?=[（(:「:]|$|\s)/u
-    const kept = lines.filter((line) => {
-      const trimmed = line.trim()
-      if (!trimmed) return true
-      // 剥离 Markdown 标记后判断（# ## ** - 1. 等）
-      const stripped = trimmed.replace(/^[#*\-\d.\s]+/, '').replace(/[*#]+$/, '').trim()
-      if (!stripped) return false
-      // 仅当剥离后的行以结构关键词开头（标题位）且行长短（≤30 字）才判定为结构标题行
-      if (stripped.length > 30) return true
-      return !STRUCTURE_HEADING_RE.test(stripped)
-    })
-    return kept.join('\n')
   }
 
   /**

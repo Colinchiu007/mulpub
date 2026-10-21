@@ -75,6 +75,11 @@ export default {
     // Only some segments were cut by the model's per-response limit — name them,
     // otherwise users assume the whole article is damaged.
     outputTruncatedByModelSegments: 'Segment(s) {segments} were cut by the model per-response limit ({length} chars in total). This is a provider-side limit; shorten the source text or rewrite it in two passes.',
+    // Actual output size of the rewrite (collect-rewrite-wordcount, 2026-10-20): both
+    // numbers are needed to judge how much was lost — the rewritten count alone is
+    // one-sided. The collection page had no size display at all, so users could
+    // neither see the shortening nor see a tail cut.
+    rewriteOutputLength: 'Rewritten: {length} chars (original: {original} chars)',
     // ── Rewrite quality report (content-quality-eval desktop loop) ──
     qualitySection: 'Quality Assessment',
     qualitySufficiency: 'Rewrite sufficiency',

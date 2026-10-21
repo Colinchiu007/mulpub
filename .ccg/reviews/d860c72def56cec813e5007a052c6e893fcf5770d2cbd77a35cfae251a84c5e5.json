@@ -48,10 +48,25 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "Critique校验失败",
+    "validationErrors": [
+      "issues[0].dimension无效:consistency",
+      "issues[2].dimension无效:consistency",
+      "issues[3].dimension无效:feasibility",
+      "issues[5].dimension无效:clarity",
+      "issues[6].dimension无效:clarity",
+      "issues[7].dimension无效:completeness",
+      "缺少维度分:correctness",
+      "缺少维度分:performance",
+      "缺少维度分:maintainability",
+      "未知维度:completeness",
+      "未知维度:consistency",
+      "未知维度:clarity",
+      "未知维度:feasibility"
+    ],
+    "at": "2026-10-21T02:20:50.450Z"
   }
 }

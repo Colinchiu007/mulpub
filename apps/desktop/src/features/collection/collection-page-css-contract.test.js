@@ -30,8 +30,9 @@
  *     `tokens.length >= 20`，`findRule()` 的命中数同样有下界。
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -281,6 +282,96 @@ describe('消费的类必须有定义（防「抄了类名没抄定义」）', (
     // 现在改为断言**真消费的那个类名**，并同时保留新别名。
     expect(findRule(pageCss, 'collection-tab-badge'), 'collection-tab-badge（真消费类）应在规范层有定义').toBe(true)
     expect(findRule(pageCss, 'col-tab-badge'), 'col-tab-badge（新别名）应在规范层有定义').toBe(true)
+  })
+})
+
+describe('CSS @import 位置契约（后置 @import 会被浏览器**静默忽略**）', () => {
+  /**
+   * 动因（2026-10-20 collection-ux-step-flow 真机事故）：
+   *   `collection-page.css` 曾把 `@import './collection-page-legacy.css';` 写在**文件末尾**
+   *   （第 381 行，前面已有约 380 行规则）。按 CSS 规范，`@import` 必须出现在样式表的
+   *   **所有限定规则之前**，否则**浏览器直接忽略这条 @import，不报错也不告警**。
+   *   ⇒ collection-page-legacy.css 整块从未进入浏览器 ⇒ 承载的 `.compare-textarea`
+   *   （改写后两个对比文本框的尺寸）、`.col-result-box`（结果框底色）、`.col-chip-row`、
+   *   `.col-compare-title` 集体失效 ⇒ 用户真机看到「改写后两个文本框只有默认的迷你尺寸」。
+   *
+   * 为什么既有门禁没拦住：本文件第 ③ 条判据只做**文本层面**的「类名在 CSS 里出现过」，
+   *   不断言这条规则**会不会真的生效** —— 典型的装饰性门禁。本组判据补的是「生效性」。
+   *
+   * 判据口径：去掉注释后，若**第一条 `@import` 之前已经出现 `{`**，则该 @import 位置非法
+   *   （`{` 意味着前面已有规则块或 @media 块，@import 必须在其之前）。
+   *   `@charset` / `@layer`（无花括号形式）允许出现在 @import 之前 —— 它们不违反规范。
+   */
+
+  // 扫描根：桌面端 src 目录。**不能**只依赖 process.cwd() —— vitest 的 cwd 随调用方式
+  // 变化（从 workspace 根跑 `pnpm -r run test` 时 cwd 是包目录，从仓库根直接跑
+  // `npx vitest apps/desktop` 时 cwd 是仓库根）：前者对、后者会让 readdirSync 抛错、
+  // 整个测试文件崩掉（外部评审 i1）。故两种布局都试一遍，取存在的那一个。
+  const CSS_ROOT = [join(process.cwd(), 'src'), join(process.cwd(), 'apps/desktop/src')]
+    .find((dir) => existsSync(dir)) || join(process.cwd(), 'src')
+
+  /** 递归收集 src 下的 .css 文件（跳过 node_modules / dist） */
+  function collectCssFiles (dir, out = []) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === 'dist') continue
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) collectCssFiles(full, out)
+      else if (entry.name.endsWith('.css')) out.push(full)
+    }
+    return out
+  }
+
+  it('判据自反锁：扫描器确有命中（防解析退化算出假结论）', () => {
+    const files = collectCssFiles(CSS_ROOT)
+    expect(files.length, '未扫到任何 .css 文件，判据已退化').toBeGreaterThan(3)
+    // 样本自证：非法形态（@import 在规则之后）必须被判红
+    const illegal = stripComments('.a { color: red; }\n@import "./b.css";')
+    expect(illegal.indexOf('{')).toBeGreaterThan(-1)
+    expect(illegal.indexOf('@import')).toBeGreaterThan(illegal.indexOf('{'))
+  })
+
+  it('src 下所有 CSS 的 @import 都在第一条规则之前', () => {
+    const files = collectCssFiles(CSS_ROOT)
+    const violations = []
+    for (const file of files) {
+      const css = stripComments(readFileSync(file, 'utf8'))
+      const importIdx = css.indexOf('@import')
+      if (importIdx === -1) continue
+      const braceIdx = css.indexOf('{')
+      if (braceIdx !== -1 && braceIdx < importIdx) {
+        violations.push(`${file.replace(CSS_ROOT, 'src/')}（@import 在第 ${css.slice(0, importIdx).split('\n').length} 行，前面已有规则）`)
+      }
+    }
+    expect(violations, `后置 @import 会被浏览器静默忽略 ⇒ 整块样式不生效: ${violations.join('; ')}`).toEqual([])
+  })
+
+  it('采集页规范层：legacy 的 @import 位于 collection-page.css 顶部', () => {
+    // 专项锁：本次事故的具体文件。上面那条是通用扫描，这里点名，确保「谁负责」明确。
+    const pageCss = stripComments(read(PAGE_CSS_REL))
+    const importIdx = pageCss.indexOf("@import './collection-page-legacy.css'")
+    expect(importIdx, 'collection-page.css 必须 import legacy').toBeGreaterThan(-1)
+    const braceIdx = pageCss.indexOf('{')
+    expect(braceIdx === -1 || braceIdx > importIdx, 'legacy 的 @import 必须早于第一条规则').toBe(true)
+  })
+})
+
+describe('改写对比文本框尺寸契约（.compare-textarea）', () => {
+  /**
+   * 动因：用户真机看到「改写后两个文本框只有默认的迷你尺寸」。
+   * 根因是 .compare-textarea 所在文件整块没加载（见上一组判据），
+   * 但**加载与否**不在本文件的判据能力内 —— 能锁的是「规则本身必须声明尺寸」，
+   * 这样即便将来又有人把该规则挪走/删掉，尺寸契约会当场红。
+   */
+  const legacy = read(LEGACY_CSS_REL)
+
+  it('声明了 width: 100% 与 min-height ≥ 180px', () => {
+    const rule = legacy.match(/\.compare-textarea[^{]*\{([^}]*)\}/)
+    expect(rule, 'legacy CSS 必须有 .compare-textarea 规则').toBeTruthy()
+    const body = rule[1]
+    expect(body).toMatch(/width:\s*100%/)
+    const minHeight = body.match(/min-height:\s*(\d+)px/)
+    expect(minHeight, '必须声明 min-height').toBeTruthy()
+    expect(Number(minHeight[1]), '对比文本框最小高度不得低于 180px（用户反馈：尺寸非常小）').toBeGreaterThanOrEqual(180)
   })
 })
 

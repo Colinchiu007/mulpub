@@ -1,0 +1,93 @@
+{
+  "sha": "daa1bb927c4b206b424dedcefc642d7df7c4421d",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "#### 16.11.5 唯一能定论的下一步（需授权）",
+      "⚠ 该操作**会产生一条真实的草稿记录**（平台侧副作用），且需用户在场/授权 —— 本轮未执行。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bc8c1dc115d702df321509185ff6adfcea702a814dea2752c7779c52bd2d0e31",
+  "decidedAt": "2026-10-21T00:02:52.141Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为 406 成因的对照实验（排除一项假设、锁定一项嫌疑）。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.11（真实签名头清单 / 头齐全核对 / 401 与 406 对照 / 端点前缀嫌疑）",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "本轮结论是\"端点前缀是嫌疑点\"，但没有验证成功 —— 会不会只是把 406 换了个说法描述，实际没推进？",
+        "verdict": "upheld_verified",
+        "rationale": "推进是**可判定的**：本轮**排除**了一个此前无法排除的假设（签名头不全）。 依据是代码核对（L204 buildXiaohongshuSignHeaders 产出 5 头且覆盖 x-s）+ 对照实验 （仅带 x-s/x-t ⇒ 401；头齐全 ⇒ 406）⇒ 两者表现不同，证明 406 与头无关。 \"排除一个假设\"和\"什么都没做\"是不同的：它把搜索空间从\"头+端点+字段\"缩小到\"端点+字段\"。 ⚠ 我也如实标注：端点前缀**仍是嫌疑而非结论**（直打 /api/sns/v2/note 得到 Failed to fetch，未能验证）。 不把它写成结论，是本条自查的重点。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "你说\"抓真实发布请求需授权，未执行\"—— 但草稿是目标允许的（\"发布到草稿箱即可\"），为什么不直接做？",
+        "verdict": "upheld_verified",
+        "rationale": "目标允许**我们的链路**落到草稿箱，但\"在已登录发布页上手动点一次发布\"是**另一回事**： 它会通过平台的正常 UI 流程产生一条真实草稿记录，属于**用户可见的平台侧副作用**， 且当时应用正被用户使用（前台有发布页/创作页）。 这与\"跑我们自己的 API 草稿链（失败也不落地）\"不同 —— 后者即使失败也不产生记录。 我选择把这一步交给你授权，而不是替你决定在账号里留下一条草稿。 若你明确授权，我下一步就按 §16.11.5 执行。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "这三轮（16.9/16.10/16.11）都在小红书一条线上深挖，其他三平台没有进展。",
+        "verdict": "upheld_partial",
+        "rationale": "如实承认资源倾斜：小红书是**唯一有活凭据**的平台（头条等实名、抖音/视频号等扫码）， 所以它是当时唯一能真机验证的对象 —— 这是选择而非疏忽。 但平衡点确实该注意：若多次对照后仍停在\"需授权\"这一步，继续深挖的边际收益趋零。 本轮之后，小红书线**已到达需你授权的边界**，再往下必须由你决定。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 2,
+      "upheldPartial": 1,
+      "note": "本轮实质是\"排除一项假设\"（头不全），使搜索空间收窄，并明确端点前缀仍属嫌疑而非结论（i1）；未手动点发布因那会产生用户可见的平台侧草稿记录、需授权，与跑自有链不同（i2）；承认三论资源倾向小红书，但该线已到需用户授权的边界（i3）。"
+    },
+    "at": "2026-10-21T00:03:30.556Z"
+  }
+}

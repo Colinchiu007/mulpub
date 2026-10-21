@@ -8,6 +8,8 @@
  */
 var { RewriteEngine } = require('../src/rewrite-engine-core')
 var { KnowledgeBase } = require('../src/knowledge-base')
+// collect-rewrite-wordcount 拆分：结构标题剥离已独立成模块（核心文件的行数挂账只剩几行余量）
+var { stripStructureHeadings } = require('../src/structure-headings')
 var { SensitiveFilter } = require('../src/sensitive-filter')
 
 describe('RewriteEngine', function () {
@@ -363,6 +365,69 @@ describe('RewriteEngine', function () {
     expect(captured.sys).toContain('字数要求')
   })
 
+  // ── collect-rewrite-wordcount（2026-10-20）：min=0 的「无下限」语义 ──
+  // 事故：用户在采集页把字数区间设成 0-6000，引擎收到的区间若写成「0 到 6000 字之间」，
+  // 模型会照着下限写，把改写做成摘要（实测 3515 字原文 → 1229 字摘要，且用户看不出异常）。
+  // min=0 的合法含义是「不设下限，只要不超过上限」，因此指令必须给上限 + 与原文相当的目标篇幅。
+
+  test('W7 min=0 ⇒ 指令给「不超过上限 + 目标篇幅」，不再出现「0 到 N 字之间」', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '字'.repeat(1200), userSettings: { wordCountRange: { min: 0, max: 6000 } } })
+    // 注意：硬约束文案里本身就含「字数要求」四字（"…模式指令或字数要求与本段有何冲突…"），
+    // 所以判定必须用带书名号的注入形态「【字数要求】」，否则这条断言恒真。
+    expect(captured.sys).toContain('【字数要求】')
+    expect(captured.sys).toContain('6000')
+    // 坏指令形态必须消失：「0 到 6000」把「无下限」说成「可以任意短」
+    expect(captured.sys).not.toContain('0 到 6000')
+    expect(captured.sys).toContain('不得超过')
+  })
+
+  test('W8 min=0 且原文短于上限 ⇒ 目标篇幅 = 原文长度（与原文相当，不压缩成摘要）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '字'.repeat(1200), userSettings: { wordCountRange: { min: 0, max: 6000 } } })
+    expect(captured.sys).toContain('1200')
+    expect(captured.sys).toContain('不要把原文压缩成摘要')
+  })
+
+  test('W9 min=0 且上限低于原文长度 ⇒ 目标篇幅取上限（不得与「不得超过」自相矛盾）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '字'.repeat(3000), userSettings: { wordCountRange: { min: 0, max: 2000 } } })
+    // 目标篇幅 = min(原文 3000, 上限 2000) = 2000；不得出现 3000（那会让模型写出超限稿）
+    expect(captured.sys).toContain('2000')
+    expect(captured.sys).not.toMatch(/目标篇幅约 3000/)
+  })
+
+  test('W10 min>0 ⇒ 指令格式仍是「min 到 max 字之间」（既有契约不变）', async function () {
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '字'.repeat(1200), userSettings: { wordCountRange: { min: 800, max: 2000 } } })
+    expect(captured.sys).toContain('800 到 2000 字之间')
+  })
+
+  test('W11 浮点区间不注入字数指令（非整数按「非法区间」处置，不产生「1.5 到 6000 字之间」）', async function () {
+    // 评审 i1：前端 useWordCountValidation 会拦浮点，但引擎是共享契约点——
+    // 非 UI 调用方（Python 链路 / 插件 / 未来新入口）可能送来 1.5 这样的值。
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '字'.repeat(1200), userSettings: { wordCountRange: { min: 1.5, max: 6000 } } })
+    // 注入形态用带书名号的「【字数要求】」判定（硬约束文案里本身含「字数要求」四字）
+    expect(captured.sys).not.toContain('【字数要求】')
+    expect(captured.sys).not.toContain('1.5')
+  })
+
   test('W5 无字数控制时 postProcess 默认上限 3000', async function () {
     var longText = 'x'.repeat(3500)
     var strategy = sampleStrategy()
@@ -427,6 +492,71 @@ describe('RewriteEngine', function () {
     engine._strategyManager.get = function () { return strategy }
     var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 100, max: 2000 } } })
     expect(result.result.length).toBeLessThanOrEqual(2000)
+  })
+
+  // ── collection-ux-step-flow（2026-10-20）：freeformOutput = 用户明确「不设字数限制」──
+  // 动因：采集页把字数区间默认留空后，若仍落回「策略 maxLength / 默认 3000」，
+  // 用户看到的是「我没填数字却被砍到 800 字 + 一条截断横幅」——与「自由发挥」直接矛盾。
+  // 契约：freeformOutput=true ⇒ 唯一上限是统一上限 MAX_OUTPUT_CHARS(50000)，
+  // 且**跳过策略级 postProcess.maxLength**；不传该参数时行为与历史完全一致。
+
+  test('F1 freeformOutput=true ⇒ 跳过策略 maxLength，输出不被砍尾（上限取统一上限 50000）', async function () {
+    var longText = 'x'.repeat(3000)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false, maxLength: 800 }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { freeformOutput: true } })
+    expect(result.outputTruncated).toBe(false)
+    expect(result.result.length).toBe(3000)
+  })
+
+  test('F2 freeformOutput=true ⇒ prompt 不注入【字数要求】（用户没给字数意图）', async function () {
+    // 断言口径用**注入指令的完整形状**而不是「字数要求」四字：策略/硬约束文案里也可能
+    // 出现该字样（实测 wireStrategy 的策略 systemPrompt 就带），用四字判会误报。
+    var INJECTED = '【字数要求】改写后的文本长度必须控制在'
+    var captured = null
+    var llm = { chat: async function (sys, user) { captured = { sys, user }; return '结果' } }
+    var engine = new RewriteEngine({ llmClient: llm, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine)
+    await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { freeformOutput: true } })
+    expect(captured.sys).not.toContain(INJECTED)
+    // 自反锁：同一断言在「给了区间」时必须命中，否则上面那条是恒真的空判据
+    var captured2 = null
+    var llm2 = { chat: async function (sys, user) { captured2 = { sys, user }; return '结果' } }
+    var engine2 = new RewriteEngine({ llmClient: llm2, knowledgeBase: new KnowledgeBase() })
+    wireStrategy(engine2)
+    await engine2.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { wordCountRange: { min: 800, max: 2000 } } })
+    expect(captured2.sys).toContain(INJECTED)
+  })
+
+  test('F3 不传 freeformOutput ⇒ 策略 maxLength 仍然生效（既有行为不变）', async function () {
+    var longText = 'x'.repeat(3000)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false, maxLength: 800 }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: {} })
+    expect(result.outputTruncated).toBe(true)
+    expect(result.outputLength).toBe(800)
+  })
+
+  test('F4 freeformOutput 只认严格布尔 true（非布尔真值不激活新分支）', async function () {
+    // 外部评审 i3：共享引擎的新分支必须自守，否则未来重构把 === true 改成真值判断
+    // 就会静默改写输出上限策略。
+    var longText = 'x'.repeat(3000)
+    var strategy = sampleStrategy()
+    strategy.postProcess = { removeAITaste: false, maxLength: 800 }
+    var engine = new RewriteEngine({ llmClient: mockLlmClient(longText), knowledgeBase: new KnowledgeBase() })
+    engine._strategyManager._strategies = [strategy]
+    engine._strategyManager.listEnabled = function () { return [strategy] }
+    engine._strategyManager.get = function () { return strategy }
+    var result = await engine.rewrite({ mode: 'imitate', content: '任意内容', userSettings: { freeformOutput: 'yes' } })
+    expect(result.outputLength).toBe(800)
   })
 
   // ── rewrite-segment-and-finish-reason 第一刀：finish_reason 归一化 + modelTruncated ──
@@ -812,18 +942,17 @@ describe('RewriteEngine viral signal injection', function () {
   })
 
   test('F2b 普通句子含关键词不被误删（标题位匹配回归保护）', async function () {
-    var engine = new RewriteEngine({ llmClient: mockLlmClient('x'), knowledgeBase: new KnowledgeBase() })
-    wireStrategy5(engine)
+    // collect-rewrite-wordcount 拆分：剥离逻辑独立成 structure-headings 模块，行为逐字不变
     // 关键词在句中/句尾 → 保留；关键词在行首且带结构标记 → 剥离
-    expect(engine._stripStructureHeadings('故事的结尾不需要太多解释。')).toBe('故事的结尾不需要太多解释。')
-    expect(engine._stripStructureHeadings('我们中间出了叛徒。')).toBe('我们中间出了叛徒。')
-    expect(engine._stripStructureHeadings('引发共鸣，才有传播。')).toBe('引发共鸣，才有传播。')
-    expect(engine._stripStructureHeadings('要号召大家一起行动。')).toBe('要号召大家一起行动。')
-    expect(engine._stripStructureHeadings('结尾要有反转。')).toBe('结尾要有反转。')
+    expect(stripStructureHeadings('故事的结尾不需要太多解释。')).toBe('故事的结尾不需要太多解释。')
+    expect(stripStructureHeadings('我们中间出了叛徒。')).toBe('我们中间出了叛徒。')
+    expect(stripStructureHeadings('引发共鸣，才有传播。')).toBe('引发共鸣，才有传播。')
+    expect(stripStructureHeadings('要号召大家一起行动。')).toBe('要号召大家一起行动。')
+    expect(stripStructureHeadings('结尾要有反转。')).toBe('结尾要有反转。')
     // 行首结构标题 → 剥离
-    expect(engine._stripStructureHeadings('开头（悬念钩子）\n正文内容')).toBe('正文内容')
-    expect(engine._stripStructureHeadings('**中间（情感转折）**\n正文内容')).toBe('正文内容')
-    expect(engine._stripStructureHeadings('## 结尾（共鸣与号召）\n正文内容')).toBe('正文内容')
+    expect(stripStructureHeadings('开头（悬念钩子）\n正文内容')).toBe('正文内容')
+    expect(stripStructureHeadings('**中间（情感转折）**\n正文内容')).toBe('正文内容')
+    expect(stripStructureHeadings('## 结尾（共鸣与号召）\n正文内容')).toBe('正文内容')
   })
 
   test('F3 改写结果返回 title 字段（≤20 字）', async function () {

@@ -1,0 +1,65 @@
+{
+  "sha": "721f5141aa23e996e65fe234d82aeeb267507760",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 3602 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 3602,
+    "fileCount": 133,
+    "codeFileCount": 48,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 23,
+    "docSensitiveContentHits": 57,
+    "docSensitiveContentSample": [
+      "| `apps/desktop/electron/services/rewrite-engine.js` `llmClient.chat()` | `max_tokens = min(64000, max(1024, ceil(max×2)))`，max 取 `wordCountRange.max` | `_lastWordCountRangeMax = undefined` ⇒ 回落到 3000 口径 ⇒ `max_tokens = 6000` |",
+      "| 无区间时 | 生效上限 = 3000 ⇒ `max_tokens = 6000`（与引擎兜底一致） |",
+      "| 改造流水线选择器本身的交互 | 仍是原生 `<select>`，只换选项集合。 |"
+    ],
+    "ccgSensitiveContentHits": 100,
+    "ccgSensitiveContentSample": [
+      "      \"### 16.17 抖音凭据已恢复（2026-10-21，用户完成登录）\",",
+      "      \"#### 16.17.2 凭据有效性的**硬证据**（不依赖 `has_cookies`）\",",
+      "      \"⇒ 返回**真实创作者身份数据**（开号日期、头像、认证信息）—— 这是凭据有效的硬证据，\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8ab60a477b13f598c4226354ebebf205c728ce8c433ef024b69387a035777ea1",
+  "decidedAt": "2026-10-21T03:16:12.027Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

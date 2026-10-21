@@ -1,0 +1,96 @@
+{
+  "sha": "cadf4c03b3840638cb3347d94378cd568e288d0e",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 35 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 35,
+    "fileCount": 9,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 配置档案来自本地文件，渲染层不做额外授权 | **安全边界声明**：配置档案是**设备级本地数据**（`userData/story2video-config-profiles/config-profiles.json`），由**操作系统用户目录权限**保护，不跨设备、不跨信任边界（不声称云同步，见 PRD §2.2）。本片**渲染层不新增任何授权检查**——那会与既有 `ConfigProfileManager` 形成两套授权口径。桌面端单机场景下，用户目录权限即边界 |",
+      "| QM-6 CCG 双模型外部评审 | ✅ | 判定 `mode=dual`（变更 1234 代码行 > 200 行阈值）。**真跑了双家族**：`sh scripts/deep-review.sh` → proposer=opencode **跨家族校验通过**、critic=claude 出 **4 条问题 / 4 维度**（correctness/security/performance/maintainability，最低分 5）。引擎收敛判据落到**自扮演第三档出口**（`status=self_play_pending`，4 条待裁决）⇒ 逐条裁决已落 `.adversarial/ccg-deep-75773bdf/adjudication.json`（prosecution / defense / verdict / rationale 四段齐全）：**i1 dismissed**（判据的 changedLines 只计代码文件，与含文档的总 diff 量的是不同的东西；sha 落在父提交是 pre-commit 的既定行为，驱动输出逐字写明）、**i2 upheld 已修**（配置选择器补齐键盘可达：↓/↑ 展开并落焦、菜单内 ↑/↓/Home/End/Enter/Esc、Tab 关闭不抢焦点）、**i3 upheld 已加固**（`_s2vRestorePromise` 改为「无论是否编排型都赋值」，顺序保证不再依赖调用顺序）、**i4 upheld 已改**（交接模块改为**显式依赖注入 + 纯决策函数**，模块不再认识 Vue）。另有 3 条 Info：i5 dismissed（`.ccg/reviews/**` 是 pre-commit 自动 stage 的既定产物形态，最近 3 笔 main 提交各带 3 个此类文件；判据 `check-pr-exec-record.js` 正是从变更集里读它们）、i6 dismissed（`normalizeConfigProfiles` 已用 `Number.isFinite` 归一，`Infinity`/`NaN` → 0，不可能支配排序；且档案来自设备级本地文件，不跨信任边界）、i7 **已修**（`options` 与 `displayText` 改为从同一个 computed 派生，不再各算一遍过滤/排序）。**第 1 轮修复已提交**（`11b4168fe`：交接模块改显式依赖注入 + 纯决策函数、`_s2vRestorePromise` 改为无论是否编排型都赋值、补齐键盘可达），随后**重跑第 2 轮**：`sh scripts/deep-review.sh` → proposer=opencode **跨家族校验再次通过**、critic=claude 出 **3 条争议 / 4 维度**（correctness/security/performance/maintainability，最低分 **7**，比第 1 轮高 2 分）、另 2 条 Info。**第 2 轮逐条裁决**已落 `.adversarial/ccg-deep-11b4168f/adjudication.json`（prosecution / defense / verdict / rationale 四段齐全）：**i1 upheld 已修**（critic 指出 `onMenuKeydown` 只处理方向键、缺 `Enter`/`Space` 的「选中」核心契约，与 PRD §3.3.4 键盘可达表和 `role=\"combobox\"`/`role=\"listbox\"` 的声明直接矛盾——**属实**：核对源码确认该分支当时确实缺失，已补 `commitActive()` 并加 3 例键盘回归锁）、**i2 upheld 已修**（`await d.loadProfiles()` 无 `try/catch`，载入失败会变成 mounted 链里的未捕获拒绝，且与同函数内 `awaitRestore` 的吞并处理不一致——**属实**：已加 `try/catch` + **独立**提示文案 `create.story2video.configProfile.handoffLoadFailed`，不复用 `loadFailed`（那是「可稍后重试」语义）也不用 `notFound`（那是「已被删除」语义），避免把「载入失败」说成「配置不存在」）、**i3 dismissed**（critic 认为两处拆分是「为门禁而拆、跨组件追踪成本高」；**辩护成立**：拆分是机械门禁强制的结果——`PublishDestinationModal.vue` 触 `check-max-lines` 的 500 行上限、`CreateView.vue` 触 `check-debt-budget` 的「单文件最大行数只降不升」（5359 行基线），不拆就是门禁红；两个新模块的文件头注释已写明拆分原因，且接口已按「纯决策函数 + 显式依赖注入」稳定下来）。另 2 条 Info：i4 dismissed（测试分层是刻意的——纯函数穷举数据分支、组件验交互、创作页验端到端；CI 的 vitest 按 workspace 自动收集，`check-unwired-tests.js` 已确认全部接线），i5 dismissed（快照结构校验由**主进程既有服务** `electron/services/story2video-config-profiles.js` 负责，渲染层再做一遍是第二套真相；且档案来自设备级本地文件，不跨信任边界）。**第 2 轮修复已提交**（`cadf4c03b`）。**第 3 轮**（评审 `cadf4c03b`）：proposer=opencode 跨家族校验**第三次通过**、critic=claude 出 **3 条争议 / 4 维度**（最低分 **7**），逐条裁决落 `.adversarial/ccg-deep-cadf4c03/adjudication.json`：**i1 upheld（已闭环）**（critic 指出 `.ccg/reviews/*.json` 的 `deepReview.status` 停在 `pending`、`evidence`/`findings` 为 `null`，与「已完成 QM-6 裁决」矛盾——**属实且正是本片当前要做的收尾**：已把三条 dual 记录（`e3d9af84` / `0c045bd7` / `e59ad472`）全部写成闭环态 `self_play_resolved` + `tier: external` + `evidence` + 结构化 `closureNote`；critic 建议里的「`sha` 应等于提案 head」**不成立**——记录名是**内容寻址**（`stagedDiffHash`），`sha` 字段指向**被评审的那一笔提交**，且判据 `check-pr-exec-record.js` 是从**变更集**里读这些文件、与 sha 无关）、**i2 upheld 已修**（critic 要求补拆分前后行数证据——属实：已把实测读数固化成 design.md D12 表格：浮窗 **527 → 304 行**（`check-max-lines` 上限 500，首跑红）、`CreateView.vue` **5379 → 5356 行**（`check-debt-budget` 基线 5359，首跑红））、**i3 upheld 已修**（critic 指出 `awaitRestore` 的错误被 `catch (_) {}` **全静默**吞并——**属实且有真实失败路径**：`restoreS2VLastOptions()` 内部只吞了 `storeGetSetting` 的读失败，`_applyS2VSnapshotObject()` 的异常仍会冒到模块层；已改为可选取的 `onRestoreError` 回调，CreateView 侧传入并提示「未能恢复上次的选项设置」（新增 locale 键 `create.story2video.configProfile.restoreFailed`，zh/en 成对），且**仍然不阻断**配置套用）。另 2 条 Info：i4 **已修**（补 design.md 安全边界声明：配置档案是设备级本地数据、由 OS 用户目录权限保护、渲染层不新增授权检查以免与既有 `ConfigProfileManager` 形成两套口径）、i5 **已修但按实情写**（critic 建议声明「每流水线 ≤50 条」——**该数字未经验证，不予采纳**：配置档案由用户自建、无产品级上限；实情写入 design.md：单文件本地 JSON 一次 IPC 全量读取、过滤 O(n)、n 为个位数到几十，不做预先缓存设计，将来以实测读数为依据再加） |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "79dde2a2969a30115202823b8fd7f349f416ea5f6514dd4deab8e9d006069821",
+  "decidedAt": "2026-10-20T22:18:34.580Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "claude(critic)+opencode(proposer), self-play adjudication",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "evidence": "openspec/records/publish-config-picker.md",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "第 3 轮 i1 的收口动作（本变更集全部判定记录写成闭环态）即在本提交中落地。",
+        "prosecution": "不落地则记录停在待裁决状态，与执行记录里的陈述相反。",
+        "defense": "可推迟到合并后处理。",
+        "verdict": "upheld",
+        "rationale": "已在同一批次内落地，避免「先合了再说」把欠账留给下一个会话。",
+        "fix_verified": true
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "第 3 轮 i2 要求把拆分前后行数证据固化到变更提案面。",
+        "prosecution": "只有行数读数才能让拆分理由可复核。",
+        "defense": "执行记录里已有读数。",
+        "verdict": "upheld",
+        "rationale": "已把读数固化到 design.md 的 D12 表格，与执行记录互为索引。",
+        "fix_verified": true
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "第 3 轮 i3 要求恢复路径的错误对用户可见。",
+        "prosecution": "静默吞掉会让用户无从判断默认值为何没恢复。",
+        "defense": "失败罕见，可见性收益有限。",
+        "verdict": "upheld",
+        "rationale": "已加可选取的错误承接回调与提示文案，契约同步进规格，回归锁 2 例。",
+        "fix_verified": true
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-3-round3\\adjudication.json",
+    "closureNote": "第 3 轮修复的落地提交 7076ee1f6：其评审依据为第 3 轮（评审提交 cadf4c03b）的逐条裁决 i1 已闭环、i2 已修、i3 已修；本提交把该三项修复与配套的规格、设计、执行记录同步落地，落地后本片 4 个测试文件 55 例全绿、四视图回归 570 例全绿。本记录此前停在 pending（引擎自扮演第三档出口的初始值），现已解析为闭环态。",
+    "at": "2026-10-20T22:40:00.000Z"
+  }
+}

@@ -1214,3 +1214,63 @@ loadS2VProviders()
 5. locale zh/en 成对（`check-locale-sync --pair-base` + `--cjk` rc=0），无新增中文字面量。
 6. 三个子分区是同级的直接子节点（层级断言 + 浏览器 `parentElement` 链双重取证）。
 
+## 14. 「去发布」浮窗的配置选择器契约（2026-10-21）
+
+> 本章与 §9、§11、§12、§13 同级，是「配置档案」能力在**创作页之外**的入口合同；
+> 完整 PRD（背景/数据校验/流程/交互/显示项/提示文字/边界/验收）见
+> `01-docs/PRD-PUBLISH-DESTINATION-CONFIG-PICKER-2026-10-21.md`。
+
+### 14.1 现状结论（先证伪再动手）
+
+「配置档案」（保存配置 / 我的配置 / 应用 / 重命名 / 删除）**并非只有故事讲述有**。截至本章落地，
+配置管理已覆盖**全部**视频创作流水线：
+
+| 承载形态 | 覆盖范围 | 实现位置 |
+|---|---|---|
+| 创作页共享分支 | 编排型（`story2video-compose`）与 legacy 型（其余全部流水线） | `views/CreateView.vue` 操作条辅助区 + `views/video-creation/S2vConfigPanels.vue` |
+| 独立页面 | `video-clone`（视频克隆）、`film-engineering`（影视工程） | `views/VideoCloneView.vue`、`views/FilmEngineeringView.vue` + `components/ConfigProfileManager.vue` |
+
+按钮显示条件是 `v-if="selectedPipeline?.name"`，与流水线类型无关；既有规格
+`openspec/specs/story2video-pipeline-config-profiles/spec.md` 的 Requirement
+「All video creation pipelines expose managed configuration profiles」即该契约。
+
+因此本章补的是**入口**，不是重建能力。
+
+### 14.2 入口合同
+
+1. 「去发布」浮窗的视频创作分支 SHALL 在「流水线选择」旁提供「配置选择」控件，
+   选项 = **所选流水线**已保存的配置档案（按 `pipelineId` 过滤、`updatedAt` 倒序）。
+2. 该流水线**零配置**时：触发器显示「默认」、不可展开、**下拉内容为空**，
+   并给出一行说明「该流水线还没有保存过配置，可在创作页用「保存配置」创建」。
+3. 加载中 / 加载失败 / 无配置三态互斥且都有可见文案；**加载失败不被伪装成「没有配置」**。
+4. 切换流水线 SHALL 立即替换选项并**作废**此前选中的配置（配置档案按流水线分域）。
+5. 浮窗每次打开 SHALL 重新读取配置库。
+6. 「流水线选择」的选项集合 SHALL 覆盖全部**文案型**流水线
+   （`@/i18n/pipeline-labels` 的 `TEXT_BASED_PIPELINE_IDS`，与创作页灰显判据同源）；
+   素材型/录屏型/内部冒烟/独立页流水线不得出现。
+
+### 14.3 交接与套用合同
+
+1. `publish-video` 事件第一个参数仍是流水线 id（既有调用方零改动兼容），
+   第二个参数新增 `{ configProfileId, configProfileName }`。
+2. 跳转到创作页的 query（`draft` / `pipeline` / `configProfile`）SHALL 由**一处纯函数**构造
+   （`features/publish-destination/publish-destination-config.js` 的 `buildCreateHandoffQuery()`）；
+   值为空或形态非法时**不带该键**，绝不传空串。
+3. 创作页 SHALL 在**选中流水线之后**套用配置档案，复用既有 `applyS2VConfigProfileSnapshot()`
+   语义（枚举归一化 / 失效服务商回退 / 分辨率按能力上限归一），不新增第二套套用逻辑。
+4. 四种失败路径各有可见提示，且**都不阻断创作**：配置已删除 / 跨流水线 / 套用失败 /
+   无法确定流水线；查询未带 `configProfile` 时不套用且不提示。
+5. **配置档案的套用优先于「恢复上次选项」**：两者写同一份表单，创作页 SHALL 保证
+   配置档案后写（恢复先写、配置后写），避免用户刚选的配置被「上次选项」覆盖。
+
+### 14.4 验收标准
+
+1. 流水线下拉列出全部文案型流水线，且不含素材型/录屏型/内部冒烟/独立页流水线。
+2. 零配置时触发器显示「默认」、不可展开、下拉菜单节点不存在，且有说明行。
+3. 配置选项只含本流水线的档案；切换流水线后旧选择作废。
+4. 选了配置后 `publish-video` 第二个参数携带该档案 id 与名称；未选时两字段为空串。
+5. 创作页进入后自动套用该配置并提示「已应用配置」；配置已删除/跨流水线/套用失败各有提示。
+6. 「恢复上次选项」与「套用配置」并发时，最终表单等于配置档案快照的值。
+7. locale zh/en 成对（`publishDestination.config*` 5 键 + `create.story2video.configProfile.notFound` 1 键）。
+
+
