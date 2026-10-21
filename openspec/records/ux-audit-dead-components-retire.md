@@ -130,6 +130,30 @@ proposer=opencode/deepseek、critic=claude/anthropic）。**四条全部 upheld*
 i4 上的 `highRiskDomains: ["crypto"]` 经核对是分类器误报（本批零鉴权/加密代码，命中的是文档散文里的字样），
 但**不据此绕门禁** —— 收紧分类器同样属"改谁来守门"，须人工过目。
 
+## 四之二、CI 首跑红：删除动作让**另一道门禁**的登记表过期
+
+PR #4212 首跑 `QG Static` 红，3 条用例同时红在 `scripts/check-ui-wired.test.js`
+（`:57` 规模下界 / `:126` 未知旗标 fail-closed / `:162` 清空清单必须逐个点名）。
+现场读数（`gh api .../runs/39687352088/jobs` → `QG Static` 日志）：
+
+```
+[ui-wired] 域=940 文件 / 生产面 vue=185 / 声明 props=116 / 零引用=5 / 登记=6
+  STALE_DEBT apps/desktop/src/components/TrialBanner.vue （已不再命中，必须删掉这条登记，清单只能缩小）
+```
+
+- **这不是本批引入的缺陷，是本批的正确后果。** `check-ui-wired.js` 是阶段 5.3 已上线的通用
+  「未接线组件」门禁（本仓的另一把锁），它的 `scripts/ui-wired-debt.json` 把 `TrialBanner.vue`
+  作为"零生产引用但暂不删除"挂过账。本批把它**删了**，于是那条登记变成陈旧登记，
+  判据按"命中数必须等于登记数"当场红 —— 三条用例红的是同一个根因，不是三个问题。
+- **正解是删登记项，不是放宽判据。** 清单只能缩小，而这次正是它设计里"缩小"的那一格；
+  `LoadingState.vue` 不在清单里（它不声明 props，不在该门禁的测量面内），所以只删一条。
+- 上面「遗留 #1」当时写的是"这两例应收敛进它的棘轮"——**棘轮已经在 main 上，且已经在给本批记账**，
+  这句话写早了；实际发生的正是它的反向：删除动作让棘轮要求同步销账。
+
+改后本机读数：`node scripts/check-ui-wired.js --json` → `零引用=5 / 登记=5` + `[ui-wired] PASS`，
+`node --test scripts/check-ui-wired.test.js` → `tests 10 / pass 10 / fail 0`（rc 单独取，未走管道）。
+行尾对账：`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `0 3`（纯删除 3 行，无行尾改写）。
+
 ## 五、遗留
 
 1. 阶段 5.3 的通用"未接线组件"门禁上线后，这两例应收敛进它的棘轮；本批刻意不把全域打开。
