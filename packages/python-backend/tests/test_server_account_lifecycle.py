@@ -121,48 +121,50 @@ def test_create_account_duplicate_by_platform_account_id_returns_409(monkeypatch
     assert dup.json()["detail"] == "此账号已添加过"
 
 
-def test_create_account_duplicate_by_name_when_both_ids_empty_returns_409(monkeypatch, tmp_path):
-    """双方 platform_account_id 均为空时，同名（弱标识）重复添加返回 409。"""
+def test_create_account_both_ids_empty_same_name_allows_multi_account(monkeypatch, tmp_path):
+    """双方 platform_account_id 均为空 + 同名 → 允许添加（同平台多账号契约）。
+
+    v4/v5 曾据此判 409，那是把 `name`（document.title 落盘位）当身份标识的结果；
+    头条号等平台采不到 ID 时 name 一律回落平台名，三个号会全部被误判成同一个。
+    """
     verifier = StubVerifier("sub-a")
     client = _client(monkeypatch, tmp_path, verifier)
     first = client.post(
         "/api/accounts",
         headers=_headers(),
-        json={"platform": "douyin", "name": "账号 A"},
-    )
-    assert first.status_code == 200
-
-    dup = client.post(
-        "/api/accounts",
-        headers=_headers(),
-        json={"platform": "douyin", "name": "账号 A"},
-    )
-    assert dup.status_code == 409
-    assert dup.json()["detail"] == "此账号已添加过"
-
-
-def test_create_account_duplicate_when_one_side_has_id_same_name(monkeypatch, tmp_path):
-    """一方有 platform_account_id 一方没有 + 同名 → 判定为重复（名称是稳定兜底标识）。"""
-    verifier = StubVerifier("sub-a")
-    client = _client(monkeypatch, tmp_path, verifier)
-    first = client.post(
-        "/api/accounts",
-        headers=_headers(),
-        json={"platform": "douyin", "name": "账号 A", "platform_account_id": "uid-123"},
+        json={"platform": "douyin", "name": "抖音"},
     )
     assert first.status_code == 200
 
     second = client.post(
         "/api/accounts",
         headers=_headers(),
-        json={"platform": "douyin", "name": "账号 A"},
+        json={"platform": "douyin", "name": "抖音"},
     )
-    assert second.status_code == 409
-    assert second.json()["detail"] == "此账号已添加过"
+    assert second.status_code == 200
+
+
+def test_create_account_one_side_has_id_same_name_allows_multi_account(monkeypatch, tmp_path):
+    """一方有 platform_account_id 一方没有 + 同名 → 允许添加（v5 错误判据的反向锁）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    first = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "douyin", "name": "抖音", "platform_account_id": "uid-123"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "douyin", "name": "抖音"},
+    )
+    assert second.status_code == 200
 
 
 def test_create_account_not_duplicate_when_only_one_side_has_id_different_name(monkeypatch, tmp_path):
-    """一方有 platform_account_id 一方没有 + 不同名 → 不判定重复（避免提取失败误判）。"""
+    """一方有 platform_account_id 一方没有 + 不同名 → 不判定重复（保留提取失败保护）。"""
     verifier = StubVerifier("sub-a")
     client = _client(monkeypatch, tmp_path, verifier)
     first = client.post(
@@ -180,18 +182,321 @@ def test_create_account_not_duplicate_when_only_one_side_has_id_different_name(m
     assert second.status_code == 200
 
 
-def test_startup_dedup_removes_duplicate_accounts(tmp_path):
-    """启动时去重：同平台+同owner+同名账号，保留最新一条。"""
+# ─── 同平台多账号去重契约（fix-multi-account-same-platform） ─────────────────
+# 背景：v5（c84325baa）为补「一方有 ID 一方没有 + 同名」的漏检，把 `name` 当成了
+# 账号身份标识。而 `name` 是 auth-view-manager `document.title` 的落盘位
+# （见 apps/desktop/src/utils/account-display-name.js:14），不是稳定标识：
+# 头条号/百家号等平台的 `platform_account_id` 选择器只认 `[data-account-id]`，
+# 采不到时 name 一律回落平台名（resolveCapturedDisplayName → getPlatformName），
+# 于是同一平台的多个不同账号会因同名被误判为「已添加过」。
+# 本组用例锁定修正后的契约：只有 platform_account_id 才是账号身份。
+
+
+def test_create_account_same_platform_different_account_no_id_not_duplicate(monkeypatch, tmp_path):
+    """同平台第二个账号、双方都无 platform_account_id → 必须允许添加（回归本 Bug）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    first = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条", "account_name": "头条号甲"},
+    )
+    assert first.status_code == 200
+
+    # 第二个头条号：采集不到 ID，name 同样回落平台名「今日头条」
+    second = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条", "account_name": "头条号乙"},
+    )
+
+    assert second.status_code == 200
+    assert second.json()["message"] == "账号添加成功"
+
+
+def test_create_account_same_platform_same_account_id_is_duplicate(monkeypatch, tmp_path):
+    """同一 platform_account_id 重复添加仍是 409（强标识去重能力不得退化）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    first = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条", "account_name": "头条号甲", "platform_account_id": "uid-tt-1"},
+    )
+    assert first.status_code == 200
+
+    dup = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条", "account_name": "头条号乙", "platform_account_id": "uid-tt-1"},
+    )
+
+    assert dup.status_code == 409
+    assert dup.json()["detail"] == "此账号已添加过"
+
+
+def test_create_account_same_platform_different_id_not_duplicate(monkeypatch, tmp_path):
+    """同平台不同 platform_account_id（无论名称是否相同）→ 不判定重复。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条", "account_name": "头条号甲", "platform_account_id": "uid-tt-1"},
+    )
+
+    second = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条", "account_name": "头条号甲", "platform_account_id": "uid-tt-2"},
+    )
+
+    assert second.status_code == 200
+
+
+def test_create_account_asymmetric_id_same_name_not_duplicate(monkeypatch, tmp_path):
+    """一方有 ID 一方没有 + 同名 → 不判定重复（v5 的错误判据，本测试是其反向锁）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    first = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条", "platform_account_id": "uid-tt-1"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条"},
+    )
+
+    assert second.status_code == 200
+
+
+def test_create_account_duplicate_id_is_scoped_to_platform(monkeypatch, tmp_path):
+    """同一 platform_account_id 在不同平台不构成重复（ID 是平台内标识）。"""
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "toutiao", "name": "今日头条", "platform_account_id": "uid-shared"},
+    )
+
+    second = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "baijiahao", "name": "百家号", "platform_account_id": "uid-shared"},
+    )
+
+    assert second.status_code == 200
+
+
+def test_create_account_duplicate_is_scoped_to_owner(monkeypatch, tmp_path):
+    """同一 platform_account_id 属于不同 owner 不构成重复（多租户隔离）。
+
+    同时锁 CCG 深度审查 i4 的性质：调用方只能看到/撞到**自己 owner** 下的 ID，
+    构造别人的 ID 不会触发 409（_is_owned_by 挡住）。
+    """
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    client.post(
+        "/api/accounts",
+        headers=_headers("token-a"),
+        json={"platform": "toutiao", "name": "今日头条", "platform_account_id": "uid-tt-1"},
+    )
+
+    verifier.subject = "sub-b"
+    second = client.post(
+        "/api/accounts",
+        headers=_headers("token-b"),
+        json={"platform": "toutiao", "name": "今日头条", "platform_account_id": "uid-tt-1"},
+    )
+
+    assert second.status_code == 200
+
+
+def test_create_account_cross_owner_id_does_not_block_second_owner(monkeypatch, tmp_path):
+    """sub-b 先用别人的 ID 撞一次 409 后，仍能用同一 ID 之外的身份正常添加。
+
+    锁 i4 的防御性质：构造已知 ID 最多挡住调用方自己，不影响其他账号入库。
+    """
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    client.post(
+        "/api/accounts",
+        headers=_headers("token-a"),
+        json={"platform": "toutiao", "name": "今日头条", "platform_account_id": "uid-tt-1"},
+    )
+
+    verifier.subject = "sub-b"
+    # sub-b 撞同一个 ID：sub-a 的那个不归它所有，故不判重
+    blocked = client.post(
+        "/api/accounts",
+        headers=_headers("token-b"),
+        json={"platform": "toutiao", "name": "sub-b 的号", "platform_account_id": "uid-tt-1"},
+    )
+    assert blocked.status_code == 200
+    # 且 sub-b 自己的第二个号（无 ID）照样能加
+    second = client.post(
+        "/api/accounts",
+        headers=_headers("token-b"),
+        json={"platform": "toutiao", "name": "今日头条"},
+    )
+    assert second.status_code == 200
+
+
+def test_startup_dedup_keeps_same_platform_accounts_without_ids(tmp_path):
+    """启动去重不得再把「同平台+同名+无 ID」的多个账号清成一条（与创建路径同契约）。"""
     import server as srv
     monkeypatch = __import__('_pytest.monkeypatch').monkeypatch.MonkeyPatch()
     monkeypatch.setattr(srv, "ACCOUNTS_FILE", tmp_path / "accounts.json")
 
-    # 构造 3 个同名百家号账号（不同 id，不同 created_at）
     srv._save_accounts({
-        "a1": {"id": "a1", "platform": "baijiahao", "name": "百家号账号", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
-        "a2": {"id": "a2", "platform": "baijiahao", "name": "百家号账号", "owner_subject": "sub-a", "created_at": "2025-01-02T00:00:00"},
-        "a3": {"id": "a3", "platform": "baijiahao", "name": "百家号账号", "owner_subject": "sub-a", "created_at": "2025-01-03T00:00:00"},
-        "b1": {"id": "b1", "platform": "kuaishou", "name": "快手账号", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "a1": {"id": "a1", "platform": "toutiao", "name": "今日头条", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "a2": {"id": "a2", "platform": "toutiao", "name": "今日头条", "owner_subject": "sub-a", "created_at": "2025-01-02T00:00:00"},
+        "b1": {"id": "b1", "platform": "toutiao", "name": "今日头条", "owner_subject": "sub-a", "platform_account_id": "uid-tt-1", "created_at": "2025-01-03T00:00:00"},
+    })
+
+    srv._dedup_accounts_on_startup()
+
+    accounts = srv._load_accounts()
+    assert "a1" in accounts
+    assert "a2" in accounts
+    assert "b1" in accounts
+    assert len(accounts) == 3
+
+
+def test_startup_dedup_still_removes_same_id_duplicates(tmp_path):
+    """启动去重仍须清理同一 platform_account_id 的存量重复（能力不退化的另一面）。"""
+    import server as srv
+    monkeypatch = __import__('_pytest.monkeypatch').monkeypatch.MonkeyPatch()
+    monkeypatch.setattr(srv, "ACCOUNTS_FILE", tmp_path / "accounts.json")
+
+    srv._save_accounts({
+        "a1": {"id": "a1", "platform": "toutiao", "name": "今日头条", "platform_account_id": "uid-tt-1", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "a2": {"id": "a2", "platform": "toutiao", "name": "今日头条", "platform_account_id": "uid-tt-1", "owner_subject": "sub-a", "created_at": "2025-01-02T00:00:00"},
+    })
+
+    srv._dedup_accounts_on_startup()
+
+    accounts = srv._load_accounts()
+    assert "a2" in accounts
+    assert "a1" not in accounts
+    assert len(accounts) == 1
+
+
+def test_startup_dedup_ignores_platform_fallback_names(tmp_path):
+    """「两个号都回落成平台名」不得再被判为重复而清掉一个（本 Bug 的启动侧形态）。"""
+    import server as srv
+    monkeypatch = __import__('_pytest.monkeypatch').monkeypatch.MonkeyPatch()
+    monkeypatch.setattr(srv, "ACCOUNTS_FILE", tmp_path / "accounts.json")
+
+    srv._save_accounts({
+        "t1": {"id": "t1", "platform": "toutiao", "name": "今日头条", "account_name": "头条号甲", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "t2": {"id": "t2", "platform": "toutiao", "name": "今日头条", "account_name": "头条号乙", "owner_subject": "sub-a", "created_at": "2025-01-02T00:00:00"},
+        "t3": {"id": "t3", "platform": "toutiao", "name": "今日头条", "account_name": "头条号丙", "owner_subject": "sub-a", "created_at": "2025-01-03T00:00:00"},
+    })
+
+    srv._dedup_accounts_on_startup()
+
+    accounts = srv._load_accounts()
+    assert len(accounts) == 3
+
+
+def test_create_account_rejects_non_string_platform_account_id(monkeypatch, tmp_path):
+    """platform_account_id 必须是字符串：Pydantic 在 HTTP 层即 422，不进入判重。
+
+    锁 i3（CCG 深度审查）：写入侧类型由模型把关，非字符串 ID 到不了
+    _account_identity_key；读取侧的脏值则由该函数自身按 fail-safe 收敛（见
+    test_account_identity_key_non_string_returns_none）。
+    """
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+
+    bad = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "douyin", "name": "账号 A", "platform_account_id": 12345},
+    )
+
+    assert bad.status_code == 422
+    assert server._load_accounts() == {}
+
+
+def test_create_account_non_string_stored_id_does_not_break_create(monkeypatch, tmp_path):
+    """存量 accounts.json 里 platform_account_id 是脏类型时，创建不得被它打死。
+
+    读侧 fail-safe：脏值按「无强标识」处理，允许继续创建（与
+    _normalize_account_status/_normalize_account_active 同向）。
+    """
+    verifier = StubVerifier("sub-a")
+    client = _client(monkeypatch, tmp_path, verifier)
+    server._save_accounts({
+        "legacy1": {
+            "id": "legacy1",
+            "platform": "douyin",
+            "name": "老账号",
+            "platform_account_id": 12345,  # 历史脏值：数字而不是字符串
+            "owner_subject": "sub-a",
+            "created_at": "2025-01-01T00:00:00",
+        }
+    })
+
+    created = client.post(
+        "/api/accounts",
+        headers=_headers(),
+        json={"platform": "douyin", "name": "新账号", "platform_account_id": "uid-1"},
+    )
+
+    assert created.status_code == 200
+
+
+def test_account_identity_key_non_string_returns_none():
+    """_account_identity_key 只认字符串：None/空串/空白/数字/列表都返回 None。"""
+    import server as srv
+
+    assert srv._account_identity_key(None) is None
+    assert srv._account_identity_key("") is None
+    assert srv._account_identity_key("   ") is None
+    assert srv._account_identity_key(12345) is None
+    assert srv._account_identity_key(1.5) is None
+    assert srv._account_identity_key(["uid"]) is None
+    assert srv._account_identity_key({"uid": 1}) is None
+    assert srv._account_identity_key("  uid-1  ") == "uid-1"
+
+
+def test_startup_dedup_ignores_non_string_stored_ids(tmp_path):
+    """启动去重遇到非字符串 ID 不得抛异常，也不得把两条脏值账号误判为重复。"""
+    import server as srv
+    monkeypatch = __import__('_pytest.monkeypatch').monkeypatch.MonkeyPatch()
+    monkeypatch.setattr(srv, "ACCOUNTS_FILE", tmp_path / "accounts.json")
+
+    srv._save_accounts({
+        "a1": {"id": "a1", "platform": "douyin", "name": "甲", "platform_account_id": 12345, "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "a2": {"id": "a2", "platform": "douyin", "name": "乙", "platform_account_id": ["uid"], "owner_subject": "sub-a", "created_at": "2025-01-02T00:00:00"},
+        "a3": {"id": "a3", "platform": "douyin", "name": "丙", "platform_account_id": "uid-3", "owner_subject": "sub-a", "created_at": "2025-01-03T00:00:00"},
+    })
+
+    srv._dedup_accounts_on_startup()  # 不得抛异常
+
+    accounts = srv._load_accounts()
+    assert len(accounts) == 3
+
+
+def test_startup_dedup_removes_duplicate_accounts(tmp_path):
+    """启动时去重：同平台+同owner+同一 platform_account_id，保留最新一条。"""
+    import server as srv
+    monkeypatch = __import__('_pytest.monkeypatch').monkeypatch.MonkeyPatch()
+    monkeypatch.setattr(srv, "ACCOUNTS_FILE", tmp_path / "accounts.json")
+
+    # 构造 3 个同一 platform_account_id 的百家号账号（不同 id，不同 created_at）
+    srv._save_accounts({
+        "a1": {"id": "a1", "platform": "baijiahao", "name": "百家号账号", "platform_account_id": "uid-bjh", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "a2": {"id": "a2", "platform": "baijiahao", "name": "百家号账号", "platform_account_id": "uid-bjh", "owner_subject": "sub-a", "created_at": "2025-01-02T00:00:00"},
+        "a3": {"id": "a3", "platform": "baijiahao", "name": "百家号账号", "platform_account_id": "uid-bjh", "owner_subject": "sub-a", "created_at": "2025-01-03T00:00:00"},
+        "b1": {"id": "b1", "platform": "kuaishou", "name": "快手账号", "platform_account_id": "uid-ks", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
     })
 
     srv._dedup_accounts_on_startup()
@@ -212,8 +517,8 @@ def test_startup_dedup_keeps_unique_accounts(tmp_path):
     monkeypatch.setattr(srv, "ACCOUNTS_FILE", tmp_path / "accounts.json")
 
     srv._save_accounts({
-        "a1": {"id": "a1", "platform": "baijiahao", "name": "百家号", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
-        "b1": {"id": "b1", "platform": "kuaishou", "name": "快手", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "a1": {"id": "a1", "platform": "baijiahao", "name": "百家号", "platform_account_id": "uid-bjh", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
+        "b1": {"id": "b1", "platform": "kuaishou", "name": "快手", "platform_account_id": "uid-ks", "owner_subject": "sub-a", "created_at": "2025-01-01T00:00:00"},
     })
 
     srv._dedup_accounts_on_startup()

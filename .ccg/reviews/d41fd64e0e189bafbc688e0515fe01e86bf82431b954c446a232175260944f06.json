@@ -1,0 +1,77 @@
+{
+  "sha": "bfe6d80a18af56a1d19dbfde2fd98b160e2c8ad3",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 114 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 114,
+    "fileCount": 5,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- `scripts/hot-carrier-write-authorization.json`（发版/清理 PR 的授权出口）—— 片3，与其判据同片落地",
+      "| i6 授权机制在 spec 里、仓库里没有实现 | Warning | **采纳（措辞）** | 属片3 范围，但规格 delta 没写\"本片未实现\"，会被读成已交付。proposal 新增「本片只落哪几件、哪几件尚未实现」逐条点名 |",
+      "`requiresExternalReview` 点名的 i6 属规格表述，不涉运行时授权判定；其 `domains:[auth]` 标签来自引擎的 `highRiskDomains` 轴，与本矩阵的路径前缀轴是两个轴（AGENTS 已把它登记为矩阵未覆盖的四格之一），故按内容处置、不按标签处置。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d41fd64e0e189bafbc688e0515fe01e86bf82431b954c446a232175260944f06",
+  "decidedAt": "2026-10-20T16:58:20.462Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-5f8a703d\\adjudication.json",
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i8）",
+    "at": "2026-10-20T17:04:16.300Z"
+  }
+}

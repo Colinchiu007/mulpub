@@ -173,6 +173,19 @@ export default {
         renameFailed: 'Could not rename the configuration. Please try again later.',
         deleteFailed: 'Could not delete the configuration. Please try again later.',
         snapshotInvalid: 'The configuration snapshot is invalid. Please try saving again.',
+        // publish-config-picker (2026-10-21): shown when a configuration carried in by
+        // the publish-destination modal is no longer valid.
+        notFound: 'The selected configuration no longer exists. Continuing with the pipeline defaults.',
+        // No pipeline is selected, so there is nothing the configuration could apply to.
+        pipelineUnresolved: 'Could not resolve the pipeline, so the selected configuration was not applied',
+        // The configuration list could not be loaded during the hand-off (QM-6 round 2 i2).
+        // Kept apart from loadFailed: that one means "you may retry", this one means
+        // "this attempt was abandoned and the pipeline defaults are being used".
+        handoffLoadFailed: 'Could not load the configuration list, so the selected configuration was not applied. Continuing with the pipeline defaults.',
+        // "Restore last options" failed (QM-6 round 3 i3): this error used to be
+        // swallowed silently, leaving users unable to tell why their defaults
+        // did not come back.
+        restoreFailed: 'Could not restore your last-used options. Continuing with the defaults.',
       },
       // Batch create (2026-08-15 story2video-batch-create)
       batch: {

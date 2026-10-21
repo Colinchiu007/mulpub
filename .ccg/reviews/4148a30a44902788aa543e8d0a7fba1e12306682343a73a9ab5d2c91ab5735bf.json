@@ -1,0 +1,140 @@
+{
+  "sha": "6084c620ac46fa4016a69f8aacc4a4982c07c375",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 256 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 256,
+    "fileCount": 9,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 10,
+    "docSensitiveContentHits": 17,
+    "docSensitiveContentSample": [
+      "- **动因是当场量的，不是推测**：对在飞 PR `#4079` 的同一份差量分别按两档取证面各判一次 —— 事后补跑档 `changedLines=191 / fileCount=9 / 敏感内容命中 3 / mode=dual`，提交时档 `132 / 8 / 0 / single`。把那 3 处命中**逐条归属到文件**（并用\"我的归属计数 == 判据自报的 `sensitiveContentHits`\"这条交叉核对自证探针通路有效，两数不等即不得下结论）：3/3 全在 `.ccg/reviews/*.json`，命中的词是该 PR 自己 proposal 里的「授权」二字 —— 即\"我为什么被允许改判据\"这句话被读成了\"这次改动涉及加密\"。面上读数：origin/main 最近 **120 笔**合并提交两档各判一次，**44 笔（37%）mode 因此改变**（`dual→single` 15、`dual→skip` 15、`single→skip` 14），其中\"≤200 行却因敏感命中被顶成 dual\"那一类 20 笔的命中行扩展名分布是 `{\".json\": 47}`，**一条不落在真实源码里**。",
+      "- **TDD 与反证**：先写行为锁并**当场见证红**（那一跑落在\"尚未拆出分辨率用例\"的版本上：`# tests 57 / # fail 4`，红因逐条核过是\"产物仍被计入取证面\"，例如 `实际 reason=变更 6 行但命中 auth/数据库/加密：敏感内容 2 处`）⇒ 实现落地并拆出分辨率用例后 `# tests 58 / # pass 58 / # fail 0`（既有 52 ⇒ 现值 58）。变异 **M1–M6 逐条指名变红且红集互不相同（6 把尺子测 6 个格）**，跑完判据文件按字节还原（`FINAL md5=f075dcafab restored=true`）；控制跑自带健康断言（`fail=0 && loadFail=false` 才产出 verdict）。两条如实记录的过程修正：① M5/M6 首跑红集**逐字相同** —— 根因是 `not ok` 的粒度是用例名，两种退化撞在同一条用例的不同断言上 ⇒ 把\"采集面是否收到产物行\"拆成独立用例后才分辨得开（**塞进同一条用例等于没有这把锁**）；② 新用例首跑报 `Cannot read properties of null` —— 区间档在第二次提交前 `HEAD~1` 不存在，那是**探针拿错坐标**不是判据红，夹具顺序按 T3 改正。",
+      "| A. `collectRange()` 的两个 git 参数加 `:(exclude).ccg`（与 `collectStaged()` 逐字同形） | 最小改动（2 行），mode 立刻对齐 | **否决**：被排除的文件**根本不进采集面**，于是\"产物里贴着一条真口令\"这一格从\"报告\"退化为\"看不见\"。本仓对同一问题的既有答案是 i3——**行还是要读，只是不改判定**（`docChangedLines` / `docSensitiveContentHits`）。A 与既有答案方向相反。 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4148a30a44902788aa543e8d0a7fba1e12306682343a73a9ab5d2c91ab5735bf",
+  "decidedAt": "2026-10-20T11:41:15.570Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "performedBy": "claude",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [
+      "i1",
+      "i2",
+      "i3",
+      "i4"
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "`judge()` 读取 `changedLines` 来自 `staged.stats.changedLines`；若传入原始 `collectStaged()`/`collectRange()` 结果（无 `stats`），值恒为 0，`mode` 会被误判为 `skip`。本方案把 `.ccg` 从 git 层排除移到 JS 层后，`judge()` 必须直接消费原始数组长度，而非依赖预置 `stats`。",
+        "highRiskDomains": [],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4102#issuecomment-6293470234（PR #4102 外部复核评论，critic=claude 对 i1..i4 逐条 agree=true、must_fix 全空）",
+          "reviewedAt": "2026-10-20T16:15:19.342Z"
+        },
+        "prosecution": "若 judge() 的规模真按 critic 说的那句读 `staged.stats.changedLines`，那么任何\"未预置 stats 的原始采集结果\"都会算成 0 行 ⇒ 直接落 skip ⇒ 需要双模型审查的改动被静默放行。这条一旦成立，本刀的\"排除\"就顺带把判定整条关掉，比原来的假阳性更坏。",
+        "defense": "实现里只有一条分支读 stats：`changedLines = isProposal ? (staged.stats ? staged.stats.changedLines : 0) : codeFiles.reduce(...)`。`collectStaged()`/`collectRange()` 的返回对象**没有 proposal 键** ⇒ isProposal=false ⇒ 走 reduce，规模由 `staged.files` 逐文件累加，与预置 stats 无关。实测反证两条：① 夹具「产物 260 行 + 源码 1 行」判出 `changedLines=1`（若走 stats 那条，原始采集对象无 stats ⇒ 该值应为 0，用例不可能绿）；② 变异 M1（谓词恒 false）⇒ `changedLines` 立刻从 1 变 261 ⇒ 说明这把尺是逐文件在算，且**确实随取证面变化**。方案文本里也没写过\"依赖预置 stats\"。",
+        "verdict": "dismissed",
+        "rationale": "指控的事实前提不成立：judge() 的非方案分支不读 `staged.stats`。可核验证据是用例「规模口径：产物行数不得进 changedLines」的 `changedLines===1` 断言与 M1 变异读数（执行记录「变异反证」行）。保留这条的价值：它指出**方案分支**才读 stats，而那条路径的 proposal 采集器自己带 stats —— 已在代码注释与本记录里点名，不属于本刀改动面。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "移除 `collectStaged()` 的 `:(exclude).ccg` 路径后，`.ccg` 排除完全依赖 `isSelfArtifact()` 正则；若该正则在 Windows 路径、软链、嵌套 `.ccg` 段等情况下漏匹配，判定面会重新消费自身产物，且无第二层防御。",
+        "highRiskDomains": [],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4102#issuecomment-6293470234（PR #4102 外部复核评论，critic=claude 对 i1..i4 逐条 agree=true、must_fix 全空）",
+          "reviewedAt": "2026-10-20T16:15:19.342Z"
+        },
+        "prosecution": "排除整条依赖一个正则。git 在 Windows 上是否可能给出反斜杠路径、带引号的 path、或 `a/.ccg/b` 这种嵌套段？任一漏匹配 ⇒ 产物行重新进取证面，且**没有第二层防御**（pathspec 已被本刀摘掉），失效形态与修好的假阳性完全同形。",
+        "defense": "部分成立。git diff 的 `+++ b/<path>` 恒用正斜杠（工作区是 Windows 也一样），`collectFromDiff()` 还显式剥了路径两端的双引号 —— 所以 critic 点的两种形态实测不可达；但\"不可达\"是我推导的，不是被锁住的。**推导不构成第二层防御**，可锁的形态才构成。",
+        "verdict": "upheld",
+        "rationale": "接受的是可落地的这一半：把谓词的匹配形态从\"推导\"升级为\"锁\"。落法 = 在 `ccg-review-decider.test.js` 加一条形态召回锁，逐形态断言 `isSelfArtifact()` 的真值表：`.ccg/reviews/a.json`（仓库根起段）真、`dir/.ccg/x.json`（嵌套段）真、`.ccg`（目录名本身，无尾分隔符）真、`scripts/a.js` 假、`my.ccg`（同名文件、前无分隔符）假、`scripts/ccg-review-decider.js`（前缀像但不是段）假。反证两形态：把正则退化成 `\\.ccg`（无段边界 ⇒ 会把 `my.ccg`/`ccg-review-decider.js` 读成产物 ⇒ 敏感判定对源码整条失明）与退化成只认 `^\\.ccg/`（嵌套段漏匹配 ⇒ 两档重新分歧）都必须指名红。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`ccgSensitiveContentHits` / `ccgSensitiveContentSample` 无自动消费链（仅 CLI 打印），与既有 `docSensitiveContentHits` 同构且全仓无外部消费者。本方案承认这是“面向人的观测点”，但新增字段增加了维护与测试负担。",
+        "highRiskDomains": [],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4102#issuecomment-6293470234（PR #4102 外部复核评论，critic=claude 对 i1..i4 逐条 agree=true、must_fix 全空）",
+          "reviewedAt": "2026-10-20T16:15:19.342Z"
+        },
+        "prosecution": "新增两栏 `ccgSensitiveContentHits`/`ccgSensitiveContentSample` 没有自动消费链，只有 CLI 一行 console ⇒ 按\"没人读的就是死字段\"的既有纪律，它应当被门禁消费或删除，否则下一个维护者会以为它守住了什么。",
+        "defense": "实测既有同构字段的地位：`docSensitiveContentHits` 全仓只出现在判定器自己的 `stats` 赋值与一行 console（`grep` 结果 3 处，全在同文件），`check-pr-exec-record.js` 与任何 CI 判据都不读它。本仓 2026-10-15 i3 的既定设计就是**面向人的观测点**，不是自动处置链。本刀没有降低它，反而给它加了**打印面行为锁**（断言 stdout 的数 == `judge()` 的读数）——这是原字段都没有的。把两栏升成阻断判据则与本刀立论直接冲突：那些命中逐字来自方案与执行记录正文，同一份散文一处不消费、另一处拦下来不成立。",
+        "verdict": "dismissed",
+        "rationale": "\"必须有门禁消费才不算死字段\"在本仓不是既有纪律（有实测反例），且本刀给这一栏加了它原先没有的可失败锁。边界已如实写进执行记录遗留第 4 条：两栏都没有自动处置者；要升级须另立 change 并先解决上述矛盾。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`judge()` 对 `fileCount` 计算为 `staged.files.length`（含 `.ccg` 文件），对 `codeFileCount` 则排除 `.ccg`。消费方若直接对比两栏，会看到 `fileCount > codeFileCount + docFileCount` 而无解释，易引发混淆。",
+        "highRiskDomains": [],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4102#issuecomment-6293470234（PR #4102 外部复核评论，critic=claude 对 i1..i4 逐条 agree=true、must_fix 全空）",
+          "reviewedAt": "2026-10-20T16:15:19.342Z"
+        },
+        "prosecution": "`fileCount = staged.files.length`（含 .ccg）而 `codeFileCount` 排除 .ccg ⇒ 两栏出现 `fileCount > codeFileCount + doc` 而无处解释，读 stats 的人（或后续门禁）会拿它们做差集判断，得出\"有文件没被归类\"的错误结论。",
+        "defense": "现状无消费方做这个对比：CLI 打印用的是 `changedLines` 与 `codeFileCount`，`fileCount` 只出现在方案分支那一行与判定记录里。且本刀**已经**把这条口径差异主动写进执行记录（遗留第 3 条），并解释成因是\"排除动作从 git 层移到 JS 层\"的必然结果 —— 采集面必须看见它（否则无从 report-only），判定面必须不消费它。",
+        "verdict": "dismissed",
+        "rationale": "无消费方对比这两栏（可核：CLI 打印与门禁都不做差集），风险是\"将来有人误读\"，处置方式是已落地的文档点名，不是把代码改回\"采集面也排除\"（那会重新造成暂存档计数恒 0，正是 critic#2 否证过的形态）。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：1 条指控成立或需外部复核",
+    "at": "2026-10-20T13:10:54.809Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4102#issuecomment-6293470234（PR #4102 外部复核评论，critic=claude 对 i1..i4 逐条 agree=true、must_fix 全空）",
+    "closureNote": "第 2 轮闭环链：驱动 critic=claude 交付 5 条 → 自扮演裁决 1 upheld（i2）+ 3 dismissed（i1/i3/i4），收敛为 self_play_blocked；i2 采纳并已落地成形态锁（M7 去段边界红在\"必须判假\"、M8 只认根起段红在\"必须判真\"）。因本片改的是判据本体（高危面），出口②明确 closureNote 不够格 ⇒ 另派**独立外部复核**（claude，载荷=本片 committed diff 7 文件 63,571B + 我的四条裁决原文 6,414B，RC=0 / 40.5s / VERDICTS=4）逐条复核，结论 agree=true ×4、must_fix 全空 ⇒ 采纳并置 cleared。i1/i3/i4 的否证与 i2 的采纳逐条处置见 openspec/records/ccg-decider-self-artifact.md。proposer 轴未产出修订方案 ⇒ 实质仍是单后端，已登记活欠账。"
+  }
+}

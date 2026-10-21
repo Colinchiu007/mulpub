@@ -15,9 +15,9 @@
  *    `tryBeginPublish`（结构锁），所以这一层**自己**没有写盘与起进程的能力；② IPC 接线处断言
  *    宿主与忙标记 **0 次调用**（行为锁），防的是「以后有人把预览改道去走真链路」。
  *    注：registry 在本文件只贡献一个 `CHANNEL_ID_RE` 常量（与 compose 同源），预览不调它的任何方法——
- *    频道数据经注入的 `channelRefOf` 拿，因此「读一次频道」这件事发生在接线注入的实现里，与 `podcast:channel:get` 同路径。
+ *    预览**不读频道**：2026-10-19 撤掉音色回退链的频道档（tasks 4.5b②「撤档」）后，本层的注入面只剩偏好与 capability 两个读取实现；频道 id 只用于形态校验。
  *    只看返回码不构成证据。
- * 3. **拒绝态不是空态**：正文过短 / 音色半配置 / 三层全空一律抛既有码 + `issues`，
+ * 3. **拒绝态不是空态**：正文过短 / 两层全空一律抛既有码 + `issues`，
  *    浮层据此显示原因句；绝不回 `{totalBlocks:0}` 那种「看起来算完了」的载荷。
  *    唯一例外是 `origin` 不在闭集内：那是解析层返回形状不合合同，处置是**整段不显示 + 出声**（§7.10.4.1），
  *    不是报错——计数仍然真实，音色那段不给用户看假的来源标注。
@@ -40,7 +40,7 @@ const PREVIEW_ERRORS = {
 }
 
 /** 注入实现的清单——缺任何一个都当场拒绝，不猜默认（猜一个音色等于替用户决定谁说话）。 */
-const REQUIRED_DEPS = Object.freeze(['channelRefOf', 'defaultProviderOf', 'readPreference', 'getCapability'])
+const REQUIRED_DEPS = Object.freeze(['defaultProviderOf', 'readPreference', 'getCapability'])
 
 const VOICE_ORIGINS = new Set(Object.values(VOICE_ORIGIN))
 
@@ -52,9 +52,9 @@ function previewErr (code, message, issues) {
 }
 
 /**
- * @param {{channelRefOf:Function, defaultProviderOf:Function, readPreference:Function,
+ * @param {{defaultProviderOf:Function, readPreference:Function,
  *          getCapability:Function, warn?:Function, resolveVoice?:Function}} deps
- *        channelRefOf(channelId) → 频道 voiceRef | null；defaultProviderOf() → {providerId, model} | null
+ *        defaultProviderOf() → {providerId, model} | null；readPreference / getCapability 是两个读取实现
  * @returns {{previewEpisodePlan:Function, PREVIEW_ERRORS:object}}
  */
 function createEpisodePlanPreview (deps = {}) {
@@ -88,9 +88,8 @@ function createEpisodePlanPreview (deps = {}) {
     const plan = planChunks(text)
     if (!plan.ok) throw previewErr(plan.code, (plan.issues && plan.issues[0] && plan.issues[0].message) || '文案无法切成可播报的块', plan.issues)
 
-    // ② 音色：三层回退与「命中来源」都归 resolveEpisodeVoice，本层只搬运。
+    // ② 音色：两层回退（①偏好 ②capability）与「命中来源」都归 resolveEpisodeVoice，本层只搬运。
     const voiceRes = resolveVoice({
-      channelRef: deps.channelRefOf(channelId),
       defaultProvider: deps.defaultProviderOf(),
       readPreference: deps.readPreference,
       getCapability: deps.getCapability,

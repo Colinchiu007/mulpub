@@ -9,6 +9,7 @@
  */
 
 const { RewriteEngine, KnowledgeBase, RewriteQualityEvaluator, KnowledgeContextBuilder, extractWithLLM } = require("@multi-publish/rewrite-engine")
+const { MAX_OUTPUT_CHARS } = require("@multi-publish/rewrite-engine")
 const { SensitiveFilter } = require("@multi-publish/rewrite-engine")
 const { SQLiteStorage } = require("@multi-publish/rewrite-engine")
 const log = require("./logger")
@@ -108,8 +109,13 @@ class RewriteEngineService {
         // 生效输出上限：引擎 _postProcess 的优先级 wordCountRange.max > 策略.maxLength > 3000。
         // 这里拿不到策略对象，用「本次 userSettings 区间 → 引擎常量兜底」近似——
         // 区间缺失时取 DEFAULT 3000，与引擎兜底一致（宁可 token 略多，不可截断）。
+        // 2026-10-20 collection-ux-step-flow：freeformOutput（用户明确不填字数区间）时，
+        // 引擎侧上限取统一上限 MAX_OUTPUT_CHARS(50000)，这里必须同步 —— 否则 max_tokens 仍按
+        // 3000 口径给，模型在 token 层就被砍断，引擎层的 50000 上限形同虚设。
         const rangeMax = this._lastWordCountRangeMax
-        const effectiveMax = (typeof rangeMax === 'number' && rangeMax > 0) ? rangeMax : 3000
+        const effectiveMax = (typeof rangeMax === 'number' && rangeMax > 0)
+          ? rangeMax
+          : (this._lastFreeformOutput ? MAX_OUTPUT_CHARS : 3000)
         const maxTokens = Math.min(64000, Math.max(1024, Math.ceil(effectiveMax * 2)))
         const result = await this._aiGenerator.generateWithDefault("llm", {
           messages: [
@@ -256,11 +262,14 @@ class RewriteEngineService {
   async rewrite(params) {
     // 记录本次请求的显式字数区间上限（供 llmClient.chat 推导 max_tokens；
     // 无区间为 undefined → chat 回退引擎兜底 3000 口径）
+    // 2026-10-20 collection-ux-step-flow：同时记录 freeformOutput（用户明确不设字数限制），
+    // 使 max_tokens 与引擎层上限（统一上限 50000）保持同一口径。
     const userSettings = params && params.userSettings
     this._lastWordCountRangeMax = userSettings && userSettings.wordCountRange
       && typeof userSettings.wordCountRange.max === 'number' && userSettings.wordCountRange.max > 0
       ? userSettings.wordCountRange.max
       : undefined
+    this._lastFreeformOutput = !!(userSettings && userSettings.freeformOutput === true)
     const engine = this._ensureEngine()
     const result = await engine.rewrite(params || {})
 

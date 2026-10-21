@@ -243,6 +243,8 @@
               })
             : t('rewritePage.outputTruncatedByModel', { length: modelTruncatedInfo.length }) }}
         </div>
+        <!-- 敏感词警告：warnings 是「成功但需注意」，不是 rewriteError（失败） -->
+        <RewriteSensitiveWarning :warnings="rewriteSensitiveWarnings" />
         <div class="rewrite-result-meta" v-if="rewriteMeta">
           <span>{{ t('rewritePage.metaStrategy') }}：{{ rewriteMeta.strategyName }}</span>
           <span>{{ t('rewritePage.metaAiTaste') }}：{{ rewriteMeta.aiTastePct }}</span>
@@ -380,9 +382,11 @@ import { takeViralSignalHandoff, hasActionableEngagement } from '@/utils/viral-s
 import { writeClipboard } from '@/utils/clipboard'
 import { extractRewriteHistoryId, attachRewriteLineage } from '@/utils/rewrite-lineage'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
+import { buildCreateHandoffQuery } from '@/features/publish-destination/publish-destination-config'
 import PodcastScriptEntry from '@/components/PodcastScriptEntry.vue'
 import { usePodcastChannel } from '@/composables/usePodcastChannel'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
+import RewriteSensitiveWarning from '@/components/RewriteSensitiveWarning.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import { deriveDefaultMode, deriveWordCountRange } from '@/utils/rewrite-defaults'
 import { REWRITE_ENGINE_MAX_OUTPUT_CHARS, REWRITE_ENGINE_MAX_INPUT_CHARS, countRewriteChars, shouldSegmentRewrite } from '@/utils/rewrite-engine-limits'
@@ -414,6 +418,8 @@ const outputTruncatedInfo = ref(null)
 // 模型侧截断可见化（rewrite-segment-and-finish-reason 第二刀）：引擎 modelTruncated=true
 // （provider finish_reason=length/max_tokens）时 {length}；与上面引擎截断分型展示。
 const modelTruncatedInfo = ref(null)
+// 敏感词警告：后置 warnings 是「成功但需注意」，不是 rewriteError（失败），语义必须分开。
+const rewriteSensitiveWarnings = ref([])
 // content-quality-eval 桌面端闭环：改写质量评估报告（RewriteQualityEvaluator 结果）
 const rewriteQuality = ref(null)
 // P2 隐式反馈：本次改写引用的知识条目（保存/发布=采纳 / 再次改写=弃用）
@@ -794,6 +800,8 @@ async function startRewrite() {
   rewriteTitle.value = ''
   rewriteMeta.value = null
   rewriteKnowledgeRefs.value = []
+  // 敏感词警告复位：与其它结果态同批清，否则上轮警告会残留着警告本轮新结果。
+  rewriteSensitiveWarnings.value = []
   // CCG 评审修复：新改写开始前重置质量报告，避免上一次改写（无 quality）的旧报告残留
   rewriteQuality.value = null
   viralInfo.value = null
@@ -887,8 +895,13 @@ async function startRewrite() {
       // 引擎砍尾（outputTruncated）与模型侧截断（modelTruncated）是不同限制，分型展示。
       outputTruncatedInfo.value = deriveOutputTruncatedInfo(data, wordCountMax.value || REWRITE_ENGINE_MAX_OUTPUT_CHARS)
       modelTruncatedInfo.value = deriveModelTruncatedInfo(data)
-      if (data.warnings && data.warnings.length > 0) {
-        rewriteError.value = data.warnings.join('；')
+      // 敏感词警告走 warning 级：历史把 warnings 写进 rewriteError（红色错误区），
+      // 与同刻的成功提示、已赋值的结果形成矛盾形态（详见 RewriteSensitiveWarning.vue）。
+      rewriteSensitiveWarnings.value = Array.isArray(data.warnings) ? data.warnings.slice() : []
+      if (rewriteSensitiveWarnings.value.length > 0) {
+        notifyWarning('rewritePage.rewriteSensitiveWarning', {
+          params: { words: rewriteSensitiveWarnings.value.join('；') },
+        })
       }
       notifySuccess('collection.rewriteSuccess')
       // 自动改写入口（2026-10-09）：改写完成 → 视口定位到改写结果区（旁路，不阻塞主流程）
@@ -1083,12 +1096,11 @@ function onPublishArticle() {
   }
 }
 
-/** 弹窗回调：生成视频 */
-function onPublishVideo(pipelineId) {
+/** 弹窗回调：生成视频（带所选流水线 + 所选配置档案，publish-config-picker） */
+function onPublishVideo(pipelineId, detail) {
   showPublishModal.value = false
   if (!savedDraftId) return
-  const query = { draft: savedDraftId }
-  if (pipelineId) query.pipeline = pipelineId
+  const query = buildCreateHandoffQuery({ draftId: savedDraftId, pipelineId, configProfileId: detail?.configProfileId })
   router.push({ path: '/create', query })
 }
 </script>

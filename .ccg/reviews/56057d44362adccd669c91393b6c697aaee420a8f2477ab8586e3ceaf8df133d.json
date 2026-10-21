@@ -1,0 +1,60 @@
+{
+  "sha": "7dcfd05098bda4ee6046c4ce46ccf78b258d036f",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 42 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 42,
+    "fileCount": 4,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| TDD 与红因见证 | ✅ | 先写 5 条行为锁 ⇒ 红跑在\"尚未拆分辨率用例\"的版本上：`# tests 57 / # fail 4`，红因逐条核过为\"产物仍被计入取证面\"（例：`实际 reason=变更 6 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处`），非别家失败 ⇒ 实现后 `# tests 58 / # pass 58 / # fail 0`（既有 52 ⇒ 58），并按名字回读通过清单 |",
+      "| TDD 与红因见证 | ✅ | 先写 5 条行为锁 ⇒ 红跑在\"尚未拆分辨率用例\"的版本上：`# tests 57 / # fail 4`，红因逐条核过为\"产物仍被计入取证面\"（例：`实际 reason=变更 6 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处`），非别家失败 ⇒ 实现后 `# tests 58 / # pass 58 / # fail 0`（既有 52 ⇒ 58）；i2 落地形态锁后再跑 `# tests 59 / # pass 59 / # fail 0`，并按名字回读通过清单 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "56057d44362adccd669c91393b6c697aaee420a8f2477ab8586e3ceaf8df133d",
+  "decidedAt": "2026-10-20T14:03:17.572Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

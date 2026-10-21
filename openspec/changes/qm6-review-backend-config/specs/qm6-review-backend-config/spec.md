@@ -74,3 +74,42 @@ MUST NOT 追溯把既有 PR 判红，也 MUST NOT 把自扮演豁免改判。
 #### Scenario: 历史产物不得被追溯判红
 - **WHEN** 记录里没有 `reviewBackends` 字段
 - **THEN** 判据 MUST 返回 null，且门禁的整体理由里 MUST NOT 出现该文件
+
+
+### Requirement: 评审时请求的后端 MUST 回写进判定记录
+
+`scripts/deep-review.sh` 在把控制权交给评审驱动**之前**，MUST 把本次生效的后端对写进它已解析到的
+那份判定记录（`.ccg/reviews/<…>.json` 的 `reviewBackends`）。提交时 decider 写下的那份 MUST 以
+`commitRequest` 留档并带 `rewrittenAt`，MUST NOT 被就地覆盖销毁 ——
+「谁在提交时请求了谁」与「谁在本次审查被请求」是两条不同的审计事实，只留一条等于抹掉另一条。
+
+四条边界，缺一不可：默认路径（未覆盖）MUST NOT 改动任何判定产物；dry-run MUST NOT 改动判定产物
+但 MUST 出声说明没改；回写这一跳失败 MUST fail-closed（非零退出）且 MUST NOT 启动驱动 ——
+带着不一致的记录跑出来的结论不可用；读不到记录 MUST NOT 新建（新建判定产物等于伪造判定）。
+"只在覆盖时写" MUST 由机械守卫保证：`--record-request` 在请求值与清单一致时 MUST 拒绝。
+
+#### Scenario: 覆盖 critic 后记录顶层是评审时值、提交时值留档
+- **WHEN** 提交时记录为 `reviewBackends={critic:"claude",overridden:false}`，本次以 `--critic codex` 真跑
+- **THEN** 记录顶层 MUST 为 `critic="codex"` 且 `overridden=true`，`commitRequest.critic` MUST 仍为
+  `claude`，且驱动启动时读到的 MUST 已是 `codex`（这一格是"回写早于 exec"的现场证据，
+  只按源码位置断言顺序证不出来：回写排在 exec 之后时源码里两个串仍在，读数却永远是旧值）
+
+#### Scenario: 连换两次**不同**后端时，留档仍是提交时那一份
+
+- **WHEN** 提交时记录为 `{critic:"claude",overridden:false}`，第一次以 `--critic codex` 回写、第二次以 `--critic gpt` 再回写
+- **THEN** 顶层 MUST 为 `critic="gpt"`；`commitRequest.critic` MUST **仍为** `claude`，MUST NOT 变成上一次的回写值
+  （第二次进函数时 `before` 已经是「上一次评审请求的后端」，直接 `commitRequest = before` 会把审计锚往前挪一格，
+  而这条留档存在的唯一理由就是记住**提交时**请求的是谁）；`commitRequest.overridden` MUST 仍为 `false`；
+  `rewrittenAt` MUST 锚在第一次改写，多轮换后端不得把它变成「最近一次什么时候跑的」
+
+#### Scenario: 没覆盖时判定产物逐字不变
+- **WHEN** 不带 `--critic` / `--proposer` / `MP_QM6_*` 跑一次
+- **THEN** 记录文件字节 MUST 与跑之前完全相同，且输出 MUST NOT 出现"已覆盖"行
+
+#### Scenario: 回写失败不得放行审查
+- **WHEN** 回写那一跳以非零退出（lib 坏掉 / 记录在运行中途被删）
+- **THEN** 入口 MUST 以 rc=2 退出并点名"没能写回"，驱动 MUST 一次都没有被启动
+
+#### Scenario: dry-run 只预览不改产物
+- **WHEN** `--dry-run --critic codex`
+- **THEN** 记录字节 MUST 保持不变，且输出 MUST 明确说明本次未回写

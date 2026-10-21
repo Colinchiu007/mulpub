@@ -252,7 +252,6 @@ async function selectS2VVoice(voiceId, options = {}) {
     }
     const selectedVoiceId = typeof result.data?.selectedVoiceId === 'string' ? result.data.selectedVoiceId : ''
     d.getS2vConfig().voiceId = selectedVoiceId
-    state.s2vPersistedVoiceId = selectedVoiceId
     state.s2vVoiceCatalogError = ''
     return true
   }
@@ -278,9 +277,10 @@ async function selectS2VVoice(voiceId, options = {}) {
       || d.t('create.story2video.voice.selectionSaveFailed')
     return false
   }
-  state.s2vPersistedVoiceId = typeof result.data?.selectedVoiceId === 'string'
-    ? result.data.selectedVoiceId
-    : normalizedVoiceId
+  // 注：这里原有 `state.s2vPersistedVoiceId = result.data.selectedVoiceId ?? normalizedVoiceId`，
+  // 记录主进程归一后的 id。该 ref 是 s2vConfig.voiceId 的冗余镜像、生产零读取（2026-10-20 清理）。
+  // ⚠ 若将来真的需要「主进程归一后的 id」（它可能与本地传入值不同），正解是把它**回写
+  // s2vConfig.voiceId**（让权威来源与显示同步），而不是再存一份没人读的镜像。
   state.s2vVoiceCatalogError = ''
   return true
 }

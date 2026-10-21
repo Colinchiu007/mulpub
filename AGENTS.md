@@ -90,7 +90,7 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 **允许自动合并的判据（须全部满足）**
 
 1. `mergeable == MERGEABLE`（`gh pr view <n> --json mergeable --jq .mergeable`）。若为 `CONFLICTING`：先 `git fetch` 再 `git rebase origin/main`，冲突按「两侧记录都保留」解决后 `--force-with-lease` 重推；末尾追加型文件（`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`）是最常见的冲突点，**不得用「后推覆盖」消解冲突**。
-2. `gh pr checks <n>` 零 pending、零 fail。docs-only 通道的 `skipping` 属预期（重型 job 被 `docs-only=true` 短路），不算失败——但**必须先跑 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 确认 `docs-only=true`**，否则 skipping 意味着判定失灵。
+2. `gh pr checks <n>` 零 pending、零 fail。docs-only 通道的 `skipping` 属预期（重型 job 被 `docs-only=true` 短路），不算失败——但**必须先跑 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 确认 `docs-only=true`**，否则 skipping 意味着判定失灵。**这条不再靠临场判断**：必须跑 `node scripts/check-main-red.js --pr <n>`（判据本体在 `scripts/lib/main-red.js`，两个合并入口 `scripts/merge-when-green.{sh,ps1}` 已强制调用它），读它自己打印的 `MAIN-RED verdict=` 行——rc=1 本 PR 新增红、rc=2 **主干红着**、rc=3 未证实（pending/零检查）、rc=4 判据自身故障，四档一律不得合并。其中 rc=2 是这次新增的那半：主干红时即使本 PR 全绿也**不许往里合**（往红的主干上合等于把 required `Gate Result` 的红留给下一个会话）；唯一出口是本 PR 正是去修那条红的，此时显式传 `--allow-main-red "<逐条点名全部主干红 + 归因 + run 号>"`，它**只豁免被逐条点名的既有红、不豁免新增红**（只点名一条不得放行整批，未点名的仍判 rc=2；第五轮实测原实现是「点到任意一条就全批 OK」，且裸子串匹配会让 `Gate Result` 替 `Gate Result 2` 顶罪）。**第九轮补的第二半**：走到豁免出口时仍要确认 PR 自己有读数——PR 侧或主干侧任一检查未完成一律判 rc=3，因为「没有新增红」在那一刻只是「还没跑出红」，而豁免的语义是「本 PR 正是去修那几条既有红」，不是「PR 侧不必有读数」；`--allow-main-red` 覆盖全部主干红也不构成放行许可。**档位优先级也在此写清**（第九轮 i2 要求补的口径）：`rc=1 本 PR 新增红` 排在 `rc=2 主干红` 之前，理由是新增红**不可豁免**、主干红在「本 PR 正是去修它」时有唯一出口——先报 rc=2 会让带着自己新增红的 PR 靠一句豁免字符串被放行；这不掩盖主干信号，因为采集层无条件打印「主干失败格子：…」。。同轮另两条已落进判据：闸门在两个合并入口里必须排在「本 PR 失败清单」**之前**，否则在「主干红 ⇒ 每个 PR 的 required Gate Result 跟着红」这个立项场景里它一次都不会执行；主干侧零读数（新 tip 的检查尚未生成）判 rc=3 未证实，不得读成「主干绿」。已知局限必须一起读：差集按**检查名**对齐；本 PR 的红若与主干某条**同名未完成（pending）**相遇，它不进新增红、按未证实处理，并作为 `uncertain=<n>` 与 prFail/mainFail/newRed 同排行出（既不判新增红，也不因主干有 pending 就整批降级——第六轮 i4/i7），同名红只证明「主干上也红过」，不证明是同一条用例。
 3. 变更类型与分层策略一致：运行时代码变更已在隔离 worktree 完成，且 QM-1 打包证据写在 `openspec/records/<分支>.md` 里。
 4. `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 为 OK。
 5. 没有待人工裁决的争议（评审提出的 CRITICAL 未修、任务勾选与证据不符、前置条件已失效但被照抄等）。这一条是 **agent 自查**而非机械闸门，最容易失守，见「残留风险」。
@@ -577,6 +577,8 @@ Code review 时除逻辑正确性外，必须逐项检查：
 
 - **require 路径**：每个 `require('../x')` / `require('./y')` 的解析目标文件是否真实存在
 
+- **⛔ 用户可见失败的稳定错误码合同（2026-10-20，error-message-user-friendly-audit）**：`apps/desktop/electron` 下**任何会被前端渲染给用户**的失败返回体（IPC handler 结果、service 方法结果、stage 执行结果）SHALL 同时携带稳定 `errorCode`（该模块导出的封闭常量集合，如 `COMPOSE_ERROR_CODES`）与可插值 `messageParams`；`message` 仅作诊断保留，**MUST NOT** 作为用户可见文案的唯一来源。`messageParams` 只含用户可读值（带单位体积、1-based 序号、格式化时长），MUST NOT 含裸字节数、绝对路径、堆栈、HTTP 状态码或内部标识符。**审查判据**：看到 `return { code: -1, message: '<英文句子>' }` 或 `return { success: false, error: '<英文句子>' }` 即打回——英文技术句会被渲染端的「短自然语言直出」分支原样透给用户（2026-10-20 事故：历史记录失败卡片显示 `Input media exceeds the total size limit`）。新增错误码必须三处同改：主进程常量 + `src/views/history-utils.js` 的 `COMPOSE_ERROR_KEY_MAP` + `locales/story2video/{zh,en}.js` 文案，由 `scripts/check-compose-error-codes.js`（CI `Gate 12g`）机械校验。**错误码 → locale key MUST 用显式映射表，禁止字符串推导**（拼错会静默渲染成 i18n key 原文）。跨边界（stage → 落库 → 快照）时 `run.error` / `stage.error` **保持字符串契约**（恢复门控 `RESUME_BLOCKING_ERROR_PATTERN` 与阶段摘要依赖它），结构化字段另起 `errorCode` / `errorParams`。详细合同见 `01-docs/PRD-USER-FACING-ERROR-MESSAGES-2026-10-20.md`。
+
 - **preload sandbox 兼容**：修改 preload 后必须在 sandbox:true 和 sandbox:false 两种模式下验证 `window.electronAPI` 可用
 
 - **preload 重启验证**：修改 preload.js 后必须重启 Electron 应用（preload 只在窗口创建时加载，Vite HMR 不会热更新 preload）
@@ -1042,7 +1044,7 @@ codeagent-wrapper --backend <BACKEND_PRIMARY> --lite "审查 <change> 实现：�
 codeagent-wrapper --backend <FRONTEND_PRIMARY> --lite "审查 <change> 实现：命名/模式/可维护性/集成" <workdir>
 ```
 
-> 两路实际用哪个模型：**直接调 `codeagent-wrapper` 的旁路**以 `~/.claude/.ccg/config.toml` 的 `[routing]` 为真源；**走本仓评审链**（`deep-review.sh` / `plan-review.sh`）时真源是 `scripts/ccg-review-backends.list`（critic/proposer 两行），两份配置互不相干，别改错地方——这是 2026-10-18 实测的坑：改 `config.toml` 对评审链无效，入口传 `--critic` 曾被丢弃，驱动 `--critic` 只在决策层生效。本文档不复制清单里的值，照抄会跑错模型；请求过的后端会写进判定记录 `reviewBackends`，由 `check-pr-exec-record.js` 与驱动回填的 `deepReview.performedBy` 对账，**不符即判该条深度审查未闭合**。前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
+> 两路实际用哪个模型：**直接调 `codeagent-wrapper` 的旁路**以 `~/.claude/.ccg/config.toml` 的 `[routing]` 为真源；**走本仓评审链**（`deep-review.sh` / `plan-review.sh`）时真源是 `scripts/ccg-review-backends.list`（critic/proposer 两行），两份配置互不相干，别改错地方——这是 2026-10-18 实测的坑：改 `config.toml` 对评审链无效，入口传 `--critic` 曾被丢弃，驱动 `--critic` 只在决策层生效。本文档不复制清单里的值，照抄会跑错模型；请求过的后端会写进判定记录 `reviewBackends`——**提交时**由 `ccg-review-decider.js` 写，**评审时**若用了 `--critic`/`--proposer`/`MP_QM6_*`，由 `deep-review.sh` 在把控制权交给驱动之前回写同一字段（提交时那份挪进 `commitRequest` 留档；默认路径与 dry-run 都不改产物，回写失败一律 exit 2 且不启动审查），随后由 `check-pr-exec-record.js` 拿它与驱动回填的 `deepReview.performedBy` 对账，**不符即判该条深度审查未闭合**。前端模型失败最多重试 2 次（间隔 5 秒），3 次全败才跳过；后端模型结果必须等待（5-15 分钟属正常）。
 
 #### 评审输出与处理
 
@@ -1059,7 +1061,15 @@ codeagent-wrapper --backend <FRONTEND_PRIMARY> --lite "审查 <change> 实现：
   2. pre-commit 把该判定落成审计产物 `.ccg/reviews/<pre-commit HEAD sha>.json` 并自动 stage 进提交；
   3. `scripts/check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` 要求本次变更集内每条 `mode=dual` 产物的 `deepReview.status` ∈ `{cleared, needs_revision, self_play_resolved}`，否则报「CCG 深度审查欠账」并阻断；
   4. 该门禁同时是上文「PR 自动合并」判据第 4 条——所以「要不要走 CCG」不靠临场自觉。
-- ⚠️ 上述闭环集含 `self_play_resolved`，即**引擎自扮演裁决在机械上就能满足本门禁**，外部模型一个都没跑也可能判绿；「高危域（`highRiskDomains` 含 crypto）不得自扮演豁免」目前只由引擎与逐片 records 承担，本门禁未镜像它——收紧它属改「谁来守门」，须人工过目。
+- ⚠️ 上述闭环集含 `self_play_resolved`，即**引擎自扮演裁决在机械上就能满足本门禁**，外部模型一个都没跑也可能判绿。自 PR #3987 起，这条缺口**只在非高危面仍然成立**——高危面由 `scripts/check-pr-exec-record.js` 的**收口矩阵**守，「高危面不得自扮演豁免」不再只是一句没有执行体的惯例。
+  - **清单唯一真源**：高危面 = `check-pr-exec-record.js::HIGH_RISK_SURFACES`，逐条自带实测命中数（凭证加解密 / 登录态串行锁 / 云端账号校验 / 登录态三态口径 / 指纹面（限源码扩展名）/ `.github/workflows/` / `scripts/check-`（判据自指）/ `scripts/ccg-review-` / `scripts/deep-review`）。**这段括号是举例不是清单**：条目只由常量持有，新增/收窄前缀时改常量、不改本文（本仓在飞的候选是把 `scripts/lib/ccg-review-` 也列进去）。写进文档的复述（含条数）会过期，**取数一律读该常量**。前缀匹配实现同样只有一处（`highRiskPrefixOf`），由结构锁钉死「只准一处」。
+  - **矩阵口径**（只作用于本次变更集内 `mode=dual`、且状态已在闭环白名单里的产物）：命中高危面 ⇒ 只认 `deepReview.tier=external` **且** `evidence` 通过可核指针形态判据（PR 号 / 会话 id / UUID / 40 位对象 id / 仓内文件路径）。`evidence` 判的是**形态不是语义**，这正是 tasks 8.1b 要把写入方收敛到工具的原因。`tier=none`（自称未评审却写闭环值）与 `unrecognized`（字段在、值不在闭集里 = 写错或编造）**任何面都拦**；`tier` 整段缺席（`unknown`）在非高危面**放过**，在高危面上若属「本次新增（A）即写成闭环值」也拦。
+  - **`unknown` 没有一律转拦，是刻意的**：全仓尚无生产方写 `tier`，转拦等于造出「改判据 ⇒ 必须先跑完外部评审才能提交 ⇒ 提交又生成新 `unknown`」的死循环（与缺陷G 同型）。实测依据：主干 142 篇已闭环产物里 139 篇整段没有 `tier`、野值 0 篇——所以「缺席不拦、野值一律拦」这一分档是量出来的，不是设想。**前提（转拦的触发条件）= 这一档占比降下来，而占比要降先得有写入方 = tasks 8.1b。**
+  - **`closureNote` 在高风险面上不再够格收口**（含 `scripts/check-*` 判据本体、`.github/workflows/*`、凭证/登录态面）。主干既有惯例正是 note-only，所以这是本矩阵**刻意改变的一项惯例，不是副作用**：#3987 落地前实测最近 40 笔第一父提交里「变更集内已闭环的 dual 产物」19 条、同变更集命中高危面 4 条、矩阵事后判红 2 条，两条都来自已合并的 PR #3927（`needs_revision` + `performedBy=claude` + 只有 `closureNote` + 无 `tier`，落 `.github/workflows/`）。探针与逐条读数见 `openspec/records/qm6-highrisk-matrix.md` §七；**这类数是活数，引用时现跑**。
+  - **收口转变检测**（tasks 8.1 判据侧）：`mode=dual` 产物 base 非闭环 → head 闭环，而本次没带出处（既无 `tier=external` + 可核 `evidence`，也无带轮次标记与逐条处置结论的 `closureNote`）⇒ 点名。它比矩阵**刻意更严**：非高危面上 `self-play` 收口算闭环（那问的是「这个东西存不存在」），但「把 pending 翻成闭环值」这个**动作**仍要出处——两档口径不同不是漂移，由用例钉住，别当遗漏「顺手统一」。base 取不到时不判红，计入「未证实」读数并打印；⛔ 不得把工具的失明读成「没有欠账」。
+  - **撞线时的处置纪律**：⛔ 不得靠削宽判据让它不红（缩清单、放宽 `evidence` 形态、把 `unrecognized` 改回放行都算）。两个机械出口就写在红文案里，不必去猜：① 补跑真外部评审（`sh scripts/deep-review.sh`）拿 `tier=external` + 可核 `evidence`；② 确认判定确属假阳性 ⇒ **非高危面**写含轮次标记 + 逐条处置结论的 `closureNote`，再把 `status` 置为闭环值（高危面不适用这一条）。
+- 矩阵**没覆盖到**的四格是已登记欠账，不得读成「已闭合」：① `mode=single` 在 `evaluateDeepReviewDebt` 里直接 `continue`，而判定器的 `RULES.sensitivePaths` 与 `HIGH_RISK_SURFACES` 是两份独立清单、实测已分叉 ⇒ 改判据本体的小改动被判 `single` 时，凭一条 pending 记录即可通过（tasks 8.5；修法在写入方——由 decider 把高危路径判成 dual，但那会把 DUAL 钩子的 23–40 分钟加到每次改判据的提交上，属「谁来守门」，须人工过目）；② 引擎侧的 crypto 高危域标签（`highRiskDomains`）与本矩阵的路径前缀是**两个轴**，判据不读前者；③ 跨面行为变更（改非高危路径的共享函数、而调用方是高危面）前缀匹配结构性看不见（design §3 残余，tasks 2.5）；④ **CI 侧本判据仍以 `--mode=advisory` 运行**（`quality-gate.yml` 的 Gate 2c2 打印理由后 `exit 0`）⇒「**QG Changes 全绿」不等于「QM-6 已闭合」**，真实拦截发生在 enforce（本机 / 评审链）与测试里；转 required 属改「谁来守门」（tasks 8.6）。
+- `tier=external` 此刻**仍由会话手写进产物**：全仓没有任何生产方写 `tier`（评审引擎在仓外用户技能目录 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`，全文 `tier` 出现 0 次、只写 `status`/`performedBy`；`scripts/deep-review.sh` 同为 0）。所以上面的出口 ① 目前是**手写代用**，`closureNote` 里必须如实写明这一层，不得把写手的字段说成工具产物。
 - 纯文档/流程变更（`openspec/`、`docs/`、`scripts/` 工具脚本）不强制 QM-6，但建议执行
 
 ## 测试质量增强工具（v0.16.0）

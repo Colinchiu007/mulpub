@@ -86,6 +86,8 @@ class RpaViewManager {
       })
     }
     if (apiEnabled && supportsApi(platform)) {
+      // 每次进入 API 轨前清掉上一次的诊断残留（避免跨任务/跨平台污染）
+      this._lastApiFailure = null
       this._emitProgress(platform,'using API publish engine...',5)
       try {
         let cookie = authData?.cookies
@@ -193,6 +195,11 @@ class RpaViewManager {
           return { success: false, error: e.message, code: e.code, platform: platform, stoppedBy: 'api-only' };
         }
         log.warn('RpaView', 'API failed, falling back to RPA for ' + platform);
+        // 2026-10-21（douyin-e2e-timeout-debug）：把 API 轨失败原因**写进 result**，
+        // 让它随 DOM 轨终态一起进发布历史。此前只有 log.warn，历史里查不到
+        // 「是否走过 API 轨、其失败原因」，抖音 E2E 的 publish timeout 只能靠日志反推。
+        // 兜底记录：若 DOM 轨最终也失败，这个字段就是唯一定位依据。
+        this._lastApiFailure = { platform: platform, error: String(e && e.message || e), code: e && e.code, at: Date.now() };
       }
     }
     // RPA path (existing)
@@ -234,11 +241,27 @@ class RpaViewManager {
       } else {
         log.warn('RpaView','publish failed platform='+platform+' error='+(result&&result.error)+' url='+(result&&result.url||''))
       }
-      return result
+      // 2026-10-21（douyin-e2e-timeout-debug）：把本次 API 轨失败诊断并入返回，
+      // 让 DOM 轨终态带上"之前走过 API 轨且失败"这一事实（历史据此可定位）。
+      // 同时补 `track`（实际使用的轨）与 `apiTrackAttempted`（是否走过 API 轨）——
+      // 这是 PRD §16.19.4 埋点清单的 ①「分轨切换原因」：没有这两个字段，
+      // 历史无法回答"这次到底用了哪条轨"，只能看到终态 error。
+      const out = (result && typeof result === 'object') ? { ...result } : { success: !!result, platform: platform }
+      if (apiEnabled) out.apiTrackAttempted = true
+      out.track = apiEnabled ? 'api-then-dom' : 'dom'
+      if (this._lastApiFailure && this._lastApiFailure.platform === platform) {
+        out.apiTrackFailed = this._lastApiFailure
+      }
+      return out
     } catch(e) {
       publishHealthy = false
       if (e && e.isCanceled) { log.info('RpaView','publish '+platform+': cancelled'); return { success:false, error:'Cancelled', code:-999, platform:platform } }
-      log.error('RpaView','publish '+platform+': '+e.message+(e.stack?' | stack='+String(e.stack).split('\n').slice(0,3).join(' <- '):'')); return { success:false, error:e.message, platform:platform }
+      log.error('RpaView','publish '+platform+': '+e.message+(e.stack?' | stack='+String(e.stack).split('\n').slice(0,3).join(' <- '):''))
+      const out = { success:false, error:e.message, platform:platform }
+      if (apiEnabled) out.apiTrackAttempted = true
+      out.track = apiEnabled ? 'api-then-dom' : 'dom'
+      if (this._lastApiFailure && this._lastApiFailure.platform === platform) out.apiTrackFailed = this._lastApiFailure
+      return out
     }
     // eslint-disable-next-line no-unused-vars
     finally {

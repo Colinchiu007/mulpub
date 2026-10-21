@@ -1,0 +1,61 @@
+{
+  "sha": "b69ab93c781aa02978f577e6ef4cccc3ba3e9a19",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 69 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 69,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "| 逃逸分析（QM-5 ②） | 通过 | ① 这笔红**不在 #4111 的 PR 面上**：#4111 的 required check 全绿（24 项 pass），红只出现在**合并之后** main 的 push 上 ⇒ 靠「PR 绿了」看不出这笔账；② 门禁本身是 fail-closed 的（基线腐化必须阻断），所以它不会自己消；③ 容易被误判成「#4111 把依赖升级搞坏了」——实际是**#4117 的登记覆盖了 #4111 的升级**，两者都正确，只是顺序撞了；④ 盲跑 `node scripts/check-dep-audit.js --update` 会引出**另一种红**（见下） |",
+      "| 防止再次发生（QM-5 ⑤） | 通过 | ① **没有**用 `--update` 整份重写：实测 `--update` 会顺手把 5 条既有条目的 `patched` 从「>=1.1.x」改写成「>=5.0.x」（npm 公告的多段 vulnerable 区间被解析成另一段），而它们的 `targetVersion` 仍是 1.1.x ⇒ 立刻触发 `DECISION_CONTRADICTS_PATCHED`（「目标版本低于修复下界」）——**用一个红换另一个红**；外科式删除避开了它。② 本刀只删「已不命中」的条目，不碰任何仍命中的条目的结论字段 ⇒ 账本的其余 28 条不受影响；③ 门禁对「已还债」的处置出口是 `--update 清账`，但它的实现粒度是整份，**逐条清理仍需人工判定哪几条真的还了** ⇒ 本刀把该判定过程与依据逐条写进本记录 |",
+      "- **刻意不做**：不跑 `node scripts/check-dep-audit.js --update` 整份重写。实测它会把 5 条既有条目的 `patched` 从「>=1.1.x」改写成「>=5.0.x」（npm 公告的多段 vulnerable 区间被解析成另一段），而 `targetVersion` 仍是 1.1.x ⇒ 立刻触发 `DECISION_CONTRADICTS_PATCHED`——**用一个红换另一个红**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4df0b1edf432a34fc2a2c0c069f9906a72f53a9e6ce808636a260f3084531efd",
+  "decidedAt": "2026-10-20T22:16:04.118Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

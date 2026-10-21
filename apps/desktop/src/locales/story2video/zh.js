@@ -87,6 +87,16 @@ export default {
     compose_timeout: '视频合成超时。请先检查磁盘空间和设备负载，然后从断点继续；若仍失败，可稍后重试。',
     compose_duration_exceeded: '视频内容超过 {limitMinutes} 分钟上限。请缩短文案或减少场景后重新启动生成。',
     compose_segment_duration_exceeded: '单段旁白超过时长上限。请拆分该段文案后重新启动生成。',
+    compose_audio_duration_exceeded: '旁白音频总时长超过 {limit} 上限。请缩短文案或减少场景后重新启动生成。',
+    compose_ffmpeg_not_found: '未找到视频合成组件，暂时无法生成视频。请重启应用；若仍未解决，请重新安装应用。',
+    compose_invalid_asset_manifest: '合成素材清单不完整，暂时无法生成视频。请从断点继续重新生成；若持续出现，请重新启动生成。',
+    compose_input_size_exceeded: '本次要合成的素材总体积已达 {actualMb}，超过 {limitMb} 上限。请减少场景数量、压缩图片或旁白音频后重新启动生成；若使用了背景音乐，可暂时关闭或更换体积更小的音频。',
+    // 无数字变体（CCG 外部评审 i2，2026-10-20）：存量历史记录的原文 `Input media exceeds the total size limit`
+    // 本身不含体积数字，套用带占位符的主文案会渲染成「已达 允许上限，超过 允许上限 上限」这类拗口句子。
+    // 体积未知时改用本句：只说「超过上限」，不假装知道具体数值。
+    compose_input_size_exceeded_no_numbers: '本次要合成的素材总体积超过上限。请减少场景数量、压缩图片或旁白音频后重新启动生成；若使用了背景音乐，可暂时关闭或更换体积更小的音频。',
+    compose_scene_media_unreadable: '第 {scene} 个场景的画面素材已失效或不可读取。请重新生成该场景的图片或视频素材后再从断点继续。',
+    compose_scene_audio_unreadable: '第 {scene} 个场景的旁白音频已失效或不可读取。请重新生成该场景的语音后再从断点继续。',
     operation_failed: '当前操作未能完成，请稍后再试。',
     invalid_params: '流水线参数校验失败，请检查配置项是否有效后重试。',
     unknown_error: '当前操作未能完成，请稍后再试。',
@@ -264,6 +274,38 @@ export default {
       loading: '加载中...',
       loadFailedTitle: '项目加载失败',
       loadFailedRetry: '重试',
+      // ── 2026-10-20 PRD-S2V-RESULT-UX-POLISH ──
+      // 失败摘要卡：解释「为什么没生成成品视频」
+      failureSummaryTitle: '生成未完成',
+      failureSummaryCounts: '{total} 段中 {failed} 段失败、{completed} 段已完成',
+      failureSummaryReasons: '主要原因：{reasons}',
+      failureSummaryReasonItem: '{label}（{count} 段）',
+      failureSummaryPolicyNote: '其中 {count} 段已被内容政策定位，建议优先检查。',
+      failureSummaryJump: '定位到首个失败段',
+      failureSummaryNoReason: '未记录具体失败原因，可查看完整日志或直接重新合成。',
+      // 失败原因码 → 可读文案（未知码回落通用文案，不编造）
+      failureReasonPolicy: '内容政策拦截',
+      failureReasonQuota: '额度不足',
+      failureReasonMaterial: '素材生成失败',
+      failureReasonTimeout: '生成超时',
+      failureReasonModel: '模型调用失败',
+      failureReasonUnknown: '其他原因',
+      // 分段计数 / 展开 / 筛选
+      segmentCountAll: '共 {total} 段',
+      segmentCountPartial: '已显示 {shown} / 共 {total} 段',
+      segmentCountNoMatch: '没有匹配的分段',
+      loadAllSegments: '展开全部',
+      expandAllConfirm: '展开全部 {total} 段会一次性渲染全部卡片，可能短暂卡顿，确定吗？',
+      // 筛选与搜索
+      segmentFilterAll: '全部',
+      segmentFilterFailed: '只看失败',
+      segmentFilterPolicy: '只看政策标记',
+      segmentSearchPlaceholder: '搜索文案 / 提示词 / 字幕',
+      segmentSearchClear: '清空搜索',
+      // 跳转反馈 / 回顶
+      segmentJumpPending: '正在展开到第 {n} 段…',
+      backToTop: '回到顶部',
+      backToTopAria: '返回页面顶部',
       // 分段编辑区标题与计数（2026-10-20 抽 ResultSegmentEditor 时收口到 locale）
       segmentEditTitle: '分段编辑',
       segmentCountSuffix: '个分段',
@@ -300,5 +342,7 @@ export default {
       sceneLabel: '\u573a\u666f {scene}',
       sceneRatio: '\u573a\u666f {scene}',
       currentProvider: '\u5f53\u524d',
+      currentScene: '\u8be5\u573a\u666f',
+      unknownSize: '\u5141\u8bb8\u4e0a\u9650',
     },
   }

@@ -212,6 +212,12 @@ function createProject (opts) {
     beatIndex: s.beatIndex === undefined ? null : s.beatIndex,
     title: String(s.title || ''),
     prompt: String(s.prompt || ''),
+    // 影视工程 v2 · F-A：三分提示词必须落盘——只存 prompt 的话，续跑/重生成时
+    // 派生出来的 videoPrompt 会丢失（回落 imagePrompt），「视频只拿运动信息」在
+    // 第二次运行就失效。imagePrompt 缺省回落 prompt（存量计划兼容）。
+    imagePrompt: String(s.imagePrompt === undefined || s.imagePrompt === null ? (s.prompt || '') : s.imagePrompt),
+    videoPrompt: String(s.videoPrompt || ''),
+    endFramePrompt: String(s.endFramePrompt || ''),
     characterNames: Array.isArray(s.characterNames) ? s.characterNames.slice() : [],
     refPaths: Array.isArray(s.refPaths) ? s.refPaths.slice() : [],
     seconds: Number(s.seconds) || Number(plan.seconds) || 5,

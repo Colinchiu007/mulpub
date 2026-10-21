@@ -1,0 +1,61 @@
+{
+  "sha": "c46ddb0d2d7916261e9b6952680c8758d4353909",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "## 一次性显式授权不能落盘——落盘即持久免检标记（film-pipeline-prompt-triple-and-guards，2026-10-21）",
+      "**现场**：出站下载要允许用户「本次允许从外部素材域名下载」。我第一版按评审要求把授权**留痕到 `project.json`**（`egressAllowAnyHost: true`）。下一轮评审打回：**任何能写项目文件的路径、或外部导入的项目文件，都能静默置 true，且跨会话长期生效** ⇒ 一次性的显式授权变成了**持久免检标记**。最终改为**运行期一次性令牌**（只存内存、任务结束失效、不落盘），审计只记「发生过一次外部域名授权」这一事实、**不存放行位**。",
+      "**判据**：授权类状态要分三档落法：**能放行的凭据**（令牌/凭据）⇒ 只进内存或短期存储，**绝不落进可被外部写入或导入的文件**；**审计事实**（谁在何时授权过）⇒ 可以落盘，但要**与放行位物理分离**；**配置**（用户长期设定的白名单）⇒ 落盘，但走独立配置面并显式展示。判据一句话：**「落盘的授权位」= 「任何写文件的人都能给自己发通行证」**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "10850502d72eaf45871a1ddf164874e2296cfe5dd3db903aa40b1bc140238325",
+  "decidedAt": "2026-10-20T21:29:25.307Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

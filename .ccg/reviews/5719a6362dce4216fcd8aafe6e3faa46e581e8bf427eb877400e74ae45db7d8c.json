@@ -1,0 +1,90 @@
+{
+  "sha": "7d1c0d1d202a5c1fe1b4eb059db3c0a460bc503e",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5719a6362dce4216fcd8aafe6e3faa46e581e8bf427eb877400e74ae45db7d8c",
+  "decidedAt": "2026-10-21T05:43:27.205Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为抖音复跑观察记录。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.20",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "你在 §16.20.2 推断\"上次的 10 分钟 timeout 可能是另一层超时（DOM 轨 60s）先触发\"—— 有证据吗？",
+        "verdict": "upheld_partial",
+        "rationale": "没有直接证据，这是我基于代码阅读的推测（DOM 轨 60s 超时的代码在 rpa-view-platforms.js 里）。 我在 §16.20.3 已把\"卡在哪一步\"列入**待确认**，并说\"都需分阶段进度数据才能回答」。 但 §16.20.2 的那句话确实用了\"可能」这种推测语气却没标 ⚠ —— 读者可能误以为是结论。 更严谨的做法：把 §16.20.2 的最后一句也标为推测，或直接删掉。 这条是我的欠缺：**推测与事实的标记不够一致**（其他地方标了，这里漏标）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "task_3 无终态就记\"失败\"—— 它可能只是被中断，未必是发布链的问题。",
+        "verdict": "upheld_verified",
+        "rationale": "正是如此，所以我没有把它记为「发布失败」，而是记为「**任务无终态**（未入历史）」 并把\"应用退出是用户主动关闭还是崩溃\"列入待确认。 这与 task_2 的 `publish timeout`（明确的 failed + 错误码）是不同的两类： 前者是观测中断，后者是链路失败。混为一谈就会高估失败率。 §16.20.2 的对照表也明确区分了「failed」与「无终态」两列。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "连续两轮都在\"复跑 + 记录观察\"，没有代码进展。",
+        "verdict": "upheld_verified",
+        "rationale": "承认。但这两轮的观察有增量：发现\"20 分钟仍不出结果」这一新事实， 并据此提出\"下次用小视频跑」这一具体改进——这正是在为下一次有效复跑排除干扰。 ⚠ 但我必须设定停止条件：**如果下轮复跑仍无结论，就不该再复跑**， 而应先补分阶段进度埋点（§16.19.4 剩余项），否则只是反复烧时间。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 1,
+      "upheldVerified": 2,
+      "note": "i1 承认 §16.20.2 的一句推测未标 ⚠（标记不一致，其余处标了）；i2 论证\"无终态\"与\"failed\"是两类、未混为一谈；i3 承认连续复跑但设定停止条件（下次仍无结论就先补埋点）。"
+    },
+    "at": "2026-10-21T05:45:06.711Z"
+  }
+}

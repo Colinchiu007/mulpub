@@ -1,0 +1,65 @@
+name: 债务基线重算（在飞 PR 点名）
+
+# 为什么存在：收紧 scripts/debt-baseline.json 之后，在飞 PR 的 required check **不会重跑**
+# （pull_request 的 run 钉在触发那一刻的 merge ref 上），于是带着旧基线绿结论的 PR 照样能
+# 自动合并、主干当场变红。实测本刀落地当天主干上有 4 笔这种陈旧绿（最久 7 天）。
+#
+# 本 workflow **不是** required check，也不改任何分支保护/ruleset —— 用户 2026-10-20 在四档里
+# 选的是「只做重算 + 点名」。它的作用是把"合并后靠 main 变红才知道"提前到"合并前 PR 上有名字"。
+# 触发只看两份守门输入：基线数据 + 判据本体（度量口径被收紧同样会作废旧的绿结论）。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/debt-baseline.json
+      - scripts/check-debt-budget.js
+      # 下面两份是 debt-guard.yml 里另一个**阻断** step 的执行面与它的账本
+      # （逐文件行数门禁）。清单由 scripts/check-debt-recheck.js 的 blockingGateInputs 派生，
+      # 并由测试与本文件对账；软门禁（continue-on-error 的死代码检测）刻意不进集合。
+      - .github/scripts/check-max-lines.js
+      - .github/scripts/max-lines-baseline.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: debt-baseline-recheck
+  cancel-in-progress: false
+
+jobs:
+  recheck:
+    name: 债务基线重算
+    runs-on: ubuntu-latest
+    # 预算：本机实测判据本体 1.9 秒/笔，30 笔约 57 秒；fetch / 合成提交 / 只读 worktree /
+    # 评论写入的 CI 侧耗时**未测**（首次运行必须打印每笔实测再回填 proposal，不得预先估个数）。
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 浅历史下 git merge-tree 会报 "refusing to merge unrelated histories"，
+          # 那会被归成工具侧故障（不是 PR 冲突）—— 整轮非零退出，逼人来修 fetch-depth。
+          fetch-depth: 0
+
+      - name: 重算 open PR 并点名陈旧结论
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # 首轮只测量不写评论：CI 侧 fetch/merge/judge/comment 耗时与评论速率**未测**（deep-review i3）。
+          # 回填实测读数后由**人**把它改成 "1" 才算正式启用点名 —— 这属开关语义，不由作业自己决定。改它需人工过目。
+          MP_RECHECK_COMMENT: "0"
+          # 每轮写入上限（外部复核 i3-W3）：门闩开了也不得一次刷满全部在飞 PR。
+          # 0 = 只点名不写；非法值由脚本回落默认并出声告警。
+          MP_RECHECK_MAX_COMMENTS: "10"
+          # 写入纪律（外部复核第 2 轮 W1/W4 要求"在 workflow 自身就看得见"，不只写在脚本里）：
+          #   1) 只有 MP_RECHECK_COMMENT 恰为字符串 "1" 才写，其它取值一律只打印结论；
+          #   2) 单轮最多写 MP_RECHECK_MAX_COMMENTS 条，触顶出声、剩余条目只留痕；
+          #   3) 每条写入前重新 gh pr view 复查该 PR 仍为 OPEN，读不到状态按未证实处理 ⇒ 不写。
+          # 刻意**没有**再加"每小时/每分钟速率窗"：本作业由 concurrency 组串行、且只在两份守门
+          # 输入变化时触发（实测近 30 天 12 次 ⇒ 上限 10 条/轮 × 0.4 轮/天），跨 run 的窗口需要持久
+          # 状态文件才能表达，为不会发生的失败形态引入状态是猜需求。若未来触发面变密，先改这里再说。
+        run: |
+          # 逐条继续、末尾统一判定：单条失败不得中断整轮，也不得静默跳过（空集也要出行）。
+          node scripts/check-debt-recheck.js --live

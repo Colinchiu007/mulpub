@@ -490,6 +490,92 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(cliE2eBudget.stripComments('const u = "http://example.com"; // t 10000')).toContain('http://example.com');
   });
 
+  // ── 2026-10-20：采样域有**两根轴**，旧写法只在其中一根上各写了一半（任务 #86）───────────
+  // 当场实测（按**目标用例全名**过滤 verbose 行，逐份作业日志）：
+  //   run 39381404956（quality-gate.yml）：QG Coverage 1 条 = 1705ms ← 旧域里没有这一族
+  //                                        QG Desktop Shards (1/2) 1 条 = 1261ms
+  //                                        QG Desktop Shards (2/2) 0 条（shard 分配漂移所致，见下）
+  //   run 39394756637（electron-ci.yml） ：electron-tests 1 条 = 1331ms ← 连 workflow 轴都不覆盖
+  //                                        Changes 0 条（B 臂负控）
+  // 旧实现是两个单数常量 `WORKFLOW = 'quality-gate.yml'` + `JOB_RE = /QG Desktop Shards/`：
+  // "域"被拆成两根轴各持一半，而**没有任何判据在问第二根轴存不存在** —— 这正是 PR #4072 记下的
+  // 「修掉一根轴 ≠ 域完整」那一格，所以本片一次把两根轴都做成显式登记表 + A/B 负控。
+  it('采样域必须是 workflow × 作业名的生产者登记表，A/B 两臂各钉住一根轴', () => {
+    const audit = require(path.join(PROJECT_ROOT, 'scripts', 'case-timeout-audit.js'));
+    expect(Array.isArray(audit.PRODUCERS), '缺 PRODUCERS：域得同时回答"哪个 workflow 的哪个作业"，只留一个 JOB_RE 会重演只扩一根轴的缺陷')
+      .toBe(true);
+    expect(typeof audit.isProducer).toBe('function');
+    expect(typeof audit.producerWorkflows).toBe('function');
+    for (const p of audit.PRODUCERS) {
+      expect(typeof p.workflow, '生产者项必须点名 workflow（否则作业名漂到别的 workflow 上也会被误认）').toBe('string');
+      expect(p.jobRe instanceof RegExp, '生产者项必须带作业名正则').toBe(true);
+    }
+
+    // A 臂：三个当场实测到的生产者必须命中
+    expect(audit.isProducer('quality-gate.yml', 'QG Desktop Shards (1/2)')).toBe(true);
+    // ⛔ (2/2) 也必须命中，即使**本次**它 0 命中：该用例落进哪一片由 vitest 的 --shard 分配决定，
+    // 而文件数/顺序一变就会重分。按"今天落在哪片"来排除，等于埋下一颗静默丢样的雷。
+    expect(audit.isProducer('quality-gate.yml', 'QG Desktop Shards (2/2)'),
+      '按今天落在哪一片来排除另一片 ⇒ 重分片后样本静默缩水，而读数照样"自洽"').toBe(true);
+    expect(audit.isProducer('quality-gate.yml', 'QG Coverage')).toBe(true);
+    expect(audit.isProducer('electron-ci.yml', 'electron-tests')).toBe(true);
+
+    // B 臂（作业名轴）：同 workflow 下不跑该用例的作业必须不命中 —— 否则"扩面"只是把过滤写宽，
+    // 采到的样本从哪来将无法归因。
+    for (const name of ['QG Static', 'QG Unit Tests', 'QG Changes', 'GUI Gate Result', 'build']) {
+      expect(audit.isProducer('quality-gate.yml', name), '作业名域把不跑该用例的作业也算进来了：' + name).toBe(false);
+    }
+    expect(audit.isProducer('electron-ci.yml', 'Changes'),
+      '当场实测该作业 0 命中（它只装依赖/检出），不得算生产者').toBe(false);
+    // B 臂（workflow 轴）：同一个作业名挂在**未登记的** workflow 上不得算命中。
+    expect(audit.isProducer('gui-test.yml', 'electron-tests'),
+      'workflow 轴没有负控 ⇒ 登记表会退化成"看作业名像不像"').toBe(false);
+
+    // 域必须是显式闭合集合：扫所有 workflow / 扫所有作业都不许成为"更省事"的那个写法
+    expect(audit.producerWorkflows()).toEqual(['electron-ci.yml', 'quality-gate.yml']);
+
+    // 选作业的纯函数（collect 的眼睛）：合成一份真实形态的作业列表，逐个点名该挑谁、该拒谁，
+    // 并且未完成的作业不得进日志抓取（判完成态一律 status，见文件头第 1 条坑）
+    const picked = audit.pickProducerJobs('quality-gate.yml', [
+      { name: 'QG Desktop Shards (1/2)', status: 'completed' },
+      { name: 'QG Desktop Shards (2/2)', status: 'completed' },
+      { name: 'QG Coverage', status: 'completed' },
+      { name: 'QG Static', status: 'completed' },
+      { name: 'QG Unit Tests', status: 'in_progress' },
+      { name: 'QG Changes', status: 'completed' },
+    ]);
+    expect(picked.map((j) => j.name)).toEqual(['QG Desktop Shards (1/2)', 'QG Desktop Shards (2/2)', 'QG Coverage']);
+
+    // 反"只扩一根轴"：两个单数常量不许回来，且 collect 必须真的按 workflow 分别取窗口
+    const src = fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'case-timeout-audit.js'), 'utf8');
+    expect(src, '单数 WORKFLOW 常量回来了 ⇒ 域又只剩一根轴').not.toMatch(/^const WORKFLOW = /m);
+    expect(src, '单数 JOB_RE 常量回来了 ⇒ 作业名与 workflow 又分家了').not.toMatch(/^const JOB_RE = /m);
+    // 正向锚：collect 必须**按 workflow 分别取 run 窗口**（变量名不锁，锁的是"循环取域 + 把域喂进 listRuns"
+    // 这条可执行链）；只写登记表不调用 = workflow 轴只是注释。
+    expect(src, 'collect 没有按每个 workflow 分别列 run ⇒ workflow 轴只是注释，没在跑')
+      .toMatch(/for \(const \w+ of producerWorkflows\(\)\)[\s\S]{0,800}listRuns\(\w+,/);
+    expect(src, 'listRuns 又被写死成单个 workflow 字面量 ⇒ 两根轴重新分家')
+      .not.toMatch(/listRuns\(\s*['"]/);
+    // 覆盖度必须**按轴各自判**：只核总 run 数，会让稀少那条轴静默采不满而读数照样"够 8 个 run"
+    expect(src, 'PARTIAL 判据没有逐 workflow 检查 ⇒ 一条轴采不到东西时读数照样"完整"')
+      .toMatch(/shortWorkflows/);
+    // 同一件事的行为面锚：判据必须**在循环体内**对每个 workflow 各判一次，
+    // 搬到循环外比较合并总数就红（K6 实测红在这里，而不是红在"变量没出现过"）
+    expect(src, 'coverageSufficient 被搬到 workflow 循环之外 ⇒ 判的是合并总数，不是每条轴的窗口')
+      .toMatch(/for \(const \w+ of producerWorkflows\(\)\)[\s\S]{0,1200}coverageSufficient\(opts\.runs, listed\.runs\.length\)/);
+  });
+
+  it('出处文案必须把三个生产者写全，并标明现存 max 是下界（不得被读成全量分布）', () => {
+    const p = cliE2eBudget.GUI_CLI_E2E_BUDGET_PROVENANCE;
+    // 这三句是"域由谁构成"的唯一对外说明——它比代码短就表示有人在扩域时没同步复述
+    for (const who of ['QG Desktop Shards', 'QG Coverage', 'electron-ci.yml 的 electron-tests']) {
+      expect(p.source, '出处没点名生产者：' + who).toContain(who);
+    }
+    expect(p.source, '现存 max 是旧域（只有 Shards）量的 ⇒ 必须写成下界，否则回填的人会当分布引用')
+      .toMatch(/下界/);
+    expect(p.source).toContain('node scripts/case-timeout-audit.js');
+  });
+
   // 实测反转了"依赖失败 ⇒ 检查不到来"的直觉：QG Changes 红过的 4 个历史 run 里，下游作业的
   // check run 全部存在且 conclusion=skipped；而 skipped 满足 required ⇒ 判据作业坏了会让这条
   // gate **静默假通过**。所以必须有 if:always() 的聚合作业把三种失败压成一个可见的红。

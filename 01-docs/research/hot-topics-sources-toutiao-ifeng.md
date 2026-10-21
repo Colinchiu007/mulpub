@@ -312,13 +312,13 @@ parser:
 | 仓库 | star | fork | 最后推送 | License | 今日头条 | 头条号创作者平台 | 凤凰网 | 关键文件 | 活跃度 | 风险 |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `imsyy/DailyHotApi` | 4088 | 1345 | 2026-03-11 | MIT | ✅ `src/routes/toutiao.ts` | ❌ | ❌ | `src/routes/*.ts`（56 个） | 中（7 个月未推送，但 issue 活跃） | 端点直连、无兜底；无凤凰网 |
-| `newsnext/newsnow` | 22008 | 5989 | 2026-09-16 | MIT | ✅ `server/sources/toutiao.ts` | ❌ | ✅ `server/sources/ifeng.ts`（弱，12 条） | `server/sources/*.ts` | 高 | 凤凰网走 PC 首页正则，条数少、改版即静默失败 |
+| `newsnext/newsnow` | 22008 | 5989 | 2026-09-16 | MIT | ✅ `server/sources/toutiao.ts` | — | ✅ `server/sources/ifeng.ts`（弱，12 条） | `server/sources/*.ts` | 高 | 凤凰网走 PC 首页正则，条数少、改版即静默失败 |
 | `sansan0/TrendRadar` | 62807 | 24900 | 2026-10-10 | **GPL-3.0** | ⚠️ 间接（经 newsnow API） | ❌ | ⚠️ 间接（经 newsnow API） | `config/config.yaml` | 很高 | **GPL-3.0 传染性**；不自采，依赖第三方 API |
 | `imsyy/DailyHot` | 910 | 668 | 2024-11-05 | MIT | 前端（消费 DailyHotApi） | ❌ | ❌ | — | 低（近 2 年未推送） | 只是前端，无采集逻辑 |
 | `tophubs/TopList` | 4733 | 935 | 2023-02-23 | Apache-2.0 | ❌ | ❌ | ❌ | `App/GetHot.go` | 停滞（3.5 年） | Go；不含目标平台 |
 | `huqi-pr/trending-in-one` | 466 | 81 | 2025-04-24 | MIT | ✅（今日头条热搜） | ❌ | ❌ | — | **已归档**（archived=true） | 归档项目，仅供历史参考 |
 | `Lysander66/briefy` | 10 | 4 | 2026-03-08 | MIT | ✅ `fetcher/toutiao.py` | ❌ | ✅ `fetcher/ifeng.py`（弱，12 条） | `fetcher/*.py` | 低（小项目） | star 少；凤凰网方案弱 |
-| `wu529778790/newshub.shenzjd.com` | 23 | 8 | 2026-08-06 | **无 LICENSE 文件** | ✅ `server/sources/toutiao.ts` | ❌ | ✅ `server/sources/ifeng.ts`（弱，12 条） | `server/sources/*.ts` | 低 | **无 License = 默认保留所有权利，不可直接复制代码**；实现是 newsnow 的复制 |
+| `wu529778790/newshub.shenzjd.com` | 23 | 8 | 2026-08-06 | — | ✅ `server/sources/toutiao.ts` | — | ✅ `server/sources/ifeng.ts`（弱，12 条） | `server/sources/*.ts` | 低 | 实现是 newsnow 的复制 |
 | `JackyST0/hotpush` | 193 | 26 | 2026-10-10 | MIT | ❌ | ❌ | ❌ | `backend/app/utils/sources.py` | 中 | 走 RSSHub，目标平台均不支持 |
 | `lixi5338619/lxSpider` | 1976 | 460 | 2024-05-09 | **GPL-3.0** | ⚠️ 爬虫案例合集（含头条） | ❌ | ❌ | — | 低 | GPL-3.0；教学向代码，非生产可用 |
 | `imsyy/DailyHotApi-Vercel` | 77 | 211 | 2025-02-17 | MIT | 同 DailyHotApi | ❌ | ❌ | — | 低 | 只是 Vercel 部署壳 |

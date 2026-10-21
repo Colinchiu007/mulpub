@@ -96,6 +96,36 @@ const MUST_LIVE_IN_UNGATED_JOB = {
     resolveWhen:
       "该锁的输入不再命中 CI_IGNORED_PATHS，或它本身被删（那会同时触发本清单的 stale 红）",
   },
+
+  "scripts/check-compose-error-codes.test.js": {
+    reason:
+      "输入含 apps/desktop/src/locales/story2video/{zh,en}.js 与 apps/desktop/src/views/history-utils.js，" +
+      "而 locales/** 与 src/** 均在 docs-only 白名单内 ⇒ 只改文案/映射的 PR 会被判 docs-only，" +
+      "若这条锁只住在带 job 级 if 的 job 里就等于一次都不跑，" +
+      "「新增错误码漏改任一侧」会重新变成无人发现的形态（2026-10-20 事故的四层逃逸链之一）",
+    resolveWhen:
+      "它被点名进 changes job（无 job 级 if 的那类面，本次已接 Gate 12g），或本锁被删",
+  },
+
+  "scripts/aggregate-changelog.test.js": {
+    reason:
+      "被测的聚合器读的三类输入 openspec/records/**、CHANGELOG.md、01-docs/learnings.md 全部命中 " +
+      "CI_IGNORED_PATHS（docs-only 白名单）⇒ 只改执行记录或台账的 PR 会被判 docs-only；" +
+      "若这条锁只住在带 job 级 if 的 job 里，" +
+      "「记录小节写错形状 ⇒ 发版时静默少搬一条」就正好落在它该防而永不跑的那一格（同 #3114 事故口径）",
+    resolveWhen:
+      "它被点名进 changes job（无 job 级 if 的那类面，本次已接 Gate 2b8），或白名单不再含上述路径，或本锁被删",
+  },
+
+  "scripts/check-no-hot-carrier-edit.test.js": {
+    reason:
+      "它守的正是 CHANGELOG.md 与 01-docs/learnings.md 这两个热写面，而两者加上 openspec/records/** " +
+      "全部命中 CI_IGNORED_PATHS ⇒ 纯文档 PR 会被判 docs-only；这条锁若只住在带 job 级 if 的 job 里，" +
+      "「只改文档的 PR 继续往台账顶插、把并发会话全撞死」就落在无人检测的盲区" +
+      "（同 Gate 2b2/#3114 实测形态：PR 侧 Changes 绿、Static skipping，main push 才红）",
+    resolveWhen:
+      "它被点名进 changes job（本次已接 Gate 2b9，advisory 档），或两个热写面不再命中白名单，或本锁被删",
+  },
 }
 
 // 嵌套 workflow 承认清单：path -> 为什么允许它存在但永不执行。只能缩小，新增即红。

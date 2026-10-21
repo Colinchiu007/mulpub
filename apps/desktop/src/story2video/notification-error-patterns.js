@@ -60,6 +60,13 @@ const SCENE_SUBTITLE_REGENERATE_FAILED_PATTERN = /(无法重新生成字幕|无�
 const SCENE_AUDIO_REGENERATE_FAILED_PATTERN = /(无法生成语音|语音生成服务不可用|无法重新生成(?:旁白|语音)|tts.*(?:fail|unavailable|invalid))/i
 const SCENE_PROMPT_REGENERATE_FAILED_PATTERN = /(无法重新生成优化词|提示词优化服务不可用|优化词类型无效|优化结果无效|prompt.*(?:regenerat|optimiz).*(?:fail|unavailable|invalid))/i
 const SCENE_AI_VIDEO_GENERATE_FAILED_PATTERN = /(无法生成 AI 视频|未配置可用的视频供应商|AI 视频生成服务不可用|AI 视频生成失败|视频(?:生成|下载|文件)(?:调用失败|任务失败|未返回任务|超时或失败|超过|无法解码|结果为空|任务状态为|失败)|ai video.*(?:fail|unavailable|invalid))/i
+// compose 预检失败（2026-10-20 事故 error-message-user-friendly-audit）：
+// 主进程现已返回稳定 errorCode（COMPOSE_*），但历史库里存量 run.error 只带英文原文
+// （如 `Input media exceeds the total size limit`），归一化层必须同时认两条通道，
+// 否则旧数据仍会在失败卡片上直出英文。
+const COMPOSE_INPUT_SIZE_EXCEEDED_PATTERN = /(Input media exceeds the total size limit|input media exceeds.*(?:size|limit)|媒体总大小超过|输入媒体.*超过.*(?:上限|限制))/i
+const COMPOSE_SCENE_MEDIA_UNREADABLE_PATTERN = /(Scene media path is not allowed or unreadable|scene media (?:path )?(?:rejected|unreadable|missing))/i
+const COMPOSE_SCENE_AUDIO_UNREADABLE_PATTERN = /(Scene audio path is not allowed or unreadable|scene audio (?:path )?(?:rejected|unreadable|missing))/i
 
 export {
   MODEL_API_KEY_PATTERN,
@@ -91,4 +98,7 @@ export {
   SCENE_AUDIO_REGENERATE_FAILED_PATTERN,
   SCENE_PROMPT_REGENERATE_FAILED_PATTERN,
   SCENE_AI_VIDEO_GENERATE_FAILED_PATTERN,
+  COMPOSE_INPUT_SIZE_EXCEEDED_PATTERN,
+  COMPOSE_SCENE_MEDIA_UNREADABLE_PATTERN,
+  COMPOSE_SCENE_AUDIO_UNREADABLE_PATTERN,
 }

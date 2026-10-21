@@ -1,0 +1,92 @@
+{
+  "sha": "c5b56c5b716561dd2fe3d341fd46ed3691b21cd0",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "**下一步仍需抓一次真实发布请求的对照**（见 §16.11.5，需授权）。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c15b6f6fc84137df4c3db7f3ddff41dad95b33f5d1fcc7a5270f8eed89e44703",
+  "decidedAt": "2026-10-21T00:11:07.926Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为**否证**上一轮假设（含自我纠正）。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.12（两端点对照 / 两个结论 / 诚实版认知）",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "本轮否证了**自己上一轮**锁定的嫌疑点。这说明上一轮的\"锁定\"是错的 —— 为什么要把它写成\"锁定嫌疑\"而不是先验证？",
+        "verdict": "upheld_partial",
+        "rationale": "该自责：§16.11.4 我当时已有条件直打 `/api/sns/v2/note`（结果 Failed to fetch）， 却把它写成\"嫌疑点\"留在文档里 —— 等于把一个**已被自己数据否证的假设**当成指引留给后人。 如果有人照着改，会把一条\"能发出请求（406）\"的链改成\"完全不可达\"，比现状更糟。 本节的补救是显式的：开篇就用 ⚠ 写明\"若你正打算改，请不要\"。 教训（值得固化）：**被自己的数据否证的假设，必须当场否证，不能以\"嫌疑\"形式留在文档里** —— \"嫌疑\"在读者眼中就是\"线索\"，而线索会被当成行动依据。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "本轮带齐 5 头仍得 401，你据此修正判据为\"401=签名无效\"。但会不会只是你的签名生成方式（_webmsxyw 传空 data）不对，而非通用规律？",
+        "verdict": "upheld_verified",
+        "rationale": "正是如此，所以我的表述是**限定的**：写明\"本次 _webmsxyw(url,{}) 传空 data，产出签名不可用\"， 即 401 在此处是**该次具体实验的结果**，我把它归纳为判据时用了\"检查签名生成，不是只数头个数\" —— 这是对**排查方向**的修正（从\"数头\"改为\"查签名有效性\"），不是宣称\"401 恒等于签名无效\"。 §16.12.2 已注明这个限定条件，读者可据此判断适用边界。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "又只写文档。这轮的价值？",
+        "verdict": "upheld_verified",
+        "rationale": "本轮产出的是**负结果**，而负结果在这里比正结果更值钱： 它阻止了一次**会把事情改坏**的修改（改端点 → 不可达）。 同时它推进了认知：406 已排除两个假设（头不全、端点前缀），剩下的方向更明确 （须抓真实发布请求对照）。 诚实结论：在拿到对照前，继续猜的边际收益已趋零 —— 下一步必须由你授权或提供对照。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 1,
+      "upheldVerified": 2,
+      "note": "最重要的自查是 i1：承认上轮把已被自己数据否证的假设以\"嫌疑\"形式留档是错的（会被当成行动依据、且会把链改坏），本节已显式补救；教训=\"被自己数据否证的假设必须当场否证\"。i2 承认判据有限定条件。i3 说明负结果阻止了一次有害修改。"
+    },
+    "at": "2026-10-21T00:11:47.437Z"
+  }
+}

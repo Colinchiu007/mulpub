@@ -1,0 +1,59 @@
+{
+  "sha": "dad21f42c15b3eeff50d5b28689104acc0f33840",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 132 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 132,
+    "fileCount": 8,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "- **动因是我自己写下的一条假边界**：#4001 记录里我写「`main()` 无 `--root` 注入点 ⇒ 造不出\"夹具里确有阻断\"的行为态，补成行为锁须人工过目」。前半句真（取证根写死在仓库根），**后半句被本仓自己的代码否证**——既有 `端到端：真历史上一笔回填 PR 必须让 CLI 判红并点名那篇记录` 一直经 `--base-ref`/`--head-ref` spawn 真进程并断言 `rc===1`。所以本刀不是补缺口，是把\"少一个旗标\"造成的不可测消掉，并顺手删掉那条不存在的技术边界。授权：2026-10-20 用户明示「第 2、3 条授权你改判据」。",
+      "**授权来源**：2026-10-20 用户在收尾汇报上明示「第 2、3 条授权你改判据」，本 change 即其中第 3 条。改判据本体属\"谁来守门\"，无此授权不动。",
+      "- [x] 5.2 执行记录 `openspec/records/debt-cli-root-injection.md`：QM-5 五步、变异红集、`--root` 的授权来源与日期（授权是\"能不能改判据\"的唯一依据，必须留在仓内而不是只活在对话里）。 **→ 落点**。`openspec/records/debt-cli-root-injection.md`：QM-5 五步 + 变异表 + 授权来源与日期（「第 2、3 条授权你改判据」）+ 本轮三条最值钱发现（恒真断言第四形态 / `rc=1` 双成因 / validate 又窄一格）"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7cdb9c192e1fd2859cc3c0671fad4c773ee1507093fc202ea87395c55dbd7795",
+  "decidedAt": "2026-10-20T09:10:59.080Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -1029,6 +1029,24 @@ spacer（首次放行、17min 节流零请求 waitMs、越 18min 再放行、不
 - 引擎侧新增 `src/signer/browser-page-provider.js`（166 行）：bridge 由桌面装配层注入，提供 `verified` command 白名单服务；**未注入 → fail-closed「签名页未就绪」**（可降级语义），返回值必须为纯 JSON 字符串。
 - 注册表新增两个 browser-page 命令（`src/signer/index.js`）：`kuaishou.ns-sig3-browser` → `browserPageProvider.sign('kuaishou.ns-sig3', payload)`；`xiaohongshu.x-s-browser` 同构（**槽已预留，链未激活**，见 §4 F13）。
 - 本模块**零 HTTP 签名通道、零第三方外包**；旧遗留本地公式命令 `kuaishou.ns-sig3`（`local.getKuaishouSign`）**已被 S0 证伪为不可用路径**（MD5 32 位裸 hex 短于真 sig3 56 字符），仅为向后兼容留槽，**发布链不得引用**（由 `kuaishou-legacy-chain-gate.test.js` grep 门禁守：`src/adapters` + `src/publish` 对 `GetSign`/`signPorts`/`getKuaishouSignature`/`refpub` 零命中，注释行豁免）。
+
+  > **2026-10-21 收口（竞品逆向成果复用专项，PR `signer-reuse-integration`）**：
+  > 上面「仅为向后兼容留槽」的旧函数 `signer-local.getKuaishouSign` **已拆除**（函数体 +
+  > 导出面），不再是"留槽"。理由与判废证据：
+  > - 判废依据来自**真实服务端**（非推测）：无签请求被拒 `500002`，带真 sig3 请求
+  >   `result:1`；真签为 **56 字符**，该式产出 **32 位** ⇒ 结构上不等长。
+  > - **风险形态**：它零调用方，却仍挂在 `signer-local.js` 的 `module.exports` 上——
+  >   任何人 require 到它就会拿到"格式合法但语义错"的签名，让上层**误以为已具备签名能力**。
+  >   这正是"留槽"这条设计的代价，故不再留。
+  > - **替代实现**：`src/signer/kuaishou-sig3.js`（纯 JS 完整还原，与竞品 VM 对拍 10/10），
+  >   注册为 command `kuaishou.ns-sig3`，经门面 `src/signer.js#getKuaishouSignature` 消费。
+  > - **回归锁**：`test/signer-local-legacy.test.js` ① 断言 `local.getKuaishouSign === undefined`
+  >   且真签长 56；`signer-registry.test.js` 就地复算历史近似值证明二者不等
+  >   （不再依赖旧函数存在）。
+  >
+  > **连带欠账（同批修复）**：`test/signer-local.test.js` 原有 3 例仍测该函数已移除（17/17）；
+  > `scripts/run-tests.js` 曾误把两个 **node:test 风格**文件登记进 `VITEST_FILES`
+  > （报 `No test suite found`）已撤下——**登记前须先判文件是 vitest 还是 node:test**。
 - 桌面侧 `apps/desktop/electron/signer/`：`signer-page-manager.js`（域锁 + webpackChunk push 劫持抽取 + 拦截法双验证 + 限流第 4 次置 degraded）/ `signer-assembly.js`（模板占位符注入：`__MP_SIGN_CHUNK_GLOBAL__`、`__MP_SIGN_MODULE_ID__`、`__MP_SIGN_EXPORT__`、`__MP_SIGN_PAYLOAD__`，探针块名 `__mp_sig_probe__`）/ `provider.js` + `signer:invoke`/`signer:status` 白名单 IPC + preload 桥。**禁止回传函数体源码**（无 `Function.prototype.toString`/`JSON.stringify(fn)`）。
 
 ### 13.2 快手视频九步链 `src/publish/platforms/kuaishou-video.js`（409 行）

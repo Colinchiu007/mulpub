@@ -24,16 +24,33 @@ async function getDouyinSignature (_url, userAgent) {
 }
 
 /**
- * 获取快手 __NS_sig3（本地计算：MD5(api_ph | JSON(body))，api_ph 取自登录 cookie）。
+ * 获取快手 __NS_sig3（Tier-A 纯 JS 实现，2026-10 完整还原）。
  *
- * @param {string} _path   保留参数（历史通道使用，现忽略）
- * @param {object} body    发布数据
- * @param {string} [cookie] 登录 cookie（含 kuaishou.web.cp.api_ph）
- * @returns {Promise<{signature: string, __NS_sig3: string}>}
+ * sig3 的真实输入是 `md5(按 key 排序的 query 串 + JSON.stringify(body))`，
+ * 因此 **path 参与签名**（query 部分）；api_ph 本身不参与计算 ——
+ * 旧实现 `MD5(api_ph | body)` 已被 W3 spike S0 判定为结构上不等价。
+ *
+ * ⚠ **fail-closed 保留（CCG 深度评审 i4 的处置）**：
+ * 虽然 api_ph 不进入签名输入，但它标志「这是不是一个已登录的快手账号」。
+ * 缺 cookie / 缺 api_ph 时**仍然拒绝签名**，维持与旧实现相同的安全边界 ——
+ * 否则任何无凭证调用都能拿到一个"格式合法"的 56 位串，让上层误以为已具备签名能力。
+ *
+ * @param {string} path        请求路径（可带 query，会按键排序后参与签名）
+ * @param {object} body        请求体
+ * @param {string} cookie      登录 cookie（必须含 kuaishou.web.cp.api_ph）
+ * @returns {Promise<{signature: string, __NS_sig3: string}>} 56 个 hex
+ * @throws {Error} 缺 cookie 或缺 api_ph 时抛错（fail-closed，不返回空串/占位值）
  */
-async function getKuaishouSignature (_path, body, cookie) {
-  const phMatch = cookie && cookie.match(/kuaishou\.web\.cp\.api_ph=([^;]+)/)
-  const sig = await registry.sign('kuaishou.ns-sig3', { body, apiPh: phMatch ? phMatch[1] : null })
+async function getKuaishouSignature (path, body, cookie) {
+  const cookieStr = typeof cookie === 'string' ? cookie : ''
+  if (!cookieStr.trim()) {
+    throw new Error('getKuaishouSignature: missing cookie (fail-closed)')
+  }
+  const phMatch = cookieStr.match(/kuaishou\.web\.cp\.api_ph=([^;]+)/)
+  if (!phMatch || !phMatch[1].trim()) {
+    throw new Error('getKuaishouSignature: missing kuaishou.web.cp.api_ph in cookie (fail-closed)')
+  }
+  const sig = await registry.sign('kuaishou.ns-sig3', { url: path, type: 'json', params: body })
   return { signature: sig, __NS_sig3: sig }
 }
 
