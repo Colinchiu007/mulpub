@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import i18n from '@/i18n'
 import Panel from './HotkeysSettings.vue'
 import { HOTKEY_ACTION_KEYS } from '../utils/hotkey-labels.js'
+import { mainAccelerators } from '../utils/main-shortcuts-harness.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DESKTOP_ROOT = path.resolve(HERE, '..', '..')
@@ -41,9 +42,12 @@ async function flushMicrotasks (times = 6) {
  * 语言由用例显式切换 —— 断言「en 下不漏中文」时必须是真的 en 实例，
  * 否则这条锁只是在看默认语言的输出（同「夹具前提必须自己断言」）。
  */
-function mountPanel (locale = 'zh') {
+function mountPanel (locale = 'zh', isMac = false) {
   i18n.global.locale.value = locale
-  return mount(Panel, { global: { plugins: [i18n], stubs: { ElAlert: false } } })
+  // isMac **显式传入**（QM-6 i1）：不传就依赖 runner 的 navigator.platform，
+  // 于是这些断言测的其实是「这台机器是什么系统」，换 mac runner 会整片变红，
+  // 反证驱动也会以「基线不干净」退出、12 道变异全部不可归因。
+  return mount(Panel, { props: { isMac }, global: { plugins: [i18n], stubs: { ElAlert: false } } })
 }
 
 beforeEach(() => {
@@ -200,14 +204,22 @@ describe('结构锁', () => {
     expect(joined).not.toMatch(/CmdOrCtrl/)
   })
 
-  it('与主进程快捷键表逐项对齐（跨包锁：读对方源码，不复制常量）', () => {
-    const mainSrc = fs.readFileSync(path.join(DESKTOP_ROOT, 'electron/services/hotkeys.js'), 'utf8')
-    const start = mainSrc.indexOf('const SHORTCUTS')
-    expect(start).toBeGreaterThanOrEqual(0)
-    const block = mainSrc.slice(start, mainSrc.indexOf('\n}', start))
-    const accelerators = [...block.matchAll(/^\s*'([^']+)':\s*\{\s*route:/gm)].map((m) => m[1])
+  // QM-6 i2 的处置：这份解析原先与 hotkey-labels.test.js 那份**各抄一遍且已经发散**
+  //（这里没有终点锚的存在断言，也没有孤儿项方向）。两处解析一漂移，对齐锁的保护面
+  // 就只由其中一份决定，另一份变装饰 ⇒ 解析实现收敛到 main-shortcuts-harness.js 一份。
+  it('与主进程快捷键表逐项对齐（跨包锁：调 harness 单一实现，不在本文件重抄解析）', () => {
+    const accelerators = mainAccelerators()
     expect(accelerators.length, '规模下界：解析退化会让"全部有展示名"变成恒真').toBeGreaterThanOrEqual(8)
         const missing = accelerators.filter((a) => !Object.prototype.hasOwnProperty.call(HOTKEY_ACTION_KEYS, a))
     expect(missing, '新增快捷键必须同 PR 补展示名与 zh/en 文案').toEqual([])
+  })
+
+  it('宿主传 mac 档时组合键列渲染苹果符号（平台是注入变量，不是 runner 属性）', async () => {
+    window.electronAPI = { hotkeysList: vi.fn(async () => ({ code: 0, data: mainShapePayload() })) }
+    const wrapper = mountPanel('zh', true)
+    await flushMicrotasks()
+    const combos = wrapper.findAll('[data-testid="hotkeys-combo"]').map((n) => n.text())
+    expect(combos, 'mac 档必须真被组件消费（否则 i1 的注入点只是装饰）').toContain('⌘ ⌥ P')
+    expect(combos.join('|')).not.toContain('Ctrl')
   })
 })

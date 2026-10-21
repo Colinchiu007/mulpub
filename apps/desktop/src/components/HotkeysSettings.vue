@@ -56,6 +56,16 @@ import { getApi } from '@/api/electron-bridge'
 import { normalizeHotkeyList } from '@/utils/hotkey-labels.js'
 
 const { t } = useI18n()
+/**
+ * `isMac` 是**可注入的平台档**（QM-6 i1 的处置）：默认 null 表示"按宿主探测"，
+ * 测试必须显式传 `false`/`true`。原因：组件内 `detectMac()` 读 `navigator.platform`，
+ * 而用例把 `'Ctrl + Alt + P'` 写死 ⇒ 换到 mac runner 上这些断言整片变红，
+ * 反证驱动也会以「基线不干净」退出，12 道变异全部不可归因。
+ * 注入点让"平台差异"变成用例可控的变量，而不是 runner 的属性。
+ */
+const props = defineProps({
+  isMac: { type: Boolean, default: null },
+})
 const rows = ref([])
 const state = ref('loading')
 
@@ -79,7 +89,9 @@ onMounted(async () => {
       state.value = 'error'
       return
     }
-    rows.value = normalizeHotkeyList(res.data, { isMac: detectMac() })
+    rows.value = normalizeHotkeyList(res.data, {
+      isMac: props.isMac === null ? detectMac() : props.isMac,
+    })
     state.value = 'ready'
     const unmapped = rows.value.filter((row) => !row.actionKey)
     if (unmapped.length > 0) {

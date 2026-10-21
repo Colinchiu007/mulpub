@@ -121,7 +121,13 @@ hotkeys:list (IPC)
 | V9 | 全量渲染层无回归 | `vitest run src`（读数见执行记录门禁表） |
 | V10 | 反证：被禁形态必须变红 | `node scripts/hotkey-labels-contract-mutate.js`（读数见执行记录） |
 
-## 6. 反证（变异）
+## 6. 反证（14 道，全部实跑）
+
+**现场读数**（`/d/tmp/hk-driver-r6.log`，本轮唯一一次全量重跑）：
+`[BASELINE] rc=0 failed=0 errors=0 blind=false` + `[DEAD-PROBE] 全部探针可命中（标题域 49 条）`
++ `[SUMMARY] 共 14 条：CAUGHT=14 其余=0`，且无 `RESTORE_MISMATCH`。
+测量域先说清：驱动只跑 4 个测试文件（标题域 49 条），它证明的是**这些锁有无牙**，
+不证明"全量无回归"；后者由 §5 V4 的全域 `vitest run src` 单独承担。
 
 驱动：`scripts/hotkey-labels-contract-mutate.js`（判据与 1.5 的驱动同源：严格命中 +
 死探针预筛 + `[PROBE-MAP]` 逐条打印 needle→完整标题 + `finally` 还原 + 独立 md5 回读）。
@@ -140,6 +146,20 @@ hotkeys:list (IPC)
 | N10 | 列头丢 `scope` | `HotkeysSettings.vue` | scope=col 那条 |
 | N11 | 把主进程中文 `label` 当展示文案 | `hotkey-labels.js` | 逻辑面 + 组件面两条 label 锁 |
 | N12 | 设置页不再有「快捷键」入口 | `SettingsDialog.vue` | 入口存在 + 七个 Tab 计数 |
+| N13 | 组件忽略注入的 `isMac`，退回只读 `navigator.platform` | `HotkeysSettings.vue` | mac 档渲染那条 |
+| N14 | 测试文件里再抄一份跨包解析（两份实现重新发散） | `HotkeysSettings.test.js` | 跨包解析只许有 harness 一份实现 |
+
+**第三类读数问题：判定坐标与红集坐标不同源**（第五轮实测，QM-6 i7 的处置本身踩到的）：
+标题域取自 JSON reporter 的 `fullName`（形如「describe test」），而红集取自 reporter 输出的
+「file > describe > test」行 —— 前者**不是**后者的子串，于是"每条标题都要进红集"这个新判据
+一上线就把 14 道全部打成 `PARTIAL_RED`。正解是把标题域改取**叶子标题**（`a.title`），
+与被比较的那一侧同一坐标。读数：修完后 `[SUMMARY] 共 14 条：CAUGHT=14 其余=0`。
+
+**第四类：一 needle 命中多条标题时必须全红**（QM-6 i7）。`绝不进展示面` 同时是逻辑面与组件面
+两条用例的子串；旧判定「红集里存在含该 needle 的一条」即算命中，于是"声明两条、实际只红一条"
+会被读成 CAUGHT。改为按 needle 解析到的**标题全集**逐条要求。这次收紧当场抓到一处真实盲区：
+逻辑面的 label 用例只测了**已登记**那一格（`quit`），而 `item.label || rawLabel` 这种只在
+**未登记**行才显形的写法它测不到 ⇒ 补齐未登记半区（含 `normalizeHotkeyList` 出口）后两侧同红。
 
 **两条 MISSED 的现场记录（必须留下，否则下一个会话会重抄）**：
 
@@ -161,6 +181,8 @@ hotkeys:list (IPC)
    `--update-baseline` 都不是合法来源 ⇒ 本 PR 不自称"视觉无回归"，基线刷新另片走 CI artifact。
 3. 暗色档入口（单元 1.1）尚未合并，本面板不写暗色专属样式，也不声称暗色已验证。
 4. 反证驱动尚未接进 CI（与任务 #23 同批欠账）。
+5. 平台探测用的是 `navigator.platform`，该 API 已被标准侧标记 deprecated（QM-6 i1 顺带发现）。
+   换成 `navigator.userAgentData.platform` 需要异步且并非所有宿主可用，属另批取证，本批只做"平台可注入"这一步。
 
 ## 8. 质量节拍对照
 
@@ -172,3 +194,26 @@ hotkeys:list (IPC)
 - QM-4：见 §7 第 2 条，如实登记为未闭合。
 - QM-5：本批是"功能存在但不可达"缺陷的修复，逃逸链与系统性漏洞见 §1.2 与执行记录。
 - QM-6：M 级新功能，PR 提交前跑双模型评审并逐条处置。
+
+## 9. QM-6 第一轮评审处置（critic=claude / proposer=opencode，跨家族，8 条 → 7 upheld + 1 dismissed）
+
+引擎现场读数：`♻ 复用存档 critique（8 条）+ 已填完的裁决 —— 跳过模型调用`，
+`🔴 自扮演裁决判定存在阻断项 7 条`，产物状态被引擎回写为 `self_play_blocked`、`findings=8`。
+原文与裁决：`.ccg/reviews/visible-nav-*` 同仓惯例 —— 本批评审原文入库为
+`.ccg/reviews/hotkeys-settings-r1-critique.md` + `...-family-snapshot.json`
+（`.adversarial/` 是 gitignored，落在里面不构成可复核证据）。
+
+| # | 严重度 | 指控要点 | 处置落点 | 反证 |
+|---|---|---|---|---|
+| i1 | Warning | 组件用例把非 mac 期望写死，平台由 `navigator.platform` 实时探测 ⇒ 换 runner 整片红，且驱动基线门会以 rc=2 退出、14 道全部不可归因；而本批**为 mac 专门实现了展示逻辑** | `HotkeysSettings.vue` 加可注入 `isMac` prop（默认 null 才回落探测）；既有断言显式传 `false`；新增 mac 档用例。`navigator.platform` 已 deprecated 登记为遗留 | N13 |
+| i2 | Warning | 跨包解析在两个测试文件各抄一份且**已经发散**（组件侧无终点锚断言、无孤儿项方向） | 新增 `main-shortcuts-harness.js` 单一实现，两文件同调；N3 落点随之搬进 harness；并补"测试里再抄一份即红"的防复发锁 | N3 / N14 |
+| i3 | Warning | 执行记录写"组件不 import 桥接模块"，代码里 `HotkeysSettings.vue:55` 就是模块级 import ⇒ 本批正在修"说明书落后于实现"，自己又造了一处 | 记录 §四 改写为核实后的事实与本批真实边界（风险只存在于**会 mock 桥接模块**的夹具；本批组件测试不 mock） | — |
+| i4 | Warning | locale 成对判据过弱：取"第一个 `hotkeys:` 之后的整个文件"再 `toContain('leaf:')`，不要求在 `action:` 子块内、不要求值非空 | 新增 `readHotkeyActionBlock()` 只取 action 子块、取不到返回 null 并断言非 null，逐叶要求 trim 非空。**顺带抓到更硬的一格**：`indexOf` 落空返回 -1 时 `slice(-1)` 取最后一个字符 ⇒ 原先"根本没有 hotkeys 块"会被判通过 | — |
+| i5 | Warning | 对齐锁没有唯一性断言：主进程表若同一 accelerator 出现两条，去重只留首条而锁零红 | 加 `new Set(list).size === list.length` | — |
+| i6 | Info | `.gitignore` 反选可能无效（嵌套忽略/父目录被排除时 `!` 是死规则） | **dismissed，附当场否证**：`git check-ignore --no-index scripts/hotkey-labels-contract-mutate.js` rc=1；`scripts/*.js` 与反选同在根 `.gitignore`（106 行在前）；1.5 驱动已被跟踪入库是先例 | — |
+| i7 | Info | CAUGHT 判定是 needle 级：一 needle 命中两条标题时"只红一条"也报 CAUGHT | 判定改为按 needle 解析到的**标题全集**逐条要求；收紧后当场暴露逻辑面 label 用例的半区盲区并补齐 | 第五轮整体 |
+| i8 | Info | 未知 token 一律整词大写 ⇒ `MediaPlayPause → MEDIAPLAYPAUSE` | 大写只作用单字符，多字符原样；补三条用例；N5 锚点随之改写 | N5（改锚后） |
+
+**一条方法论**：i1/i4/i7 的共同形状是**判据测的是自己的拼装方式，不是被约束的行为**——
+平台档由 runner 决定、`indexOf` 落空被 `slice(-1)` 洗成"有内容"、needle 与红集不同坐标。
+处置都不是"把断言改宽"，而是把测量坐标与被约束对象对齐，再让变异去证明对齐生效。

@@ -28,6 +28,8 @@ const REPO = path.resolve(__dirname, '..')
 const DESKTOP = path.join(REPO, 'apps', 'desktop')
 const LABELS = path.join(DESKTOP, 'src', 'utils', 'hotkey-labels.test.js')
 const LABELS_SRC = path.join(DESKTOP, 'src', 'utils', 'hotkey-labels.js')
+const HARNESS = path.join(DESKTOP, 'src', 'utils', 'main-shortcuts-harness.js')
+const PANEL_TEST = path.join(DESKTOP, 'src', 'components', 'HotkeysSettings.test.js')
 const PANEL = path.join(DESKTOP, 'src', 'components', 'HotkeysSettings.vue')
 const DIALOG = path.join(DESKTOP, 'src', 'components', 'SettingsDialog.vue')
 
@@ -83,8 +85,10 @@ const MUTATIONS = [
     // 不带引号+冒号，不匹配正则）。真正有牙的是**终点锚的存在断言**，所以变异必须打在它身上：
     // 直接把 end 写成失配值，断言当场红。
     label: '对齐锁的终点锚失配（负数终点会让 slice 静默放大区间）',
-    file: LABELS,
-    from: "const end = mainSrc.indexOf('\\n}', start)",
+    // 变异落在 harness：QM-6 i2 之后解析实现只有一份（两个测试文件都调它），
+    // 所以锚点守卫的存在性也只能测在那一份上。harness 里失配即 throw ⇒ 调用它的用例当场红。
+    file: HARNESS,
+    from: "const end = text.indexOf('\\n}', start)",
     to: 'const end = -1',
     expect: ['判据通路自证'],
   },
@@ -101,7 +105,7 @@ const MUTATIONS = [
     id: 'N5',
     label: 'formatAccelerator 丢掉它不认识的 token',
     file: LABELS_SRC,
-    from: "      return t.toUpperCase()",
+    from: "      return t.length === 1 ? t.toUpperCase() : t",
     to: "      return \"\"",
     expect: ["保持字母大写"],
   },
@@ -161,6 +165,25 @@ const MUTATIONS = [
     from: "    { key: 'hotkeys', label: t('settings.tabHotkeys'), icon: Key, disabled: false },",
     to: "",
     expect: ["导航里有「快捷键」", "渲染七个 Tab"],
+  },
+  {
+    // QM-6 i1 的注入点本身被反证：把组件改回「只信宿主探测、忽略注入」，
+    // 那么 mac 档用例必须在 Windows runner 上红 —— 否则那个 prop 只是装饰。
+    id: 'N13',
+    label: '组件忽略注入的 isMac，退回只读 navigator.platform',
+    file: PANEL,
+    from: "      isMac: props.isMac === null ? detectMac() : props.isMac,",
+    to: "      isMac: detectMac(),",
+    expect: ['宿主传 mac 档时组合键列渲染苹果符号'],
+  },
+  {
+    // QM-6 i2 的防复发格：在组件测试里重新内联一份主进程表解析 ⇒ 防重复锁必须点名。
+    id: 'N14',
+    label: '测试文件里再抄一份跨包解析（两份实现重新发散）',
+    file: PANEL_TEST,
+    from: "    const accelerators = mainAccelerators()",
+    to: "    const mainSrc = fs.readFileSync(path.join(DESKTOP_ROOT, 'electron/services/hotkeys.js'), 'utf8')\n    const start = mainSrc.indexOf('const SHORTCUTS')\n    const accelerators = start > 0 ? mainAccelerators() : []",
+    expect: ['跨包解析只许有 harness 一份实现'],
   },
 ]
 function parseVitest (out) {
@@ -227,7 +250,11 @@ function collectTitles () {
   const titles = []
   for (const f of parsed.testResults || []) {
     for (const a of f.assertionResults || []) {
-      const name = String(a.fullName || a.title || '').trim()
+      // 取**叶子标题**（a.title）而不是 fullName：红集来自默认 reporter 的
+      // 「file > describe > test」行，fullName（「describe test」）不是它的子串 ⇒
+      // 按 fullName 判「每条标题都进红集」会让所有变异一起变 PARTIAL_RED（实测）。
+      // 坐标必须与被比较的那一侧同源，否则测的是探针拼装方式而不是锁有没有牙。
+      const name = String(a.title || '').trim()
       if (name) titles.push(name)
     }
   }
@@ -322,19 +349,29 @@ function main () {
       console.log(`[${mu.id}] PROBE_BLIND :: ${mu.label}`)
       continue
     }
-    const matched = mu.expect.filter((needle) => run.failed.some((n) => n.includes(needle)))
+    // QM-6 i7 的处置：needle 是标题的**子串**，一个 needle 可能解析到多条用例标题
+    // （实测 N11 的『绝不进展示面』同时命中逻辑面与组件面两条）。
+    // 旧判定「红集里存在含该 needle 的一条」即算命中 ⇒「声明两条都该红、实际只红一条」
+    // 会被读成 CAUGHT，与 spec 声称的「必须命中全部声明的预期探针」语义不符。
+    // 现在先把 needle 展开成它解析到的**标题全集**，逐条要求出现在红集里。
+    const silent = []
+    for (const needle of mu.expect) {
+      for (const title of domain.titles.filter((t) => t.includes(needle))) {
+        if (!run.failed.some((n) => n.includes(title))) silent.push(needle + ' -> ' + title)
+      }
+    }
+    const matched = mu.expect.length - new Set(silent.map((s) => s.split(' -> ')[0])).size
     const unexpected = run.failed.filter((n) => !mu.expect.some((needle) => n.includes(needle)))
     // 零条具名红 + Errors>0 = 套件被未处理错误打断，不能读成"锁没牙"（MISSED），
     // 也不能读成"锁有牙"（CAUGHT）：单列 RUN_UNCLEAN，按驱动不可归因处理。
-    // 严格判据（评审 i3）：CAUGHT 要求**每一条**预期探针都命中。
-    // "≥1 命中即过"会把"只打红一条、其余声明的锁在变异下沉默"读成锁有牙。
+    // 严格判据（评审 i3 + i7）：CAUGHT 要求声明的每条探针**所解析到的每条用例标题**都进红集。
     const verdict = run.failed.length === 0
       ? (run.errorCount > 0 ? 'RUN_UNCLEAN' : 'MISSED')
-      : (matched.length < mu.expect.length ? 'PARTIAL_RED' : 'CAUGHT')
-    rows.push({ id: mu.id, verdict, red: run.failed.length, matched: matched.length, unexpected: unexpected.length })
+      : (silent.length ? 'PARTIAL_RED' : 'CAUGHT')
+    rows.push({ id: mu.id, verdict, red: run.failed.length, matched, unexpected: unexpected.length })
     console.log(
-      `[${mu.id}] ${verdict} :: ${mu.label} — 红 ${run.failed.length} 条（探针命中 ${matched.length}/${mu.expect.length}）` +
-      (verdict === 'PARTIAL_RED' ? `；沉默的声明：${mu.expect.filter((n) => !matched.includes(n)).join(' / ')}` : '') +
+      `[${mu.id}] ${verdict} :: ${mu.label} — 红 ${run.failed.length} 条（探针命中 ${matched}/${mu.expect.length}，按标题全集判）` +
+      (verdict === 'PARTIAL_RED' ? `；沉默的标题：${silent.join(' / ')}` : '') +
       (unexpected.length ? `；非预期红 ${unexpected.length} 条` : ''),
     )
     if (verdict !== 'CAUGHT' && !keepGoing) {

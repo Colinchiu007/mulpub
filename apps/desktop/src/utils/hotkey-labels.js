@@ -68,7 +68,10 @@ export function formatAccelerator (accelerator, opts = {}) {
       const lower = t.toLowerCase()
       if (table[lower]) return table[lower]
       if (NAMED_KEYS[lower]) return NAMED_KEYS[lower]
-      return t.toUpperCase()
+      // 未知 token 一律保留，绝不丢弃。**大写只作用于单字符**（字母/数字键）：
+      // 把整词大写会让 `MediaPlayPause` 变成 `MEDIAPLAYPAUSE`、`PrintScreen` 变成全大写，
+      // 那是给展示面漏出含糊文本（QM-6 i8）。多字符 token 原样返回，读起来仍是宿主声明的名字。
+      return t.length === 1 ? t.toUpperCase() : t
     })
   if (!tokens.length) return ''
   if (isMac) {

@@ -36,10 +36,11 @@
 
 ## 4. 反证（变异）
 
-- [x] 4.1 新增 `scripts/hotkey-labels-contract-mutate.js`（严格命中 + 死探针预筛 + `finally` 还原 + md5 回读）
-- [x] 4.2 实跑（`/d/tmp/hk-driver-r2.log`）：`[BASELINE] rc=0 failed=0 errors=0 blind=false`、`[DEAD-PROBE] 全部探针可命中（标题域 45 条）`、`[SUMMARY] 共 12 条：CAUGHT=12 其余=0`，rc=0，无 `RESTORE_MISMATCH`。首轮曾两条 MISSED（N3 打在 `slice` 表达式 / N6 的 mac 输入本就是规范序），各自修在锁上后整表重跑（`[BASELINE]` / `[DEAD-PROBE]` / `[SUMMARY]`），期望全部 CAUGHT
-- [ ] 4.3 至少覆盖：对齐锁退回单向、终点锚退回负数 slice、`data-mapped` 恒真、
-      空列表吞掉 error/unavailable、未登记项被丢弃、`formatAccelerator` 丢掉未知 token
+- [x] 4.1 新增 `scripts/hotkey-labels-contract-mutate.js`（判据与 1.5 驱动同源：严格命中按**标题全集**、死探针预筛 + `[PROBE-MAP]` 逐条打印 needle→完整标题、`finally` 还原 + md5 回读；`.gitignore` 第 8 次踩 `scripts/*.js` 默认忽略，已补 `!` 反选并用 `git check-ignore --no-index` 当场验证 rc=1）
+- [x] 4.2 实跑（`/d/tmp/hk-driver-r6.log`）：`[BASELINE] rc=0 failed=0 errors=0 blind=false`、`[DEAD-PROBE] 全部探针可命中（标题域 49 条）`、`[SUMMARY] 共 14 条：CAUGHT=14 其余=0`，无 `RESTORE_MISMATCH`。三轮过程的债都记在 PRD §6：首轮 12 道里两条 MISSED（N3 打在 `slice` 而牙在锚点断言 / N6 的 mac 输入本就是规范序）修在锁上；QM-6 处置追加 N13/N14；第五轮另修了判定坐标本身（标题域取 `fullName` 与红集不同源，一上线把 14 道全打成 PARTIAL_RED）
+- [x] 4.3 实际覆盖 14 道：漏登记 / 孤儿项 / 终点锚失配 / 未登记项被丢弃 / 未知 token 被丢 /
+      mac 不排序 / `data-mapped` 恒真 / 失败吞成空列表 / 无桥不成态 / 列头丢 `scope` /
+      消费主进程中文 label / 去掉入口 Tab / 忽略注入的平台档 / 测试里再抄一份跨包解析
 
 ## 5. 验证与文档
 
@@ -48,8 +49,8 @@
 - [x] 5.3 QM-1：`verify-worktree-deps.js` OK（11 项解析到当前 worktree）→ `pnpm run build:dir`（vite 16.74s + electron-builder `--dir`）成功 → 打包产物 `Multi-Publish.exe` 以隔离 `--user-data-dir` 启动，**8 秒内存活 + stderr 为空**（三层判据第 ③ 层）。动因：本批更正了 `electron/services/hotkeys.js` 的文件头注释（原列 6 条且含一条已不存在的 `Ctrl+Alt+M`）：改过 `electron/services/hotkeys.js`（注释）⇒ 本地打包验证
 - [x] 5.4 `01-docs/PRD-HOTKEYS-SETTINGS-2026-10-21.md` 已落（交互/数据校验/显示项/提示文字/降级矩阵）
 - [x] 5.5 审计文档 1.6 行改 🟡 + 文末「阶段 1.6 落地记录」+ audit-10 那条总述补"已接线" 状态更新 + 落地记录
-- [x] 5.6 执行记录已落（含 `| 远程同步 |` 表格行）（含 `| 远程同步 |` 表格行）
-- [ ] 5.7 QM-6 双模型评审与逐条处置
+- [x] 5.6 执行记录已落（含 `| 远程同步 |` 表格行）
+- [x] 5.7 QM-6：判定 DUAL，claude(critic) + opencode(proposer) 跨家族出 8 条 → 7 upheld（全部落地，并追加反证 N13/N14）+ 1 dismissed（附当场否证）；引擎回写 `self_play_blocked` —— 只要有条目被判 upheld，自扮演出口在机械上就拿不到闭合态，故本 PR 不自动合并，需真外部复核或人工（任务 #19）
 - [ ] 5.8 PR + CI + 合并后回读 main push
 
 ## 6. 遗留（不假装已闭合）

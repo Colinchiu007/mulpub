@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mainAccelerators, readHotkeyActionBlock } from './main-shortcuts-harness.js'
 import {
   formatAccelerator,
   hotkeyActionKey,
@@ -42,6 +43,13 @@ describe('formatAccelerator —— 按平台写成用户看得懂的组合键', 
     expect(formatAccelerator('CmdOrCtrl+Shift+K', { isMac: false })).toBe('Ctrl + Shift + K')
     expect(formatAccelerator('Command+I', { isMac: true })).toBe('⌘ I')
     expect(formatAccelerator('Control+O', { isMac: false })).toBe('Ctrl + O')
+  })
+
+  it('未知 token：单字符大写（字母键），多字符原样保留（QM-6 i8）', () => {
+    expect(formatAccelerator('CmdOrCtrl+Alt+P', { isMac: false })).toBe('Ctrl + Alt + P')
+    expect(formatAccelerator('MediaPlayPause', { isMac: false })).toBe('MediaPlayPause')
+    expect(formatAccelerator('Shift+PrintScreen', { isMac: false })).toBe('Shift + PrintScreen')
+    expect(formatAccelerator('PrintScreen', { isMac: false })).not.toBe('PRINTSCREEN')
   })
 
   it('非字符串 / 空串 / 单项时不抛错', () => {
@@ -127,6 +135,13 @@ describe('hotkeyActionKey —— 展示名的键化与「不编名字」回显',
     const r = hotkeyActionKey({ accelerator: 'CmdOrCtrl+Alt+Q', route: '__quit__', label: '退出' })
     expect(r.rawLabel).toBeNull()
     expect(r.key).toBe('settings.hotkeys.action.quit')
+    // **未登记那一格也必须守住**：label 优先的写法（`item.label || rawLabel`）只在未登记行才显形，
+    // 只测已登记行等于给这条契约留了一半盲区（反证 N11 实测：组件层红、逻辑层沉默）。
+    const u = hotkeyActionKey({ accelerator: 'CmdOrCtrl+Alt+Z', route: '/brand-new', label: '未来的东西' })
+    expect(u.key).toBeNull()
+    expect(u.rawLabel).toBe('/brand-new')
+    expect(normalizeHotkeyList([{ accelerator: 'CmdOrCtrl+Alt+Z', route: '/brand-new', label: '未来的东西' }])[0].rawLabel)
+      .toBe('/brand-new')
   })
 })
 
@@ -137,20 +152,13 @@ describe('跨包对齐锁：electron/services/hotkeys.js 的每一项都必须�
   // cwd 锚点会被"从哪个目录起跑"改变结论（本仓同类锁实测过一次整片静默漏扫），
   // 因此一律从本文件自身位置往上定位 apps/desktop。
   const DESKTOP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
-  const mainSrc = fs.readFileSync(
-    path.resolve(DESKTOP_ROOT, 'electron/services/hotkeys.js'),
-    'utf8',
-  )
 
+  // 解析实现只有一份（main-shortcuts-harness.js，QM-6 i2）：本文件与组件测试都调它。
+  // 两个锚点的存在断言也一并搬进去 —— 变异 N3 现在打在 harness 的终点锚上。
   function acceleratorsFromMain () {
-    const start = mainSrc.indexOf('const SHORTCUTS')
-    expect(start, '主进程快捷键表锚点必须在（否则本锁会因解析退化而恒通过）').toBeGreaterThanOrEqual(0)
+    return mainAccelerators()
     // 终点锚必须**先断言存在**：indexOf 落空返回 -1，而 slice(start, -1) 把负数解释成
     // 「从末尾倒数」⇒ 区间静默放大到接近整份文件，守卫继续绿却不再测量它声称的那张表。
-    const end = mainSrc.indexOf('\n}', start)
-    expect(end, '主进程快捷键表闭合锚点必须在（终点失配时 slice 会把负数当「到末尾」）').toBeGreaterThanOrEqual(0)
-    const block = mainSrc.slice(start, end)
-    return [...block.matchAll(/^\s*'([^']+)':\s*\{\s*route:/gm)].map((m) => m[1])
   }
 
   it('判据通路自证：确实从主进程源码里取到了快捷键表', () => {
@@ -161,6 +169,9 @@ describe('跨包对齐锁：electron/services/hotkeys.js 的每一项都必须�
 
   it('主进程每一项都有展示键，且展示映射没有多余项（双向对齐）', () => {
     const list = acceleratorsFromMain()
+    // QM-6 i5：同一 accelerator 在主进程表里出现两次时，normalizeHotkeyList 的 seen 去重
+    // 会静默吞掉第二条，而 hasOwnProperty 判据对它完全免疫 ⇒ 必须在这里出声。
+    expect(new Set(list).size, '主进程表出现重复 accelerator：面板只会显示第一条').toBe(list.length)
     const missing = list.filter((a) => !Object.prototype.hasOwnProperty.call(HOTKEY_ACTION_KEYS, a))
     const extra = Object.keys(HOTKEY_ACTION_KEYS).filter((a) => !list.includes(a))
     expect(missing, '新增快捷键必须同 PR 补 locales 展示键（zh/en 成对）').toEqual([])
@@ -174,16 +185,63 @@ describe('跨包对齐锁：electron/services/hotkeys.js 的每一项都必须�
     expect(r.key, '哨兵值必须有键').toBe('settings.hotkeys.action.quit')
   })
 
-  it('每个展示键在 zh 与 en 两份 locales 里都成对存在（Gate 7 对拆分文件失明，这里自带判据）', () => {
-    const wanted = Object.values(HOTKEY_ACTION_KEYS).map((k) => `settings.hotkeys.action.${k}`)
+  it('每个展示键在 zh 与 en 的 action 子块里成对存在且值非空（Gate 7 对拆分文件失明，这里自带判据）', () => {
+    const wanted = Object.values(HOTKEY_ACTION_KEYS)
     for (const file of ['src/locales/settings/zh.js', 'src/locales/settings/en.js']) {
       const src = fs.readFileSync(path.resolve(DESKTOP_ROOT, file), 'utf8')
-      const block = src.slice(src.indexOf('hotkeys:'))
-      expect(block.length > 0, `${file} 必须有 settings.hotkeys 块`).toBe(true)
-      for (const k of wanted) {
-        const leaf = k.split('.').pop()
-        expect(block, `${file} 缺 settings.hotkeys.action.${leaf}`).toContain(`${leaf}:`)
+      // QM-6 i4 的处置。旧判据两处都不可信：
+      // ① `src.slice(src.indexOf('hotkeys:'))` —— indexOf 落空返回 -1，而 slice(-1) 取**最后一个字符**，
+      //    于是 `block.length > 0` 恒真，"这个文件根本没有 hotkeys 块"被判成通过；
+      // ② 在"第一个 hotkeys: 之后的整个文件"里 toContain('leaf:')，既不要求在 `action:` 子块内，
+      //    也不要求值非空 —— `home: ''` 会通过，而界面渲染出的正是空动作单元格。
+      const action = readHotkeyActionBlock(src)
+      expect(action, `${file} 必须有 settings.hotkeys.action 子块（取不到即 null，不得当空对象放行）`).not.toBeNull()
+      for (const leaf of wanted) {
+        expect(Object.prototype.hasOwnProperty.call(action, leaf), `${file} 缺 action.${leaf}`).toBe(true)
+        expect(String(action[leaf]).trim(), `${file} 的 action.${leaf} 不得为空（界面会出现空单元格）`).not.toBe('')
       }
     }
+  })
+
+  it('跨包解析只许有 harness 一份实现（测试文件里再抄一份即红）', () => {
+    // QM-6 i2 的**防复发**那一半：把解析搬进 harness 只解决"此刻"，
+    // 下一个会话完全可能"顺手在测试里再写一遍 indexOf('const SHORTCUTS')"，
+    // 于是两份实现重新发散 —— 而这正是本批被评审命中的原始缺陷形态。
+    const dup = []
+    // 判据只看**代码行**：解释"这条锁在防什么"的注释里必然会引用被禁字面量本身，
+    // 按整文件匹配会把守卫自己的说明判成违规（本仓同型坑已复发多次）。
+    const codeOnly = (src) => src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    // 第二道自指防护：判据字符串本身**不能整串出现在代码行里**，否则本文件自己就成了自己的 offender
+    // （实测第一次修只解决注释半区，代码里的字面量仍被扫到）。拆开拼，扫描域与本文件互不相干。
+    const NEEDLE = "indexOf('const " + "SHORTCUTS')"
+    const walk = (dir) => {
+      for (const name of fs.readdirSync(dir)) {
+        const full = path.join(dir, name)
+        const st = fs.statSync(full)
+        if (st.isDirectory()) walk(full)
+        else if (/\.test\.js$/.test(name) && codeOnly(fs.readFileSync(full, 'utf8')).includes(NEEDLE)) {
+          dup.push(path.relative(DESKTOP_ROOT, full))
+        }
+      }
+    }
+    walk(path.resolve(DESKTOP_ROOT, 'src'))
+    expect(dup, '测试文件里出现了第二份主进程表解析：必须改调 main-shortcuts-harness.js').toEqual([])
+  })
+
+  it('harness 只被测试 import，生产代码不得引它（它读 electron/ 源码，渲染包里没有 fs）', () => {
+    const offenders = []
+    const walk = (dir) => {
+      for (const name of fs.readdirSync(dir)) {
+        const full = path.join(dir, name)
+        const st = fs.statSync(full)
+        if (st.isDirectory()) walk(full)
+        else if (/\.(vue|js)$/.test(name) && !/\.(test|spec)\.js$/.test(name) && !name.endsWith('main-shortcuts-harness.js')
+          && fs.readFileSync(full, 'utf8').includes('main-shortcuts-harness')) {
+          offenders.push(path.relative(DESKTOP_ROOT, full))
+        }
+      }
+    }
+    walk(path.resolve(DESKTOP_ROOT, 'src'))
+    expect(offenders, '生产代码 import 了只给测试用的 harness').toEqual([])
   })
 })
