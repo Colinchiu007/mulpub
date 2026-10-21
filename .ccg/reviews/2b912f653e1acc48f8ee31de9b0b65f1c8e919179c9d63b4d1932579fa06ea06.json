@@ -1,0 +1,61 @@
+{
+  "sha": "c5087351dc4746996844a43cb5ec02088550d21f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 479 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 479,
+    "fileCount": 9,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 32,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "- [ ] 3.3 授权出口：本次差量**新增**的 `scripts/hot-carrier-write-authorization.json`，核对 `applies_to_base` 与实际 merge-base；base 已存在该文件 MUST NOT 生效（沿用 dedup 授权那条已验证形态，避免常驻通行证）",
+      "- [ ] 3.6 本机实跑：`node scripts/check-no-hot-carrier-edit.js --base=origin/main --head=HEAD` 对**当前这个 PR 自己**跑一次——本刀改了 CHANGELOG 吗？没有 ⇒ 应 PASS；若有 ⇒ 走授权出口并如实写理由",
+      "- [x] 3.3 授权出口 ⇒ 只认本次差量 `status=A` 的 `scripts/hot-carrier-write-authorization.json`，`applies_to_base` 须逐字等于实际 merge-base，`authorizedPaths` 须逐个覆盖命中项；用例 `T5`(放行)/`T5b`(路径未覆盖→拒)/`T6`+`T6b`+`T6c`(常驻证→拒)/`T7`(坐标不符→拒)，变异 MC/MD/MH 分别指名 T6c/T7/T5b"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2b912f653e1acc48f8ee31de9b0b65f1c8e919179c9d63b4d1932579fa06ea06",
+  "decidedAt": "2026-10-21T02:30:26.017Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

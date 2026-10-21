@@ -518,6 +518,28 @@ jobs:
             exit 1
           }
 
+      # --- Gate 2b9：热写面禁改门禁（change: changelog-record-carrier 片3）---
+      # 拦的是「PR 改 CHANGELOG.md / 01-docs/learnings.md 顶部」这一形状：多 PR 并发时它们结构上
+      # 必撞（实测 4/4 个可判定的 CONFLICTING PR 冲突文件只有这两个），CI 全绿也合不进去。
+      # 编 2b9：2b2–2b8 已被占（#3724 合入后 `Gate 2b5 - CCG evidence anchor` 也在用），同号会撞名。
+      # 落点必须是 changes 作业（无 job 级 if）：台账与记录路径全在 docs-only 白名单里，
+      # 接在会被短路的 job 里等于给自己关掉校验（AGENTS「进白名单的前提锁」，同 Gate 2b2/2b8 口径）。
+      # 本步骤先跑 **advisory**：在飞 PR 绝大多数已按旧规改了台账，一上来就阻断会把它们全判红，
+      # 而那不是它们的错。档位由判据自己在首行打印（MODE=advisory），不由这里猜。
+      # ⚠ advisory 只留痕不判定 ⇒「QG Changes 绿」不等于「热写面已守住」；转 enforce 的前置条件
+      #   写在 openspec/changes/changelog-record-carrier/tasks.md 4.3（当场重取的在飞冲突数清零）。
+      - name: "Gate 2b9 - Hot-carrier edit gate (changes job, advisory)"
+        shell: bash
+        env:
+          CL_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test scripts/check-no-hot-carrier-edit.test.js
+          # base 取 merge-base（不是 PR base sha，也不是 origin/main）—— 同 Gate 2c3 实测过的口径：
+          # 直接拿 main tip 会把别人在我上次同步之后并入的台账行算成"我改了台账"。
+          BASE_REF="${CL_BASE:-HEAD^}"
+          MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
+          node scripts/check-no-hot-carrier-edit.js --base="${MB:-$BASE_REF}" --head=HEAD --mode=advisory
+
   static-gates:
     name: QG Static
     runs-on: windows-latest

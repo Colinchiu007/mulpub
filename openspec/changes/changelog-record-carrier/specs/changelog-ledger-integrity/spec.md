@@ -2,6 +2,34 @@
 
 ## ADDED Requirements
 
+### Requirement: 热写面清单与共享根热点载体清单 MUST NOT 合并成一份
+
+仓库里另有一份既存的"热点载体"清单（change `hot-carrier-atomic-landing` 的 `scripts/hot-carrier-paths.json`，规格已合入、实现未做）。它的 D4 明确把 `AGENTS.md`、`CHANGELOG.md`、`01-docs/learnings.md` **移出**其清单，理由是「没有量过它们在回填链里是否真的构成窗口」，且重进的前提是「由窗口读数先量到」。
+
+本 Requirement 下的清单是**另一个机制的输入**，两者量的是不同的东西，MUST NOT 被"顺手统一"成一份：
+
+| | `hot-carrier-paths.json`（既存 change） | 本判据的热写面清单 |
+| --- | --- | --- |
+| 防的失效 | 共享根里热点文件的**未提交窗口**（同机并发会话互踩工作树） | 跨 worktree 的 **PR 差量冲突**（`mergeable=CONFLICTING`、CI 绿也合不进） |
+| 观测面 | 常驻写守卫的 `violations.jsonl` 时长 | `git merge-tree` 的冲突文件清单与 PR `mergeable` 状态 |
+| 现场读数 | 未量（故 D4 撤下那三项） | 实测 4/4 可判定的 CONFLICTING PR 冲突文件只有这两个；最近 30 笔 main 提交 20 笔动台账 |
+
+D4 那句"撤下"的**适用域是它自己的机制**，不构成对本判据的否证；反之本判据的读数也**不满足** D4 为 `hot-carrier-paths.json` 设定的重进前提（那是另一种读数）。两份清单各自一处实现、各自带锁，MUST NOT 出现"改一处另一处跟着漂"。
+
+`hot-carrier-atomic-landing` 还有一条 Requirement「热点写面消失时，本机制必须一并退场」——本 change 若最终消除了这两个写面，退场判据归那一侧，MUST NOT 由本 change 顺手删它的东西。
+
+#### Scenario: 合并两份清单必须被其中一方的锁拒绝
+
+- **WHEN** 有人把 `CHANGELOG.md` / `01-docs/learnings.md` 加进 `scripts/hot-carrier-paths.json`，理由是"那边也有热写面"
+- **THEN** `hot-carrier-atomic-landing` 自己那条"清单恰为两项 + 这三项不在清单内"的锁 MUST 判红（它的判据未被本 change 削弱，也不得被本 change 的读数当证据）
+- **AND** 本判据 MUST NOT 因此变化 —— 它读的是自己那份 `HOT_CARRIERS`，两把锁各自独立成立
+
+#### Scenario: 本判据命中不得被读成另一机制的窗口证据
+
+- **WHEN** `Gate 2b9` 对某个 PR 报 `HOT_CARRIER_EDIT CHANGELOG.md`
+- **THEN** 该读数 MUST NOT 被当作 `hot-carrier-atomic-landing` D4 所要求的"共享根未提交窗口超时"读数（那是另一个观测面的量），MUST NOT 据此把那三项加进它的清单
+- **AND** 若要推进 D4 的重进条件，MUST 由常驻守卫的窗口读数单独取证，并记在它自己的 change 里
+
 ### Requirement: 台账 MUST 只由聚合器写入，业务 PR 手改即点名
 
 `CHANGELOG.md` 与 `01-docs/learnings.md` 的写入者 MUST 只有一个：`scripts/aggregate-changelog.js`。任何 PR 的差量（`merge-base..head`）里出现这两个文件 MUST 被点名。
