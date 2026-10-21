@@ -80,7 +80,10 @@ if (!hasSingleInstanceLock) {
   // 这是根因级的一刀：之后创建的窗口都不再自带这行菜单；
   // 主窗口另有窗口级兜底（window.js 的 removeWindowMenuBar）。
   // macOS 保留原生菜单（见 services/native-menu.js 的平台策略）。
-  removeApplicationMenu({ Menu })
+  // 留痕（QM-6 外部评审 i5）：菜单没被移除只是「不好看」而不是「起不来」，
+  // 但静默失败会让它无从排查——Electron 升级后 API 变了吗？平台策略命中了吗？日志能答。
+  const nativeMenuRemoval = removeApplicationMenu({ Menu })
+  log.info('App', 'Native application menu removal: ' + nativeMenuRemoval.reason)
   // 同步初始化基础设施（DI 容器消费 + taskQueue 接线 + 基础设施构建）
   const context = createAppContext()
 

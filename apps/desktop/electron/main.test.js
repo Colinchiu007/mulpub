@@ -36,6 +36,7 @@ const mockRunWhenReady = vi.fn(function () { return Promise.resolve() })
 const mockCreateWindow = vi.fn()
 const mockRegisterShutdownHandlers = vi.fn()
 const mockLogError = vi.fn()
+const mockLogInfo = vi.fn()
 
 __registerMock('./bootstrap', {
   createAppContext: mockCreateAppContext,
@@ -43,7 +44,7 @@ __registerMock('./bootstrap', {
 })
 __registerMock('./window', { createWindow: mockCreateWindow })
 __registerMock('./shutdown', { registerShutdownHandlers: mockRegisterShutdownHandlers })
-__registerMock('./services/logger', { error: mockLogError, info: vi.fn() })
+__registerMock('./services/logger', { error: mockLogError, info: mockLogInfo })
 
 // ─── 加载 main.js（应在 mock 注册后） ──────────────────
 // main.js 顶层会执行 createAppContext() + registerShutdownHandlers() + runWhenReady()
@@ -176,6 +177,15 @@ describe('main.js — QM-3 启动测试', () => {
     expect(
       __electronMock.Menu.setApplicationMenu.mock.invocationCallOrder[0],
     ).toBeLessThan(mockRunWhenReady.mock.invocationCallOrder[0])
+  })
+
+  // QM-6 外部评审 i5（Info，采纳并已修）：菜单没被移除只是「不好看」而非「起不来」，
+  // 静默失败会让它无从排查 ⇒ 必须留下一条可诊断的日志。
+  it('菜单移除结果被记录到日志（失败时能查出原因）', () => {
+    expect(mockLogInfo).toHaveBeenCalledWith(
+      'App',
+      expect.stringContaining('Native application menu removal: '),
+    )
   })
 
 

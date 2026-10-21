@@ -1,0 +1,63 @@
+{
+  "sha": "6bb1aca9f37d713a456db72be2118fc125dc3b53",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 17 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 17,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "- **修复**：新增 `apps/desktop/electron/services/native-menu.js` 作单一真源，分两级移除：① **全局** `Menu.setApplicationMenu(null)` 移除默认菜单**模板**（根因级，之后创建的窗口不再自带这行）；② **窗口** 主窗 `autoHideMenuBar: true` + `win.setMenu(null)`，把「这个窗口没有菜单栏」钉死在窗口自己身上——将来即便有人再调 `setApplicationMenu` 装了个菜单，主窗口也不会重新长出这行，按 Alt 也唤不回。两级缺一不可：只做全局，窗口若先于菜单设置创建仍会带菜单；只做窗口，其它窗口（登录窗、授权窗）仍会带菜单。",
+      "**为什么两级缺一不可**：只做全局 ⇒ 窗口若先于菜单设置创建，仍会带默认菜单；只做窗口 ⇒ 其它窗口（登录窗 / 授权窗）仍会带菜单。",
+      "| i3 | Warning | 测试运行时读 `electron.d.ts`，与 `node_modules` 物理布局强耦合，易意外跳过或失败 | **dismissed（否证；经外部复核）** | 被引擎按正文「**签名**断言」四字误标进 `crypto` 高危域（本改动与密码学无关）⇒ 触发外部复核：由**外部后端 claude** 只读独立复核（allowedTools 仅 Read/Grep/Glob，未改任何文件），公开凭据 **PR #4181 评论**（读了 native-menu.test.js / startup-compat.test.js / native-menu.js / quality-gate.yml）。复核结论 dismissed，取证与本片一致：① 同仓已有**完全同形**先例 `startup-compat.test.js`；② CI 的 `unit-tests` 与 `desktop-shards` 作业都有 `node scripts/ensure-electron.js` ⇒ `.d.ts` 在 CI 上必然存在，这条锁**真跑不是真跳过**；③ 读不到时是**显式 skip**（报告标 skipped），非静默吞掉；④ **原建议的静态 mock 化会把锁变成恒真装饰**（检查复制内容与复制内容一致）。**唯一真实弱点**：`.d.ts` 缺失时是静默 skip 而非红 ⇒ 登记为已知技术债，**不改代码** |"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"rationale\": \"本条被评审引擎标进 `crypto` 高危域（触发原因是正文出现「**签名**断言」四字被高危域标签器误命中，本改动与密码学无关），按规则高危域争议项不允许自扮演豁免 ⇒ 已由**外部后端 claude** 独立复核（只读会话，allowedTools 仅 Read/Grep/Glob，未改任何文件；实际读了 native-menu.test.js、startup-compat.test.js、native-menu.js、quality-gate.yml）。外部结论：**dismissed**，并给出与上述辩护一致的四条取证（同仓同形先例、CI 有 ensure-electron 保证执行、skip 是显式可见的、原建议会把锁改成装饰）。复核方同时确认了本条唯一的真实弱点：`.d.ts` 缺失时是**静默 skip 而非红**。据此采纳其处置：**不改代码，登记为已知技术债**（见执行记录 §5 与 §6），不引入「静态 mock 化」这种削弱约束的修法。\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7cfef7baff91e882744c853cb68046e773e9e92b9057d67b0f898e7ae301f4a3",
+  "decidedAt": "2026-10-21T12:08:45.835Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
