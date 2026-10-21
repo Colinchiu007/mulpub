@@ -95,6 +95,26 @@
 
 ## learnings
 
+### lesson: 本地验证域必须与 CI 判据同口径，否则「本地全绿」只是没跑到那一条
+
+**现场**：PR #4197 的 CI Gate 11（`cd apps/desktop && pnpm exec eslint electron/ src/ --quiet`）报
+`useTheme.test.js:8 Parsing error: Identifier 'THEME_KEY' has already been declared` ——
+新增「从 `useTheme` 导入 THEME_KEY/MIRROR_KEY/THEME_PREFERENCES」时，文件顶部原有的同名本地常量没删。
+本地当时是「改动文件逐个 lint + 相关 vitest」，全绿。修于 `4cf184c70`。
+
+**根因**：验证域取的是「我改过哪些文件」，而 CI 取的是「整个 `src/` 与 `electron/`」。
+一个文件里**两处**各自正确、合起来不合法的缺陷（重复声明、未使用导入、模板与 emit 不配对），
+只在聚合口径下才显形 —— 单文件 lint 恰好看不见"这个文件里有两份真源"。
+
+**可复用的 N 条**：
+
+1. 只要一个 PR 动过 `apps/desktop/**`，本地收尾命令就得写成 CI 那条的**同一条**
+   （`pnpm exec eslint electron/ src/ --quiet`），而不是"我改的文件们"。
+   同族先例：AGENTS.md「改被多文件消费的模块，验证范围取消费者并集而不是我改过的文件」。
+2. 「本地全绿」这句话必须连着**跑了什么**一起说；只说结论就是在给自己造装饰性证据。
+3. 加导入时顺手搜一遍同名本地常量（`grep -n "^const THEME_KEY" 该文件`）：
+   把常量搬进导入语句是一次**删除本地常量**的动作，不是纯粹新增。
+
 ### lesson: 变异落在未被执行的分支上时，红数=0 不是锁没牙
 
 **现场**：`theme-entry-contract-mutate.js` 的 M6 第一版写成 `readFailed ? currentMirror() : raw`，目标用例走的是**成功读回**路径 ⇒ 红数=0。改把变异落在该路径真会读到的位置（`normalizeThemePreference(currentMirror())`）后立刻 CAUGHT。同一次里 M7 红了另外三条而没红目标那条，根因是目标用例依赖了跨用例存活的单例状态。
