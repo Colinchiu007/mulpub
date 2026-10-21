@@ -10,11 +10,11 @@ jobs:
     name: Unit tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: windows-latest
     needs: [changes]
-    if: needs.changes.outputs.docs-only != 'true'
+    if: needs.changes.outputs.docs-only != 'true' && github.event_name != 'pull_request'
     strategy:
       fail-fast: false          # 任一片失败都要跑完其余片，否则拿不到「哪几片红了」
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4]    # 恰 4 片（片数变少会抬高均值上界 ⇒ 反向判据会漏）
     steps: checkout → pnpm → node → install → restore runtimes →
            verify electron checksum → install electron runtime →
            build preload bundles → unit tests (--shard=i/N) →
@@ -59,8 +59,15 @@ matrix 作业的 check 名恒带后缀（`electron-tests-shards (1)`），**无�
 3. **再按负载放大留余量**：整轮在 runner 负载下曾整轮跑不完（elapsed 撞 2100s 墙）⇒
    负载放大系数 = 撞墙时长 ÷ 健康时长。单片最坏耗时 ≈ 整轮最坏 ÷ N，
    单片预算必须**高于**它，否则分片只是把墙均分，红的位置没变。
-4. **反向判据**：单片预算 **严格低于**被替换的旧整轮墙 1200s ⇒ 「单片墙更矮 + 每片工作量 1/N」
-   才是分片；「数字变大」是抬预算。结构锁用 `expect(budgetSeconds).toBeLessThan(20 * 60)` 钉住这条。
+4. **反向判据**：单片预算必须**低于它取代的那个数**（现行整轮预算 2100s）**且**低于原始魔数 1200s
+   ⇒ 「单片墙更矮 + 每片工作量 1/N」才是分片；「数字变大」是抬预算。
+   ⚠️ 三个数必须分清（CCG 第 2 轮 i3：混用会削弱论证的可验证性）：
+   - **1200s** = *原始* `timeout(1)` 魔数（`--kill-after=30s 20m`，#1913/#1906 时代，早已废弃）
+   - **2100s** = *现行*整轮预算（本次分片把它换成"单片预算"，所以单片墙必须比它小）
+   - **1759s** = 整轮*当前实测*（2026-10-21 main push 两次成功运行的 `elapsed=` 自证行）
+   结构锁对这三个数分别断言（`toBeLessThan(currentWholeRoundBudgetSeconds)` /
+   `toBeLessThan(measuredWholeRoundSeconds)` / `toBeLessThan(originalMagicWallSeconds)`），
+   并另钉 `toBeLessThanOrEqual(1100)` 防将来被一路抬高。
 
 ## 3. 成本
 

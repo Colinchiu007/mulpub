@@ -50,10 +50,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-2f8211bb\\adjudication.json",
+    "note": "裁决尚未填写：3/3 条未定（i1, i2, i3）",
+    "at": "2026-10-21T17:53:37.355Z"
   }
 }

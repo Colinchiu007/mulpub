@@ -155,9 +155,9 @@ jobs:
       #   整轮实测 1678s~1759s（2026-10-21 main push 两次成功运行的 `elapsed=` 自证行）
       #   ÷ 4 片 ⇒ 单片健康 ≈ 440s；同样负载下的整轮最坏 ≥2100s ⇒ 单片最坏 ≈ 525s
       #   1100s ⇒ 对单片健康 2.5×、对单片最坏 2.1× 余量
-      # 且**严格低于被替换的旧整轮墙 1200s**（不是抬预算的包装）。
-      # ⚠️ 这三个数字的出处与换算规则见 docs/electron-ci-step-budget-baseline.md；
-      #    改预算必须先补一次**步骤级实测**（读 `elapsed=` 行），再改锁里的常量。
+      # 且 1100s **低于**它取代的现行整轮预算 2100s（不是抬预算的包装）、低于原始魔数 1200s、
+      # 低于整轮实测 1759s。三个数各自的身份见 docs/electron-ci-step-budget-baseline.md。
+      # ⚠️ 改预算必须先补一次**步骤级实测**（读 `elapsed=` 行），再改锁里的常量。
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
         if: github.event_name != 'pull_request'
         run: |

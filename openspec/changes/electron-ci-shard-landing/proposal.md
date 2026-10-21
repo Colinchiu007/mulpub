@@ -33,7 +33,7 @@
 |---|------|------|
 | C3 | 整轮单测拆成 **N 片 matrix**（`electron-tests-shards`），`--shard=<i>/<N>`，保留 `--maxWorkers=1 --no-file-parallelism`（确定性语义不变） | `.github/workflows/electron-ci.yml` |
 | C4 | 保留 `electron-tests` 这个 **required context**：作业 id 保持 `electron-tests`、check 名保持 `electron-tests`，并让它 `needs` 分片作业、**任一片失败即失败** | 同上 |
-| C5 | 单片预算挂**单片实测**（由当前整轮实测 ÷ 片数换算，并按负载放大留余量），且**严格低于被替换的旧整轮墙 1200s** | 同上 + `docs/electron-ci-step-budget-baseline.md` |
+| C5 | 单片预算挂**单片实测**（由当前整轮实测 ÷ 片数换算，并按负载放大留余量），且**低于**它取代的现行整轮预算 2100s（原始魔数 1200s 也一并低于） | 同上 + `docs/electron-ci-step-budget-baseline.md` |
 | C6 | 结构性锁同步：既有两条按 `workflow.jobs['electron-tests']` 定位单测步的锁改指分片作业；新增「汇入作业必须在、且必须叫 `electron-tests`」「matrix 作业不得叫同一个名字」「分片数与单片预算的关系」三条锁 | `apps/desktop/tests/gui-ci-exit-contract.test.js`、`.github/scripts/workflow-contract.test.js` |
 
 ## 关键约束（上一轮卡死的地方）
@@ -62,4 +62,4 @@ matrix 会把作业报成 `electron-tests (1)` / `(2)` / … ⇒ **`electron-tes
 - ❌ 不改 `quality-gate.yml` 的 `desktop-shards`（PR 侧那套分片）——本刀只改 main push 的整轮。
 - ❌ 不改单测的确定性参数（`--maxWorkers=1 --no-file-parallelism --reporter=verbose` 全保留）：
   「main 侧第二次独立运行」的 flake 检出原意不丢。
-- ❌ 不用「把预算抬到更大」冒充分片：单片墙必须**低于**被替换的旧整轮墙 1200s。
+- ❌ 不用「把预算抬到更大」冒充分片：单片墙必须**低于**它取代的现行整轮预算 2100s（原始魔数 1200s 亦然）。

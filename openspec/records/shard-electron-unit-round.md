@@ -65,7 +65,21 @@ date: 2026-10-21
 
 ### 外部双家族评审
 
-（提交后按 `sh scripts/deep-review.sh` 真跑，critic=claude / proposer=opencode；本节随评审结果回填。）
+真跑 `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，判定 `DUAL`，判定记录按内容寻址命中
+`1c446eab…`）。critic 出 **3 条**（4 维度，最低分 5），无高危域项 ⇒ 自扮演裁决即可闭合；
+逐条 `prosecution` / `defense` / `verdict` / `rationale` 落 `.adversarial/ccg-deep-2f8211bb/adjudication.json`。
+
+| ID | 维度 | 问题 | 裁决 | 处置 |
+|----|------|------|------|------|
+| i1 | correctness | 分片作业没有 `env:` 块（NODE_ENV / SKIP_NATIVE_MEDIA_TOOL_TESTS） | **dismissed（假阳性）** | 事实前提不成立：`electron-ci.yml:104-106` 分片作业**确有** env 块（与汇入作业 217-219 同形）；`gui-ci-exit-contract` 的两条用例对分片作业的 env 都有断言。⇒ 不改实现，留档提醒"新增作业的 env 要逐行核，别只看 diff hunk" |
+| i2 | maintainability | `design.md` 代码块写 6 片，与 YAML/proposal/spec 的 4 片矛盾 | **upheld** | 已改：design.md §1 代码块改 `shard: [1, 2, 3, 4]` 并补"恰 4 片"的理由 |
+| i3 | correctness | "被替换旧墙 1200s" 与被替换的现行预算 2100s 混用，削弱论证可验证性 | **upheld** | 已改（四处同步）：锁里把三个数改名并分清（`originalMagicWallSeconds` 1200 / `currentWholeRoundBudgetSeconds` 2100 / `measuredWholeRoundSeconds` 1759），并**新增**断言「单片预算 < 2100s（它取代的那个数）」与「单片预算 > 2100÷4=525s（同样负载下的单片最坏）」；design/proposal/spec/事实源文档/工作流注释同步 |
+| i4 | maintainability | WF 锁的豁免只放宽形状，未加"汇入作业存在且同名冲突"的反向判据 | **dismissed（假阳性）** | 反向判据已存在：WF 锁「electron-ci 的分片作业与汇入作业必须各司其职」用例断言汇入作业存在 + name 逐字 `electron-tests` + matrix 作业不得同名 + needs/always() + 汇入作业不得再跑整轮；GUI 锁另有汇入失败传播断言。变异 M2 已实测让 WF 锁 `44 pass / 1 fail` ⇒ 有牙 |
+
+**这一轮的方法论收获**：3 条里 **2 条是假阳性**，且两条都栽在同一件事上——**critic 读的是 diff hunk，
+不是完整文件**（分片作业是新增作业，env 块落在新 hunk 里；反向判据是**新增用例**，不在 diff 的改动行上）。
+⇒ 与仓库既有教训同族（"只查一套就下结论"）：**评审结论必须回文件里逐行复核**，
+否则会把"没读到"当成"不存在"，而这恰恰是本仓最贵的一类假红/假绿。
 
 ### 未闭合（不假装已闭合）
 

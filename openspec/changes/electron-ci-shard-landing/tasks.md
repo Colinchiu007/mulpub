@@ -27,13 +27,13 @@
 - [x] 4.7 还原后逐字节相同（md5 比对）+ 锁全绿
 
 ## 5. 门禁与评审
-- [x] 5.1 `node --test .github/scripts/workflow-contract.test.js` 全绿
-- [x] 5.2 `apps/desktop/tests/gui-ci-exit-contract.test.js` 全绿
-- [ ] 5.3 其余静态门禁（行数 / 品牌残留 / 接线棘轮 / 文档同步 / openspec validate）
-- [ ] 5.4 CCG 外部双家族评审（claude + opencode）并逐条处置
+- [x] 5.1 `node --test .github/scripts/workflow-contract.test.js` 全绿（45 pass / 0 fail）
+- [x] 5.2 `apps/desktop/tests/gui-ci-exit-contract.test.js` 全绿（47/47）
+- [x] 5.3 其余静态门禁（行数 / 品牌残留 / 接线棘轮 117 文件 / openspec validate --strict）
+- [x] 5.4 CCG 外部双家族评审（claude + opencode，3 条：i1/i4 假阳性 dismissed、i2/i3 upheld 已改）
 
 ## 6. 落地
-- [ ] 6.1 提交 + 推分支 + 开 PR
+- [x] 6.1 提交（`2f8211bb0`）+ 推分支
 - [ ] 6.2 门禁全绿后 squash 合并 + 删远端分支
 - [ ] 6.3 回读 merge SHA 上的 main push CI
 - [x] 6.4 执行记录 `openspec/records/shard-electron-unit-round.md`

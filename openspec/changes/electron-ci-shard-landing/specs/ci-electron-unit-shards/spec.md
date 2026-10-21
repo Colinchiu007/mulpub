@@ -32,8 +32,8 @@ Electron CI 作业 SHALL 把 main push 上的**整轮**桌面单测（单 worker
 ### Requirement: 单片预算挂单片实测且不高于旧整轮墙
 
 单片步骤的 `timeout` 预算 SHALL 挂在**单片实测**上：整轮步骤级实测 ÷ 片数，再留负载余量。
-单片预算 SHALL **严格低于**被替换的旧整轮墙 1200s（否则是"抬预算的包装"而不是分片），
-且 SHALL 不高于整轮当前实测。
+单片预算 SHALL **低于**它取代的现行整轮预算 2100s，且 SHALL 低于原始 `timeout(1)` 魔数 1200s
+（否则是"抬预算的包装"而不是分片），且 SHALL 不高于整轮当前实测 1759s。
 
 分片作业的 job 级 `timeout-minutes` SHALL 容得下「单片预算 + 其余显式 `timeout-minutes` 之和」，
 否则"不可归因的超时"只是从 `timeout(1)` 换成 Actions 的 job killer。
@@ -41,11 +41,13 @@ Electron CI 作业 SHALL 把 main push 上的**整轮**桌面单测（单 worker
 自证块 SHALL 在 `bash -e -o pipefail` 下**真能执行**（`set +e` / `RC=${PIPESTATUS[0]}` / `set -e`），
 超时 SHALL 打印 `elapsed=` / `budget=` / `rc=` 与 `TIMEOUT_BUDGET_EXCEEDED` 诊断。
 
-#### Scenario: 单片预算按片摊薄且低于旧整轮墙
+#### Scenario: 单片预算按片摊薄且低于被取代的整轮预算
 
 - **WHEN** 读单片步的 `BUDGET_SECONDS`
 - **THEN** 它 ≥ 整轮实测（1678–1759s，取 1759）÷ 片数（4）× 2
-- **AND** 它 < 旧整轮墙 1200s
+- **AND** 它 > 现行整轮预算 2100s ÷ 片数（4）＝ 同样负载下的单片最坏
+- **AND** 它 < 现行整轮预算 2100s（它取代的就是这个数）
+- **AND** 它 < 原始魔数 1200s
 - **AND** 它 ≤ 1100（钉住现值，防止将来被一路抬高）
 
 #### Scenario: 分片作业的 job 级预算不倒挂

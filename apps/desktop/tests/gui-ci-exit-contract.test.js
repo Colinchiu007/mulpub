@@ -863,19 +863,26 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(String(failStep.if)).toMatch(/==\s*'cancelled'/);
     expect(failStep.run).toMatch(/exit 1/);
 
-    // ③ 单片预算：挂单片实测（整轮实测 ÷ 片数），且严格低于被替换的旧整轮墙 1200s
+    // ③ 单片预算：挂单片实测（整轮实测 ÷ 片数），且**低于**被它取代的整轮预算
     const unitStep = shards.steps.find(
       (step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)',
     );
     const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
     const shardCount = shards.strategy.matrix.shard.length;
-    // 整轮实测：2026-10-21 main push 两次成功运行的 `elapsed=` 自证行（1678s / 1759s）
-    const measuredWholeRoundSeconds = 1759;
-    const perShardHealthySeconds = measuredWholeRoundSeconds / shardCount; // ≈ 440s
-    const retiredWallSeconds = 20 * 60;                                  // 旧整轮墙 1200s
+    // 三个数必须分清（CCG 第 2 轮 i3：混用会削弱论证的可验证性）：
+    //   ① 1200s = **原始** timeout(1) 魔数（`--kill-after=30s 20m`，#1913/#1906 时代，早已废弃）
+    //   ② 2100s = **现行**整轮预算（本次分片把它换成"单片预算"，所以单片墙必须比它小）
+    //   ③ 1759s = 整轮**当前实测**（2026-10-21 main push 两次成功运行的 `elapsed=` 自证行）
+    const originalMagicWallSeconds = 20 * 60;          // ①
+    const currentWholeRoundBudgetSeconds = 2100;        // ②（被本次分片取代的那个数）
+    const measuredWholeRoundSeconds = 1759;             // ③
+    const perShardHealthySeconds = measuredWholeRoundSeconds / shardCount;        // ≈ 440s
+    const perShardWorstUnderLoadSeconds = currentWholeRoundBudgetSeconds / shardCount; // ≈ 525s
     expect(budgetSeconds).toBeGreaterThanOrEqual(perShardHealthySeconds * 2);
-    expect(budgetSeconds).toBeLessThan(retiredWallSeconds);              // 不是抬预算的包装
-    expect(budgetSeconds).toBeLessThan(measuredWholeRoundSeconds);       // 也不得高于整轮实测
+    expect(budgetSeconds).toBeGreaterThan(perShardWorstUnderLoadSeconds);  // 覆盖"同样负载下的单片最坏"
+    expect(budgetSeconds).toBeLessThan(currentWholeRoundBudgetSeconds);   // ②：低于它取代的整轮预算
+    expect(budgetSeconds).toBeLessThan(measuredWholeRoundSeconds);       // ③：也不得高于整轮实测
+    expect(budgetSeconds).toBeLessThan(originalMagicWallSeconds);         // ①：顺带低于原始魔数（历史门禁口径）
     expect(budgetSeconds).toBeLessThanOrEqual(1100);                     // 钉住现值，防止一路抬高
   });
 
@@ -898,16 +905,20 @@ describe('GUI/CI 工作流门禁契约', () => {
     const job = workflow.jobs['electron-tests-shards'];
     const unitStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
-    // 1) 预算挂在**单片**实测上：整轮基线先按片摊薄，再对健康单片留 2× 以上余量；
-    //    同时不得高于旧整轮墙 1200s（否则就是"抬预算的包装"而不是分片）。
+    // 1) 预算挂在**单片**实测上：整轮基线先按片摊薄，再对健康单片留 2× 以上余量。
+    //    三个数分清（CCG 第 2 轮 i3）：1200s = 原始 timeout(1) 魔数（早已废弃）；
+    //    2100s = 现行整轮预算（本次被单片预算取代）；1759s = 整轮当前实测。
     const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
     const shardCount = job.strategy.matrix.shard.length;
-    const measuredWholeRoundSeconds = 1759; // 自证行实测（整轮），不是 job 总时长
-    const retiredWallSeconds = 20 * 60;     // 旧魔数 20m
+    const originalMagicWallSeconds = 20 * 60;                              // ① 原始魔数
+    const currentWholeRoundBudgetSeconds = 2100;                            // ② 现行整轮预算（被取代）
+    const measuredWholeRoundSeconds = 1759;                                 // ③ 整轮当前实测
     const perShardHealthySeconds = measuredWholeRoundSeconds / shardCount;
-    expect(budgetSeconds).toBeGreaterThan(retiredWallSeconds / shardCount); // 覆盖"同样负载下的单片最坏"
+    expect(budgetSeconds).toBeGreaterThan(currentWholeRoundBudgetSeconds / shardCount); // 覆盖同样负载下的单片最坏
     expect(budgetSeconds).toBeGreaterThanOrEqual(perShardHealthySeconds * 2);
-    expect(budgetSeconds).toBeLessThan(retiredWallSeconds);
+    expect(budgetSeconds).toBeLessThan(currentWholeRoundBudgetSeconds);
+    expect(budgetSeconds).toBeLessThan(measuredWholeRoundSeconds);
+    expect(budgetSeconds).toBeLessThan(originalMagicWallSeconds);
     // 旧魔数不得复活（它的问题不是"比自然耗时只多 1 分钟"，而是既无实测依据、红时又不可归因）
     expect(unitStep.run).not.toMatch(/--kill-after=30s 20m/);
 
