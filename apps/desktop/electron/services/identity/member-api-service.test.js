@@ -40,6 +40,47 @@ describe('createMemberApiService', () => {
     expect(fetcher).not.toHaveBeenCalled()
   })
 
+  // —— 微信支付：带路径参数的白名单（ME_API_PREFIXES）——
+  // 前缀匹配单独用时是**路径穿越**入口：renderer 可以把 ../../admin/member/grant 拼进
+  // orderId，把 token 外泄面重新打开。所以锁两层：前缀命中 + 参数形状命中。
+  it('订单详情：合法 orderId 通过，且 URL 精确拼接（不额外编码/不解码）', async () => {
+    const { service, fetcher } = createFixture()
+    await service.request({ subject: 'sub-1', path: '/api/v1/me/orders/wpabc12345' })
+    expect(fetcher).toHaveBeenCalledWith('https://api.example.com/api/v1/me/orders/wpabc12345', expect.objectContaining({ method: 'GET' }))
+  })
+
+  it('订单详情：路径穿越与非法形状一律拒绝，且不发请求', async () => {
+    const { service, fetcher } = createFixture()
+    const bad = [
+      '/api/v1/me/orders/../../admin/member/grant',
+      '/api/v1/me/orders/..%2F..%2Fadmin',
+      '/api/v1/me/orders/wpabc12345/extra',
+      '/api/v1/me/orders/',
+      '/api/v1/me/orders/BAD-UPPER',
+      '/api/v1/me/orders/wp',
+      '/api/v1/me/orders/wpabc12345?x=1',
+    ]
+    for (const path of bad) {
+      await expect(service.request({ subject: 'sub-1', path }))
+        .rejects.toMatchObject({ code: 'MEMBER_API_PATH_NOT_ALLOWED' })
+    }
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('订单详情：方法不得越权（POST 拒绝）', async () => {
+    const { service, fetcher } = createFixture()
+    await expect(service.request({ subject: 'sub-1', path: '/api/v1/me/orders/wpabc12345', method: 'POST' }))
+      .rejects.toMatchObject({ code: 'MEMBER_API_METHOD_NOT_ALLOWED' })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('下单通道只放 POST（GET 拒绝）', async () => {
+    const { service, fetcher } = createFixture()
+    await expect(service.request({ subject: 'sub-1', path: '/api/v1/me/checkout', method: 'GET' }))
+      .rejects.toMatchObject({ code: 'MEMBER_API_METHOD_NOT_ALLOWED' })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
   it('subject 与权益会话不一致时拒绝', async () => {
     const { service, fetcher } = createFixture()
     await expect(service.request({ subject: 'sub-evil', path: '/api/v1/me/sessions' }))
