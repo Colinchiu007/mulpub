@@ -1693,15 +1693,25 @@ return { success:false, error:'publish timeout', platform:'douyin' }
 ⇒ 说明：**DOM 轨本身能成功**（10-18 有一次），但 `publish timeout` 反复出现 ⇒ 
 问题更可能是**偶发/状态相关**（如风控、页面未就绪、上传未完成即点发布），而非"DOM 轨必坏"。
 
-#### 16.19.4 下一步（有依据，不改参数盲试）
+#### 16.19.4 分轨埋点清单与落地状态
 
 要区分"API 轨失败"与"DOM 轨偶发超时"，需要**分轨埋点**：
 
-1. 在发布入口记录**实际使用的轨**（api / dom）与切换原因；
-2. API 轨失败时把**服务端返回**（status_code / message）落进历史记录；
-3. DOM 轨把"点击发布后的等待目标 URL"与"已等待时长"落进日志。
+| # | 埋点项 | 状态 | 落地处 |
+| --- | --- | --- | --- |
+| ① | 发布入口记录**实际使用的轨**与切换原因 | ✅ 已落地（`track` / `apiTrackAttempted`，PR #4155） | `rpa-view-manager.js` DOM 轨返回 |
+| ② | API 轨失败时把**服务端返回**落进历史 | ✅ 已落地（`code` 经 `attachRiskSignals` 挂 Error，`_lastApiFailure.code` 记录，PR #4150） | `rpa-view-manager.js` 降级分支 |
+| ③ | DOM 轨"点击发布后的等待目标 URL"与"已等待时长" | ⚠ **部分**：URL 已随终态 error 落入日志；**时长未单独记录**（边际递减，主动放弃） | `rpa-view-platforms.js` 既有 warn |
 
-三者落地后，一次失败即可定位到具体轨与具体原因，无需再靠终态 error 反推。
+⇒ ①②落地后，一次失败即可定位到具体轨与具体原因，无需再靠终态 error 反推。
+
+**诊断解读规则**（已写进 `packages/api-publish-engine/scripts/dy-publish-e2e.cjs` 注释）：
+
+| 读数 | 结论 |
+| --- | --- |
+| `track=dom` 且无 `apiTrackAttempted` | 根本没走 API 轨（配置/适配器问题） |
+| `track=api-then-dom` 且有 `apiTrackFailed` | API 轨失败（看其 `error` / `code`） |
+| `track=api-then-dom` 且无 `apiTrackFailed` | API 轨成功，DOM 轨超时（RPA 问题） |
 
 #### 16.19.5 顺带确认（视频号）
 
@@ -1744,7 +1754,7 @@ return { success:false, error:'publish timeout', platform:'douyin' }
 - 卡在哪一步：VOD 上传 / 封面上传 / 提交 / DOM 轨等待？
 - 应用退出是用户主动关闭，还是发布流程导致崩溃？
 
-⇒ 三者都需 §16.19.4 的埋点（本轮已落地 API 轨诊断部分，见 `api-fallback-diag`）
+⇒ 三者都需 §16.19.4 的埋点（①②**已落地**：#4150 + #4155；③部分落地）
     + 分阶段进度才能回答。**在拿到数据前不做成因结论**。
 
 #### 16.20.4 对下次复跑的要求
