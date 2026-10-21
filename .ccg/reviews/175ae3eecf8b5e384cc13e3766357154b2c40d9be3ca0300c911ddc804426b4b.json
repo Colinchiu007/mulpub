@@ -1,0 +1,64 @@
+{
+  "sha": "20000c7dbfe5b78508a6ea3c4a15cd562856c5a9",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 277 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 277,
+    "fileCount": 9,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 35,
+    "docSensitiveContentSample": [
+      "      \"suggestion\": \"Move evidence assets to external artifact storage (e.g., CI artifact URL) and keep only the manifest + 1 representative pair in repo; update .gitignore comment to reference external URL.\"",
+      "+      \"defense\": \"部分不成立。高危域标签是由关键词匹配打的（正文里出现「授权」「auth」即命中），本轮 i1/i4 的实际内容是「审计记录元数据口径」与「暗色 token 同构断言」，都不涉及加密算法或鉴权逻辑；用自扮演裁决处理它们，风险面是流程性的而非安全性的。但规则本身不区分标签来源 —— 既然引擎打了高危域，就必须按高危域走，否则这套标记就没有约束力。\",",
+      "+      \"defense\": \"本轮 diff 不引入任何鉴权或加密逻辑（全是 CSS/DOC/测试脚本），安全面仅限两处：① 巡检脚本 accept-baselines.js 用文件名拼 RegExp（第一轮 i6 已修，补了 escapeRegExp）；② 巡检脚本 curate-ui-audit-evidence.js 的文件名拼路径（不经正则，无注入面）。因此「security 6 分」评的是评审面而非产品面。\","
+    ],
+    "ccgSensitiveContentHits": 2,
+    "ccgSensitiveContentSample": [
+      "      \"i3 (Warning, security): 成立 —— 缺机器可验的取证。处置：已公开 git show --name-only HEAD 的高危面零命中 + 3124 行新增行的鉴权/加密关键字零命中两条命令，评审者可自行复现。\",",
+      "      \"i3 (Warning, security): 成立 —— 缺机器可验的取证。处置：已公开 git show --name-only HEAD 的高危面零命中 + 3124 行新增行的鉴权/加密关键字零命中两条命令，评审者可自行复现。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "175ae3eecf8b5e384cc13e3766357154b2c40d9be3ca0300c911ddc804426b4b",
+  "decidedAt": "2026-10-21T06:43:23.691Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -46,46 +46,17 @@ describe('UI 视觉巡检脚本冒烟', () => {
   })
 
   it('巡检清单覆盖 router 的全部路由（新增路由漏登记 = 红）', () => {
+    const { computeUncoveredRoutes } = require(path.join(scriptsDir, 'ui-audit-scripts.lib.js'))
     const routerSource = fs.readFileSync(routerFile, 'utf8')
-    const routerPaths = new Set()
-    for (const m of routerSource.matchAll(/path:\s*'([^']+)'/g)) {
-      routerPaths.add(m[1])
-    }
-    expect(routerPaths.size, 'router 解析失败，守卫会误判为「全部覆盖」').toBeGreaterThan(20)
-
-    const covered = new Set()
-    // 巡检清单分散在两个文件：编排入口（ui-audit-capture.js）与场景数据（ui-audit-scenes.js），
-    // 侦察脚本（ui-audit-recon.js）也带一份 —— 三处都扫，任一处漏登记即红。
-    for (const source of [
+    // 巡检清单分散在三个文件：编排入口（ui-audit-capture.js）、场景数据（ui-audit-scenes.js）、
+    // 侦察脚本（ui-audit-recon.js）—— 三处都扫，任一处漏登记即红。
+    const scriptsSource = [
       readScript('ui-audit-capture.js'),
       readScript('ui-audit-scenes.js'),
       readScript('ui-audit-recon.js'),
-    ]) {
-      for (const m of source.matchAll(/route:\s*'([^']+)'/g)) {
-        covered.add(m[1])
-      }
-    }
+    ].join('\n')
 
-    // ① 重定向**源**路由不需要单独巡检（其最终形态由目标路由的巡检覆盖）。
-    //    判据：同一个 route 对象里带 redirect 字段。
-    const redirectSources = new Set()
-    for (const m of routerSource.matchAll(/path:\s*'([^']+)'[^{}]*?redirect:\s*'([^']+)'/g)) {
-      redirectSources.add(m[1])
-    }
-
-    // ② 动态参数路由（`/board/:projectId`）由**具体实例**覆盖
-    //    （巡检清单里是 `/board/e2e-project` 这类真实可打开的地址）。
-    const matchesParamRoute = (routerPath) => {
-      const pattern = new RegExp(
-        '^' + routerPath.replace(/:[A-Za-z0-9_]+/g, '[^/]+') + '$',
-      )
-      return [...covered].some(c => pattern.test(c))
-    }
-
-    const missing = [...routerPaths].filter(p =>
-      !covered.has(p) &&
-      !redirectSources.has(p) &&
-      !matchesParamRoute(p))
+    const missing = computeUncoveredRoutes(routerSource, scriptsSource)
 
     expect(
       missing,
@@ -102,5 +73,30 @@ describe('UI 视觉巡检脚本冒烟', () => {
       expect(typeof item.area, `巡检条目 ${item.name} 缺 area（截图清单按区域分组）`).toBe('string')
       expect(item.area.length).toBeGreaterThan(0)
     }
+  })
+
+  // ---- 变异反证：守卫必须真的能红（CCG 评审 i5 建议）----
+  //
+  // 只断言「当前是绿的」不能证明这条锁有效 —— 它可能因为判据写错而恒绿。
+  // 这里把判据的**输入**换成一个假的（往 router 源里塞一条没进巡检清单的路由），
+  // 断言守卫**当场判红**并点名那条路由。
+  //
+  // 做法：不改真文件（那会污染工作区），而是把「router 源码 + 巡检清单」
+  // 这两个输入抽成纯函数，再用假输入驱动它。
+  it('变异反证：往 router 塞一条未登记路由 → 路由覆盖守卫当场判红并点名它', () => {
+    const { computeUncoveredRoutes } = require(path.join(scriptsDir, 'ui-audit-scripts.lib.js'))
+
+    // 真实输入：当前应为零漏登记
+    const real = computeUncoveredRoutes(
+      fs.readFileSync(routerFile, 'utf8'),
+      readScript('ui-audit-capture.js') + '\n' + readScript('ui-audit-scenes.js') + '\n' + readScript('ui-audit-recon.js'),
+    )
+    expect(real, '真实仓库当前存在漏登记的路由').toEqual([])
+
+    // 变异输入：router 多一条 `/__mutation-probe`，巡检清单里没有
+    const mutatedRouter = fs.readFileSync(routerFile, 'utf8')
+      .replace('const routes = [', "const routes = [\n  { path: '/__mutation-probe', name: 'MutationProbe', component: () => import('@/views/Home.vue') },")
+    const mutated = computeUncoveredRoutes(mutatedRouter, readScript('ui-audit-capture.js'))
+    expect(mutated, '守卫对未登记路由没有判红 —— 这条锁是恒真的').toContain('/__mutation-probe')
   })
 })

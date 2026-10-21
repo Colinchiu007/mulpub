@@ -74,6 +74,57 @@ status: executed
 
 见 `01-docs/UI-VISUAL-AUDIT-2026-10-20.md` §8（R1–R6）。
 
+### R6（CCG 第三轮评审追加）：两项「未实测」的诚实登记
+
+CCG 第三轮评审（critic=claude / proposer=opencode，head 与本提交一致）指出两处
+「结论对但取证不足」的地方，登记在此，**在拿到实测数据前不得宣称已解决**：
+
+| 项 | 现状 | 待办 |
+|---|---|---|
+| **毛玻璃的 GPU 开销** | 模糊半径已从 20px 降到 14px，并加了 `prefers-reduced-transparency: reduce` 守卫 | 降半径是**静态推理**（采样成本与半径正相关）下的风险降低，**不是**实测帧率结论。需在真实 Electron 窗口测滚动/加载下的帧时间 |
+| **暗色主题的像素回归** | 亮/暗双主题各 20/20 零漂移（headless Chromium） | 真实 Electron 窗口的合成器行为可能不同（毛玻璃尤其如此），需真实窗口复核 |
+
+performance 维度分**维持评审原值不上调**（correctness 3 / security 3 / performance 4 /
+maintainability 2），correctness 亦不上调。
+
+### R7（CCG 第三轮评审追加）：「新增 .adversarial SHA 对齐门禁」列为独立后续项
+
+评审建议新增一条 CI 门禁，校验 `.adversarial/` 里的 SHA 引用与 `git rev-parse HEAD` 一致。
+**本轮不实现** —— 按 AGENTS.md「改谁来守门必须人工过目」，新增门禁并接进 changes job
+属于改守门结构，不应由 agent 在功能 PR 里顺手做掉。本 PR 的处置是**消除脱节面**：
+分支压成单提交、重放残留的旧评审目录整份删除。
+
+---
+
+## 四、CCG 外部双家族评审与处置
+
+### 4.1 评审执行
+
+| 轮次 | head | 判定 | 结论 |
+|---|---|---|---|
+| 第一轮 | 重放前的提交 | DUAL | 8 条意见 → 修 7 条（i7 以取证方式判定为已消解） |
+| 第二轮 | 重放后的提交 | DUAL | 8 条意见 → 全部处置；其中 i2/i3 指出审计轨迹与 head 脱节 ⇒ 删除重放残留目录、本 PR 压成单提交 |
+| 第三轮 | 本提交 | DUAL | 8 条意见 → 全部处置；i1 质疑外部复核证据的真实性 ⇒ 补可 API 复核的公开评论 + 高危面零命中取证；i5 要求变异反证 ⇒ 已补 |
+
+**后端**：critic=`claude` 2.1.303 · proposer=`opencode` 1.18.34 · 跨家族校验三轮均通过。
+
+### 4.2 关键处置
+
+| 项 | 处置 |
+|---|---|
+| **i1/i3 外部复核证据** | PR #4124 评论 `issuecomment-6309670069` 给出三条可独立复现的机器命令：评论真实性（`gh api issues/4124/comments`）、高危面零命中（`git show --name-only HEAD \| grep <HIGH_RISK_SURFACES>`）、新增行鉴权/加密关键字零命中（3124 行全扫） |
+| **i2/i8 审计轨迹脱节** | 分支压成**单提交**；`.adversarial/` 只保留与当前 head 对齐的一轮；`.ccg/reviews/` 本 PR 只新增一条（pre-commit 按 diff 内容寻址生成，deep-review 按同一口径命中） |
+| **i4 性能** | 模糊半径已降 + 守卫已加，但**不上调 performance 分**；真实窗口帧率实测登记为 R6 |
+| **i5 变异反证** | 抽出纯函数 `ui-audit-scripts.lib.js#computeUncoveredRoutes`；用例往 router 注入假路由 `/__mutation-probe`，断言守卫当场判红并点名它（6/6 通过） |
+| **i6 证据体积** | 仓内保留 10 组 before/after（约 3.5MB）+ 177 条标注清单；全量 387 张按仓库约定留在 gitignored 目录 |
+
+### 4.3 处置后的验证
+
+- 巡检脚本冒烟 + 路由覆盖守卫 + 变异反证：**6/6**
+- 样式契约 / 骨架契约 / 令牌 / 看板守卫：**81/81**
+- 视觉基线（亮/暗双主题）：各 **20/20 零漂移**
+- 对比度审计：18 视图 **0 处**低对比度
+
 ---
 
 ## 四、CCG 外部双家族评审与处置
