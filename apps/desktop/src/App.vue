@@ -131,6 +131,7 @@ import {
 } from '@/stores/sidebar-collapse'
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
+import { useVisibleNavigation } from '@/composables/useVisibleNavigation'
 import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
 import { storeToRefs } from 'pinia'
 
@@ -140,6 +141,8 @@ const licenseStore = useLicenseStore()
 const identityStore = useIdentityStore()
 const tabStore = useTabStore()
 const { navigation, isHomeTab: isHomeTabFromStore, activeTabId } = storeToRefs(tabStore)
+// 全局快捷键与侧边栏点击共用的可见导航（UX 审计 1.5）；实现见 composable。
+const { navigateVisibly } = useVisibleNavigation({ tabStore, router, apiGetter: () => getApi() })
 // 内嵌主页壳态（+ 新标签中的独立 SPA 实例）：URL search 含 mp-home-shell=1。
 // 该实例本身就是 WebContentsView（浏览器标签），不是主窗口的 home 虚拟标签，
 // 因此按 home 壳渲染（隐藏 NavBar、显示模块导航），但不参与主窗口标签系统（见 S4）。
@@ -412,9 +415,10 @@ onMounted(() => {
 
   const api = getApi()
   if (api && api.onNavigate && !isHomeShell) {
-    unsubscribeNavigate = api.onNavigate((route) => {
-      router.push(route)
-    })
+    // UX 审计 1.5：全局快捷键必须与鼠标点侧边栏走同一段可见导航。
+    // 裸 router.push 在两种聚焦态下都看不见——停在网页标签时跳转发生在原生
+    // WebContentsView 覆盖层背后；聚焦内嵌主页实例时真正显示的是那个实例自己的路由。
+    unsubscribeNavigate = api.onNavigate((route) => navigateVisibly(route))
   }
   // 内嵌主页实例：接收主进程定向投递的侧边栏导航指令，在本实例自身 router 内跳转。
   // hash 路由导航走 did-navigate-in-page（search 含 mp-home-shell=1 不变），不会触发壳态自然结束。
