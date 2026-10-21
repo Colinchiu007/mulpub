@@ -1,0 +1,59 @@
+{
+  "sha": "c61a925e3b0ebb47e42eabdbd037d3e8fbadf75b",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1159 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1159,
+    "fileCount": 17,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T20:25:11.696Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-c61a925e\\adjudication.json",
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
+    "at": "2026-10-21T20:30:51.570Z"
+  }
+}

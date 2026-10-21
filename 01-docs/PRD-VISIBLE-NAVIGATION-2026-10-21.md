@@ -117,9 +117,27 @@ navigateVisibly(to)
 - 不新增可聚焦元素，阶段 3.6/4.4 的键盘可达与焦点环基线不变；
 - 唯一的"可观测变化"是行为本身：停在网页标签按快捷键时，TabBar 会先高亮首页标签，随后主窗口显示目标页。
 
-诊断痕迹（非用户可见，走 `console.warn`）三条，措辞沿用改造前 `MpSidebar` 的同款前缀，
-以便历史日志检索不断链：
-`[sidebar] navigate home-shell failed` / `[sidebar] switch home failed` / `[sidebar] navigate failed`。
+诊断痕迹（非用户可见，走 `console.warn`）共**六条、两个前缀**（评审 R2-i5 的更正：本节原先
+只写"三条 `[sidebar]`"，那既漏计数也让按 `[sidebar]` 前缀检索历史日志的人找不到新路径）：
+
+| 前缀 | 文案 | 触发格 | 出处 |
+|---|---|---|---|
+| `[sidebar]` | `navigate home-shell failed` | 定向 IPC 抛错 | 沿用改造前 MpSidebar 的同款措辞 |
+| `[sidebar]` | `switch home failed` | `switchToTab` 抛错 | 同上 |
+| `[sidebar]` | `navigate failed` | 主窗口 `router.push` 抛错 | 同上 |
+| `[nav]` | `ignored navigate request: target is not a route string` | 入参非字符串（附 `{ type }`） | 本批新增（评审 i1 + R2-i7 拆格） |
+| `[nav]` | `ignored navigate request: target is an empty route string` | 入参为空串 | 本批新增（R2-i7：与上一格必须可区分） |
+| `[nav]` | `no home tab; target route pushed behind the active tab overlay` | 找不到 home 标签 | 本批新增（评审 i4） |
+
+（表内实为六行——`[sidebar]` 三条 + `[nav]` 三条；原先那句"三条"是改造前的读数，本批新增的三条
+都走 `[nav]`，因为它已不再属于侧边栏组件，而是共用组合式的出口。）
+
+**前缀分工的理由**：`[sidebar]` 保留是给**既有排障习惯**让路——历史日志与告警规则按该前缀检索，
+改词等于断链；`[nav]` 是本批新路径的显式命名，检索这两条必须用 `[nav]`。
+
+还有一条必须明说的**可观测变化**（原句"唯一的可观测变化是行为本身"不成立）：鼠标路径
+（侧边栏点击）在非法/空入参时，从改造前的"静默 `return`"变成"打一条 `[nav]` 告警"。
+这是评审 i1 处置的刻意延伸——静默丢弃正是本单元要消灭的形态，两条入口同源就必须同出声。
 
 ## 4. 依赖注入口径（实现约束，非偏好）
 
@@ -147,16 +165,16 @@ navigateVisibly(to)
 | V6 | 卸载后不得有幽灵跳转（`onNavigate` 的 stop 被调用且回调不再触发） | `App.visible-navigation.test.js` | ✅ |
 | V7 | 两条入口共用同一实现；任一处再自带一份判断即红 | 3 条结构锁（扫描域排除注释行） | ✅ |
 | V8 | 10 道变异逐条指名变红 | `node scripts/visible-navigation-contract-mutate.js` | ✅ `CAUGHT=10 其余=0` |
-| V9 | 既有侧边栏/壳层用例不回归 | `vitest run src` 全量：**Test Files 405 ⇒ 2 failed / 403 passed；Tests 6421 ⇒ 2 failed / 6417 passed / 2 skipped** | ✅（两条红是 `preload index.bundle.js 已重打包`×2，读的是**非受管构建产物**，本 worktree 未跑打包步骤；归因与取证见执行记录 §二） |
-| V10 | 本批新增面自身 | 三个文件单跑：**39 passed**（组合式 25 + App 10 + 侧边栏既有 4），rc=0 且无 `Errors` 行 | ✅ |
+| V9 | 既有侧边栏/壳层用例不回归 | `vitest run src` 全量：**Test Files 405 ⇒ 2 failed / 403 passed；Tests 6432 ⇒ 2 failed / 6428 passed / 2 skipped** | ✅（两条红是 `preload index.bundle.js 已重打包`×2，读的是**非受管构建产物**，本 worktree 未跑打包步骤；归因与取证见执行记录 §二） |
+| V10 | 本批新增面自身 | 三个文件单跑：**45 passed**（组合式 31 + App 10 + 侧边栏既有 4），rc=0 且无 `Errors` 行 | ✅ |
 | V11 | 通道集合唯一性（评审 i5/i6 的派生锁） | 三条集合锁：发送方恒等于 `{electron/services/hotkeys.js}`、渲染层订阅方恒等于 `{src/App.vue}`、定向 IPC 的消费方恒等于共享实现；每条带扫描域规模下界与构建产物排除 | ✅ |
 
-## 6. 反证（14 道，全部实跑；严格判据 + 死探针预筛）
+## 6. 反证（18 道，全部实跑；严格判据 + 死探针预筛）
 
 **测量域必须先说清**（评审 i2）：驱动只跑 3 个测试文件（`useVisibleNavigation.test.js` /
-`App.visible-navigation.test.js` / `MpSidebar.sidebar-focus-nav.test.js`，共 39 条用例）。
+`App.visible-navigation.test.js` / `MpSidebar.sidebar-focus-nav.test.js`，共 45 条用例）。
 它证明的是**这些锁有无牙**，不证明「全量无回归」—— 后者由 §5 V9 的 `vitest run src`
-（405 文件 / 6421 用例）单独承担。把两者混为一谈会让「CAUGHT=14」读成它没证明的东西。
+（405 文件 / 6432 用例）单独承担。把两者混为一谈会让「CAUGHT=18」读成它没证明的东西。
 
 **两条判据（都是评审 i3 的处置，缺一就会自欺）**：
 
@@ -183,8 +201,16 @@ navigateVisibly(to)
 | M12 | 非法入参被静默丢弃（i1） | composable | 非法输入必须出声那条 | CAUGHT |
 | M13 | 侧边栏**复制**一份定向判断而不调组合式（i6） | `MpSidebar.vue` | 消费方集合锁 + 侧边栏结构锁 | CAUGHT |
 | M14 | 回调体改用「中间变量存 route 再裸 push」（i6） | `App.vue` | 取体锁 + 快捷键顺序锁 | CAUGHT |
+| M15 | 去掉连发串行化（两次快捷键并发判定「需要切回首页」）（R2-i2） | composable | 串行化那条 | CAUGHT |
+| M16 | 默认告警出口不分 arity：单实参也塞一个 `undefined`（R2-i1） | composable | 告警 arity 两条 | CAUGHT |
+| M17 | 串行化链退回**空链**：连发的第二次不等第一次收尾 | composable | 串行化那条 | CAUGHT |
+| M18 | 空串与非字符串**合并回同一条文案**（评审 R2-i7 的被禁形态本身） | composable | 两条文案必须可区分 | CAUGHT |
 
-现场读数：`[DEAD-PROBE] 全部探针可命中（标题域 39 条）` + `[SUMMARY] 共 14 条：CAUGHT=14 其余=0`，rc=0。
+现场读数（第四轮，`/d/tmp/nav-driver-r4.log`；第三轮为 17/17，第四轮加 M18 后重跑全表）：
+`[BASELINE] rc=0 failed=0 errors=0 blind=false` + `[DEAD-PROBE] 全部探针可命中（标题域 45 条）`
++ `[SUMMARY] 共 18 条：CAUGHT=18 其余=0`，rc=0。每条同时打印「红 N 条（探针命中 k/k）；非预期红 m 条」，
+其中 k 恒等于声明数（严格判据），m 是**别的路径合法被波及**的条数 —— 记录它而不认领，才不至于把
+「附带红」写成「这条锁覆盖的东西」。
 
 三条**关于反证自身**的实测更正（不写下来就会被下一个会话重抄）：
 
@@ -197,11 +223,43 @@ navigateVisibly(to)
    另外几条锁，在对应变异下**合法地保持绿** —— 它们守的是别的格子。把这些写成预期会让严格判据
    把它们变成永久 `PARTIAL_RED`；正解是把声明收窄到真覆盖的锁，并**为沉默的那条另开一条能真正
    打红它的变异**（M13/M14 就是这么来的），而不是删掉那条锁或放宽判据。
+4. **M17 的第一版是 MISSED，且红在「实现里有一行没人执行的代码」**（R2-i2 的连带发现）。
+   第一版把链尾 `queue` 的**保活 catch** 摘掉期望变红，实际零条红 —— 因为 `runNavigation` 内部
+   已把 `router.push` 的 reject 吞成 warn，`queue.then(...)` 那条链**结构上不可能 reject**，
+   那个 `.catch(() => undefined)` 是永远不会被执行的死代码。正解不是「给这条 M 换条锁」，
+   而是**把这行死代码删掉**，再把 M17 改成「链退回空链」（第二次不等待第一次），
+   于是这条变异测的才是串行化本身。留下一行「看起来在防什么、实际永不触发」的代码，
+   比留下一条抓不到的变异更糟：它会让下一个会话以为这里已有兜底。
 
 驱动另有两条不可省的口径：基线不干净（`rc≠0` / 有 failed / `Errors>0`）一律拒跑（退出码 2）；
 还原动作放 `finally`，但**自报不作数** —— 跑完逐文件 md5 回读比对，不等即退出码 4。
 
-## 7. 遗留（不假装已闭合）
+## 9. QM-6 第二轮评审处置（引擎评审 c61a925e，critic=claude / proposer=opencode，跨家族）
+
+评审引擎现场读数：产物 `.adversarial/ccg-deep-c61a925e/{critique-v1.md, adjudication.json, family-snapshot.json}`，
+`family-snapshot.json` 记录 critic/proposer 分属 anthropic / deepseek（"跨家族"这句的可复核出处）。
+**八条全部 upheld**，逐条的指控 / 辩护 / 处置见执行记录 §五 的第二轮表；这里只写三条会改变做法的判断。
+
+1. **出声了 ≠ 出声得可诊断**（i1 + i7 是同一格的两面）。
+   i1 是默认告警实现打出尾随 `undefined`，i7 是空串与非字符串共用一条自相矛盾的文案。
+   两条都不是"没有日志"，而是"日志本身不可信"。判据要从"有没有 warn"升级为
+   **"这条 warn 能不能把两种被拒原因分开"** —— 所以 M16 与 M18 各测一格，且 M18 的注入体
+   就是规则明文禁止的那个形态（合并回一条文案），不是"摘掉告警"。
+
+2. **替身挡在测量域外**（i1 的第二半）。所有用例都注入 `warn: vi.fn()`，于是生产实际使用的
+   **默认实现一次都没被求值过**。写注入型夹具时必须回头问："被注入掉的那份默认实现，
+   有没有一条用例不打桩直接调它？" 没有，那条默认分支就是无人区。
+
+3. **驱动把 cwd 钉死，会掩盖锁对 cwd 的依赖**（i6）。`spawnSync(..., {cwd: DESKTOP})` 让
+   "从别的目录起跑就整片 ENOENT"这一类缺陷在驱动里永远不可见。处置不是让驱动换 cwd
+   （那样测的就不是 CI 的真实跑法），而是**让锁自身与 cwd 无关**（`import.meta.url` 定位扫描根），
+   并补一条"把 cwd 切到盘符根仍必须成立"的用例 —— 这条用例本身就是 i6 的回归保护。
+
+第四轮判据补记（i8）：预筛处逐条打印 `[PROBE-MAP] needle → 命中的完整标题`。
+理由：探针与用例标题是纯子串耦合，"全部探针可命中"这句话原先只能靠读者相信我的坐标是新的；
+打印出来之后，它变成现场证据，重命名造成的错配在日志里一眼可读。
+
+## 10. 遗留（不假装已闭合）
 
 1. 反证驱动目前仍是**手动跑**（与 `publish-staleness-contract-mutate.js` 等三条同批欠账，任务 #23）：
    它接进 CI 需要一条不吃 30 分钟预算的落点，本批不擅自决定。

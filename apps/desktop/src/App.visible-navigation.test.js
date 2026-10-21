@@ -21,6 +21,16 @@ import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/**
+ * 判据的扫描根由**本文件自身定位**，不用 process.cwd()（评审 R2-i6）：
+ * 从仓库根以 workspace 模式跑 vitest 时 cwd 不是 apps/desktop，届时的失败读起来
+ * 像「结构锁全红」，实际是判据的坐标漂了 —— 把坐标钉在文件位置上，锁的可用域才与声明一致。
+ */
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const DESKTOP_ROOT = path.resolve(HERE, '..')
+
 
 const routerMock = vi.hoisted(() => ({
   push: vi.fn(async () => {}),
@@ -241,7 +251,7 @@ describe('App 壳层：app:navigate 必须是可见导航', () => {
 // 本单元的根因是"同一段判断被抄了两遍，其中一遍漏了"。只在行为层修 App.vue，
 // 下一次再新增入口（命令面板 / 托盘菜单）就会重演；所以把"不得有第二份"钉成结构锁。
 describe('接线锁：键盘与鼠标入口共用 useVisibleNavigation', () => {
-  const ROOT = path.resolve(process.cwd(), 'src')
+  const ROOT = path.resolve(DESKTOP_ROOT, 'src')
   const appSrc = fs.readFileSync(path.join(ROOT, 'App.vue'), 'utf8')
   const sidebarSrc = fs.readFileSync(path.join(ROOT, 'layouts', 'MpSidebar.vue'), 'utf8')
 

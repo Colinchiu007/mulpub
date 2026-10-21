@@ -17,7 +17,7 @@
 
 ## 3. 契约锁
 
-- [x] 3.1 `useVisibleNavigation.test.js` 19 条（A/B/C 三段、5 条无回执形态、抛错、缺桥、
+- [x] 3.1 `useVisibleNavigation.test.js` 31 条（A/B/C 三段、5 条无回执形态、抛错、缺桥、
       非法入参、`'/'`、装配锁、缺 `apiGetter` 不崩）
 - [x] 3.2 `App.visible-navigation.test.js` 9 条（真 tab store + 假桥；顺序账本、定向不回落、
       已在首页不重复切、卸载无幽灵跳转、3 条"两处入口共用同一实现"结构锁）
@@ -25,8 +25,8 @@
 
 ## 4. 反证
 
-- [x] 4.1 新增 `scripts/visible-navigation-contract-mutate.js`（10 条变异 + `.gitignore` 反选）
-- [x] 4.2 实跑：`[SUMMARY] 共 10 条：CAUGHT=10 其余=0`，rc=0；
+- [x] 4.1 新增 `scripts/visible-navigation-contract-mutate.js`（18 条变异 + `.gitignore` 反选）
+- [x] 4.2 实跑：`[SUMMARY] 共 18 条：CAUGHT=18 其余=0`，rc=0（第三轮；首轮为 10/10，QM-6 两轮各追加 4 条与 3 条）；
       基线 `rc=0 failed=0 errors=0`（不干净的基线一律拒跑）
 - [x] 4.3 M6 第一版（摘 `isHomeTab` 短路）实测 **零条红** → 改打 id 比较那一格才打通；
       结论写入驱动注释与 design 决策 3

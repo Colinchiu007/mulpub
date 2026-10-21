@@ -34,7 +34,9 @@ export function useVisibleNavigation ({
   tabStore,
   router,
   apiGetter,
-  warn = (msg, err) => console.warn(msg, err),
+  // 单实参调用不得在控制台留一个尾随 `undefined`（评审 R2-i1）：默认出口按arity 分叉，
+  // 而不是让每条"只有消息"的告警都长成一个带 undefined 的畸形行。
+  warn = (msg, err) => (err === undefined ? console.warn(msg) : console.warn(msg, err)),
 }) {
   /**
    * 是否已经把导航交给内嵌主页实例自己处理。
@@ -80,14 +82,7 @@ export function useVisibleNavigation ({
   /**
    * @param {string} to 目标路由（路径字符串；非法输入不动作）
    */
-  async function navigateVisibly (to) {
-    if (typeof to !== 'string' || !to) {
-      // 静默丢弃 = 本单元要消灭的形态（按了没反应、日志零痕迹）。
-      // 两条生产入口都只发字符串（hotkeys.js 的 config.route、菜单项的 item.to），
-      // 所以这里不猜"对象型描述符该怎么走"，只把不认识的输入如实登记下来。
-      warn('[nav] ignored navigate request: target is not a route string', { type: typeof to })
-      return
-    }
+  async function runNavigation (to) {
     if (await tryNavigateHomeShell(to)) return
     await ensureVisibleTab()
     try {
@@ -95,6 +90,33 @@ export function useVisibleNavigation ({
     } catch (error) {
       warn('[sidebar] navigate failed', error)
     }
+  }
+
+  // 同一实例内的连发必须串行（评审 R2-i2）：两次调用若并发跑，会各自基于**同一份**
+  // tabStore 快照判定"需要切回首页"，于是多发一次 switchToTab，且两次 push 的完成顺序
+  // 可能与输入顺序相反 —— 用户最后按的快捷键被先按那次覆盖掉。
+  let queue = Promise.resolve()
+
+  /**
+   * @param {string} to 目标路由（非法输入不动作，但会留一条告警）
+   */
+  function navigateVisibly (to) {
+    if (typeof to !== 'string') {
+      // 静默丢弃 = 本单元要消灭的形态（按了没反应、日志零痕迹）。
+      // 两条生产入口都只发字符串（hotkeys.js 的 config.route、菜单项的 item.to），
+      // 所以这里不猜"对象型描述符该怎么走"，只把不认识的输入如实登记下来。
+      warn('[nav] ignored navigate request: target is not a route string', { type: typeof to })
+      return Promise.resolve()
+    }
+    if (!to) {
+      // 与上一格**分开成文**：空串的 typeof 就是 'string'，若共用一句"不是路由字符串"，
+      // 排障者会拿到一条自我矛盾的日志（文案说不是字符串、载荷说 type=string）。
+      warn('[nav] ignored navigate request: target is an empty route string')
+      return Promise.resolve()
+    }
+    const run = queue.then(() => runNavigation(to))
+    queue = run
+    return run
   }
 
   return { navigateVisibly }

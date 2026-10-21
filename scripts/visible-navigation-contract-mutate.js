@@ -110,21 +110,31 @@ const MUTATIONS = [
   },
   {
     id: 'M7',
-    label: '顺序反转：先 push 再切回首页标签',
+    label: '顺序反转：先 push 再切回首页标签（整块换序，不多一次 push）',
     file: COMPOSABLE,
     from: [
       '    if (await tryNavigateHomeShell(to)) return',
       '    await ensureVisibleTab()',
+      '    try {',
+      '      await router.push(to)',
+      '    } catch (error) {',
+      "      warn('[sidebar] navigate failed', error)",
+      '    }',
     ].join('\n'),
     to: [
       '    if (await tryNavigateHomeShell(to)) return',
-      "    await router.push(to).catch((error) => warn('[sidebar] navigate failed', error))",
+      '    try {',
+      '      await router.push(to)',
+      '    } catch (error) {',
+      "      warn('[sidebar] navigate failed', error)",
+      '    }',
       '    await ensureVisibleTab()',
     ].join('\n'),
-    // 只声明这一条：侧边栏「先切回首页标签再导航」那条断言的是"发生了切标签"而非顺序，
-    // 反转顺序时它照样绿 —— 把它写成预期就是过度声明（M2 同款教训）。
+    // 评审 R2-i3 的处置：上一版注入体**另加**了一次 push，红因里混进了「多一次跳转」。
+    // 现在整块换序 —— 红的唯一理由就是顺序。
     expect: ['顺序不可反'],
   },
+
   {
     id: 'M14',
     label: '快捷键回调改为「先用中间变量存 route，再裸 push」（绕过字面形态匹配）',
@@ -137,8 +147,10 @@ const MUTATIONS = [
     id: 'M8',
     label: '入参判据退化为真值判空 + 误杀根路径（回首页 "/" 静默失效）',
     file: COMPOSABLE,
-    from: "if (typeof to !== 'string' || !to) {",
-    to: "if (!to || to === '/') {",
+    // 锚点取"非字符串那一格"：R2-i7 把两格拆开后，旧锚 `typeof to !== 'string' || !to` 已不存在，
+    // 沿用它会让本条变异定位失败（而定位失败必须报错，不能读成"这条没红所以锁没牙"）。
+    from: "if (typeof to !== 'string') {",
+    to: "if (typeof to !== 'string' || !to || to === '/') {",
     expect: ['根路径 "/" 必须被当作合法目标'],
   },
   {
@@ -180,6 +192,45 @@ const MUTATIONS = [
     from: 'const { navigateVisibly: onNavClick } = useVisibleNavigation({ tabStore, router, apiGetter: () => getApi() })',
     to: 'const onNavClick = async (to) => { const api = getApi(); await api.pageManager.navigateActiveHomeShell(to) }',
     expect: ['恒等于共享实现', '不得再自带一份定向导航/切标签判断（单一实现）'],
+  },
+  {
+    id: 'M15',
+    label: '去掉连发串行化：两次快捷键并发判定「需要切回首页」（评审 R2-i2）',
+    file: COMPOSABLE,
+    from: 'const run = queue.then(() => runNavigation(to))',
+    to: 'const run = runNavigation(to)',
+    expect: ['两次连发：切标签只做一次'],
+  },
+  {
+    id: 'M16',
+    label: '默认告警出口不分 arity：单实参也塞一个 undefined（评审 R2-i1）',
+    file: COMPOSABLE,
+    from: 'warn = (msg, err) => (err === undefined ? console.warn(msg) : console.warn(msg, err)),',
+    to: 'warn = (msg, err) => console.warn(msg, err),',
+    expect: ['不得往控制台塞一个尾随 undefined'],
+  },
+  {
+    id: 'M17',
+    // 与 M15 是同一个不变量的**另一处注入点**：M15 摘「链头」（不从 queue 起跳），
+    // M17 摘「链进」（每次都用已 resolve 的空链）。两格各测各的，不合并计一条。
+    // 原先这里挂的是「链尾吞 rejection」那条防护——反证跑出来零条红，
+    // 因为 runNavigation 内部已 catch 全部异常，那条防护守的是一个到不了的状态，已删。
+    label: '串行化链进退回空链：连发的第二次不等第一次收尾',
+    file: COMPOSABLE,
+    from: 'queue = run',
+    to: 'queue = Promise.resolve()',
+    expect: ['两次连发：切标签只做一次'],
+  },
+  {
+    id: 'M18',
+    // 评审 R2-i7 的形态本身：两格合并回一条文案 ⇒ 空串那条日志会自称「不是路由字符串」，
+    // 而它的 typeof 恰恰是 string。这条变异打的不是"有没有告警"（M12 已覆盖），
+    // 而是"两条被拒原因是否可区分"。
+    label: '空串与非字符串合并回同一条文案（自相矛盾的诊断痕迹复活）',
+    file: COMPOSABLE,
+    from: "warn('[nav] ignored navigate request: target is an empty route string')",
+    to: "warn('[nav] ignored navigate request: target is not a route string', { type: typeof to })",
+    expect: ['空串与非法类型必须是两条不同的文案'],
   },
 ]
 
@@ -293,9 +344,12 @@ function main () {
     return 2
   }
   const dead = []
+  const resolved = []
   for (const mu of targets) {
     for (const needle of mu.expect) {
-      if (!domain.titles.some((t) => t.includes(needle))) dead.push(`${mu.id}::${needle}`)
+      const hit = domain.titles.filter((t) => t.includes(needle))
+      if (hit.length === 0) dead.push(`${mu.id}::${needle}`)
+      else resolved.push(`${mu.id}::${needle} -> ${hit.length === 1 ? hit[0] : `[${hit.length} 条] ` + hit[0]}`)
     }
   }
   if (domain.file) fs.unlinkSync(domain.file)
@@ -303,7 +357,11 @@ function main () {
     console.log(`[DEAD-PROBE] 标题域 ${domain.titles.length} 条；探针指向不存在的用例：${dead.join(' , ')}`)
     return 2
   }
-  console.log(`[DEAD-PROBE] 全部探针可命中（标题域 ${domain.titles.length} 条）`)
+  // 评审 R2-i8：探针与标题是纯子串耦合，"全部可命中"这句读数本身必须可复核 ——
+  // 于是逐条打印 needle 解析到的**完整标题**。没有这行，读者只能相信我的坐标是新的；
+  // 有了这行，重命名造成的错配在日志里就是一眼可读的错位，而不是需要重跑一次才能发现。
+  console.log('[DEAD-PROBE] 全部探针可命中（标题域 ' + domain.titles.length + ' 条）')
+  console.log(resolved.map((r) => '  [PROBE-MAP] ' + r).join('\n'))
 
   for (const mu of targets) {
     const before = originals.get(mu.file)

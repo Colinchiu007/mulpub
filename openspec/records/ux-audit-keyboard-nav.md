@@ -1,6 +1,6 @@
 ---
 record: ux-audit-keyboard-nav
-task: UX 审计阶段 1.5（快捷键与鼠标共用一段可见导航）—— 把「该跳到哪一面」的三段判断收敛为单一 composable，App.vue 的 app:navigate 与 MpSidebar.onNavClick 同时改为消费它，并配 28 条契约锁与 10 条变异反证
+task: UX 审计阶段 1.5（快捷键与鼠标共用一段可见导航）—— 把「该跳到哪一面」的三段判断收敛为单一 composable，App.vue 的 app:navigate 与 MpSidebar.onNavClick 同时改为消费它，并配 45 条契约锁与 18 条变异反证
 date: 2026-10-21
 sync_pr: pending
 sync_status: PENDING
@@ -15,10 +15,10 @@ sync_backfill_owner: none-derived-from-trunk
 | 变更类型与隔离 | ✅ | 运行时代码变更 ⇒ 独立 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-keyboard-nav`（D 盘），分支 `ux-audit-keyboard-nav`（回读 `git rev-parse --abbrev-ref HEAD` = 该值），由 `scripts/start-mp-task.ps1 -TaskName ux-audit-keyboard-nav` 创建 |
 | 质量节拍 pre-flight | ✅ | 编辑前确认当前分支非共享根 `main`；共享根未被写入（本轮所有落盘都在 worktree 内） |
 | TDD 顺序 | ✅ | 先写 `App.visible-navigation.test.js`，实现前实测 **6 failed \| 3 passed**（三条红点名「先切回首页标签，再跳目标路由」「定向让它自己跳，主窗口隐藏路由不动」「键盘入口必须调用共享实现」），再改实现转绿 |
-| 自测（新增面） | ✅ | `vitest run src/composables/useVisibleNavigation.test.js src/App.visible-navigation.test.js src/layouts/MpSidebar.sidebar-focus-nav.test.js` → **Tests 39 passed**（组合式 25 + App 10 + 侧边栏既有 4）、无 `Errors` 行、rc=0 |
+| 自测（新增面） | ✅ | `vitest run src/composables/useVisibleNavigation.test.js src/App.visible-navigation.test.js src/layouts/MpSidebar.sidebar-focus-nav.test.js` → **Tests 45 passed**（组合式 31 + App 10 + 侧边栏既有 4）、无 `Errors` 行、rc=0 |
 | 自测（消费者并集） | ✅ | 改造前先 `git grep -l "navigateActiveHomeShell\|onNavClick"` 取并集 ⇒ `MpSidebar.sidebar-focus-nav.test.js` / `App.sidebar-collapse` / `App.dispatch-failed` / `shell-mode-6b` / `overlay-view-suspension` / `publish-tab-state-keepalive` 全部纳入验证域 |
-| 自测（全域） | ✅ | `vitest run src`（dot reporter）→ **Test Files 405：2 failed \| 403 passed；Tests 6421：2 failed \| 6417 passed \| 2 skipped**。两条红见「二、两条红的归因」 |
-| 反证（14 条） | ✅ | `node scripts/visible-navigation-contract-mutate.js` → `[BASELINE] rc=0 failed=0 errors=0 blind=false`、`[DEAD-PROBE] 全部探针可命中（标题域 39 条）`、`[SUMMARY] 共 14 条：CAUGHT=14 其余=0`，rc=0。还原后逐文件 `git diff --numstat` 与变异前**逐字相等**（App.vue 7/3、MpSidebar.vue 6/24）——不采信驱动自报 |
+| 自测（全域） | ✅ | `vitest run src`（dot reporter）→ **Test Files 405：2 failed \| 403 passed；Tests 6432：2 failed \| 6428 passed \| 2 skipped**（第四轮 i7 拆分后重跑的全域读数）。两条红见「二、两条红的归因」 |
+| 反证（18 条） | ✅ | `node scripts/visible-navigation-contract-mutate.js` → `[BASELINE] rc=0 failed=0 errors=0 blind=false`、`[DEAD-PROBE] 全部探针可命中（标题域 45 条）`、`[SUMMARY] 共 18 条：CAUGHT=18 其余=0`，rc=0。还原后逐文件 `git diff --numstat` 与变异前**逐字相等**（App.vue 7/3、MpSidebar.vue 6/24）——不采信驱动自报 |
 | 静态门禁 | ✅ | `check-locale-sync.js --cjk` → **PASS（基线 1330 条，当前 1124 条，无新增硬编码）**：本批无任何新用户可见文案 ⇒ 不改 locales（Gate 7 无触发面）；`check-no-brand-residue` → **PASS（扫描 11514 个 tracked 文件）**；`check-doc-abs-paths.js --base=origin/main` → **PASS（counts=1161 domain=562 files=561 canJudge=true）**；聚合 `eslint electron/ src/ --quiet` → **rc=0** |
 | 行尾对账 | ✅ | 五个改动文件 `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` **逐文件相等**（App.vue 7/3、MpSidebar.vue 6/24、sidebar-focus-nav 10/1、审计文档 61/1、.gitignore 4/0） |
 | QM-1 打包 | N/A | 只改 `apps/desktop/src/**`（渲染端）与 `scripts/`，未触碰 `apps/desktop/electron/**` 与 `packages/rpa-engine/**` ⇒ 打包判据不触发；`.gitignore` 反选与新增驱动均非运行时依赖 |
@@ -26,7 +26,7 @@ sync_backfill_owner: none-derived-from-trunk
 | QM-6 双模型 | 见「五、QM-6」 | 本机 CCG 判定链已跑（`ccg-review-decider` 由 pre-commit 落产物）；外部模型评审结果与处置如实登记，不伪造 `cleared` |
 | 第一性原因（QM-5 ①） | ✅ | 不是「App.vue 漏了一个 if」，而是**同一段判断被抄了两遍**：三段式只存在于 `MpSidebar.onNavClick`，`app:navigate` 回调只做裸 `router.push`。取证：改造前 `git grep -n "navigateActiveHomeShell" -- apps/desktop/src` 只命中 `MpSidebar.vue` 一个文件 |
 | 逃逸分析（QM-5 ②） | ✅ | 单元层：既有 `MpSidebar.sidebar-focus-nav.test.js` 4 条**只测鼠标侧**，壳层没有任何一条断言「快捷键也走这段判断」；集成层：`App.dispatch-failed` / `App.sidebar-collapse` 挂载 App 但不断言导航；视觉层：结构上失明（覆盖层背后的路由变化不改一个像素）；审查层：audit-1.5 是人工读模板发现的。四类原因同时命中：无测试 / 断言不精确（只测一条入口）/ 环境差异（`WebContentsView` 是原生图层）/ 审查盲区 |
-| 修复 + 回归保护（QM-5 ④） | ✅ | 单一实现 `src/composables/useVisibleNavigation.js`（A 定向 / B 切回首页标签 / C 推主窗口路由 + 三条降级纪律）；回归保护 = `useVisibleNavigation.test.js`（19 条，含装配锁与全仓调用点集合断言）+ `App.visible-navigation.test.js`（9 条，真 tab store + 假桥 + 顺序账本 + 3 条「两处入口同源」结构锁） |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 单一实现 `src/composables/useVisibleNavigation.js`（A 定向 / B 切回首页标签 / C 推主窗口路由 + 三条降级纪律）；回归保护 = `useVisibleNavigation.test.js`（31 条，含装配锁与全仓调用点集合断言）+ `App.visible-navigation.test.js`（10 条，真 tab store + 假桥 + 顺序账本 + 3 条「两处入口同源」结构锁） |
 | 防止再次发生（QM-5 ⑤） | ✅ | ① 结构锁禁止任一处再出现 `navigateActiveHomeShell` / `switchToTab(home…)` 形态（扫描域排除注释行）；② **全仓调用点集合断言** —— 新增入口未登记即红，防「下一个入口重演」；③ 反证驱动把「调用点漏传注入参数」单列一条（M3），因为该类失败在类型层与编译期都不出声；④ 方法论写入 PRD §4：在 setup 期绑定 `getApi` 会让 mock 桥接层的 3 个文件 26 条用例整片变红 —— 依赖注入的**求值时机**也是契约 |
 
 ## 一、这次到底改了什么（用户可见口径）
@@ -100,13 +100,44 @@ sync_backfill_owner: none-derived-from-trunk
 
 严格判据上线后**当场暴露 3 处过度声明**（M2/M6/M7 声明了本不该由该变异打红的锁）：
 处置是把声明收窄到真覆盖的锁，并**另开 M13/M14** 去打红那些沉默的锁 ——
-不是删锁，也不是放宽判据。最终 `共 14 条：CAUGHT=14 其余=0`（rc=0）。
+不是删锁，也不是放宽判据。**变异条数与红集一律以驱动自己的 `[BASELINE]`/`[DEAD-PROBE]`/`[SUMMARY]`
+读数为准**（本文件不写死数字：写死就是下一次漂移的开始）；首轮为 10，i5/i6 扩到 14，
+第二轮 i1/i2/i7 追加 M15–M18。本轮实跑读数登记在下表的「反证」行与门禁表里。
 
-**为什么这条 PR 现在不能自动合并**：`self_play_pending` 不在闭环白名单内，
-判据第 4 条（`check-pr-exec-record --mode=enforce` 为 OK）不满足。
-可达的闭合出口有两个，都需要人的判断或外部后端：① 让引擎在**真跨家族**（非自扮演）下收敛；
-② 由人确认这些处置足够并改写审计产物状态 —— 后者属"改谁来守门"，
-本会话**不**自己写那个字段。
+### 第二轮（引擎评审 c61a925e，critic=claude / proposer=opencode，8 条全部 upheld）
+
+产物：`.adversarial/ccg-deep-c61a925e/{critique-v1.md,adjudication.json,family-snapshot.json}`；
+
+**评审原文已入库**（`.adversarial/` 是 gitignored，落在里面就不构成可复核证据）：
+`.ccg/reviews/visible-nav-r1-critique.md` 与 `.ccg/reviews/visible-nav-r2-critique.md`，
+另有两份 `.ccg/reviews/visible-nav-r{1,2}-family-snapshot.json` —— 后者记录
+critic=claude(anthropic) / proposer=opencode(deepseek) 的跨家族归属（"跨家族"这句的现场出处）。
+
+| # | 严重度 | 指控要点 | 处置（可验证落点） | 反证 |
+|---|---|---|---|---|
+| i1 | Warning | 默认告警出口不分 arity，生产打出尾随 `undefined`；且默认实现被所有用例的 `vi.fn()` 替身挡在测量域外 | 默认值按 arity 分派 + 两条**不打桩直接调默认实现**的用例 | M16 |
+| i2 | Warning | `navigateVisibly` 无串行化：连发两次都判定"需要切回首页"，多发一次 `switchToTab` 且 push 完成顺序可与输入相反；V6/顺序账本只覆盖单次调用内部 | 同实例尾部串接 + 连发只切一次 + 后一个目标最终生效两条用例 | M15（摘链头）/ M17（链进退空链） |
+| i3 | Warning | M7 的注入体同时改变两个变量（新增一次 push + 换序），红的原因可归因到"多一次 push"而非"顺序不可反" | M7 改为整块换序，注入体 push 恰好一次 | M7 自身 |
+| i4 | Warning | tasks/record/PRD 的条数彼此矛盾（19/9/10/28 对 14/39），而这些文档的用途就是防下一会话重抄 | 全部改到当场实测读数；**文档不再写死变异条数**，一律指向驱动的 `[SUMMARY]`/`[DEAD-PROBE]` | — |
+| i5 | Warning | PRD §3.3 说"三条 `[sidebar]`"，实现是六条两前缀；鼠标路径非法入参由静默变出声是未登记的可观测变化 | §3.3 改为逐条枚举 + 前缀分工理由 + 明写该延伸 | — |
+| i6 | Warning | 结构锁/集合锁以 `process.cwd()` 定位被扫描文件，换 cwd 时六条锁一次性 ENOENT；驱动把 `spawnSync` 的 cwd 钉死掩盖了它 | 锚点改 `import.meta.url` → `DESKTOP_ROOT`，并加"chdir 到盘符根仍成立"的坐标无关用例 | — |
+| i7 | Info | 空串与非字符串共用一条文案，载荷 `{type:'string'}` 与"不是字符串"自相矛盾 | 拆两条文案 + 断言互不混用 | M18 |
+| i8 | Info | 探针与用例标题纯子串耦合，"全部可命中"这句读数无法从 diff 独立复核 | 预筛逐条打印 `[PROBE-MAP] needle → 完整标题` | — |
+
+**八条全部 upheld，没有一条被"看起来没问题"打发**；其中 i4/i5/i8 是文档与判据可读性问题，
+仍按"处置必须有落点"的要求改到文件里，不接受只在对话里承认。
+
+**关于 i7 的一条方法论**：合并两条被拒原因到一句文案，危害不是"少一条日志"，而是
+**日志自相矛盾**（载荷说 `type=string`，文案说"不是字符串"）。可诊断性的判据是"能不能区分"，
+不是"有没有出声"——这与 i1（出声了但形态错）是同一格的两面。
+
+### 为什么这条 PR 现在不能自动合并
+
+`check-pr-exec-record.js --mode=enforce` 仍读到 `.ccg/reviews/a9dd314e5….json` 的
+`deepReview.status=self_play_pending`（引擎回写值，**本会话不手工改写**）。可达的闭合出口有两个，
+都需要人的判断或外部后端：① 让引擎在**真跨家族**（非自扮演）下收敛并回写记录；
+② 由人确认这些处置足够并改写审计产物状态 —— 后者属"改谁来守门"。
+评审轮次与逐条处置已齐备（本文 §五 两轮 + PRD §8/§9），缺的只是记录状态字段的生产方回写。
 
 ## 六、遗留
 
