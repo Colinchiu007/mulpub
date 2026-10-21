@@ -77,6 +77,18 @@ describe("草稿箱 API (publisher.js)", () => {
       const result = await publisher.draftDelete("test-id");
       expect(result.code).toBe(-1);
     });
+
+    it("支持 id 数组（批量删除走同一通道，一次 IPC）", async () => {
+      window.electronAPI = {
+        draftDelete: vi.fn().mockResolvedValue({
+          code: 0,
+          data: { requested: 2, deleted: 2, remaining: 0 },
+        }),
+      };
+      const result = await publisher.draftDelete(["d1", "d2"]);
+      expect(window.electronAPI.draftDelete).toHaveBeenCalledWith(["d1", "d2"]);
+      expect(result.data).toEqual({ requested: 2, deleted: 2, remaining: 0 });
+    });
   });
 });
 

@@ -11,6 +11,14 @@ export default {
     loaded: 'Draft loaded',
     deleteFailed: 'Failed to delete draft',
     deleted: 'Draft deleted',
+    // Bulk delete (draft-batch-delete): both numbers come from the main-process
+    // receipt — never hardcode the count, entries may have been deleted elsewhere.
+    batchDeleted: 'Deleted {count} drafts',
+    batchDeletePartial: 'Deleted {deleted} drafts ({requested} selected, some no longer existed)',
+    batchDeleteConfirmTitle: 'Delete drafts',
+    batchDeleteConfirmMessage: 'Delete the {count} selected drafts? This cannot be undone.',
+    batchDeleteConfirm: 'Delete',
+    batchDeleteCancel: 'Cancel',
     scheduleConflictTitle: 'Scheduled publish vs. draft',
     scheduleConflictMessage: 'A scheduled publish time is set ({time}). A draft is a local snapshot and will NOT publish automatically at that time — scheduling only takes effect when you click "Quick Publish". Clear the schedule before saving?',
     scheduleConflictClear: 'Clear schedule & save',

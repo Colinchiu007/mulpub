@@ -22,6 +22,11 @@ export default {
     cloudAccountLimitExceeded: '当前档位不提供云端账号同步，升级后可绑定 {limit} 个',
     deviceLimitExceeded: '当前档位最多同时在 {limit} 台设备上登录',
     delete: '删除',
+    // 草稿批量删除（draft-batch-delete）
+    selectAllDrafts: '全选',
+    selectedDraftCount: '已选 {count} 份',
+    deleteSelectedDrafts: '删除选中',
+    selectDraft: '选择这份草稿',
     publishTitle: '一键发布',
     batchSubtitle: '批量编辑多篇文章，各平台独立发布',
     singleSubtitle: '编辑内容并发布到多个平台',

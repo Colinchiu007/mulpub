@@ -945,3 +945,117 @@ describe("定时任务真源结构锁（防死路径复活 / 防第二份真源�
     expect(batchSrc).toContain("'batch:cancel'")
   })
 });
+
+describe("草稿批量删除（draft-batch-delete）", () => {
+  // 契约：入参单 id 或 id 数组；数组 = 一次读写、原子；空入参 fail-closed。
+  // 另含「缺失 id 的历史草稿」迁移：这是「草稿删不掉」的结构性根因，必须有锁。
+  function mountDrafts (initialDrafts) {
+    const ipcMain = createMockIpcMain();
+    const store = createMockStore();
+    let persisted = initialDrafts;
+    store.getUserSetting.mockImplementation((key, defaultValue) =>
+      (persisted === undefined ? defaultValue : persisted));
+    store.setSetting.mockImplementation((key, value) => {
+      if (key === "drafts") persisted = value;
+    });
+    store.setUserSetting.mockImplementation((key, value) => {
+      if (key === "drafts") persisted = value;
+    });
+    const identityService = {
+      getState: vi.fn(() => ({ status: "authenticated", user: { sub: "user-a" } })),
+    };
+    registerHandlers(ipcMain, { store, identityService });
+    return {
+      ipcMain,
+      store,
+      readDrafts: () => (typeof persisted === "string" ? JSON.parse(persisted) : persisted),
+    };
+  }
+
+  it("id 数组一次删除多条并返回 deleted/remaining 回执", async () => {
+    const { ipcMain, readDrafts } = mountDrafts([{ id: "d1" }, { id: "d2" }, { id: "d3" }]);
+
+    const result = await ipcMain._callHandler("draftDelete", ["d1", "d3"]);
+
+    expect(result).toEqual({ code: 0, data: { requested: 2, deleted: 2, remaining: 1 } });
+    expect(readDrafts().map(draft => draft.id)).toEqual(["d2"]);
+  });
+
+  it("单个 id 的旧调用方式仍然可用", async () => {
+    const { ipcMain, readDrafts } = mountDrafts([{ id: "d1" }, { id: "d2" }]);
+
+    const result = await ipcMain._callHandler("draftDelete", "d1");
+
+    expect(result.code).toBe(0);
+    expect(result.data).toEqual({ requested: 1, deleted: 1, remaining: 1 });
+    expect(readDrafts().map(draft => draft.id)).toEqual(["d2"]);
+  });
+
+  it("数字 id 与字符串 id 混用也能命中（比较口径统一为字符串）", async () => {
+    const { ipcMain, readDrafts } = mountDrafts([{ id: 1 }, { id: "2" }, { id: "keep" }]);
+
+    const result = await ipcMain._callHandler("draftDelete", ["1", 2]);
+
+    expect(result.data).toEqual({ requested: 2, deleted: 2, remaining: 1 });
+    expect(readDrafts().map(draft => draft.id)).toEqual(["keep"]);
+  });
+
+  it("空数组 / undefined 一律拒绝且不写盘（不能退化成删除全部）", async () => {
+    const { ipcMain, store, readDrafts } = mountDrafts([{ id: "d1" }, { id: "d2" }]);
+
+    await expect(ipcMain._callHandler("draftDelete", [])).resolves.toMatchObject({ code: -1 });
+    await expect(ipcMain._callHandler("draftDelete", undefined)).resolves.toMatchObject({ code: -1 });
+    await expect(ipcMain._callHandler("draftDelete", ["", "   "])).resolves.toMatchObject({ code: -1 });
+
+    expect(store.setUserSetting).not.toHaveBeenCalled();
+    expect(readDrafts()).toHaveLength(2);
+  });
+
+  it("不存在的 id 返回 deleted:0 且不写盘（幂等，不伪造成功条数）", async () => {
+    const { ipcMain, store } = mountDrafts([{ id: "d1" }]);
+
+    const result = await ipcMain._callHandler("draftDelete", ["gone-1", "gone-2"]);
+
+    expect(result).toEqual({ code: 0, data: { requested: 2, deleted: 0, remaining: 1 } });
+    expect(store.setUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("draftList 给缺 id 的历史草稿补稳定 id，并只落盘一次", async () => {
+    const { ipcMain, store, readDrafts } = mountDrafts([{ title: "无 id 老草稿" }, { id: "keep", title: "有 id" }]);
+
+    const first = await ipcMain._callHandler("draftList");
+
+    expect(first.code).toBe(0);
+    expect(first.data[0].id).toMatch(/^draft_legacy_/);
+    expect(first.data[1].id).toBe("keep");
+    expect(store.setUserSetting).toHaveBeenCalledTimes(1);
+    expect(readDrafts()[0].id).toBe(first.data[0].id);
+
+    // 第二次读取沿用同一 id（迁移只发生一次），且不再写盘
+    const second = await ipcMain._callHandler("draftList");
+    expect(second.data[0].id).toBe(first.data[0].id);
+    expect(store.setUserSetting).toHaveBeenCalledTimes(1);
+  });
+
+  it("缺 id 的草稿在补 id 之后可以被批量删除（根因回归锁）", async () => {
+    const { ipcMain, readDrafts } = mountDrafts([{ title: "删不掉的老草稿" }]);
+
+    const listed = await ipcMain._callHandler("draftList");
+    const result = await ipcMain._callHandler("draftDelete", [listed.data[0].id]);
+
+    expect(result.data).toEqual({ requested: 1, deleted: 1, remaining: 0 });
+    expect(readDrafts()).toEqual([]);
+  });
+
+  it("draftSave 缺 id 时由主进程生成并回传，落库与列表一致", async () => {
+    const { ipcMain } = mountDrafts([]);
+
+    const saved = await ipcMain._callHandler("draftSave", { title: "无 id 新草稿" });
+    const listed = await ipcMain._callHandler("draftList");
+
+    expect(saved.code).toBe(0);
+    expect(saved.data.draftId).toMatch(/^draft_/);
+    expect(listed.data).toHaveLength(1);
+    expect(listed.data[0].id).toBe(saved.data.draftId);
+  });
+});

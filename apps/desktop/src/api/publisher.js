@@ -317,7 +317,12 @@ export async function draftSave(draft) { return invokeWithFallback("draftSave", 
 
 export async function draftList() { return invokeWithFallback("draftList", { code: 0, data: [] }) }
 
-export async function draftDelete(draftId) { return invokeWithFallback("draftDelete", { code: -1, message: 'electronAPI not available' }, draftId) }
+/**
+ * 删除草稿。入参可以是单个 id，也可以是 id 数组（draft-batch-delete）。
+ * 批量走同一个 IPC 通道：主进程一次读写完成，天然原子，不存在「删了一半」。
+ * 返回值 data 形如 { requested, deleted, remaining }（旧版主进程返回 true，故只判 code）。
+ */
+export async function draftDelete(draftIdOrIds) { return invokeWithFallback("draftDelete", { code: -1, message: 'electronAPI not available' }, draftIdOrIds) }
 
 // ─── 全局存储 API ─────────────────────────
 export async function storeGetSetting (key) {

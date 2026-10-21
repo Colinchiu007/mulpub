@@ -1,5 +1,5 @@
 // @ts-check
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { draftDelete, draftList, draftSave } from '@/api/publisher'
 import { formatUserError } from '@/utils/user-facing-error'
 import { normalizeRewriteLineage } from '@/utils/rewrite-lineage'
@@ -63,6 +63,42 @@ export function usePublishDrafts ({
   // 不再有页内浮层需要开关状态。原 ref 仅供浮层 v-if 使用，随浮层一并下线。
   const drafts = ref([])
   const loadingDrafts = ref(false)
+  // 批量删除（draft-batch-delete）：勾选集与删除中状态。
+  // 选中值统一存字符串（id 的历史形态有数字/字符串两种，混存会让 includes 假阴性）。
+  const selectedDraftIds = ref([])
+  const deletingDrafts = ref(false)
+
+  function draftKey (draft) {
+    if (!draft || draft.id === null || draft.id === undefined) return ''
+    return String(draft.id).trim()
+  }
+
+  const selectedDraftCount = computed(() => selectedDraftIds.value.length)
+  const allDraftsSelected = computed(() =>
+    drafts.value.length > 0 && drafts.value.every(draft => selectedDraftIds.value.includes(draftKey(draft))))
+
+  function isDraftSelected (draft) {
+    return selectedDraftIds.value.includes(draftKey(draft))
+  }
+
+  function toggleDraftSelection (draft) {
+    const key = draftKey(draft)
+    if (!key) return
+    selectedDraftIds.value = selectedDraftIds.value.includes(key)
+      ? selectedDraftIds.value.filter(id => id !== key)
+      : [...selectedDraftIds.value, key]
+  }
+
+  /** 全选 / 清空：当前已全选则清空，否则选中当前列表全部。 */
+  function toggleAllDrafts () {
+    selectedDraftIds.value = allDraftsSelected.value
+      ? []
+      : drafts.value.map(draftKey).filter(Boolean)
+  }
+
+  function clearDraftSelection () {
+    selectedDraftIds.value = []
+  }
 
   // 定时×草稿互斥守卫（P1-4，2026-10-08 发布页优化 roadmap 第一项）：
   // 本地草稿是静态快照，不会在定时时间自动触发发布——定时只在点击「一键发布」时
@@ -133,6 +169,10 @@ export function usePublishDrafts ({
         throw new Error((result && result.message) || '草稿读取失败')
       }
       drafts.value = Array.isArray(result.data) ? result.data : []
+      // 列表刷新后同步选中集：已不存在的草稿不能继续留在勾选里，
+      // 否则「删除选中」会带着幽灵 id 去请求，提示条数也对不上。
+      const existing = new Set(drafts.value.map(draftKey).filter(Boolean))
+      selectedDraftIds.value = selectedDraftIds.value.filter(id => existing.has(id))
       return drafts.value
     } catch (error) {
       drafts.value = []
@@ -171,7 +211,9 @@ export function usePublishDrafts ({
   }
 
   async function loadDraft (draftId) {
-    const draft = drafts.value.find(item => item && item.id === draftId)
+    // id 一律按字符串比：历史数据里有数字 id，`7 !== "7"` 会让「继续编辑」误报草稿不存在。
+    const wanted = draftId === null || draftId === undefined ? '' : String(draftId).trim()
+    const draft = drafts.value.find(item => item && draftKey(item) === wanted)
     if (!draft) {
       notifyError('publishDrafts.notFound', { message: t('publishDrafts.notFound') })
       return false
@@ -181,29 +223,91 @@ export function usePublishDrafts ({
     return true
   }
 
-  async function removeDraft (draftId) {
+  /**
+   * 删除一份或多份草稿（draft-batch-delete）。
+   *
+   * 单条与批量共用本函数、共用一次 IPC：批量删除若退化成循环单删，N 条就是
+   * N 次落盘 + N 次列表刷新，中途失败会留下半删状态，用户也看不懂到底删了几条。
+   * @param {string|string[]} draftIds
+   * @returns {Promise<{ ok: boolean, deleted: number, requested: number }>}
+   */
+  async function removeDrafts (draftIds) {
+    const ids = [...new Set((Array.isArray(draftIds) ? draftIds : [draftIds])
+      .map(id => (id === null || id === undefined ? '' : String(id).trim()))
+      .filter(Boolean))]
+    if (ids.length === 0) return { ok: false, deleted: 0, requested: 0 }
+    deletingDrafts.value = true
     try {
-      const result = await draftDelete(draftId)
+      const result = await draftDelete(ids)
       if (!result || result.code !== 0) {
         throw new Error((result && result.message) || t('publishDrafts.deleteFailed'))
       }
+      const deleted = typeof result.data?.deleted === 'number' ? result.data.deleted : ids.length
+      // 先摘掉已删的勾选，再刷新列表：即使刷新失败，选中集也不会留下幽灵 id。
+      selectedDraftIds.value = selectedDraftIds.value.filter(id => !ids.includes(id))
       await loadDrafts()
-      notifySuccess('publishDrafts.deleted', { message: t('publishDrafts.deleted') })
-      return true
+      if (ids.length === 1) {
+        notifySuccess('publishDrafts.deleted', { message: t('publishDrafts.deleted') })
+      } else if (deleted < ids.length) {
+        // 部分成功必须如实说（并发窗口里被别处删掉的条目会落到这里）
+        notifyWarning('publishDrafts.batchDeletePartial', {
+          message: t('publishDrafts.batchDeletePartial', { deleted, requested: ids.length }),
+        })
+      } else {
+        notifySuccess('publishDrafts.batchDeleted', {
+          message: t('publishDrafts.batchDeleted', { count: deleted }),
+        })
+      }
+      return { ok: true, deleted, requested: ids.length }
     } catch (error) {
       notifyError('publishDrafts.deleteFailed', { message: errorMessage(error, t('publishDrafts.deleteFailed')) })
-      return false
+      return { ok: false, deleted: 0, requested: ids.length }
+    } finally {
+      deletingDrafts.value = false
     }
+  }
+
+  async function removeDraft (draftId) {
+    const result = await removeDrafts([draftId])
+    return result.ok
+  }
+
+  /**
+   * 删除当前勾选的草稿。二次确认是本操作唯一的「撤销位」——草稿删除不可恢复，
+   * 批量入口一次能删掉整屏，误点的代价远高于多一次确认。
+   */
+  async function removeSelectedDrafts () {
+    const ids = [...selectedDraftIds.value]
+    if (ids.length === 0) return { ok: false, deleted: 0, requested: 0 }
+    const confirmed = await notifyConfirm('publishDrafts.batchDeleteConfirmMessage', {
+      params: { count: ids.length },
+      title: t('publishDrafts.batchDeleteConfirmTitle'),
+      confirmButtonText: t('publishDrafts.batchDeleteConfirm'),
+      cancelButtonText: t('publishDrafts.batchDeleteCancel'),
+      type: 'warning',
+    })
+    if (!confirmed) return { ok: false, deleted: 0, requested: ids.length }
+    return removeDrafts(ids)
   }
 
   return {
     drafts,
     loadingDrafts,
+    selectedDraftIds,
+    selectedDraftCount,
+    allDraftsSelected,
+    deletingDrafts,
+    isDraftSelected,
+    toggleDraftSelection,
+    toggleAllDrafts,
+    clearDraftSelection,
     buildDraftSnapshot,
     applyDraft,
     loadDrafts,
     saveDraft,
     loadDraft,
     removeDraft,
+    removeDrafts,
+    removeSelectedDrafts,
   }
 }
