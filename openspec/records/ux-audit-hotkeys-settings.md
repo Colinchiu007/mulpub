@@ -109,15 +109,24 @@ dismissed 那条（i6：`.gitignore` 反选可能是死规则）附的是**当�
 缺的是让引擎把外部复核记成 `tier=external` 的一次完整跨家族收敛），或人工判 `needs_revision`/`cleared`。
 后者属"改谁来守门"，本会话不代替人做；已并入任务 #19（现为 7 个 dual PR）。
 
-**一处必须上报的机制错配（本批已现场发生，不是推演）**：pre-commit 的 CCG 步骤把引擎回写的
-`self_play_blocked` 产物**自动 stage 进了处置提交**（`git commit` 输出里的
-`create mode .ccg/reviews/b6a78361….json` 就是现场），于是本 PR 的 `QG Changes` 会因
-"变更集内 `mode=dual` 产物状态不在闭环白名单"而判红 —— 也就是说，
-**"如实提交评审状态"的代价是把 required check 弄红，而"不提交产物"才是绿的**（不提交时变更集里
-没有 dual 产物，同一道检查报 OK；PR #4197 的 enforce 读数为 OK 就是这个原因）。
-这是**激励反向**。本批选择保留产物并接受那条红（删产物换绿灯等于拆锁），并把它写进记录与 PR 评论交人裁决：
+**一处必须上报的机制错配（本批已现场发生；判红落点按当场读数更正，不再写成推演）**：
+pre-commit 的 CCG 步骤把引擎回写的 `self_play_blocked` 产物**自动 stage 进了处置提交**
+（`git commit` 输出里的 `create mode .ccg/reviews/b6a78361….json` 就是现场）。
+我原先据此写下"本 PR 的 `QG Changes` 会判红"——**那句是拿推演当现场，已被当场读数否证**：
+`.github/workflows/quality-gate.yml:175` 那一步传的是 `--mode=advisory`，
+所以 PR 侧 `QG Changes` 实测 `COMPLETED SUCCESS`（`gh pr view 4210 --json statusCheckRollup`，2026-10-21T21:52Z 读）。
+判红发生在**另一道闸**：自动合并判据第 4 条要求的那次 enforce 跑，当场返回
+`node scripts/check-pr-exec-record.js --base=origin/main --head=HEAD --mode=enforce` → `RC=1`，
+并点名 `CCG 深度审查欠账 1 条 —— .ccg/reviews/b6a78361….json（mode=dual，status=self_play_blocked，decidedAt=2026-10-21T21:14:40.477Z）`。
+
+「激励反向」的结论**不变**，只是换了一道门：**如实提交评审状态**的代价是让 required check 之外的那道
+自动合并判据红，而**不提交产物**两处都绿（不提交时变更集里没有 dual 产物，同一道检查报 OK；
+PR #4197 的 enforce 读数为 OK 就是这个原因）。更要紧的一条：**这笔欠账在 PR 界面上是不可见的**——
+advisory 意味着任何人看这条 PR 的 checks 全绿，只有跑到自动合并第 4 条才撞见它，
+而那道门是 agent 自己跑的，不向任何评审者呈现结论。
+本批选择保留产物并接受 enforce 红（删产物换绿灯等于拆锁），并把它写进记录与 PR 评论交人裁决：
 要么给"upheld 且已修"一个机械出口（例如引擎支持 `needs_revision` 的回写路径），
-要么改闭环白名单 —— 两者都属"改谁来守门"，本会话不代做。
+要么把这条欠账做成 required check 上可见的红——两者都属"改谁来守门"，本会话不代做。
 
 ## 六、遗留
 
