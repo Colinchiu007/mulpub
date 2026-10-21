@@ -50,10 +50,70 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "删除 channelRef 读取路径会破坏历史 meta.voiceRef 数据：Object.assign 不滤键、validateChannel 不剥字段，已有配置的频道会静默降级为 preference/default。方案自承认这是行为变更，却在 CHANGELOG 写“逐字不变”——矛盾。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：撤掉第①档会让磁盘上已带 meta.voiceRef 的存量频道静默改行为，而 CHANGELOG 写着「逐字不变」，同一 PR 内自相矛盾；正解是迁移数据或保留读取路径加弃用警告。",
+        "defense": "三点。① 「逐字不变」这句在本片改动集里只出现在三处，且每一处的主语都是**第七轮的拆文件重构**（把纯函数从 handler 搬进 electron/services/podcast-legacy-voice-ref.js），不是撤档：`ipc-handlers/podcast.js` 附近新增注释「正解是拆结构而不是上调基线（行为逐字不变，范围口径随函数一起搬走）」、新模块头「只是让它更胖。行为逐字不变（含下面这段范围口径）」、记录第七轮「行为逐字不变：四个受影响测试文件 71 passed 不动」。② CHANGELOG 本片那一条逐字写的是「这一档在代码路径上恒为空；但频道存储面 podcast-channel-service.js:296 不滤未知键、validateChannel 不剥未知字段，走 API 或手工改盘仍能把该字段写进 meta，**故对这类存量频道撤档会改行为——已加一条 warn 出声，不静默**」，与 PRD §7.4.1.2 同口径，不存在「一处说不变一处说会变」。③ 「迁移历史数据」在本案不成立：全仓没有任何写侧给 meta.voiceRef 赋值（取证扫描域已按第三轮评审纠正为含 apps/desktop/electron 的全域逐条归类），要迁移的只能是人手工/API 写进去的值；为一条无写侧的字段引入一次磁盘写，风险严格高于它要消除的风险，而 warn + 留痕正是第三条出口的最低成本形态。",
+        "verdict": "dismissed",
+        "rationale": "L1 反例：判据是「同一 PR 内是否存在两处对同一问题互斥的陈述」，把三处「逐字不变」的主语逐字读出来即可证否——它们全部限定在拆文件那一步，撤档一侧的 CHANGELOG 与 PRD 明写了存量会改行为且已加 warn。指控的事实前提（CHANGELOG 说撤档逐字不变）不成立，故整条不成立。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "legacyChannelVoiceRefCarriesContent 对 {providerId:0} 判为真（String(0).trim()!=''），把无效数字 ID 当作“受撤档影响的有效配置”，会误触发留痕并掩盖真实行为差异。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：legacyChannelVoiceRefCarriesContent 用 String(ref[k]).trim() 判存在，{providerId: 0} 里的 0 被 String(0)='0' 判成「配了」，于是给一个无效数字 ID 发撤档告警；正解是加 typeof === 'string' 前置，排除非字符串值。",
+        "defense": "主干旧代码的实际口径不是「必须是字符串」，而是「先归一再判」。origin/main 的 `podcast-tts-voice.js` resolveEpisodeVoice 里逐字是：`const normalizedRef = { providerId: cleanId(ref && ref.providerId), model: cleanId(ref && ref.model), voiceId: cleanId(ref && ref.voiceId) }`，而 `cleanId = (v) => { const s = String(v == null ? '' : v).trim(); return s || '' }` ⇒ 0 先被归一成字符串 '0'；随后 `voiceRefIssues(normalizedRef)` 的 given 过滤是 `String((ref && ref[k]) || '').trim() !== ''`，对 '0'（真值串）命中 ⇒ given=1、既非 0 也非 3 ⇒ 返回 `VOICE_REF_INCOMPLETE` ⇒ 当场以 `PODCAST_TTS_VOICE_UNRESOLVED` 拒绝出期。撤掉第①档之后这条拒绝消失、落回 ②③ —— **行为确实变了**，出声是真阳性。反用指控的建议：加 typeof==='string' 会把 {providerId:0} 归到「不出声」，正好关掉这条唯一可观测的行为变更，而它落在「留痕机制最该管的格子」上。",
+        "verdict": "dismissed",
+        "rationale": "L1 反例 + 逐字代码：指控对 `voiceRefIssues` 的 `|| ''` 滤网读对了，但漏了它前面那一步 cleanId 归一（0 → '0'）；两层合起来的判定与我的纯函数逐格一致（第六轮案例表 ['',0] [false,0] [0,0] ['legacy-string',0] [true,0] [{providerId:0},1] [{voiceId:0},1] 就是按这两层合成的范围口径写的）。采纳该修法会关掉一条真信号，属「评审修法把门禁整条关掉」的形态，不予采纳。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "生产出期主路径 podcast-episode-host.js 取请求载荷 p.voiceRef，而非 resolveEpisodeVoice；撤档后预览与实际出期由两条不同链算出音色，合同断裂（tasks 4.5b④ 已记但未修）。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：真出期 `podcast-episode-host.js` 取的是请求载荷 p.voiceRef，而不是 resolveEpisodeVoice；预览与实际出期由两条链算音色，撤档是在一条已经断裂的链上改行为。§7.4.3「三段同缺合法、由主进程按两层取」在代码里没有实现。修法：先把生产路径统一到 resolveEpisodeVoice，再动档位删改。",
+        "defense": "分两半，缺陷承认、修法否证。① 断链**存在且本片不否认**：它就是本片第五轮记下的同一件事，逐字写在三处——记录「本片发现（不在本 PR 修，合同先落）」那一行、CHANGELOG「撤档顺带照出一处一直存在的断链，记为 tasks 4.5b④」、PRD §7.4.1.2；最坏后果也写了（getConfiguredProvider 拿不到 voice_provider ⇒ 落 edge-tts ⇒ 落 anullsrc 静音）。② 但「先接线再删档」这个**顺序要求是反的**，可当场验证：撤档前 `resolveEpisodeVoice` 有 3 档、真出期根本不问它；撤档后仍不问它。所以第①档在生产路径上从未被读过，删它不可能改变生产结果，反而让预览的模型**离**生产更近一步（预览不再假装存在一档生产从不消费的频道音色）。按指控的次序做才是造风险：先把生产路径接到 resolveEpisodeVoice（这一步本身就改变用户可感知的成片发声者，且已在 tasks 4.5b④ 单独立项、要求真机试听 + 独立 QM-1），接完之后第①档才第一次成为活依赖，此时再删＝把「无行为变化」变成「改变发声者」。③ 混进本 PR 的代价：同一个 diff 会同时承载「撤档无行为变化」与「接线改变发声者」两种互斥假设，评审无法按单一假设判定（AGENTS 的撤档留痕合同也要求两半分开）。",
+        "verdict": "dismissed",
+        "rationale": "L1 反例（顺序论证）：判据是「删除是否改变生产结果」，而生产路径不读 `resolveEpisodeVoice`（`podcast-episode-host.js` 取 `p.voiceRef`）——这条**指控自己引用的事实**恰好是撤档无行为变化的证明；指控据此要求的「先统一再接着删」会让被删的档位在两步之间变成活依赖，从而制造它想避免的行为变更。缺陷本身维持 deferred（tasks 4.5b④ + PRD §7.4.1.2 已在主干可查），dismissed 只针对「本 PR 应先接线」这一诉求，不构成对缺陷的否认。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": ".ccg/reviews/*.json 审查产物被直接写入仓库，混合元状态与源码，污染工作树且无 .gitignore 排除。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：`.ccg/reviews/*.json` 审查产物被提交进仓库，元数据与源码混住、污染工作树，且 .gitignore 没有排除它们；正解是加 gitignore 或提交前清理。",
+        "defense": "这些产物是 QM-6 机械闭环链的**载体**，不是垃圾：AGENTS 那条链第 2 步写的是「pre-commit 把该判定落成审计产物 .ccg/reviews/<pre-commit HEAD sha>.json 并自动 stage 进提交」，第 3 步是 `check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` **在 PR 变更集里**读它们的 mode/deepReview.status 判欠账。gitignore 掉它们＝门禁无物可读，把「谁来守门」整条摘掉；本仓 origin/main 已跟踪 1709 份，属既有制度而非本片引入的污染。指控建议的后半（提交前清理陈旧元文件）本片已经做了：squash 之后中间快照对应的 13 份产物被 `git rm` 移出变更集（保留可恢复出口 `retire/podcast-drop-channel-voiceref-presquash-20261021`），变更集里只剩代表本次落地 diff 的那一枚。",
+        "verdict": "dismissed",
+        "rationale": "L2 约束：判据消费方就在同一仓库里读这些文件，gitignore 会让 QM-6 从「有机械闭环」退化为「散文自觉」——那正是 AGENTS 记下的历史事故形态。可采纳的一半（清理陈旧快照）已在本 PR 完成，不构成待修项。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "REQUIRED_DEPS 已改为 3 键，但 ipc-handlers/podcast.js 注释仍描述 channelRefOf，模块头口径与代码不一致； PodcastScriptEntry.vue 删 ANNOTATED_ORIGINS 后闭集与标注表重合未完全同步。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：REQUIRED_DEPS 已是 3 键，但 `ipc-handlers/podcast.js` 里仍出现 channelRefOf 字样，读者会以为还在读频道档；渲染层删掉 ANNOTATED_ORIGINS 后，主进程闭集与渲染层标注表是否重合没有对齐机制。",
+        "defense": "两点。① `grep -n channelRefOf apps/desktop/electron/ipc-handlers/podcast.js` 全文件命中恰 1 处，位于第 452 行的 `//` 注释内，内容是解释「主干上那次读取发生在入参求值位置，于是『正文太短 + 频道不存在』报 COPY_TOO_SHORT」——它是位置判据的历史根据，删掉读者就只剩「为什么排在这里」的结论没有前提。本片那条禁词锁**显式剥注释后匹配**并配了绿控 G1（把 `channelRefOf:` 写进注释必须放行）与正控（`require(` 命中数 > 0），所以「注释里的字样」不会让锁误红，也不会被读成代码仍在用。② 闭集↔标注表的重合有机械锁：`PodcastScriptEntry.test.js` 第 274-289 行那条跨集合用例逐字比较主进程 `VOICE_ORIGIN` 值集与渲染层 `ORIGIN_KEYS` 键集，并带两条反失明下界（`origins.length > 1`、`keys.length > 1`），另有 `grep -c ANNOTATED_ORIGINS` = 0 证明退役干净。",
+        "verdict": "dismissed",
+        "rationale": "L1：指控的两句都可当场重取——注释命中数恰 1 且带 `//` 前缀；跨集合锁存在且带规模下界；ANNOTATED_ORIGINS 在 vue 里 0 命中。残余风险如实记：AGENTS 有一条「写解释文字不要原样引用被禁字面量」的通用告诫，本片这条锁因剥注释而不受它影响，但如果将来有人新写一把**不剥注释**的同名禁词锁，第 452 行就是唯一会被它误红的点——这一条已足够窄，不值得为此重跑一轮 30 分钟的深审并改动已过 71 条断言的文件。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-21T02:06:38.269Z"
   }
 }
