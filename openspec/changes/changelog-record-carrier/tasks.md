@@ -30,15 +30,18 @@
   - 变异反证：把幂等键从 record 名退回标题文本 ⇒ 指名用例必须红（这条锁测的是"键的选型"，不是"函数存在"）
 - [ ] 2.5 `--dry-run` 打印 `records=N 待搬=M 已落跳过=K 缺小节=X`，四个数全部可在一句话命令里重取
 
-## 3. 禁改门禁 `scripts/check-no-hot-carrier-edit.js`（advisory 档）
+## 3. 禁改门禁 `scripts/check-no-hot-carrier-edit.js`（advisory 档）—— 已交付（分支 hot-carrier-edit-gate，2026-10-21）
 
-- [ ] 3.1 判据按 **PR 差量** `merge-base..head` 取文件集，MUST NOT 按工作树/文件现状（否则 rebase 带进来的他人改动会被算到本 PR 头上）
-- [ ] 3.2 命中 `CHANGELOG.md` / `01-docs/learnings.md` ⇒ 点名 + 给出正解（写进 records 的小节，不动这两个文件）
-- [ ] 3.3 授权出口：本次差量**新增**的 `scripts/hot-carrier-write-authorization.json`，核对 `applies_to_base` 与实际 merge-base；base 已存在该文件 MUST NOT 生效（沿用 dedup 授权那条已验证形态，避免常驻通行证）
-- [ ] 3.4 落点：`quality-gate.yml` 的 `changes` job，与 Gate 2c3 同步；首行 MUST 打印 `MODE=advisory|enforce`
-- [ ] 3.5 接线锁 + 反向锁双向钉住：判据文件必须在 workflow 可执行正文里被点名（不是注释）；同 PR 更新 `.github/scripts/workflow-contract.test.js` 里 Gate 2c3 那条结构锁，否则它会把新形态判成违规
-- [ ] 3.6 本机实跑：`node scripts/check-no-hot-carrier-edit.js --base=origin/main --head=HEAD` 对**当前这个 PR 自己**跑一次——本刀改了 CHANGELOG 吗？没有 ⇒ 应 PASS；若有 ⇒ 走授权出口并如实写理由
+> 每勾一项带**绑定点证据**（读数从哪个文件/用例来），不写"已实现"三个字。
 
+- [x] 3.1 判据按 **PR 差量** `merge-base..head` 取文件集 ⇒ `diffNameStatus()` 是唯一入口；`T4` 用"他人把台账改进主干、我 rebase 上去"的夹具断言判 PASS，并在用例末尾断言工作树里确有他人那行（证明它站在"按现状必错"的形态上）；变异 MA（改读工作树现状）指名让 T4 变红
+- [x] 3.2 命中即点名 + 给正解 ⇒ `printFindings()` 打 `HOT_CARRIER_EDIT <路径>` 与「写进 openspec/records/<分支名>.md 的『## CHANGELOG 条目』/『## learnings』小节」；`T1`/`T2` 断言点名与正解，变异 MG（摘掉正解文案）指名让 T1 变红；`T11` 钉住清单不外溢（改 `AGENTS.md` 必须判 PASS）
+- [x] 3.3 授权出口 ⇒ 只认本次差量 `status=A` 的 `scripts/hot-carrier-write-authorization.json`，`applies_to_base` 须逐字等于实际 merge-base，`authorizedPaths` 须逐个覆盖命中项；用例 `T5`(放行)/`T5b`(路径未覆盖→拒)/`T6`+`T6b`+`T6c`(常驻证→拒)/`T7`(坐标不符→拒)，变异 MC/MD/MH 分别指名 T6c/T7/T5b
+- [x] 3.4 落点与档位 ⇒ `Gate 2b9 - Hot-carrier edit gate (changes job, advisory)`（编 2b9：2b2–2b8 已占用，`Gate 2b5` 由 #3724 合入后用掉）；首行打印 `MODE=`，`T8` 断言两档点名逐字一致、只在是否阻断上分档；base 取 merge-base 并回落 base ref（更严方向）
+- [x] 3.5 接线三处同改 ⇒ `.gitignore` 反选本体 + `MUST_LIVE_IN_UNGATED_JOB` 登记 + **同 PR 改 `check-unwired-tests.test.js` 那份 deepEqual 钉死的清单**（上一片 #4109 首笔提交漏这一步把 required 的 `QG Static` 跑红，教训见 `openspec/records/changelog-carrier-aggregate.md`）；本机按 CI 的 `Gate 2c` 完整 argv 复跑
+- [x] 3.6 对本 PR 自己实跑 ⇒ 提交后 `node scripts/check-no-hot-carrier-edit.js --base=c5087351d --head=495cd3513 --mode=enforce` → `差量文件=10 命中热写面=0 判定=PASS` rc=0（加门禁这笔 PR 自己过这道门禁）。**提交前故意没勾**：未提交时差量为空，跑出来的绿不是证据
+
+**动代码前的差异审计（补记）**：查到 `openspec/changes/hot-carrier-atomic-landing/`（规格已合入、实现未做），其 D4 明确把 `AGENTS.md`/`CHANGELOG.md`/`01-docs/learnings.md` 移出它的热点载体清单，理由"没量过"，且 tasks 1.2(d) 计划立锁防止后人"顺手补全"。判定为**不同机制、不同读数**（它量共享根未提交窗口，本判据量跨 worktree 的 PR 差量冲突），故不冲突；已在 `specs/changelog-ledger-integrity/spec.md` 新增一条 Requirement 禁止两份清单合并，并写明本处读数**不满足**它设定的重进前提。
 ## 4. 发版接入 + 规范改写 + 转 blocking（独立一片，需人工过目）
 
 - [ ] 4.1 `scripts/release-gate.mjs` 在版本小节校验之前调用聚合器；把"聚合器报错"与"版本小节缺失"分成两个退出码文案（合并成一句会让人去改 CHANGELOG 而不是修聚合器）
