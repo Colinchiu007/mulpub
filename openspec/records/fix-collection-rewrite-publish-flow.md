@@ -260,4 +260,17 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
    （blob SHA 一致），而 #4149 的 Gate 7b 读数是 `violatedViews: []`；`apps/desktop/tests/`
    与 `apps/desktop/electron/` 也逐字相同 ⇒ 差异只可能来自 runner 侧。
    **本 PR 改动集内不含任何创作页相关文件**（逐条 `git diff --name-only` 核对）。
-   处置：在新 runner 上重跑该 job（两次跑出同一漂移值 ⇒ 确定性），并在 PR 正文如实披露。
+   **决定性取证（本地）**：在**本分支**上自起 5199 dev server 跑
+   `PIXEL_ONLY=create-editor` ⇒ **1/1 PASSED、与旧基线逐像素一致（0 px 漂移）**
+   ⇒ 渲染差异**不由本 PR 的代码引起**。结合「#4149 同代码同基线在 CI 上绿」，
+   结论是：**该基线相对当前 CI runner 的渲染已过期**（流水线卡片的渐变背景栅格化
+   在不同 runner 镜像上结果不同；工作流注释里「同一差值在两个不同 head 上逐字相同 ⇒
+   与 head 无关」记的是同一类现象）。
+   **处置**：按本仓口径「基线的**权威渲染**是 CI 套件产出的图」，用 **CI 实际渲染**
+   刷新 `apps/desktop/tests/visual-testing/base-screenshots/create-editor.png`
+   （新基线 vs 该 CI 渲染 = **0 px**；内容守卫 `assertBaselineContent` 只拦空白基线，
+   本图是真渲染 ⇒ 通过）。**未改任何创作页代码**。
+   **如实登记的代价**：本地渲染仍与旧基线一致、与新基线有差 ⇒ 本地全量像素跑会报
+   create-editor 漂移（CI 才是该门禁的判定域）；本 PR 自己的 QM-4 证据仍是
+   `collection` 视图（1/1、100%），未用全量 UPDATE_BASELINE 把无关视图的环境差
+   一并烘进基线。
