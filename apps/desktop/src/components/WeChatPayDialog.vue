@@ -207,14 +207,14 @@ onBeforeUnmount(stopPolling)
   align-items: center;
   justify-content: space-between;
 }
-.wechat-pay-title { margin: 0; font-size: 16px; }
+.wechat-pay-title { margin: 0; font-size: var(--font-size-md); }
 .wechat-pay-close { border: none; background: transparent; cursor: pointer; color: #888; }
-.wechat-pay-amount { margin: 0; font-size: 13px; color: #555; }
+.wechat-pay-amount { margin: 0; font-size: var(--font-size-sm); color: #555; }
 .wechat-pay-qr { width: 220px; height: 220px; }
-.wechat-pay-hint { margin: 0; font-size: 13px; color: #555; text-align: center; }
+.wechat-pay-hint { margin: 0; font-size: var(--font-size-sm); color: #555; text-align: center; }
 .wechat-pay-hint.is-success { color: #2f9e44; }
 .wechat-pay-hint.is-warn { color: #d9480f; }
-.wechat-pay-sub { margin: 0; font-size: 12px; color: #999; }
+.wechat-pay-sub { margin: 0; font-size: var(--font-size-xs); color: #999; }
 .wechat-pay-primary {
   border: none;
   border-radius: 6px;
