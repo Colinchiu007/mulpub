@@ -8,7 +8,7 @@ date: 2026-10-21
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ 运行时代码（含门禁判据本体） | worktree `D:/Data/projects/mp-worktrees/mp-ux-audit-404-route`，裸分支 `ux-audit-404-route`（非 C 盘） |
+| 变更类型与隔离 | ✅ 运行时代码（含门禁判据本体） | worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-404-route`，裸分支 `ux-audit-404-route`（非 C 盘）；取证力靠分支名与 PR 号，不靠本机绝对路径 |
 | 第一性原因（QM-5 ①） | ✅ | `apps/desktop/src/router/index.js` 的 `routes` 数组自始至终**没有 catch-all 记录**（改动前该文件 72 行，末条为 `/podcast`）。vue-router 匹配不到 → `<router-view>` 渲染空内容，外壳仍在 ⇒ 用户读作「应用卡死」 |
 | 逃逸分析（QM-5 ②） | ✅ | 单元测试：无（从未有用例问过「未知地址渲染什么」）；视觉回归：无（无可见元素可拍）；审查盲区：`route-registry.js` 的规则 2「必须回答入口」让人以为「每条路由都有宿主」，实际兜底路由根本不在表里，门禁对它无从判 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `NotFound.vue` + 路由 + 登记表 `catchAll` 类型 + 门禁规则 6；`apps/desktop/src/views/NotFound.test.js`（13 例，含用**真实路由表**解析未知地址的行为锁）；`.github/scripts/check-route-registry.test.js`（+11 例） |
