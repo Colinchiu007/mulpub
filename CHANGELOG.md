@@ -1,3 +1,13 @@
+# [未发布] refactor(改写): 改写页视图解耦 —— RewriteView.vue 拆 3 个 composable + 外置样式（rewrite-view-decompose）
+
+- **问题**：`apps/desktop/src/views/RewriteView.vue` 实测 **1430 行**，正好等于行数门禁的登记值（`.github/scripts/max-lines-baseline.json` 的 `files` 表）。门禁 `growthAllowance = 200` ⇒ 硬天花板 **1630 行** ⇒ 这个文件此刻**一点余量都没有**：下一次给改写页加功能（哪怕只加 201 行）就会撞上 `LEDGER_GREW` 阻断。PR #4141 的 CHANGELOG 已把这条记进仓库（「`RewriteView.vue` 持续贴住行数上限（1430/1630）的解法是**拆 composable**……但 PR 未落地」），本次把那一刀补上。
+- **拆法**（**用户可见行为零变化**）：① 全部 `<style scoped>`（321 行）外置为 `apps/desktop/src/views/rewrite-view.css`，视图改用 `<style scoped src="./rewrite-view.css"></style>`（`scoped` + `src` 由 Vue SFC 编译器施加同一 scope id，`:deep()` 语义相同；仓库已有 5 处同型用法）；② 字数区间（状态 + 校验接线 + 自适应推导）→ `composables/useRewriteWordCount.js`；③ 策略（列表加载 + 预览 + 竞态守卫 + 正文防抖）→ `composables/useRewriteStrategy.js`；④ 文案库回写（两条互斥写入路径 + djb2 哈希）→ `composables/useRewriteLibrarySync.js`。**RewriteView.vue 1430 → 977 行**，为后续迭代腾出 ≈ 653 行余量。
+- **顺带还了一笔聚合债**：`scripts/check-debt-budget.js` 的 `filesOver1000` 由 **29 → 28**（RewriteView.vue 降到 1000 行以下）。该门禁是棘轮式（只挡增长、改善不报错），所以这一档是真的降下来了。
+- **回归保护**（3 个新测试文件，共 27 例）：`useRewriteWordCount.test.js`（7 例，含**「手动置位后自适应不得覆盖用户值」**—— 这条在视图里只是一行 `if (!wordCountManuallySet)`，此前**没有任何测试守过**）；`useRewriteStrategy.test.js`（12 例，含**竞态守卫**与**300ms 正文防抖**—— 这两条在视图里是一个 `let previewSeq` 加一个定时器，此前也**没有各自的测试**）；`useRewriteLibrarySync.test.js`（8 例，锁住两条回写路径的 key 形态与幂等性）。
+- **既有结构锁一条未削弱**：`utils/rewrite-lineage.test.js`（要求 `RewriteView.vue` 源码里能读到 `aiRewrite(` 与 `utils/rewrite-lineage` 引用）与 `views/CopyLibraryView.test.js`（要求能读到 `podcast.activeChannelId.value`、不得有 `|| await ensureChannel()` 死分支）—— 这两条正是「`aiRewrite` 调用 / 归因链 / 文本出期入口**不搬走**」的原因。
+- **视觉契约测试的读取对象改了，契约一条不减**：`views/RewriteView.test.js` 的「视觉契约」块原先直接读 `RewriteView.vue` 源码用正则抽 CSS 规则体；样式外置后改为读 `rewrite-view.css`，并**新增**一条「视图必须仍然引用该 CSS 文件」的断言（防样式文件变成孤儿：文件在、但页面不引它 ⇒ 页面裸奔，而原来的锁会一直绿）。4 条视觉契约（勾选框固定尺寸 / 卡片回归静态容器语义 / 质量评估左侧强调条 / 卡片标题字号层级）**一条不减**。
+- **明确不做**（各自需要另开 PRD）：改任何用户可见行为；把**模板**拆成子组件（父组件的 `scoped` 样式不作用于子组件内部元素，拆模板就得连样式一起搬 ⇒ 等价于一次视觉重写）；把 `aiRewrite` 调用与归因链搬进 composable（结构锁）；把文本出期入口搬走（结构锁）；**下调** `max-lines-baseline.json` 的登记值（属「改谁来守门」，需人工过目；本次靠「把文件写短」拿到等效余量）；改 djb2 回写 key 算法（会让既有文案库记录失联）；处理其它 28 个 ≥1000 行的文件。
+- **文档**：新增 `01-docs/PRD-REWRITE-VIEW-DECOMPOSITION-2026-10-21.md`（逐模块写清数据校验判据与阈值、流程、功能逻辑、交互逻辑、显示项、提示文字原文）；`PRD-REWRITE-PAGE-UI-2026-09-16.md` / `PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md` / `PRD-REWRITE-STRATEGY-UI-2026-09-15.md` 各补一节「归属变更」附注。
 # [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
 
 - **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。
