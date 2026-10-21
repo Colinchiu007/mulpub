@@ -1,0 +1,55 @@
+{
+  "sha": "10610fa422957005d995b5e422550755f159a8ea",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 272 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 272,
+    "fileCount": 11,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-20T09:30:36.997Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "exit 1 [claude]: Backend: claude\n  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -\n  PID: 33160\n  Log: D:\\tmp\\codeagent-wrapper-33160.log\n  Session-ID: 9925ef39-d27e-4001-a402-b798280ef7a1\n\n=== Recent Errors ===\nUsing stdin mode for task due to: piped input, explicit \"-\", newline, backslash, double-quote, single-quote, backtick, dollar, length>800\nclaude exited with status 1\nLog file: D:\\tmp\\codeagent-wrapper-33160.log (deleted)",
+    "validationErrors": null,
+    "at": "2026-10-20T09:54:16.178Z"
+  }
+}
