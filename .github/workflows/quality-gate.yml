@@ -104,6 +104,14 @@ jobs:
           # 落在这里的理由与 merge-ledger 同：本 job 不被 docs-only 短路，且在非 PR 早退之前。
           node --test scripts/lib/git-domain.test.js
           node --test scripts/check-debt-budget.test.js
+          # electron-ci 桌面全量步骤的单一实现（两片并行 + 共享预算 + 剥 ANSI 的现场计数）。
+          # 落在这里的理由与上面两条同：本 job 不被 docs-only 短路、且在非 PR 早退之前，
+          # 而它守的是"electron-tests 这一步到底还跑不跑桌面全量"—— 一条被 docs-only 跳过的
+          # 判据等于没有判据（#3114 的同型事故）。只 require node 内置模块，本 job 不装依赖也能跑。
+          node --test scripts/electron-ci-desktop-step.test.js
+          # 预算出处的**复测入口**自身的锁（字段对齐 / 三档退出码 / 两档采样域不混记 / 接线）。
+          # 与上一条同一个落点理由：本 job 不被 docs-only 短路，且在非 PR 早退之前。
+          node --test scripts/electron-ci-shard-audit.test.js
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
             echo "docs-only=false (non-PR event: full run)"

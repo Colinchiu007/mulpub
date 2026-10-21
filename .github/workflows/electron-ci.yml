@@ -140,46 +140,25 @@ jobs:
       - name: Unit tests (Vitest, non-Electron, single-worker deterministic)
         if: github.event_name != 'pull_request'
         run: |
-          # 预算必须挂**步骤级**实测，不能挂魔数，也不能拿 job 级总时长当步骤基线（#2458）。
-          # 步骤健康耗时实测 794s（run 36380533567 / main push bef5fb72 的自证行
-          # `elapsed=794s budget=2100s rc=0`），被替换掉的旧墙是 1200s。真实红因是 runner
-          # 负载把步骤耗时放大到越过旧墙（main 近 14 次运行里 8 次 exit 124），而不是
-          # "自然耗时已贴着墙" —— 794s 对 1200s 本来还有约 33% 余量。
-          # 层级混淆的完整依据与两个数字的出处：docs/electron-ci-step-budget-baseline.md。
-          # 2100s ≈ 健康步骤耗时 ×2.6 ≈ 旧墙 ×1.75，属**单调放宽**（不会让任何原本通过的运行
-          # 变红），但仍不是「修好了根因」：根因修法是按 --shard 把这一轮切开（issue 档 2）。
-          # 同一 job 级 timeout-minutes 必须一起抬，否则只是把「不可归因的超时」从
-          # timeout(1) 换成 Actions 的 job killer —— 那正是本 issue 的失效模式。
-          BUDGET_SECONDS=2100
-          LOG=electron-ci-unit-tests.log
-          START=$(date +%s)
-          # ⛔ `set +e` 是必须的，不是风格（2026-10-20 follow-up，动因见 #2525 的反面）：
-          #    本 job 的 shell 是 `bash -e -o pipefail`，`timeout` 返回 124 时 `-e` 会**立刻
-          #    退出步骤**，于是后面的 PIPESTATUS 与整段自证诊断一次都不会执行。实测两次失败
-          #    attempt 的日志里都没有 `[electron-ci-timeout-budget] elapsed=… rc=…` 这行 ——
-          #    #2525 的标题是「让超时失败能自证」，但它专门为之设计的那个场景，恰恰是它唯一
-          #    不出现的场景。行内 `set -e` 只影响本步骤的子 shell，不波及其它步骤。
-          set +e
-          timeout --signal=TERM --kill-after=30s ${BUDGET_SECONDS}s \
-            pnpm --filter @multi-publish/desktop test -- \
-            --maxWorkers=1 --no-file-parallelism --reporter=verbose \
-            --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=10000 2>&1 | tee "$LOG"
-          # 必须读 PIPESTATUS：`cmd | tee` 的 $? 是 tee 的退出码（恒 0），
-          # 直接判 $? 会把超时和断言失败一起吞成成功。
-          RC=${PIPESTATUS[0]}
-          set -e
-          END=$(date +%s)
-          ELAPSED=$((END - START))
-          echo "[electron-ci-timeout-budget] elapsed=${ELAPSED}s budget=${BUDGET_SECONDS}s rc=${RC}"
-          if [ "${RC}" -eq 124 ]; then
-            echo "TIMEOUT_BUDGET_EXCEEDED：本轮被步骤级 timeout 掐断，不是断言失败。"
-            echo "自证判据：日志里没有 vitest 摘要行（Test Files ... / Tests ...），说明整轮没跑完。"
-            grep -cE '^[[:space:]]+[✓×↓-]' "$LOG" | sed 's/^/已完成测试行数: /' || true
-            grep -cE '^ *(Test Files|Tests) ' "$LOG" | sed 's/^/摘要行数(应为 2): /' || true
-            tail -n 8 "$LOG" | sed 's/^/末段输出: /' || true
-            echo "下一步应该是把这一轮按 --shard 切开，而不是继续加大预算。"
-          fi
-          exit "${RC}"
+          # 判据与形状的唯一实现：scripts/electron-ci-desktop-step.js（同一步两片并行 + 一份共享预算 +
+          # 剥 ANSI 与时间戳的现场计数）。本步只调用不判定 —— 回归锁在
+          # scripts/electron-ci-desktop-step.test.js（含「步骤必须真的调本脚本」「不得再自带
+          # BUDGET_SECONDS 字面量 / 第二份 grep 计数」三条），落点在 quality-gate.yml 的 changes job
+          # （该 job 不被 docs-only 短路，且位于非 PR 早退之前）。
+          # 为什么不再在这里写 bash（2026-10-21 现取读数）：
+          # ① 预算数字与计数锚曾各存一份，workflow 与判据必然口径分裂；
+          # ② 旧 `grep -cE '^[[:space:]]+[✓×↓-]'` 对 vitest 真实输出恒 0（行首是 033[32m✓，实测 od -c），
+          #    把"跑满预算"读成"一条都没跑"——按修好的锚重读同一批红趟是 ✓×行=18156–18929、摘要=0；
+          # ③ 串行全量已实测越过 2100s 墙：main push 最近 12 趟里 8 趟非绿，逐趟下日志核对 8/8 都是
+          #    `rc=124` 预算墙且断言红=0（成功趟作业墙钟 1511–1934s，红趟 2177–2215s）。
+          # 预算为什么同时改形状与数字：两片并行让单步墙钟 ≈ max(两片)；而 max=23.2min 的样本来自
+          # 「每片独占一个 runner」，本步是同 runner 两片并行 ⇒ 争用倍数未测，`max×1.5=2091s` 对 2100s
+          # 只剩 9 秒（贴脸）。取 2700s ≈ max×1.94 给争用留一倍空间，属单调放宽，且不与 job 级
+          # timeout-minutes: 70 倒挂（本 job 其余带 timeout 的步骤合计 20 min，20+45=65 < 70）。
+          # 层级混淆的历史依据（794s 步骤级 vs job 级读数、旧墙 1200s）见
+          # docs/electron-ci-step-budget-baseline.md；第一次真跑后按打印的逐片 elapsed= 重定数，
+          # 复测入口 node scripts/electron-ci-shard-audit.js。
+          node scripts/electron-ci-desktop-step.js
 
       - name: Vitest failure diagnostics
         if: failure()

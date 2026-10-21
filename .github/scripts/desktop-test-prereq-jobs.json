@@ -10,7 +10,7 @@
     {
       "workflow": "electron-ci.yml",
       "job": "electron-tests",
-      "why": "pnpm --filter @multi-publish/desktop test 跑桌面全量 vitest，preload 产物必须在测试前重建"
+      "why": "该步自 2026-10-21 起把桌面全量**委托**给 scripts/electron-ci-desktop-step.js（同一步两片并行 --shard）；判据认的是那个脚本自己的源码里有桌面 vitest 的调用形状，preload 产物必须在测试前重建"
     },
     {
       "workflow": "quality-gate.yml",

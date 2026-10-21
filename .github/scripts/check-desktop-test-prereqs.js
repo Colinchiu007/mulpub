@@ -69,11 +69,20 @@ const SATISFIER_SCRIPT = 'build-preload.js'
 const SATISFIER_REF = 'build:preload'
 const ORACLE_BASENAME = 'check-clock-shift-oracle.js'
 const ORACLE_SCRIPT_REF = 'scripts/check-clock-shift-oracle.js'
-const FORM_KEYS = ['desktop-filter', 'pnpm-verb', 'root-nx', 'nx-direct', 'oracle-cli']
+const FORM_KEYS = ['desktop-filter', 'pnpm-verb', 'root-nx', 'nx-direct', 'oracle-cli', 'delegate']
 const PNPM_TOKEN_WINDOW = 12
 const MIN_WORKFLOW_FILES = 12
 const MIN_JOBS = 24
-// 形态下界按实跑读数留余量（2026-10-17 实测 21 / 21 / 2 / 0 / 3），
+// 委托形态：workflow 把"跑桌面全量"交棒给仓库脚本（2026-10-21 起 `electron-ci.yml#electron-tests` 就是这个形状）。
+// ⛔ 判据不能是"看见 `node scripts/<名字>` 就算"——那是把判据换成名字白名单，脚本改成不跑桌面全量时本锁照绿。
+// 成立条件与被委托脚本**自己的源码**里的三条锚同时命中：桌面包常量、`['--filter', DESKTOP_PKG, 'test']` 调用形状、`--shard=`。
+const DELEGATE_CLI_RE = /node\s+scripts\/([\w.-]+\.js)/g
+const DELEGATE_ANCHORS = [
+  /(?:const|var|let)\s+DESKTOP_PKG\s*=\s*['"]@multi-publish\/desktop['"]/,
+  /['"]--filter['"]\s*,\s*DESKTOP_PKG\s*,\s*['"]test['"]/,
+  /--shard=/,
+]
+// 形态下界按实跑读数留余量（2026-10-17 实测 21 / 21 / 2 / 0 / 3；2026-10-21 起 delegate=1），
 // 用意是「扫描器失明」与「仓库真的没有这种用法」可区分：
 // 命中数掉到下界以下 ⇒ rc=2 自故障，而不是安静地判「没有域内 job」。
 const MIN_FORM_COUNTS = {
@@ -81,7 +90,8 @@ const MIN_FORM_COUNTS = {
   'pnpm-verb': 12,
   'root-nx': 1,
   'nx-direct': 0,
-  'oracle-cli': 1
+  'oracle-cli': 1,
+  'delegate': 1
 }
 const MAX_FORM_COUNTS = {
   'nx-direct': 0
@@ -236,6 +246,31 @@ function hasConfigFlag (body) {
 /** nx 命令是否显式排除了桌面包 */
 function excludesDesktop (text) {
   return EXCLUDE_DESKTOP_RE.test(text)
+}
+
+/**
+ * 被委托的仓库脚本**自己的源码**里是否真有桌面全量的调用形状（三条锚缺一不可）。
+ * 读不到 = 没有委托（fail-closed），不得按"有委托"放过 —— 否则"文件被 .gitignore 吞掉"
+ * 这种本机绿/CI 红的形态会在这里被读成"这一步不跑桌面测试"。
+ * @param {string} file scripts/ 下的文件名
+ * @returns {boolean}
+ */
+const delegateAnchorCache = new Map()
+function delegateRunsDesktopSuite (file, root) {
+  // 读哪棵树上 scripts/ 下那份源码，必须与"扫的是哪棵树"同源（同一个 root）——
+  // 否则夹具树里的委托脚本永远读不到，正控分支就不可表示（而"不可表示"通常会伪装成"判得挺严"）。
+  const base = root || REPO_ROOT;
+  const key = base + '|' + file;
+  if (delegateAnchorCache.has(key)) return delegateAnchorCache.get(key)
+  let ok = false
+  try {
+    const src = fs.readFileSync(path.join(base, 'scripts', file), 'utf8')
+    ok = DELEGATE_ANCHORS.every((re) => re.test(src))
+  } catch (e) {
+    ok = false
+  }
+  delegateAnchorCache.set(key, ok)
+  return ok
 }
 
 /** nx 命令是否以 test 为目标 */
@@ -434,6 +469,24 @@ function judgeNxText (text) {
  * @returns {{inDomain: boolean, code: string, why: string, closure: string[], touchesPreload: boolean}}
  */
 function judgeEntry (entry, maps) {
+  if (entry.form === 'delegate') {
+    if (entry.delegateHit === true) {
+      return {
+        inDomain: true,
+        code: 'delegate-runs-desktop-suite',
+        why: 'workflow 把桌面全量委托给 ' + entry.ref + '，而**该脚本自己的源码**里三条锚齐命中（桌面包常量 + `\'--filter\', DESKTOP_PKG, \'test\'` + `--shard=`）',
+        closure: [entry.ref],
+        touchesPreload: false
+      }
+    }
+    return {
+      inDomain: false,
+      code: 'delegate-not-desktop-suite',
+      why: entry.ref + ' 的源码里没有桌面全量的调用形状（读不到也按"没有委托"处理）⇒ 这一步不算域内',
+      closure: [entry.ref],
+      touchesPreload: false
+    }
+  }
   if (entry.form === 'oracle-cli') {
     if (entry.dryRun) {
       return { inDomain: false, code: 'dry-run-only', why: '--dry-run 只做自检，不进候选域', closure: [], touchesPreload: false }
@@ -491,7 +544,7 @@ function judgeEntry (entry, maps) {
  * @param {number} index
  * @returns {{index: number, name: string, ifText: string, codeView: string, entries: Array, judged: Array}}
  */
-function scanStep (step, index) {
+function scanStep (step, index, root) {
   const record = { index, name: '', ifText: '', codeView: '', entries: [], judged: [] }
   if (!isPlainObject(step)) return record
   record.name = typeof step.name === 'string' ? step.name : ''
@@ -528,6 +581,13 @@ function scanStep (step, index) {
     const candidate = pickPnpmCandidate(codeView, m.index + m[0].length)
     if (candidate !== null) push(Object.assign({ form: 'pnpm-verb' }, candidate))
   }
+  // ⑥ delegate（flat）：`node scripts/<x>.js` —— 必须扫**全部**候选而不是取首个。
+  //    实测理由（PR #4192 同族）：同一步的注释里点名另一个脚本时，"第一个匹配"会把真委托
+  //    档在后面 ⇒ 这个 job 从域内**静默消失**，而"少一个域内 job"与"全部合规"逐字同形。
+  //    （`viewFlat` 已剥注释，这一条是双保险，不是多余。）
+  for (const m of matchAll(flat, DELEGATE_CLI_RE)) {
+    push({ form: 'delegate', ref: 'scripts/' + m[1], prefer: 'root', delegateHit: delegateRunsDesktopSuite(m[1], root) })
+  }
   return record
 }
 
@@ -543,7 +603,7 @@ function buildsPreloadStep (step) {
  * @param {{root: Object, desktop: Object}} maps
  * @returns {{jobs: Array, entries: Array, formCounts: Object<string, number>}}
  */
-function scavengeWorkflows (workflows, maps) {
+function scavengeWorkflows (workflows, maps, root) {
   const jobs = []
   const entries = []
   const formCounts = {}
@@ -562,7 +622,7 @@ function scavengeWorkflows (workflows, maps) {
       }
       const rawSteps = isPlainObject(job) && Array.isArray(job.steps) ? job.steps : []
       rawSteps.forEach((rawStep, index) => {
-        const step = scanStep(rawStep, index)
+        const step = scanStep(rawStep, index, root)
         record.steps.push(step)
         for (const entry of step.entries) {
           const verdict = judgeEntry(entry, maps)
@@ -748,7 +808,7 @@ function collect (options) {
     const maps = loadScriptMaps(root)
     const workflows = loadWorkflows(root)
     result.workflows = workflows
-    const scavenged = scavengeWorkflows(workflows, maps)
+    const scavenged = scavengeWorkflows(workflows, maps, root)
     result.jobs = scavenged.jobs
     result.entries = scavenged.entries
     result.formCounts = scavenged.formCounts
@@ -981,6 +1041,9 @@ module.exports = {
   pickPnpmCandidate,
   judgeNxText,
   judgeEntry,
+  delegateRunsDesktopSuite,
+  DELEGATE_ANCHORS,
+  DELEGATE_CLI_RE,
   judgeRegistry,
   judgeJobEvents,
   scanStep,

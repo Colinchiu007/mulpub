@@ -32,6 +32,8 @@
   ⚠️ **2026-10-20 更正：这一条此前写着「已实现」，是错的 —— 见下面「自证其实从未执行过」。**
 - #2458 未做的两档继续挂在该 issue 上：~~档 2 用 `--shard` 切开这一轮（根因，已于 2026-10-20 落地，见下）~~、
   档 4 让 `CI Failure Handler` 把「`exit 124` 且无摘要行」归类为 `ci-timeout-budget`（仍未做）。
+  > **2026-10-21 状态**：档 2 已落地，但落地形状是「同一步内两片并行」而不是 2026-10-20 那节设想的
+  > matrix + 汇入作业（见文末新节）；档 4 仍未做。
 
 ---
 
@@ -64,6 +66,9 @@
 > `main-ci-gate` 的 required context `electron-tests` 与 matrix 后缀名冲突卡住，三轮尝试的现场
 > 见 `openspec/records/electron-ci-shard.md` §九。当前 `BUDGET_SECONDS` 仍是 **2100**（整轮），
 > 本轮只落地了「接通自证块」。
+>
+> ⚠️ **2026-10-21 再更新（本行只作导航，不改写上面那段当时的事实）**：分片已用**另一种形状**落地
+> ——同一步内两片并行、不用 matrix；步骤预算 2100 → **2700**。全文见文末「2026-10-21」节。
 
 ### 分片：单片基线而非整轮基线
 
@@ -116,3 +121,53 @@ gh api repos/<owner>/<repo>/branches/main/protection
 ）。因此 matrix 产生的 `electron-tests (1)`/`(2)`/`(3)` 不会造成
 「Expected — waiting for status to be reported」。本变更不改分支保护规则、
 不改 `CI_IGNORED_PATHS` 白名单。
+
+---
+
+## 2026-10-21：分片以「同一步内两片并行」落地，取代上文 2026-10-20 那节的两条结论
+
+上面那节（含其 ⚠ 收尾修正）在本节之前都是最新的；现在它有两句话过期，逐条标明：
+
+| 过期陈述（2026-10-20） | 现状（2026-10-21 实测） |
+| --- | --- |
+| 「分片被 required context 卡住，本轮只落地接通自证块，`BUDGET_SECONDS` 仍是 2100（整轮）」 | **分片已落地**，但**不用 matrix**：`node scripts/electron-ci-desktop-step.js` 在**同一个作业内**并起两片 `--shard=1/2`、`--shard=2/2`，作业名仍是 `electron-tests` ⇒ required context 一个字都不用改，那条阻塞前提被绕开而不是被解决 |
+| 「自证块已改成 `set +e` 包住管道，锁改成真执行」 | 自证块**从 bash 移进脚本**：`rc=124` / `TIMEOUT_BUDGET_EXCEEDED` / 逐片计数由 `runStep` 产出，workflow 那一步只剩一行 `node …`。真执行锁同步迁移（`gui-ci-exit-contract.test.js` 起真 Git Bash 跑桩） |
+
+### 这一轮现取的读数（复测入口 `node scripts/electron-ci-shard-audit.js`）
+
+| 项 | 读数 | 取证方式 |
+| --- | --- | --- |
+| `electron-ci` push 窗口 | 最近 12 趟：success=4、nonSuccess=8 | `gh run list --workflow=electron-ci.yml --event=push --limit=12` |
+| 8 趟非绿的**归因** | **8/8 都是预算墙**（`rc=124`×1、`TIMEOUT_BUDGET_EXCEEDED`×2、断言红=0） | 逐趟 `gh api …/actions/jobs/<id>/logs --allow-escape-sequences` 后剥时间戳与 ANSI 再计数 |
+| 红趟作业墙钟 | 2177–2215s | 作业自己的 `started_at/completed_at` |
+| 成功趟作业墙钟 | 1511 / 1542 / 1820 / 1934s | 同上 |
+| 旧计数器报的「已完成测试行数: 0」 | **是失明不是事实**：同一批红趟按修好的锚重读得 `✓×行=18156–18929、摘要=0` | 锚必须**先剥 Actions 时间戳**再剥 ANSI（`^[[:space:]]+[✓…]` 对行首是 `033[32m✓` 的真实行恒不命中） |
+| 单片耗时基线 | `QG Desktop Shards` 7 趟 14 片：min 11.2 / p50 18.6 / **max 23.2** min | 同上（只取 `conclusion=success`） |
+
+### 预算为什么同时改形状和数字（2100 → 2700）
+
+`max(单片) × 1.5 = 2091s` 对旧墙 2100s 只剩 **9 秒**。而那批样本的测量形状是
+**每片独占一个 runner**，本步是**同一个 runner 跑两片** ⇒ 争用倍数未测。
+按本仓口径，贴脸（HUGGING）是**事前证据**，正解是"先量再定数"，不是接受零余量、
+更不是放宽那条 `≥ max × 倍数` 的断言。取 `2700s ≈ max × 1.94`：
+
+- 给同-runner 争用留约一倍空间；
+- 仍是**单调放宽**，不会让任何原本通过的运行变红；
+- 不与 job 级 `timeout-minutes: 70` 倒挂 —— 本 job 其余带步骤级 timeout 的步骤合计 20 min，
+  `20 + 45 = 65 < 70`（这条由 `gui-ci-exit-contract.test.js` 的「不倒挂」断言逐步骤实算，不写死）。
+
+第一次真跑后必须按脚本打印的逐片 `elapsed=` 重定数；`electron-ci-shard-audit.js` 的
+`verdict` 有 **NO_SAMPLES / BELOW_FLOOR / HUGGING / OK** 四档，其中零样本与自身故障都以
+非零码出声（把"没量到"读成"预算没问题"是本仓反复出现的同型事故）。
+
+### 一条反失明判据当场拦住了一次改动（不是事后追认）
+
+`workflow-contract.test.js` 的「消费者覆盖面下界 3」在本次改动的**中途**真实报红：
+`["quality-gate.yml:desktop-shards","quality-gate.yml:coverage"]`（2 < 3）。根因是委托判据取
+**第一个** `node scripts/*.js` 命中，而我在同一步的注释里写了「复测入口
+node scripts/electron-ci-shard-audit.js」——那行注释把真正的委托挡在前面，
+`electron-tests` 于是整片从覆盖面消失，而"少一个消费者"与"全部合规"逐字同形。
+正解不是改注释措辞，而是把判据改成扫**全部**候选并按语义判定，同时补两类对照：
+注释遮挡形态必须仍判 true、只有那个不跑桌面全量的脚本必须判 false
+（否则上一条 true 是同义反复）。这与 `check-unwired-tests.js` 的"按可执行正文匹配"是同一族纪律。
+

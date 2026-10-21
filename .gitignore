@@ -119,6 +119,13 @@ scripts/*.js
 # 测试文件与 scripts/lib/ 下的判据本体不受该行影响（前者有 !scripts/*.test.js，
 # 后者不在 scripts/*.js 的匹配域内），故此处只需反选 CLI 本身。
 !scripts/check-main-red.js
+# electron-ci 桌面全量步骤本体：第 106 行 scripts/*.js 会把它静默忽略，
+# 而 electron-ci.yml 的那一步直接 node 它 —— 被忽略即 CI 上 Cannot find module。
+# （测试文件由 !scripts/*.test.js 通用例外兜住，见上方各条注释口径。）
+!scripts/electron-ci-desktop-step.js
+# 逐片墙钟复测入口本体：它是 STEP_BUDGET_PROVENANCE 的「可重跑路径」，
+# 被 scripts/electron-ci-shard-audit.test.js 与 changes job 按路径点名 —— 漏反选同上族（Cannot find module）。
+!scripts/electron-ci-shard-audit.js
 # 同型风险四锁 CLI 本体：第 106 行 scripts/*.js 会把它静默忽略，而 Gate 2c6 与
 # scripts/same-type-risk-locks.test.js 都按路径点名它 —— 漏这条 negation 的症状是
 # 本地全绿、CI 上 Cannot find module（#3011 / Gate 2c3 / precommit-spawn-budget 同族，第 4 次）。
