@@ -37,7 +37,9 @@ const MUTATIONS = [
   { id: 'M11', name: '去掉 prefers-reduced-motion 守卫', file: F.view, from: '@media (prefers-reduced-motion: reduce) {', to: '@media (min-width: 999999px) {', verify: VIEW },
   { id: 'M12', name: '装饰图标不再 aria-hidden', file: F.view, from: '<span class="offline-banner__icon" aria-hidden="true">', to: '<span class="offline-banner__icon">', verify: VIEW },
   { id: 'M13', name: '计数段改为恒渲染（0 也说「0 个待发布」）', file: F.view, from: '<span v-if="cachedTaskCount > 0"', to: '<span', verify: VIEW },
-  { id: 'M14', name: '正控说明：未变异基线必须 0 红（由主流程执行，本条仅占位）', file: null },
+  { id: 'M14', name: '摘掉复核的迟到响应守卫（旧结论可把已确认的离线改回在线）', file: F.composable, from: '\n        if (epoch !== readEpoch) return\n', to: '\n', verify: LIVE },
+  { id: 'M15', name: '摘掉 init 读回的迟到响应守卫（两条写入路径不得各有各的守卫）', file: F.composable, from: '\n          if (epoch !== readEpoch) return\n', to: '\n', verify: LIVE },
+  { id: 'M14b', name: '占位：正控说明（未变异基线必须 0 红）', file: null },
 ]
 
 const readSafe = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8')
@@ -69,6 +71,9 @@ function parseRed (outRaw) {
   const out = stripAnsi(outRaw || '')
   const line = out.split('\n').find((l) => /^\s*Tests\s+\S/.test(l))
   if (!line) return -1
+  // 「Tests  no tests」= 整个文件没编译/没收集。它与「0 失败」长得一样，
+  // 但把编译失败读成"变异没造出红"是让反证假阴性的第三条路（本仓实测踩过）。
+  if (/no tests/.test(line)) return -1
   const failed = /(\d+) failed/.exec(line)
   return failed ? Number(failed[1]) : 0
 }

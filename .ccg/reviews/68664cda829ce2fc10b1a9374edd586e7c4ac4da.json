@@ -47,10 +47,11 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "JSON解析失败:模型输出被截断，JSON 不完整：括号计数恰好配平（14/14，那是已闭合的内层对象），但结尾不是 }——真正被砍断的是最后一个字符串，共 9556 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
+    "validationErrors": null,
+    "at": "2026-10-21T17:25:04.825Z"
   }
 }
