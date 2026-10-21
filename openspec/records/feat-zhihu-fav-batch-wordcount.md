@@ -16,12 +16,20 @@ date: 2026-10-21
 | 行尾与 diff 对账 | 通过 | `git diff --cached --numstat` 与 `git diff --cached --ignore-cr-at-eol --numstat` 两口径相等；新建文件统一 CRLF（与全仓工作副本约定一致） |
 | 接线棘轮 | 通过 | 新增 3 个测试文件（`electron/services/zhihu-fav-rewrite.test.js`、`electron/ipc-handlers/zhihu-favlist.wordcount.test.js`、`apps/desktop/src/features/collection/BatchCollectPanel.wordcount.test.js`）均在 workspace 覆盖域（`pnpm -r run test`），`scripts/check-unwired-tests.js` rc=0（域内 114 份测试均已接线）；另扩 2 个既有测试文件（`collection-batch.test.js`、`test_aggregation.py`） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触打包配置；UI 改动只是在既有分组内多一行输入 + 卡片元信息多一段文字，无布局断点变化、无新视觉基线 |
-| QM-6 CCG 双模型外部评审 | 见下方「外部评审」小节 | pre-commit 判 mode=dual（变更 > 200 行）⇒ 走 `sh scripts/deep-review.sh`（critic=claude / proposer=opencode 双家族实跑）；逐条处置见下 |
+| QM-6 CCG 双模型外部评审 | 通过 | pre-commit 判 mode=dual（变更 810 行 > 200 行阈值）⇒ `sh scripts/deep-review.sh` 实跑 **opencode(proposer) + claude(critic)** 双家族（跨家族校验通过）。critic 给出 4 维度评分（correctness 7 / security 8 / performance 8 / maintainability 7）与 4 条争议项，**0 条落在高危域**（⇒ 无需外部复核）⇒ 逐条回源码/回事实核对后裁定：**upheld 2 条（i2 空值被 `Number('')===0` 误读成合法下限 0；i4 兜底用 UTF-16 `.length` 与 Python/引擎的码点口径不一致）、dismissed 2 条（i1 未超限的 locale 文件不该登记账本，正确处置是别让它长过线；i3 `rewriteOne` 从未导出、仓内唯一调用点已同步）**。两条成立项**已修并补 4 条回归锁**（空值归一 ×5 断言、emoji 码点 ×3 断言）；驳回依据逐行可查（`module.exports` 只有 `registerHandlers` + `_resetFavBatchStateForTest`；`check-max-lines.js` 的 NEW_OVER_LIMIT 语义是「未登记文件 >= 500 即阻断」）。裁决全文与闭环块已回填 `.ccg/reviews/0eda882e….json`（`status=needs_revision`、`tier=self-play`），`check-pr-exec-record.js --mode=enforce` rc=0 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红 |
 
-### 外部评审
+### 外部评审（4 条争议项逐条处置）
 
-见本记录 `## CHANGELOG 条目` 之后的「外部评审逐条处置」小节（判据记录与裁决全文落在 `.ccg/reviews/<内容寻址>.json`）。
+| 编号 | 指控 | 裁定 | 处置 |
+|------|------|------|------|
+| i1 | 两个 collection locale 文件（未登记 ⇒ >= 500 即阻断）贴近天花板，PRD 只记风险未给机械处置 | **dismissed** | 处置方向本身是错的：登记账本 = 给**未超限**文件批 200 行额度（放宽门禁），加豁免 = 移出检查域（关掉门禁）。正解是**别让它长过线**：两个新 key 并入既有行（该文件本就有多 key 同行的写法），落地后 zh 498 / en 496，`check-max-lines.js` 与 `check-debt-budget.js` 均 rc=0；PRD §7 把该约束写死供后人照做 |
+| i2 | `normalizeRewriteWordCountRange` 把 `min: null` 走 `Number(null)===0` 当成合法 `min=0` | **upheld** | 确属防御层自身的语义漏洞：防御层的意义是「不信任上游」，而它把上游的**非法态**（清空）翻译成了另一个**合法态**（不设下限）。已修：先判空（`''`/`null`/`undefined` ⇒ 按「没给」⇒ null ⇒ 不带新字段 ⇒ 回落旧行为），再取数判整数与上下界；回归锁 5 断言 |
+| i3 | `rewriteOne` 契约从 `string \| {error}` 变为恒对象，可能有隐藏调用方 | **dismissed** | `rewriteOne` **从未导出**（`module.exports` 只有 `registerHandlers` 与 `_resetFavBatchStateForTest`）⇒ 仓外/隐藏调用方物理上不存在；仓内唯一调用点已同步改读 `r1.text` / `r1.error`；另一条通道 `zhihu-favlist:batch-rewrite` 走自己的内联 Python 调用、契约未变。既有测试未改断言即全绿 |
+| i4 | `rewriteOne` 兜底 `wordCount = out.length` 用 UTF-16，与 Python `len()` 的码点口径不一致 | **upheld** | 确属真缺陷，且会**直接显示给用户**：同一段带 emoji 的改写稿，Python 回传 10 而兜底算成 20；且同一数字在**两个界面口径不同**（采集结果卡片 = 码点，文案库卡片 = UTF-16）。已修三处并统一到码点：`rewriteOne` 兜底改 `[...out].length`、`normalizeCollectedItem` 派生原文字数改 `countRewriteChars(content)`、`useCopyLibrary.upsertRewrite` 写库字数改 `countRewriteChars(content)`；回归锁 3 断言（emoji 场景），既有 ASCII 断言不受影响 |
+
+> 本轮 4 条争议项的 `highRiskDomains` **均为空**（无高危域）⇒ 按裁决合同不要求外部复核，
+> 逐条自扮演裁定 + 源码取证即可闭环；两条成立项均已在本 PR 内修复并补回归锁。
 
 ### 遗留（不假装已闭合）
 

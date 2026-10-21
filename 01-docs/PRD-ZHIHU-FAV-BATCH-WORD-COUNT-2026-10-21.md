@@ -148,6 +148,11 @@ target_wc = (min_wc + max_wc) // 2      # 区间中点
 | min/max 均为整数、min∈[0,49999]、max∈[1,50000]、max≥min | 采用，带 `min_word_count` / `max_word_count` |
 | 缺省 / 任一不合法 | **不带**这两个字段 ⇒ Python 回落 `length:'keep'`（旧行为） |
 
+> ⚠️ **空值必须先判空再取数**（外部评审 i2）：`Number('')` 与 `Number(null)` 都是 **0**（不是 NaN）。
+> 用户把输入框清空（渲染层 v-model.number 给 `''`）时，渲染层判**非法**并禁用按钮（语义是「不设区间」），
+> 而主进程若不先拦就会把空值当成**显式的「下限 0」**（语义是「不设下限」）——两个含义相反的语义被混同。
+> 故空值一律按「没给」处理 ⇒ null ⇒ 回落旧行为。
+
 > **为什么是「双层」而不是「两份实现」**：渲染层那份的产物是**给用户看的红字**，
 > 主进程那份的产物是**降级到旧行为**。两者的判定字段相同（整数 + 上下界 + max≥min），
 > 但**失败后果不同**（一个不让点、一个照旧跑），所以是两层防御而非两份语义。
@@ -230,6 +235,20 @@ target_wc = (min_wc + max_wc) // 2      # 区间中点
 `outputTruncated` 并在界面横幅告知）。因此本片选择**告知**（摘要里的「其中 N 条超出设定上限」+
 卡片上的实际字数），不选择截断。
 
+### 7.3 「字数」的口径统一为**码点**（外部评审 i4）
+
+同一个「字数」在仓里有两种口径：Python 的 `len()` 与引擎的 `[...text].length` 是**码点**，
+而渲染层若干处用 `content.length`（**UTF-16 码元**）——带 emoji（代理对）的文本两者会差 1/篇。
+本片展示的是**两个并排的数字**（原文字数 + 改写稿字数），口径不一致就会让用户以为「改写后少了几百字」。
+
+已统一为码点（与引擎、Python 一致）：
+
+| 位置 | 原来 | 现在 |
+|------|------|------|
+| `rewriteOne` 兜底计数 | `out.length`（UTF-16） | `[...out].length`（码点） |
+| `normalizeCollectedItem` 派生原文字数 | `content.length`（UTF-16） | `countRewriteChars(content)`（码点） |
+| `useCopyLibrary.upsertRewrite` 写库字数 | `content.length`（UTF-16） | `countRewriteChars(content)`（码点） |
+
 ---
 
 ## 8. 回归保护
@@ -256,8 +275,24 @@ target_wc = (min_wc + max_wc) // 2      # 区间中点
 
 ---
 
-## 10. 变更记录
+## 10. 外部双家族评审（QM-6）
+
+| 项 | 值 |
+|----|----|
+| 入口 | `sh scripts/deep-review.sh`（pre-commit 的 `ccg-review-decider` 判 mode=dual：变更 810 行 > 200 行阈值） |
+| 跨家族校验 | proposer=**opencode** / critic=**claude**，两个后端均经 `codeagent-wrapper` 实跑，跨家族校验通过 |
+| critic 结论 | 4 维度（correctness 7 / security 8 / performance 8 / maintainability 7）+ 4 条争议项；**0 条落在高危域**（⇒ 不需外部复核） |
+| 裁定 | **upheld 2 条**（i2 空值被 `Number('')===0` 误读成合法下限 0；i4 兜底用 UTF-16 与码点口径不一致）**dismissed 2 条**（i1 未超限的 locale 文件不该登记账本；i3 `rewriteOne` 从未导出、无隐藏调用方） |
+| 处置 | 两条成立项**已修并补 4 条回归锁**（空值归一 ×5 断言、emoji 码点 ×3 断言）；驳回依据逐行可查 |
+
+逐条详情见 `openspec/records/feat-zhihu-fav-batch-wordcount.md` 的「外部评审」小节，
+裁决全文在 `.ccg/reviews/0eda882e….json`（`status=needs_revision`、`tier=self-play`）。
+
+---
+
+## 11. 变更记录
 
 | 日期 | 变更 | 说明 |
 |------|------|------|
 | 2026-10-21 | 初版 | 知乎收藏批量支持字数区间 + 显示改写稿实际字数；顺带修 Python 目标篇幅中点语义 |
+| 2026-10-21 | 外部评审处置 | i2（空值误读）i4（UTF-16 vs 码点）两条成立项已修并补回归锁；「字数」口径统一为码点 |

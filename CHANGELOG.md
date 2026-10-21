@@ -14,6 +14,7 @@
 
 
 ======
+
 # [未发布] feat(collect): 知乎收藏批量改写支持字数区间，并显示改写稿实际字数（feat-zhihu-fav-batch-wordcount）
 
 - **改前**：知乎收藏批量「采集并改写」的稿子长度**写死**——面板没有字数入口，请求体固定 `{content, style, length:'keep', llm}`，
@@ -34,6 +35,15 @@
   handler 降到 463 行；两个未登记在 max-lines 账本里的 collection locale 文件（>= 500 即阻断）新增 key 只能并到既有行。
 - **回归**：四层新增 12 例（主进程区间透传/字数回传/超限计数、渲染层面板契约、映射层派生值形状、Python 目标篇幅语义）；
   既有套件 Python 聚合 53 例、桌面端相关 90 例全绿。
+- **外部双家族评审**：`sh scripts/deep-review.sh` 实跑 opencode(proposer) + claude(critic)，跨家族校验通过，
+  critic 给出 4 维度评分与 4 条争议项（**0 条高危域**）⇒ 逐条裁定 **upheld 2 / dismissed 2**：
+  - **i2**（成立）防御层把上游的**非法态**（清空输入，`Number('')===0`）翻译成了另一个**合法态**（显式下限 0）
+    ⇒ 已修：空值一律按「没给」处理（回落旧行为），回归锁 5 断言；
+  - **i4**（成立）兜底字数用 UTF-16 `.length`，与 Python `len()`/引擎的**码点**口径不一致
+    （带 emoji 的文本两处显示不同数字）⇒ 已把三处「字数」统一为码点（`rewriteOne` 兜底、
+    `normalizeCollectedItem` 原文字数、`useCopyLibrary` 写库字数），回归锁 3 断言；
+  - i1 / i3 驳回（附取证依据：未超限的 locale 文件不该登记账本，正确处置是别让它长过线；
+    `rewriteOne` 从未导出、仓内唯一调用点已同步）。
 # [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
 
 - **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。

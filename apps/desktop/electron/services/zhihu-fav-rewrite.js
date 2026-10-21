@@ -64,13 +64,23 @@ function summarizeRewriteError (e) {
  * 合法域：min 0-49999 的整数、max 1-50000 的整数、max >= min。
  * min=0 是**合法值**，含义是「不设下限」——不能因为 0 是假值就当成缺省。
  *
+ * ⚠️ 空值必须**先判空再取数**（外部评审 i2）：`Number('')`、`Number(null)` 都是 **0**，
+ * 不是 NaN。若不先拦，用户把输入框清空（渲染层 v-model.number 给 `''`）或调用方传 `null`，
+ * 就会被当成合法的「下限 0」下发——而「清空」在本仓的语义是**不设区间**（渲染层直接判非法并禁用按钮），
+ * 两者含义相反。空值一律按「没给」处理 ⇒ null ⇒ 回落旧行为。
+ *
  * @param {{min?:unknown,max?:unknown}|null|undefined} input
  * @returns {{min:number,max:number}|null}
  */
 function normalizeRewriteWordCountRange (input) {
   if (!input || typeof input !== 'object') return null
-  const min = Number(input.min)
-  const max = Number(input.max)
+  const rawMin = input.min
+  const rawMax = input.max
+  // 空值 = 没给（不是 0）：'' / null / undefined 一律按缺省处理
+  if (rawMin === '' || rawMin === null || rawMin === undefined) return null
+  if (rawMax === '' || rawMax === null || rawMax === undefined) return null
+  const min = Number(rawMin)
+  const max = Number(rawMax)
   if (!Number.isInteger(min) || !Number.isInteger(max)) return null
   if (min < 0 || min > MAX_MIN) return null
   if (max < 1 || max > MAX_MAX) return null
@@ -153,7 +163,9 @@ async function rewriteOne (pythonBridge, content, style, llm, wordCountRange) {
     return { error: '改写接口返回空结果（result_content 为空），请查看后端日志或换个改写风格重试' }
   }
   const rawCount = Number(res && res.word_count)
-  return { text: out, wordCount: Number.isFinite(rawCount) && rawCount > 0 ? rawCount : out.length }
+  // 兜底计数用**码点**（外部评审 i4）：Python 的 len() 是码点口径，JS 的 .length 是 UTF-16 码元，
+  // 带代理对的文本（emoji）两者会差 1/篇 ⇒ 同一段文字在两处显示不同数字。
+  return { text: out, wordCount: Number.isFinite(rawCount) && rawCount > 0 ? rawCount : [...out].length }
 }
 
 module.exports = {

@@ -54,6 +54,16 @@ describe('normalizeRewriteWordCountRange — 区间归一', () => {
     expect(normalizeRewriteWordCountRange({ min: NaN, max: 6000 })).toBeNull()
     expect(normalizeRewriteWordCountRange({ min: 0, max: Infinity })).toBeNull()
   })
+
+  it('空值（空串 / null / undefined）⇒ null，不是「合法的下限 0」（外部评审 i2）', () => {
+    // Number('') === 0、Number(null) === 0 —— 不先判空就会把「清空」误读成「不设下限」，
+    // 而渲染层的语义是「清空 = 非法 + 禁用按钮」，两者含义相反。
+    expect(normalizeRewriteWordCountRange({ min: '', max: 6000 })).toBeNull()
+    expect(normalizeRewriteWordCountRange({ min: null, max: 6000 })).toBeNull()
+    expect(normalizeRewriteWordCountRange({ min: undefined, max: 6000 })).toBeNull()
+    expect(normalizeRewriteWordCountRange({ min: 0, max: '' })).toBeNull()
+    expect(normalizeRewriteWordCountRange({ min: 0, max: null })).toBeNull()
+  })
 })
 
 describe('buildRewriteRangeFields — 转 Python 请求字段', () => {
@@ -82,5 +92,30 @@ describe('isOverWordCountLimit — 超限判定（只判定，不截断）', () 
   it('非法字数（NaN / 负数）⇒ 不算超限（不凭空造一条告警）', () => {
     expect(isOverWordCountLimit(NaN, 6000)).toBe(false)
     expect(isOverWordCountLimit(-1, 6000)).toBe(false)
+  })
+})
+
+describe('rewriteOne — 改写稿实际字数（码点口径）', () => {
+  const { rewriteOne } = require('./zhihu-fav-rewrite')
+
+  it('Python 回传 word_count ⇒ 直接采用（码点口径）', async () => {
+    const bridge = { requestBackend: async () => ({ result_content: '改写正文', word_count: 4 }) }
+    const r = await rewriteOne(bridge, '原文', '轻松易懂', null, null)
+    expect(r.text).toBe('改写正文')
+    expect(r.wordCount).toBe(4)
+  })
+
+  it('Python 未回传 word_count ⇒ 兜底按**码点**计（外部评审 i4：emoji 不能按 UTF-16 算）', async () => {
+    // '😀' 是 1 个码点、2 个 UTF-16 码元 ⇒ .length 会算成 2
+    const bridge = { requestBackend: async () => ({ result_content: '😀' }) }
+    const r = await rewriteOne(bridge, '原文', '轻松易懂', null, null)
+    expect(r.wordCount).toBe(1)
+  })
+
+  it('空结果 ⇒ 返回 error（不产出字数）', async () => {
+    const bridge = { requestBackend: async () => ({ result_content: '' }) }
+    const r = await rewriteOne(bridge, '原文', '轻松易懂', null, null)
+    expect(r.error).toBeTruthy()
+    expect(r.text).toBeUndefined()
   })
 })
