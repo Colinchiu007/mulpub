@@ -98,6 +98,39 @@ test('T4 关键负控：他人把台账改进主干、我 rebase 上去 ⇒ 我�
   assert.ok(fs.readFileSync(path.join(dir, 'CHANGELOG.md'), 'utf8').includes('别人那条'));
 });
 
+test('T12 merge ref 形态（CI 上真实踩到的那个错位）：head 必须取 PR head sha，不是合并提交', () => {
+  // 与 T4 的区别不是细节，是**两种不同的错位**：
+  //   T4 = 本地把分支 rebase 到新 main 之后，工作树里有别人的台账改动；
+  //   T12 = pull_request 事件 actions/checkout 检出的是 merge ref ⇒ HEAD 是"我的 head ⊕ 当时 main"
+  //         的合并提交，于是 base.sha..HEAD 含别人在 base 之后并入 main 的台账改动。
+  // 现场（run 39536655940）：`差量文件=26 命中热写面=2 判定=FAIL`，而那 2 个文件不是本 PR 改的。
+  const dir = mkRepo();
+  const seed = git(dir, ['rev-parse', 'HEAD']);
+  commitChange(dir, 'CHANGELOG.md', '# CHANGELOG\n# [未发布] 别人在 base 之后并入 main\n');
+  const mainTip = git(dir, ['rev-parse', 'HEAD']);
+  git(dir, ['checkout', '-q', '-b', 'pr', seed]);
+  commitChange(dir, 'README.md', 'mine\n');
+  const prHead = git(dir, ['rev-parse', 'HEAD']);
+  git(dir, ['checkout', '-q', 'main']);
+  git(dir, ['merge', '-q', '--no-ff', '-m', 'merge ref', 'pr']);
+  const mergeRef = git(dir, ['rev-parse', 'HEAD']);
+  assert.notStrictEqual(mergeRef, prHead, '前提：merge ref 与 PR head 必须是两个不同对象');
+
+  // 用 merge ref 当 head ⇒ 误判 FAIL（这就是缺陷现场，断言它成立才能让本用例有资格说"另一种传参才对"）
+  // base 必须是 **PR 创建时的 main tip**（= seed），不是"当前 main tip"：CI 里
+  // github.event.pull_request.base.sha 就是前者，它比后来并入的改动更老 —— 用 mainTip 当 base
+  // 会把别人的台账改动挡在差量之外，夹具于是造不出缺陷形态（第一版就这么空转过，被自己
+  // 那句"若这行变绿说明用例空转"的哨兵抓到）。
+  const wrong = run(dir, [`--base=${seed}`, `--head=${mergeRef}`, '--mode=enforce']);
+  assert.strictEqual(wrong.rc, 1, '若这行变绿，说明夹具没造出 merge ref 形态，本用例退化成空转');
+  assert.match(wrong.out, /命中热写面=1/);
+
+  // 用 PR head sha 当 head ⇒ PASS：别人并入 main 的台账改动不该算到本 PR 头上
+  const right = run(dir, [`--base=${seed}`, `--head=${prHead}`, '--mode=enforce']);
+  assert.strictEqual(right.rc, 0, `merge ref 的他人改动被算进本 PR 了：\n${right.out}`);
+  assert.match(right.out, /命中热写面=0/);
+});
+
 test('T5 授权出口：本次差量新增授权文件且 applies_to_base 匹配 ⇒ 放行并打印 授权=on', () => {
   const dir = mkRepo();
   // 授权里写的坐标 = 这次差量的 merge-base。此刻 HEAD 还是根提交，加一笔之后
@@ -235,6 +268,18 @@ test('T9 取证失败一律按未证实处理：坏 ref ⇒ rc=2，不得读成"
   assert.strictEqual(r.rc, 2, r.out);
   const badMode = run(dir, ['--base=HEAD^', '--head=HEAD', '--mode=loose']);
   assert.strictEqual(badMode.rc, 2, '未知 mode 必须拒绝，不能静默回落默认档');
+});
+
+test('T13 接线锁：Gate 2b9 必须把 head 显式接到 PR head sha（T12 那个缺陷的持久防线）', () => {
+  const wf = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'quality-gate.yml'), 'utf8');
+  const at = wf.indexOf('Gate 2b9 - Hot-carrier edit gate');
+  assert.ok(at >= 1, '找不到 Gate 2b9 步骤名 ⇒ 该判据已从 CI 消失（不是"没匹配到"，是没接）');
+  const block = wf.slice(at, wf.indexOf('\n      - name:', at) > 0 ? wf.indexOf('\n      - name:', at) : undefined);
+  assert.match(block, /github\.event\.pull_request\.head\.sha/, 'head 必须显式取 PR head sha，否则 pull_request 事件下它等于 merge ref');
+  assert.match(block, /--head="\$HEAD_REF"/, 'CLI 的 --head 必须用解析出的 head，不能写死 HEAD');
+  // 反向禁词：整块里不得出现"把 HEAD 当默认 head 传给判据"的旧形态（注释里的说明性文字剥掉后再判）
+  const code = block.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.ok(/CL_HEAD: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/.test(code), 'CL_HEAD 必须在 env 里，不能只在注释里提一句');
 });
 
 test('T10 判据只允许 require node 内置模块（changes 作业无 Install deps）', () => {

@@ -532,13 +532,20 @@ jobs:
         shell: bash
         env:
           CL_BASE: ${{ github.event.pull_request.base.sha }}
+          # ⛔ head 必须取 PR 的 head sha，不能留空让它等于 HEAD —— 本步骤实测踩过：
+          # pull_request 事件 actions/checkout 检出的是 **merge ref**（HEAD = 我 head ⊕ 当时 main 的合并提交），
+          # 于是 base.sha..HEAD 会把「base 之后别人并入 main 的台账改动」算进本 PR 的差量。
+          # 现场读数（run 39536655940）：`差量文件=26 命中热写面=2 判定=FAIL` —— 那 2 个文件不是我改的。
+          # advisory 档今天不拦，但转 enforce 那天它会拦下每一个 base 落后的 PR。
+          # 回归锁见 scripts/check-no-hot-carrier-edit.test.js T12（merge ref 形态，与 T4 的 rebase 形态分列）。
+          CL_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           node --test scripts/check-no-hot-carrier-edit.test.js
-          # base 取 merge-base（不是 PR base sha，也不是 origin/main）—— 同 Gate 2c3 实测过的口径：
-          # 直接拿 main tip 会把别人在我上次同步之后并入的台账行算成"我改了台账"。
+          # base 取 merge-base（不是 PR base sha，也不是 origin/main）—— 同 Gate 2c3 实测过的口径。
           BASE_REF="${CL_BASE:-HEAD^}"
-          MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
-          node scripts/check-no-hot-carrier-edit.js --base="${MB:-$BASE_REF}" --head=HEAD --mode=advisory
+          HEAD_REF="${CL_HEAD:-HEAD}"
+          MB="$(git merge-base "$BASE_REF" "$HEAD_REF" 2>/dev/null || true)"
+          node scripts/check-no-hot-carrier-edit.js --base="${MB:-$BASE_REF}" --head="$HEAD_REF" --mode=advisory
 
   static-gates:
     name: QG Static
