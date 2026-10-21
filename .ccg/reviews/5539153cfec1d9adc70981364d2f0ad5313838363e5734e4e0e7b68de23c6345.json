@@ -1,0 +1,63 @@
+{
+  "sha": "3667f7b672620d1630f57ae2df8854394a44bb23",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 266 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 266,
+    "fileCount": 8,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 41,
+    "docSensitiveContentSample": [
+      "+ .cohere-select {",
+      "+ .cohere-select:focus {",
+      "+      \"+      \\\"| 失败 | 用户可行动作优先 | 「发布失败：账号授权已过期，请到『账号管理』重新授权后再试。」 |\\\",\","
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "      \"i4-adj (Critical, high-risk): 成立 — 同 i1-adj，externalReview 三格已补齐；另确认本轮 diff 不含鉴权/加密逻辑。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5539153cfec1d9adc70981364d2f0ad5313838363e5734e4e0e7b68de23c6345",
+  "decidedAt": "2026-10-21T05:38:40.853Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

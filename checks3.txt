@@ -1,0 +1,13 @@
+build	pending	0	https://github.com/Colinchiu007/mulpub/actions/runs/39550743365/job/119059260921	
+electron-tests	pending	0	https://github.com/Colinchiu007/mulpub/actions/runs/39550743378/job/119059236496	
+gui-test	pending	0	https://github.com/Colinchiu007/mulpub/actions/runs/39550743360/job/119059261499	
+鍊哄姟鐔旀柇妫€鏌?pass	40s	https://github.com/Colinchiu007/mulpub/actions/runs/39550743455/job/119059119771	
+QG Changes	pending	0	https://github.com/Colinchiu007/mulpub/actions/runs/39550743344/job/119059119737	
+agent-judge	pending	0	https://github.com/Colinchiu007/mulpub/actions/runs/39550743353/job/119059119436	
+Changes	pass	26s	https://github.com/Colinchiu007/mulpub/actions/runs/39550743365/job/119059119262	
+Changes	pass	21s	https://github.com/Colinchiu007/mulpub/actions/runs/39550743378/job/119059119324	
+GUI Changes	pass	26s	https://github.com/Colinchiu007/mulpub/actions/runs/39550743360/job/119059119287	
+渚濊禆婕忔礊瀹¤	pass	29s	https://github.com/Colinchiu007/mulpub/actions/runs/39550743447/job/119059119729	
+鍗曞厓娴嬭瘯 + Lint	pass	3s	https://github.com/Colinchiu007/mulpub/actions/runs/39550743441/job/119059119513	
+鏂囨。鍚屾妫€鏌?pass	19s	https://github.com/Colinchiu007/mulpub/actions/runs/39550743441/job/119059119908	
+

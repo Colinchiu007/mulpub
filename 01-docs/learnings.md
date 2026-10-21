@@ -36,6 +36,107 @@
 3. 处置优先级：**单键精准更新基线**（diff 仅 1 行、完全可归因）> 拆文件/抽组件 > `--update --rewrite`（脚本注释明确警告它「会掩盖别人的漂移，需人工审 diff」，是最后手段）；
 4. 若更新基线会影响「谁来守门」，按项目铁律**必须人工过目、不走 agent 自动合并**——本次即如实向用户报告并取得裁决后才动。
 
+## 把壳层容器改成 `transparent` 会让「向上找第一个不透明背景」的审计失去背景——渐变要放 `background-image`，底色要单列 `background-color`（ui-visual-premium，2026-10-20）
+
+### lesson: transparent-chain-breaks-background-resolution
+
+**现场**：本轮把应用壳层（`.mp-shell` / `.mp-workspace` / `.cohere-main`）改成透明，
+好让 body 上的环境过渡色透上来。视觉没问题、像素基线零漂移，但 CI 的
+**Gate 7c 对比度审计**红：18 个视图共 59 处被判低对比度（1.09:1 ~ 2.35:1），
+其中 `.page-title`、`.page-subtitle`、`.tab-add` 这些**明显是深底浅字**的元素
+被判成「浅底浅字」。
+
+**根因**：审计解析背景的方式是「从元素向上找第一个 `background-color` 且 alpha ≥ 0.5 的祖先，
+找不到就回退白色」。我的链是：元素 → … → `.cohere-main`(transparent) → `.mp-workspace`(transparent)
+→ `.mp-shell`(transparent) → `body`(`background:` 简写) → `html`（审计**不查** html）。
+而 `background:` 简写会把 `background-color` 重置成 `transparent`（渐变是 background-image），
+于是**整条链都透明** → 回退白色 → 暗色主题下的浅色文字被判成「白底浅字」。
+
+**修法**：把底色与渐变**拆开声明** ——
+`background-color: var(--surface-canvas)`（不透明底，审计可解析）
++ `background-image: <渐变>`（视觉层）。渲染效果一字不变，背景重新可解析。
+本机复跑对比度审计：18 个视图、0 处低对比度（CI 侧原为 59 处 / 17 处失败）。
+
+**判据**：**「让某个祖先透明」不是一个纯视觉决定**。任何依赖「向上找不透明背景」的东西
+（对比度审计、可访问性检查、浏览器扩展、部分截图基线）都会因此改判。
+改容器透明性前先问：这条链上还有没有可解析的背景？渐变要不要用 `background-image` +
+`background-color` 两行而不是 `background` 简写？
+
+## 注释里写出受契约保护的类名，也算违规——契约锁按纯文本扫描，不解析选择器（ui-visual-premium，2026-10-20）
+
+### lesson: text-scanning-contracts-count-comments
+
+**现场**：`src/components/UiSkeleton.contract.test.js` 有一条锁：
+「骨架骨块类名只允许出现在 `components/UiSkeleton.vue` 与 `styles/skeleton.css`」。
+我在 `styles/premium-design-system.css` 里**删掉了**那段样式，却留下了一段
+解释「为什么这里不接管骨架屏」的注释 —— 注释里写了那个类名，测试照样红。
+
+**根因**：该锁的判据是 `fs.readFileSync(f).includes(类名)` —— **纯文本扫描**，
+不区分选择器、注释还是字符串。于是「为了说明为什么不写它」这件事本身，
+恰好触发了「不许提它」。
+
+**修法**：注释里改用描述性说法（「骨架骨块类名」）而不是逐字类名。
+同理，CSS 注释里不要写「变量: 值;」形状 —— `tokens.css` 里早就为此留过警告。
+
+**判据**：**契约锁的判据形态决定了你怎么写注释**。按纯文本扫的锁，注释是它的一部分；
+按解析 AST 的锁，注释才豁免。改动一个被文本锁覆盖的文件前，先看那条锁是怎么判的。
+
+## 改完代码再 `git commit --amend` 会让 CCG 深度审查 fail-closed——判定记录按内容寻址，改提交形态就会取名落空（ui-visual-premium，2026-10-20）
+
+### lesson: amend-breaks-content-addressed-gate-records
+
+**现场**：本 PR 先 commit，再 `git commit --amend` 补基线；跑 `sh scripts/deep-review.sh` 直接红：「本提交有 4457 行非 .ccg 改动，却找不到任何判定记录——这是**故障**，不是「没跑判定器」」。
+
+**根因**：判定记录（`.ccg/reviews/<hash>.json`）的**文件名 = 该提交 diff 的内容哈希**，不是提交 SHA。pre-commit 写记录时算的是 `git diff --cached`；而审查脚本算的是 `git diff HEAD^ HEAD`。**普通提交**两者同口径；**amend** 时 `git diff --cached` 只剩「相对旧 HEAD 的增量」，`git diff HEAD^ HEAD` 却是整个新提交 —— 两者不同口径，记录取名落空。
+
+**修法**：rebase 之后不要 amend，用 `git reset --soft HEAD~1` + **全新 commit** 重做，使 `git diff --cached` 与 `git diff HEAD^ HEAD` 恢复同口径。脚本自述的「两者应相等」自检就是这条的判据。
+
+**判据**：任何**按内容寻址**的产物（门禁判定记录、缓存键、指纹）遇到「改了提交形态后取不到」时，先怀疑**口径分叉**而不是「没跑判定器」——`git diff --cached` 与 `git diff HEAD^ HEAD` 在 amend 场景下**不是同一个东西**。本仓把这条写进了 `deep-review.sh` 的提示语，但读提示语的人往往已经改完了。
+
+## CSS 注释里写出选择器字面量，会让契约测试的 indexOf 定位到注释处——整块作用域解析落空（ui-visual-premium，2026-10-20）
+
+### lesson: selectors-in-comments-break-block-scanners
+
+**现场**：给 `tokens.css` 的暗色主题块加注释时写了「暗色同构覆盖见下方 `[data-theme="dark"]` 块」。随后 `tokens.slots.test.js` 与 `sidebar.tokens.test.js` 共 **6 个用例**红，暗色槽位一条都读不到（`expected [] to deeply equal [17 个 --color-sidebar-*]`）。
+
+**根因**：契约测试用 `css.indexOf('[data-theme="dark"]')` 定位暗色块起点。注释里那个字面量**排在真正的作用域选择器之前**，于是 indexOf 命中注释 → 从注释处往后切块 → 切出来的不是暗色块。
+
+**修法**：注释里不出现选择器字面量（改说「暗色主题块」）；这条禁令在 `tokens.css` 原有注释里已经写过（`⚠ 本注释刻意不写「变量: 值;」形状`），我照样踩了——**同一个文件里已有的警示，要当成对本次改动的约束读**。
+
+**判据**：用 `indexOf` / 正则扫「作用域块」的解析器，**注释与字符串字面量都是它的输入**。加注释前先问：这段文字里有没有解析器可能匹配的形状？有就换一种说法。
+
+## 「逐文件行数门禁」的两种超限要分开处置——都别靠抬基线消红（ui-visual-premium，2026-10-20）
+
+### lesson: two-over-limit-kinds-two-different-fixes
+
+**现场**：本 PR 给 `cohere-design-system.css` 加了约 100 行观感口径、给 `Home.vue` 加了约 70 行首页样式，CI 一次报出两种红：
+
+- `TARGET_GREW: cohere-design-system.css 现 1794 行已超过点名目标 1698 行（超 96）`
+- `LEDGER_GREW: Home.vue 较登记起 +269 行（差值 200）`
+- 连带 `debt-budget` 的 `FILES_OVER_500: 96 > baseline 95`
+
+**根因**：这是**两套独立口径**，处置方式也不同——`TARGET_GREW` 比的是「该文件被点名的目标行数」，`LEDGER_GREW` 比的是「登记基线 + 增量预算」。我一开始以为都是"文件太长"，差点 `--update` 一把了事。
+
+**修法（都不抬基线）**：
+- `TARGET_GREW` → 把新增内容**搬到独立层**。本例把观感口径整体搬出契约文件：`cohere-design-system.css` 是**类名契约**（有哪些类、语义是什么），观感是**口径**（这些类看起来应该怎样），两者分开演进后契约文件回到 1696 行。
+- `LEDGER_GREW` → 把样式**搬到域级 CSS 文件**，与既有惯例一致（采集域 `features/collection/collection-page.css`）：`<style scoped>` 里 `@import` 引入，规则仍带 scoped 属性。搬完组件回到 452 行，低于登记基线 654 ⇒ 触发 `DEBT_REPAID_LEDGER`，按门禁自述用 `--prune <路径>` **单键清账**（**不用 `--update`**：整份重生成会把别人的存量漂移登记成新基线）。
+- 连带 `FILES_OVER_500` 超基线 → 同理**拆分**而非抬基线（把 797 行的巡检脚本拆成「场景数据 / 浏览器探针 / 编排」三份）。
+
+**判据**：`max-lines-baseline.json` 里的 `files`（登记基线）、`targets`（点名目标）、`pruned`（墓碑）是**三份不同的账**。看到「行数超了」先问「超的是哪一份」，再决定是「搬走」还是「清账」——三种都不是「抬基线」。抬基线是把「改谁来守门」当消红手段。
+
+## UI 视觉问题要用「机器枚举 + 人工判读」两段式——单靠任一头都会漏（ui-visual-premium，2026-10-20）
+
+### lesson: visual-audit-needs-both-enumeration-and-judgement
+
+**现场**：用户说应用 UI「不统一、混乱、粗糙、不精致」。纯人工逐页看，会漏掉「A 页的按钮是圆角、B 页是方形」这类**跨页不一致**；纯机器跑统计，能得到"142 种颜色、22 种圆角"这样的数字，却不知道哪些是真问题、哪些是正常差异。
+
+**做法（两段式）**：
+- ① **机器枚举**：逐条路由在浏览器上下文里枚举可见元素的**计算样式**与结构（tabs / overlays / inputs / buttons / 颜色频次 / 圆角频次 / 间距频次 / 字体族频次）。本仓 `apps/desktop/tests/visual-testing/scripts/ui-audit-recon.js`。
+- ② **机器截图 + 人工判读**：按维度穷举界面面逐面截图，并给每张标注「页面 / 位置 / 操作状态」。本仓 `ui-audit-capture.js`（A 路由默认态 / B 标签页 / C 浮层 / D 控件交互态 / E 流程结果态 / F 暗色对照）。
+
+**产出**：机器那层把"感觉不统一"变成可指认的数字（142 色 / 22 圆角 / 143 间距 / 3 套字体栈 / 3 种标题色），人工那层把数字还原成**具体的失败场景**（卡片与白底同色分不开、hover 泛粉、虚线空态像没做完、同屏两种数字字形）。只有机器那层，用户看到的仍是"你统计了一下"；只有人工那层，改完说不清"统一"到什么程度。
+
+**判据**：任何"用户说不清哪里不对"的主观反馈，先用机器把它变成**可数的**（多少个色值、多少种圆角），再用截图把它变成**可看的**（哪个页面哪个位置）。两段都做，方案才落得下去。
 
 <!-- aggregate:record=chore-dep-audit-prune-resolved -->
 ### lesson: 清账清单不靠人记——用门禁自己的读数驱动（chore-dep-audit-prune-resolved）

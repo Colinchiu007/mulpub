@@ -145,6 +145,45 @@ Level 3: AI 看图 (预留)
 - rimraf v3 API兼容: `rimraf.rimrafSync || rimraf.sync`
 - 基类测试用try/catch包裹避免Jest worker崩溃
 
+### 3.5 桌面端视觉系统：三层文件分工（2026-10-20，ui-visual-premium）
+
+**决策**：把「视觉」拆成三层文件，各管一件事，**互不混用**：
+
+| 层 | 文件 | 职责 | 变更触发 |
+|---|---|---|---|
+| 令牌层 | `src/styles/tokens.css`（唯一真源） | 颜色 / 圆角 / 间距 / 字体 / 表面 / 描边 / 高度 / 渐变 / 玻璃 / 动效 | 改「值」 |
+| 契约层 | `src/styles/cohere-design-system.css` | **有哪些类、语义是什么**（类名契约） | 增删类名 |
+| 观感层 | `src/styles/premium-components.css` + `premium-design-system.css` | **这些类看起来应该怎样**（观感口径） | 改「样子」 |
+
+**为什么**：观感与契约混在一份文件里时，改一次观感就会顶破「逐文件行数门禁」的登记目标
+（实测 TARGET_GROW：1794 > 1698）。分层后，契约文件回到 1696 行、观感独立成层，
+两类超限各有各的处置（搬走 / `--prune` 单键清账），**都不必抬基线**。
+
+**关键口径**（写新页面时照抄）：
+
+- 表面五层：`--surface-canvas`（画布/过渡色）→ `--surface-raised`（卡片）→
+  `--surface-sunken`（内嵌/空态）→ `--glass-bg`（顶栏/侧栏）→ `--surface-scrim`（模态背板）
+- 圆角 6 档：`--r-xs/sm/md/lg/xl/pill`（卡片主力档 `--r-lg` 16px）
+- 品牌渐变：`--brand-gradient`（`#5B5EE8 → #8B3FD9`）—— 白字压其上两端 ≥ 4.5:1
+- 阴影统一用**品牌紫调**（`--elevation-1..4`），不用中性黑（中性黑会让白底界面发灰）
+- 标题：墨色 `--color-text-strong` + 600 字重 + `--font-family-ui-display`；
+  品牌色只留给图标底座 / 状态徽章 / CTA
+- 数字：`--font-family-ui-display` + `font-variant-numeric: tabular-nums`（多卡小数点对齐）
+- 状态表达**双通道**（颜色 + 文字/图标），不得只用颜色
+- 空态/占位**禁用虚线描边**（虚线语义 = "没做完/出错了"）
+
+**配套的机器守卫**（防止回潮）：
+
+- `tests/visual-testing/scripts/ui-audit-recon.js` — 逐路由枚举计算样式，统计色/圆角/间距/字体碎片
+- `tests/visual-testing/scripts/ui-audit-capture.js` — 按 6 维度穷举界面面并逐面截图（页面/位置/操作状态标注）
+- `tests/visual-testing/ui-audit-scripts.test.js` — **路由覆盖守卫**：router 全路径 vs 巡检清单求差集，
+  新增路由漏登记即红（巡检脚本在 `tests/visual-testing/scripts/`，被 vitest exclude，
+  故测试放在 `tests/visual-testing/` 根下）
+
+**完整报告**：`01-docs/UI-VISUAL-AUDIT-2026-10-20.md` ·
+**产品规格**：`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md` ·
+**令牌口径**：`01-docs/design-system-usage.md` §四之二
+
 ---
 
 ## 四、竞品分析

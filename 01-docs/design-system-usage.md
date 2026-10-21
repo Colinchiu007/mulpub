@@ -125,8 +125,13 @@
 
 ## 四、CSS 变量参考
 
+> ⚠️ 下面这份清单是 **2026-06 的旧版 cohere 系**（`--primary: #7c5cbf` 等），
+> 与当前 `apps/desktop/src/styles/tokens.css` 的权威取值**已经不一致**。
+> 2026-10-20 视觉系统升级后，**唯一真源是 `tokens.css` + `cohere-design-system.css` + `premium-design-system.css`**。
+> 本仓实际使用的口径见下方「四之二」。
+
 ```css
-/* 颜色 */
+/* 颜色（旧版，已停用 —— 仅供历史文档对照） */
 --primary: #7c5cbf;        /* 浅薰衣草紫 */
 --primary-hover: #6a4dab;
 --primary-light: #f0ebff;
@@ -141,16 +146,105 @@
 --bg: #f8f4ff;
 --surface: #ffffff;
 
-/* 圆角 */
+/* 圆角（旧版，已停用） */
 --r-sm: 6px;
 --r-md: 10px;
 --r-lg: 16px;
 
-/* 阴影 */
+/* 阴影（旧版，已停用） */
 --shadow-sm: 0 1px 3px rgba(124, 92, 191, 0.08);
 --shadow-md: 0 4px 12px rgba(124, 92, 191, 0.12);
 --shadow-lg: 0 8px 30px rgba(124, 92, 191, 0.16);
 ```
+
+---
+
+## 四之二、当前权威口径（2026-10-20 视觉系统升级后）
+
+> 真源文件：
+> - `apps/desktop/src/styles/tokens.css` —— **唯一令牌源**（含亮/暗两套）
+> - `apps/desktop/src/styles/cohere-design-system.css` —— **类名契约**（有哪些类、语义是什么）
+> - `apps/desktop/src/styles/premium-design-system.css` —— **观感契约**（这些类看起来应该怎样）
+>
+> 完整说明见 [UI 视觉巡检与高级感升级方案](./UI-VISUAL-AUDIT-2026-10-20.md) 与
+> [PRD：桌面端视觉系统升级](./PRD-UI-VISUAL-SYSTEM-2026-10-20.md)。
+
+### 4.1 表面阶梯（必须分层用，不得混用）
+
+```css
+--surface-canvas:   #f5f4fa;   /* L0 页面底（过渡色） */
+--surface-raised:   #ffffff;   /* L1 卡片 / 面板 */
+--surface-sunken:   #f1f0f8;   /* L2 空态 / 内嵌 / 分段控件底 */
+--glass-bg:         rgba(255,255,255,.72);  /* L3 顶栏 / 侧栏 */
+--surface-scrim:    rgba(24,22,48,.32);      /* L4 模态遮罩 */
+```
+
+### 4.2 描边与高度
+
+```css
+--hairline-soft:   rgba(30,27,75,.05);   /* 区块分隔 */
+--hairline:        rgba(30,27,75,.09);   /* 卡片外框 */
+--hairline-strong: rgba(30,27,75,.14);   /* 输入框 / 次级按钮 */
+
+--elevation-1: 0 1px 2px rgba(30,27,75,.04), 0 1px 3px rgba(30,27,75,.05);
+--elevation-2: 0 2px 6px rgba(30,27,75,.05), 0 8px 20px -8px rgba(30,27,75,.10);
+--elevation-3: 0 4px 10px rgba(30,27,75,.06), 0 16px 32px -12px rgba(30,27,75,.14);
+--elevation-4: 0 8px 20px rgba(30,27,75,.08), 0 32px 64px -20px rgba(30,27,75,.20);
+```
+
+> 阴影统一用**品牌紫调**而非中性黑 —— 中性黑投影会让白底界面显"发灰"。
+
+### 4.3 品牌渐变与毛玻璃
+
+```css
+--brand-gradient:       linear-gradient(135deg, #5B5EE8 0%, #8B3FD9 100%);
+--brand-gradient-hover: linear-gradient(135deg, #4F52DE 0%, #7C35CE 100%);
+--brand-gradient-soft:  linear-gradient(135deg, rgba(91,94,232,.10), rgba(139,63,217,.10));
+--brand-glow:           0 6px 16px -4px rgba(91,86,216,.38);
+--brand-ring:           0 0 0 3px rgba(91,94,232,.16);   /* 聚焦柔光环 */
+
+--glass-blur: saturate(180%) blur(20px);
+--glass-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 8px 24px -12px rgba(30,27,75,.16);
+```
+
+> ⚠️ **对比度硬约束**：白字压在 `--brand-gradient` 上，两端对比度须 ≥ 4.5:1
+> （实测 `#5B5EE8` 端 4.91:1、`#8B3FD9` 端 5.51:1）。
+> 调亮渐变亮端（如提到 `#A855F7`）会跌到 3.96:1，**不合格**。
+
+### 4.4 圆角（收敛为 6 档）
+
+```css
+--r-xs: 4px;     /* 标签内嵌 */
+--r-sm: 8px;     /* 图标底座、小按钮 */
+--r-md: 12px;    /* 输入框、次级按钮 */
+--r-lg: 16px;    /* 卡片 / 面板 / 统计卡（主力档） */
+--r-xl: 20px;    /* 弹窗 */
+--r-pill: 32px;  /* 主按钮、胶囊页签 */
+```
+
+> **档外圆角一律判不合格**：写死 3/5/6/7/10/14/15px 会在同屏内产生"外圆内方"错位。
+
+### 4.5 字体栈（收敛为 2 套）
+
+```css
+--font-family-ui:         'SF Pro Text','Inter','PingFang SC','Microsoft YaHei',ui-sans-serif,system-ui,sans-serif;
+--font-family-ui-display: 'SF Pro Display','Inter','PingFang SC','Microsoft YaHei',ui-sans-serif,system-ui,sans-serif;
+```
+
+- 正文用 `--font-family-ui`；标题与统计数字用 `--font-family-ui-display`。
+- 数字类内容必须加 `font-variant-numeric: tabular-nums`（多卡数字小数点对齐）。
+- 字号只用 `--font-size-xs/sm/base/md/lg/xl/xxl`（12/13/15/17/20/24/32px）。
+- **正文不得小于 12px**；**不得出现小数像素字号**（`19.5px` 一类会在缩放下产生半像素模糊）。
+
+### 4.6 动效
+
+```css
+--motion-fast: 140ms;  --motion-base: 200ms;  --motion-slow: 320ms;
+--ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+```
+
+> **禁止 `transition: all`** —— 会把 `width/height/margin` 纳入插值，造成不可控重排。
+> 一律按属性列举（`background-color / border-color / color / box-shadow / transform`）。
 
 ---
 

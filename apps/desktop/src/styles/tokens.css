@@ -108,12 +108,16 @@
   --color-sidebar-bg-end: #f0efff;
   --color-sidebar-border: #e9e8f6;
   --color-sidebar-divider: #d9d7ed;
-  --color-sidebar-text: #7a7d99;
-  --color-sidebar-text-secondary: #777a96;
-  --color-sidebar-text-tertiary: #8587a1;
-  --color-sidebar-text-muted: #9a9cb3;
-  --color-sidebar-text-footer: #9294ab;
-  --color-sidebar-icon: #777997;
+  /* 侧栏文字档加深一档：侧栏改为毛玻璃后，底色不再是 #f4f2ff 而是
+   * 近白（rgba(255,255,255,.72) 叠在浅色画布上），
+   * 原 #7a7d99 在近白底上只有约 4.0:1，低于 WCAG AA 正文 4.5:1。
+   * 加深到 #5f6280（≈5.9:1）/ #636680（≈5.6:1），可读性提升且层次不变。 */
+  --color-sidebar-text: #5f6280;
+  --color-sidebar-text-secondary: #636680;
+  --color-sidebar-text-tertiary: #747792;
+  --color-sidebar-text-muted: #8a8da5;
+  --color-sidebar-text-footer: #8588a1;
+  --color-sidebar-icon: #636680;
   --color-sidebar-border-strong: #bab9d3;
   /* 品牌主色：hover/active 文字与焦点环统一取品牌主色（禁止侧边栏内联自造紫） */
   --color-sidebar-accent: var(--color-primary);
@@ -236,6 +240,52 @@
 
   /* 间距补档：间距族此前止于 --spacing-10(40px)，而 history-page.css 用到 64px（批次 5 依赖） */
   --spacing-16: 64px;
+  /* ===== 高级感视觉层（ui-visual-premium 2026-10-20）=====
+   * 动因与完整推理见 01-docs/UI-VISUAL-AUDIT-2026-10-20.md §2/§4；
+   * 本文件只留「槽位 + 取值理由要点」，细节不重复（避免两处说法漂移）。
+   * 暗色同构覆盖见下方暗色主题块，取值一一对应。
+   * ⚠ 本注释内不得出现暗色选择器字面量 —— 契约测试用 indexOf 定位暗色块，注释里出现会定位错（实测踩过）。 */
+  /* 表面阶梯：同屏要能分辨「底 / 卡 / 浮起 / 凹陷」四层 */
+  --surface-canvas: #f5f4fa;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f1f0f8;
+  --surface-overlay: rgba(255, 255, 255, 0.94);
+  --surface-scrim: rgba(24, 22, 48, 0.32);
+  /* 描边三档：此前全站只有 #efefef 一档，卡片与白底几乎不可分 */
+  --hairline-soft: rgba(30, 27, 75, 0.05);
+  --hairline: rgba(30, 27, 75, 0.09);
+  --hairline-strong: rgba(30, 27, 75, 0.14);
+  /* 高度阶梯：统一品牌紫调投影（不用中性黑，避免白底界面发灰） */
+  --elevation-1: 0 1px 2px rgba(30, 27, 75, 0.04), 0 1px 3px rgba(30, 27, 75, 0.05);
+  --elevation-2: 0 2px 6px rgba(30, 27, 75, 0.05), 0 8px 20px -8px rgba(30, 27, 75, 0.10);
+  --elevation-3: 0 4px 10px rgba(30, 27, 75, 0.06), 0 16px 32px -12px rgba(30, 27, 75, 0.14);
+  --elevation-4: 0 8px 20px rgba(30, 27, 75, 0.08), 0 32px 64px -20px rgba(30, 27, 75, 0.20);
+  /* 品牌渐变：白字压渐变须 ≥4.5:1（#5B5EE8 端 4.91:1、#8B3FD9 端 5.51:1）；亮端再提亮会跌到 3.96:1 不合格。 */
+  --brand-gradient: linear-gradient(135deg, #5B5EE8 0%, #8B3FD9 100%);
+  --brand-gradient-hover: linear-gradient(135deg, #4F52DE 0%, #7C35CE 100%);
+  --brand-gradient-soft: linear-gradient(135deg, rgba(91, 94, 232, 0.10) 0%, rgba(139, 63, 217, 0.10) 100%);
+  --brand-glow: 0 6px 16px -4px rgba(91, 86, 216, 0.38);
+  --brand-glow-hover: 0 10px 24px -6px rgba(91, 86, 216, 0.48);
+  --brand-ring: 0 0 0 3px rgba(91, 94, 232, 0.16);
+  --brand-ring-strong: 0 0 0 4px rgba(91, 94, 232, 0.22);
+  /* 毛玻璃：模糊半径 14px（backdrop-filter 采样成本与半径正相关，CCG 评审 i3）；
+   * 「减少透明度」偏好时由 premium-design-system.css 整体退回实心表面。 */
+  --glass-blur: saturate(180%) blur(14px);
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.62);
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 24px -12px rgba(30, 27, 75, 0.16);
+  /* 暖色点缀：低饱和，避免与品牌主紫打架 */
+  --accent-warm-soft: linear-gradient(135deg, rgba(255, 154, 108, 0.14) 0%, rgba(232, 93, 158, 0.14) 100%);
+  /* 动效：统一时长与缓动，取代散落的 transition: all */
+  --motion-fast: 140ms;
+  --motion-base: 200ms;
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  /* 统一 UI 字体栈：巡检实测同屏并存 3 套字族（PingFang 硬编码 5937 元素 /
+   * Arial 1345 / SF Pro 35）。本槽补回中文回退保证 Windows 下 CJK 字形不变；
+   * --font-family-text 本身取值被契约测试锁死，不动。 */
+  --font-family-ui: 'SF Pro Text', 'Inter', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
+  --font-family-ui-display: 'SF Pro Display', 'Inter', 'PingFang SC', 'Microsoft YaHei', ui-sans-serif, system-ui, sans-serif;
 }
 
 [data-theme="dark"] {
@@ -365,6 +415,37 @@
    *   把后面的变量声明变成孤立文本（同源事故见 tests/styles-comment-closure.test.js）。 */
   --color-tab-active-bg: #2d2d35;
   --shadow-tab-active: 0 1px 3px rgba(0, 0, 0, 0.4);
+
+  /* ===== 高级感视觉层 · 暗色同构覆盖（ui-visual-premium 2026-10-20）=====
+   * 亮暗必须**同构**：同一语义槽在暗色下换成「深一档表面 + 亮一档描边」，
+   * 而不是把亮色值原样搬过去（那正是暗色界面发灰/发闷的根因）。
+   * 描边在暗底上要变成「发光的边」（rgba(255,255,255,α)），而不是「更深的边」。
+   * 槽位与亮色块一一对应（模糊半径同为 14px，两档不一致会让主题切换时玻璃质感跳变）。 */
+  --surface-canvas: #131318;
+  --surface-raised: #1e1e25;
+  --surface-sunken: #181820;
+  --surface-overlay: rgba(24, 24, 30, 0.94);
+  --surface-scrim: rgba(6, 6, 10, 0.58);
+  --hairline-soft: rgba(255, 255, 255, 0.05);
+  --hairline: rgba(255, 255, 255, 0.10);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.34);
+  --elevation-2: 0 2px 6px rgba(0, 0, 0, 0.38), 0 8px 20px -8px rgba(0, 0, 0, 0.5);
+  --elevation-3: 0 4px 10px rgba(0, 0, 0, 0.42), 0 16px 32px -12px rgba(0, 0, 0, 0.58);
+  --elevation-4: 0 8px 20px rgba(0, 0, 0, 0.48), 0 32px 64px -20px rgba(0, 0, 0, 0.68);
+  --brand-gradient: linear-gradient(135deg, #5B5EE8 0%, #8B3FD9 100%);
+  --brand-gradient-hover: linear-gradient(135deg, #6467F0 0%, #9A49E4 100%);
+  --brand-gradient-soft: linear-gradient(135deg, rgba(100, 103, 240, 0.16) 0%, rgba(154, 73, 228, 0.16) 100%);
+  --brand-glow: 0 6px 18px -4px rgba(91, 86, 216, 0.45);
+  --brand-glow-hover: 0 10px 26px -6px rgba(91, 86, 216, 0.58);
+  --brand-ring: 0 0 0 3px rgba(139, 133, 255, 0.26);
+  --brand-ring-strong: 0 0 0 4px rgba(139, 133, 255, 0.34);
+  --glass-blur: saturate(160%) blur(14px);
+  --glass-bg: rgba(30, 30, 37, 0.72);
+  --glass-bg-strong: rgba(30, 30, 37, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --accent-warm-soft: linear-gradient(135deg, rgba(255, 154, 108, 0.18) 0%, rgba(232, 93, 158, 0.18) 100%);
 }
 
 /* ---- P4 深色可读性系列 · 视图级 dark 覆盖（P4D 2026-10-09）----

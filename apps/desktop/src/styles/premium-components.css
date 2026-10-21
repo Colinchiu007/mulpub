@@ -1,0 +1,277 @@
+/**
+ * 高级感视觉层 · 组件口径（ui-visual-premium 2026-10-20）
+ * ============================================================================
+ * 为什么独立成文件：
+ *   ① cohere-design-system.css 是**类名契约**（有哪些类、语义是什么），
+ *      本文件是**观感口径**（这些类看起来应该怎样）——两件事分开演进，
+ *      改观感不必动契约文件。
+ *   ② 「逐文件行数门禁」对 cohere-design-system.css 有登记的增量预算，
+ *      把观感改动写进去会顶破预算（实测 TARGET_GREW：1794 > 1698）。
+ *      正确处置是**把观感移到独立层**，不是抬高预算。
+ *
+ * 加载顺序：必须排在 cohere-design-system.css **之后**（main.js 末尾 import）。
+ * 同特异性下靠后者胜出；组件的 scoped 样式（(0,2,0)+data 属性）优先级更高，
+ * 允许组件做局部例外。
+ *
+ * 令牌口径见 styles/tokens.css（唯一真源）；动因与完整推理见
+ * 01-docs/UI-VISUAL-AUDIT-2026-10-20.md §3/§4。
+ * ============================================================================
+ */
+
+/* ---------------------------------------------------------------------------
+ * 页面标题：全应用只有一种标题语义
+ * ---------------------------------------------------------------------------
+ * 巡检实测同屏并存三种标题色：cohere-page-header 的品牌紫、Home 的墨色、
+ * PerformanceInsights 的链接蓝。用户会把紫色标题读成"可点击"。
+ * 统一为墨色 + 600 字重 + 展示字族；品牌色只留给图标底座、状态徽章与 CTA。
+ */
+.cohere-page-header {
+  border-bottom-color: var(--hairline-soft);
+}
+
+.cohere-page-header .page-title {
+  font-family: var(--font-family-ui-display);
+  font-weight: 600;
+  color: var(--color-text-strong);
+  line-height: 1.25;
+  letter-spacing: -0.4px;
+}
+
+.cohere-page-header .page-subtitle {
+  font-family: var(--font-family-ui);
+}
+
+/* ---------------------------------------------------------------------------
+ * 按钮族
+ * ---------------------------------------------------------------------------
+ * 主按钮：品牌渐变 + 柔光 + 上浮（"高级感"最直接的一处来源）。
+ * 此前是纯平 #5048E5，在大片白底上像默认控件。
+ * 白字压渐变的对比度由 tokens.css 的取值保证（两端 ≥ 4.5:1）。
+ */
+.cohere-btn {
+  font-family: var(--font-family-ui);
+  transition: background-color var(--motion-fast) var(--ease-default),
+              border-color var(--motion-fast) var(--ease-default),
+              color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              transform var(--motion-fast) var(--ease-default);
+}
+
+.cohere-btn-primary {
+  font-family: var(--font-family-ui);
+  font-weight: 600;
+  background: var(--brand-gradient);
+  box-shadow: var(--brand-glow);
+  transition: background var(--motion-base) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              transform var(--motion-fast) var(--ease-default);
+}
+
+.cohere-btn-primary:hover {
+  background: var(--brand-gradient-hover);
+  box-shadow: var(--brand-glow-hover);
+  transform: translateY(-1px);
+}
+
+.cohere-btn-primary:active { transform: translateY(0); }
+
+.cohere-btn-primary:disabled,
+.cohere-btn-primary[aria-disabled="true"] {
+  background: var(--surface-sunken);
+  color: var(--color-text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.cohere-btn-secondary {
+  font-family: var(--font-family-ui);
+}
+
+.cohere-btn-outline {
+  font-family: var(--font-family-ui);
+  background: var(--surface-raised);
+  border-color: var(--hairline-strong);
+  border-radius: var(--r-pill);
+  transition: background var(--motion-fast) var(--ease-default),
+              border-color var(--motion-fast) var(--ease-default),
+              color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              transform var(--motion-fast) var(--ease-default);
+}
+
+.cohere-btn-outline:hover {
+  background: var(--brand-gradient-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: var(--elevation-2);
+  transform: translateY(-1px);
+}
+
+.cohere-btn-coral {
+  font-family: var(--font-family-ui);
+  color: var(--coral);
+  border-color: transparent;
+  border-radius: var(--r-pill);
+  transition: background var(--motion-fast) var(--ease-default),
+              color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft);
+}
+
+.cohere-btn-coral:hover {
+  box-shadow: 0 6px 16px -6px rgba(239, 87, 87, 0.5);
+}
+
+/* ---------------------------------------------------------------------------
+ * 卡片：抬升 + 发丝描边 + 悬浮升起
+ * ---------------------------------------------------------------------------
+ * hover 不再把底色改成粉色块（--soft-stone #faf6f8）—— 巡检实测旧 hover
+ * 让整块卡片泛粉，是"廉价感"的主要来源；改为"升起 + 影加深 + 描边加强"。
+ */
+.cohere-card {
+  background: var(--surface-raised);
+  border-radius: var(--r-lg);
+  border-color: var(--hairline);
+  box-shadow: var(--elevation-2);
+  transition: transform var(--motion-base) var(--ease-out-soft),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              border-color var(--motion-fast) var(--ease-default);
+}
+
+.cohere-card:hover {
+  background: var(--surface-raised);
+  border-color: var(--hairline-strong);
+  box-shadow: var(--elevation-3);
+  transform: translateY(-2px);
+}
+
+/* 图标底座改为圆角方片淡色底：去掉 1px 实线描边（描边+方角+底色三层叠加是粗糙感来源） */
+.cohere-card .card-icon {
+  border-radius: var(--r-md);
+  border: none;
+  background: var(--brand-gradient-soft);
+  color: var(--primary);
+}
+
+/* ---------------------------------------------------------------------------
+ * 徽章：语义色底改为引用 token
+ * ---------------------------------------------------------------------------
+ * 此前 danger/warning 直接写字面量 #fff0ed / #fff8e6 / #b8860b，
+ * 暗色模式下不跟随主题 —— 是"两套颜色并存"的直接证据。
+ */
+.cohere-tag {
+  border: 1px solid transparent;
+}
+
+.cohere-tag-success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.cohere-tag-danger {
+  background: var(--color-danger-soft);
+  color: var(--coral);
+}
+
+.cohere-tag-info {
+  background: var(--color-primary-light);
+  color: var(--action-blue);
+}
+
+.cohere-tag-warning {
+  background: var(--color-warning-soft);
+  color: #a16207;
+}
+
+[data-theme="dark"] .cohere-tag-warning { color: var(--color-warning); }
+
+/* ---------------------------------------------------------------------------
+ * 模态遮罩：半透明 + 背景模糊（下层内容仍有轮廓但注意力被压住）
+ * --------------------------------------------------------------------------- */
+.cohere-modal-overlay {
+  background: var(--surface-scrim);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+/* ---------------------------------------------------------------------------
+ * 输入控件族
+ * ---------------------------------------------------------------------------
+ * 统一口径：圆角 --r-xs(4px) → --r-md(12px)（观感更"软"），
+ * 描边用 --hairline-strong 明确边界，聚焦时「品牌描边 + 同色柔光环」。
+ * 此前只有 border-color 变化，聚焦态几乎看不出区别。
+ */
+.cohere-input,
+.cohere-textarea,
+.cohere-select {
+  font-family: var(--font-family-ui);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-raised);
+  transition: border-color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-fast) var(--ease-default),
+              background-color var(--motion-fast) var(--ease-default);
+}
+
+.cohere-input:focus,
+.cohere-textarea:focus,
+.cohere-select:focus {
+  border-color: var(--form-focus);
+  box-shadow: var(--brand-ring);
+}
+
+/* 键盘聚焦用更强的环：鼠标聚焦与键盘聚焦要能一眼分清 */
+.cohere-input:focus-visible,
+.cohere-textarea:focus-visible,
+.cohere-select:focus-visible {
+  border-color: var(--form-focus);
+  box-shadow: var(--brand-ring-strong);
+}
+
+.cohere-input::placeholder { color: var(--color-text-muted); }
+
+.cohere-input:disabled,
+.cohere-textarea:disabled,
+.cohere-select:disabled {
+  background: var(--surface-sunken);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+ * 统计卡
+ * ---------------------------------------------------------------------------
+ * 数字用展示字族 + 等宽数字（tabular-nums）：巡检实测同屏里 stat-value 是
+ * 无衬线 32px、而 Dashboard 大数字是等宽衬线感 —— 两套数字字形并排出现
+ * 是"不精致"的直接观感来源。tabular-nums 保证多卡数字小数点对齐。
+ * 语义色改用**顶部** 3px 色条（不用左侧竖条：16px 圆角与左侧直条会切出直角）。
+ */
+.cohere-stat-card {
+  background: var(--surface-raised);
+  border-radius: var(--r-lg);
+  border-color: var(--hairline);
+  box-shadow: var(--elevation-1);
+  transition: transform var(--motion-base) var(--ease-out-soft),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              border-color var(--motion-fast) var(--ease-default);
+}
+
+.cohere-stat-card:hover {
+  border-color: var(--hairline-strong);
+  box-shadow: var(--elevation-3);
+  transform: translateY(-2px);
+}
+
+.cohere-stat-card .stat-value {
+  font-family: var(--font-family-ui-display);
+  font-weight: 600;
+  color: var(--color-text-strong);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.9px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.cohere-stat-card.stat-success { box-shadow: inset 0 3px 0 var(--color-success), var(--elevation-1); }
+.cohere-stat-card.stat-danger { box-shadow: inset 0 3px 0 var(--coral), var(--elevation-1); }
+.cohere-stat-card.stat-info { box-shadow: inset 0 3px 0 var(--action-blue), var(--elevation-1); }

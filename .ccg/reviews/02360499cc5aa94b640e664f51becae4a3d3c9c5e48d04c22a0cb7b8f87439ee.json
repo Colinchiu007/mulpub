@@ -1,0 +1,65 @@
+{
+  "sha": "e297ccc73fc069f0aa30b45e075502f8df39ceff",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2221 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2221,
+    "fileCount": 103,
+    "codeFileCount": 18,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 27,
+    "docSensitiveContentSample": [
+      "+ .cohere-select {",
+      "+ .cohere-select:focus {",
+      "+      \"+      \\\"| 失败 | 用户可行动作优先 | 「发布失败：账号授权已过期，请到『账号管理』重新授权后再试。」 |\\\",\","
+    ],
+    "ccgSensitiveContentHits": 8,
+    "ccgSensitiveContentSample": [
+      "      \"+ .cohere-select {\",",
+      "      \"+ .cohere-select:focus {\",",
+      "      \"+      \\\"+      \\\\\\\"| 失败 | 用户可行动作优先 | 「发布失败：账号授权已过期，请到『账号管理』重新授权后再试。」 |\\\\\\\",\\\",\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "02360499cc5aa94b640e664f51becae4a3d3c9c5e48d04c22a0cb7b8f87439ee",
+  "decidedAt": "2026-10-21T06:22:26.415Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

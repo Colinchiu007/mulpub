@@ -50,7 +50,6 @@
     "apps/desktop/src/views/CreateViewHistory.vue": 696,
     "apps/desktop/src/views/Dashboard.vue": 796,
     "apps/desktop/src/views/FilmEngineeringView.vue": 605,
-    "apps/desktop/src/views/Home.vue": 654,
     "apps/desktop/src/views/HotTopics.vue": 669,
     "apps/desktop/src/views/ModelProviders.vue": 1636,
     "apps/desktop/src/views/Publish.vue": 1730,
@@ -127,7 +126,8 @@
     "apps/desktop/src/locales/zh.js": 291,
     "apps/desktop/src/locales/en.js": 290,
     "apps/desktop/electron/home-shell-preload.bundle.js": 1833,
-    "apps/desktop/electron/preload/index.bundle.js": 1782
+    "apps/desktop/electron/preload/index.bundle.js": 1782,
+    "apps/desktop/src/views/Home.vue": 452
   },
   "testFiles": {
     "apps/desktop/electron/publishers/account-manager.test.js": 1598,

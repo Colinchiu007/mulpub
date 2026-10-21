@@ -10,6 +10,11 @@ import './styles/video-creation-forms.css'
 import './styles/video-creation-shared.css'
 import './styles/skeleton.css'
 import './styles/member-center.css'
+// 高级感视觉层（ui-visual-premium）：必须排在 cohere-design-system.css 之后，
+// 同特异性下靠后者胜出；它统一「所有页面都会遇到」的表面与细节观感。
+// 组件口径（卡片/按钮/输入/徽章/统计卡）单独一层，便于与「类名契约」分离演进。
+import './styles/premium-components.css'
+import './styles/premium-design-system.css'
 import App from './App.vue'
 import i18n from './i18n'
 import router from './router'
