@@ -1,3 +1,16 @@
+# [未发布] feat(ci): electron-ci 桌面全量收回单一实现 —— 同一步两片并行 + 共享预算 2700s + 剥 ANSI/时间戳的现场计数
+
+- **动因（2026-10-21 现取读数）**：`electron-ci.yml` 的 `Unit tests (Vitest…)` 步骤在 main push 最近 12 趟里 **8 趟非绿**，逐趟下作业日志核对后 **8/8 都是预算墙**（`rc=124`×1、`TIMEOUT_BUDGET_EXCEEDED`×2、**断言红=0**）；红趟作业墙钟 2177–2215s，成功趟 1511/1542/1820/1934s ⇒ 贴脸逼近 2100s 步骤预算。
+- **形状**：30 行内联 bash 收回 `scripts/electron-ci-desktop-step.js`（workflow 只调用不判定，同 `agent-review-gate.js` / `main-red.js` 先例）。**同一个作业内**并起 `--shard=1/2` + `--shard=2/2` 共享一份预算 ⇒ 作业名仍是 `electron-tests`，**不动** ruleset `main-ci-gate` 的 required context（matrix 会给名字加后缀，那属"改谁来守门"）。`--maxWorkers=1 --no-file-parallelism` 保留，确定性语义与「main 侧第二次独立运行」的 flake 检出原意不丢。
+- **预算 2100 → 2700 的理由（不是"给同样的活加宽墙"）**：`max(单片成功值)=23.2min × 1.5 = 2091s` 对 2100s 只剩 9 秒，而那批样本是**每片独占一个 runner** 测的（`QG Desktop Shards` 7 趟 14 片：min 11.2 / p50 18.6 / max 23.2）；本步是同 runner 两片并行，**争用倍数未测**。贴脸按本仓口径是事前证据 ⇒ 取 `2700s ≈ max × 1.94`，属**单调放宽**（不会让任何原本通过的运行变红），且不与 job 级 `timeout-minutes: 70` 倒挂（其余带 timeout 的步骤合计 20 min，20+45=65<70，由锁逐步骤实算）。
+- **修掉一处计数器失明**：旧 `grep -cE '^[[:space:]]+[✓×↓-]'` 对 vitest 真实行恒 0（`od -c` 实测行首是 `033[32m✓033[39m`，第一个字符是 ESC；Actions 日志还要再剥每行时间戳前缀），于是"跑满预算"被读成"一条都没跑"。按修好的锚重读同一批红趟是 **✓×行=18156–18929、摘要=0** —— 其中 `摘要=0` 是被杀趟的**正确读数**，文案不得读成工具坏。
+- **四档 verdict 各自可分辨**（timeout / ok / failed / crashed）：`rc=124` 与 `rc=1` 的修法相反，并档等于把预算墙读成用例坏。「全部收敛」用 `Promise.allSettled` 而非 `race(h.done)` —— race 在第 1 片收敛时即报 all，慢的一片既没被等也没被归类（现场形态是 verdict 整格缺席，比判错更坏）。
+- **复测入口落在仓库里**：新增 `scripts/electron-ci-shard-audit.js`（读新形状的逐片 `elapsed=`，取不到时退回老基线并自报"这是下界"）；`verdict` 分 NO_SAMPLES / BELOW_FLOOR / HUGGING / OK 四档，**零样本与自身故障都以非零码出声**（把"没量到"读成"预算没问题"是本仓反复出现的同型事故）。输出字段与 `STEP_BUDGET_PROVENANCE` 逐字段对齐，由结构锁钉住。
+- **一次真实拦阻（不是事后追认）**：`workflow-contract.test.js` 的「消费者覆盖面下界 3」在本次改动中途报红（实测 2）。根因是委托判据取**第一个** `node scripts/*.js` 命中，而我在同步写的注释里点名了另一个脚本 ⇒ `electron-tests` 整片从覆盖面消失。正解不是改措辞，而是扫**全部**候选按语义判定，并补两类对照：注释遮挡形态必须仍判 true、只有那个不跑桌面全量的脚本必须判 false。
+- **测试与接线**：新增 `scripts/electron-ci-desktop-step.test.js`（12 条）与 `scripts/electron-ci-shard-audit.test.js`（9 条），都点名进 `quality-gate.yml` 的 `changes` job（不被 docs-only 短路、且在非 PR 早退之前）；`.gitignore` 补两条 `!scripts/*.js` 反选（第 106 行会把新建脚本静默忽略 ⇒ 本地全绿、CI 上 `Cannot find module`，同族第 5/6 次）。既有三锁迁移到委托形状：`workflow-contract.test.js` 45/45、`gui-ci-exit-contract.test.js` 46/46（预算取自模块 + 真 `bash -e -o pipefail` 执行 + 接线判据按代码区剥注释）。
+- **反证 T1–T10 逐条 CAUGHT**，还原后逐字节相同：串行 / `race` 代替 `allSettled` / 不剥 ANSI / 锚要求行首空白 / timeout 与 failed 并档 / provenance 的 max 抬高 / workflow 退回内联 bash / 摘掉逐片 `elapsed=` 打印 / 摘掉时间戳剥离 / 零样本判成通过。
+- **遗留（如实登记）**：① 并行争用倍数只有第一次 CI 真跑才知道 ⇒ 上线后必须跑 `node scripts/electron-ci-shard-audit.js` 按现场重定数；② `realSpawn` 的输出缓冲 32MB 上限会截断**计数用**的副本（不改判定，只可能让 `completed=` 偏小），已注释标明；③ `runStep` 的等待块形如 `while{…break}` 实为单次等待，属可读性异味，未在本片收敛；④ issue #2458 档 4（`CI Failure Handler` 把 `exit 124` 且无摘要行归类为 `ci-timeout-budget`）仍未做。
+
 # [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
 
 - **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。
@@ -8,6 +21,7 @@
 - **回归保护**：新增 `electron/services/native-menu.test.js` 15 例（平台策略 / 全局移除 / 窗口移除 / API 缺失不抛错 / 幂等 / **真实依赖锁**：直接读已安装 Electron 的 `electron.d.ts` 核对 `Menu.setApplicationMenu(Menu|null)`、`BrowserWindow.setMenu(Menu|null)`、`autoHideMenuBar?: boolean` 三处签名，不靠记忆）+ `window.test.js` 2 例（`autoHideMenuBar=true`、`setMenu(null)`）+ `main.test.js` 2 例（启动即置空应用菜单、且发生在窗口创建之前）。
 - **变异反证**：撤掉实现（删 `removeWindowMenuBar(mainWindow)` / `autoHideMenuBar` / `removeApplicationMenu`）后 **4 条新锁当场变红**（window 2 条 + main 2 条），确认不是「恒绿的装饰性断言」。
 - **验证**：3 个测试文件 101 例全绿；eslint（改动 6 文件）rc=0；**QM-1 打包 PASS**（`electron-builder --win --x64` exit 0，产出 `Multi-Publish.Setup.0.2.0.exe`）；**真机验证**：启动打包产物并抓原生窗口截图，标题栏下**直接就是侧边栏与内容区**，File/Edit/View/Window 那一行已消失。
+
 
 # [未发布] docs(changelog): 把 #2842 squash 漏带的那一行「顺带修复」条目逐字节搬回主干（restore-2842-changelog-entry）
 

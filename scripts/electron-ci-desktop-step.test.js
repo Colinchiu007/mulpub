@@ -2,18 +2,21 @@
  * `scripts/electron-ci-desktop-step.js` 的回归锁 —— electron-ci 桌面全量步骤的「一步内两片并行 + 单一共享预算
  * + 超时现场计数」实现。
  *
- * 动因（2026-10-21 实测，全部为本机/CI 现取读数，不是推断）：
- * - `electron-ci.yml` 的 `Unit tests (Vitest…)` 步骤在 **main push 上 8 次里 5 红**，红法逐字相同：
- *   `elapsed=2100s budget=2100s rc=124` + `TIMEOUT_BUDGET_EXCEEDED`，**没有一条断言失败**。
- *   成功趟墙钟 25m11s / 25m42s / 31m55s，失败趟 36m38s ⇒ 贴脸逼近预算（成败取决于 runner 快慢）。
- * - 同一次失败趟还打印 `已完成测试行数: 0`，而日志里明明有几百行 ` ✓ …` —— 那是一处**计数器失明**：
- *   vitest 的行首是 ANSI 颜色序列（`od -c` 实测 `033[32m✓033[39m ␣electron/…`），
- *   而旧计数的锚是 `^[[:space:]]+[✓×↓-]`，第一个字符是 ESC 不是空白 ⇒ 恒 0。
- *   同一句里的 `摘要行数(应为 2): 0` **不是失明**，那趟被杀在半程、vitest 确实没打摘要行。
+ * 动因（2026-10-21 实测，全部为现取读数，不是推断；复测入口 `node scripts/electron-ci-shard-audit.js`）：
+ * - `electron-ci.yml` 的 `Unit tests (Vitest…)` 步骤在 **main push 最近 12 趟里 8 趟非绿**，且逐趟
+ *   下作业日志核对后 **8/8 都是预算墙**（`rc=124` 命中 1 次、`TIMEOUT_BUDGET_EXCEEDED` 命中 2 次、
+ *   **断言红=0**）。成功趟作业墙钟 1511/1542/1820/1934s，红趟 2177–2215s ⇒ 贴脸逼近 2100s 步骤预算。
+ * - 同一次失败趟还打印 `已完成测试行数: 0`，而日志里明明有上万行 ` ✓ …` —— 那是一处**计数器失明**：
+ *   vitest 的行首是 ANSI 颜色序列（`od -c` 实测 `033[32m✓033[39m ␣electron/…`），Actions 日志还要再剥
+ *   每行的时间戳前缀，而旧计数的锚是 `^[[:space:]]+[✓×↓-]`，第一个字符是 ESC 不是空白 ⇒ 恒 0。
+ *   按修好的锚重读那 8 趟：**✓×行=18156–18929、摘要=0**（跑了近一万九千条然后被掐断）。
+ *   其中 `摘要行数(应为 2): 0` **不是失明**，那趟被杀在半程、vitest 确实没打摘要行。
  * - 分片数取 2 的依据是本仓已有的同套件同旗标读数：`QG Desktop Shards` 最近 7 趟 main push 的 14 个
- *   成功分片样本 = 11.2–23.2 min（p50 18.6），慢的一片**方向翻转过**（7 趟里 1 趟是 2/2 更慢）
- *   ⇒ 按 `max(两片) × 1.5 = 23.2 × 1.5 = 34.8 min = 2088s ≤ 2100s` 定数，
- *   **本片不抬预算**（抬它属"改谁来守门"，且会把不可归因的墙推到更远的将来）。
+ *   成功分片样本 = 11.2–23.2 min（p50 18.6），慢的一片**方向翻转过**（7 趟里 1 趟是 2/2 更慢）。
+ *   但这批样本是**每片独占一个 runner** 测的，本步是同 runner 两片并行 ⇒ 争用倍数未测。
+ *   `max × 1.5 = 2091s` 对旧墙 2100s 只剩 **9 秒**（贴脸），按本仓口径正解是**先量再定数**而不是
+ *   接受零余量 ⇒ 取 `2700s ≈ max × 1.94`，给争用留约一倍空间；仍受 job 级 70 min 约束不倒挂，
+ *   且属**单调放宽**（不会让任何原本通过的运行变红）。第一次真跑后按打印的逐片 `elapsed=` 重定数。
  *
  * 三条主张各由一条**独立**的用例守，不合并计一条：并行确实发生 / 预算是共享而非各自 / 计数先剥 ANSI。
  */
@@ -115,6 +118,28 @@ test('超预算的那一片按 timeout 归档，另一片不得被连坐判失�
   assert.equal(res.rc, 124, '整步必须报 timeout 档，不得报成断言失败');
 });
 
+test('report 必须打印逐片 elapsed 与复测入口 —— 争用倍数的唯一现场来源', async () => {
+  // 这片的关键未知量是"同 runner 两片并行的争用倍数"，它只能从真跑的逐片墙钟里读。
+  // 如果只打印整步 elapsed，那 max(两片) 就无从得知，provenance 的"第一次真跑后重定数"
+  // 会退化成一句没有取数路径的散文（本仓对 *_PROVENANCE 的口径：常量旁给出处 + 每次真跑留痕 + 入口在仓库里）。
+  const spawnImpl = (argv) => ({
+    shard: argv.find((a) => /^--shard=/.test(a)),
+    done: Promise.resolve({ rc: 0, stdout: 'Tests 1 passed\n', stderr: '' }),
+  });
+  const res = await mod.runStep({ spawnImpl, budgetMs: 5000, now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) });
+  const perShard = String(res.report).split(/\r?\n/).filter((l) => /\[electron-ci-step\] shard=/.test(l));
+  assert.equal(perShard.length, 2, '每片各一行：' + JSON.stringify(perShard));
+  for (const line of perShard) {
+    assert.match(line, /elapsed=\d+ms/, '逐片墙钟必须打印出来，否则争用倍数永远无法复测：' + line);
+    assert.match(line, /verdict=/);
+    assert.match(line, /completed=\d+/);
+  }
+  assert.ok(res.shardElapsed && Object.keys(res.shardElapsed).length === 2,
+    'shardElapsed 必须逐片回填（审计按它取数）：' + JSON.stringify(res.shardElapsed));
+  assert.match(String(res.report), /node scripts\/electron-ci-shard-audit\.js/,
+    '复测入口必须和读数同屏打印：' + res.report);
+});
+
 test('一片断言失败 ⇒ 整步 rc=1；两片都 0 ⇒ rc=0（两种红必须分档）', async () => {
   const mk = (rc) => (argv) => ({
     shard: argv.find((a) => /^--shard=/.test(a)),
@@ -157,16 +182,42 @@ test('摘要行计数为 0 必须是「被杀趟的正确读数」，不得与�
   assert.doesNotMatch(line, /计数器|探针坏|取不到/, '被杀趟的正确读数不得被文案写成工具故障：' + line);
 });
 
-test('realSpawn 必须真能把 pnpm 起起来（win32 上 pnpm 是 .cmd shim，不 shell 就 ENOENT）', { timeout: 60000 }, async () => {
+test('realSpawn 的接缝必须按「本进程当场能不能解析到 pnpm」选期望，不得假设 PATH', { timeout: 60000 }, async () => {
   // 这一条刻意打真进程：委托形态下"argv 交给谁"是本片唯一没被 mock 覆盖的接缝，
-  // 而它坏掉的现场是 CI 上一句 `spawn pnpm ENOENT` —— 比在这里慢 1 秒贵得多。
-  // 只跑 `pnpm --version`，不跑套件（跑套件是 30 分钟量级，属 CI 的事）。
+  // 坏掉的现场是 CI 上一句 `spawn pnpm ENOENT` —— 比在这里慢 1 秒贵得多。
+  //
+  // ⚠ 但它的期望**不能**是"pnpm 一定在 PATH"：本锁接进 `quality-gate.yml` 的 changes job，
+  // 那个 job 按既有约定**不装依赖**（AGENTS：接进 changes job 的锁只能 require node 内置模块），
+  // 所以 ubuntu runner 上解析不到 pnpm 是**该 job 的环境**，不是被测代码坏。
+  // 实测（PR #4192 首跑，run 39612728047 / job 119265564600）：
+  //   `not ok 8 - … pnpm --version 必须真的退出 0；实际 {"rc":null,…,"error":"spawn pnpm ENOENT"}`
+  // 按本仓口径这是「期望该由实测推导」那一类：先探本进程能不能解析到，再选期望；
+  // 两条支路都必须各自成立，且每次跑都打印走的是哪条 + 关键实测值（否则下次没人知道它测了什么）。
+  const cp = require('node:child_process');
+  const probe = cp.spawnSync(process.platform === 'win32' ? 'where' : 'which', ['pnpm'], { encoding: 'utf8' });
+  const resolvable = probe.status === 0;
+  const resolvedTo = String(probe.stdout || '').split(/\r?\n/).filter(Boolean)[0] || '<none>';
+  console.log(`[realSpawn] platform=${process.platform} pnpmResolvable=${resolvable} resolvedTo=${resolvedTo}`);
+
   const h = mod.realSpawn(['--version']);
   assert.equal(typeof h.kill, 'function', 'realSpawn 必须自带 kill，否则共享预算到点无人可杀');
   assert.ok(h.shard === undefined || /^--shard=/.test(String(h.shard)),
     'shard 字段只能是 --shard=… 或缺席，实测 ' + String(h.shard));
+
+  if (!resolvable) {
+    // 解析不到 ⇒ 这一档仍然必须"响亮地成立"：realSpawn 不得抛，必须以 classifyShard 认得的形态收尾。
+    // 负控写在本文件另一条里（argv 拼错 ⇒ rc≠0），这里守的是"环境缺工具时不要把判据炸成不可归因"。
+    const r = await h.done;
+    assert.ok(r && (r.rc === null || typeof r.rc === 'number'), 'rc 形态必须可读，实测 ' + JSON.stringify(r).slice(0, 160));
+    if (process.platform === 'win32') {
+      assert.fail('win32 上解析不到 pnpm ⇒ 真实步骤必然 ENOENT，这是被测面而不是环境噪声');
+    }
+    console.log('[realSpawn] branch=absent（该 job 未装 pnpm，改判形态契约；win32 上这条一律 FAIL）');
+    return;
+  }
   const r = await h.done;
-  assert.equal(r.rc, 0, 'pnpm --version 必须真的退出 0；实际 ' + JSON.stringify(r).slice(0, 200)
+  console.log(`[realSpawn] branch=present rc=${r.rc}`);
+  assert.equal(r.rc, 0, 'pnpm 可解析时 `pnpm --version` 必须真退出 0；实际 ' + JSON.stringify(r).slice(0, 200)
     + ' ⇒ argv/shell 的组合在本机就不成立');
 });
 
@@ -209,8 +260,9 @@ test('接线：electron-ci 的那一步必须调用本脚本，且不得再自�
     '委托必须是**独占一条可执行语句**（写在管道或注释里都不算接线）');
   assert.doesNotMatch(code, /grep -cE '\^\[\[:space\]\]/,
     '步骤里不得再留第二份"已完成测试行数"计数（两份必然口径分裂）');
-  assert.doesNotMatch(code, /BUDGET_SECONDS=2100/,
-    '预算字面量不得在 workflow 里重复持有 —— 唯一真源是本脚本的 STEP_BUDGET_MS');
+  assert.doesNotMatch(code, /\bBUDGET_SECONDS=/,
+    '预算字面量不得在 workflow 里重复持有 —— 唯一真源是本脚本的 STEP_BUDGET_MS。'
+    + '判据按**变量名**而不按数值：写死 2100 的那版，在预算改成 2700 后被 T7 那刀（workflow 退回内联 bash）绕过');
   assert.doesNotMatch(code, /timeout --signal=TERM/,
     '步骤级 `timeout` 包装也不得留第二份：预算由脚本自己按共享预算掐（两处掐 = 谁先到未知）');
   assert.ok(fs.existsSync(path.join(root, 'scripts/electron-ci-desktop-step.test.js')),

@@ -1281,7 +1281,11 @@ const DESKTOP_SUITE_NO_BUILD_ACK = []; // 承认清单：起始为空、只能�
 // 第三步形状：workflow 把"跑桌面全量"**委托**给仓库脚本（2026-10-21 起 electron-ci 就是这个形状）。
 // 关键：不能只认脚本名字 —— 那等于把判据换成一条名字白名单，脚本内容改成不跑桌面全量时本锁照绿。
 // 所以委托成立的条件是"被点名的那个脚本自己的源码里真的有桌面全量的调用形状"，三条锚缺一不可。
-const DESKTOP_SUITE_DELEGATE_RE = /node\s+scripts\/([A-Za-z0-9._-]+\.js)/;
+// ⚠ 必须扫**全部** `node scripts/*.js` 命中而不是取第一个：一个 `run:` 块的注释里点名别的脚本
+// （本 PR 现场：注释写着"复测入口 node scripts/electron-ci-shard-audit.js"）会让"首个匹配"
+// 指向一个不跑桌面全量的脚本 ⇒ electron-tests 整片从覆盖面消失，而"少一个消费者"读起来
+// 与"全部合规"完全同形。这是"第一个空结果就收工"的另一个落点。
+const DESKTOP_SUITE_DELEGATE_RE = /node\s+scripts\/([A-Za-z0-9._-]+\.js)/g;
 const delegateCache = new Map();
 function delegateScriptRunsSuite (file) {
   if (delegateCache.has(file)) return delegateCache.get(file);
@@ -1300,8 +1304,13 @@ function delegateScriptRunsSuite (file) {
 function stepRunsDesktopSuite (step) {
   const run = String(step.run || "");
   if (DESKTOP_SUITE_ONE_LINE_RE.test(run) || DESKTOP_SUITE_ARRAY_RE.test(run)) return true;
-  const m = DESKTOP_SUITE_DELEGATE_RE.exec(run);
-  return !!(m && delegateScriptRunsSuite(m[1]));
+  // 取**全部**委托候选：注释里先出现的另一个脚本名不得把真正的委托挡掉（见上方 ⛔ 注释）。
+  // 用 matchAll 而不是 exec/test —— 带 g 的共享正则在 .test() 下是有状态的（lastIndex 会漂），
+  // 那会让"第二次调用结果和第一次不一样"这种坑藏在同一份文件里。
+  for (const m of run.matchAll(DESKTOP_SUITE_DELEGATE_RE)) {
+    if (delegateScriptRunsSuite(m[1])) return true;
+  }
+  return false;
 }
 
 // 委托这一支必须**双向**可测：只证"真委托被认出"等于给判据开了"任何叫 scripts/*.js 的步骤都算"的口子。
@@ -1309,7 +1318,18 @@ test('桌面全量的委托形状：认得出现实里的那一步，也拒得�
   const real = { run: "node scripts/electron-ci-desktop-step.js\n" };
   assert.equal(stepRunsDesktopSuite(real), true,
     "electron-ci 的委托步没被认出 ⇒ 它从本锁覆盖面消失，而『零个消费者』读起来完全像『全部合规』");
-  assert.ok(DESKTOP_SUITE_DELEGATE_RE.test(real.run), "委托锚本身没命中 ⇒ 上面那条是靠别的支路绿的");
+  assert.ok(Array.from(real.run.matchAll(DESKTOP_SUITE_DELEGATE_RE)).length > 0,
+    "委托锚本身没命中 ⇒ 上面那条是靠别的支路绿的");
+  // 负控（本 PR 现场踩到的形态）：注释里**先**出现另一个 `node scripts/…` 时，
+  // 只取首个匹配的判据会把 electron-tests 整片判成"不是消费者"。
+  const shadowed = {
+    run: "# 复测入口 node scripts/electron-ci-shard-audit.js\n"
+      + "          node scripts/electron-ci-desktop-step.js\n",
+  };
+  assert.equal(stepRunsDesktopSuite(shadowed), true,
+    "注释里的另一个脚本名把真委托挡掉 ⇒ 覆盖面少一个消费者，而『少一个』读起来与『全部合规』同形");
+  assert.equal(stepRunsDesktopSuite({ run: "node scripts/electron-ci-shard-audit.js\n" }), false,
+    "只有那个不跑桌面全量的脚本时必须判 false —— 否则上面那条 true 是同义反复");
   for (const fake of [
     { run: "node scripts/electron-ci-desktop-step.js && echo done" }, // 同一条，只是带尾巴：仍必须认
     { run: "node scripts/no-such-desktop-runner.js" },                 // 读不到 ⇒ 不算委托
