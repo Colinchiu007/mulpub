@@ -77,7 +77,7 @@
               :class="{ 'fr-platform-btn--adding': addingPlatform === p.id }"
               :disabled="addingPlatform === p.id"
               @click="addAccount(p.id)">
-              <img v-if="p.iconUrl" :src="p.iconUrl" :alt="p.label" width="20" height="20" class="fr-platform-icon">
+              <img v-if="p.iconUrl" :src="p.iconUrl" :alt="p.label" width="20" height="20" class="fr-platform-icon" loading="lazy" decoding="async">
               <span v-else>{{ p.icon }}</span> {{ p.label }}
             </button>
           </div>

@@ -1,7 +1,7 @@
 <template>
   <section class="account-platform-group" :aria-labelledby="headingId">
     <header class="platform-group-header">
-      <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-mark-img mp-platform-icon" :alt="platformLabel" width="36" height="36" aria-hidden="true">
+      <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-mark-img mp-platform-icon" :alt="platformLabel" width="36" height="36" aria-hidden="true" loading="lazy" decoding="async">
 <div v-else class="platform-mark" aria-hidden="true">{{ platformIcon }}</div>
       <div class="platform-heading">
         <h2 :id="headingId">{{ platformLabel }}</h2>
@@ -46,7 +46,7 @@
         </button>
 
         <div class="account-avatar">
-          <img v-if="showAvatar(account)" :src="account.avatar || account.avatar_url" alt="" @error="markAvatarBroken(account)">
+          <img v-if="showAvatar(account)" :src="account.avatar || account.avatar_url" alt="" @error="markAvatarBroken(account)" loading="lazy" decoding="async">
           <UserFilled v-else />
         </div>
 

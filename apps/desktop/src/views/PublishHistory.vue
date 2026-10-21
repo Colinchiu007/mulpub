@@ -196,8 +196,8 @@
             >
           </label>
           <div class="record-preview">
-            <img v-if="thumbnailUrl(record)" :src="thumbnailUrl(record)" alt="">
-            <img v-else-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true">
+            <img v-if="thumbnailUrl(record)" :src="thumbnailUrl(record)" alt="" loading="lazy" decoding="async">
+            <img v-else-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true" loading="lazy" decoding="async">
 <span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>
             <small>{{ contentTypeLabel(record) }}</small>
           </div>
@@ -229,7 +229,7 @@
                 :title="auditHint(record)"
               >{{ auditLabel(record) }}</span>
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
-              <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
+              <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true" loading="lazy" decoding="async"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
               <!-- 同批徽标：一次 N 平台发布落 N 条独立记录，徽标补回「这几条同属一次发布」 -->
               <span v-if="batchBadgeMap.get(record.id)" class="batch-badge" :data-testid="`batch-${record.id}`" :title="batchBadgeMap.get(record.id).tooltip">{{ batchBadgeMap.get(record.id).label }}</span>
             </div>

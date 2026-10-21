@@ -17,7 +17,7 @@
         @click="$emit('switch-tab', tab.tabId)"
       >
         <el-icon class="tab-icon" v-if="tab.isHome" aria-hidden="true"><HomeFilled /></el-icon>
-        <img v-else-if="getPlatformIconUrl(tab)" :src="getPlatformIconUrl(tab)" class="tab-icon-img" :alt="getTabLabel(tab)" width="16" height="16" aria-hidden="true">
+        <img v-else-if="getPlatformIconUrl(tab)" :src="getPlatformIconUrl(tab)" class="tab-icon-img" :alt="getTabLabel(tab)" width="16" height="16" aria-hidden="true" loading="lazy" decoding="async">
         <el-icon class="tab-icon" v-else aria-hidden="true"><Monitor /></el-icon>
         <span class="tab-title" :title="tab.title || tab.url">{{ tab.title || getTabLabel(tab) }}</span>
         <span
