@@ -77,7 +77,6 @@ asar 内无 `dist/` ⇒ 启动 `ERR_FILE_NOT_FOUND`，按层②判 `NEEDS_REVIEW
   doc-abs-paths / brand-residue / gate-record-debt / unwired-tests / check-pr-exec-record 全 rc=0。
 
 ### 测试文件拆分（CI 拦下后补做）
-
 首次 PR CI 的「债务熔断检查」判红：`TEST_LEDGER_GREW: apps/desktop/electron/publishers/account-manager.test.js
 较登记值 1598 膨胀 353 行（容差 200）`。这条是**真判据**，不是误报——本修复的 7 例
 （约 210 行）压在原本就接近上限的文件上。
@@ -93,3 +92,56 @@ asar 内无 `dist/` ⇒ 启动 `ERR_FILE_NOT_FOUND`，按层②判 `NEEDS_REVIEW
 `    })`，把最后一个用例截成半截（两文件都成了语法错误）。根因是**判据宽度不足**（缩进级别
 未精确匹配）+ 未处理 CRLF（文件是 CRLF，闭合行实为 `  })\r`）。修正后按「精确缩进 + 单独
 定位闭合」重切，并逐文件跑通验证。
+
+### ⚠️ 出站台账门禁（Gate 2c3）：本次修复让既有测试真的出站了（CI 拦下后补做）
+
+拆分修好「债务熔断」后，两个 Desktop 分片改判在**运行时出站台账**上：
+
+```
+shard 1: + blocked::mp.weixin.qq.com:443
+shard 2: + blocked::creator.douyin.com:443
+         + blocked::mp.toutiao.com:443
+         + blocked::www.zhihu.com:443
+```
+
+**这说明的问题比「门禁红了」严重得多**：本修复给 `saveCapturedAccount` 加了一条网络调用，
+而既有用例的 `accountInfo` 普遍是空对象 ⇒ `account_name === name` 恒成立 ⇒ **必然**走兜底
+分支 ⇒ 在测试 realm 里真的向四个平台发起出站，只因 `network-egress-guard` 拦住才没外泄。
+四个键正是四个被测平台的域名，与代码路径一一对应。
+
+**归因方法（不是猜）**：用 `MP_TEST_EGRESS_LEDGER` 挂上 sink，逐文件跑 publishers 目录，
+精确定位到两个文件：
+
+| 文件 | 产生的键 |
+|---|---|
+| `account-manager-profile.test.js` | `mp.toutiao.com:443` |
+| `account-manager-relogin-status.test.js` | `creator.douyin.com:443`、`www.zhihu.com:443` |
+| `account-manager.test.js` | `mp.weixin.qq.com:443` |
+
+**A/B 反证（因果确凿，不是相关）**：摘掉桩 → `blocked::mp.weixin.qq.com:443` 重现；
+装回桩 → 台账只剩 2 条 `install`、零 `blocked`。
+
+**处置**（与基线注释里 #2878 的既定做法同向：补传输层桩，**不是**把新键写进基线）：
+三个文件各加一条**模块级直接赋值**的传输层桩
+
+```js
+const __httpChecker = require('./http-login-checker')
+__httpChecker.fetchAccountInfoViaHttpApi = async () => ({ supported: false })
+```
+
+为什么用**直接赋值而非 `vi.spyOn`**：这三个文件多处 `afterEach(vi.restoreAllMocks())`，
+spy 会被还原、出站会在后续用例里复发；赋值不是 spy，`restore` 动不到它。需要具体返回值的
+用例（本分支新增的 7 例）仍可 `spyOn` 覆盖——spy 包在赋值之上，`restore` 后回到桩而非真实实现。
+
+**顺带修的隐患**：`account-manager.test.js` 的 `stubProfileRefreshTransport()` 桩对象缺
+`fillProfileFromHttpApi`，一旦将来有测试同时用该桩又走 `saveCapturedAccount` 就会
+`TypeError`。已补成同形桩并注明理由。
+
+**可核读数**：`MP_TEST_EGRESS_LEDGER` 挂 sink 跑 `electron/publishers` 全目录 →
+**307/307 通过、零 blocked 键**；`node scripts/check-test-egress-ledger.js --ledger <本地台账>`
+→ **PASS**。
+
+**教训（第三次同型）**：新增一条对外调用路径时，「单测全绿」不代表测试没有副作用——
+本仓有**三层**互相独立的副作用门禁（出站台账、子进程守卫、行数熔断），每一层都可能在
+PR CI 才第一次说话。正确姿势是**改完运行时代码就先本地挂 sink 跑一遍相关目录**，
+而不是等 CI 报红再回头定位。

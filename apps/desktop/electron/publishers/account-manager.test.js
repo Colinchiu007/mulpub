@@ -15,6 +15,21 @@ function loadAccountManager() {
   return require(modulePath)
 }
 
+// ─── 创建路径资料兜底的传输层桩（#2878 同型，fix-account-profile-fallback 补） ─────
+// saveCapturedAccount 在「DOM 没采到真昵称」时会调平台创作者 API 兜底
+// （fillProfileFromHttpApi → httpLoginChecker.fetchAccountInfoViaHttpApi）。本文件
+// 多数 saveCapturedAccount 用例只关心凭证落盘、accountInfo 给空对象 ⇒ 必然走到兜底
+// 分支；不打桩就会在测试 realm 里真的向 mp.weixin.qq.com:443 发起出站，被
+// network-egress-guard 拦下但会往出站台账写一条基线之外的键，CI 的 Gate 2c3 因此判红
+// （实测已判红一次，键就是 blocked::mp.weixin.qq.com:443）。
+// 与 #2878 的处置同向：补传输层桩，而不是把新键写进基线。
+// 用**直接赋值**而不是 vi.spyOn：本文件多处 afterEach 调 vi.restoreAllMocks()，
+// spy 会被还原、出站会复发；赋值不是 spy，restore 动不到它。
+// 需要具体返回值的用例（本分支新增的 7 例）仍可 spyOn 覆盖——spyOn 包在赋值之上，
+// restore 后回到本桩而不是真实实现。
+const __httpChecker = require('./http-login-checker')
+__httpChecker.fetchAccountInfoViaHttpApi = async () => ({ supported: false })
+
 // ─── #2878：资料回填这条边的传输层桩 ───
 // 根因（实测，不是推测）：checkLoginStatus 在 HTTP 判定为有效后会调
 // `profileRefresh.refreshProfileFromHttpApi(...)`，它内部**直接**持有
@@ -45,6 +60,9 @@ function stubProfileRefreshTransport() {
       __profileRefreshCalls.push({ platform, accountId })
       return false
     }),
+    // 创建路径兜底：account-manager 会调它。桩对象必须与真实模块同形，
+    // 否则「本文件里某个用例同时用了本桩又走 saveCapturedAccount」会 TypeError。
+    fillProfileFromHttpApi: vi.fn(async (platform, cookies, profile) => ({ profile, used: false })),
   })
   return () => {
     __profileRefreshCalls = []
