@@ -3,9 +3,12 @@
  * heygen.js — HeyGen 数字人 Adapter
  *
  * HeyGen API 关键特性：
- * - 认证: Bearer token
- * - generateVideo: POST /video/generate，请求体 { video_inputs: [{ character, voice, script }] }
- * - getVideoStatus: GET /video/status?id={taskId}
+ * - 认证: X-Api-Key（官方文档头；不再发 Authorization，避免双认证头歧义）
+ * - generateVideo: POST /v2/video/generate，请求体按官方契约
+ *   { video_inputs: [{ character: { type:'avatar', avatar_id, avatar_style },
+ *                      voice: { type:'text', input_text, voice_id } }], dimension }
+ * - getVideoStatus: GET /v1/video_status.get?video_id={taskId}（注意状态查询在 v1 根，
+ *   与 /v2 提交不同 API 根；2026-10-21 修正，见 openspec/changes/heygen-adapter-contract）
  * - 异步任务模式：generateVideo 返回 video_id，通过 getVideoStatus 轮询
  * - 数字人专用：需指定 character、voice、script
  *
@@ -51,10 +54,10 @@ class HeyGenAdapter extends BaseAdapter {
     return errors.length === 0 ? { valid: true } : { valid: false, errors }
   }
 
-  /** 构造请求头 — Bearer 认证 */
+  /** 构造请求头 — HeyGen 文档的唯一认证头是 X-Api-Key（不做双头发送） */
   _headers() {
     return {
-      'Authorization': `Bearer ${this.credentials.apiKey}`,
+      'X-Api-Key': this.credentials.apiKey,
       'Content-Type': 'application/json',
     }
   }
@@ -69,6 +72,30 @@ class HeyGenAdapter extends BaseAdapter {
       url += `?${qs}`
     }
     return url
+  }
+
+  /**
+   * API 根（去掉版本段）。
+   *
+   * 为什么需要：提交走 `/v2/video/generate`，而状态查询在 `/v1/video_status.get`
+   * ——两者不是同一个版本前缀。credentials.baseUrl 默认是 `https://api.heygen.com/v2`，
+   * 直接拼 `/v1` 会变成 `/v2/v1/...`。
+   *
+   * 用 URL 解析而不是正则截字符串：baseUrl 可能带端口、子路径或查询串；
+   * 只剥掉**路径末尾**的版本段，查询/哈希一并丢弃（API 根不应带它们）。
+   */
+  _apiRoot() {
+    const raw = String(this.credentials.baseUrl || DEFAULT_BASE_URL)
+    try {
+      const parsed = new URL(raw)
+      parsed.pathname = parsed.pathname.replace(/\/v\d+\/?$/i, '') || '/'
+      parsed.search = ''
+      parsed.hash = ''
+      return parsed.toString().replace(/\/$/, '')
+    } catch (_) {
+      // 非法 URL 交给调用方在网络层报错；这里只做保守去尾
+      return raw.replace(/\/+$/, '').replace(/\/v\d+$/i, '')
+    }
   }
 
   /**
@@ -126,12 +153,32 @@ class HeyGenAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'params.script is required')
     }
 
+    // 官方 v2 契约（https://docs.heygen.com/reference/create-an-avatar-video-v2）：
+    // character / voice 都是对象，脚本文本在 voice.input_text，不在 video_inputs[0].script。
+    // 2026-10-21 修正前这里是扁平字符串 + 顶层 script，单测照着自家形状断言所以全绿，
+    // 但真实调用会 400——回归锁见 heygen.test.js「官方契约锁」。
+    const width = Number(params.width)
+    const height = Number(params.height)
+    // avatar_style 官方枚举只有 normal / circle；未知值回落 normal，
+    // 不把上游拼错的样式原样发给 HeyGen（会变成 400 且难定位）。
+    const avatarStyle = params.avatarStyle === 'circle' ? 'circle' : 'normal'
     const body = {
       video_inputs: [{
-        character: params.character,
-        voice: params.voice,
-        script: params.script,
+        character: {
+          type: 'avatar',
+          avatar_id: params.character,
+          avatar_style: avatarStyle,
+        },
+        voice: {
+          type: 'text',
+          input_text: params.script,
+          voice_id: params.voice,
+        },
       }],
+      dimension: {
+        width: Number.isFinite(width) && width > 0 ? Math.round(width) : 1280,
+        height: Number.isFinite(height) && height > 0 ? Math.round(height) : 720,
+      },
     }
 
     const resp = await this._request('/video/generate', {
@@ -158,22 +205,37 @@ class HeyGenAdapter extends BaseAdapter {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'taskId is required')
     }
 
-    const resp = await this._request('/video/status', {
-      method: 'GET',
-      query: { id: taskId },
-    })
+    // 官网状态查询：GET {apiRoot}/v1/video_status.get?video_id=...
+    // 不是 /v2/video/status——旧实现把提交路径的版本前缀直接套到状态查询上，
+    // 真实调用会 404 并把数字人流水线拖到 10 分钟轮询超时。
+    const url = `${this._apiRoot()}/v1/video_status.get?video_id=${encodeURIComponent(taskId)}`
+    const resp = await this._request(url, { method: 'GET' })
     const data = await resp.json()
-    const statusData = data.data || {}
 
-    // HeyGen 状态映射
+    // HeyGen 习惯用 HTTP 200 + 业务 code 表达错误。官方 video_status.get 的成功码是 100；
+    // 0 只作为「网关把 code 归一为 0」的兼容形态接受，两种都写在这里，不静默扩大成功面。
+    if (data && typeof data.code === 'number' && data.code !== 100 && data.code !== 0) {
+      throw new ProviderError(
+        ERROR_CODES.PROVIDER_ERROR,
+        data.message || `HeyGen video_status error code ${data.code}`,
+        { providerId: this.id, url },
+      )
+    }
+
+    const statusData = (data && data.data) || {}
+    // HeyGen 状态映射：waiting/pending 也是排队中
     const statusMap = {
+      'waiting': 'processing',
+      'pending': 'processing',
       'processing': 'processing',
       'completed': 'completed',
-      'failed': 'failed',
       'success': 'completed',
+      'failed': 'failed',
+      'error': 'failed',
+      'cancelled': 'failed',
     }
-    const status = statusMap[statusData.status] || 'processing'
-    const videoUrl = statusData.video_url || ''
+    const status = statusMap[String(statusData.status || '').toLowerCase()] || 'processing'
+    const videoUrl = statusData.video_url || statusData.videoUrl || statusData.url || ''
     const progress = statusData.progress !== undefined ? Number(statusData.progress) : (status === 'completed' ? 100 : 0)
 
     return { status, videoUrl, progress }
@@ -244,27 +306,19 @@ class HeyGenAdapter extends BaseAdapter {
     return out
   }
 
-  /** 测试连接 — 通过 GET /video/status 验证认证 */
+  /** 测试连接 — 通过 GET /v2/avatars 验证认证与数字人读取权限 */
   async testConnection() {
     const validation = this.validateConfig()
     if (!validation.valid) {
       return { success: false, error: new ProviderError(ERROR_CODES.INVALID_CONFIG, validation.errors.join(', ')) }
     }
     try {
-      // 用一个虚拟 id 测试，认证通过返回 404 或 success:false 表示连接正常
-      await this._request('/video/status', {
-        method: 'GET',
-        query: { id: 'connection-test' },
-      })
+      // 用真实目录接口而不是伪造 taskId：既验证 Key，也验证 scope 能读数字人目录。
+      // 旧实现打 /video/status?id=connection-test 并把 404/500 当成功，实际上连认证
+      // 有没有过都说不清（2026-10-21 修正）。
+      await this._request('/avatars', { method: 'GET' })
       return { success: true }
     } catch (e) {
-      if (e instanceof ProviderError && e.code === ERROR_CODES.AUTH_FAILED) {
-        return { success: false, error: e }
-      }
-      // 404 / PROVIDER_ERROR 表示认证通过
-      if (e instanceof ProviderError && (e.code === ERROR_CODES.PROVIDER_ERROR)) {
-        return { success: true }
-      }
       return { success: false, error: e }
     }
   }

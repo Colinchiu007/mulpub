@@ -78,7 +78,10 @@ describe('HeyGenAdapter — HeyGen 数字人', () => {
   })
 
   describe('generateVideo', () => {
-    it('POST /video/generate 返回 { taskId, model }', async () => {
+    // 官方契约锁：请求体形状来自 HeyGen 文档（POST /v2/video/generate），
+    // 不是照实现回写。旧实现把 character/voice 当扁平字符串、script 当顶层字段，
+    // 单测当时也照着错形状断言，于是全绿但真实调用必 400（见执行记录逃逸分析）。
+    it('POST /v2/video/generate 按官方契约提交 video_inputs 对象 + dimension', async () => {
       const fetchMock = createFetchMock([createFetchResponse({
         data: { video_id: 'vid-123' },
       })])
@@ -94,12 +97,45 @@ describe('HeyGenAdapter — HeyGen 数字人', () => {
       expect(result.taskId).toBe('vid-123')
       expect(result.model).toBe('heygen')
 
-      expect(fetchMock.calls[0].url).toContain('/video/generate')
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v2/video/generate')
       const body = JSON.parse(fetchMock.calls[0].opts.body)
-      expect(body.video_inputs[0].character).toBe('anna')
-      expect(body.video_inputs[0].voice).toBe('en_us')
-      expect(body.video_inputs[0].script).toBe('Hello world')
-      expect(fetchMock.calls[0].opts.headers['Authorization']).toBe('Bearer k')
+      expect(body.video_inputs).toHaveLength(1)
+      expect(body.video_inputs[0].character).toEqual({
+        type: 'avatar',
+        avatar_id: 'anna',
+        avatar_style: 'normal',
+      })
+      expect(body.video_inputs[0].voice).toEqual({
+        type: 'text',
+        input_text: 'Hello world',
+        voice_id: 'en_us',
+      })
+      expect(body.video_inputs[0].script).toBeUndefined()
+      expect(body.dimension).toEqual({ width: 1280, height: 720 })
+      // HeyGen 文档的认证头是 X-Api-Key；单一认证头，避免双头歧义
+      expect(fetchMock.calls[0].opts.headers['X-Api-Key']).toBe('k')
+      expect(fetchMock.calls[0].opts.headers['Authorization']).toBeUndefined()
+    })
+
+    it('显式 width/height/avatarStyle 覆盖默认值', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ data: { video_id: 'vid-9' } })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await adapter.generateVideo({
+        character: 'c', voice: 'v', script: 's', width: 1080, height: 1920, avatarStyle: 'circle',
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.video_inputs[0].character.avatar_style).toBe('circle')
+      expect(body.dimension).toEqual({ width: 1080, height: 1920 })
+    })
+
+    it('未知 avatarStyle 回落 normal，不把拼错的值发给上游', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ data: { video_id: 'vid-10' } })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await adapter.generateVideo({ character: 'c', voice: 'v', script: 's', avatarStyle: 'wide' })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.video_inputs[0].character.avatar_style).toBe('normal')
     })
 
     it('无 character 抛错', async () => {
@@ -141,8 +177,10 @@ describe('HeyGenAdapter — HeyGen 数字人', () => {
   })
 
   describe('getVideoStatus', () => {
-    it('GET /video/status?id={taskId} 返回状态', async () => {
+    // 官方契约锁：视频状态查询在 v1 API 根下，不是 /v2/video/status
+    it('GET /v1/video_status.get?video_id={taskId} 返回状态', async () => {
       const fetchMock = createFetchMock([createFetchResponse({
+        code: 100,
         data: { status: 'completed', video_url: 'https://example.com/v.mp4', progress: 100 },
       })])
       global.fetch = fetchMock
@@ -153,18 +191,59 @@ describe('HeyGenAdapter — HeyGen 数字人', () => {
       expect(result.status).toBe('completed')
       expect(result.videoUrl).toBe('https://example.com/v.mp4')
       expect(result.progress).toBe(100)
-      expect(fetchMock.calls[0].url).toContain('/video/status')
-      expect(fetchMock.calls[0].url).toContain('id=vid-123')
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v1/video_status.get?video_id=vid-123')
+      expect(fetchMock.calls[0].url).not.toContain('/v2/video/status')
     })
 
     it('processing 状态映射', async () => {
       global.fetch = createFetchMock([createFetchResponse({
+        code: 100,
         data: { status: 'processing', progress: 50 },
       })])
       const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
       const result = await adapter.getVideoStatus('v1')
       expect(result.status).toBe('processing')
       expect(result.progress).toBe(50)
+    })
+
+    it('waiting/pending 归一为 processing', async () => {
+      global.fetch = createFetchMock([
+        createFetchResponse({ code: 100, data: { status: 'waiting' } }),
+        createFetchResponse({ code: 100, data: { status: 'pending' } }),
+      ])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      expect((await adapter.getVideoStatus('v1')).status).toBe('processing')
+      expect((await adapter.getVideoStatus('v2')).status).toBe('processing')
+    })
+
+    it('baseUrl 不带版本段时 apiRoot 不误伤路径', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 100, data: { status: 'processing' } })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k', baseUrl: 'https://api.heygen.com' })
+      await adapter.getVideoStatus('vid-1')
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v1/video_status.get?video_id=vid-1')
+    })
+
+    it('baseUrl 带端口时保留端口', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 100, data: { status: 'processing' } })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k', baseUrl: 'https://api.heygen.com:8443/v2' })
+      await adapter.getVideoStatus('vid-2')
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com:8443/v1/video_status.get?video_id=vid-2')
+    })
+
+    it('HTTP 200 但 API code 非成功码 → PROVIDER_ERROR', async () => {
+      global.fetch = createFetchMock([createFetchResponse({
+        code: 400, message: 'video not found', data: null,
+      })])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      try {
+        await adapter.getVideoStatus('missing')
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toContain('video not found')
+      }
     })
 
     it('无 taskId 抛错', async () => {
@@ -274,11 +353,22 @@ describe('HeyGenAdapter — HeyGen 数字人', () => {
   })
 
   describe('testConnection', () => {
-    it('请求成功返回 true', async () => {
-      global.fetch = createFetchMock([createFetchResponse({ data: { status: 'completed' } })])
+    it('用 GET /v2/avatars 验证认证，200 返回 true', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ data: { avatars: [] } })])
+      global.fetch = fetchMock
       const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
       const result = await adapter.testConnection()
       expect(result.success).toBe(true)
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v2/avatars')
+      expect(fetchMock.calls[0].opts.headers['X-Api-Key']).toBe('k')
+    })
+
+    it('401 返回 success:false + AUTH_FAILED', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ message: 'Unauthorized' }, 401)])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'bad' })
+      const result = await adapter.testConnection()
+      expect(result.success).toBe(false)
+      expect(result.error.code).toBe(ERROR_CODES.AUTH_FAILED)
     })
   })
 
