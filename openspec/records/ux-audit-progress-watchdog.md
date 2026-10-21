@@ -18,7 +18,7 @@ date: 2026-10-21
 | 夹具前提自证 | ✅ | 定时器类用例先断言 `getTimerCount() === 1` 再断言停表后为 0。本轮实测反例：完成自动收敛的 `setTimeout` 会混进同一张表，使"停表"读数不可归因（表现为 `expected 1 to be less than 1`），故把夹具调成"对自动收敛不合格"（`aggregate.failed>0`）并在注释里写明这是夹具前提 |
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/**` 与 `packages/rpa-engine/**`；变更全在渲染层（`src/**`），打包链不受影响 |
 | QM-4 视觉 | 未执行（如实记） | 本 PR 改了 `.vue` 与样式（新增徽标 + tooltip），属像素判定域变更。**没有跑 `test:visual:pixel`**：面板只在有真实/伪造发布进度时才渲染，像素基线夹具里没有"进度面板可见"的视图，因此当前像素门禁对本变更结构性失明（审计 §视觉基线域已登记同类）。已用替代证据覆盖：颜色只走既有 token 且浅暗两档对比按 WCAG 公式现算（14.36:1 / 13.79:1）、徽标不可聚焦不动 tabindex 基线、样式块除注释外无十六进制字面量。真机视觉验证留作遗留（§11.6 审计文档同条） |
-| 行尾与 diff 对账 | ✅ | 提交前跑 `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径对账（本仓 `PublishProgressPanel.vue` 等既有文件是 `i/lf w/crlf`，新建文件为 LF；见下方读数） |
+| 行尾与 diff 对账 | ✅（含一处如实差异） | 两轮分别实测：首轮 `raw add=1362 del=7` 与 `--ignore-cr-at-eol` 完全相等；QM-6 处置轮 `raw add=410 del=47` 对 `ignore-cr add=409 del=46`，**唯一差异文件是 `.ccg/reviews/<sha>.json`** —— 它由评审引擎用 `JSON.stringify` 整体重写（LF），替换掉一份带 CR 的旧版生成产物，内容级差异为 0。判据按文件逐个比对两口径（不是只看总数），源码/文档/测试四类文件本轮零行尾改写 |
 | 内容门禁 | ✅ | `node scripts/check-doc-abs-paths.js`（新 PRD 与记录不得写本机绝对路径）；`node scripts/check-no-brand-residue.js`；locale 成对（Gate 7 域）—— 均在提交前实测 |
 | 静态门禁 | ✅ | CI 同款聚合命令 `pnpm exec eslint electron/ src/ --quiet` rc=0（**刻意不用"只 lint 我改的文件"**：#4197 的解析错误只有聚合跑才暴露） |
 | QM-6 CCG 双模型外部评审 | 第一轮已处置，**闭合未达成** | `ccg-review-decider` 判 `DUAL`（893 行 / 9 源文件，产物 `.ccg/reviews/fdaf5daf8….json`）；第一轮 critic=claude 返回 9 条、5 条进裁决，**5 条全部 upheld 并已修**（处置表见 §五，理由见 design D7，反证随之从 14 条扩到 17 条）。**但闭合判据没有达成**：引擎走的是自扮演出口（`adjudicatedBy=self_play`、权重 0.6），且 i3/i4 带 `highRiskDomains`，按规则高危域争议必须外部复核 —— 本行如实记「未闭合」，不改写产物状态、不以自审冒充通过 |
