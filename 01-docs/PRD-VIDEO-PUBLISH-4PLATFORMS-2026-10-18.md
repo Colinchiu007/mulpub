@@ -1809,3 +1809,58 @@ ctx.cookies('https://creator.douyin.com') → 0 条
 
 经 GUI 应用自身（`publish:batch` IPC，内部用信封库凭据）—— 即 `dy-publish-e2e.cjs` 的做法。
 **前置：应用必须已启动。**
+### 16.22 抖音视频发布**首次真实成功**（2026-10-21，DOM 轨）
+
+> 本节是四平台里第一个 `status=success` 的真机记录。含证据链与**未闭合项**。
+
+#### 16.22.1 任务终态（应用队列实读）
+
+```json
+{
+  "id": "task_1_1792569782094",
+  "platform": "douyin",
+  "status": "success",
+  "result": { "success": true, "url": ".../creator-micro/content/post/video?enter_from=publish_page",
+              "platform": "douyin", "mode": "dom" },
+  "submitAttempted": true,
+  "submittedAt": 1792569891100,
+  "createdAt":  "2026-10-21T08:03:02.094Z",
+  "completedAt":"2026-10-21T08:04:51.100Z"
+}
+```
+
+⇒ **全程 109 秒**（此前两次分别为 10 分钟 timeout / 20 分钟无终态）。
+  `submittedAt` 是真实提交时间戳（此前失败样本该字段为 `null`）。
+
+#### 16.22.2 证据链（三环，各自独立）
+
+| # | 证据 | 说明 |
+| --- | --- | --- |
+| ① | 任务 `status=success` + `submittedAt` 非空 | 应用自己的发布链判定成功**且**记录了提交时刻 |
+| ② | 排除 URL 导航判定（`_waitForSuccessNavigation`） | 该判据要求 URL 含 `success` / `publish/success`（`rpa-view-navigation-helpers.js`），而 `result.url` 是 `content/post/video` ⇒ **不是**这条路径 |
+| ③ | 发布页表单**仍持着本次内容** | 重新打开发布页：`hasUploadArea=false`（上传区已消失 ⇒ 视频已上传）、正文本字匹配（「你还记得大明是"东亚病夫"吗…」）、描述计数 `170/1000` ⇒ 内容确实进入过发布流程，不是空表单 |
+
+⇒ 由 ② 反推：只可能命中 `rpa-view-platforms.js:1050` —— 等到了 `aweme/create_v2` / `create` / `post`
+  的**真实网络响应**（`_waitForResponse` 监听 session 响应，`rpa-view-helpers.js`）。
+  ⇒ **服务端确认创建**，不是"按钮点了但没反应"。
+
+#### 16.22.3 为什么内容管理页（作品 238）没看到它
+
+实测：内容管理页只有「作品 / 作品合集」两个 tab，**没有草稿 tab**；
+作品列表按"最新发布"排序，最新一条是 2026-10-18。
+
+未解释（**不做猜测**）：本条内容为何不在列表。可能原因包括私密/待审核/草稿态、
+列表有默认筛选、或发布落在另一个入口。**在拿到平台侧明确状态前，不宣称"草稿已生成"。**
+
+#### 16.22.4 未闭合（如实）
+
+| 项 | 状态 |
+| --- | --- |
+| 应用侧发布成功 | ✅ 已证实（三环证据） |
+| **平台侧产物 ID**（`aweme_id` / `item_id`） | ❌ **未取到** —— `result` 里没有（DOM 轨不返回服务端 ID） |
+| 平台侧状态（草稿/私密/已发布） | ❌ 未确认（内容管理页不可见） |
+| 分轨诊断 `track` / `apiTrackAttempted` | ❌ 未记录 ⇒ **应用跑的是旧二进制**（埋点 #4155 已合并，但进程早于它启动） |
+
+⇒ 下一步：重启应用（加载新二进制）后重跑一次，届时 `track` 会告诉我们是哪条轨；
+  同时应让 DOM 轨成功时**带回服务端响应体**（含 `aweme_id`）——这是 §16.19.4 埋点之外的
+  **第四项缺口**：成功路径没有产物 ID 留档。
