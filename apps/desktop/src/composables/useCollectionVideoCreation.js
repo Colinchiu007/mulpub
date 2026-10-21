@@ -25,13 +25,12 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import {
-  pipelineStartOrchestrated,
-  pipelineCancelRun,
-  pipelineGetRunContext,
-  onPipelineUpdate,
-  storeGetSetting,
-} from '@/api/publisher'
+// ⚠️ 用**命名空间**导入而非逐个具名导入：具名导入在 setup 期被解包成常量，
+// 而测试里的 `vi.mock('@/api/publisher', () => ({ ...局部桩 }))` 会对**未提供的导出**
+// 抛「No X export is defined on the mock」——具名解包会在**组件挂载时**就炸，
+// 让那些只关心别的功能的用例整片红。惰性取用（箭头函数在调用时才取属性）
+// 把「取不到就报错」推迟到真正要用流水线的那一刻。
+import * as publisherApi from '@/api/publisher'
 import {
   buildGenVideoStartParams,
   DEFAULT_GEN_VIDEO_PIPELINE,
@@ -108,11 +107,12 @@ export function useCollectionVideoCreation (opts = {}) {
   const isDisposed = typeof opts.isDisposed === 'function' ? opts.isDisposed : () => false
 
   const deps = {
-    pipelineStartOrchestrated,
-    pipelineCancelRun,
-    pipelineGetRunContext,
-    onPipelineUpdate,
-    storeGetSetting,
+    // 惰性取用：调用时才访问 publisherApi 的导出（理由见 import 处的注释）
+    pipelineStartOrchestrated: (...args) => publisherApi.pipelineStartOrchestrated(...args),
+    pipelineCancelRun: (...args) => publisherApi.pipelineCancelRun(...args),
+    pipelineGetRunContext: (...args) => publisherApi.pipelineGetRunContext(...args),
+    onPipelineUpdate: (...args) => publisherApi.onPipelineUpdate(...args),
+    storeGetSetting: (...args) => publisherApi.storeGetSetting(...args),
     ...(opts.deps || {}),
   }
 
@@ -166,8 +166,9 @@ export function useCollectionVideoCreation (opts = {}) {
     onTerminal: (status, data) => finishTerminal(status, data),
     deps: {
       isDisposed,
-      onPipelineUpdate: deps.onPipelineUpdate,
-      pipelineGetRunContext: deps.pipelineGetRunContext,
+      // 同样惰性：跟踪层只在真正启动流水线时才取这两个 API
+      onPipelineUpdate: (...args) => deps.onPipelineUpdate(...args),
+      pipelineGetRunContext: (...args) => deps.pipelineGetRunContext(...args),
     },
   })
 
