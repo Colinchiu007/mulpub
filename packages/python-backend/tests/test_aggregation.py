@@ -323,12 +323,20 @@ def test_style_to_strategy_mapping():
 
 
 def test_length_ranges_mapping():
-    """Regression: 3 种长度必须映射到正确的字数范围."""
+    """Regression: 3 种长度必须映射到正确的字数范围.
+
+    2026-10-21（feat-zhihu-fav-batch-wordcount）：三档的 **max 统一提到 50000**
+    （与引擎 MAX_OUTPUT_CHARS 对齐）。这三档是 2026-09-06 `d0a9b00ba`（全局输出上限
+    还是 6000 时）定的，`rewrite-limits-50000`（2026-10-19）放开到 50000 后没跟着放大
+    ⇒ keep 的 3000 成了整套体系里最紧的「暗上限」。
+    **target 保持原值**：它才是 prompt 里「目标 N 字」的锚（实际篇幅的落点），
+    max 只是硬上界——改 max 解除人为上限，改 target 才会改变实际篇幅。
+    """
     from multi_publish.aggregation.service import _LENGTH_RANGES
 
-    assert _LENGTH_RANGES["keep"] == (300, 3000, 1500)
-    assert _LENGTH_RANGES["compress"] == (100, 800, 400)
-    assert _LENGTH_RANGES["expand"] == (800, 5000, 2500)
+    assert _LENGTH_RANGES["keep"] == (300, 50000, 1500)
+    assert _LENGTH_RANGES["compress"] == (100, 50000, 400)
+    assert _LENGTH_RANGES["expand"] == (800, 50000, 2500)
     assert len(_LENGTH_RANGES) == 3
 
 
@@ -683,9 +691,27 @@ def test_rewrite_length_fallback_for_legacy_clients():
     finally:
         svc_mod._lazy_import = orig_lazy
 
-    # compress 档应为 (100, 800)，而非默认 800/2000
+    # compress 档应为 (100, 50000)，而非默认 800/2000
+    # （2026-10-21 feat-zhihu-fav-batch-wordcount：三档 max 统一提到 50000，与引擎
+    #  MAX_OUTPUT_CHARS 对齐，解除 keep 档 3000 的历史暗上限）
     assert captured_cfg["min_word_count"] == 100
-    assert captured_cfg["max_word_count"] == 800
+    assert captured_cfg["max_word_count"] == 50000
+
+
+def test_length_ranges_max_aligned_with_engine_output_cap():
+    """三档的 max 统一 = 50000（引擎 MAX_OUTPUT_CHARS）。
+
+    动因：这三档是 2026-09（全局上限 6000 时）定的，`rewrite-limits-50000`（2026-10-19）
+    放开到 50000 后没跟着放大 ⇒ keep 的 3000 成了整套体系里最紧的「暗上限」。
+    target **保持原值**（它才是 prompt 里「目标 N 字」的锚，max 只是硬上界）。
+    """
+    from multi_publish.aggregation.service import _LENGTH_RANGES
+
+    assert set(_LENGTH_RANGES.keys()) == {"keep", "compress", "expand"}
+    for name, (min_wc, max_wc, target_wc) in _LENGTH_RANGES.items():
+        assert max_wc == 50000, f"{name} 档 max 应为 50000，实际 {max_wc}"
+        assert min_wc <= max_wc, f"{name} 档 min 不得大于 max"
+        assert 0 <= min_wc < target_wc <= max_wc, f"{name} 档三值关系被破坏: {(min_wc, max_wc, target_wc)}"
 
 
 # ── 11. 回归测试：word_count 兜底 ──────────────────────────────────
