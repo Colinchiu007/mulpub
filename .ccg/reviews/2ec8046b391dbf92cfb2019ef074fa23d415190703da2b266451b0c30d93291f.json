@@ -1,0 +1,61 @@
+{
+  "sha": "ef81036a848a281180d6e9b44cba711231b9d734",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 993 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 993,
+    "fileCount": 10,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| B. 每笔 PR `git clone` 一份再合 | **否决**：30 次整仓克隆（本仓体量）在 5 分钟预算里必挂，且克隆出来的仓库与 runner 的凭据/浅历史配置又是一处新假设 |",
+      "实现层深审的 i3 指出：workflow 声明了 `pull-requests: write`，`live()` 用 `GH_TOKEN` 直接对**别人的**在飞 PR 发评论，除权限声明外没有任何授权判定；而 CI 侧评论速率与耗时**未测**。这一格被引擎标记为高危域 `auth`，明打「高危域必须外部复核」，**不得**用自扮演裁决豁免。",
+      "- [x] 4.2 执行记录 `openspec/records/<分支名>.md`：QM-5 五步、变异红集、1.1/1.2 的现场读数、授权与裁决来源（\"第 5 条选②\"） **→ 落点**。执行记录 `openspec/records/debt-baseline-recheck.md`（分支名与 slug 同名）：QM-5 五步、当下 4/30 陈旧绿读数、两条被自家实测否证的写法、M1–M5 红集、驱动自身的 `Number('')===0` 坑、设计层 QM-6 单轴处置与授权来源"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2ec8046b391dbf92cfb2019ef074fa23d415190703da2b266451b0c30d93291f",
+  "decidedAt": "2026-10-21T06:20:47.013Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
