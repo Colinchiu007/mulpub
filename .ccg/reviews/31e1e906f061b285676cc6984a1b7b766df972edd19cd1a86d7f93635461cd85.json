@@ -1,0 +1,148 @@
+{
+  "sha": "11e7d0ca8f23d850dd1c8fb0cf1bb065f9c3bd4e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 226 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 226,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "31e1e906f061b285676cc6984a1b7b766df972edd19cd1a86d7f93635461cd85",
+  "decidedAt": "2026-10-21T14:24:35.254Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i3",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4194#issuecomment-6318696865"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "getVideoStatus builds absolute URL and passes to _request; original _request expects relative paths. If it concatenates baseUrl, URL breaks.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "若 _request 无条件把 path 拼到 baseUrl 后面，传入绝对 URL 会变成 https://api.heygen.com/v2/https://api.heygen.com/v1/video_status.get 之类，状态查询必 404，数字人流水线卡满 10 分钟轮询。",
+        "defense": "heygen.js 的 _request 首行就是 `const url = (typeof path === 'string' && path.startsWith('http')) ? path : this._url(path, opts.query)` —— 绝对 URL 直接使用，不拼 baseUrl。测试 `GET /v1/video_status.get?video_id=` 用 `toBe('https://api.heygen.com/v1/video_status.get?video_id=vid-123')` 精确断言了最终 URL。",
+        "verdict": "dismissed",
+        "rationale": "指控描述的是「若拼接则坏」，实际代码有显式绝对 URL 分支且有精确 URL 断言；失败场景不存在。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Proposal fixes contract from proposal text only, not fetched docs. Old tests locked wrong shape; new tests may lock another wrong shape.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "上一版测试就是把错误形状写成期望值；如果这次仍只从提案文字推导，可能从一个错误锁换成另一个错误锁，真实调用照样 400。",
+        "defense": "字段形状不是从提案自推的：HeyGen v2 的 `character{type,avatar_id,avatar_style}` / `voice{type,input_text,voice_id}` 由三处独立公开资料相互印证（ClawHub 示例、profreza 的 API 解析、HeyGen endpoint 版本对比文档）；`docs.heygen.com` 在本机 DNS 被解析到非公网地址无法直取，已在提案「验证边界」如实声明。真实调用仍是 T4 硬判据，未被任何 mock 替代。",
+        "verdict": "dismissed",
+        "rationale": "新断言基于多家独立公开资料而非实现本身；官方站点不可达的残余风险已写入遗留与 T4，不存在「用 mock 冒充真实调用」。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "Auth header changed from Bearer to X-Api-Key with no external verification. If API requires Bearer or both, requests fail.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4194#issuecomment-6318696865",
+          "reviewedAt": "2026-10-21T14:35:30Z"
+        },
+        "prosecution": "认证头是硬失败面：若 HeyGen 这组端点实际要求 Bearer（或要求两者同时存在），只发 X-Api-Key 会让所有请求 401，连提交都到不了。",
+        "defense": "HeyGen 官方文档对 Video Generate v2 / Video Status v1 列的认证头是 `X-Api-Key`，未列 `Authorization: Bearer`；独立外部复核（claude，见 evidenceRef）给出 9/10 置信度结论「X-Api-Key only 正确，Bearer 未被文档要求，双头未文档化也不更安全」。残余未知（HeyGen 是否静默接受 Bearer）不影响本方向，真实 401 时才回退。",
+        "verdict": "dismissed",
+        "rationale": "文档 + 独立外部复核一致指向 X-Api-Key；外部复核证据为公开 PR 评论，performedBy 与 expectedExternalBackend 逐字一致。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "_apiRoot regex /v\\d+/ loose; subpath like /v2/proxy over-stripped. Could corrupt baseUrl unexpectedly.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "如果 _apiRoot 用宽松正则截断路径，`https://host/heygen/v2/proxy` 这类子路径会被截成 `https://host/heygen`，状态查询打到错误地址。",
+        "defense": "实现已改为 `new URL()`：只对 `pathname` 做 `/\\/v\\d+\\/?$/i` 的**末尾**替换，保留端口与子路径，清空 query/hash；并有「无版本段 baseUrl」「带 8443 端口」两例精确 URL 断言。指控描述的宽松正则在当前实现中已不存在。",
+        "verdict": "dismissed",
+        "rationale": "指控对应的是修订前实现；当前实现为 URL 解析 + 末尾版本段剥离，且有两个边界用例锁定。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": ".ccg/reviews JSON added with deepReview status pending and null findings; review artifact incomplete.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "提交里带一个 status=pending、findings=null 的审查记录，会被门禁当成未闭环欠账，也让人误以为深度审查没跑。",
+        "defense": "该 JSON 是 pre-commit 的 CCG 判定记录（父 sha 上生成，当时审查尚未开始），属于预期中间态；深度审查跑完后由 writeBack 写回最终 status/findings。本条裁决落盘后会重跑 deep-review 复用存档 critique 完成 writeBack，记录转为闭环态。",
+        "verdict": "dismissed",
+        "rationale": "pending 是流程中间态而非最终产物；闭环由 deep-review 的 writeBack 完成，可在提交后的 `.ccg/reviews/31e1….json` 复核。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "finding": "dimension defaults to 1280x720 without justification; adapter previously had none.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "凭空给 1280×720 可能改变输出尺寸预期；如果调用方原本依赖 HeyGen 默认值，会得到不同的成片规格。",
+        "defense": "HeyGen v2 要求顶层 `dimension`，不传则请求不完整；1280×720 是 16:9 标准档且与项目既有视频默认一致。调用方仍可用 `width/height` 覆盖，测试覆盖了 1080×1920 覆盖场景；`digital-human-stages.js` 不传时得到的就是标准 16:9。",
+        "verdict": "dismissed",
+        "rationale": "默认值是接口必填项的显式补齐，且有覆盖口子与覆盖用例；不存在「改变既有预期」——旧实现根本没有 dimension 字段，请求本身不成立。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-21T14:38:57.177Z"
+  }
+}
