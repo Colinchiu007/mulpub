@@ -18,6 +18,8 @@ const REQUIRED_SCHEMA_RELATIONS = [
   'identity_notifications',
   'cloud_accounts',
   'cloud_account_tombstones',
+  // 006 微信 Native 支付：新表必须在 readiness 关系表内（缺一张即 ready 检查发现不了生产缺表）
+  'identity_payment_customers',
 ]
 
 const SCHEMA = [
@@ -167,6 +169,28 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cloud_account_tombstones_user
     ON cloud_account_tombstones(user_id, platform, platform_uid)`,
+  // 006 微信 Native 支付（最小闭环）：与 migrations/postgresql/006_payment_orders.sql 的 DDL
+  // 逐字一致（防漂移锁见 test/member-commerce-migrations.test.js 的「006 支付迁移与开发态
+  // SCHEMA 一致」）。四条 ALTER 全部可空 + 默认值向后兼容，阶段 1 的兑换码/后台订单不受影响。
+  `ALTER TABLE identity_orders ADD COLUMN IF NOT EXISTS provider_order_id TEXT`,
+  `ALTER TABLE identity_orders ADD COLUMN IF NOT EXISTS provider_sub_id TEXT`,
+  // period 不设 CHECK 约束（与迁移一致）：避免既有行阻塞迁移，取值由服务层白名单校验（month | year）
+  `ALTER TABLE identity_orders ADD COLUMN IF NOT EXISTS period TEXT`,
+  // discount_cents 本期恒 0（无 coupon）；列存在是为对账 schema 稳定，服务层不读
+  `ALTER TABLE identity_orders ADD COLUMN IF NOT EXISTS discount_cents INTEGER NOT NULL DEFAULT 0`,
+  // 微信 webhook 回传 openid/transaction_id，没有我们的 user_id ⇒ 必须有映射表。
+  // 唯一键 (provider, user_id)：provider_customer_id 可空时 PG 唯一约束不锁 NULL，反向唯一写了也锁不住。
+  `CREATE TABLE IF NOT EXISTS identity_payment_customers (
+    user_id TEXT NOT NULL REFERENCES identity_users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_customer_id TEXT,
+    email TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT identity_payment_customers_unique UNIQUE (provider, user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_identity_payment_customers_user
+    ON identity_payment_customers(user_id, provider)`,
 ]
 
 class PostgresWebhookTransaction {

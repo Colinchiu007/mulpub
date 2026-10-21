@@ -5,29 +5,29 @@
 
 ## 0. 前置（本 change 开工前必须完成）
 
-- [ ] 0.1 隔离 worktree：`scripts/session-init.sh wechat-native-payment`，确认 `git rev-parse --abbrev-ref HEAD` = `wechat-native-payment`
-- [ ] 0.2 新 worktree 依赖就绪：`pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`
+- [x] 0.1 隔离 worktree：`scripts/session-init.sh wechat-native-payment`，确认 `git rev-parse --abbrev-ref HEAD` = `wechat-native-payment`
+- [x] 0.2 新 worktree 依赖就绪：`pnpm install --frozen-lockfile && node scripts/ensure-electron.js && node scripts/verify-worktree-deps.js`
 - [ ] 0.3 沙箱凭据到手（微信商户沙箱环境 appid/mchid/APIv3 密钥/商户证书），写进 worktree 的 `.env`（**不提交**）
 
 ## 1. 服务端 · 数据层（P0-1）
 
-- [ ] 1.1 先写漂移锁：扩展 `test/member-commerce-migrations.test.js`，断言 `006_payment_orders.sql` 的每条语句都出现在 `SCHEMA` 中（同 004/005 体例）→ **首轮红**
-- [ ] 1.2 写 `migrations/postgresql/006_payment_orders.sql`：`identity_orders` 补 4 列 + 新建 `identity_payment_customers` + 用户维度索引
-- [ ] 1.3 `postgres-identity-repository.js`：SCHEMA 数组同步 + `REQUIRED_SCHEMA_RELATIONS` 追加 `identity_payment_customers`
+- [x] 1.1 先写漂移锁：扩展 `test/member-commerce-migrations.test.js`，断言 `006_payment_orders.sql` 的每条语句都出现在 `SCHEMA` 中（同 004/005 体例）→ **首轮红**
+- [x] 1.2 写 `migrations/postgresql/006_payment_orders.sql`：`identity_orders` 补 4 列 + 新建 `identity_payment_customers` + 用户维度索引
+- [x] 1.3 `postgres-identity-repository.js`：SCHEMA 数组同步 + `REQUIRED_SCHEMA_RELATIONS` 追加 `identity_payment_customers`
 - [ ] 1.4 `postgres-commerce-store.js`：新增 `createPendingOrder` / `markOrderPaid` / `getOrderById` / `upsertPaymentCustomer`（白名单列，禁 `SELECT *` 直出）
 - [ ] 1.5 跑漂移锁转绿 + `test/postgres-identity-repository.test.js` 全绿
 
 ## 2. 服务端 · PaymentProvider 抽象与微信适配器（P0-2）
 
-- [ ] 2.1 先写契约测试 `test/payment-provider-wechat.test.js`：三方法输入输出 + 归一化映射逐事件断言 → **红**
-- [ ] 2.2 写 `src/auth/payment-providers/index.js`（抽象 + 工厂 + `WebhookSignatureError`）
-- [ ] 2.3 写 `src/auth/payment-providers/wechat-native.js`：
+- [x] 2.1 先写契约测试 `test/payment-provider-wechat.test.js`：三方法输入输出 + 归一化映射逐事件断言 → **红**
+- [x] 2.2 写 `src/auth/payment-providers/index.js`（抽象 + 工厂 + `WebhookSignatureError`）
+- [x] 2.3 写 `src/auth/payment-providers/wechat-native.js`：
   - `createCheckout`：组装 APIv3 下单请求（`amount.total` 单位为分、`attach` 编码 `{orderId, userId}`）
   - `parseWebhook`：四头验签（RSA-SHA256 + 平台证书 + 时间戳容差 5min）→ AEAD_AES_256_GCM 解密 resource → 归一化
   - `capabilities`：六项全 false
   - 平台证书获取/按 Serial 缓存
-- [ ] 2.4 **零外发测试**：所有 HTTP 经注入的 `fetcher`/`signer`（同 `shipinhao-capabilities.js:16` 纪律），测试零真实出网
-- [ ] 2.5 变异反证：摘掉验签 → 契约测试精确变红并指回根因
+- [x] 2.4 **零外发测试**：所有 HTTP 经注入的 `fetcher`/`signer`（同 `shipinhao-capabilities.js:16` 纪律），测试零真实出网
+- [x] 2.5 变异反证：摘掉验签 → 契约测试精确变红并指回根因
 
 ## 3. 服务端 · 订阅服务（P0-3）
 

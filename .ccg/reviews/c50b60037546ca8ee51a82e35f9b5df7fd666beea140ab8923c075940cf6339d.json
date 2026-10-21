@@ -1,0 +1,62 @@
+{
+  "sha": "2eb731f67ee5f8306370122767042570be2cc992",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1184 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1184,
+    "fileCount": 9,
+    "codeFileCount": 8,
+    "sensitivePathHits": [
+      "migrations/postgresql/006_payment_orders.sql",
+      "packages/api-publish-engine/src/auth/payment-providers/index.js",
+      "packages/api-publish-engine/src/auth/payment-providers/wechat-native.js",
+      "packages/api-publish-engine/src/auth/postgres-identity-repository.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 40,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c50b60037546ca8ee51a82e35f9b5df7fd666beea140ab8923c075940cf6339d",
+  "decidedAt": "2026-10-21T12:30:09.342Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
