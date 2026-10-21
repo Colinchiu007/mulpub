@@ -51,9 +51,6 @@
     }
   },
   "deepReview": {
-    "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -85,9 +82,16 @@
         ]
       }
     ],
-    "findings": null,
     "template": ".adversarial\\ccg-deep-c4941d28\\adjudication.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
-    "at": "2026-10-21T17:02:25.887Z"
+    "at": "2026-10-21T17:02:25.887Z",
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4187#issuecomment-6322086100",
+    "reviewedAt": "2026-10-21T17:18:00Z",
+    "findings": 8,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对分支相对 origin/main 的完整支付 diff（54 文件 / 4663 insertions / 99,065 字符）独立审阅，原始输出逐字公开于 evidence。该 diff 范围严格覆盖本条记录对应的 commit 差量。评审给出 8 条发现 / VERDICT: BLOCK，逐条核验后 5 条为真缺陷并已在 907fbd017 修复：①金额读 payer_total 而非 total（对账静默断裂）②裸 Base64 一律当证书导致微信支付公钥模式全部拒签 ③签名 Base64 字符类含 -/_ 造成解码歧义 ④弹窗轮询非 0 码时泄漏 setInterval ⑤order-status 未要求登录态。另 3 条判定为非目标/已覆盖/规范误解，理由在同一条评论的核验表。配套回归锁 7 例与判据缺口补测 16 例。"
   }
 }
