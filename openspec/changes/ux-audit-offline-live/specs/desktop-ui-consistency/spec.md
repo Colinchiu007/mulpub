@@ -60,3 +60,28 @@
 
 - **WHEN** 待发布计数为 0
 - **THEN** 横幅只显示离线说明，不显示「0 个待发布」这类无信息量的计数
+
+### Requirement: 状态播报锚点必须常驻，断网与恢复两侧都可被播报
+
+离线状态的可播报区域 MUST 是一个**常驻**容器（`role="status"` + `aria-live="polite"`），
+断网与恢复 MUST 都表现为该容器内的文本变化；MUST NOT 把播报属性挂在被条件渲染
+（`v-if`）整体插入/移除的节点上 —— `role=status` 的播报语义依赖常驻 region，
+节点被移除时"已恢复"这半边对读屏用户不存在。
+
+#### Scenario: 区域从不被移除
+
+- **WHEN** 状态在离线与在线之间往返
+- **THEN** `data-testid="offline-live"` 容器始终存在于 DOM，`role`/`aria-live` 挂在它身上
+- **AND** 横幅（`offline-banner`）只是其内容，在线时不存在
+
+#### Scenario: 恢复给出一次性回执而不是永久横幅
+
+- **WHEN** 状态从离线跃迁为在线
+- **THEN** 常驻区域内出现「已恢复连接」（`offlineRecovered`，zh/en 成对）
+- **AND** `RECOVERY_NOTICE_MS` 后自动消失，区域文本回到空
+- **AND** 首次挂载即为在线时不显示（那不是"恢复"）；显示期间再次断网则立即让位给横幅
+
+#### Scenario: 退回挂在条件节点上会当场变红
+
+- **WHEN** `role="status"` / `aria-live` 被移回横幅行，或容器行加上 `v-if`
+- **THEN** 结构锁判红（扫描域排除注释行，避免说明文字自指）

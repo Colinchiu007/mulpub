@@ -39,6 +39,9 @@ const MUTATIONS = [
   { id: 'M13', name: '计数段改为恒渲染（0 也说「0 个待发布」）', file: F.view, from: '<span v-if="cachedTaskCount > 0"', to: '<span', verify: VIEW },
   { id: 'M14', name: '摘掉复核的迟到响应守卫（旧结论可把已确认的离线改回在线）', file: F.composable, from: '\n        if (epoch !== readEpoch) return\n', to: '\n', verify: LIVE },
   { id: 'M15', name: '摘掉 init 读回的迟到响应守卫（两条写入路径不得各有各的守卫）', file: F.composable, from: '\n          if (epoch !== readEpoch) return\n', to: '\n', verify: LIVE },
+  { id: 'M16', name: '播报锚点退回被 v-if 的横幅节点（恢复那半边对读屏不存在）', file: F.view, from: '<div class="offline-live" role="status" aria-live="polite" data-testid="offline-live">', to: '<div class="offline-live" data-testid="offline-live">', verify: VIEW },
+  { id: 'M17', name: '卸载不清恢复回执的定时器（计时器泄漏 + 回调打到已卸载组件）', file: F.view, from: '  clearRecoveryTimer()\n  disposeOfflineStatus()', to: '  disposeOfflineStatus()', verify: VIEW },
+  { id: 'M18', name: '跃迁判据写反（首次挂载就在线也算「刚恢复」，或恢复永不回执）', file: F.view, from: '  if (wasOffline !== true) return', to: '  if (wasOffline === true) return', verify: VIEW },
   { id: 'M14b', name: '占位：正控说明（未变异基线必须 0 红）', file: null },
 ]
 
