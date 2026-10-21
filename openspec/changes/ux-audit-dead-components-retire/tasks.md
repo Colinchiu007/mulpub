@@ -39,7 +39,9 @@
 - [x] 4.3 审计文档 1.3 行 + 文末落地记录；CHANGELOG 条目
 - [x] 4.4 `openspec/records/ux-audit-dead-components-retire.md`（含 `| 远程同步 |` 表格行）
 - [x] 4.5 全域 `vitest run src` 对照（读数写进记录）+ 聚合 eslint
-- [ ] 4.6 QM-6 双模型评审与逐条处置
+- [x] 4.6 QM-6 双模型评审与逐条处置 —— critic=claude 10 条 → 4 条待裁决，**全部 upheld 并已修**
+      （i1 对偶锁只做一半 / i2 注释剥离器两个方向都错 / i3 对比度探针依赖已撤类名 / i4 驱动承诺的 md5 回读没实现）。
+      结算状态 self_play_blocked ⇒ 本条 PR 不能自动合并，出口是外部复核或人工判 needs_revision/cleared。
 - [ ] 4.7 PR + CI + 合并后回读 main push
 
 ## 5. 遗留

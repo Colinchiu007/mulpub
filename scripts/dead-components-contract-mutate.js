@@ -24,6 +24,8 @@ const GUARD = path.join(DESKTOP, 'src', 'components', 'dead-components.test.js')
 const MAIN = path.join(DESKTOP, 'src', 'main.js')
 const LOADING = path.join(DESKTOP, 'src', 'components', 'LoadingState.vue')
 const DASH_VUE = path.join(DESKTOP, 'src', 'views', 'Dashboard.vue')
+const DASH_TEST = path.join(DESKTOP, 'src', 'views', 'Dashboard.test.js')
+const PROBE = path.join(DESKTOP, 'tests', 'visual-testing', 'scripts', 'contrast-probe.js')
 const STYLE_GUARD = path.join(DESKTOP, 'src', 'views', 'Dashboard.style-guard.test.js')
 
 const TEST_FILES = ['src/components/dead-components.test.js']
@@ -89,6 +91,33 @@ const MUTATIONS = [
     createBody: '<template><div /></template>\n',
     expect: ['组件文件本身不得复活'],
   },
+  {
+    id: 'C6',
+    label: '接线藏在「同一行的块注释」之后（旧 code() 按行首注释符过滤会整行丢弃 ⇒ 漏报）',
+    file: MAIN,
+    from: "app.component('EmptyState', EmptyState)",
+    // 攻击的正是 i2 指出的漏报形态：注释符在行首、代码跟在后面同一行。
+    // 旧实现把整行当注释丢掉 ⇒ 真实重新接线在锁下隐身；新实现先整块剥注释、再保留代码。
+    to: "/* 恢复试用横幅 */ app.component('LoadingState', EmptyState)\napp.component('EmptyState', EmptyState)",
+    expect: ['代码里不得再出现 LoadingState（含 main.js 的全局注册）'],
+  },
+  {
+    id: 'C7',
+    label: '豁免文件的缺席断言被改成正面断言（名字还在，洞也还在）',
+    file: DASH_TEST,
+    from: 'expect(w.findComponent({ name: "TrialBanner" }).exists()).toBe(false);',
+    to: 'expect(w.findComponent({ name: "TrialBanner" }).exists()).toBe(true);',
+    // 旧判据只 toContain('TrialBanner') ⇒ 这一改完全隐身（QM-6 i1 命中的就是这里）。
+    expect: ['反向守卫本身必须还在（防止把豁免清单当成可复用的洞）'],
+  },
+  {
+    id: 'C8',
+    label: '对比度探针仍按已撤组件的类名取元素（该档静默变成"从未测过"）',
+    file: PROBE,
+    from: "['dashboard', '/dashboard', '.stat-label'],",
+    to: "['dashboard', '/dashboard', '.banner-text'],",
+    expect: ['对比度探针不得再指向已撤组件的类名'],
+  },
 ]
 
 function runVitest () {
@@ -142,12 +171,33 @@ function main () {
   }
 
   const rows = []
+  // QM-6 i4 的第二半：Node 收到 SIGINT/SIGTERM 时**默认不执行 finally**，
+  // 中途被打断会把工作树留在变异态（本仓真的踩过一次，见记忆
+  // 「变异电池被打断会把源文件留在变异态」）。所以除 finally 之外还要注册信号兜底。
+  let restoreFailed = false
+  const active = { file: null, before: null, existed: false }
+  const restoreActive = () => {
+    if (!active.file) return
+    try {
+      if (active.before === null) { if (fs.existsSync(active.file)) fs.rmSync(active.file) }
+      else fs.writeFileSync(active.file, active.before)
+      console.error(`[SIGNAL] 已还原 ${active.file}`)
+    } catch (e) {
+      console.error(`[SIGNAL] 还原失败：${e.message} —— 请手工核对 ${active.file}`)
+    }
+    active.file = null
+  }
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(sig, () => { restoreActive(); process.exit(130) })
+  }
   for (const mu of targets) {
     const isCreate = Boolean(mu.create)
     const file = isCreate ? mu.create : mu.file
     const existed = fs.existsSync(file)
     const before = existed ? fs.readFileSync(file) : null
     let applied = false
+    active.file = file
+    active.before = before
     try {
       if (isCreate) {
         fs.writeFileSync(file, mu.createBody)
@@ -195,15 +245,29 @@ function main () {
       console.log(`[${mu.id}] ${verdict} :: ${mu.label} — 红 ${run.failedCount} 条（探针命中 ${mu.expect.length - silent.length}/${mu.expect.length}）` + (silent.length ? `；沉默：${silent.join(' / ')}` : '') + (verdict === 'RUN_UNCLEAN' ? `；rc=${run.rc} errors=${run.errorCount} 具名红=0 ⇒ 本条不可归因，需把变异改成可执行形态或修驱动解析` : ''))
       rows.push({ id: mu.id, verdict })
     } finally {
+      // QM-6 i4：头注释一直写着"还原后独立 md5 回读（rc=4）"，而实现里没有这一段 ——
+      // 注释写的是契约，实现没做，就是装饰性承诺。现在补实现，并加信号兜底。
       if (applied || existed) {
         if (before === null) { if (fs.existsSync(file)) fs.rmSync(file) }
         else fs.writeFileSync(file, before)
+        const now = fs.existsSync(file) ? fs.readFileSync(file) : null
+        const ok = before === null ? now === null : (now !== null && md5(now) === md5(before))
+        if (!ok) {
+          console.error(`[${mu.id}] RESTORE_MISMATCH :: ${file} 还原后字节与备份不一致 —— 工作树可能被留在变异态`)
+          restoreFailed = true
+        } else {
+          console.log(`[${mu.id}] RESTORE_OK`)
+        }
       }
     }
   }
 
   const bad = rows.filter((r) => r.verdict !== 'CAUGHT')
   console.log(`[SUMMARY] 共 ${rows.length} 条：CAUGHT=${rows.length - bad.length} 其余=${bad.length}` + (bad.length ? `  ${bad.map((r) => r.id + '=' + r.verdict).join(' ')}` : ''))
+  if (restoreFailed) {
+    console.error('[SUMMARY] RESTORE_FAILED —— 有文件还原后字节不一致，工作树可能仍在变异态，先手工核对再重跑')
+    return 4
+  }
   return bad.length ? 1 : 0
 }
 

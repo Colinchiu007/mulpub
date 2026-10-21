@@ -38,7 +38,7 @@
 | 改 | `src/main.js` | 去掉 `LoadingState` import 与 `app.component('LoadingState', …)`，原地留"为什么删"的注释 |
 | 改 | `apps/desktop/test-setup.js` | 去掉测试全局组件表里的 `LoadingState`（镜像注册点） |
 | 改（注释） | `features/dashboard/DashboardExtraPanels.vue`、`DashboardLockedPanel.vue` | 两处注释原指向"TrialBanner.vue 的三轮注释"，文件已删 ⇒ 改为 `git log -p --follow -- <路径>` 取证写法 |
-| 新增 | `components/dead-components.test.js` | 防复活锁（6 条） |
+| 新增 | `components/dead-components.test.js` | 防复活锁（11 条） |
 
 ## 4. 显示项与交互（本批"减少"的部分）
 
@@ -72,9 +72,9 @@
 现场读数：
 
 ```
-[BASELINE] rc=0 failed=0 passed=6 collected=6 errors=0 blind=false
+[BASELINE] rc=0 failed=0 passed=11 collected=11 errors=0 blind=false
 [C1] CAUGHT … [C2] CAUGHT … [C3] CAUGHT … [C4] CAUGHT（红 4 条）… [C5] CAUGHT
-[SUMMARY] 共 5 条：CAUGHT=5 其余=0        驱动 rc=0
+[SUMMARY] 共 8 条：CAUGHT=8 其余=0        驱动 rc=0
 ```
 
 | # | 注入（必须是**可执行**形态） | 期望 |
@@ -84,6 +84,9 @@
 | C3 | 把豁免方 `Dashboard.style-guard.test.js` 的探针换成 `indexOf("<GhostBanner")`（守卫恒过但仍在文件里） | 第 5 条红（豁免不可白拿） |
 | C4 | 把扫描根 `SRC` 改成一个不存在的目录 | 第 1 条红（扫描退化不得读成通过；实测红 4 条） |
 | C5 | 重新创建 `components/LoadingState.vue`（空壳） | 第 2 条红 |
+| C6 | 把接线藏进「行首块注释 + 同行代码」：`/* 恢复 */ app.component('LoadingState', EmptyState)` | 第 4 条红（旧 `code()` 整行当注释丢掉 ⇒ 漏报） |
+| C7 | 把 `Dashboard.test.js` 的缺席断言翻成正面断言（`.toBe(false)` 改成 `.toBe(true)`） | 第 5 条红（旧判据只看名字在场 ⇒ 完全隐身） |
+| C8 | 把对比度探针的 dashboard 档改回已撤组件的类名 `.banner-text` | 第 11 条红（该选择器只存在于已撤组件里，且这一档不得被整条删掉） |
 
 ⚠️ 三条**取反证形态的规矩**，都由本批第一跑"5 条全 MISSED"复盘得来，细节见执行记录 §3.3：
 
@@ -104,7 +107,7 @@
 | # | 判据 |
 |---|---|
 | V1 | 四个组件文件与 `more-tests.test.js` 均不在树里（`git ls-files` 读回） |
-| V2 | `dead-components.test.js` 6 条全绿 |
+| V2 | `dead-components.test.js` 11 条全绿 |
 | V3 | `UpgradeModal.test.js` + 两个 Dashboard 守卫全绿（共 56 passed，本批现场读数） |
 | V4 | 全域 `vitest run src` 与 origin/main 基线对照，无**新增**红（读数写进执行记录） |
 | V5 | 聚合 `eslint electron src --quiet` rc=0；`check-locale-sync --cjk` 无新增硬编码 |

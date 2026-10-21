@@ -44,7 +44,10 @@ async function main () {
 
   const CASES = [
     ['publish', '/publish', 'span'],
-    ['dashboard', '/dashboard', '.banner-text'],
+    // 原为 '.banner-text'（TrialBanner 内文类名）。该组件随 ux-audit-dead-components-retire 撤下后
+    // 此选择器在看板页恒 0 命中 —— 探针会打「未找到该选择器」然后跳过（不是假绿，但等于这一档从未被测）。
+    // 换成同族的"卡片内小标签文字"：与被撤的横幅同为「深色背景上的小号文字」，对比度量纲一致。
+    ['dashboard', '/dashboard', '.stat-label'],
     ['accounts', '/accounts', '.accounts-page'],
     ['home', '/home-not-used', 'h3.mp-home-section-title'],
   ]

@@ -1,0 +1,134 @@
+{
+  "sha": "6fa05fa303643aeb03d81786578f7f9106c6ca3a",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 754 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 754,
+    "fileCount": 21,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T22:13:08.300Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "dead-components.test.js 第 5 条对 views/Dashboard.test.js 只断言 toContain('TrialBanner')（名字在场），没有像 style-guard 那一半那样验证「缺席断言」的形状（findComponent + 缺席期望）。而两个守卫文件在 scanForWiring 里被整体豁免出 needle 扫描域——若有人把 Dashboard.test.js 里的缺席断言改成正面断言、或在该文件里新增一个正向 findComponent 渲染检查（文件仍在豁免名单里，且 toContain('TrialBanner') 照样通过），整把锁保持全绿。这与文件头注释宣称的「验证豁免文件确实还在做缺席断言」「豁免不是洞」直接矛盾：对偶锁只实现了一半。",
+        "highRiskDomains": [],
+        "prosecution": "第 5 条锁对 Dashboard.test.js 只 toContain(\"TrialBanner\")，名字在场即通过；把缺席断言改成正面断言时锁照绿。",
+        "defense": "无。当场回读 `git show HEAD:apps/desktop/src/views/Dashboard.test.js` 第 140 行确认原文是 `expect(w.findComponent({ name: \"TrialBanner\" }).exists()).toBe(false);`，而锁的实现里对 dash 只有一行 toContain，与文件头注释宣称的「验证豁免文件确实还在做缺席断言」不符 —— 对偶锁只做了一半。",
+        "verdict": "upheld",
+        "rationale": "已修：dash 那一半改成按**形状**判 —— 先按行取到 findComponent({name:\"TrialBanner\"}) 那一行（取不到即红），再要求同一行含 .toBe(false)。并新增变异 C7（把 false 翻成 true）实测 CAUGHT：旧判据下这一改完全隐身。诚实边界：形状判据仍只到\"同一行有 toBe(false)\"，写成 `expect(true).toBe(false)` 之外仍可能出现新的绕过形态；但 C7 已把本轮指出的那一格钉住。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "code() 只按「行首注释符」剥行，两个方向都不可靠：(a) 漏报——一行同时含代码与注释时整行被剥，例如 /* 恢复 */ app.component('LoadingState', EmptyState) 这一整行会被 /^\\s*(\\/\\/|\\*|\\/\\*|<!--)/ 规则丢弃，真实的重新接线在锁下隐身；(b) 误报——多行块注释若正文行不以 * 开头（/*\\nTrialBanner 已删\\n*/），该正文行会被当成代码行命中 needle，违反 spec「注释不得被判红」的 Scenario。spec 宣称的「先剥行注释再匹配」在此实现下既不精确也不安全，两个方向都破坏了 Spec 自己承诺的判据。",
+        "highRiskDomains": [],
+        "prosecution": "code() 按行首注释符过滤，两个方向都错：含代码的行被整行丢弃（漏报），多行块注释的正文行被当代码（误报）。",
+        "defense": "无。两条都当场复现：`/* 恢复 */ app.component(\"LoadingState\", EmptyState)` 走旧实现返回空串（真实接线隐身）；`/*\\nTrialBanner 已删\\n*/` 的正文行不以 * 开头，旧实现把它留在\"代码\"里 ⇒ 违反 spec「注释不得被判红」。",
+        "verdict": "upheld",
+        "rationale": "已修：改成注释优先 —— 先整块剥 <!-- --> 与 /* */（含跨行），再剥以 // 开头的整行，最后剥行尾 \" // …\"（要求 // 前是空白，避免误伤 https://）。并新增 4 条直接测 code() 本体的用例（漏报方向 / 误报方向 / HTML 注释与行尾注释 / URL 双斜杠），加变异 C6（把接线藏进\"行首块注释 + 同行代码\"）实测 CAUGHT。诚实边界：注释定界符出现在字符串字面量内部时会被误剥，已写进注释而不是假装不存在。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "被删的 TrialBanner.vue 内注释明确写着「contrast-probe.js 以 .banner-text 为探针」，而本 diff 未改动 contrast-probe.js。删除后看板不再存在 .banner-text 元素：若该探针要求至少一个目标元素（或按元素逐条测对比度），视觉/对比度门禁会报错或空集假绿；proposal 的「用户可见变化：无」没有覆盖这条探针依赖。",
+        "highRiskDomains": [],
+        "prosecution": "被删的 TrialBanner 注释写明 contrast-probe.js 以 .banner-text 为探针；删除后该探针在看板页恒 0 命中，可能报错或空集假绿。",
+        "defense": "**机制部分不成立**：当场读 tests/visual-testing/scripts/contrast-probe.js:63 —— `if (!res.found) { console.log(\"  未找到该选择器\"); continue }`，它**出声**且跳过，不会静默报通过，也不是\"报错\"。但**依赖本身是真的**：`CASES` 第 47 行确实写着 `['dashboard', '/dashboard', '.banner-text']`，而 `.banner-text` 只存在于已撤下的组件里 ⇒ 这一档从本次删除起等于从未被测（proposal 的「用户可见变化：无」没覆盖它）。",
+        "verdict": "upheld",
+        "rationale": "按\"依赖真实、机制描述过严\"处置：探针改指向同族的看板小标签文字 `.stat-label`（与被撤横幅同为「深色底上的小号文字」，对比度量纲一致），并在原处留历史注释。另加一条锁（第 11 条）+ 变异 C8：探针 CASES 里不得再出现 '.banner-text'（走 code() 剥注释后再查），同时要求 .stat-label 那一档仍在（防止下一轮把这一档整条删掉 —— 删掉比留错更隐蔽）。这条也是本批记下的第三类写者面：既不在 src、也不是注册表，而是**按选择器消费 UI 的旁路脚本**。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "驱动头注释声明「还原放 finally 且自报不作数，跑完独立做 md5 回读比对（rc=4）」，但实现里 finally 直接 writeFileSync(before)/rmSync 之后没有任何 md5 回读校验，main() 也只返回 0/1/2，永不返回 4——头注释（从 1.5/1.6 驱动抄来的契约）与实现不符。另外 Node 收到 SIGINT/SIGTERM（Ctrl+C）时默认不执行 finally，变异中途被打断会把 worktree 留在被污染状态，恰好抵消记录宣称的「还原后 md5 复验」保障。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "驱动头注释声明「还原放 finally 且自报不作数，跑完独立做 md5 回读比对（rc=4）」，实现里没有回读、也永不返回 4；且 SIGINT/SIGTERM 默认不执行 finally，中途被打断会把工作树留在变异态。",
+        "defense": "无。逐行核对成立：原 finally 只有 `fs.writeFileSync(file, before)`，`main()` 的返回只有 0/1/2；头注释是从 1.5/1.6 驱动抄来的契约，抄了承诺没抄实现 —— 这正是本仓反复登记的「注释把没做的事写成做过」。",
+        "verdict": "upheld",
+        "rationale": "已修：finally 还原后独立读回并比对 md5，不一致打 RESTORE_MISMATCH 且置 restoreFailed，末尾按 rc=4 出声（与头注释一致）；并为 SIGINT/SIGTERM/SIGHUP 注册 restoreActive()，打断时先还原再退出，且还原失败时打印文件路径供手工核对。现场读数：本轮 8 道变异每条都打 `RESTORE_OK`，`[SUMMARY] CAUGHT=8`，rc=0。highRiskDomains 里的 \"crypto\" 属分类器误报（本批无任何鉴权/加密代码，命中的是文档散文里的字样），但**不据此绕门禁**：收紧分类器属\"改谁来守门\"。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核",
+    "at": "2026-10-21T22:28:42.774Z"
+  }
+}
