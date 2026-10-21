@@ -154,8 +154,35 @@ describe('usePublishFlow — 图文自动封面兜底', () => {
     expect(mockGenerateAiCover).toHaveBeenCalledTimes(1)
   })
 
-  it('表单已有图片时不生成', async () => {
-    const { flow } = setup(['wechat_mp'], { images: ['D:/img/a.png'] })
+  it('🔴 公众号：已有配图但无封面时仍要生成封面（封面是独立字段，配图不会自动成为封面）', async () => {
+    // 2026-10-22（wechat-cover-guard）：公众号草稿封面走**独立字段**（`cdn_url` 五槽位），
+    // 正文与配图都不会被平台自动当作封面 ⇒ 「已有配图」不能免除封面兜底。
+    // 旧实现把 `!hasImages` 当作整个兜底块的前提，带图文章因此永久缺封面，
+    // 落到后台就是「草稿保存成功但缺封面、无法直接发表」（2026-10-20 读书笔记实例）。
+    const { article, flow } = setup(['wechat_mp'], { images: ['D:/img/a.png'] })
+
+    await flow.handlePublish()
+
+    expect(mockGenerateAiCover).toHaveBeenCalledTimes(1)
+    expect(article.cover_path).toBe(COVER_PATH)
+    expect(article.cover_file?.path).toBe(COVER_PATH)
+    // 只补封面通道，不得覆盖用户已选的配图
+    expect(article.images).toEqual(['D:/img/a.png'])
+  })
+
+  it('公众号有配图且封面生成失败时：出声、不阻断、不写空封面', async () => {
+    mockGenerateAiCover.mockResolvedValue({ code: -1, message: '生图服务不可用' })
+    const { article, flow } = setup(['wechat_mp'], { images: ['D:/img/a.png'] })
+
+    await flow.handlePublish()
+
+    expect(article.cover_path).toBe('')
+    expect(progressTexts(flow).join('|')).toContain('封面图生成失败')
+    expect(mockPublishBatch).toHaveBeenCalled()
+  })
+
+  it('首图即封面的平台（小红书）：已有配图时不生成（保住 2026-10-12 初衷）', async () => {
+    const { flow } = setup(['xiaohongshu'], { images: ['D:/img/a.png'] })
 
     await flow.handlePublish()
 
