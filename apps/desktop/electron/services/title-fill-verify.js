@@ -40,7 +40,7 @@ async function pickVisibleTarget (win, sel) {
     + 'var t=(vis.length?vis:all)[0];'
     + 'try{[].slice.call(document.querySelectorAll("[data-mp-title-target]")).forEach(function(e){e.removeAttribute("data-mp-title-target")})}catch(e){}'
     + 't.setAttribute("data-mp-title-target","1");'
-    + 'return "[data-mp-title-target=\\\"1\\\"]"'
+    + "return \"[data-mp-title-target='1']\""
     + '})()'
   try { return String(await win.webContents.executeJavaScript(code) || "") } catch (_e) { return "" }
 }

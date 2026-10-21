@@ -101,7 +101,7 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
   const hasPreview = await win.webContents.executeJavaScript('(function(){'
     + 'var imgs=[].slice.call(document.querySelectorAll("img")).filter(function(e){return e.getClientRects().length>0&&e.naturalWidth>20});'
     + 'return imgs.length>0})()').catch(() => false)
-  const ok = !stillOpen || !!hasPreview
+  const ok = !stillOpen || hasPreview === true
   if (log) log.info('RpaView', '[' + platform + '] cover set from video frame (dialog ' + (stillOpen ? 'still open' : 'closed') + ', preview=' + (hasPreview ? 'yes' : 'no') + ', ok=' + ok + ')')
   return { ok: ok, step: 'done' }
 }
@@ -161,7 +161,7 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
 
   // 3) 设文件到**动态出现的 image input**
   const imageSel = 'input[type="file"][accept*="image"]'
-  let setErr = null
+  let setErr
   try { await setFileViaCdp(win, coverPath, imageSel) } catch (e1) {
     setErr = e1
     if (log) log.warn('RpaView', '[' + platform + '] cover cdp setFile failed: ' + String(e1 && e1.message).slice(0, 100))
@@ -204,7 +204,7 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
   const hasPreview = await win.webContents.executeJavaScript('(function(){'
     + 'var imgs=[].slice.call(document.querySelectorAll("img")).filter(function(e){return e.getClientRects().length>0&&e.naturalWidth>20});'
     + 'return imgs.length>0})()').catch(() => false)
-  const ok = !stillOpen || !!hasPreview
+  const ok = !stillOpen || hasPreview === true
   if (log) log.info('RpaView', '[' + platform + '] cover local upload: dialog=' + (stillOpen ? 'open' : 'closed') + ' preview=' + (hasPreview ? 'yes' : 'no') + ' ok=' + ok)
   return { ok: ok, step: ok ? 'done' : 'no-effect' }
 }
