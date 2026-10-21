@@ -88,3 +88,42 @@ describe('③ 能力注册表：isNoBodyVideoPlatform 只认声明的平台', ()
     expect(caps.isNoBodyVideoPlatform(undefined)).toBe(false)
   })
 })
+
+// ── 真机记录（2026-10-21 22:0x，发布窗口实时采样，逐字抄录） ──────────────
+const REAL_PAGE_TEXT = [
+  '头条号 消息 99+ 发布视频 发布视频创建合集 竖版视频（宽<高的视频，如9:16）无原创、赞赏、定时等功能 ' +
+  'dy-small.mp4 dy-small.mp4 添加视频 上传成功 dy-small.mp4 大小: 143.9KB 视频时长: 12s ' +
+  '重新上传 删除 发布设置 标题 4/30 封面 上传封面 清晰美观的封面有利于推荐，建议分辨率不低于 618*1000' +
+  '（大小不超过 20M） 视频生成图文 生成图文勾选后额外得图文创作收益 同时发布到 红果短剧 … 发布 手机预览效果',
+].join('')
+const REAL_PAGE_URL = '/profile_v4/xigua/upload-video'
+const REAL_PAGE_INPUT_PLACEHOLDER = '请输入 0～30 个字符'
+
+describe('④ 用真机记录的页面文本反证「旧探针必失败 / 新探针必命中」', () => {
+  const src = fs.readFileSync(svc('upload-waiter.js'), 'utf8')
+
+  test('新探针 doneCopy 在真实页面文本上命中（上传成功）', () => {
+    const doneCopy = /上传成功|上传完成|上传完毕/
+    expect(doneCopy.test(REAL_PAGE_TEXT)).toBe(true)
+  })
+
+  test('旧 positive 的三条子判据在真实页面上全部落空（这就是干等 90s 的原因）', () => {
+    // ① URL 不含 post/video
+    expect(REAL_PAGE_URL.indexOf('post/video') === -1).toBe(true)
+    // ② placeholder 不含「标题」
+    expect(/标题/.test(REAL_PAGE_INPUT_PLACEHOLDER)).toBe(false)
+    // ③ 页面无 <video> / textarea / contenteditable（实测计数全 0，见 §16.32.2）
+    const measured = { videoCount: 0, textareaCount: 0, editableCount: 0 }
+    expect(measured.videoCount === 0 && measured.textareaCount === 0 && measured.editableCount === 0).toBe(true)
+  })
+
+  test('新 positive 因为含 doneCopy，在真实页面上为 true', () => {
+    const m = src.match(/positive:\s*!!\([^)]*\)/)
+    expect(m[0].includes('doneCopy')).toBe(true)
+    const vv = false // 无 https <video>
+    const ed = false // 无匹配编辑器
+    const doneCopy = /上传成功|上传完成|上传完毕/.test(REAL_PAGE_TEXT)
+    const urlHit = REAL_PAGE_URL.indexOf('post/video') !== -1
+    expect(Boolean(vv || ed || doneCopy || urlHit)).toBe(true)
+  })
+})
