@@ -228,7 +228,12 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
    * @returns {Promise<{uploading:boolean,pagePercent:number|null,positive:boolean,structural:boolean}>}
    */
   async _probeUploadSignal(win, probeFn) {
-    const empty = { uploading: false, pagePercent: null, positive: false, structural: false }
+    // ⚠ 这里加字段必须与下方 return **同步**（2026-10-22 血的教训）。
+    // 本方法会把页面返回值**按白名单重建**——新增的上游字段若不加进白名单，
+    // 会在这一层被静默丢弃：doneStrong/uploadingText/textLen 就这样丢了整整两轮，
+    // 表现为「页面明明显示上传成功，判定层永远收不到」，且没有任何报错。
+    // 与 router 丢 track/apiTrackFailed（PR #4185）是同一类缺陷：翻译层白名单漏字段。
+    const empty = { uploading: false, uploadingText: false, pagePercent: null, positive: false, doneStrong: false, structural: false, textLen: null }
     if (typeof probeFn !== 'string' || !probeFn) return empty
     try {
       const raw = await win.webContents.executeJavaScript('(' + probeFn + ')()')
@@ -237,11 +242,15 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       // 进而让判定长期卡在「百分比 <100」分支（等待预算形同虚设）。
       const rawPct = raw.pagePercent === null || raw.pagePercent === undefined ? null : Number(raw.pagePercent)
       const pct = rawPct !== null && Number.isFinite(rawPct) && rawPct >= 0 && rawPct <= 100 ? rawPct : null
+      const rawLen = Number(raw.textLen)
       return {
         uploading: Boolean(raw.uploading),
+        uploadingText: Boolean(raw.uploadingText),
         pagePercent: pct,
         positive: Boolean(raw.positive),
+        doneStrong: Boolean(raw.doneStrong),
         structural: Boolean(raw.structural),
+        textLen: Number.isFinite(rawLen) ? rawLen : null,
       }
     } catch (_e) {
       return empty

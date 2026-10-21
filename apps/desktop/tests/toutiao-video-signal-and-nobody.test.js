@@ -232,3 +232,29 @@ describe('⑧ 上传探针的文本取值', () => {
     expect(/upload probe textLen=/.test(src)).toBe(true)
   })
 })
+
+// ── ⑨ 翻译层白名单：_probeUploadSignal 必须把新增字段原样透传 ──────────────
+// 真因（2026-10-22，两轮才挖到）：该方法把页面返回值**按白名单重建**，只拷
+// uploading/pagePercent/positive/structural —— 我新增的 doneStrong/uploadingText/textLen
+// 全在这一层被**静默丢弃**，表现为「页面明明显示上传成功，判定层永远收不到」，且无任何报错。
+// 与 router 丢 track/apiTrackFailed（PR #4185）同类：翻译层白名单漏字段。
+describe('⑨ _probeUploadSignal 白名单透传', () => {
+  const { uploadWaiterMixin } = require('../electron/services/upload-waiter.js')
+
+  const fakeWin = (payload) => ({ webContents: { executeJavaScript: async () => payload } })
+  const call = (payload) => uploadWaiterMixin._probeUploadSignal.call({}, fakeWin(payload), 'function(){return 1}')
+
+  test('doneStrong / uploadingText / textLen 必须透传（不得被白名单丢弃）', async () => {
+    const r = await call({ uploading: true, uploadingText: false, pagePercent: null, positive: true, doneStrong: true, structural: true, textLen: 399 })
+    expect(r.doneStrong).toBe(true)
+    expect(r.uploadingText).toBe(false)
+    expect(r.textLen).toBe(399)
+  })
+
+  test('缺字段时给出稳定默认（不出现 undefined）', async () => {
+    const r = await call({ uploading: false, pagePercent: null, positive: false, structural: false })
+    expect(r.doneStrong).toBe(false)
+    expect(r.uploadingText).toBe(false)
+    expect(r.textLen).toBe(null)
+  })
+})
