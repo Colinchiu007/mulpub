@@ -51,13 +51,16 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "self-play(裁决)；外部 critic=claude 出具第 2 轮 4 条发现",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
     "template": ".adversarial\\ccg-deep-0e11c949\\adjudication.json",
     "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i5）",
-    "at": "2026-10-21T07:50:32.610Z"
+    "at": "2026-10-21T07:50:32.610Z",
+    "tier": "self-play",
+    "evidence": null,
+    "closureNote": "第 2 轮（critic=claude / proposer=opencode，mode=dual，4 条发现；本轮无高危域项，requiresExternalReview 为空）。 tier 由会话手写：tier=self-play —— 本轮争议的裁决由自扮演出口产出（外部后端出发现、逐条裁决由会话按证据作出），非高危面按门禁出口②以 closureNote 收口。 逐条处置：i1（幂等分支吞掉二次身份，Critical）upheld 并已修 —— 身份不一致时保留首次 tag、记 tagConflicts 并另发 WARN，+1 条用例； i2（规格低报覆盖面）upheld 并已修 —— 规格改为按通道分列（导航 vs 新窗口），实现不动； i3（接线锁正则脆弱）upheld 并已修 —— 改为括号配平扫描 + 锁自身的 4 探针元用例； i5（mock 可能拦不住 CJS require 导致假绿）dismissed —— 已被本片自己的变异反向用例证伪。 闭合依据：裁决逐条落 .adversarial/ccg-deep-0e11c949/adjudication.json，处置与用例见 openspec/records/login-view-protocol-guard.md。"
   }
 }

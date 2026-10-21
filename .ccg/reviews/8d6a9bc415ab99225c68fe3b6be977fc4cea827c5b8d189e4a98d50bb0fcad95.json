@@ -52,8 +52,8 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "self-play(裁决) + claude(高危域 i2 外部复核)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -67,6 +67,9 @@
     "findings": null,
     "template": ".adversarial\\ccg-deep-eea4b794\\adjudication.json",
     "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i4）",
-    "at": "2026-10-21T07:30:04.368Z"
+    "at": "2026-10-21T07:30:04.368Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4163#issuecomment-6310719875",
+    "closureNote": "第 1 轮（critic=claude / proposer=opencode，mode=dual，4 条发现）。 tier 由会话手写（仓内工具不写 tier/evidence，tasks 8.1b 未落地）；tier=external 的依据是外部后端 claude 对高危域争议项 i2 的独立复核，公开证据即 evidenceRef 指向的 PR #4163 评论。 逐条处置：i1（守卫安装无幂等性，Critical）upheld 并已修 —— WeakMap 登记已装守卫的 webContents，重复安装不叠加 will-navigate 监听器，+2 条用例； i2（仅 1/5 处有行为级验证，auth 高危域）dismissed 并已补齐 —— 新增 4 条行为级接线用例 + 4 条变异反向用例，外部后端 claude 复核结论同为 dismissed； i3（接线清单手动维护）dismissed，但采纳其文档建议 —— spec.md 新增「新增同类视图必须同步登记」； i4（iframe 内跳转不在拦截面）dismissed，但采纳其文档建议 —— spec.md 按通道分列导航与新窗口的拦截面。 闭合依据：裁决逐条落 .adversarial/ccg-deep-eea4b794/adjudication.json（prosecution/defense/verdict/rationale 齐备），处置与用例见 openspec/records/login-view-protocol-guard.md。"
   }
 }
