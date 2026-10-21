@@ -2240,3 +2240,78 @@ positive = !!(vv || ed || doneCopy || location.href.indexOf("post/video") !== -1
 `rpa-view-platforms.js` 是**零增长容差点名还账**文件（目标 1484 行，改动前 1482）。
 本次改动先 +3 行 ⇒ 1485 超线；把一处 3 行注释压成 2 行（信息不丢失）后回到 **1484** 转绿。
 ⇒ 纪律：在该文件上加代码必须**同次**在文件内压缩等量注释，不得靠上调 targets 过关。
+### 16.34 头条里程碑：上传门禁打通（第 6 个真因=翻译层白名单）+ 暴露封面与标题两个新缺陷（2026-10-22）
+
+#### 16.34.1 决定性真因：`_probeUploadSignal` 的白名单把新字段全丢了
+
+`upload-waiter._probeUploadSignal` 会把页面返回值**按固定白名单重建**：
+```js
+return { uploading, pagePercent, positive, structural }   // 旧
+```
+⇒ 前两轮新增的 `doneStrong` / `uploadingText` / `textLen` **全在这一层被静默丢弃**，且**零报错**。
+
+**指纹**：首帧日志 `upload probe textLen=undefined`（来自兜底对象，正常应为页面文本长度）。
+
+**同类缺陷史**：PR #4185 修的是 `RpaVmPublisher` 重新构造返回对象丢 `track/apiTrackFailed`。
+两处同型：**翻译层白名单漏字段 ⇒ 上游埋点/字段白做，且没有报错可查**。
+
+**修法**：`empty` 兜底与 `return` **两处同步**补 `uploadingText / doneStrong / textLen`，
+并在注释里写死「加字段必须两处同步」。
+
+#### 16.34.2 修好后的真机对比（决定性）
+
+| 项 | 修前 | 修后 |
+| --- | --- | --- |
+| 首帧日志 | `textLen=undefined` | **`textLen=125`** |
+| 上传完成信号 | 永远收不到（90s/300s/600s 全部耗尽） | **147 秒**命中（P3.5 认出「上传成功」） |
+| 结果 | 卡在上传门禁 | **`filling title...` → `publishing...`** |
+
+⇒ 之前所有「预算耗尽」都是**假象**：判定层从未收到任何信号。
+（§16.31/§16.32/§16.33 三次给预算加下界，方向都不对——这条要作为方法论教训记住。）
+
+#### 16.34.3 新缺陷 A：封面是**必填**，而 `toutiao_video` 没有 `cover_input` 选择器
+
+发布后截图（`toutiao-verify-*.png`）显示页面标签为 **`*封面`**（红星=必填），封面区仍是
+「+ 上传封面」空白；点「发布」后页面**停在上传页不动** ⇒ 平台校验不通过 ⇒ 验证必然超时。
+
+而 `PLATFORM_PUBLISH_SELECTORS.toutiao_video` 此前**没有 `cover_input`**，
+`rpa-view-platforms` 的封面步骤条件是 `if (article.cover_path && sel.cover_input)` ⇒ **静默跳过、日志无痕**。
+
+**修法**：① 给 `toutiao_video` 登记 `cover_input`（image file input 四个候选）；
+② 封面步骤增加「有 cover_path 但平台无 cover_input ⇒ warn」——**未实现必须可见**。
+
+#### 16.34.4 新缺陷 B：标题被平台自动填成**文件名**，我们的填充没有回读校验
+
+同一张截图：标题输入框内容为 **`dy-small`**（= 视频文件名，4/30 字），
+而日志只打了 `title input hasTitle=true` + `filling title...`，**没有任何回读**。
+⇒ 两种情况无法区分：(a) 我们的写入没生效；(b) 写入后被平台的「按文件名自动填充」覆盖。
+
+**待办**：标题填充后必须**回读 `el.value` 并与期望值比较**，不一致则重试一次并留日志
+（抖音链路已有 `douyin title: fill not applied (readback=0)` 同款判据，头条侧缺失）。
+
+#### 16.34.5 验证阶段：三条兜底全失效（下一个要修的）
+
+```
+confirm dialog probe: NO_DIALOG
+verifying...
+page console: Uncaught SyntaxError: Unexpected token )   ← 需查是否我们注入的验证脚本写坏
+artifact lookup 未命中 （作品可能仍在审核队列或该 API 口径已变）
+publish verify snapshot: 页面仍在上传页（未跳转）
+publish verification timeout endpoint=.../xigua/upload-video
+[toutiao-xhr] code=undefined reason=NO_BODY
+[toutiao-direct] 签名失败 via=page → SIGN_FAILED
+```
+
+要点：**西瓜页发布后不跳转**（与头条图文同型，见 §16.34.1 上方 2026-09-30 记录），
+所以 `success_mode=url` 天然不适用；正解是查**作品列表 API** 的 `ArticleAttr.Status`
+（2=已发布 / 6=审核中），这条路竞品验证过。
+
+#### 16.34.6 确定性边界（不夸大）
+
+| 结论 | 强度 |
+| --- | --- |
+| 白名单丢字段是真因、修好后上传门禁通过 | **实测**（textLen 125 vs undefined；147s vs 600s） |
+| 发布被点击（`publishing...`） | **实测**（日志） |
+| 封面必填且此前未传 | **实测**（截图 `*封面` + 空白） |
+| 标题=文件名、我们未回读 | **实测**（截图 `dy-small` + 日志无回读） |
+| **是否已真正发出去** | **未证实** —— 验证超时且三条兜底全失效；需查作品列表 |

@@ -150,6 +150,10 @@ module.exports = {
       editor: ['textarea.byte-textarea.abstract', '[contenteditable="true"]', '[contenteditable]', '.ProseMirror'],
       // 话题标签（可选）
       tag_input: ['input.arco-input-tag-input', 'input[placeholder*="话题"]'],
+      // 封面（**必填**，页面标签带红星 `*封面`）：2026-10-22 真机截图证明——
+      // 未传封面时点「发布」平台校验不通过、页面停在上传页 ⇒ 验证必然超时。
+      // 该页封面区是 dashed 框「+ 上传封面」，内部通常是隐藏的 image file input。
+      cover_input: ['input[type="file"][accept*="image"]', '.upload-cover input[type="file"]', '.byte-upload-cover input[type="file"]', '.xigua-cover input[type="file"]'],
       // 上传完成信号：上传成功后容器出现「上传成功」文案
       upload_complete: ['.xigua-upload-video-success', '[class*="upload-success"]', '.byte-upload-list-item-done'],
       // 发布按钮：精确类优先（避开同排「定时发布」）

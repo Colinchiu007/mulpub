@@ -370,6 +370,8 @@ const platformsMixin = {
     }
 
     // cover
+    // 2026-10-22：有封面却没登记 cover_input 时此前静默跳过（西瓜页 *封面 必填 ⇒ 点发布无效、验证超时且日志无痕），现在出声。
+    if (article.cover_path && !sel.cover_input) log.warn('RpaView', '[' + platform + '] cover skipped: platform has no cover_input selector')
     if (article.cover_path && sel.cover_input) {
       try {
         this._emitProgress(platform,'uploading cover...',65)
@@ -1455,9 +1457,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       }
       await this._click(win,pubBtn)
       this._emitProgress('zhihu','verifying...',95)
-      // 2026-10-15 报障修复（「显示成功但没有真实发布」）：知乎发布是**两段式** —— 首次点
-      // 「发布」只落成草稿并跳到 /p/<id>/edit，该页需再点一次才真发布；旧判据 `/\/p\/\d+/`
-      // 恰好命中草稿编辑页 ⇒ 假成功（真机 2026-10-15T12:40:19Z→22Z）。确认逻辑见模块。
+      // 2026-10-15 报障修复（「显示成功但没有真实发布」）：知乎发布是**两段式** —— 首次点；「发布」只落成草稿并跳到 /p/<id>/edit，该页需再点一次才真发布；旧判据 `/\/p\/\d+/`；恰好命中草稿编辑页 ⇒ 假成功（真机 2026-10-15T12:40:19Z→22Z）。确认逻辑见模块。
       const confirm = await zhihuPublishState.confirmZhihuPublished({
         readUrl: () => win.webContents.getURL(),
         waitForElement: (sel,ms) => this._waitForElement(win,sel,ms),
