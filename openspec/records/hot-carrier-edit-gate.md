@@ -44,6 +44,7 @@ date: 2026-10-21
 2. **判据只认路径逐字相等，不认大小写/斜杠变体**。本仓台账路径只有一个写法，且 Windows 下 `git diff` 输出恒为 POSIX 正斜杠 —— 这是**观察**不是证明；若将来出现 `changelog.md` 变体，T11 的"清单不外溢"锁会把它挡在门外（不命中即不拦），需要补显式判据而不是靠运气。
 3. **未做**：`scripts/hot-carrier-paths.json`（另一 change 的东西）、records 小节的强制校验、AGENTS.md 规范改写、release-gate 接线 —— 都在片4。
 4. **本笔修 CI 装配的提交会被判 `single`**：约 60 行代码变更、无敏感路径/内容命中 ⇒ 不落入 `mode=dual` 的闭环白名单，于是"改了 `.github/workflows/` 这条高危面前缀却不需要外部评审"。这正是 tasks 8.5 已登记的缺口（`RULES.sensitivePaths` 与 `HIGH_RISK_SURFACES` 两份清单互不认账），**不是本片新造的说法**；修法在判定器（把高危前缀并入 dual 判据），那会把 23–40 分钟的 DUAL 钩子加到每次改 workflow 的提交上，属"谁来守门"、须人工过目。
+5. **pre-commit 的「范围漂移」告警对并发分支系统性说谎**（本笔实测）：`ccg-gate.js::readDecisionRecords()` 扫的是**整个** `.ccg/reviews` 目录、只按 `decidedAt` 取最新一条 `layer=plan` 记录，**不认分支归属**；而 `.ccg/reviews/` 是受管共享写面（当场 `readdirSync` 计 1651 份 `.json`）⇒ 本笔打印的"3 个文件不在方案声明范围"，实际是拿**另一个 change 的方案清单**（film-prompt-assets，`decidedAt=2026-10-20T18:35`）比我的文件。那不是范围失控，是判据找不到我的方案。修法要改「记录按什么键归因」，属改谁来守门，须人工过目。同场另记：该目录有 2 份 `.json` 正文不是 JSON（`retire-auth-logic.json`、`selfreport-logic.json`），被 `catch` 静默跳过 ⇒ "记录损坏"与"没有记录"在告警文案里同形。
 
 ### QM-6 轮 1 逐条处置与高危面收口的披露
 
