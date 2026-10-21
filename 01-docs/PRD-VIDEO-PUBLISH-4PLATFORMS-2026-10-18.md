@@ -1775,9 +1775,15 @@ ctx.cookies('https://creator.douyin.com') → 0 条
 | 凭据形态 | 保护机制 | 外部可读？ |
 | --- | --- | --- |
 | 信封库 `*.json.enc` | PBKDF2-SHA512 + AES-256-GCM，masterKey 被 `safeStorage` 包住 | ❌（§16.21 之前三轮排查） |
-| 分区 `Cookies`（SQLite） | Chromium 的 cookie value 加密（OS 密钥 / app-bound encryption） | ❌（本节） |
+| 分区 `Cookies`（SQLite） | ⚠ **机制未确证**（可能与 Chromium cookie value 加密 / app-bound encryption、或 Playwright profile 格式不兼容有关） | ❌（本节） |
 
-⇒ 两条路都堵，**但这是安全边界按设计生效，不是缺陷**。
+⇒ 两条路都堵，但这是安全边界按设计生效，不是缺陷。
+
+> ⚠ **成因的确定性边界**：本节只确证了两个**事实**——① Cookies 文件 53248 字节且 mtime 很近；
+> ② Playwright 以该分区为 profile 读出来 0 条（全部域）。
+> "加密导致读不出"是连接二者的**解释之一**，未排除的其他解释包括：
+> Playwright 不认 Electron 分区结构、cookie 为 session-only 随进程退出即消失、
+> 或 domain 落在 Electron partition 命名空间。**不要把这条成因当定论。**
 
 #### 16.21.3 对验证方法的结论
 
