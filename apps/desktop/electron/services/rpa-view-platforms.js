@@ -394,7 +394,7 @@ const platformsMixin = {
           await this._setFileInput(win, article.cover_path, sel.cover_input[0])
         }
         await this._sleep(2000)
-      } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message) }
+      } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message+' | sel='+String((sel.cover_input||[]).join(' , ')).slice(0,120)) }
     }
 
     // tags
