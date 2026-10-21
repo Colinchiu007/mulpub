@@ -1,0 +1,59 @@
+{
+  "sha": "04ed7b7640b0ea7e85503a60ba8c75f9f944adca",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- fix(播客): 第六轮补跑真外部评审并把留痕判据拆成独立模块——claude 后端 2026-10-20 因 403 额度由用户裁决跳过，10-21 复测探针回 `OK` 后按 `sh scripts/deep-review.sh` 真跑（critic=claude / proposer=opencode，6 条发现：2 Critical + 3 Warning + 1 Info，最低维度分 4 ⇒ 自扮演出口，高危域 0）；逐条裁决全部 dismissed，各带回可当场重取的证据（其中一条被主干代码逐字否证：`resolveEpisodeVoice` 先 `cleanId` 把 0 归一成 '0' 再交给 `voiceRefIssues` ⇒ `{providerId:0}` 当年确为半配置当场拒绝，采纳评审的 `typeof === 'string'` 修法会关掉这条唯一可观测的行为变更）。本片自己的闸门（PR #4024 的执行体）在合并前把本 PR 判红 `NEW_RED`（`FILES_OVER_500` 96 > 95），处置是拆结构而非 `--update` 上调基线 ⇒ 纯函数 `legacyChannelVoiceRefCarriesContent` 独立成 `electron/services/podcast-legacy-voice-ref.js`，`ipc-handlers/podcast.js` 回到 488 行。回归 71 passed、变异 M1-M12 + 绿控 G1 全 CAUGHT、QM-1 重打包 PASS、`check-pr-exec-record.js --mode=enforce` rc=0。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9ffc87039c8c945e7c05897c19bcc95e9f9c983e674f0b44211f96b1ac171d3c",
+  "decidedAt": "2026-10-21T02:55:29.210Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -37,6 +37,28 @@ branch: fix-collection-rewrite-publish-flow
 
 本刀最初也独立定位到缺陷 ① 的根因（键名契约错位）并实现了同方向的修法；合并 main 时发现**#4111（`collect-rewrite-wordcount`，已入 main）已先行落地且更完整**——它额外改了**引擎侧** `min=0` 的指令形态（治好了「0 到 6000 字之间」被模型读成「写摘要」）。于是本 PR **撤回**自己重复的字数区间实现，**只保留 #4111 未覆盖的部分**：② 视频创作就地执行、③ 已存草稿随内容作废、④ 非字符串信封守卫、locale 拆分、文档与记忆沉淀。**不保留两份同义实现**是本仓的一贯纪律。
 
+### 合并 main（`publish-config-picker`）时的 `onPublishVideo` 冲突处置（2026-10-21）
+
+本分支基线早于主干的 `publish-config-picker`，两边**同时**改了 `onPublishVideo`，合并时该函数冲突：
+
+| 侧 | 实现 | 处置 |
+|---|---|---|
+| 本分支 | 就地启动流水线 + 进度浮层（不跳页） | **保留**（用户报障②③ 的正解） |
+| 主干 | 跳 `/create` 并把 `configProfileId` 放进 query | **不能丢**（主干的「配置档案」功能） |
+
+⇒ 处置 = **保留本分支的交互形态**，并把主干的 `configProfileId` **兑现进就地执行**：采集页自己读配置库、自己套用档案快照（`s2vConfig`/`s2vOutputConfig`，与 `buildGenVideoStartParams` 消费的键同构）。
+
+**为什么不采用「就地执行但忽略配置档案」**：那正是主干在热门选题页修过的同一个坑——**选了等于没选**（HotTopics 原注释：「修复前这里只带 draft，弹窗里选的流水线被静默丢弃」）。
+
+**判据复用而非复制**：能不能套用由主干的纯函数 `resolveConfigProfileTarget`（`features/publish-destination/apply-config-profile-handoff.js`）决定；提示文案**复用**主干 `create.story2video.configProfile.*` 的既有 locale key（`notFound` / `wrongPipeline` / `handoffLoadFailed` / `snapshotInvalid`），**不另写一份同义句**。**套不上时视频照常出**（用户点的是「生成视频」不是「套用配置」），但浮层里必须留**可见提示**——静默回退默认值就等于「选了等于没选」。
+
+落点：纯判据与 IO 注入在 `features/collection/collection-video-config-profile.js`（可脱离 Vue 单测）；编排层 `useCollectionVideoCreation.js` 只做依赖注入。新增用例 10 + 3 + 2 = 15 例。PRD 见 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md` §3 F4 / §5.5 / §6.2。
+
+### 合并 main 的其它两处冲突（如实登记）
+
+- `01-docs/learnings.md`（置顶型台账）：按本仓既有先例「**两侧都保留**」处置——只丢三个标记行，主干的 4 条 aggregate 记录 + 2026-10-21/10-20 条目与本刀的 3 条 2026-10-20 条目**全部保留**；本刀的 3 条放在主干 2026-10-21 段之后、其余 2026-10-20 段之前，符合该文件的「日期倒序」排版约定。
+- `CHANGELOG.md`（置顶型台账）：git 自动合并，两侧条目均在本文件内，本刀条目在第 123 行（主干条目在顶部）⇒ `check-changelog-growth` 判「只可增长」PASS。
+
 ### 三个缺陷的根因（一句话各一条）
 
 1. **字数区间失效** —— 采集页把区间传成 `userSettings.targetWordCount`（**Python 聚合层旧契约**），
@@ -86,7 +108,7 @@ branch: fix-collection-rewrite-publish-flow
 
 ### QM-6 双家族外部评审（七轮实跑）
 
-**后端**：`scripts/ccg-review-backends.list` 固定 critic=`claude`（本机 2.1.303，`C:\hermes-home\bin\claude.exe`）、proposer=`opencode`（本机 1.18.34，`D:\Program Files\npm-global\opencode.ps1`）——**两个不同厂商**；脚本自检「裸名自检」两条均过，跨家族校验「通过」。评审**原文**由外部模型生成（`.adversarial/ccg-deep-*/critique-v1.md`），agent 只填**裁决**（引擎第三档出口，`confidenceWeight=0.6`，低于真跨家族的 1.0）。
+**后端**：`scripts/ccg-review-backends.list` 固定 critic=`claude`（本机 2.1.303，可执行文件在 `<hermes-home>/bin/claude.exe`）、proposer=`opencode`（本机 1.18.34，可执行文件在 `<npm-global>/opencode.ps1`）——**两个不同厂商**；脚本自检「裸名自检」两条均过，跨家族校验「通过」。评审**原文**由外部模型生成（`.adversarial/ccg-deep-*/critique-v1.md`），agent 只填**裁决**（引擎第三档出口，`confidenceWeight=0.6`，低于真跨家族的 1.0）。
 
 | 轮 | 受审对象 | 交付 | 进裁决 | 结果 |
 |---|---|---|---|---|

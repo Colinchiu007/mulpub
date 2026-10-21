@@ -1,0 +1,65 @@
+{
+  "sha": "f14786143985f3f0975a73a1b8d639af97d0c8c4",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 4768 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 4768,
+    "fileCount": 179,
+    "codeFileCount": 64,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 24,
+    "docSensitiveContentHits": 88,
+    "docSensitiveContentSample": [
+      "| **可信主机**（缺省 fail-closed） | 可信集合 = { provider **API base URL 主机（自动派生）** } ∪ { `assetDownloadHosts`（运营可配） }；不在集合内且**未显式授权** ⇒ 拒绝 | 「素材域名 {host} 不在可信清单内。请在『模型提供商 → {provider}』中配置『素材下载可信域』，或本次显式允许外部素材域名。」 |",
+      "| 显式授权 | 只能来自用户在成本确认卡勾选「本次允许从外部素材域名下载」；产生**运行期一次性令牌**（**不落盘**，任务结束失效）；审计只记「发生过授权」的事实，**不存放行位** | 未勾选 ⇒ 拒绝（不弹权限框） |",
+      "| 内网段 | `isPrivateAddress` 覆盖面：IPv4 私网段（`10./8`、`172.16/12`、`192.168/16`）、`127/8`、`0.0.0.0/8`、`100.64/10`（CGNAT）、链路本地 `169.254/16`；IPv6 `::1`、`fc00::/7`、`fe80::/10`；**IPv4-mapped IPv6**（`::ffff:10.x` 先还原再判）；**纯十进制/八进制 IP 字面量**（`http://2130706433/`）先**规范化**再判 | 「不允许访问内网地址（SSRF 防护）」——**即使已显式授权也拒绝** |"
+    ],
+    "ccgSensitiveContentHits": 128,
+    "ccgSensitiveContentSample": [
+      "      \"### 16.17 抖音凭据已恢复（2026-10-21，用户完成登录）\",",
+      "      \"#### 16.17.2 凭据有效性的**硬证据**（不依赖 `has_cookies`）\",",
+      "      \"⇒ 返回**真实创作者身份数据**（开号日期、头像、认证信息）—— 这是凭据有效的硬证据，\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "88bec26ae6789a285b18b4f18247dd89c832df70de2c91e725efbb596f9fa36f",
+  "decidedAt": "2026-10-21T05:57:22.949Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

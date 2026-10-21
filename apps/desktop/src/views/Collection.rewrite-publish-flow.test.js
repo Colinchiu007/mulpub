@@ -63,6 +63,7 @@ function makeApi (overrides = {}) {
       data: { runId: 'run-1', status: { status: 'running', progress: 0 } },
     }),
     pipelineCancelRun: vi.fn().mockResolvedValue({ code: 0 }),
+    story2videoConfigProfileList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
     ...overrides,
   }
 }
@@ -244,6 +245,61 @@ describe('采集页 — 「去发布 → 视频创作」（fix-collection-rewrit
     await flushPromises()
 
     expect(api.pipelineStartOrchestrated).not.toHaveBeenCalled()
+  })
+
+  // ── 配置档案（主干 publish-config-picker 带来的弹窗选择）──
+  //
+  // 本入口不再跳创作页 ⇒ 弹窗里选中的配置必须由采集页自己兑现。
+  // 兑现不了就是主干在热门选题页修过的同一个坑：**选了等于没选**。
+  it('弹窗里选中的配置档案会被兑现（启动参数用档案的选项）', async () => {
+    const api = makeApi({
+      story2videoConfigProfileList: vi.fn().mockResolvedValue({
+        code: 0,
+        data: [{
+          id: 'profile-000000000009',
+          name: '口播竖屏',
+          pipelineId: 'story2video-compose',
+          snapshot: {
+            schemaVersion: 1,
+            kind: 'orchestrated',
+            s2vConfig: { voiceSpeed: 1.8 },
+            s2vOutputConfig: { resolution: '1080x1920', fps: 30, format: 'mp4' },
+          },
+          updatedAt: 1,
+        }],
+      }),
+    })
+    window.electronAPI = api
+    const w = mountCollection()
+    await nextTick()
+    await collectAndRewriteOnce(w)
+    await w.vm.goPublishAfterRewrite()
+
+    w.vm.onPublishVideo('story2video-compose', { configProfileId: 'profile-000000000009' })
+    await flushPromises()
+
+    const [, params] = api.pipelineStartOrchestrated.mock.calls[0]
+    expect(params.story2videoTextConfig.voice.speed).toBe(1.8)
+    expect(params.story2videoTextConfig.size).toBe('1080x1920')
+  })
+
+  it('配置档案套不上 ⇒ 视频照常出，浮层里出现可见提示（不是静默回退）', async () => {
+    const api = makeApi({
+      story2videoConfigProfileList: vi.fn().mockResolvedValue({ code: 0, data: [] }),
+    })
+    window.electronAPI = api
+    const w = mountCollection()
+    await nextTick()
+    await collectAndRewriteOnce(w)
+    await w.vm.goPublishAfterRewrite()
+
+    w.vm.onPublishVideo('story2video-compose', { configProfileId: 'profile-000000000099' })
+    await flushPromises()
+
+    // 视频照常启动（用户点的是「生成视频」，不是「套用配置」）
+    expect(api.pipelineStartOrchestrated).toHaveBeenCalledTimes(1)
+    // 但必须留下可见提示
+    expect(document.body.innerHTML).toContain('collection-video-create-config-warning')
   })
 
   it('引擎信封的正文不是字符串 ⇒ 判失败（不写正文、不挂归因链、不报成功）', async () => {

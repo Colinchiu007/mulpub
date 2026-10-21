@@ -32,9 +32,24 @@
 > | ② 「视频创作」跳页而非就地出进度浮层 | **本 PR** | 保留（§3.2 / §5.2 / §6.2） |
 > | ③ 二次改写带的是第一次的旧文案 | **本 PR** | 保留（§3.3 / §4 / §5.3） |
 > | ④（评审派生）改写信封缺类型守卫 | **本 PR** | 保留（§3.4） |
+> | ⑤（合并 main 后新增）弹窗里选中的**配置档案**被就地执行吞掉 | **本 PR** | 保留并补齐（F4）——主干 `publish-config-picker` 的功能不因本刀改成就地执行而丢失 |
 >
 > 本文档其余部分描述**本 PR 实际交付**的行为；凡涉及字数区间的部分，
 > 以 #4111 的 PRD 与实现为准（本文只保留迁移影响面的判据说明）。
+>
+> ### ⑤ 合并 main 时 `onPublishVideo` 的冲突处置（2026-10-21）
+>
+> 本分支的基线早于主干的 `publish-config-picker`，两边**同时**改了 `onPublishVideo`：
+>
+> | 侧 | 实现 | 归属 |
+> |---|---|---|
+> | 本分支 | 就地启动流水线 + 进度浮层（不跳页） | 用户报障②③ 的正解 ⇒ **保留** |
+> | 主干 | 跳 `/create` 并把 `configProfileId` 放进 query | 「配置档案」功能 ⇒ **不能丢** |
+>
+> ⇒ 处置：**保留本分支的交互形态**，并把主干的 `configProfileId` 兑现进就地执行
+> （采集页自己读配置档案、自己套用）。判据与失败分支见 §3 F4。
+> **不采用**「就地执行但忽略配置档案」——那正是主干在热门选题页修过的
+> 「选了等于没选」。
 
 ## 1. 背景与目标
 
@@ -305,6 +320,47 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 
 区分手段：记录「最近一次程序赋值的正文」，与当前值比对——比引入一个易漏置位的布尔标志更不易漂移。
 
+### F4 「去发布」弹窗里选中的**配置档案**就地兑现（2026-10-21 合并 main 后补）
+
+> **动因**：主干 `publish-config-picker`（#4123 前后）给「去发布」弹窗加了**配置档案**选择，
+> 采集页原先是**跳转**创作页、由创作页读 `?configProfile=` 套用。本刀把入口改成
+> **就地启动流水线**（用户明确要求不跳页）⇒ 用户在弹窗里选中的配置必须由采集页
+> **自己兑现**。兑现不了就是主干在热门选题页修过的同一个坑：**选了等于没选**
+> （HotTopics 原注释：「修复前这里只带 draft，弹窗里选的流水线被静默丢弃」）。
+
+**F4.1 不变量**
+
+> **用户在「去发布」弹窗里选中的配置档案，必须影响本次生成的启动参数；
+> 套不上时必须有一条可见提示。**
+
+**F4.2 兑现方式（快照同构 ⇒ 直接换快照）**
+
+| 环节 | 规则 |
+|---|---|
+| 快照来源 | 编排型配置档案的快照形状是 `{s2vConfig, s2vOutputConfig}`，与 `buildGenVideoStartParams` 消费的键**同构** ⇒ 直接作为 `snapshot` 入参 |
+| 未选档案 | 沿用「上次选项」快照（`story2video.lastOptions.v1`）——**既有行为不变** |
+| 判据 | **复用**主干纯函数 `resolveConfigProfileTarget`（`features/publish-destination/apply-config-profile-handoff.js`），**不复制**第二份「能不能套用」的规则 |
+| 提示文案 | **复用**主干 `create.story2video.configProfile.*` 的既有 locale key，**不另写**一份同义句 |
+
+**F4.3 失败分支（每条一个分支，各有专属提示）**
+
+| 分支 | 判据 | 行为 | 提示（locale key） |
+|---|---|---|---|
+| 档案不存在 / 已删除 | 列表里查无此 id | 回退「上次选项」，视频照常出 | `create.story2video.configProfile.notFound` |
+| 属于别的流水线 | `profile.pipelineId !== 本次流水线` | 同上 | `create.story2video.configProfile.wrongPipeline` |
+| 配置库载入失败 | `code !== 0` 或调用抛异常 | 同上（**异常不冒泡**，否则整次生成失败） | `create.story2video.configProfile.handoffLoadFailed` |
+| 快照形态不适用 | 快照无 `s2vConfig` / `s2vOutputConfig`（如 legacy 形态） | 同上（硬塞会被启动参数**静默忽略**） | `create.story2video.configProfile.snapshotInvalid` |
+
+> **为什么失败不阻断生成**：用户点的是「生成视频」，不是「套用配置」；视频照常出，
+> 但**必须留一条可见提示**——静默回退默认值就是「选了等于没选」。
+
+**F4.4 落点**
+
+- 纯判据与 IO：`features/collection/collection-video-config-profile.js`（可脱离 Vue 单测）；
+- 编排层只做依赖注入（`useCollectionVideoCreation.js` 传 `listConfigProfiles` / `readLastOptions`），
+  **编排层不直接知道「配置档案」这回事**；
+- 提示显示在进度浮层内容区顶部（与文案裁切横幅同款橙色警示）。
+
 ---
 
 ## 4. 数据校验
@@ -330,6 +386,11 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 | 文案超上限 | 码点数 > 10000（内置默认） | 裁切 + 横幅披露；**不阻断** |
 | 流水线名非法 | 不在可执行集合 | 拒绝启动（第二道防线，UI 已禁用） |
 | 启动返回无 runId | `code !== 0` 或 `runId` 空 | 判失败，阶段标 failed，浮层留在失败态 |
+| 配置档案 id 为空 | 未选档案 | 沿用「上次选项」快照，**不是**失败 |
+| 配置档案 id 查无此条 | 列表里没有 | 回退「上次选项」+ 可见提示（`notFound`） |
+| 配置档案属于别的流水线 | `profile.pipelineId !== 本次流水线` | 回退 + 可见提示（`wrongPipeline`） |
+| 配置档案快照形态不适用 | 快照无 `s2vConfig` / `s2vOutputConfig` | 回退 + 可见提示（`snapshotInvalid`） |
+| 配置库载入失败 | `code !== 0` / 调用抛异常 | 回退 + 可见提示（`handoffLoadFailed`），异常**不冒泡** |
 
 ### 4.3 草稿指纹幂等（既有）
 
@@ -402,6 +463,19 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
   → genreDraftId 作废 ⇒ 下次「去发布」按手改后的内容重存草稿
 ```
 
+### 5.5 配置档案就地兑现
+
+```
+用户在「去发布」弹窗里选流水线 + 配置档案 ⇒ 点「视频创作」
+  → 发布浮层消失
+  → startVideoCreation({ text, pipelineName, title, configProfileId })
+  → 解析启动快照：
+       选了档案 ⇒ 读配置列表 → resolveConfigProfileTarget 判可套用
+                    ⇒ 用档案快照（s2vConfig / s2vOutputConfig）
+       套不上   ⇒ 回退「上次选项」快照 + 浮层顶部显示可见提示
+  → 启动流水线（全程不调用 router.push）
+```
+
 ---
 
 ## 6. 显示项与提示文字
@@ -434,6 +508,16 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 | 按钮：取消生成 | `collection.videoCreate.cancel` | 取消生成 | Cancel generation |
 | 按钮：关闭 | `collection.videoCreate.close` | 关闭 | Close |
 
+> **配置档案提示**（F4）不新增 locale key：**复用**主干 `create.story2video.configProfile.*`
+> 的既有文案，让「同一个失败在创作页与采集页说的是同一句话」。
+>
+> | 分支 | locale key | zh | en |
+> |---|---|---|---|
+> | 档案不存在/已删除 | `create.story2video.configProfile.notFound` | 所选配置不存在或已被删除，已按流水线默认参数继续 | The selected configuration no longer exists. Continuing with the pipeline defaults. |
+> | 属于别的流水线 | `create.story2video.configProfile.wrongPipeline` | 该配置属于其他流水线，无法在当前流水线应用 | This configuration belongs to another pipeline and cannot be applied here. |
+> | 配置库载入失败 | `create.story2video.configProfile.handoffLoadFailed` | 未能载入配置列表，无法套用所选配置，已按流水线默认参数继续 | Could not load the configuration list, so the selected configuration was not applied. Continuing with the pipeline defaults. |
+> | 快照形态不适用 | `create.story2video.configProfile.snapshotInvalid` | 配置快照无效，请重新尝试保存 | The configuration snapshot is invalid. Please try saving again. |
+
 ### 6.3 浮层显示项
 
 | 显示项 | 数据源 | 规则 |
@@ -444,6 +528,7 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 | 当前流水线 | `pipeline-labels` Registry 显示名 | 未选择时为空串（不渲染该行） |
 | 错误文案 | 失败/取消态 | 浮层底部左侧，与按钮同行 |
 | 文案裁切横幅 | 裁切发生时 | 浮层内容区顶部，橙色警示 |
+| 配置档案提示横幅 | 档案套用失败时 | 浮层内容区顶部，橙色警示（与裁切横幅同款）；可套用时**不渲染** |
 
 ---
 
@@ -460,6 +545,11 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 | `apps/desktop/src/views/Collection.rewrite-publish-flow.test.js` | **新增** 11 例 | 组件级回归锁 |
 | `apps/desktop/src/locales/collection/{zh,en}.js` | 改：新增 `videoCreate` 命名空间 | 显示项与提示文字 |
 | `apps/desktop/src/locales/collection/quick-collect/{zh,en}.js` | **新增**（从 collection/{zh,en}.js 拆出） | 逐文件行数门禁（500 行硬限）对 locale 同样生效，collection/{zh,en}.js 当时已 498 行 |
+| `apps/desktop/src/features/collection/collection-video-config-profile.js` | **新增**（2026-10-21）：配置档案解析（纯判据 + IO 注入） | 判据复用主干 `resolveConfigProfileTarget`；**不**复制第二份「能不能套用」规则；IO 以函数入参注入 ⇒ 可脱离 Vue 单测 |
+| `apps/desktop/src/features/collection/collection-video-config-profile.test.js` | **新增** 10 例 | 4 个失败分支各自专属提示 + 载入失败/异常不冒泡 + 未选档案不读配置库 |
+| `apps/desktop/src/composables/useCollectionVideoCreation.js` | 改：接 `configProfileId`；新增 `videoConfigProfileWarning` | 编排层只做依赖注入，不直接知道「配置档案」这回事（判据在 features 模块里） |
+| `apps/desktop/src/composables/useCollectionVideoCreation.contract.test.js` | 改：依赖导出清单 +1（`story2videoConfigProfileList`） | 依赖契约锁：改名/删除即红，不推迟到用户点「视频创作」时才炸 |
+| `apps/desktop/src/features/collection/CollectionVideoProgressModal.vue` | 改：新增 `configWarning` 横幅 | 「选了等于没选」必须有可见出口 |
 
 > **已撤回的重复实现**：本刀最初也自带 `features/collection/rewrite-word-count.js`（区间归一纯函数）
 > 与 14 例回归锁；合并 main 时发现 #4111 已把区间归一放进共享的 `useWordCountValidation`
@@ -479,7 +569,9 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 |---|---|---|
 | `composables/useRewriteResultInvalidation.test.js` | 6 | 程序赋值（草稿作废、归因链**保留**）/ 用户手改（两者都作废）/ 清空 / **两条交错边界** |
 | `composables/useCollectionVideoCreation.test.js` | 16 | 输入即当前文案、浮层先于请求打开、阶段无 `rewrite_copy`、启动失败留失败态、空文案拒启、裁切披露、取消走 `pipelineCancelRun`、码点裁切不劈 emoji + **6 条外部依赖契约锁** |
-| `views/Collection.rewrite-publish-flow.test.js` | 11 | 0-6000 原样送达、旧键消失、min=0 不被吞、引擎砍尾横幅、模型侧截断横幅、二次改写带最新文案、**去发布重存的草稿是最新文案**、不跳 `/create`、浮层有阶段、无文案不启动、非字符串信封判失败 |
+| `views/Collection.rewrite-publish-flow.test.js` | 11 + 2 | 0-6000 原样送达、旧键消失、min=0 不被吞、引擎砍尾横幅、模型侧截断横幅、二次改写带最新文案、**去发布重存的草稿是最新文案**、不跳 `/create`、浮层有阶段、无文案不启动、非字符串信封判失败 + **配置档案兑现 / 套不上时可见提示** |
+| `features/collection/collection-video-config-profile.test.js` | 10 | 四个失败分支各自专属提示 + 载入失败/异常不冒泡 + 未选档案不读配置库 + 未选档案沿用「上次选项」 |
+| `composables/useCollectionVideoCreation.test.js` | 16 + 3 | 上表 16 例 + **配置档案进启动参数 / 套不上仍有可见提示 / 未选档案不读配置库** |
 
 **既有回归**：`vitest run src/views/Collection* src/features/collection src/composables/useCollection* src/locales`
 ⇒ **33 文件 / 509 用例全绿**（含 #4111 带入的 `Collection.rewrite-wordcount.test.js`）。
@@ -498,6 +590,8 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 - [x] **（本 PR）** 进度浮层展示流水线阶段（非空壳）；
 - [x] **（本 PR）** 文案超流水线上限时裁切并如实披露；
 - [x] **（本 PR）** 引擎信封的正文不是字符串 ⇒ 判失败（不写正文、不挂归因链、不报成功）；
+- [x] **（本 PR，2026-10-21 补）** 「去发布」弹窗里选中的配置档案**影响本次生成的启动参数**（不再被就地执行吞掉）；
+- [x] **（本 PR，2026-10-21 补）** 配置档案套不上时视频**照常出**，且浮层里有**可见提示**（不静默回退）；
 - [x] zh/en locale 成对（`check-locale-sync --keys` PASS）；
 - [x] 逐文件行数门禁 PASS（locale 同受约束，已按范式拆分）；
 - [x] 采集页相关测试全集全绿（509 例）。

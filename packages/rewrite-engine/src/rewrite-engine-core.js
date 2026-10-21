@@ -14,11 +14,17 @@ const { KnowledgeContextBuilder } = require('./knowledge-context-builder')
 const logger = require('./logger-fallback')
 const { normalizeChatResult, isTruncatedFinishReason } = require('./llm-result')
 const { rewriteSegmented } = require('./segment-rewriter')
+// 敏感词检测的单一实现（rewrite-sensitive-precheck-relax 收尾，2026-10-21 拆出）：
+// 见文件顶部注释——拆出是为把这条活跃语义的解释文字移出 core 的行数预算。
+const { sensitiveCheck } = require('./sensitive-check')
 // 字数区间指令的措辞（独立模块，collect-rewrite-wordcount）：核心文件的行数挂账只剩几行余量，
 // 而区间**校验**必须留在本文件（渲染层结构锁要求 `range.max <= MAX_OUTPUT_CHARS` 逐字在此）。
 const { buildWordCountInstruction } = require('./word-count-instruction')
 // 结构标题剥离（独立模块，collect-rewrite-wordcount 拆分）：核心文件的行数挂账只剩几行余量
 const { stripStructureHeadings } = require('./structure-headings')
+// 输出上限判定（用户区间 / 统一上限 / 策略形态上限 / 兜底）抽到 ./output-cap.js：
+// 核心文件贴近 max-lines 容差上限，这条规则有三种输入形态（详见该文件头注释）。
+const { resolveOutputCap } = require('./output-cap')
 
 // 无显式字数控制时的默认输出上限（3000 字以下）。
 // 注意：这只是「用户没给任何字数意图」时的保守兜底；用户显式 wordCountRange.max
@@ -285,7 +291,7 @@ class RewriteEngine {
     // rewrite-limits-50000（2026-10-19）：截断必须可见——旧行为把超限输出静默砍尾，
     // 用户拿到的稿子不完整且不知道（比 TOO_LONG 更隐蔽的缺陷）。截断事实经
     // _postProcess 返回值进入 result.outputTruncated / result.outputLength。
-    const { text: processed, truncatedAt } = this._postProcess(result, strategy, userSettings.wordCountRange)
+    const { text: processed, truncatedAt } = this._postProcess(result, strategy, userSettings.wordCountRange, userSettings.freeformOutput === true)
 
     // 7. 敏感词后置检测
     const postCheck = this._sensitiveCheck(processed, 'post')
@@ -448,36 +454,25 @@ class RewriteEngine {
   }
 
   /**
-   * 敏感词检测（rewrite-sensitive-precheck-relax，2026-10-20）。
+   * 敏感词检测（委托给 sensitive-check.js）。
    *
-   * 语义变更：前置（pre）不再拦截，只如实记录命中；后置（post）维持原样
-   * （上报 hits 给 _assembleResult 转 warnings 提醒人工审核）。
+   * 本体连解释一起搬去了独立模块（rewrite-sensitive-precheck-relax 收尾，2026-10-21）：
+   * 本文件当时离 max-lines 上限只差约 29 行，而敏感词语义是会被反复改动的活跃面
+   * ——2026-10-20 改它时注释一厚就超限 4 行、被 CI 判 LEDGER_GREW。拆开后
+   * core 的行数不再被这条语义的解释文字推着走。
    *
-   * 关前置的原因：词库是内置示例级（sensitive-filter.js 的 24 词）且无任何配置入口
-   * ——既不吃运营中心远程词库，也无 UI 开关。实测历史/时政类长文仅因「爆炸」
-   * 「走私」这类日常词汇被整篇拒绝；而前置拦的是用户自己的输入，用户无申诉渠道。
-   *
-   * 不可回退的连带约束：知识库「双零命中」条件不变（preCheck.hits 与
-   * postCheckHits 均零才 recordFeedback），命中敏感词的内容不进知识库。
+   * 语义要点（详情见 sensitive-check.js 顶部）：
+   *   - 前置（pre）不拦截，只记录命中；后置（post）上报 hits 给 _assembleResult 转 warnings。
+   *   - KB「双零命中」条件不变：preCheck.hits 与 postCheckHits 均零才 recordFeedback。
+   *   - 检测异常 fail-open 并留痕。
    *
    * @param {string} text
    * @param {'pre'|'post'} stage - 仅用于异常留痕；不参与 blocked 判断。恢复拦截时
-   *   在此重新引入 stage 判断即可，调用点（rewrite() / segment-rewriter.js）无需改。
+   *   在 sensitive-check.js 重新引入 stage 判断即可，调用点无需改。
    * @returns {{blocked: boolean, hits: Array}}
    */
   _sensitiveCheck(text, stage) {
-    if (!this._sensitiveFilter) return { blocked: false, hits: [] }
-    try {
-      const result = this._sensitiveFilter.detect(text)
-      return {
-        blocked: false,
-        hits: result.hits || []
-      }
-    } catch (e) {
-      // 敏感词检测异常 fail-open 放行（logging-coverage-audit：必须留痕）
-      this._logger.error('rewrite-engine', 'sensitive check failed, fail-open', { stage, error: (e && e.message) || 'unknown' })
-      return { blocked: false, hits: [] }
-    }
+    return sensitiveCheck({ filter: this._sensitiveFilter, logger: this._logger }, text, stage)
   }
 
   _resolveStrategy(strategyId, userSettings, content = '') {
@@ -675,7 +670,7 @@ class RewriteEngine {
     return this._knowledgeBase.getContextSummary()
   }
 
-  _postProcess(text, strategy, wordCountRange) {
+  _postProcess(text, strategy, wordCountRange, freeformOutput) {
     let result = text
 
     // 去 AI 味
@@ -698,12 +693,9 @@ class RewriteEngine {
     }
 
     // 长度限制（Unicode 码点计数，与 _validate 一致；避免代理对被切断产生乱码）
-    // 优先级：wordCountRange.max > 策略 postProcess.maxLength > 默认 3000（DEFAULT_MAX_OUTPUT_LENGTH）
-    // rewrite-limits-50000（2026-10-19）：截断必须可见——返回值改为 { text, truncatedAt }，
-    // truncatedAt = 截断后的长度（码点）；未截断为 null。调用方写入 result.outputTruncated。
-    const maxLength = (wordCountRange && typeof wordCountRange.max === 'number' && wordCountRange.max > 0)
-      ? wordCountRange.max
-      : (postProcess.maxLength || DEFAULT_MAX_OUTPUT_LENGTH)
+    // 上限取谁（用户区间 / 统一上限 / 策略形态上限 / 兜底）见 ./output-cap.js 的优先级说明；
+    // 截断必须可见：truncatedAt = 截断后的长度（码点）；未截断为 null。
+    const maxLength = resolveOutputCap(wordCountRange, postProcess.maxLength, freeformOutput, MAX_OUTPUT_CHARS, DEFAULT_MAX_OUTPUT_LENGTH)
     let truncatedAt = null
     const codePoints = [...result]
     if (codePoints.length > maxLength) {

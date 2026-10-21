@@ -72,13 +72,46 @@
              现在 selectCollectedItem 会选中并 scrollIntoView 到这个框。
              用 id 而非 ref 做锚：采集页单实例，且 jsdom 测试可直接桩元素。 -->
         <div v-if="collectedResult" id="collected-result-box" data-testid="collected-result-box" class="col-result-box">
-          <div class="col-result-title">{{ $t('collection.resultTitlePrefix') }} {{ collectedResult.title || $t('collection.recordsUntitled') }}</div>
-          <div class="col-result-meta">
-            {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '…' : '' }}
-            <span v-if="collectedResult.coverImage"> · {{ $t('collection.hasCoverImage') }}</span>
-            <span v-if="collectedResult.mediaType === 'video'"> · <el-icon><VideoCamera /></el-icon> {{ $t('collection.videoTranscriptLabel') }}<template v-if="collectedResult.duration"> · {{ formatVideoDuration(collectedResult.duration) }}</template><template v-if="collectedResult.platform && PLATFORM_KEYS.includes(collectedResult.platform)"> · {{ platformLabel(collectedResult.platform) }}</template></span>
+          <!-- 步骤条（2026-10-20 collection-ux-step-flow）：
+               用户反馈「采集成功后看到原文就以为全部完成」——实际此刻才走到第 2 步。
+               这里把「现在在第几步 / 那步成没成 / 下一步是什么」显式画出来；
+               role=status + aria-live=polite 让读屏用户也能感知进度。 -->
+          <div v-if="showStepFlow" class="col-steps" data-testid="collection-step-flow" role="status" aria-live="polite">
+            <div class="col-step" :class="stepStateClass(stepCollectState)" data-testid="collection-step-collect">
+              <span class="col-step-dot" :class="stepStateClass(stepCollectState)">{{ stepDot(stepCollectState, 1) }}</span>
+              <div class="col-step-main">
+                <div class="col-step-title">{{ $t('collectionFlow.stepCollect') }}</div>
+                <div class="col-step-desc">{{ stepCollectDesc }}</div>
+              </div>
+            </div>
+            <div class="col-step-line" :class="{ 'is-reached': stepCollectState === 'done' }"></div>
+            <div class="col-step" :class="stepStateClass(stepRewriteState)" data-testid="collection-step-rewrite">
+              <span class="col-step-dot" :class="stepStateClass(stepRewriteState)">{{ stepDot(stepRewriteState, 2) }}</span>
+              <div class="col-step-main">
+                <div class="col-step-title">{{ $t('collectionFlow.stepRewrite') }}</div>
+                <div class="col-step-desc">{{ stepRewriteDesc }}</div>
+              </div>
+            </div>
           </div>
-          <!-- 改写策略选择（2026-09-15 补齐）：与 /rewrite 页同组件同契约，此前采集页改写无策略入口 -->
+          <!-- 区块 A：采集到的原文。用户反馈「原文和下方选项接在了一起，像是一段文字」——
+               原文独立成卡（自带边框/底色/限高滚动），与改写设置在视觉上断开。 -->
+          <section class="col-section-card" data-testid="collected-content-card">
+            <div class="col-section-card-head">
+              <span class="col-section-card-title">{{ $t('collectionFlow.collectedContentTitle') }}</span>
+              <span class="col-section-card-meta">{{ $t('collectionFlow.collectedContentCount', { count: collectedContentChars }) }}</span>
+            </div>
+            <div class="col-result-title">{{ $t('collection.resultTitlePrefix') }} {{ collectedResult.title || $t('collection.recordsUntitled') }}</div>
+            <div class="col-result-meta">
+              {{ collectedResult.description ? collectedResult.description.slice(0, 120) + '…' : '' }}
+              <span v-if="collectedResult.coverImage"> · {{ $t('collection.hasCoverImage') }}</span>
+              <span v-if="collectedResult.mediaType === 'video'"> · <el-icon><VideoCamera /></el-icon> {{ $t('collection.videoTranscriptLabel') }}<template v-if="collectedResult.duration"> · {{ formatVideoDuration(collectedResult.duration) }}</template><template v-if="collectedResult.platform && PLATFORM_KEYS.includes(collectedResult.platform)"> · {{ platformLabel(collectedResult.platform) }}</template></span>
+            </div>
+            <div class="col-collected-preview" data-testid="collected-content-preview">{{ collectedContentText }}</div>
+          </section>
+          <!-- 区块 B：改写设置（策略 / 开关 / 语气 / 字数 / 操作） -->
+          <section class="col-section-card" data-testid="rewrite-settings-card">
+            <div class="col-section-card-title">{{ $t('collectionFlow.rewriteSettingsTitle') }}</div>
+            <!-- 改写策略选择（2026-09-15 补齐）：与 /rewrite 页同组件同契约，此前采集页改写无策略入口 -->
           <RewriteStrategyPicker
             class="col-mt8"
             v-model:strategy-mode="strategyMode"
@@ -114,7 +147,9 @@
             <select v-model="rewriteStyle" class="col-select-sm" :disabled="rewriting || oneClickRewriting">
               <option v-for="s in getRewriteStyles()" :key="s.value" :value="s.value">{{ s.label }}</option>
             </select>
-            <!-- 字数区间控制（2026-09-12）：替换原 keep/compress/expand 三档 -->
+            <!-- 字数区间控制（2026-09-12）：替换原 keep/compress/expand 三档。
+                 2026-10-20 collection-ux-step-flow：默认留空 = 不设限（由引擎自由发挥），
+                 用户填了才生效；上限统一 50000（对齐引擎 MAX_OUTPUT_CHARS）。 -->
             <WordCountRangeInput
               v-model:min="rewriteWordCountMin"
               v-model:max="rewriteWordCountMax"
@@ -125,6 +160,11 @@
               :error="rewriteWordCountError"
               :disabled="rewriting || oneClickRewriting"
             />
+          </div>
+          <!-- 字数说明（2026-10-20）：留空 = 不设限，避免用户以为「不填就没有字数要求」是 bug -->
+          <div class="col-hint col-mt8">{{ $t('collectionFlow.wordCountFreeHint') }}</div>
+          <!-- 操作行：改写 / 重试 / 取消改写 / 存入草稿 / 去发布 / 清空 -->
+          <div class="col-chip-row">
             <button class="col-btn col-btn--secondary" @click="rewriteCollected" :disabled="rewriting || oneClickRewriting || !collectedResult || !!rewriteWordCountError">
               {{ rewriting ? $t('collection.rewriting') : $t('collection.rewrite') }}
             </button>
@@ -148,48 +188,64 @@
               <button class="col-btn col-btn--primary" @click="goPublishAfterRewrite"><el-icon><Promotion /></el-icon> {{ $t('collection.goPublish') }}</button>
             </template>
             <button class="col-btn col-btn--secondary" @click="clearResult">{{ $t('collection.cancel') }}</button>
-            <div v-if="rewriteError" class="col-error-banner">
-              {{ rewriteError.message }}
-            </div>
           </div>
-          <!-- 改写结果对比：原文 vs 改写后 -->
-          <div v-if="rewriteResult" class="rewrite-compare col-compare">
-            <div>
-              <div class="col-compare-title"><el-icon><Document /></el-icon> {{ $t('collection.originalContent') }}</div>
-              <textarea class="compare-textarea" readonly :value="(collectedResult && (collectedResult.content || collectedResult.description)) || ''"></textarea>
-            </div>
-            <div>
-              <div class="col-compare-title"><el-icon><MagicStick /></el-icon> {{ $t('collection.rewrittenContent') }}</div>
-              <textarea class="compare-textarea" v-model="rewriteResult"></textarea>
-            </div>
+          <div v-if="rewriteError" class="col-error-banner">
+            {{ rewriteError.message }}
           </div>
-          <!-- 改写结果元信息（collect-rewrite-wordcount，2026-10-20）
-               ① 实际字数：让用户能直接判断「短了多少」（改写后 N 字 / 原文 M 字）；
-               ② 引擎砍尾横幅：引擎按字数上限砍尾时如实告知（原文后半段没进结果）；
-               ③ 模型侧截断横幅：provider 自身生成上限截断，与 ② 分型（调大字数上限不一定有效）。
-               文案复用 rewritePage 命名空间（与 /rewrite 页同一套，不另写一份同义句）。 -->
-          <div v-if="rewriteResult" class="col-rewrite-meta">
-            <span
-              v-if="rewriteOutputLength > 0"
-              class="col-hint"
-              data-testid="collection-rewrite-output-length"
-            >{{ $t('rewritePage.rewriteOutputLength', { length: rewriteOutputLength, original: rewriteOriginalLength }) }}</span>
-            <span
-              v-if="rewriteModelTruncatedInfo && rewriteModelTruncatedInfo.truncatedSegments.length > 0"
-              class="col-error-banner"
-              data-testid="collection-rewrite-model-truncated"
-            >{{ $t('rewritePage.outputTruncatedByModelSegments', { segments: rewriteModelTruncatedInfo.truncatedSegments.join('、'), length: rewriteModelTruncatedInfo.length }) }}</span>
-            <span
-              v-else-if="rewriteModelTruncatedInfo"
-              class="col-error-banner"
-              data-testid="collection-rewrite-model-truncated"
-            >{{ $t('rewritePage.outputTruncatedByModel', { length: rewriteModelTruncatedInfo.length }) }}</span>
-            <span
-              v-if="rewriteOutputTruncatedInfo"
-              class="col-error-banner"
-              data-testid="collection-rewrite-truncated"
-            >{{ $t('rewritePage.outputTruncated', { length: rewriteOutputTruncatedInfo.length, max: rewriteOutputTruncatedInfo.max }) }}</span>
-          </div>
+          </section>
+          <!-- 区块 C：改写结果（原文 vs 改写后）。
+               2026-10-20：两个文本框此前只有浏览器默认尺寸 —— 根因是
+               collection-page-legacy.css 的 @import 写在 collection-page.css 末尾，
+               浏览器按规范**静默忽略**后置 @import ⇒ .compare-textarea 整块规则没加载。
+               本轮把 @import 移到文件顶部，并把尺寸写进 CSS 契约测试。 -->
+          <section v-if="rewriteResult" class="col-section-card" data-testid="rewrite-result-card">
+            <div class="col-section-card-title">{{ $t('collectionFlow.rewriteResultTitle') }}</div>
+            <!-- 改写结果元信息（collect-rewrite-wordcount，2026-10-20）
+                 ① 实际字数：让用户能直接判断「短了多少」（改写后 N 字 / 原文 M 字）；
+                 ② 引擎砍尾横幅：引擎按字数上限砍尾时如实告知（原文后半段没进结果）；
+                 ③ 模型侧截断横幅：provider 自身生成上限截断，与 ② 分型（调大字数上限不一定有效）。
+                 文案复用 rewritePage 命名空间（与 /rewrite 页同一套，不另写一份同义句）。 -->
+            <div v-if="rewriteResult" class="col-rewrite-meta">
+              <span
+                v-if="rewriteOutputLength > 0"
+                class="col-hint"
+                data-testid="collection-rewrite-output-length"
+              >{{ $t('rewritePage.rewriteOutputLength', { length: rewriteOutputLength, original: rewriteOriginalLength }) }}</span>
+              <span
+                v-if="rewriteModelTruncatedInfo && rewriteModelTruncatedInfo.truncatedSegments.length > 0"
+                class="col-error-banner"
+                data-testid="collection-rewrite-model-truncated"
+              >{{ $t('rewritePage.outputTruncatedByModelSegments', { segments: rewriteModelTruncatedInfo.truncatedSegments.join('、'), length: rewriteModelTruncatedInfo.length }) }}</span>
+              <span
+                v-else-if="rewriteModelTruncatedInfo"
+                class="col-error-banner"
+                data-testid="collection-rewrite-model-truncated"
+              >{{ $t('rewritePage.outputTruncatedByModel', { length: rewriteModelTruncatedInfo.length }) }}</span>
+              <span
+                v-if="rewriteOutputTruncatedInfo"
+                class="col-error-banner"
+                data-testid="collection-rewrite-truncated"
+              >{{ $t('rewritePage.outputTruncated', { length: rewriteOutputTruncatedInfo.length, max: rewriteOutputTruncatedInfo.max }) }}</span>
+              <!-- 敏感词警告（rewrite-sensitive-precheck-relax 收尾，2026-10-21）：
+                   前置拦截已关，后置 warnings 是唯一防线。用 warning 级样式（col-warn-banner）
+                   而非红色错误条——结果是成功的，只是提醒人工审核，两者语义不能混。 -->
+              <span
+                v-if="rewriteSensitiveWarnings.length > 0"
+                class="col-warn-banner"
+                data-testid="collection-rewrite-sensitive"
+              >{{ $t('rewritePage.rewriteSensitiveWarning', { words: rewriteSensitiveWarnings.join('；') }) }}</span>
+            </div>
+            <div class="rewrite-compare col-compare">
+              <div>
+                <div class="col-compare-title"><el-icon><Document /></el-icon> {{ $t('collection.originalContent') }}</div>
+                <textarea class="compare-textarea" readonly :value="collectedContentText"></textarea>
+              </div>
+              <div>
+                <div class="col-compare-title"><el-icon><MagicStick /></el-icon> {{ $t('collection.rewrittenContent') }}</div>
+                <textarea class="compare-textarea" v-model="rewriteResult"></textarea>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
 
@@ -470,6 +526,7 @@
       :text-truncated="videoTextTruncated"
       :text-truncated-length="videoTextTruncatedLength"
       :text-limit="videoTextLimit"
+      :config-warning="videoConfigProfileWarning"
       @close="handleVideoClose()"
       @view="viewVideoInHistory()"
       @publish="publishVideoResult()"
@@ -606,6 +663,18 @@ const linkUrl = ref('')
 const collecting = ref(false)
 const rewriting = ref(false)
 const oneClickRewriting = ref(false)
+/**
+ * 流程阶段（2026-10-20 collection-ux-step-flow）。
+ *
+ * 为什么要有它：此前「一键改写」把 `collecting` 一起置位，于是**采集按钮也跟着变成
+ * 「采集中…」**（用户反馈 P1）；而采集成功后只有一条 toast，**看不出流程才走到第 2 步**
+ * （用户反馈 P2）。两件事的共同解法是把「现在在第几步」显式建模，而不是让每个按钮
+ * 各自去猜（各自猜 = 状态漂移的温床）。
+ *
+ * 取值：idle（空闲/仅采集已完成）| collecting（第 1 步采集中）| rewriting（第 2 步改写中）
+ *      | done（两步都完成）| error（本轮失败）。
+ */
+const flowStage = ref('idle')
 // 改写取消（runId 生命周期 / 取消中态；协作式，段边界生效）见 composables/useRewriteCancel
 const { cancelling, beginRun, cancel: requestCancel, endRun } = useRewriteCancel()
 const collectedResult = ref(null)
@@ -665,9 +734,11 @@ const collectSources = ref([
   { type: 'api', name: '自定义 API' },
 ])
 const rewriteStyle = ref('轻松易懂')
-// 字数区间控制（2026-09-12）：替换原 keep/compress/expand 三档，默认 800-2000
-const rewriteWordCountMin = ref(800)
-const rewriteWordCountMax = ref(2000)
+// 字数区间控制（2026-09-12）：替换原 keep/compress/expand 三档。
+// 2026-10-20 collection-ux-step-flow：默认**留空** = 不设字数限制（由引擎自由发挥），
+// 用户自己填了数字才生效；上限统一 50000（对齐引擎 MAX_OUTPUT_CHARS，见 rewrite-engine-limits.js）。
+const rewriteWordCountMin = ref('')
+const rewriteWordCountMax = ref('')
 const rewriteResult = ref('')
 // 改写结果元信息（collect-rewrite-wordcount，2026-10-20）：
 // 引擎早就会回传「实际输出字数 / 是否被上限砍尾 / 是否被模型自身上限截断」，
@@ -678,6 +749,13 @@ const rewriteOutputTruncatedInfo = ref(null)
 const rewriteModelTruncatedInfo = ref(null)
 const rewriteOutputLength = ref(0)
 const rewriteOriginalLength = ref(0)
+// 敏感词警告（rewrite-sensitive-precheck-relax 收尾，2026-10-21）：
+// 引擎的前置拦截已关（用户 8000 字越华史料只因「爆炸」一词被整篇拒绝），
+// 保留的**后置**检测会在 warnings 里提醒「改写结果可能包含敏感内容，请人工审核」。
+// 但本页此前只挑 result_content/knowledgeRefs/meta，warnings 被静默丢弃
+// ⇒ 四个改写入口（视频转写 / stealth 自动 / 聚合回退 / 手动改写）零提示，
+// 「保留后置提醒」这半条防线在采集页实际不成立。这里把 warnings 收进状态并展示。
+const rewriteSensitiveWarnings = ref([])
 const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
 // 改写策略（2026-09-15 补齐）：与 RewriteView / AiWriterPanel 同契约
@@ -771,6 +849,9 @@ function clearRewriteResult () {
   rewriteModelTruncatedInfo.value = null
   rewriteOutputLength.value = 0
   rewriteOriginalLength.value = 0
+  // 敏感词警告与元信息是同一个产出的另两半（rewrite-sensitive-precheck-relax 收尾）：
+  // 不复位就会在「清空」后残留上一轮的「可能包含敏感内容」提示，看起来像在警告当前这篇。
+  rewriteSensitiveWarnings.value = []
 }
 
 /**
@@ -808,7 +889,7 @@ async function rewriteViaEngine (content) {
       },
     }
   }
-  // 字数区间（collect-rewrite-wordcount，2026-10-20）：
+  // 字数区间（collect-rewrite-wordcount + collection-ux-step-flow，2026-10-20）：
   // ① 契约键必须是 wordCountRange——引擎（packages/rewrite-engine）只读这个键。
   //    历史误传 `targetWordCount`（整个引擎包 0 处引用），导致引擎收不到区间：
   //    prompt 没有【字数要求】、后处理上限回落策略默认（800/1500/2000/3000）、
@@ -816,9 +897,13 @@ async function rewriteViaEngine (content) {
   // ② 区间取自 useWordCountValidation 的 `range`（与红字校验同一套判定）：
   //    合法下限 0 必须原样透传（旧写法 `Number(min) || 800` 会把 0 吞成 800）；
   //    非法区间（浮点 / 非数字 / max<min）时 range 为 null ⇒ 早退，不发任何区间。
+  // ③ collection-ux-step-flow：采集页两个输入框**默认留空**，空 = 「不设限」。
+  //    两侧都空 ⇒ range 为 null **且没有错误** ⇒ 不发区间，改发 freeformOutput=true
+  //    （引擎输出上限取统一上限 50000 并跳过策略级平台形态上限 = 真·自由发挥）。
+  //    ⚠️ 判「非法」必须看 error 而不是 range：range 为 null 有两种含义
+  //    （非法 / 不设限），只有 error 能区分二者。
   //    放在 try 之外：早退时还没 beginRun()，不能触发 finally 里的 endRun()。
-  const range = rewriteWordCountRange.value
-  if (!range) {
+  if (rewriteWordCountError.value) {
     return {
       __error: {
         code: -400,
@@ -827,6 +912,12 @@ async function rewriteViaEngine (content) {
       },
     }
   }
+  // range = null 有两种含义（两侧都空 = 不设限 / 非法区间 = 早退），因此**判「非法」必须看
+  // error 而非 range**（上面的早退守卫已先拦掉非法区间）。
+  // freeformOutput 额外带一层 `!error`：即便将来有人调换守卫顺序，非法区间也不会被
+  // 误当成「用户不设限」而走进引擎的新分支（外部评审 i3/i4 —— 派生条件与守卫顺序耦合过紧）。
+  const range = rewriteWordCountRange.value
+  const freeformOutput = !range && !rewriteWordCountError.value
   // 长文处理（rewrite-segment-and-finish-reason 第二刀）：不再预截断，改为事前提示。
   // 历史：曾把 >上限正文截到 50000（fix-collect-rewrite-too-long）——分段改写落地后，
   // 预截断会让超长正文永远到不了引擎分段路径（评审 M1：死代码），故改为透传全文 +
@@ -840,10 +931,12 @@ async function rewriteViaEngine (content) {
   }
   let res
   try {
-    const minW = range.min
-    const maxW = range.max
-    // targetLength 三档只影响 expand 模式的提示词（imitate 模式不消费），保留为兼容字段
-    const wordCountTarget = maxW <= 800 ? 'short' : (minW >= 1500 || maxW >= 2500) ? 'long' : 'medium'
+    // range 非空 ⇒ 下发用户区间；range 为 null（两侧都空）⇒ 不下发区间，改发 freeformOutput。
+    // targetLength 三档只影响 expand 模式的提示词（imitate 模式不消费），保留为兼容字段；
+    // 留空（自由发挥）时给 medium —— 不给用户意图就不该替他选长度档。
+    const wordCountTarget = freeformOutput
+      ? 'medium'
+      : (range.max <= 800 ? 'short' : (range.min >= 1500 || range.max >= 2500) ? 'long' : 'medium')
     const params = {
       // 取消通道寻址键（每次改写新生成）：主进程据此把 cancel 打到本次改写上
       runId: beginRun(),
@@ -851,7 +944,11 @@ async function rewriteViaEngine (content) {
       content: prepared.text,
       userSettings: {
         tone: STYLE_TO_TONE[rewriteStyle.value] || 'casual',
-        wordCountRange: { min: minW, max: maxW },
+        // 契约键只有 wordCountRange（引擎只读它）；targetWordCount 是历史误传键，
+        // 引擎 0 处引用且会被契约测试断言「不存在」⇒ 不下发（collect-rewrite-wordcount）。
+        ...(range ? { wordCountRange: { min: range.min, max: range.max } } : {}),
+        // freeformOutput=true ⇒ 引擎输出上限取 MAX_OUTPUT_CHARS，不注入字数指令
+        ...(freeformOutput ? { freeformOutput: true } : {}),
         targetLength: wordCountTarget,
         knowledgeOptions: {
           useViralLibrary: useViralLibrary.value,
@@ -890,6 +987,20 @@ async function rewriteViaEngine (content) {
     // 这里统一收进 meta，供调用方决定是否提示（引擎截断 / 模型截断 / 分段改写）。
     // 元信息落状态也放在这里（唯一写点）：5 个改写调用点各写一遍必然漂移。
     applyRewriteMeta(res.data, prepared.originalLength)
+    // 敏感词警告透传（rewrite-sensitive-precheck-relax 收尾）：
+    // 前置拦截已关，后置 warnings 是用户唯一能看到的敏感词提示。历史上成功分支
+    // 只挑 result_content/knowledgeRefs/meta，warnings 被静默丢弃 ⇒ 采集页零提示。
+    // 归一化为数组（旧版引擎信封没有这个字段；null/非数组都按「无警告」处理）。
+    const sensitiveWarnings = Array.isArray(res.data.warnings) ? res.data.warnings.slice() : []
+    rewriteSensitiveWarnings.value = sensitiveWarnings
+    // warning 级通知放在漏斗里（唯一发声点）：四个调用点（视频转写 / stealth 自动 /
+    // 聚合回退 / 手动改写）各写一遍必然漂移，且漏一个就等于该入口静默丢弃。
+    // 只提醒一次、不阻断结果——结果是成功的，用户仍可继续编辑发布。
+    if (sensitiveWarnings.length > 0) {
+      notifyWarning('rewritePage.rewriteSensitiveWarning', {
+        params: { words: sensitiveWarnings.join('；') },
+      })
+    }
     return {
       result_content: res.data.result,
       knowledgeRefs: res.data.knowledgeRefs || [],
@@ -898,6 +1009,7 @@ async function rewriteViaEngine (content) {
         outputLength: res.data.outputLength,
         modelTruncated: res.data.modelTruncated === true,
         segmented: res.data.segmented || null,
+        warnings: sensitiveWarnings,
       },
     }
   }
@@ -1027,6 +1139,7 @@ const {
   videoCanCancel, videoResultReady, videoTextTruncated, videoTextTruncatedLength,
   videoTextLimit, startVideoCreation, cancelVideoCreation, retryVideoCreation,
   handleVideoClose, resetVideoState, viewVideoInHistory, publishVideoResult,
+  videoConfigProfileWarning,
 } = useCollectionVideoCreation()
 const batchPlatformOptions = computed(() => batch.usablePlatforms('imageText'))
 const batchVideoPlatformOptions = computed(() => batch.usablePlatforms('video'))
@@ -1098,8 +1211,62 @@ function getRewriteStyles() {
 const { error: rewriteWordCountError, range: rewriteWordCountRange } = useWordCountValidation(
   rewriteWordCountMin,
   rewriteWordCountMax,
-  (key) => resolveNotifyText('collection.' + key).text
+  (key) => resolveNotifyText('collection.' + key).text,
+  // 2026-10-20 collection-ux-step-flow：采集页允许留空（留空 = 不设限）。
+  // 改写页保持严格语义（空 = 非法），两者共用本 composable，靠开关区分。
+  { allowEmpty: true }
 )
+
+/**
+ * 步骤条状态（2026-10-20 collection-ux-step-flow）。
+ *
+ * 刻意**从真实数据派生**（collectedResult / rewriteResult / 错误对象）而不是另存一份
+ * 「步骤完成」布尔量：另存一份就多一处会漂移的地方（改写成功但布尔量忘了置位 ⇒
+ * 步骤条说没做完、结果却在那儿）。派生源的优先级：进行中 > 失败 > 已完成 > 未开始。
+ */
+const stepCollectState = computed(() => {
+  if (flowStage.value === 'collecting') return 'active'
+  if (collectError.value) return 'error'
+  if (collectedResult.value) return 'done'
+  return 'pending'
+})
+const stepRewriteState = computed(() => {
+  if (flowStage.value === 'rewriting') return 'active'
+  if (rewriteError.value) return 'error'
+  if (rewriteResult.value) return 'done'
+  return 'pending'
+})
+// 步骤条显示条件：有采集结果 / 流程进行中 / 本轮失败过。三者皆无时不显示（避免空态一进页面就看到"待办"）
+const showStepFlow = computed(() => !!collectedResult.value || flowStage.value !== 'idle')
+// 采集到的正文（区块 A 预览 + 区块 C 原文栏共用同一份，避免两处各算一遍）
+const collectedContentText = computed(() => {
+  const r = collectedResult.value
+  return (r && (r.content || r.description)) || ''
+})
+const collectedContentChars = computed(() => countRewriteChars(collectedContentText.value))
+const stepCollectDesc = computed(() => {
+  const s = stepCollectState.value
+  if (s === 'active') return resolveNotifyText('collectionFlow.stepCollectRunning').text
+  if (s === 'error') return resolveNotifyText('collectionFlow.stepCollectFailed').text
+  if (s === 'done') return resolveNotifyText('collectionFlow.stepCollectDone', { count: collectedContentChars.value }).text
+  return ''
+})
+const stepRewriteDesc = computed(() => {
+  const s = stepRewriteState.value
+  if (s === 'active') return resolveNotifyText('collectionFlow.stepRewriteRunning').text
+  if (s === 'error') return resolveNotifyText('collectionFlow.stepRewriteFailed').text
+  if (s === 'done') return resolveNotifyText('collectionFlow.stepRewriteDone').text
+  return ''
+})
+function stepStateClass (state) {
+  return 'is-' + state
+}
+/** 圆点内容：完成=✓，失败=!，其余=步骤序号 */
+function stepDot (state, index) {
+  if (state === 'done') return '✓'
+  if (state === 'error') return '!'
+  return String(index)
+}
 
 onMounted(async () => {
   // 草稿箱页签自行拉取列表；这里只取条数供页签角标显示（失败静默，不阻塞采集页）
@@ -1479,6 +1646,8 @@ async function collectUrl () {
     }
   }
   collecting.value = true
+  // 流程阶段：普通采集只有第 1 步（2026-10-20 collection-ux-step-flow）
+  flowStage.value = 'collecting'
   collectedResult.value = null
   clearRewriteResult()
   collectError.value = null
@@ -1627,6 +1796,10 @@ async function collectUrl () {
     notifyError('collection.collectRequestFailed', { message: collectError.value.message })
   } finally {
     collecting.value = false
+    // 流程阶段收口（普通采集）：成功 → idle（采集本身就是终点，步骤条第 2 步保持「未开始」）；
+    // 失败 → error（步骤条第 1 步标红）。从错误对象与结果派生，不另存布尔量。
+    if (collectError.value) flowStage.value = 'error'
+    else if (collectedResult.value) flowStage.value = 'idle'
   }
 }
 
@@ -1651,7 +1824,10 @@ async function collectAndRewrite () {
     return
   }
   oneClickRewriting.value = true
-  collecting.value = true
+  // 2026-10-20 collection-ux-step-flow：**不再**置位 collecting。
+  // 此前一键改写把 collecting 一起置位 ⇒ 采集按钮也跟着显示「采集中…」（用户反馈 P1）。
+  // 采集阶段由 flowStage 表达，采集按钮保持常态（只禁用），进度由步骤条表达。
+  flowStage.value = 'collecting'
   rewriteError.value = null
   collectError.value = null
   clearRewriteResult()
@@ -1702,9 +1878,10 @@ async function collectAndRewrite () {
           addedToViral.value = false
           collectedItems.value.unshift(videoItem)
           saveCollectedItems()
-          notifySuccess('collection.collectSuccess')
+          notifySuccess('collectionFlow.oneClickCollectSuccess')
           // Step 2: 用转写文案自动改写
-          collecting.value = false
+          // 第 1 步完成 → 进入第 2 步（2026-10-20 collection-ux-step-flow）
+          flowStage.value = 'rewriting'
           rewriting.value = true
           try {
             const rewrite = await rewriteViaEngine(videoRes.content || videoRes.transcript || '')
@@ -1750,8 +1927,9 @@ async function collectAndRewrite () {
       addedToViral.value = false
       collectedItems.value.unshift(stealthItem)
       saveCollectedItems()
-      notifySuccess('collection.collectSuccess')
-      collecting.value = false
+      notifySuccess('collectionFlow.oneClickCollectSuccess')
+      // 第 1 步完成 → 进入第 2 步（2026-10-20 collection-ux-step-flow）
+      flowStage.value = 'rewriting'
       // Step 2: 自动改写 —— 必须走桌面改写引擎（aiRewrite）：它按「模型设置」解析默认
       // 文字推理模型（含多模态 provider 的 llm 能力路由）。2026-10-18 事故根因：本分支
       // 原调 Python /aggregation/rewrite，该后端只认进程环境变量 LLM_API_KEY，桌面模型
@@ -1799,7 +1977,8 @@ async function collectAndRewrite () {
         return
       }
     }
-    collecting.value = false
+    // 第 1 步完成 → 进入第 2 步（2026-10-20 collection-ux-step-flow）
+    flowStage.value = 'rewriting'
     const item = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       title: res.title,
@@ -1813,7 +1992,7 @@ async function collectAndRewrite () {
     addedToViral.value = false
     collectedItems.value.unshift(item)
     saveCollectedItems()
-    notifySuccess('collection.collectSuccess')
+    notifySuccess('collectionFlow.oneClickCollectSuccess')
     // Step 2: 自动改写
     rewriting.value = true
     try {
@@ -1839,6 +2018,11 @@ async function collectAndRewrite () {
   } finally {
     collecting.value = false
     oneClickRewriting.value = false
+    // 流程阶段收口（一键改写，2026-10-20 collection-ux-step-flow）：
+    // 两步都完成 → done；任一步失败 → error（步骤条对应那一步标红）；从真实数据派生。
+    if (collectError.value || rewriteError.value) flowStage.value = 'error'
+    else if (rewriteResult.value) flowStage.value = 'done'
+    else flowStage.value = 'idle'
   }
 }
 
@@ -1855,6 +2039,8 @@ async function rewriteCollected () {
   }
   rewriting.value = true
   rewriteError.value = null
+  // 第 2 步进行中（2026-10-20 collection-ux-step-flow）
+  flowStage.value = 'rewriting'
   try {
     const result = await rewriteViaEngine(collectedResult.value.content || collectedResult.value.description || '')
     if (result && result.result_content) {
@@ -1871,6 +2057,9 @@ async function rewriteCollected () {
     notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
   } finally {
     rewriting.value = false
+    // 流程阶段收口（手动改写）：成功 → done；失败 → error
+    if (rewriteError.value) flowStage.value = 'error'
+    else if (rewriteResult.value) flowStage.value = 'done'
   }
 }
 
@@ -1892,6 +2081,8 @@ function clearResult () {
   clearRewriteResult()
   rewriteError.value = null
   collectError.value = null
+  // 流程阶段复位（2026-10-20 collection-ux-step-flow）：清空后回到空闲，步骤条随之隐藏
+  flowStage.value = 'idle'
 }
 
 // 采集条目 → 草稿载荷。注意这里**不再生成 id**：id 由主进程 draftSave 的
@@ -1951,8 +2142,13 @@ function onPublishArticle () {
  * 而 `genreDraftId` 指向的是**上一次**改写时存的草稿 ⇒ 二次改写后带进去的还是第一次
  * 的文案。新实现直接把**当前这次改写结果**（`rewriteResult.value`）交给流水线，
  * 不再经过「旧草稿」这一层，天然取到最新文案。
+ *
+ * `detail.configProfileId`（主干 publish-config-picker 带来的「配置档案」选择）也
+ * 在这里**兑现**：本入口不再跳创作页，用户在弹窗里选中的配置必须由采集页自己套用，
+ * 否则就是主干在热门选题页修过的同一个坑——**选了等于没选**。
+ * 套不上时不阻断生成（视频照常出），但会在进度浮层里留一条可见提示。
  */
-function onPublishVideo (pipelineId) {
+function onPublishVideo (pipelineId, detail) {
   // ① 发布浮层消失
   showPublishModal.value = false
   const text = String(rewriteResult.value || '').trim()
@@ -1966,6 +2162,7 @@ function onPublishVideo (pipelineId) {
     text,
     pipelineName: pipelineId || 'story2video-compose',
     title: String((collectedResult.value && collectedResult.value.title) || ''),
+    configProfileId: String((detail && detail.configProfileId) || ''),
   })
 }
 
@@ -2344,6 +2541,127 @@ async function deleteLibraryRewrite (record) {
 .collection-record-card { cursor: pointer; transition: box-shadow 0.2s; }
 .collection-record-card:hover { box-shadow: var(--shadow-card-hover); }
 .collection-record-card:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+/* ============================ 流程步骤条（2026-10-20 collection-ux-step-flow）===========================
+ * 动因：用户反馈「采集成功后看到原文就以为全部完成」——实际此刻才走到第 2 步。
+ * 这里把「现在在第几步 / 那步成没成 / 下一步是什么」显式画出来。
+ * 放在采集结果框**顶部**：用户一看到结果框就知道流程走到哪儿了。 */
+.col-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-card);
+}
+.col-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-2);
+  flex: 1 1 0;
+  min-width: 0;
+}
+.col-step-dot {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-inset);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+.col-step-dot.is-active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  animation: col-step-pulse 1.4s ease-in-out infinite;
+}
+.col-step-dot.is-done {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: var(--color-on-primary);
+}
+.col-step-dot.is-error {
+  background: var(--color-error-banner-bg);
+  border-color: var(--color-error-banner-text);
+  color: var(--color-error-banner-text);
+}
+@keyframes col-step-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--color-primary-light); }
+  50% { box-shadow: 0 0 0 4px var(--color-primary-light); }
+}
+.col-step-main { min-width: 0; }
+.col-step-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+.col-step.is-pending .col-step-title {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+}
+.col-step-desc {
+  margin-top: 2px;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+.col-step-line {
+  flex: 0 0 24px;
+  height: 2px;
+  margin-top: 10px;
+  background: var(--color-border);
+  border-radius: 1px;
+}
+.col-step-line.is-reached { background: var(--color-primary); }
+
+/* ============================ 结果分区（区块 A / B / C）===========================
+ * 用户反馈「采集到的文字和下方选项接在了一起，像是一段文字」。
+ * 三块各自成卡（边框 + 底色 + 内距），块间留白 ⇒ 原文 / 设置 / 结果一眼分得开。 */
+.col-section-card {
+  margin-top: var(--spacing-3);
+  padding: var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-card);
+}
+.col-section-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-2);
+}
+.col-section-card-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+.col-section-card-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+/* 采集到的原文预览：独立底色 + 限高滚动 —— 原文不再与下方选项连成一段文字 */
+.col-collected-preview {
+  margin-top: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  background: var(--color-bg-inset);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 </style>
 

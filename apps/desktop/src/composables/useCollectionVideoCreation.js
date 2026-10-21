@@ -39,6 +39,7 @@ import { useI18n } from 'vue-i18n'
 //   storeGetSetting(key)                    → 设置值
 // 测试可用 `opts.deps` 覆盖其中任意一项（见下方 `deps` 合并处）。
 import * as publisherApi from '@/api/publisher'
+import { resolveCollectionVideoStartSnapshot } from '@/features/collection/collection-video-config-profile'
 import {
   buildGenVideoStartParams,
   DEFAULT_GEN_VIDEO_PIPELINE,
@@ -121,6 +122,7 @@ export function useCollectionVideoCreation (opts = {}) {
     pipelineGetRunContext: (...args) => publisherApi.pipelineGetRunContext(...args),
     onPipelineUpdate: (...args) => publisherApi.onPipelineUpdate(...args),
     storeGetSetting: (...args) => publisherApi.storeGetSetting(...args),
+    story2videoConfigProfileList: (...args) => publisherApi.story2videoConfigProfileList(...args),
     ...(opts.deps || {}),
   }
 
@@ -141,11 +143,18 @@ export function useCollectionVideoCreation (opts = {}) {
   const videoTextTruncated = ref(false)
   const videoTextTruncatedLength = ref(0)
   const videoTextLimit = ref(DEFAULT_STORY2VIDEO_TEXT_LIMIT.maxChars)
+  /**
+   * 配置档案套用失败的可见提示（**非致命**：视频照常出，但必须告诉用户
+   * 「你选的配置没生效」——静默回退默认值就是主干修过的「选了等于没选」）。
+   */
+  const videoConfigProfileWarning = ref('')
   const videoTick = ref(0)
   let videoSeq = 0
   /** 本次编排使用的文案（发布出口的标题/正文来源） */
   let videoSourceText = ''
   let videoSourceTitle = ''
+  /** 本次编排使用的配置档案 id（重试时复用同一个） */
+  let videoConfigProfileId = ''
 
   // ── 计算属性 ──
   const videoPipelineLabel = computed(() => buildGenVideoPipelineLabel(t, videoPipelineName.value))
@@ -180,6 +189,19 @@ export function useCollectionVideoCreation (opts = {}) {
     },
   })
 
+  /**
+   * 解析本次启动用的配置快照（判据与 IO 都在 features/collection 的独立模块里，
+   * 这里只做依赖注入 —— 编排层不直接知道「配置档案」这回事）。
+   */
+  function resolveStartSnapshot (pipelineName) {
+    return resolveCollectionVideoStartSnapshot({
+      profileId: videoConfigProfileId,
+      pipelineId: pipelineName,
+      listConfigProfiles: () => deps.story2videoConfigProfileList(),
+      readLastOptions: () => deps.storeGetSetting('story2video.lastOptions.v1'),
+    })
+  }
+
   /** 组装启动参数并启动流水线（启动 / 重试共用这一条路径，避免两份实现漂移） */
   async function startPipelineRun (seq, text) {
     // 入口显式终止**前一轮** run（第二道防线）。
@@ -195,11 +217,9 @@ export function useCollectionVideoCreation (opts = {}) {
         await deps.pipelineCancelRun(previousRunId)
       } catch (_e) { /* 取消失败不阻断新 run：前一轮的响应会被 seq 守卫丢弃 */ }
     }
-    let snapshot = null
-    try {
-      snapshot = await deps.storeGetSetting('story2video.lastOptions.v1')
-    } catch (_e) { snapshot = null }
+    const { snapshot, warningKey } = await resolveStartSnapshot(videoPipelineName.value || DEFAULT_GEN_VIDEO_PIPELINE)
     if (isDisposed() || seq !== videoSeq) return false
+    videoConfigProfileWarning.value = warningKey ? t(warningKey) : ''
 
     const clamped = clampStory2VideoText(text, videoTextLimit.value)
     if (clamped.truncated) {
@@ -241,9 +261,11 @@ export function useCollectionVideoCreation (opts = {}) {
    * @param {string} input.text 当前改写结果（**必须是最新那次**，不是旧草稿）
    * @param {string} [input.pipelineName] 流水线名（默认 story2video-compose）
    * @param {string} [input.title] 标题（发布出口兜底用）
+   * @param {string} [input.configProfileId] 「去发布」弹窗里选中的配置档案 id
+   *   （空串 = 不套用任何配置，沿用「上次选项」）
    * @returns {Promise<boolean>} 是否真正进入编排
    */
-  async function startVideoCreation ({ text, pipelineName = DEFAULT_GEN_VIDEO_PIPELINE, title = '' } = {}) {
+  async function startVideoCreation ({ text, pipelineName = DEFAULT_GEN_VIDEO_PIPELINE, title = '', configProfileId = '' } = {}) {
     if (videoBusy.value) return false
     const source = typeof text === 'string' ? text.trim() : ''
     if (!source) return false
@@ -255,6 +277,7 @@ export function useCollectionVideoCreation (opts = {}) {
       : DEFAULT_GEN_VIDEO_PIPELINE
     videoSourceText = source
     videoSourceTitle = typeof title === 'string' ? title : ''
+    videoConfigProfileId = typeof configProfileId === 'string' ? configProfileId.trim() : ''
     videoRunId.value = null
     videoRunProgress.value = null
     videoErrorText.value = ''
@@ -264,6 +287,7 @@ export function useCollectionVideoCreation (opts = {}) {
     videoStartedAt.value = Date.now()
     videoTextTruncated.value = false
     videoTextTruncatedLength.value = 0
+    videoConfigProfileWarning.value = ''
     // 阶段列表：只有流水线自身的阶段（采集页的改写**已经**完成，不再有 rewrite_copy 阶段）
     videoStages.value = stageNamesForPipeline(videoPipelineName.value).map((name) => ({
       id: name,
@@ -378,8 +402,10 @@ export function useCollectionVideoCreation (opts = {}) {
     videoBusy.value = false
     videoTextTruncated.value = false
     videoTextTruncatedLength.value = 0
+    videoConfigProfileWarning.value = ''
     videoSourceText = ''
     videoSourceTitle = ''
+    videoConfigProfileId = ''
   }
 
   /** 关闭浮层：终态 ⇒ 复位关闭；运行中 ⇒ 关闭浮层但主进程继续跑（后台运行） */
@@ -417,6 +443,7 @@ export function useCollectionVideoCreation (opts = {}) {
     videoModalOpen, videoBusy, videoPhase, videoStages, videoRunId, videoRunProgress,
     videoErrorText, videoPipelineName, videoCompletedVideoPath, videoCompletedProjectId,
     videoCompletedProject, videoTextTruncated, videoTextTruncatedLength, videoTextLimit,
+    videoConfigProfileWarning,
     videoProgressPercent, videoElapsedMs, videoPipelineLabel,
     videoTerminal, videoCanRetry, videoCanCancel, videoCanBackground, videoResultReady,
     startVideoCreation, cancelVideoCreation, retryVideoCreation,

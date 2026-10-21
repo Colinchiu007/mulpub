@@ -17,6 +17,9 @@ const REQUIRED_EXPORTS = [
   'pipelineGetRunContext',
   'onPipelineUpdate',
   'storeGetSetting',
+  // 配置档案（「去发布」弹窗里选的那份）由采集页自己兑现：就地执行不再跳创作页，
+  // 配置必须由本入口读取并套用，否则就是「选了等于没选」。
+  'story2videoConfigProfileList',
 ]
 
 describe('useCollectionVideoCreation 的 @/api/publisher 依赖契约', () => {

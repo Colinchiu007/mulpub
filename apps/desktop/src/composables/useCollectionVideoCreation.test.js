@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   pipelineGetRunContext: vi.fn(),
   onPipelineUpdate: vi.fn(() => () => {}),
   storeGetSetting: vi.fn(),
+  story2videoConfigProfileList: vi.fn(),
   modelProviderGetDefault: vi.fn(),
   aiGenerateGenVideoTitle: vi.fn(),
   routerPush: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock('@/api/publisher', () => ({
   pipelineGetRunContext: mocks.pipelineGetRunContext,
   onPipelineUpdate: mocks.onPipelineUpdate,
   storeGetSetting: mocks.storeGetSetting,
+  story2videoConfigProfileList: mocks.story2videoConfigProfileList,
   modelProviderGetDefault: mocks.modelProviderGetDefault,
   aiGenerateGenVideoTitle: mocks.aiGenerateGenVideoTitle,
 }))
@@ -51,6 +53,7 @@ describe('useCollectionVideoCreation — 采集页视频创作就地编排', () 
     vi.clearAllMocks()
     mocks.onPipelineUpdate.mockReturnValue(() => {})
     mocks.storeGetSetting.mockResolvedValue(null)
+    mocks.story2videoConfigProfileList.mockResolvedValue({ code: 0, data: [] })
     mocks.pipelineStartOrchestrated.mockResolvedValue(startOk())
     mocks.pipelineGetRunContext.mockResolvedValue({ code: 0, data: { runId: 'run-1', status: { status: 'running', progress: 10 } } })
   })
@@ -132,6 +135,50 @@ describe('useCollectionVideoCreation — 采集页视频创作就地编排', () 
     await c.startVideoCreation({ text: '文案' })
     c.viewVideoInHistory()
     expect(mocks.routerPush).not.toHaveBeenCalled()
+  })
+
+  // ── 配置档案（主干 publish-config-picker 带来的「去发布」弹窗选择）──
+  //
+  // 本入口不再跳创作页 ⇒ 用户在弹窗里选中的配置必须由采集页自己兑现。
+  // 兑现不了就是主干在热门选题页修过的同一个坑：**选了等于没选**。
+  it('选了配置档案 ⇒ 启动参数用**档案的**选项（不是「上次选项」，也不是默认值）', async () => {
+    mocks.story2videoConfigProfileList.mockResolvedValue({
+      code: 0,
+      data: [{
+        id: 'profile-000000000009',
+        name: '口播竖屏',
+        pipelineId: 'story2video-compose',
+        snapshot: {
+          schemaVersion: 1,
+          kind: 'orchestrated',
+          s2vConfig: { voiceSpeed: 1.8 },
+          s2vOutputConfig: { resolution: '1080x1920', fps: 30, format: 'mp4' },
+        },
+        updatedAt: 1,
+      }],
+    })
+    const c = useCollectionVideoCreation()
+    await c.startVideoCreation({ text: '文案', configProfileId: 'profile-000000000009' })
+    const [, params] = mocks.pipelineStartOrchestrated.mock.calls[0]
+    // 档案里的值必须进到启动参数（默认值是 voiceSpeed=1 / resolution=720x1280）
+    expect(params.story2videoTextConfig.voice.speed).toBe(1.8)
+    expect(params.story2videoTextConfig.size).toBe('1080x1920')
+    expect(c.videoConfigProfileWarning.value).toBe('')
+  })
+
+  it('配置档案已不存在 ⇒ 视频照常出，但浮层里留一条**可见**提示', async () => {
+    mocks.story2videoConfigProfileList.mockResolvedValue({ code: 0, data: [] })
+    const c = useCollectionVideoCreation()
+    const started = await c.startVideoCreation({ text: '文案', configProfileId: 'profile-000000000099' })
+    expect(started).toBe(true)
+    expect(c.videoConfigProfileWarning.value).toBe('create.story2video.configProfile.notFound')
+  })
+
+  it('没选配置档案 ⇒ 不去读配置库（无谓的 IPC 也不发生）', async () => {
+    const c = useCollectionVideoCreation()
+    await c.startVideoCreation({ text: '文案' })
+    expect(mocks.story2videoConfigProfileList).not.toHaveBeenCalled()
+    expect(c.videoConfigProfileWarning.value).toBe('')
   })
 })
 

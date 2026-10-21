@@ -368,23 +368,60 @@ class HealthResponse(BaseModel):
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 
 
+def _account_identity_key(platform_account_id: Any) -> str | None:
+    """账号在**某个平台内**的身份标识：platform_account_id（强标识）。
+
+    返回 None 表示「这个账号没有可用的强标识」——采集器拿不到平台用户 ID 时就是空串
+    （头条号/百家号等平台的后台没有 `[data-account-id]` 属性，见
+    packages/shared-utils/src/account-profile.js:97-102）。**没有强标识不等于没有身份**，
+    只是此时无从判断它是否与别人重复，因此调用方必须允许它入库。
+
+    取值规则：只接受字符串；`None` / 空串 / 纯空白一律返回 None。
+    其它类型（int/float/list/dict）一律返回 None 而不是抛错或强转：
+      · 写入侧有 Pydantic 把关（`AccountCreateRequest.platform_account_id: str | None`），
+        非字符串在 HTTP 层就被 422 拒掉，到不了这里；
+      · 读取侧的数据来自 `accounts.json`，那是用户可手改的文件，历史脏值不可假设。
+        此时「当作没有强标识」比「抛异常让整个创建/启动去重失败」更稳——
+        与 `_normalize_account_status` / `_normalize_account_active` 的 fail-safe 同向：
+        读侧绝不让脏数据把功能打死。数字 ID 会被 `str()` 化后参与判重则更危险：
+        它会让「1」与「1.0」与「01」在 JSON 里看起来是不同账号，反而制造漏判。
+
+    ⛔ 不得改用 `name` 作为身份标识。`name` 是 auth-view-manager `document.title` 的
+    落盘位（见 apps/desktop/src/utils/account-display-name.js:14），采不到昵称时由
+    resolveCapturedDisplayName 回落成平台显示名（getPlatformName），于是同一平台的
+    N 个不同账号会全部同名。v4/v5 曾据此判重，导致「我有 3 个头条号，加第 2 个就报
+    此账号已添加过」（2026-10-21 用户实测，见 PRD §账号同平台多账号）。
+    """
+    if not isinstance(platform_account_id, str):
+        return None
+    return platform_account_id.strip() or None
+
+
 def _dedup_accounts_on_startup():
-    """启动时清理存量重复账号：同平台+同owner+同名，保留最新一条。
-    仅记录日志，不阻塞启动。"""
+    """启动时清理存量重复账号：同平台+同owner+同一 platform_account_id，保留最新一条。
+
+    判据与 create_account 完全同源（都走 _account_identity_key），否则会出现
+    「创建时允许同平台多账号、重启后又把它们清成一条」的自相矛盾。
+
+    ⛔ 不得按 name 去重：name 是 document.title 的落盘位，采不到平台用户 ID 时
+    同一平台的 N 个账号会全部回落成平台显示名而同名（2026-10-21 用户实测的
+    「3 个头条号被当成 1 个」正是这条路径）。仅记录日志，不阻塞启动。
+    """
     try:
         accounts = _load_accounts()
         if not accounts:
             return
         removed_ids = []
-        # key = (platform, owner_subject, name_lower), value = (account_id, created_at)
+        # key = (platform, owner_subject, platform_account_id)，value = (account_id, created_at)
         seen = {}
         for aid, acc in list(accounts.items()):
             platform = (acc.get("platform") or "").strip().lower()
             owner = (acc.get("owner_subject") or "").strip()
-            name = (acc.get("name") or "").strip().lower()
-            if not platform or not name:
+            identity = _account_identity_key(acc.get("platform_account_id"))
+            # 没有强标识的账号没有去重依据，一律保留（可能正是同平台的另一个号）
+            if not platform or not identity:
                 continue
-            key = (platform, owner, name)
+            key = (platform, owner, identity)
             created = acc.get("created_at", "")
             if key in seen:
                 existing_id, existing_created = seen[key]
@@ -525,24 +562,23 @@ def create_account(req: AccountCreateRequest, request: Request):
         raise HTTPException(status_code=400, detail=f"不支持的平台: {req.platform}") from None
 
     accounts = _load_accounts()
-    normalized_name = (req.name or "").strip().lower()
-    normalized_account_id = (req.platform_account_id or "").strip()
-    for existing in accounts.values():
-        if (
-            existing.get("platform") == pt.value
-            and _is_owned_by(existing, owner_subject)
-        ):
-            existing_account_id = (existing.get("platform_account_id") or "").strip()
-            existing_name = (existing.get("name") or "").strip().lower()
-            # 优先使用 platform_account_id 精确匹配（强标识）
-            if normalized_account_id and existing_account_id and normalized_account_id == existing_account_id:
-                raise HTTPException(status_code=409, detail="此账号已添加过")
-            # platform_account_id 都为空时，回退到名称匹配（弱标识，需完全一致）
-            if not normalized_account_id and not existing_account_id and existing_name == normalized_name:
-                raise HTTPException(status_code=409, detail="此账号已添加过")
-            # 一方有 platform_account_id 一方没有：若名称完全一致，仍判定为重复
-            # （同一账号重复添加时 ID 提取可能不一致，名称是稳定的兜底标识）
-            if existing_name and existing_name == normalized_name and normalized_name:
+    # 去重判据只有一条：同平台 + 同 owner + 同一 platform_account_id。
+    # 三者缺一都不判重——ID 为空（采不到平台用户 ID）时允许入库，由用户在界面上
+    # 自行命名区分，见 _account_identity_key 的 ⛔ 段。
+    #
+    # 关于「信任请求体里的 platform_account_id」：这不是新增攻击面。
+    # 判重只在 (platform, owner, id) 三者全同时命中，而能走到这里的调用方已持有
+    # account:manage scope 与该 owner 的合法 token；它列举得到的 ID 全都是**它自己**的
+    # （_is_owned_by 挡住了别人的），所以「构造已知 ID 触发 409」最多挡住它自己。
+    # 同一 scope 下 DELETE /api/accounts/{id} 的破坏力远大于此，属鉴权粒度问题而非本判据问题。
+    new_identity = _account_identity_key(req.platform_account_id)
+    if new_identity:
+        for existing in accounts.values():
+            if (
+                existing.get("platform") == pt.value
+                and _is_owned_by(existing, owner_subject)
+                and _account_identity_key(existing.get("platform_account_id")) == new_identity
+            ):
                 raise HTTPException(status_code=409, detail="此账号已添加过")
 
     account_id = str(uuid.uuid4())[:8]

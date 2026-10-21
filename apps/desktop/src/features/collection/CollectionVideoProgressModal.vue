@@ -26,6 +26,13 @@
         data-testid="collection-video-create-truncated"
       >⚠️ {{ $t('collection.videoCreate.textTruncated', { length: textTruncatedLength, max: textLimit }) }}</div>
 
+      <!-- 配置档案套用失败的提示：视频照常出，但必须告诉用户「你选的配置没生效」 -->
+      <div
+        v-if="configWarning"
+        class="collection-video-create-config-warning"
+        data-testid="collection-video-create-config-warning"
+      >⚠️ {{ configWarning }}</div>
+
       <StageProgress
         v-if="stages && stages.length"
         :stages="stages"
@@ -112,6 +119,7 @@ const props = defineProps({
   textTruncated: { type: Boolean, default: false },
   textTruncatedLength: { type: Number, default: 0 },
   textLimit: { type: Number, default: 0 },
+  configWarning: { type: String, default: '' },
 })
 
 const emit = defineEmits(['close', 'view', 'publish', 'retry', 'cancel'])
@@ -133,6 +141,15 @@ const pipelineLabelText = computed(() => t('collection.videoCreate.pipelineLabel
 }
 
 .collection-video-create-truncated {
+  font-size: var(--font-size-sm, 13px);
+  color: #b26a00;
+  background: #fff7e6;
+  border: 1px solid #ffe0a3;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.collection-video-create-config-warning {
   font-size: var(--font-size-sm, 13px);
   color: #b26a00;
   background: #fff7e6;

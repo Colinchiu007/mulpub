@@ -75,12 +75,24 @@
                      不可选中，选择必须显式。 -->
                 <option value="" disabled>{{ t('publishDestination.pipelineEmptyOption') }}</option>
                 <option
-                  v-for="p in pipelineOptions"
+                  v-for="p in resolvedPipelineOptions"
                   :key="p.value"
                   :value="p.value"
                 >{{ p.label }}</option>
               </select>
             </div>
+
+            <!-- 配置选择（publish-config-picker，2026-10-21）：
+                 与「流水线选择」并排的**配置档案**下拉，取的是该流水线已保存的命名组合配置。
+                 控件本体在 components/PublishDestinationConfigPicker.vue（浮窗文件受
+                 check-max-lines 的 500 行上限约束，配置选择器已独立出去）。 -->
+            <PublishDestinationConfigPicker
+              v-model="selectedConfigProfile"
+              :profiles="configProfiles"
+              :pipeline-id="selectedPipeline"
+              :loading="configProfilesLoading"
+              :failed="configProfilesFailed"
+            />
           </div>
         </div>
       </div>
@@ -90,8 +102,16 @@
 
 <script setup>
 import { VideoCamera } from '@element-plus/icons-vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { story2videoConfigProfileList } from '@/api/publisher'
+import { getPipelineName, TEXT_BASED_PIPELINE_IDS } from '@/i18n/pipeline-labels'
+import PublishDestinationConfigPicker from '@/components/PublishDestinationConfigPicker.vue'
+import {
+  buildPublishVideoSelection,
+  normalizeConfigProfiles,
+  resolveConfigSelection,
+} from '@/features/publish-destination/publish-destination-config'
 
 // S2：本组件此前全部文案是**硬编码中文**，而 `publishDestination.*` 的 locale 键
 // （title/subtitle/close/article/...）早已存在却无人使用 —— 英文界面下这里一直显示中文。
@@ -103,12 +123,9 @@ const props = defineProps({
   title: { type: String, default: '' },
   subtitle: { type: String, default: '' },
   closeAria: { type: String, default: '' },
-  pipelineOptions: {
-    type: Array,
-    default: () => [
-      { value: 'story2video-compose', label: '故事讲述' },
-    ],
-  },
+  // null = 用「文案型视频创作流水线」全集（与创作页带文案进入时的灰显判据同源）；
+  // 传数组则完全由调用方决定（既有调用方保持兼容）。
+  pipelineOptions: { type: Array, default: null },
   defaultPipeline: { type: String, default: 'story2video-compose' },
 })
 
@@ -121,6 +138,61 @@ const emit = defineEmits(['close', 'publish-article', 'publish-video'])
 
 const selectedPipeline = ref(props.defaultPipeline)
 
+// ── 流水线选项 ───────────────────────────────────────────────
+// 默认取「文案型」流水线全集：这条入口带的是**一段改写文案**，素材型/录屏型/内部冒烟
+// 流水线接不了文案，放进下拉只会让用户选到跑不起来的项。
+const resolvedPipelineOptions = computed(() => {
+  const provided = Array.isArray(props.pipelineOptions) ? props.pipelineOptions : null
+  if (provided && provided.length) {
+    return provided
+      .filter(item => item && typeof item.value === 'string' && item.value.trim())
+      .map(item => ({ value: item.value.trim(), label: String(item.label || item.value) }))
+  }
+  return TEXT_BASED_PIPELINE_IDS.map(id => ({ value: id, label: getPipelineName(t, id) }))
+})
+
+// ── 配置档案（config profile）─────────────────────────────────
+// 数据源与创作页「我的配置」完全同源（story2video:config-profile-list，设备级 userData 持久化），
+// 因此用户在任何流水线存下的配置，在别的入口也能选到。
+const configProfiles = ref([])
+const configProfilesLoading = ref(false)
+const configProfilesFailed = ref(false)
+const selectedConfigProfile = ref('')
+let configRequestId = 0
+
+async function loadConfigProfiles () {
+  const requestId = ++configRequestId
+  configProfilesLoading.value = true
+  configProfilesFailed.value = false
+  try {
+    const result = await story2videoConfigProfileList()
+    if (requestId !== configRequestId) return
+    if (!result || result.code !== 0) {
+      configProfiles.value = []
+      configProfilesFailed.value = true
+      return
+    }
+    configProfiles.value = normalizeConfigProfiles(result.data)
+  } catch (_) {
+    if (requestId !== configRequestId) return
+    configProfiles.value = []
+    configProfilesFailed.value = true
+  } finally {
+    if (requestId === configRequestId) configProfilesLoading.value = false
+  }
+}
+
+// 切换流水线 ⇒ 配置档案作废（配置属于某一条流水线，跨流水线套用是错误语义）
+watch(selectedPipeline, () => {
+  selectedConfigProfile.value = ''
+})
+
+// 弹窗每次打开都重新拉一次配置库：用户可能在创作页刚存了新配置
+watch(() => props.visible, (visible) => {
+  if (!visible) return
+  void loadConfigProfiles()
+}, { immediate: true })
+
 function close () {
   emit('close')
 }
@@ -130,7 +202,17 @@ function chooseArticle () {
 }
 
 function chooseVideo () {
-  emit('publish-video', selectedPipeline.value || 'story2video-compose')
+  const selection = resolveConfigSelection(configProfiles.value, selectedPipeline.value, selectedConfigProfile.value)
+  const payload = buildPublishVideoSelection({
+    pipelineId: selectedPipeline.value || props.defaultPipeline || 'story2video-compose',
+    configProfileId: selection.selectedId,
+    configProfileName: selection.selectedName,
+  })
+  // 第一个参数仍是流水线 id（既有调用方零改动兼容）；第二个参数是新增的配置选择详情。
+  emit('publish-video', payload.pipelineId, {
+    configProfileId: payload.configProfileId,
+    configProfileName: payload.configProfileName,
+  })
 }
 </script>
 
@@ -233,6 +315,7 @@ function chooseVideo () {
   align-items: center;
   gap: 10px;
   padding: 4px 18px 2px;
+  flex-wrap: wrap;
 }
 
 .pipeline-label {
