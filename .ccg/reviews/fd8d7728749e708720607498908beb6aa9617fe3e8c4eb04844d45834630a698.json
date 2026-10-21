@@ -48,10 +48,45 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（外部侧未返回），按引擎第三档出口 self_play 自查。本条改 electron 运行时 + shared-utils 能力注册表（混合 PR）。",
+    "closureNote": "round63 自查闭环。非高危面：不改判据本体/workflows/CI_IGNORED_PATHS；改动局限在探针正向判据与平台能力声明。",
+    "evidenceInRepo": "openspec/records/tt-upload-signal-fix.md（实时采样证据/两缺陷/修法/未验证项）+ 01-docs/PRD §16.32",
+    "confidenceWeight": 0.88,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "把「上传成功」加进 positive —— 会不会在别的平台上误判为已完成（假阳性放行）？",
+        "verdict": "upheld_partial",
+        "rationale": "有风险，我做了取舍但没做跨平台实测：① 只认「上传成功/上传完成/上传完毕」，**不认「重新上传」**——后者更可能出现在上传前的静态提示里；② P4 仍要求 `!uploading`（无\"上传中/转码中/剩余时间/上传失败\"文案、无可见进度元素、无 <100% 百分比），   所以\"文案命中但仍在传\"会被 uploading 挡住；③ 25s 稳定期先挡一道，任何信号在 25s 内都不采信。⚠ 未排除：某平台在**上传前**就渲染\"上传成功\"类说明（如帮助文案）。  目前没有该形态的证据，但也没做全平台排查。若日后出现，症状是\"过早放行\"→ 后续门禁仍会拦  （标题/正文/发布按钮），不会直接造成误发。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "跳过正文填充 = 把用户写的正文丢掉？这算不算静默丢数据？",
+        "verdict": "upheld_verified",
+        "rationale": "丢是事实（该页确实没有正文位），但**不是静默**：① `fillReport.content = { ok: true, skipped: \"no-body-field\" }` 会进诊断与日志可查；② 只在 `isNoBodyVideoPlatform(platform) && !!article.video_path` 时跳过，声明面在 JSON 里可审计；③ 门禁侧是 `noBodyPlatform` 显式入参，未声明平台不放宽。⚠ 但承认缺口：**用户界面上没有提示**\"该平台视频不支持正文，正文已忽略\"。  这需要新增用户可见文案（zh/en 成对），本轮未做——已列入后续项，不假装已闭合。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "你说修好了，但没真机复跑就开 PR —— 凭什么是\"修好\"？",
+        "verdict": "upheld_verified",
+        "rationale": "所以我**没有**说\"发布成功\"，PR 与记录里写的是\"修两处判据\"，并把「真机复跑」列为**未验证项**。证据边界很清楚：页面形状是实测的（实时采样），两处判据不匹配是**由实测数据直接推出**的（videoCount=0 / placeholder 不含\"标题\" / URL 不含 post/video / 4 个 editor 候选全 timeout）；但\"修完之后链路能走通\"**未被本次证明**。下一轮动作：应用同步到含本改动的代码 → 真机复跑 → 用 track/publishId 与页面终态判成败。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 1,
+      "upheldVerified": 2,
+      "note": "i1 承认跨平台假阳性未排查，说明三重防线（只认强文案/!uploading/25s 稳定期）且误判后果由后续门禁兜住；i2 承认正文被丢弃但非静默（fillReport+JSON 可审计），并如实指出 UI 无提示为未闭合项；i3 同意未真机复跑，强调文档只声称\"修判据\"不声称\"发布成功\"。"
+    },
+    "at": "2026-10-21T14:49:19.331Z"
   }
 }
