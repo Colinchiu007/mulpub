@@ -138,7 +138,7 @@ LEDGER_GREW: apps/desktop/src/views/RewriteView.vue 较登记值 1430 膨胀 201
 |---|---|---|---|
 | `apps/desktop/src/views/rewrite-view.css` | 全部 `<style scoped>` 内容（原样迁移） | 320 | −320 |
 | `apps/desktop/src/composables/useRewriteWordCount.js` | 字数区间状态 + 校验接线 + 自适应推导 | 67 | −15 |
-| `apps/desktop/src/composables/useRewriteStrategy.js` | 策略列表 + 预览 + 竞态守卫 + 防抖 | 120 | −58 |
+| `apps/desktop/src/composables/useRewriteStrategy.js` | 策略列表 + 预览 + 竞态守卫 + 防抖（i1 修复后含 effectScope 归属） | 142 | −58 |
 | `apps/desktop/src/composables/useRewriteLibrarySync.js` | 文案库两条回写路径 + djb2 哈希 | 94 | −60 |
 | — | 视图内的 import / 调用接线 | — | +11 |
 | **合计** | — | — | **≈ −453** |
@@ -609,7 +609,7 @@ apps/desktop/src/views/RewriteView.vue            （977 行）
 ## 十一、验收标准
 
 1. `RewriteView.vue` 实测行数 **≤ 1000**（实测 977）。
-2. 三个新 composable + 一个新 CSS 文件均 **< 500 行**（实测 67 / 120 / 94 / 320）。
+2. 三个新 composable + 一个新 CSS 文件均 **< 500 行**（实测 67 / 142 / 94 / 320）。
 3. §10.1 的 7 个既有测试文件**全绿**，且 `rewrite-lineage.test.js` / `CopyLibraryView.test.js` 两条结构锁**未被削弱**。
 4. 3 个新测试文件全绿（29 例）。
 5. `check-max-lines.js` / `check-debt-budget.js` 双 rc=0。
