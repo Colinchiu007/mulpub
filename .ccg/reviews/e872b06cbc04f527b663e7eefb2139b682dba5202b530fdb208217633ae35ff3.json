@@ -1,0 +1,89 @@
+{
+  "sha": "ef81036a848a281180d6e9b44cba711231b9d734",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 186 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 186,
+    "fileCount": 5,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e872b06cbc04f527b663e7eefb2139b682dba5202b530fdb208217633ae35ff3",
+  "decidedAt": "2026-10-21T04:37:46.200Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为发布失败诊断留存（改 electron 运行时）。",
+    "evidenceInRepo": "openspec/records/api-fallback-diag.md（动因/两处改动/TDD/读数/未闭合）；PRD §16.19",
+    "confidenceWeight": 0.85,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "你把 API 轨失败原因存进 `this._lastApiFailure`（实例字段）—— 并发发布时多个任务共享同一 RpaViewManager 实例，会不会互相覆盖？",
+        "verdict": "upheld_verified",
+        "rationale": "会，这是我主动识别的风险并做了**部分**缓解： · 缓解①：每次进入 API 轨前清空 `this._lastApiFailure = null`（防上一个任务的残留）； · 缓解②：合并时校验 `_lastApiFailure.platform === platform`（防跨平台串味）； · 测试③ 专门锁\"清空后不合并\"。 ⚠ 但**同一平台并发两个任务**仍可能互相覆盖（A 的 API 失败被 B 的 DOM 终态读到，或反之）。 更正确的做法是用 Map<sessionKey, diag> 按会话隔离 —— 本轮未做， 原因：会话键的构造方式（platform+accountId）在并发下的唯一性需要先确认， 盲目改用 Map 可能引入更隐蔽的键冲突。如实记为**已知残留**。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "safeResult 的\"逐层剥\"（3 层/40 键）会不会把关键诊断字段剥掉？",
+        "verdict": "upheld_verified",
+        "rationale": "可能，但发生条件很窄：只有 JSON 序列化**已经失败**（循环引用/不可序列化值）时才走剥层， 而正常 result（含 apiTrackFailed 这种扁平小对象）第一条路就成功了。 剥层策略本身也尽量保命：深度 3 层足够覆盖 `result.apiTrackFailed.error` 这种关键路径， 每层 40 键对诊断字段也绰绰有余。 ⚠ 诚实的边界：若某个关键字段在第 4 层或第 41 个键之后，仍会被剥掉。 但相比\"硬编码 null 全丢」，剥层是严格改进。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "这个改动**没有修复** publish timeout 本身，只是让它可观测 —— 价值是否被高估？",
+        "verdict": "upheld_verified",
+        "rationale": "没有被高估，我在记录 §五 明确写了\"抖音 E2E 仍未成功发布（timeout 未修，只是现在可定位）\"。 价值定位是**排障前置**：在没有任何分轨信息的情况下， 修 timeout 只能靠猜（API 轨问题还是 DOM 轨问题都分不清）； 有了诊断后，下次失败即可判断该修哪一轨。 这是\"先让失败可观测，再修失败」的正确顺序 —— 而不是反过来盲目改参数。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldVerified": 3,
+      "note": "i1 主动承认实例字段在平台内并发时会互相覆盖（已做清空+平台校验的部分缓解，Map 隔离留待确认会话键唯一性）；i2 说明剥层策略的适用边界（仅序列化失败时触发，关键路径在 3 层内）；i3 明确本次是排障前置而非修复 timeout，顺序是\"先可观测再修」。"
+    },
+    "at": "2026-10-21T04:39:02.159Z"
+  }
+}
