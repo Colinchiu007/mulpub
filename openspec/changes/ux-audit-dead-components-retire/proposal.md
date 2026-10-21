@@ -30,7 +30,7 @@ UX 审计阶段 1 的 1.3「不允许存在但无人渲染」。审计条目原�
   （`UpgradeModal` 的真实测试在 `UpgradeModal.test.js`）。
 - `main.js`：去掉 `LoadingState` 的 import 与 `app.component('LoadingState', …)` 全局注册。
 - `test-setup.js`：去掉测试全局组件表里的 `LoadingState`（镜像 main.js 的那份注册表）。
-- 新增**防复活锁** `components/dead-components.test.js`（6 条）：组件文件不得复活、代码行不得再出现
+- 新增**防复活锁** `components/dead-components.test.js`（终态 11 条）：组件文件不得复活、代码行不得再出现
   两个名字（注释与"断言它不存在"的反向守卫除外，且反向守卫本身被验证仍在做缺席断言）、
   `main.js` 与 `test-setup.js` 不得再注册 `LoadingState`、扫描域规模下界（防空集合假绿）。
 - 更正两处指向已删除文件的注释（`DashboardExtraPanels.vue` / `DashboardLockedPanel.vue`），
@@ -43,6 +43,6 @@ UX 审计阶段 1 的 1.3「不允许存在但无人渲染」。审计条目原�
 - Affected specs: `desktop-ui-consistency`（ADDED：已退役组件不得复活 + 全局注册表与真实用法必须同域对账）
 - Affected code: `apps/desktop/src/main.js`、`apps/desktop/test-setup.js`、
   `apps/desktop/src/features/dashboard/{DashboardExtraPanels,DashboardLockedPanel}.vue`（注释）
-- Affected tests: 删 3 个测试文件（含 1 个空壳）+ 新增 1 把锁（6 条）
+- Affected tests: 删 3 个测试文件（含 1 个空壳）+ 新增 1 把锁（11 条）
 - 风险：低但**非零** —— 删除的判据是"零渲染用法"，而注册点在 `src/` 之外还有一处（本批已实测踩到并修正）。
   因此本批的验证域按"谁 import 了它"反查（`git grep` 全域 + `test-setup.js` 显式核对），不只按模板用法。

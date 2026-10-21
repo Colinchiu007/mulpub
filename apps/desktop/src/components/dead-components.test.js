@@ -112,8 +112,36 @@ describe('已退役组件不得被重新接线', () => {
   // `indexOf("<Nothing")` 照样绿（本驱动 C3 实测就是这个 MISSED 形态）。
   it('反向守卫本身必须还在（防止把豁免清单当成可复用的洞）', () => {
     const guard = fs.readFileSync(path.resolve(SRC, 'views/Dashboard.style-guard.test.js'), 'utf8')
-    expect(guard, 'style-guard 必须仍在用 indexOf("<TrialBanner") 探测模板').toContain('indexOf("<TrialBanner")')
-    expect(guard, 'style-guard 的缺席期望（.toBe(-1)）必须仍在').toMatch(/\.toBe\(\s*-1\s*\)/)
+    // QM-6 第二轮 i2：这一半原先是**文件级双子串**判 —— `indexOf("<TrialBanner")` 出现在文件任意处、
+    // `.toBe(-1)` 出现在文件任意处即通过，两句不要求属于同一条语句。于是"把被探测的模板串换成硬编码
+    // 常量"（`const tpl = '<html></html>'`）会让守卫恒 -1、恒绿，而两个子串都还在 ⇒ 锁完全不知情。
+    // 现在按**语句 + 取值链**验：探测所在语句必须自己收 `.toBe(-1)`，且被探测的串必须真的来自
+    // readFileSync(Dashboard.vue) → parse(source) → descriptor.template.content 这条链。
+    const probeAt = guard.indexOf('indexOf("<TrialBanner")')
+    expect(probeAt, 'style-guard 必须仍在用 indexOf("<TrialBanner") 探测模板').toBeGreaterThan(-1)
+    const stmt = guard.slice(probeAt, guard.indexOf('.toBe(', probeAt) + 24)
+    expect(stmt, 'indexOf 探测所在语句必须自己断言 -1（缺席），不得靠文件别处的 .toBe(-1) 顶包')
+      .toMatch(/\.toBe\(\s*-1\s*\)/)
+    const recv = (guard.slice(Math.max(0, probeAt - 60), probeAt + 25).match(/(\w+)\.indexOf\("<TrialBanner"/) || [])[1]
+    expect(recv, '必须能解析出被探测的模板变量名（解析不到就是取值链判据失效，不得当成通过）').toBeTruthy()
+    // 绑定必须在**同一条 it 块内**查，不能全文件查：这个文件里还有三处
+    // `const tpl = descriptor.template.content`（别的用例），全文件判据对"只把守卫那条换成常量"
+    // 完全免疫 —— 变异 C9 第一轮就是这样 MISSED 的（本条锁自己的第一次实现被判据域写宽了）。
+    // 用「行首 + 空白 + it(」的形态找块起点，避免 `edit(` 这类子串把锚点顶走。
+    let blockStart = -1
+    const itRe = /^[ \t]*it\(/gm
+    let m
+    while ((m = itRe.exec(guard)) !== null) {
+      if (m.index < probeAt) blockStart = m.index
+      else break
+    }
+    expect(blockStart, '必须定位到守卫所在的 it 块起点').toBeGreaterThan(-1)
+    const guardBlock = guard.slice(blockStart, probeAt)
+    expect(guardBlock, '被探测变量必须由 descriptor.template.content 赋值（换成常量即恒 -1，守卫变装饰）')
+      .toMatch(new RegExp('const\\s+' + recv + '\\s*=\\s*descriptor\\.template\\.content'))
+    expect(guard, 'descriptor 必须由 parse(source) 得到').toMatch(/const\s+descriptor\s*=\s*parse\(\s*source\b/)
+    expect(guard, 'source 必须由 readFileSync("Dashboard.vue") 得到')
+      .toMatch(/const\s+source\s*=\s*readFileSync\(\s*path\.join\(__dirname,\s*"Dashboard\.vue"\)/)
     const dash = fs.readFileSync(path.resolve(SRC, 'views/Dashboard.test.js'), 'utf8')
     // QM-6 i1：这一半此前只断言"名字在场"，那不构成对偶锁 ——
     // 有人把缺席断言改成正面断言（`expect(...exists()).toBe(true)`）时名字照样在场，锁全绿而洞开着。
@@ -145,6 +173,20 @@ describe('已退役组件不得被重新接线', () => {
     const src = code(raw)
     expect(src, "contrast-probe.js 的 CASES 仍按 .banner-text 取元素：该类名只存在于已撤下的横幅里").not.toContain("'.banner-text'")
     expect(raw, 'dashboard 这一档不得被整条删掉（删掉等于该页对比度再无人看）').toContain("'.stat-label'")
+    // QM-6 第二轮 i1：只断"探针文件文本里含 '.stat-label'"是把缺陷**搬迁**而不是消除 ——
+    // 目标类名若不在看板页渲染树里，探针照样 0 命中；类名将来改名，照样静默。
+    // ① 目标必须真的在被测页模板里存在（同源核对，取属性名而非整串类名，容忍修饰类）。
+    const dashTpl = fs.readFileSync(path.resolve(SRC, 'views', 'Dashboard.vue'), 'utf8')
+    const probeSel = (raw.match(/\['dashboard',\s*'\/dashboard',\s*'([^']+)'\]/) || [])[1]
+    expect(probeSel, '必须能解析出 dashboard 这一档的探针选择器').toBeTruthy()
+    expect(probeSel.startsWith('.'), '该档选择器必须是类名（本判据按类名核对）').toBe(true)
+    const probeCls = probeSel.slice(1)
+    expect(dashTpl, `Dashboard.vue 模板里找不到探针目标类 "${probeCls}"：该档会恒 0 命中，等于从未被测`)
+      .toMatch(new RegExp('class="[^"]*\\b' + probeCls.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '\\b'))
+    // ② 缺目标必须**汇总出声并以非零码退出**：逐条 continue 会让"跑了 4 条"读起来像"量了 4 条"。
+    expect(raw, '探针必须打印 [PROBE-SUMMARY]（measured/missed 两个数）').toContain('[PROBE-SUMMARY]')
+    expect(raw, '有目标没量到时探针必须以非零码退出，不得 0 收尾')
+      .toMatch(/process\.exitCode\s*=\s*missed\.length\s*\?\s*1\s*:\s*0/)
   })
 
   // QM-6 i2 的回归保护：注释剥离器两个方向的失效都曾被指出，这里逐个钉住。

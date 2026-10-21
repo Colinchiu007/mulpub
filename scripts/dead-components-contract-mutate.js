@@ -118,10 +118,36 @@ const MUTATIONS = [
     to: "['dashboard', '/dashboard', '.banner-text'],",
     expect: ['对比度探针不得再指向已撤组件的类名'],
   },
+  {
+    id: 'C9',
+    label: '守卫探测的模板串被换成硬编码常量（indexOf 恒 -1、守卫恒绿，两个子串却都还在）',
+    file: STYLE_GUARD,
+    from:
+      '    const tpl = descriptor.template.content;' + '\n' +
+      '    const bannerIdx = tpl.indexOf("<TrialBanner");',
+    to:
+      '    const tpl = "<html></html>";' + '\n' +
+      '    const bannerIdx = tpl.indexOf("<TrialBanner");',
+    // 旧的文件级双子串判据对这一改完全免疫；QM-6 第二轮 i2 命中的就是这里。
+    expect: ['反向守卫本身必须还在（防止把豁免清单当成可复用的洞）'],
+  },
+  {
+    id: 'C10',
+    label: '探针量不到目标时退回 0 收尾（跑了 4 条会被读成量了 4 条）',
+    file: PROBE,
+    from: '  process.exitCode = missed.length ? 1 : 0',
+    to: '  process.exitCode = 0',
+    expect: ['对比度探针不得再指向已撤组件的类名'],
+  },
 ]
 
+// QM-6 i5：`pnpm.cmd` 是 Windows 专有文件名。任务 #23 要把这类驱动接进 CI（Linux runner），
+// 那里 spawn 失败 ⇒ vitest 零输出 ⇒ 基线被 blind 判据拒跑（rc=2），7~10 道反证一条都不跑，
+// 而失效形态读起来完全像"环境问题"。命令名必须按平台选，不能只在这台机器上成立。
+const RUNNER = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+
 function runVitest () {
-  const res = spawnSync('pnpm.cmd', ['exec', 'vitest', 'run', ...TEST_FILES], {
+  const res = spawnSync(RUNNER, ['exec', 'vitest', 'run', ...TEST_FILES], {
     cwd: DESKTOP, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell: true,
   })
   // ANSI 必须先剥：vitest 把汇总行的数字包在 `\x1b[1m\x1b[31m1 failed\x1b[39m\x1b[22m` 里，

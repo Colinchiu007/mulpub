@@ -18,7 +18,7 @@ sync_backfill_owner: none-derived-from-trunk
 | 删除面完整性 | ✅ | `TrialBanner.vue` / `TrialBanner.test.js` / `LoadingState.vue` / `LoadingState.test.js` / `more-tests.test.js` 共 5 文件 `git rm`；注册点两处：`src/main.js` 与 **`apps/desktop/test-setup.js`**（见「二、验证域踩坑」） |
 | 自测（新增面） | ✅ | `vitest run src/components/dead-components.test.js src/components/UpgradeModal.test.js src/views/Dashboard.style-guard.test.js src/views/Dashboard.test.js` → **4 files passed / Tests 56 passed**，rc=0 |
 | 自测（全域） | ✅ | `vitest run src`（402 个测试文件）首跑读数 **2 failed / 6386 passed / 2 skipped (6390)**，rc=1。两条红都来自 `src/overlay-view-suspension.test.js` 的「preload index.bundle.js 已重打包」，真因是 `ENoENT`——被读的 `apps/desktop/electron/preload/index.bundle.js` 由 `.gitignore:474` 忽略且不在 git 里，全新 worktree 必然没有它。**不是回归**：跑一次 `pnpm run build:preload` 后同一文件 **22 passed / 0 failed** ⇒ 换算后全域读数 **0 failed / 6388 passed / 2 skipped (6390)**。聚合 `eslint` rc=0。对照基线：同一条命令在共享主工作区（main tip）跑同一文件报 **4 failed**，本 worktree 反而更少 ⇒ 既非本批引入也非本批加重。 |
-| 反证（8 道） | ✅ | `node scripts/dead-components-contract-mutate.js`，末行读数 `[BASELINE] rc=0 failed=0 passed=11 collected=11 errors=0 blind=false` ⇒ `[SUMMARY] 共 8 条：CAUGHT=8 其余=0`，驱动 rc=0。注入形态：C1 测试宿主把 `LoadingState: EmptyState` 加回全局注册表 / C2 `main.js` 重新注册 / C3 反向守卫的探针换名字 / C4 扫描根退化成不存在的目录 / C5 重建组件空壳文件；C1–C5 之后的 C6/C7/C8 是 QM-6 第一轮命中后补的（见 §四）：C6 接线藏进「行首块注释 + 同行代码」/ C7 缺席断言翻成正面断言 / C8 探针仍按已撤组件类名取元素 |
+| 反证（10 道） | ✅ | `node scripts/dead-components-contract-mutate.js`，末行读数 `[BASELINE] rc=0 failed=0 passed=11 collected=11 errors=0 blind=false` ⇒ `[SUMMARY] 共 10 条：CAUGHT=10 其余=0`，驱动 rc=0，十条各打 `RESTORE_OK`。首轮读数为 8 道 CAUGHT=8；第二轮补 C9/C10（其中 C9 第一次跑是 **MISSED**，暴露我的链式判据写成"全文件查"——见 §四之二）。注入形态：C1 测试宿主把 `LoadingState: EmptyState` 加回全局注册表 / C2 `main.js` 重新注册 / C3 反向守卫的探针换名字 / C4 扫描根退化成不存在的目录 / C5 重建组件空壳文件；C1–C5 之后的 C6/C7/C8 是 QM-6 第一轮命中后补的，C9/C10 是第二轮命中后补的（C9=把守卫探测的模板串换成硬编码常量；C10=探针量不到目标时退回 0 收尾）（见 §四）：C6 接线藏进「行首块注释 + 同行代码」/ C7 缺席断言翻成正面断言 / C8 探针仍按已撤组件类名取元素 |
 | 静态门禁 | ✅ | `check-unwired-tests.js` → `检查域内测试文件 119 个 / OK: 全部测试均已接线或按欠账登记`（新增的 `dead-components.test.js` 由 vitest workspace 收集，不需另接）；`check-no-brand-residue.js` → `PASS（扫描 11559 个 tracked 文件，无品牌残留）`；`check-doc-abs-paths.js` → `PASS … counts=1161 domain=5130 files=561 canJudge=true`（新 PRD 只用相对路径）；聚合 `eslint` rc=0。本批只删不增文案 ⇒ 无 locale 成对面 |
 | 行尾对账 | ✅ | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` 两口径逐字一致（不一致即说明行尾被改）。做法：新脚本一律 LF，改既有 CRLF 文档由补丁脚本按行保留各自行尾（`split('\n')` 后不碰行内容），写完后当场对账 |
 | QM-1 打包 | N/A | 未触碰 `apps/desktop/electron/**` 与 `packages/rpa-engine/**`；`test-setup.js` 与 `src/main.js` 属渲染端测试宿主/入口 |
@@ -153,6 +153,43 @@ PR #4212 首跑 `QG Static` 红，3 条用例同时红在 `scripts/check-ui-wire
 改后本机读数：`node scripts/check-ui-wired.js --json` → `零引用=5 / 登记=5` + `[ui-wired] PASS`，
 `node --test scripts/check-ui-wired.test.js` → `tests 10 / pass 10 / fail 0`（rc 单独取，未走管道）。
 行尾对账：`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 同为 `0 3`（纯删除 3 行，无行尾改写）。
+
+## 四之三、QM-6 第二轮（2026-10-22，为新 HEAD 重跑真跨家族的实测）
+
+**先记一条机制事实**：本批专门试了一次"跑 `sh scripts/deep-review.sh` 拿真跨家族复核来闭合欠账"。
+结果是 critic=claude 出 10 条、最低分 6，引擎仍判 `status=self_play reason=selfPlay` 并落到第三档自扮演裁决
+（`♻ 复用存档 critique（10 条）+ 已填完的裁决 —— 跳过模型调用`）。⇒ **"跑外部深度审查"本身并不产生闭环出口**，
+引擎的收敛条件拿不到第二轮跨家族，就只会把裁决权交回 agent。这条读数对任务 #19 有用：
+欠账不是"我没跑评审"，是机制里根本没有"upheld 且已修"这一格。
+
+裁决产物：`.ccg/reviews/7d135c4d….json`（`mode=dual`，`status=self_play_blocked`，5 条 `self_play_upheld`）
+⇒ `check-pr-exec-record --mode=enforce` 仍 RC=1 ⇒ **本条 PR 仍不自动合并**。
+
+| # | 指控要点 | 复现读数 | 处置 |
+| --- | --- | --- | --- |
+| i1 | 探针换目标后无人验证新目标存在；缺目标沿 `if (!res.found) continue` 跳过 ⇒ "从未被测"只是被搬迁 | 成立（它出声，但没有断言、没接 CI，人工盯日志不是锁） | 锁 7 改成①从 `CASES` **解析**选择器再回查 `Dashboard.vue` 的 `class="…"` 里真有该类名（解析不到即红）；②探针打印 `[PROBE-SUMMARY] measured=/missed=` 且 missed>0 时非零退出。新增变异 **C10** 实测 CAUGHT |
+| i2 | 第 5 条的 style-guard 一半仍是"文件级双子串"：把被探测的 `tpl` 换成硬编码常量，`indexOf` 恒 -1、守卫恒绿、两个子串都还在 | 成立 | 改成**语句 + 取值链**判，且判据域**按 it 块界定**：`indexOf` 所在语句须自收 `.toBe(-1)`；被探测变量须在守卫所在的同一条 it 块内绑到 `descriptor.template.content`，并核 `readFileSync(Dashboard.vue) → parse(source)` 链。新增变异 **C9** 实测 CAUGHT |
+| i3 | 同一批产物在 5 份文档里是 6/11/5/8 四种数量口径，跨文档对不上号 | 成立 | PRD §5 整节重写为十一条口径；proposal / tasks 3.1 改终态 11 条；tasks 3.3 的 `CAUGHT=5/5` 改 `10/10` 并写明 5→8→10 来路；审计文档落地记录的"（5 道）"与旧 C3 描述同步到当前形态 |
+| i4 | QM-6 只裁了引擎收敛的 4 条，评审原文 i5–i10 无处置；且三处实体缺陷仍在：驱动未使用的 `DASH_VUE`、`.openspec.yaml` created=10-22、tokens.css 的暗档 `.banner-btn` 孤儿规则 | **三条实体指控里两条为误判**：`DASH_VUE` 在驱动 :87 被用作某条变异的 `file` 字段（删它会把变异打成 FILE_MISSING）；`tokens.css:407` 的 `.banner-btn` 有**在用**消费方 `LoginExpiredBanner.vue:15/:20`，它不是 TrialBanner 的孤儿，**照建议删会造成暗档按钮失去配色的回归**。第三条成立但归因不同：`created: 2026-10-22` 是提交时本机本地时钟（UTC 仍 10-21），问题是它与 PRD/记录/审计文档的 10-21 不同源 | 误判的两条**不照做**并留取证；日期改为与文档同源的 `2026-10-21` 并注明时区来路。真正成立的是**覆盖度读法**：见下段口径声明 |
+| i5 | 驱动硬编码 `spawnSync('pnpm.cmd')`，Linux runner 上基线读成 blind ⇒ 驱动在 CI 里永不工作 | 成立 | `RUNNER = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'`；其余三个驱动的同型缺陷随任务 #23 接线时统一收敛 |
+
+### 覆盖度口径（i4 里真正成立的那一半，明确写下来）
+
+第一轮 `critic=claude` 出了 **10 条**，引擎只收敛出 4 条进裁决；第二轮同理（10 条 → 5 条）。
+**未被收敛的那些条目没有逐条处置记录**，本记录不声称覆盖全部评审原文——
+原文已入库（`.ccg/reviews/dead-components-r1-critique.md`，以及本轮
+`.adversarial/ccg-deep-7d135c4d/critique-v1.md` 的内容由判定记录 `findings` 承载），
+供人工抽查时对照。把没收敛的条目也写成"已修"就是拿文档掩盖处置缺口，这里刻意不做。
+
+### 本轮自己错的一处（写下来防重抄）
+
+C9 第一次跑是 **MISSED**。我把新增的绑定判据写成"全文件查 `const tpl = descriptor.template.content`"，
+而同一文件另有三处同名赋值（`:103/:181/:187`）——替换守卫那一条时，别处的那一条照样命中，
+判据全域化把自己变成了装饰。**判据域必须与被保护语句同域**：改成先按行首 `it(` 形态找块起点、
+再在块内查绑定，C9 才红得起来。起点锚用形态匹配而不是 `lastIndexOf('it(')`，
+因为 `edit(` 这类子串同样含 `it(`，会把块起点顶走。
+
+
 
 ## 五、遗留
 

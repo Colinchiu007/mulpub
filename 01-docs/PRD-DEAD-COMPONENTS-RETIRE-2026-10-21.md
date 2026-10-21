@@ -52,17 +52,30 @@
 
 ## 5. 锁的口径（本批真正的技术内容）
 
-`dead-components.test.js` 六条：
+`dead-components.test.js` 十一条（编号即 `it()` 标题顺序，复核：`grep -c "^  it(" src/components/dead-components.test.js`）：
 
-1. **扫描域规模下界**（`scanned > 100`）：空集合会让"零引用"读起来完全像通过。
-2. **组件文件不得复活**：`TrialBanner.vue` / `LoadingState.vue` 必须不存在。
-3. **`TrialBanner` 不得再出现在代码行**（豁免两个反向守卫）。
-4. **`LoadingState` 不得再出现在代码行**，并额外直接断言 `main.js` 没有 `app.component('LoadingState'`。
-5. **反向守卫本身必须还在**：`Dashboard.style-guard.test.js` 仍含 `<TrialBanner` 缺席断言、
-   `Dashboard.test.js` 仍含 `TrialBanner` 的 `findComponent` 缺席断言。
-   没有这条，豁免清单就是一个可复用的洞（"禁令必须配正向对偶"同族）。
-6. 判据先**剥行注释**再匹配：解释"为什么删"的注释必然提到被禁名字，按整文件匹配会把说明判成违规。
-
+1. **扫描域必须非空**：空集合会让"零引用"读起来完全像通过。
+2. **组件文件本身不得复活**：`TrialBanner.vue` / `LoadingState.vue` 必须不存在（建空壳也算复活）。
+3. **代码里不得再出现 `TrialBanner`** 的 import 或模板用法（剥注释后匹配，豁免两个反向守卫）。
+4. **代码里不得再出现 `LoadingState`**，并额外直接断言 `main.js` 没有 `app.component('LoadingState'`。
+5. **反向守卫本身必须还在** —— QM-6 第二轮 i2 的处置把它从"文件级双子串"升级成"语句 + 取值链"：
+   `Dashboard.style-guard.test.js` 里 `indexOf("<TrialBanner")` 所在语句必须自己收 `.toBe(-1)`；
+   被探测变量必须在**同一条 it 块内**绑定到 `descriptor.template.content`，该 `descriptor` 又必须来自
+   `parse(source)` ← `readFileSync(... "Dashboard.vue")`。理由：把守卫探测的串换成硬编码常量
+   （`const tpl = "<html></html>"`）时 `indexOf` 恒 -1、守卫恒绿，而旧判据的两个子串都还在文件里 ——
+   变异 C9 就是这一形态；且绑定必须按 it 块查、不得全文件查（全文件查时第一轮 C9 MISSED，
+   因为同文件另有三处同名赋值）。`Dashboard.test.js` 那半边按行形状验：
+   同一行必须同时有 `findComponent({name:"TrialBanner"})` 与 `.toBe(false)`。
+6. **测试宿主 `test-setup.js` 不得再注册已退役组件**（它在 `src/` 之外，是 main.js 全局注册表的镜像写者）。
+7. **对比度探针不得再指向已撤组件的类名** —— QM-6 第二轮 i1 的处置，从"文本含新类名"升级为两条：
+   ① 探针目标类必须在 `Dashboard.vue` 模板里**真实存在**（按 `class="…"` 属性逐项核对，选择器先从
+   `CASES` 里解析出来，不许写死；解析不到一律判红）；② 探针脚本必须打印
+   `[PROBE-SUMMARY] cases=/measured=/missed=` 并在有目标没量到时**以非零码退出** ——
+   逐条 `continue` 会让"跑了 4 条"读起来像"量了 4 条"，而这个脚本没有断言，
+   退出码与这行汇总是它唯一的防自欺手段（变异 C10 攻的就是这一格）。
+8-11. **`code()` 剥注释器的四条直接测试**：同行"注释 + 代码"不得吃掉代码（漏报方向）、
+   跨行块注释必须整块剥（误报方向）、HTML 注释与行尾注释要剥但不得动行首代码、
+   不得误伤 URL 里的双斜杠（`https://` 协议判据同族坑）。
 ## 6. 反证（可复跑驱动，逐条实测）
 
 判据是"文件/字符串"形态且**豁免清单只能缩小**，一次人工注入不足以让下一个会话复验，
