@@ -108,6 +108,9 @@
     ],
     "blocking": [],
     "note": "自扮演裁决：全部指控不成立",
-    "at": "2026-10-21T04:17:11.361Z"
+    "at": "2026-10-21T04:17:11.361Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4024#issuecomment-6307983833",
+    "evidenceNote": "tier/evidence 由会话按真实交付手写（引擎侧写入尚未落地，tasks 8.1b / change qm6-closure-writeback）；出处是公开可点开的 PR 评论，内容不可事后改写。评审确实跑过：critic=claude / proposer=opencode，5 条发现逐条裁决见 .adversarial/ccg-deep-89ee028e/（被 gitignore，不进 PR）。"
   }
 }
