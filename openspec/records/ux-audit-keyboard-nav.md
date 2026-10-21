@@ -89,3 +89,7 @@ sync_backfill_owner: none-derived-from-trunk
    调用点集合锁只在有人新增 `useVisibleNavigation(` 而未登记时红，**不会**把旧入口拉进来；
    清点那条属阶段 3.2 / 5.x 的域。
 3. 「覆盖层背后跳转看不见」的最终观测需要真机或像素级证据；本批只有行为锁，未做真机验证。
+
+## 远程同步
+
+| 远程同步 | 由门禁推导 | 本行**不事后改写**：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（只认 squash 尾注 `(#NNNN)`，PR 号为 #4209）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇还不在基线上 ⇒ 判 `byDesign` 不红；把状态列预写成 `PASS` 会被 `prematureClaims` 判红。**本行的存在本身就是判据**：`check-gate-record-debt.js` 对「整块缺 远程同步 行」的新记录当场判红 —— 本 PR 第一次 CI 就是这样拦下的（只写了 frontmatter 的 `sync_pr/sync_status` 不够，那几个键是**意图声明**，不能替代这一行；main push 回读证据写在 PR 评论里，不写回本文件）。|
