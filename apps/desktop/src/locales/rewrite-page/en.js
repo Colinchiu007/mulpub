@@ -60,6 +60,12 @@ export default {
     // result card when the engine trims output to the word-count/strategy cap;
     // length = actual output chars, max = effective cap
     outputTruncated: 'The rewrite was trimmed to the output limit: {length} chars written (limit {max}). The tail of the source text is not included. Raise the word-count cap for a full rewrite.',
+    // Post-check sensitive-content warning (rewrite-sensitive-precheck-relax follow-up, 2026-10-21):
+    // the pre-check block was removed (an 8000-char history piece was once rejected for the
+    // single word "explosion"), so post-check warnings are the only remaining signal.
+    // Warning level, not a red error — the rewrite succeeded; this only asks for review.
+    // words = matched terms (or the engine's note), joined from the warnings array.
+    rewriteSensitiveWarning: 'The rewrite may contain sensitive content — please review before publishing: {words}',
     // Model-side truncation (rewrite-segment-and-finish-reason): provider finished with
     // a length/max_tokens reason — distinct from engine trimming; raising the cap may not help.
     outputTruncatedByModel: 'The model hit its own generation limit and stopped: {length} chars written. This is a provider-side limit; raising the word-count cap may not help — consider segmented rewriting.',

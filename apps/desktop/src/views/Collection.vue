@@ -226,6 +226,14 @@
                 class="col-error-banner"
                 data-testid="collection-rewrite-truncated"
               >{{ $t('rewritePage.outputTruncated', { length: rewriteOutputTruncatedInfo.length, max: rewriteOutputTruncatedInfo.max }) }}</span>
+              <!-- 敏感词警告（rewrite-sensitive-precheck-relax 收尾，2026-10-21）：
+                   前置拦截已关，后置 warnings 是唯一防线。用 warning 级样式（col-warn-banner）
+                   而非红色错误条——结果是成功的，只是提醒人工审核，两者语义不能混。 -->
+              <span
+                v-if="rewriteSensitiveWarnings.length > 0"
+                class="col-warn-banner"
+                data-testid="collection-rewrite-sensitive"
+              >{{ $t('rewritePage.rewriteSensitiveWarning', { words: rewriteSensitiveWarnings.join('；') }) }}</span>
             </div>
             <div class="rewrite-compare col-compare">
               <div>
@@ -706,6 +714,13 @@ const rewriteOutputTruncatedInfo = ref(null)
 const rewriteModelTruncatedInfo = ref(null)
 const rewriteOutputLength = ref(0)
 const rewriteOriginalLength = ref(0)
+// 敏感词警告（rewrite-sensitive-precheck-relax 收尾，2026-10-21）：
+// 引擎的前置拦截已关（用户 8000 字越华史料只因「爆炸」一词被整篇拒绝），
+// 保留的**后置**检测会在 warnings 里提醒「改写结果可能包含敏感内容，请人工审核」。
+// 但本页此前只挑 result_content/knowledgeRefs/meta，warnings 被静默丢弃
+// ⇒ 四个改写入口（视频转写 / stealth 自动 / 聚合回退 / 手动改写）零提示，
+// 「保留后置提醒」这半条防线在采集页实际不成立。这里把 warnings 收进状态并展示。
+const rewriteSensitiveWarnings = ref([])
 const useViralLibrary = ref(true)
 const usePersonalExperience = ref(false)
 // 改写策略（2026-09-15 补齐）：与 RewriteView / AiWriterPanel 同契约
@@ -799,6 +814,9 @@ function clearRewriteResult () {
   rewriteModelTruncatedInfo.value = null
   rewriteOutputLength.value = 0
   rewriteOriginalLength.value = 0
+  // 敏感词警告与元信息是同一个产出的另两半（rewrite-sensitive-precheck-relax 收尾）：
+  // 不复位就会在「清空」后残留上一轮的「可能包含敏感内容」提示，看起来像在警告当前这篇。
+  rewriteSensitiveWarnings.value = []
 }
 
 /**
@@ -934,6 +952,20 @@ async function rewriteViaEngine (content) {
     // 这里统一收进 meta，供调用方决定是否提示（引擎截断 / 模型截断 / 分段改写）。
     // 元信息落状态也放在这里（唯一写点）：5 个改写调用点各写一遍必然漂移。
     applyRewriteMeta(res.data, prepared.originalLength)
+    // 敏感词警告透传（rewrite-sensitive-precheck-relax 收尾）：
+    // 前置拦截已关，后置 warnings 是用户唯一能看到的敏感词提示。历史上成功分支
+    // 只挑 result_content/knowledgeRefs/meta，warnings 被静默丢弃 ⇒ 采集页零提示。
+    // 归一化为数组（旧版引擎信封没有这个字段；null/非数组都按「无警告」处理）。
+    const sensitiveWarnings = Array.isArray(res.data.warnings) ? res.data.warnings.slice() : []
+    rewriteSensitiveWarnings.value = sensitiveWarnings
+    // warning 级通知放在漏斗里（唯一发声点）：四个调用点（视频转写 / stealth 自动 /
+    // 聚合回退 / 手动改写）各写一遍必然漂移，且漏一个就等于该入口静默丢弃。
+    // 只提醒一次、不阻断结果——结果是成功的，用户仍可继续编辑发布。
+    if (sensitiveWarnings.length > 0) {
+      notifyWarning('rewritePage.rewriteSensitiveWarning', {
+        params: { words: sensitiveWarnings.join('；') },
+      })
+    }
     return {
       result_content: res.data.result,
       knowledgeRefs: res.data.knowledgeRefs || [],
@@ -942,6 +974,7 @@ async function rewriteViaEngine (content) {
         outputLength: res.data.outputLength,
         modelTruncated: res.data.modelTruncated === true,
         segmented: res.data.segmented || null,
+        warnings: sensitiveWarnings,
       },
     }
   }

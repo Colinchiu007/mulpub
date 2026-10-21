@@ -89,6 +89,44 @@
 1. 凡是引擎/后端已经产出、而某个界面**可能**要展示的字段，接线时要连**消费端**一起锁测试（断言渲染结果，不只断言信封字段）。
 2. 分型要分到「用户能据此行动」的粒度：引擎砍尾 ⇒ 调大区间**有效**；模型侧截断 ⇒ 调大区间**不一定有效**——两种都叫「截断」，但给用户的建议相反。
 3. 派生值要断言**完整形状**（`toEqual`），不能只断言渲染出的文案：纯函数自身有单测 ≠ 页面上的派生值形状被锁住了（两者之间还隔着写点那一层，字段名一漂横幅就静默失效）。
+## 形状断言锁的是「已实现的字段」——新字段进来时它当场红，那是规则在起作用，不是测试失效（fix-rewrite-warnings-consume，2026-10-21）
+
+### lesson: shape-assertion-red-is-the-rule-working
+
+**现场**：给采集页加 `warnings` 透传后，`Collection.rewrite-input-limit.test.js` 的两处 `expect(r.meta).toEqual({ outputTruncated, outputLength, modelTruncated, segmented })` 当场红。第一反应是「我把别人的测试搞坏了」，但细看：那两处正是「评审 i6：断言派生对象的**完整形状**，不只断言渲染出的文案——形状漂移（字段改名/少字段）会让横幅静默失效」的落地。它抓住的恰是「meta 多了第五个字段」这个事实。
+
+**判据**：改**共享返回结构**（meta / 信封 / store 快照）时，先 grep 所有 `toEqual({...})` 形式的形状断言——它们会红，而且**应该**红。修法是把这个字段加进断言并写清「信封里没有该字段时归一化成什么」，而不是放宽成 `toMatchObject`。放宽成部分匹配的那一刻，这条防线就再也抓不到「将来又有人加字段但某个消费点忘了透传」。
+
+**推论（本轮真实发生）**：同一个文件里既有形状断言又有普通断言的测试套件，形状断言那几例是**最值钱的几例**——它们把「引擎新增可见字段被静默丢弃」这类事故（评审 M5 记录的原事故：成功分支只挑 result_content，引擎新增字段全丢）钉死在了契约层。
+
+## 「保留后置提醒」不是把 warnings 加进返回体就完了——每个消费点都要单独确认它真的会响（fix-rewrite-warnings-consume，2026-10-21）
+
+### lesson: defense-needs-per-consumer-verification
+
+**现场**：PR #4103 的方案是「B+：关前置拦截、**留后置检测**」。实现上 warnings 确实回到了渲染层，但外部审查发现：改写页 `RewriteView.vue:890` 与 AI 面板 `AiWriterPanel.vue:368` 把它写进了**红色错误区**（`rewriteError` / `panelError`），而采集页 `Collection.vue` 的 `rewriteViaEngine` **完全丢弃** warnings。也就是说这条防线在两个页面「响了但样式错」，在一个页面「没响」。
+
+**根因**：验收时只验证了「引擎会返回 warnings」这一层，没有逐个消费点问「用户在这里看不看得到、看到的是什么级别」。
+
+**判据**：凡是「保留 X 作为唯一防线」的取舍，验收清单必须是**消费点矩阵**而非单点验证：
+| 消费点 | 会不会响 | 响成什么级别 |
+|---|---|---|
+| 改写页 | ✅ 但红色错误（错） | error |
+| AI 面板 | ✅ 但红色错误（错） | error |
+| 采集页 4 入口 | ❌ 静默丢弃 | — |
+
+修复时把发声点放在**漏斗内唯一位置**（`rewriteViaEngine` 而非 4 个调用点），因为「四个调用点各写一遍必然漂移，漏一个即该入口静默丢弃」——这与本仓反复出现的「同一逻辑抄成第二份就是下一个 bug」同族。
+
+## 未入库的新文件用 `git checkout --` 恢复不了；而自证时 grep 单个字符串会命中同文件的另一处正常代码（fix-rewrite-warnings-consume，2026-10-21）
+
+### lesson: mutation-restore-and-self-verify-pitfalls
+
+**现场**：变异测试后恢复源码，先跑 `git checkout -- packages/rewrite-engine/src/sensitive-check.js` ⇒ 报 `did not match any file(s) known to git`（该文件是本次新增、尚未 commit）。接着用 `grep 'blocked: false,'` 自证「已恢复」⇒ 命中，遂认为成功。**实际变异还在**：命中的是第 39 行 `if (!filter) return { blocked: false, hits: [] }` 这个**另一处正常返回**，而被改坏的是第 43 行。是随后 `grep blocked:`（不带值）列出全部 4 处命中才暴露。
+
+**判据**（两条都可复用）：
+1. **变异还原**：对未入库文件，`git checkout --` 无效，必须用编辑工具改回，或用 `Copy-Item` 从备份恢复（本轮是先 `Copy-Item $env:TEMP\*.bak` 再编辑）。
+2. **自证必须列全部命中点**：`grep <具体值>` 只能证明「存在一处」，不能证明「已恢复/未残留」。要证「没有残留」，就 grep **不带值的键名**（如 `blocked:`）列出全部出现位置逐一核对。这条比上一条更普适——任何「我以为改回去了」的场合都适用。
+
+
 ## 放宽一个「拦截类」判据前，先问它的词库/阈值有没有配置入口——否则你放宽的是一把用户拧不动的锁（rewrite-sensitive-precheck-relax，2026-10-20）
 
 ### lesson: blocking-gate-needs-a-tuning-knob

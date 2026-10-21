@@ -58,6 +58,11 @@ export default {
     // 输出截断可见化（rewrite-limits-50000，2026-10-19）：引擎按字数区间/策略上限砍尾时
     // 结果卡顶部横幅提示；length=实际输出字数，max=生效上限
     outputTruncated: '改写结果已按字数上限截断：实际输出 {length} 字（上限 {max} 字），原文后半部分未包含在结果中。如需完整改写，请调大「字数控制」上限。',
+    // 敏感词后置警告（rewrite-sensitive-precheck-relax 收尾，2026-10-21）：
+    // 前置拦截已关（用户 8000 字史料曾因「爆炸」一词被整篇拒绝），后置 warnings 成为
+    // 唯一防线。这是 warning 级提示而非红色错误——改写成功了，只是提醒人工审核。
+    // words = 命中的敏感词（或引擎给的说明），由 warnings 数组拼接而来。
+    rewriteSensitiveWarning: '改写结果可能包含敏感内容，请人工审核后再发布：{words}',
     // 模型侧截断可见化（rewrite-segment-and-finish-reason 第二刀）：provider 的
     // finish_reason 表示输出被模型自身上限截断（与引擎按字数区间砍尾是两回事）。
     // 这条不能建议「调大字数控制」——模型上限通常无法由用户设置改变。
