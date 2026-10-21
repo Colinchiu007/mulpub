@@ -53,7 +53,12 @@ const uploadWaiterMixin = {
     //   pagePercent = 页面自报百分比（(\d{1,3})\s*%，无则 null）→ 真实进度上报
     //   positive = https 视频预览 || 编辑器输入 || location.href 含 post/video
     //   structural = 任意可见 video（含 blob 预览）|| 编辑器输入 || 上传完成类文案
-    const probe = 'function(){var t=(document.body&&document.body.innerText)||"";'
+    // 2026-10-22（关键）：RPA 窗口是**隐藏窗口**，`innerText` 依赖渲染/布局，可能返回空串；
+    // 而西瓜上传页**只靠文本判据**（无 <video>、无编辑器输入），一旦 t 恒空 ⇒
+    // doneCopy/doneText/uploadingText/百分比全部失效，只能等预算耗尽。
+    // 实测：17:49:07 开始上传 → 17:59:08（整整 600s）仍报未检测到；而外部探测同页可见「上传成功」。
+    // 故文本取值改为 innerText || textContent（textContent 不依赖渲染），并上报 textLen 以便诊断。
+    const probe = 'function(){var t=(document.body&&(document.body.innerText||document.body.textContent))||"";'
       + 'var pv=[...document.querySelectorAll("[class*=progress],[class*=uploading],[class*=percent],[class*=Percent]")].filter(function(e){return e.offsetParent&&e.clientHeight>0}).length;'
       + 'var m=t.match(/(\\d{1,3})\\s*%/);var pct=m?Number(m[1]):-1;'
       + 'var uploadingText=/上传中[….]{1,3}|正在上传|剩余时间[:\uff1a]|转码中|上传失败/.test(t);'
@@ -72,7 +77,7 @@ const uploadWaiterMixin = {
       // 原因：uploading 里的 pv>0 是弱 DOM 形状判据（容器类名即可命中），它会让 P4 永不成立——
       // 与 L48-50 记的抖音同型故障一模一样。西瓜页实测：页面已显示「上传成功」但仍有
       // xigua-upload-video* 容器 ⇒ uploading 恒真。强语义证据不得被弱形状判据否决。
-      + 'return {uploading:!!uploading,uploadingText:!!uploadingText,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||doneCopy||location.href.indexOf("post/video")!==-1),doneStrong:!!doneCopy,structural:!!(vu||ed||doneText)}}'
+      + 'return {uploading:!!uploading,uploadingText:!!uploadingText,pagePercent:pct>=0?pct:null,positive:!!(vv||ed||doneCopy||location.href.indexOf("post/video")!==-1),doneStrong:!!doneCopy,structural:!!(vu||ed||doneText),textLen:t.length}}'
     const bytes = Number(opts && opts.fileBytes)
     const minMs = (require('./upload-wait-strategy').PLATFORM_MIN_BUDGET_MS || {})[platform]
 const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { minMs }) : (timeoutMs || 900000)
@@ -96,6 +101,11 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
           positive: false, doneStrong: false, structural: false, probeTimedOut: true,
         }), PROBE_TIMEOUT_MS)),
       ])
+      // 首帧记录文本长度：这是判断「探针读不到页面文本」与「页面真的没渲染」的唯一分界。
+      if (this._probeTextLenLogged !== true) {
+        this._probeTextLenLogged = true
+        log.info('RpaView', '[' + platform + '] upload probe textLen=' + signal.textLen + ' (innerText||textContent)')
+      }
       // 超时可见化：否则「探测一直不返回」与「页面一直没完成」在日志上完全同形。
       if (signal.probeTimedOut) {
         this._probeTimeoutCount = (this._probeTimeoutCount || 0) + 1

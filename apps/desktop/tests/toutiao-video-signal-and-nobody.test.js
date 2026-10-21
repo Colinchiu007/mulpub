@@ -215,3 +215,20 @@ describe('⑦ 上传探测的硬超时护栏', () => {
     expect(/upload probe timed out/.test(src)).toBe(true)
   })
 })
+
+// ── ⑧ 文本取值必须有 textContent 兜底（2026-10-22 第二轮真机后补）────────────
+// 现场：17:49:07 开始上传 → 17:59:08（整整 600s）仍报未检测到；而外部探测同一页面可见「上传成功」。
+// 唯一自洽解释：RPA 窗口是隐藏窗口，`innerText` 依赖渲染/布局可能返回空串；
+// 西瓜页又只靠文本判据（无 <video>、无编辑器）⇒ 所有文本信号恒空。
+describe('⑧ 上传探针的文本取值', () => {
+  const src = fs.readFileSync(svc('upload-waiter.js'), 'utf8')
+
+  test('探针用 innerText || textContent（不依赖渲染）', () => {
+    expect(/document\.body\.innerText\|\|document\.body\.textContent/.test(src)).toBe(true)
+  })
+
+  test('上报 textLen 以便区分「读不到」与「没渲染」', () => {
+    expect(/textLen:t\.length/.test(src)).toBe(true)
+    expect(/upload probe textLen=/.test(src)).toBe(true)
+  })
+})
