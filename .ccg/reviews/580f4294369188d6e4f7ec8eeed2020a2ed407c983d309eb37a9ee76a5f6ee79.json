@@ -51,11 +51,46 @@
     }
   },
   "deepReview": {
-    "required": false,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（mode=dual 外部侧未返回），按引擎第三档出口 self_play 自查。本条为 docs-only（PRD 追加一节）。",
+    "closureNote": "round52 自查闭环。非高危面：仅追加 PRD §16.21 一节，无代码/判据/workflows 变更。逐条处置见 adjudication。",
+    "evidenceInRepo": "01-docs/PRD-VIDEO-PUBLISH-4PLATFORMS-2026-10-18.md §16.21",
+    "confidenceWeight": 0.85,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "你把 0 条 cookie 归因为\"Chromium 加密导致外部读不出\" —— 也可能是分区里本来就没 cookie，或 Playwright profile 用法不对。",
+        "verdict": "upheld_partial",
+        "rationale": "部分成立，我的归因**不是**直接观察，而是推断。可确证的事实只有两条：① Cookies 文件 53248 字节且 mtime 很近（05:15）⇒ 应用在写；② Playwright 读出来 0 条（全部域）。\"加密导致读不出\"是连接①②的解释之一。其他解释我未排除：· 分区路径/结构不被 Playwright 认可（Playwright 用自己的 user-data 格式）；· cookie 是 ephemeral（session-only）且随进程退出即消失；· cookie 存在但 domain 是 Electron 特有的 partition 命名空间。⚠ 我原文写\"Chromium 的 cookie value 加密（OS 密钥 / app-bound encryption）」—— 这个表述**过强**，把一个未验证的机制写成了定论。已在文档 §16.21.3 保留了\"探测失败 ≠ 凭据失效\"这一真正可靠的教训，但成因那一句应改为\"外部读不出（机制未确证，可能与 Chromium 凭据加密/profile 格式有关）\"。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "你说\"顺带修正了 §16.18.2 的解读\" —— 拿一个未确证的机制去修正另一个解读，不是越改越虚？",
+        "verdict": "upheld_verified",
+        "rationale": "方向相反：我是把 §16.18.2 的一个**过度确定**的解读（\"分区凭据与信封库不同步」）降级为\"更可能读不出来（未确证）\"。这是**降低确定性**，不是用猜测替代猜测。且真正立得住的是那句方法论：**外部探测拿不到有效凭据时，不要把\"探测失败\"归因成\"凭据失效\"，应先确认\"凭据是否真的取到了\"** ——这条不依赖成因是什么，只看事实（我读出来 0 条，却对 0 条做了\"凭据失效\"的解释）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "本轮又是一次\"排除\"，且与上轮结论同类。",
+        "verdict": "upheld_verified",
+        "rationale": "是，但提供了**独立证据源**（分区 vs 信封库是两套不同机制），所以\"无法绕开 GUI\"这个结论从单点变成双点支撑，置信度实质提高。⚠ 我也必须说：连续两轮做同类排除，说明我已把这个方向挖到底了。下一轮若应用仍未启动，**不应再探索\"取凭据\"相关**，应纯汇报。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 1,
+      "upheldVerified": 2,
+      "note": "i1 承认\"Chromium 加密\"这个成因是推断而非观察，原文档表述过强，应降级为\"机制未确证\"；i2 论证修正方向是降低确定性而非以猜代猜，且真正可靠的是方法论那句；i3 说明双证据源的价值并自我设定停止条件。"
+    },
+    "at": "2026-10-21T07:32:18.077Z"
   }
 }
