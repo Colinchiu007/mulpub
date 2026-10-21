@@ -150,9 +150,84 @@ async function refreshProfileFromHttpApi (platform, accountId, cookies, deps) {
   }
 }
 
+/**
+ * 创建路径的资料兜底：DOM 采集没拿到真昵称时，用已捕获的 Cookie 调平台创作者 API 补字段。
+ * 现场与完整推导见 `01-docs/PRD-ACCOUNT-PROFILE-FALLBACK-2026-10-21.md`，此处只留
+ * **读代码时必须知道的判据与禁项**。
+ *
+ * **为什么需要它**：头条号等 SPA 后台，登录成功判据命中 URL 后 `_scheduleAutoCompletion`
+ * 只等 3000ms 就采集，而页面渲染可持续数十秒（日志实测 56s）⇒ `collectWithWebContents`
+ * 跑在空 DOM 上返回 `{}`，`profileForCreate` 遂把 `account_name` 回落成平台显示名。
+ * 用户再点「保存账号」也已晚：attempt 早被 `_settleLogin` 消费并 `close()`。
+ *
+ * **判据**：`profile.account_name === name`（没有真昵称）。只此一条——
+ * ⛔ 不得附加「头像也为空」：那会让「采到头像但没采到昵称」这个真实形态漏掉兜底
+ * （本分支首版即如此，被自己的测试当场否证）。
+ *
+ * **判据的归一化安全性**（CCG i1 已逐行核实 + 测试锁定）：`name` 来自
+ * `resolveCapturedDisplayName`（只 `.trim()`，非噪声则原样返回，否则返回平台显示名），
+ * 回落值是 `trimText(name)` 而 `trimText(v) === v.trim()`（account-profile.js:139-141）
+ * ⇒ `trimText(name) === name` 恒成立，两侧都不改大小写/标点 ⇒ **假阴性不可能**。
+ * 唯一假阳性（无害）：DOM 采到的真昵称与平台显示名**同字**，后果仅多发一个请求。
+ *
+ * 四条纪律：
+ * 1. **只补 DOM 没拿到的字段**，不覆盖已命中的值（昵称/ID/粉丝/头像逐个判空）。
+ * 2. **任何失败只返回原 profile 的副本**，绝不抛错——资料是增强信息，不能把一次成功的
+ *    登录保存变成失败（与 refreshProfileFromHttpApi 同向）。
+ * 3. **不改变 `name`**：`name` 是 document.title 落盘位，兜底只作用于 account_name /
+ *    platform_account_id / followers / avatar。
+ * 4. **纯函数**：所有路径（含提前返回）都返回**新对象**，⛔ 绝不就地修改入参（CCG i2，有测试锁定）。
+ *
+ * **关于「网络请求在创建关键路径上」**（CCG i3，确认接受）：只在没采到真昵称时触发
+ * （DOM 成功时零请求）；`fetchAccountInfoViaHttpApi` 自带 8s 超时（http-login-checker.js:269），
+ * 最坏 +8s。改成「先入库后异步 PATCH」能消除这 8s，但会把「新账号首屏就是平台名」延续下去，
+ * 与本修复要解决的问题冲突，故本次不做。
+ *
+ * @param {string} platform
+ * @param {Array<{name:string, value:string}>} cookies 已按平台域过滤的 Cookie
+ * @param {object} profile profileForCreate 的产物（**不被修改**，见纪律 4）
+ * @param {string} name resolveCapturedDisplayName 的结果，用作「无真昵称」的比对基线
+ * @returns {Promise<{profile: object, used: boolean}>} profile 是**新对象**；used=true 表示走了 HTTP 兜底
+ */
+async function fillProfileFromHttpApi (platform, cookies, profile, name) {
+  // 纪律 4：**纯函数**——任何路径都返回新对象，绝不就地修改入参（CCG 深度审查 i2）。
+  // 就地修改会让「调用方拿着 filled.profile」这件事依赖一个看不见的副作用；一旦将来
+  // 有人把 profileForCreate 的结果复用/缓存/并行传递，别名污染不可控。复制成本可忽略。
+  const base = { ...profile }
+  // 拿到了真昵称（不等于回落值）⇒ DOM 采集成功，不必多发请求
+  if (base.account_name !== name) return { profile: base, used: false }
+  if (!Array.isArray(cookies) || cookies.length === 0) return { profile: base, used: false }
+
+  let info
+  try {
+    info = await httpLoginChecker.fetchAccountInfoViaHttpApi(platform, cookies)
+  } catch (e) {
+    log.warn('AccountManager', 'fillProfileFromHttpApi 忽略异常 ' + platform + ' err=' + (e && e.message ? e.message : String(e)))
+    return { profile: base, used: false }
+  }
+  if (!info || info.supported !== true) return { profile: base, used: false }
+
+  // 逐个判空补位：DOM 已拿到的字段一律不动。
+  if (!base.account_name || base.account_name === name) {
+    if (typeof info.nickname === 'string' && info.nickname.trim()) base.account_name = info.nickname.trim()
+  }
+  if (!base.platform_account_id && typeof info.platformAccountId === 'string' && info.platformAccountId) {
+    base.platform_account_id = info.platformAccountId
+  }
+  if (base.followers === null && typeof info.followers === 'number') {
+    base.followers = info.followers
+  }
+  if (!base.avatar && typeof info.avatar === 'string' && info.avatar.trim()) {
+    base.avatar = info.avatar.trim()
+  }
+  log.info('AccountManager', 'fillProfileFromHttpApi 已兜底 ' + platform + ' nickname=' + (info.nickname || '') + ' uid=' + (info.platformAccountId || ''))
+  return { profile: base, used: true }
+}
+
 module.exports = {
   extractAccountInfo,
   extractAccountInfoFromWebContents,
   refreshProfileFromPage,
   refreshProfileFromHttpApi,
+  fillProfileFromHttpApi,
 }

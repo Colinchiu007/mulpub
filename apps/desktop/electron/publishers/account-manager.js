@@ -326,16 +326,20 @@ async function saveCapturedAccount (platform, captured, options = {}) {
     : {}
 
   const profile = profileUtils.profileForCreate(accountInfo, name)
+  // SPA 平台（头条号 profile_v4 等）在登录成功判据后 3 秒就可能开始采集，而页面渲染
+  // 可持续数十秒 ⇒ DOM 采集跑在空 DOM 上，昵称回落平台名、头像/平台 ID 全空。
+  // 已捕获的 Cookie 足够调平台创作者 API，用它补字段；见 fillProfileFromHttpApi 的判据。
+  const filled = await profileRefresh.fillProfileFromHttpApi(platform, cookies, profile, name)
 
   // 后端只保存公开元数据，避免在 accounts.json 中重复落盘凭证。
   // 创建路径可以给空值：新行没有旧值需要保护（更新路径相反，见 updateCapturedAccount）。
   const result = await pythonBridge.requestBackend('POST', '/api/accounts', {
     platform,
     name,
-    account_name: profile.account_name,
-    platform_account_id: profile.platform_account_id,
-    followers: profile.followers,
-    avatar: profile.avatar,
+    account_name: filled.profile.account_name,
+    platform_account_id: filled.profile.platform_account_id,
+    followers: filled.profile.followers,
+    avatar: filled.profile.avatar,
   })
 
   if (result.code !== 0) {
