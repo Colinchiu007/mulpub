@@ -58,28 +58,44 @@
         "domains": [
           "auth",
           "datamigration"
-        ]
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.783Z"
       },
       {
         "id": "i3",
         "severity": "Warning",
         "domains": [
           "auth"
-        ]
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.785Z"
       },
       {
         "id": "i4",
         "severity": "Warning",
         "domains": [
           "crypto"
-        ]
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.785Z"
       },
       {
         "id": "i7",
         "severity": "Warning",
         "domains": [
           "auth"
-        ]
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.785Z"
       }
     ],
     "externallyReviewed": [

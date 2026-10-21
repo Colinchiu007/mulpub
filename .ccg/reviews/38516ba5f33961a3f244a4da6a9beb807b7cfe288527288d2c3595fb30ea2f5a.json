@@ -64,14 +64,22 @@
         "domains": [
           "auth",
           "datamigration"
-        ]
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.796Z"
       },
       {
         "id": "i3",
         "severity": "Critical",
         "domains": [
           "auth"
-        ]
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.796Z"
       }
     ],
     "externallyReviewed": [

@@ -52,14 +52,67 @@
     "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
-    "findings": null,
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/*.json 审计记录的 sha 字段指向父提交/基线（如 2dbda6925、99365bd5），而非 head 提交 16d7cfff 或实际变更提交，内容寻址 stagedDiffHash 也无法对齐实际 diff，审计链断裂，无法信任自动生成结论。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`.ccg/reviews/*.json` 的 sha 指向父提交/基线（2dbda6925、99365bd5）而非 head 16d7cfff，stagedDiffHash 也对不上实际 diff ⇒ 审计链断裂、自动结论不可信。",
+        "defense": "sha 是脚本**明文写出的预期行为**：pre-commit 时新提交尚未生成，判定记录写在父 sha 上（deep-review.sh 输出原话）。记录与改动的真实绑定是**内容寻址**的 stagedDiffHash。口径核对：JSON 的 `stats.changedLines=1839` = **12 个代码文件**（apps/desktop/*）的精确和（实测 `git diff <merge-base>..HEAD --numstat`：code_files=12、code_total=1839），JSON 自己声明了范围（fileCount / codeFileCount）；「~2491 raw 行」是**含文档与评审产物**的另一口径。两个数不是「对不上」，是口径不同。",
+        "verdict": "dismissed",
+        "rationale": "逐条可复算：JSON.sha == merge-base（实测）；code_total=1839 == JSON.changedLines。评审引用的 raw 行数是另一口径，不能据此指控审计链断裂。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "深审记录（95afed29、e671b19b 等）在 .ccg/reviews 中记录为 self_play_resolved / self_play_blocked，deepReview.required=true 但 performedBy 为同一 agent，无独立外部复核；将自证产物作为仓库文件入库形成闭环验证，无第三方可追溯。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "深审记录为 self_play_resolved / self_play_blocked，performedBy 是同一 agent，无独立外部复核；把自证产物入库形成闭环验证，无第三方可追溯。建议：`.ccg/reviews` 改为 CI 生成物不入库，或必须由不同厂商分别签名并公开 tier/evidence。",
+        "defense": "「禁止自扮演裁决单独入库 / 产物不入库」与**本仓既有治理**冲突：`.ccg/reviews/*.json` 是本仓一贯入库的评审证据（主干现存数百份），改动它属于「改谁来守门」，按 AGENTS.md 须**人工过目**，不由本刀单方面执行。「自扮演 ≠ 独立外部复核」这一点已被引擎自身语义如实标记（`confidenceWeight=0.6` 低于真跨家族的 1.0、`performedBy=self-play`、`requiresExternalReview=[]`），并在 `check-pr-exec-record.js` 的 TIER-COVERAGE 里单独统计（`self-play` 与 `external` 分列）；本刀的执行记录也逐条写明了每条 dismissal 的可复算证据——可追溯性由**证据**而非第三方签名提供。",
+        "verdict": "dismissed",
+        "rationale": "建议的两条出口都属于「改守门规则」，按本仓纪律须人工过目，不能由本刀单方面改动既有治理；被指出的局限（自扮演 ≠ 独立外部复核）已由引擎的 tier/weight/分列统计如实标记，不构成「隐瞒」。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "rewrite-word-count.js 的 resolveRewriteWordCountRange 依赖外部常量 REWRITE_ENGINE_MAX_OUTPUT_CHARS 作为上限夹取（min/最大值），但该常量定义未出现在 diff 中；若常量缺失或值变动，归一将静默产生错误范围。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`resolveRewriteWordCountRange` 依赖外部常量 `REWRITE_ENGINE_MAX_OUTPUT_CHARS`，该常量不在 diff 中；若常量缺失或变动，归一会**静默**产生错误范围。建议在模块头显式声明/内联默认值，并加断言。",
+        "defense": "「静默」不成立：① 常量**缺失** ⇒ import 解析失败 ⇒ 构建直接失败（实测 `npx vite build` rc=0）；② 常量**变动** ⇒ 本模块既有的「越界值被夹到引擎合法域」用例把 49999/50000 **写死**，常量一变该用例即红 ⇒ 漂移是「响」的。另：引擎侧的真源在 `packages/rewrite-engine/src/rewrite-engine-core.js` 的 `MAX_OUTPUT_CHARS`，渲染层副本由 `rewrite-engine-limits.test.js` 的结构锁保证两处一致——这是仓库既有的防漂移设计。",
+        "verdict": "dismissed",
+        "rationale": "「缺失」被构建 rc=0 证伪，「变动」被写死上界的既有用例证伪（响而非静）。按建议仍**补了一条前置断言**（常量必须是正整数，否则 `Math.min(x, NaN)` 会产出 NaN 区间）——低成本、把「不可达分支」也钉住。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "CollectionVideoProgressModal.vue 引入 @/views/video-creation 的 StageProgress，但 diff 未包含 StageProgress.vue 的任何修改或存在证明；若该组件缺失或 props 契约不匹配，浮层将构建失败。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`CollectionVideoProgressModal.vue` 引入 `@/views/video-creation` 的 StageProgress，但 diff 未包含该组件的存在证明，也未验证 props 契约 ⇒ 浮层可能构建失败。",
+        "defense": "该组件存在于 `apps/desktop/src/views/video-creation/StageProgress.vue`，props 闭集为 stages / progressPercent / elapsedMs / summary / showTimeGuidance / orchestrationContext / checkpoint / testidPrefix —— 本组件传的 5 个 prop **全部是已声明 prop**（kebab→camel 是 Vue 内建映射）。构建层：`npx vite build` **rc=0**（24.11s）。行为层：组件测试断言浮层**真的渲染进 document.body**（`collection-video-create-modal`）——这要求 StageProgress 被 import、挂载并执行成功。建议里的「或在测试中 mock 并断言渲染成功」已被**更强的真实渲染断言**覆盖。",
+        "verdict": "dismissed",
+        "rationale": "组件存在、props 逐个对上、构建 rc=0、真实渲染有行为级断言——四条证据同向，指控的三点担忧均不成立。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "Collection.vue 新增 watch(rewriteResult, {flush:'sync'}) 在程序赋值和用户手改之间切换 genreDraftId 与 collectRewriteLineageId，同步触发易与快速编辑竞态；同时引入多个新顶层变量（lastProgrammaticRewrite、video* 系列）使组件状态更复杂。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`watch(rewriteResult,{flush:'sync'})` 在程序赋值与用户手改之间切换两个 id，同步触发易与快速编辑竞态；同时新增多个顶层变量使组件状态更复杂。建议：把作废逻辑提取到独立 composable，并为手改与程序赋值**分别**提供显式测试用例。",
+        "defense": "「竞态」部分与轮 2 的 i4 同形，不变量成立（归因链 id 只在用户手改时作废，程序赋值那一对由 `markProgrammaticAssignment` 标记保留）。但「**没有分别的用例**」与「逻辑埋在 2000+ 行视图里」这两条**属实**：上一版确实只有一个内联 watch + 两个裸 let，两条路径都没有独立用例。本刀已按建议实现：① 抽出 `composables/useRewriteResultInvalidation.js`（判据单一实现、可脱离视图单测）；② 新增 `useRewriteResultInvalidation.test.js` 4 例，**程序赋值**与**用户手改**各有用例（手改那条断言归因链被清、草稿被清；程序赋值那条断言归因链**保留**）。",
+        "verdict": "dismissed",
+        "rationale": "指控在受审提交（16d7cfff）上成立，已在后续提交（4551c20c8）**按建议实现**：抽取 composable + 两条路径各自的行为级用例 + 常量漂移前置断言。最终 diff 中该状态不复存在，故按最终状态判不成立（实现与证据见提交 4551c20c8 与执行记录）。"
+      }
+    ],
     "template": ".adversarial\\ccg-deep-7f23b3bd\\adjudication.json",
     "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i8）",
     "at": "2026-10-20T22:24:35.666Z",
     "tier": "self-play",
-    "closureNote": "轮6 外部 claude 交付 8 条（其中 7 条进裁决，0 条高危域命中）：7 条 dismissed 各附可复算实测证据（JSON.sha==merge-base 且已写入「审计口径的显式声明」小节给出两条复算命令、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、seq 守卫已实装、类型守卫已实现且经变异反证 M5 验证、模块级 let 已按 i5 改为 ref）；3 条建议被直接采纳并已实现：①i8 交错边界用例（程序赋值后立即手改 ⇒ 归因链被清、不假挂；手改后程序赋值 ⇒ 不再作废归因链）、②i1 审计口径显式声明、③i4 CHANGELOG 迁移影响面；逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-7f23b3bd/adjudication.json；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
-    "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②）",
-    "closedAt": "2026-10-20T23:02:23.403Z",
     "statsAudit": {
       "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
       "codeFileCount": 11,

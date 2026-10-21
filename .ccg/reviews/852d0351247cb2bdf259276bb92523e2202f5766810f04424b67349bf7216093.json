@@ -58,10 +58,89 @@
         "domains": [
           "auth",
           "datamigration"
-        ]
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.807Z"
       }
     ],
-    "findings": null,
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/*.json sha 指向父提交（99365bd5、2dbda6925）非 head（4551c20、8ace8f2）；审计链无法直接绑定被评审代码；辩护以「预期行为」替代修复，不提供 head 映射字段。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`.ccg/reviews/*.json` 的 sha 指向父提交而非 head，审计链无法直接绑定被评审代码；辩护以「预期行为」替代修复，不提供 head 映射字段。建议：增加显式 head-sha 字段并提供可复算命令。",
+        "defense": "sha=merge-base 是 pre-commit 钩子的**设计**（脚本输出原话「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上」）。建议的**可复算命令**已按采纳写入执行记录的「审计口径的显式声明」小节（`git merge-base origin/main HEAD` 与按 `apps/desktop` 过滤的 numstat 求和）。「在引擎产物里加自定义 head-sha 字段」会被**下一次钩子写回直接抹掉**（引擎按自己的结构写），且属改引擎产物格式 ⇒ 须人工过目。",
+        "verdict": "dismissed",
+        "rationale": "sha 口径已显式声明并给出可复算命令；在引擎产物里加自定义字段会被下次写回抹掉且属改引擎格式。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "多个 .ccg/reviews JSON（如 3a05aeb、5dbecfa）设置 deepReview.required=true 但 findings=null；状态机矛盾：要求深审却无裁决内容。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "多个 `.ccg/reviews` JSON（如 3a05aeb、5dbecfa）设置 `deepReview.required=true` 但 `findings=null`，状态机矛盾：要求深审却无裁决内容。建议：无 findings 则 required 应为 false，或补全 findings。",
+        "defense": "该指控**前提不成立**：① 本 PR 的那两条（`3a05aeb` / `5dbecfa`）是 **skip 模式**记录，实测 `required=false`、`findings=undefined` —— 与主干同形态的 skip 记录逐字一致（如 `000e85ca`/`0020a1d5`：`mode=skip required=false`）；② 「`required=true` + `findings=null`」是**引擎的既有写法**（主干现存数百份同形态记录，例：`01589783 mode=dual required=true status=pending findings=null`），不是本刀引入的形态；③ 「补全 findings」对这些记录**不成立**——它们是判定器在**没有评审发生**时写下的中间态，findings 本就应为空。把它当成本刀的缺陷，等于把引擎的全局形态算到一次 PR 头上；要改就是改引擎/门禁的全局行为 ⇒ 按 AGENTS.md 须**人工过目**。",
+        "verdict": "dismissed",
+        "rationale": "本 PR 的两条 skip 记录 required=false（与主干同形态逐字一致）；「required=true + findings=null」是引擎在主干已存在数百份的写法，非本刀引入；改它是改引擎全局行为，须人工过目。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "高危域（auth、datamigration）的发现以 self_play_resolved（confidenceWeight=0.6、requiresExternalReview=[] 或仅 URL 无嵌入正文）收口；违反高风险发现必须独立外部复核的要求。",
+        "highRiskDomains": [
+          "auth",
+          "datamigration"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+          "reviewedAt": "2026-10-21T02:31:01.177Z"
+        },
+        "prosecution": "高危域（auth、datamigration）的发现以 self_play_resolved（confidenceWeight=0.6、requiresExternalReview=[] 或仅 URL 无嵌入正文）收口，违反高风险发现必须独立外部复核的要求。建议：把独立外部复核原文（全文或可重算摘要）嵌入产物，并填 externalReview 三格。",
+        "defense": "**建议已采纳并已实现**：① 外部复核原文（两条公开 PR 评论的正文全文）已取回并存入 `.adversarial/ccg-deep-*/external-review-*.md`；② 产物的 `findings[].externalReview` 已补 **`evidenceDigestSha256`**（公开评论正文的 sha256，外部可自行重算核对）：第一次 #issuecomment-6302916932 ⇒ `0600ff7849b84727…`，第二次 #issuecomment-6303677171 ⇒ `9dea9b41a5ff9a2a…`；③ `performedBy` / `evidenceRef` / `reviewedAt` 三格已填，`externallyReviewed` 已列明条目 id。⇒ 不再是「仅用 URL 代替证据」。另需说明：合并 #4111 后，**键名迁移这条高危面已归属 #4111**（本 PR 撤回了重复实现），本 PR 剩余的高危面只剩「审计形态」一项，其外部复核结论是「与仓库脚本一致、属治理层改进、不阻断本 PR」。",
+        "verdict": "dismissed",
+        "rationale": "建议已采纳实现：外部复核原文落盘 + sha256 摘要写入 externalReview，三格与 externallyReviewed 齐备；合并后本 PR 的高危面只剩审计形态一项，亦有独立外部复核。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "useCollectionVideoCreation 依赖非响应式函数域 let（videoSeq、videoSourceText、videoSourceTitle）和可选 pipelineCancelRun；并发重试仅靠 seq 比对，缺取消令牌，过期响应被丢弃但前 run 未真正停止。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "useCollectionVideoCreation 依赖非响应式函数域 let 与可选 pipelineCancelRun；并发重试仅靠 seq 比对，缺取消令牌，过期响应被丢弃但前 run 未真正停止。建议：增加 abort-controller 或取消令牌，入口显式终止前一轮流水线。",
+        "defense": "① 「过期响应被丢弃」**正是设计意图**：`seq !== videoSeq` 的检查就在**应用响应之前**（`startPipelineRun` 的三处 + `retryVideoCreation` 的失败分支），过期响应不会写回任何状态。② 「前 run 未停止」在当前产品形态下**不可达**：同一时刻只允许一个 run，由 **UI 层按钮禁用**串行化（`:disabled=\"rewriting || oneClickRewriting\"`），且 `startVideoCreation` 在 `videoBusy` 时早退；`cancelVideoCreation` 在用户主动取消时**已经**调 `pipelineCancelRun`（IPC 层的真取消），并非只丢响应。③ 并发模型已按建议**写进 composable 头注释**（含「未来若引入后台重试/多路并行必须补真正的取消/版本守卫，丢弃响应 ≠ 停止前一个 run」的明确要求）。④ 新增 abort-controller 属于**新增机制**，本仓的流水线取消走既有 `pipelineCancelRun` IPC，在没有真实缺陷前另造一套是装饰性守卫。",
+        "verdict": "dismissed",
+        "rationale": "过期响应在应用前即被丢弃；用户取消路径已走真取消 IPC；并发前提由 UI 禁用串行化且已写进注释；另造取消机制属装饰性新增。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "提案承认初始实现与 #4111 重复（rewrite-word-count.js），后撤回；但 .ccg/reviews 和 PRD 仍包含对已撤回代码的裁决与引用，造成审计产物与实际代码不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "提案承认初始实现与 #4111 重复后撤回，但 `.ccg/reviews` 与 PRD 仍包含对已撤回代码的裁决与引用，审计产物与实际代码不一致。建议：清理已撤回实现相关的评审产物和引用。",
+        "defense": "「审计产物与实际代码不一致」是**真的**，但**清理的方向是反的**：这些 JSON 是**九轮评审的历史证据**（每一轮评的是当时那个提交），删掉它们等于删掉「这个改动被怎么审的」这条链，而本仓的门禁正是靠这些产物做 `TRANSITION-CHECK` 与 `TIER-COVERAGE`。本刀的处理是**把不一致显式化**而不是抹掉：① 执行记录新增「与 #4111 的合并（如实登记）」段，写明哪部分被撤回、哪些评审结论仍在最终代码里成立；② 每份相关产物的 `closureNote` 追加「本轮评审对象早于与 #4111 的合并」；③ PRD 文首的「与 #4111 的关系」表逐条标注归属（哪条由 #4111 交付、哪条由本 PR 交付）。**「产物只对应 head 存在的代码」这条要求**意味着每次 rebase 都要重跑全部评审历史，既不现实也不是本仓约定。",
+        "verdict": "dismissed",
+        "rationale": "产物是评审历史证据，删除即抹掉审计链；本刀改为把不一致显式化（记录 + PRD 归属表 + 逐份 closureNote 标注），这是本仓既有做法。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "clampStory2VideoText 直接 Number(maxChars) 无 NaN/类型守卫；非数字输入会静默传播；Array.from(source) 假设有效字符串，无输入验证。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "clampStory2VideoText 直接 Number(maxChars) 无 NaN/类型守卫；非数字输入会静默传播；Array.from(source) 假设有效字符串，无输入验证。",
+        "defense": "该指控**前提不成立**（两道守卫都已在代码里）：① `text` 已做类型守卫 —— `const source = typeof text === 'string' ? text : ''`（非字符串直接归空串，`Array.from` 拿到的必然是字符串）；② `maxChars` 已做有限性守卫 —— `const limit = Number(maxChars) > 0 ? Number(maxChars) : DEFAULT_STORY2VIDEO_TEXT_LIMIT.maxChars`（`NaN > 0` 为 false ⇒ 回落到内置默认上限，**不会**静默传播 NaN）。两处均可按 `useCollectionVideoCreation.js` 的实现逐行核对。",
+        "verdict": "dismissed",
+        "rationale": "类型守卫与有限性守卫均已在实现里（text → typeof；maxChars → Number(...)>0 否则回落默认），非有限输入不会静默传播。"
+      }
+    ],
     "template": ".adversarial\\ccg-deep-c8c70b94\\adjudication.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
     "at": "2026-10-21T01:15:10.210Z",
