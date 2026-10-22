@@ -18,7 +18,8 @@ date: 2026-10-21
 | 夹具自己的一课（不写成实现缺陷） | ✅ | 首版 7 条红的根因是夹具取页码用了 `/page=(\d+)/` —— 它先匹配到同一 URL 里的 **`per_page=3`** ⇒ 每页都读成第 3 页 ⇒ 全体"空页"。判据：`[?&]page=`。写进注释当永久提醒 |
 | 行尾与 diff 对账 | ✅ | 三处 CRLF 面改动（`.gitignore`、`quality-gate.yml`、`cleanup-artifacts.yml`）均用"按当场 eol 逐行写回"的脚本插入，未统一回写；两口径 numstat 对账由提交前检查留证 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | 三轮已跑、逐条处置完毕，高危面按 `tier=external` + 可核 `evidence` 收口 | `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过，判定 DUAL）。`.github/workflows/` 命中**高危面**前缀 ⇒ 闭合只认 `deepReview.tier=external` + 可核 `evidence`，`closureNote` 在那一侧不够格。**分工如实写**：`status`/`blocking`/`externallyReviewed` 由驱动回填，`tier`+`evidence` 由会话手写（tasks 8.1b 未落，全仓无生产方写 `tier`），产物里以 `tierOrigin` 字段留痕。enforce 现读 `dual-closed total=1 external=1 unrecognized=0` 且欠账段不出现。逐轮处置见下面三节 |
+| QM-6 CCG 双模型外部评审 | 三轮已跑、逐条处置完毕，高危面按 `tier=external` + 可核 `evidence` 收口 | `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过，判定 DUAL）。`.github/workflows/` 命中**高危面**前缀 ⇒ 闭合只认 `deepReview.tier=external` + 可核 `evidence`，`closureNote` 在那一侧不够格。**分工如实写**：`status`/`blocking`/`externallyReviewed` 由驱动回填，`tier`+`evidence` 由会话手写（**本分支起点早于 PR #4151**，那片落的 `scripts/ccg-review-writeback.js` 才是本仓写 `tier=external` 的生产方；站在本分支上看，`tier` 只有判定器写的占位值 `unknown`——`scripts/ccg-review-decider.js:685`），产物里以 `tierOrigin` 字段留痕。enforce 现读 `dual-closed total=1 external=1 unrecognized=0` 且欠账段不出现。逐轮处置见下面三节 |
+
 | 远程同步 | 由门禁推导 | 不手写状态词、不为收口另开 PR |
 
 - 判定：混合 PR（含 workflow 与 `scripts/` 判据本体），不走 docs-only 快速通道
@@ -81,13 +82,13 @@ date: 2026-10-21
 **高危面闭合的两格分别是谁写的**（不粉饰）：
 
 - `status=self_play_resolved`、`blocking=[]`、`externallyReviewed=[i3,i5]` 由**驱动回填**（填完裁决重跑 `sh scripts/deep-review.sh`，走 `♻ 复用存档 critique（8 条）+ 已填完的裁决 —— 跳过模型调用` 那一档，零模型成本）。
-- `tier=external` + `evidence=<本 PR 评论>` 由**会话手写**：全仓目前没有任何生产方写 `tier`（tasks 8.1b 未落），产物里另留 `tierOrigin` 字段说明这一层，不得把它说成工具产物。`evidence` 取公开可点开的第三轮 critique + 逐条裁决评论 `https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984`，形状命中判据的 `url` 档。
+- `tier=external` + `evidence=<本 PR 评论>` **由会话手写**，原因是本分支起点（`2f5c0a32f`）早于 PR **#4151**：那片落的 `scripts/ccg-review-writeback.js` 才是本仓写 `tier=external` 的生产方（文件头自称"本仓唯一会写 `deepReview.tier` 的生产方"，`dr.tier = 'external'` 在其第 166 行，由 `deep-review.sh` 的真跑出口调用），而本片分支里根本没有这个文件。站在本分支上看，`tier` 只有判定器新建时写的占位值 `unknown`（`scripts/ccg-review-decider.js:685`）。产物里以 `tierOrigin` 字段把这一层留痕；**后续那片 rebase 到 #4151 之后，正解是走该驱动而不是继续手写**。`evidence` 取公开可点开的第三轮 critique + 逐条裁决评论 `https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984`，形状命中判据 `evidenceForm` 的 `url` 档。
 - 两条高危域（`auth` / `crypto`）的 `externalReview` 三格（`performedBy` 逐字等于 `expectedExternalBackend=claude`、`evidenceRef` 同上、`reviewedAt=2026-10-22T02:50:55Z`＝本轮 critique 落盘时刻，实测自文件 mtime 与产物 `at`）由会话按引擎模板填写。
 - 收口后 enforce 读数：`TIER-COVERAGE dual-closed total=1 external=1 external-unverified=0 … unrecognized=0`、`CCG … 欠账` 那一段不再出现。
 
 ## 遗留（不假装已闭合）
 
-1. **QM-6 已闭合，但闭合里有两格是人写的**：`tier`/`evidence` 由会话手写（判据文案自己就要求"必须同次在记录里写明 tier 由会话手写"，已在上一节照做）。真正的机械化出口是 tasks 8.1b（由驱动写 `tier`），那片不落，每一笔高危面 PR 都要重复这次"手写 + 声明"。
+1. **QM-6 已闭合，但闭合里有两格是人写的**：`tier`/`evidence` 由会话手写（判据文案自己就要求"必须同次在记录里写明 tier 由会话手写"，已在上一节照做）。机械化的出口**已经在主干上**——PR #4151 的 `scripts/ccg-review-writeback.js`，只是本片分支起点早于它、拿不到那个文件。下一片（或本片 rebase 之后）的正解是走该驱动，而不是继续手写。
 2. **「加密类词面」会把非安全工具判成安全改动**（本笔实测，且我第一版把因果写错了，留此纠正）：第三笔 100 行、`sensitivePathHits=[]`，却因 `sensitiveContentHits=3` 判 DUAL。我原以为是上一笔判定产物里那句 `reason` 被再读一次 —— **不对**：`ccgSensitiveContentHits=1` 才是那句，而判据明文不消费它（手工跑判定器时它自己打印 `⚠ 自身产物命中敏感词 4 处（不计入模式判定，判定器不消费自己写下的散文）`）。真正进判定的是**代码侧词面**：用 decider 导出的同一份 `RULES.sensitiveContents` 复算该笔新增行，重现出的一处是 `scripts/cleanup-artifacts.mutation.js` 里那句 `if (md5(...) !== md5(...))` —— 驱动用 md5 只做"字节回原位"的自证，与加解密无关，却命中 `md5|sha1|sha256\(` 这条正则。**两条如实的余地**：① 复算只重现 1 处、产物记 3 处，这 2 处差额我没有解释，所以这里只报能复现的那一处，不照抄 3；② 同一族还有第三条落点（`docSensitiveContentHits` 只报告不判定）。留作独立一刀的是：敏感内容判据要不要区分"实现密码学"与"用摘要做自证"，以及那 2 处差额从哪来。
 3. **schedule 作业的健康度仍无人监控**：本片让 `cleanup` 自己"红得有信息量"（`ARTIFACT-CLEAN … verdict=` 首行 + 非零退出），但仍然没有任何东西在**看**它 —— 连续 8 天全红就是这条缺口的现场。正解是一刀独立的"定时作业健康巡检"（读 `gh run list --event schedule` 的近 N 天结论并出声），属新增常驻判据、须人工过目落点与预算。
 4. **500 是上游的，重试只是把可恢复故障挡掉**：若 GitHub 的列举接口退化到重试也救不动，本脚本会判 `UNPROVEN`/`DEGRADED` 并非零退出（不会静默），但**清理仍会停摆**。artifact 存量现读 5350；GitHub 自身 90 天过期是兜底，所以停摆的后果是额度压力而非数据丢失。

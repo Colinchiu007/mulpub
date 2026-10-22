@@ -168,6 +168,6 @@
     "at": "2026-10-22T02:59:43.891Z",
     "tier": "external",
     "evidence": "https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984",
-    "tierOrigin": "session-written（tasks 8.1b 未落，全仓无生产方写 tier；见 openspec/records/artifact-cleanup-resilient.md 第三轮小节的如实标注）"
+    "tierOrigin": "session-written（本分支起点 2f5c0a32f 早于 PR #4151，拿不到主干上新落的 scripts/ccg-review-writeback.js——那才是本仓写 tier=external 的生产方；站在本分支上 tier 只有判定器写的 unknown 占位）。详见 openspec/records/artifact-cleanup-resilient.md 第三轮小节与遗留第 1 条"
   }
 }
