@@ -1,0 +1,64 @@
+{
+  "sha": "8e772e42df4ce3839a66b9d19a78db5b50bbce90",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 366 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 366,
+    "fileCount": 6,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 23,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "本脚本**只允许 SELECT**，且有一条结构性测试锁住（`test/payment-reconcile.test.js` 的「只读硬锁」：",
+      "五条判据都必须以 `SELECT` 开头且不含 `INSERT/UPDATE/DELETE/ALTER/DROP/TRUNCATE/CREATE`）。",
+      "| 判据里夹带 `UPDATE` | **14 pass / 2 fail**，只读锁精确变红 |"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"本脚本**只允许 SELECT**，且有一条结构性测试锁住（`test/payment-reconcile.test.js` 的「只读硬锁」：\",",
+      "      \"五条判据都必须以 `SELECT` 开头且不含 `INSERT/UPDATE/DELETE/ALTER/DROP/TRUNCATE/CREATE`）。\",",
+      "      \"| 判据里夹带 `UPDATE` | **14 pass / 2 fail**，只读锁精确变红 |\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T22:02:01.945Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

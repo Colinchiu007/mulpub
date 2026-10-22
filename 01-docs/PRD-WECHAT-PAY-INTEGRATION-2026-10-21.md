@@ -757,6 +757,36 @@ docker compose ... exec publish-api node packages/api-publish-engine/scripts/pay
 | 忽略真实命中（`count > 0` → `> 99`） | **11 pass / 5 fail** |
 
 均逐字节还原 True。
+### 15.10.7 外部评审后的加固（同日）
+
+跨家族评审给了 2 Critical + 3 High。逐条核验后**大部分成立**，已全部落地：
+
+| # | 评审意见 | 核验 | 处置 |
+|---|---|---|---|
+| 1 | LIMIT 截断会把真实条数报小，可能让"200 条"被读成真实值 | 部分成立（**它说会报"干净"是不对的**：截断时 `count>0` ⇒ `blocking>0` ⇒ `ok=false`）；但"200 条"确实会骗人 | 每条结果加 `truncated`（`rows.length >= limit`）+ 报告加 `truncatedBlocking`；`formatText` 明确打印「被 LIMIT=N 截断，真实条数多于这个数」 |
+| 2 | `substring(provider_reference from 8)` 无长度守卫：`'wechat:'` 恰好 7 字符时得到空串 | 成立 | 加 `AND length(s.provider_reference) > 7` |
+| 3 | 事件-订单用 INNER JOIN，**孤儿事件被静默丢掉** | 成立 | 改 `LEFT JOIN` + `(o.id IS NULL OR o.status <> 'paid')` |
+| 4 | 默认 `--since-days 30` 会藏住历史差异且输出里看不出来 | 成立（透明度问题） | 报告加 `inspectionWindow {since, sinceDays, limit}`，`formatText` 首行打印 |
+| 5 | 连到空库/错库时所有 SELECT 返回 0 行 ⇒ 报"一致" | **成立且最危险**（工具失明伪装成好消息） | 加 **schema 预检**：`to_regclass()` 查三张表，缺任一即抛 `PAYMENT_RECONCILE_SCHEMA_MISSING`（rc=2）。**零行也算失败** —— `rows[0] \|\| {}` 会让"没返回任何东西"看起来像"什么都不缺" |
+| 6 | 只读锁不拦 `SELECT … FOR UPDATE` / `SELECT … INTO` | 成立 | 结构锁补两条断言 |
+| 7 | 测试可能在实现被掏空时仍通过 | 部分成立（已有 `calls.length` 断言） | 补「每条判据的 SQL 都真的被执行了」逐条比对 |
+| 8 | `formatText` 在截断时仍说"一致" | 与 #1 同源 | #1 已覆盖 |
+| 9 | `auth_subject` 若是 user_id 而非订单号，第 4 项会误报 | 成立（文档假设） | SQL 注释写明语义（`payment-event-outbox.js` 写入的是订单号） |
+
+### 15.10.8 判据（更新）
+
+新增 **27 例**（含 3 条 SQL 形状锁，把 #2/#3 两条修复钉死，防止重构时悄悄退回）。
+变异反证 **四条**，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 判据里夹带 `UPDATE` | 14 pass / 2 fail（只读锁精确变红） |
+| 整段短路 schema 预检 | 22 pass / 5 fail |
+| `truncated` 恒 false | 25 pass / 2 fail |
+| `LEFT JOIN` 退回 `JOIN` | 25 pass / 2 fail |
+| 去掉 `length(...) > 7` 守卫 | 25 pass / 2 fail |
+
+均逐字节还原 True。
 ## 16. ✅ 已修复：provider 从未被构造（2026-10-22 发现并当日修复）
 
 > 本节记录的是一条**会让第 15 节全部白做**的缺口。它不属于"配置没做好"，是**代码没接上**。

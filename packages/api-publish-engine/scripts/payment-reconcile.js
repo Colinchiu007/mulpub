@@ -26,6 +26,11 @@
  *   node packages/api-publish-engine/scripts/payment-reconcile.js --since-days 7 --json
  */
 
+// schema 预检：三张表都必须存在（连错库/未迁移时空结果会被误读成"三方一致"）。
+const SCHEMA_SQL = `SELECT to_regclass('identity_orders') AS identity_orders,
+       to_regclass('identity_webhook_events') AS identity_webhook_events,
+       to_regclass('identity_subscriptions') AS identity_subscriptions`;
+
 const BLOCKING = 'blocking';
 const INFO = 'info';
 
@@ -60,6 +65,8 @@ const CHECKS = [
     sql: `SELECT s.user_id, s.plan, s.provider_reference, s.current_period_end
             FROM identity_subscriptions s
            WHERE s.provider_reference LIKE 'wechat:%'
+             -- 长度守卫：'wechat:' 恰好 7 字符时 substring 得到空串，会与 o.id='' 比较产生假阳性
+             AND length(s.provider_reference) > 7
              AND NOT EXISTS (
                SELECT 1 FROM identity_orders o
                 WHERE o.id = substring(s.provider_reference from 8)
@@ -74,9 +81,10 @@ const CHECKS = [
       '这是代码缺陷信号，先回滚 `PAYMENT_PROVIDER=none` 再查。',
     sql: `SELECT e.id, e.auth_subject AS order_id, e.processed_at, o.status
             FROM identity_webhook_events e
-            JOIN identity_orders o ON o.id = e.auth_subject
+            -- LEFT JOIN：事件指向的订单不存在时**不能**被 JOIN 丢掉（孤儿事件本身就是差异）
+            LEFT JOIN identity_orders o ON o.id = e.auth_subject
            WHERE e.provider = 'wechat_pay' AND e.status = 'processed'
-             AND o.status <> 'paid' AND e.received_at >= $1
+             AND (o.id IS NULL OR o.status <> 'paid') AND e.received_at >= $1
            LIMIT $2`,
   },
   {
@@ -89,6 +97,7 @@ const CHECKS = [
             FROM identity_orders o
            WHERE o.channel = 'payment' AND o.status = 'paid' AND o.created_at >= $1
              AND NOT EXISTS (
+               -- auth_subject 存的是**订单号**（payment-event-outbox.js 写入），不是 user_id
                SELECT 1 FROM identity_webhook_events e
                 WHERE e.provider = 'wechat_pay' AND e.auth_subject = o.id)
            LIMIT $2`,
@@ -145,6 +154,23 @@ async function runReconcile (options = {}) {
   const limit = options.limit || 200;
   const since = new Date(now().getTime() - sinceDays * 24 * 3600 * 1000);
 
+  // schema 预检：连到空库/错库时所有 SELECT 都会返回 0 行 —— 那会被读成「三方一致」。
+  // 这是对账工具最危险的失败形态（工具失明伪装成好消息），所以先确认三张表真的在。
+  const schema = await client.query(SCHEMA_SQL, []);
+  // ⚠️ 零行也要当失败：`rows[0] || {}` 会让"查询没返回任何东西"看起来像"什么都不缺"，
+  //    那正是本预检要防的失明形态。
+  if (!schema.rows || !schema.rows[0]) {
+    const error = new Error('schema 预检没有返回结果（连错库或权限不足？）');
+    error.code = 'PAYMENT_RECONCILE_SCHEMA_MISSING';
+    throw error;
+  }
+  const missing = Object.entries(schema.rows[0]).filter(([, v]) => v == null).map(([k]) => k);
+  if (missing.length) {
+    const error = new Error(`缺少表：${missing.join(', ')}（连错库或未跑迁移？）`);
+    error.code = 'PAYMENT_RECONCILE_SCHEMA_MISSING';
+    throw error;
+  }
+
   const results = [];
   for (const check of CHECKS) {
     const { rows } = await client.query(check.sql, [since, limit]);
@@ -154,27 +180,49 @@ async function runReconcile (options = {}) {
       title: check.title,
       hint: check.hint,
       count: rows.length,
+      // LIMIT 打满 ⇒ 真实条数可能更多。显示成"200 条"会骗人。
+      truncated: rows.length >= limit,
       sample: rows.slice(0, 5),
     });
   }
   const blocking = results.filter((r) => r.severity === BLOCKING && r.count > 0).length;
-  return { ok: blocking === 0, blocking, results };
+  const truncatedBlocking = results.filter((r) => r.severity === BLOCKING && r.truncated).length;
+  return {
+    ok: blocking === 0,
+    blocking,
+    truncatedBlocking,
+    inspectionWindow: { since: since.toISOString(), sinceDays, limit },
+    results,
+  };
 }
 
 function formatText (report) {
   const lines = ['=== 支付对账 ==='];
+  if (report.inspectionWindow) {
+    lines.push(`检查窗口：自 ${report.inspectionWindow.since} 起，每项最多 ${report.inspectionWindow.limit} 条`);
+  }
   for (const r of report.results) {
     const mark = r.count === 0 ? '✓' : (r.severity === BLOCKING ? '✗' : '!');
     lines.push(`[${mark}] ${r.id.padEnd(32)} ${String(r.count).padStart(4)} 条  ${r.title}`);
+    if (r.truncated) {
+      lines.push(`     ⚠ 结果被 LIMIT=${report.inspectionWindow ? report.inspectionWindow.limit : '?'} 截断：` +
+        '真实条数**多于**上面这个数，请调大 --limit 或缩小 --since-days 再跑一次');
+    }
     if (r.count > 0) {
       lines.push('     ' + r.hint);
       for (const row of r.sample) lines.push('     · ' + JSON.stringify(row));
-      if (r.count > r.sample.length) lines.push(`     …… 共 ${r.count} 条，仅显示前 ${r.sample.length} 条`);
+      if (r.count > r.sample.length) lines.push(`     …… 显示前 ${r.sample.length} 条`);
     }
   }
-  lines.push(report.ok
-    ? '✅ 三方一致（订单 / 事件 / 订阅），无阻塞性差异'
-    : `❌ 有 ${report.blocking} 项阻塞性差异，先按上面的提示逐条核对，**不要自动修复**`);
+  if (report.ok) {
+    lines.push('✅ 三方一致（订单 / 事件 / 订阅），无阻塞性差异');
+    if (report.truncatedBlocking > 0) {
+      // 理论上到不了这里（截断必然 count>0 ⇒ ok=false），留着是为了万一口径被改坏时出声。
+      lines.push('⚠ 但有阻塞项结果被截断，结论不可信');
+    }
+  } else {
+    lines.push(`❌ 有 ${report.blocking} 项阻塞性差异，先按上面的提示逐条核对，**不要自动修复**`);
+  }
   return lines.join('\n');
 }
 

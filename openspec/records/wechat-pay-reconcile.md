@@ -76,7 +76,28 @@ date: 2026-10-23
 - 没有 `BUSINESS_DATABASE_URL` → rc=2（不静默当成通过）
 - `client.end()` 一定被调用（不泄漏连接）
 
-## 6. 文档
+## 5.5 外部评审（2 Critical + 3 High）——全部落地
+
+| # | 意见 | 核验 | 处置 |
+|---|---|---|---|
+| 1 | LIMIT 截断把真实条数报小 | **部分成立**：它说会报"干净"是错的（截断时 `count>0` ⇒ `ok=false`）；但"200 条"确实骗人 | 加 `truncated` / `truncatedBlocking`，输出明确写「被 LIMIT=N 截断，真实条数更多」 |
+| 2 | `substring(from 8)` 无长度守卫 | 成立 | `AND length(s.provider_reference) > 7` |
+| 3 | INNER JOIN 丢掉孤儿事件 | 成立 | 改 `LEFT JOIN` + `(o.id IS NULL OR o.status <> 'paid')` |
+| 4 | 默认窗口藏历史差异且输出看不出 | 成立 | 报告加 `inspectionWindow`，首行打印 |
+| 5 | 连错库/空库 ⇒ 全 0 行 ⇒ 报"一致" | **成立且最危险** | 加 schema 预检 `to_regclass()`，缺表即 `PAYMENT_RECONCILE_SCHEMA_MISSING`（rc=2） |
+| 6 | 只读锁不拦 `FOR UPDATE` / `INTO` | 成立 | 结构锁补两条 |
+| 7 | 测试可能被掏空仍通过 | 部分成立 | 补「每条判据 SQL 都真的被执行」逐条比对 |
+| 9 | `auth_subject` 语义未写明 | 成立 | SQL 注释写明是订单号 |
+
+### 自查又抓到一条（评审没提）
+
+加 schema 预检时我先写成 `schema.rows[0] || {}` —— **查询返回零行时会被当成"什么都不缺"**，
+正是这个预检要防的失明形态。我自己的测试「CLI 层：缺表 ⇒ rc=2」当场变红才暴露出来。
+改为：零行也算失败。
+
+这条值得记：**防失明的检查本身也会失明**，而且它的失明与"一切正常"长得一模一样。
+
+## 6. 文档## 6. 文档
 
 | 文件 | 改动 |
 |---|---|
