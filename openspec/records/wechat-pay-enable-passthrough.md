@@ -92,6 +92,41 @@ PRD 新增 §15，四小节：
 15.4 里刻意写清一条容易误判的：**「按钮在、点了报错」是未配置时的预期形态，不是 bug** ——
 按钮显示条件是「已登录」而非「已开通支付」，这是 §7.4 的既定设计（预判需额外探测请求）。
 
+## 4.5 ⛔ 本轮还发现一条更大的缺口（未修，已钉进文档）
+
+查「还有没有别的配置不生效」时发现：**`WeChatNativeProvider` 在生产代码里从未被构造过**。
+
+| 位点 | 代码 |
+|---|---|
+| `src/auth/logto-runtime.js:127` | `new SubscriptionService({ repository, planOverrides })` —— **没传 `paymentProvider`** |
+| `src/auth/subscription-service.js:120` | `this.paymentProvider = options.paymentProvider \|\| null` |
+| `src/auth/subscription-payment.js:56` | `if (!this.paymentProvider) { … }` ⇒ 恒回 503 |
+| 全仓 `src` | `WeChatNativeProvider` **只出现在它自己的定义文件**，生产代码从未 `new` |
+
+**后果**：即使迁移已应用、compose 已透传、`.env` 填好、商户平台配好，`/me/checkout` **仍然恒 503**。
+第 15 节的配置工作会全部白做。
+
+**为什么 111 条支付测试全绿也没发现**：每条测试都**注入** provider
+（`new SubscriptionService({ repository, paymentProvider: new WeChatNativeProvider({...}) })`）。
+被注入的东西永远不需要有人去构造它 —— 单元覆盖率 100%，**组合根覆盖率 0%**。
+
+**为什么本轮不修**：签名 + 平台公钥是安全关键路径，必须**一次接全**。
+只接下单不接验签 = 用户付了钱、webhook 401、权益不发放 —— **比现在更糟**（从"付不了"变成"钱收了没给货"）。
+已写成 `tasks.md` §9.8（4 个子项，含组装根测试）与 PRD §16。
+
+## 4.6 外部评审的处置（2 High + 2 Medium）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| 1 | High：`CERT_PATH` 与 `CERT_CONTENT` 同时设置时谁优先未定义 | **采纳并更彻底**：`CERT_CONTENT` 在**任何生产代码里都没有消费方**（全仓只在 `production-config` 的 `!== ''` 判断里出现）⇒ 写进 `.env.example` 等于宣传一条不存在的路径。**已从 `.env.example` 与 compose 移除**，并注明"工厂落地时再一并支持" |
+| 2 | High：`CERT_CONTENT` 走 env 会被 `docker inspect` 看到，扩大泄露面 | 同上，移除即消除。另核实 `.gitignore:330` 已忽略 `.env` |
+| 3 | Medium：锁只验"声明一致"，不验运行时值；且 `.env` 与 `.env.example` 可能各自漂移 | **采纳为作用域说明**：在测试文件头写明"本锁只比对键名，值校验是 `production-config` 的职责"，并写明不得改成"匹配不到就跳过" |
+| 4 | Medium：新测试可能没接进 CI（孤儿文件） | **已核实并在文件头留证**：`scripts/run-tests.js:82` 用 `readdirSync(test).filter('.test.js')` 枚举，本文件不在 `VITEST_FILES` ⇒ 由 `node --test` 执行 |
+
+评审的 #1/#2 指向的其实是同一件事，而且顺着它们查出了更严重的问题（见 §4.5）：
+`WECHAT_PAY_CERT_CONTENT` **只被校验器承认、没有任何代码读它** —— 这正是"校验器比实现走得远"的形态。
+把它写进 `.env.example` 会让人配一个永远不会生效的变量。
+
 ## 5. 仍未做
 
 | 项 | 阻塞 |

@@ -589,3 +589,61 @@ PAYMENT_PROVIDER=none   # 然后重启服务
 
 效果：`/me/checkout` 恢复 503 `PAYMENT_PROVIDER_UNAVAILABLE`，前端回到「支付通道暂未开放」；
 已产生的 `pending` 订单不会被清理（它们永远不会 `paid`，无副作用）；已生效的订阅不受影响。
+
+## 16. ⛔ 已知阻断缺口：provider 从未被构造（2026-10-22 发现，**未修**）
+
+> 本节记录的是一条**会让第 15 节全部白做**的缺口。它不属于"配置没做好"，是**代码没接上**。
+
+### 16.1 事实（可在当前主干逐行核对）
+
+| 位点 | 代码 | 含义 |
+|---|---|---|
+| `src/auth/logto-runtime.js:127` | `new SubscriptionService({ repository, planOverrides })` | **没有传 `paymentProvider`** |
+| `src/auth/subscription-service.js:120` | `this.paymentProvider = options.paymentProvider \|\| null` | 于是生产里恒为 `null` |
+| `src/auth/subscription-payment.js:56` | `if (!this.paymentProvider) { … }` | `POST /me/checkout` 直接回 503 `PAYMENT_PROVIDER_UNAVAILABLE` |
+| 全仓 `src` | `WeChatNativeProvider` **只出现在它自己的定义文件里** | 生产代码从未 `new` 过它；只有测试构造 |
+
+### 16.2 后果
+
+**即使**：迁移已应用 + `docker-compose.yml` 已透传 + `.env` 填好 + 商户平台配置完成
+—— `POST /api/v1/me/checkout` **仍然恒返回 503**，用户仍然看到「支付通道暂未开放」。
+
+第 15 节解决的是"配置送不到进程"，第 16 节这条是"送到了也没人用"。
+
+### 16.3 为什么测试全绿也发现不了
+
+每条测试都是**注入** provider 的：
+
+```js
+return new SubscriptionService({ repository, paymentProvider: new WeChatNativeProvider({ ... }) })
+```
+
+`subscription-payment.test.js`（25 例）、`payment-api.test.js`（22 例）全部如此。
+**被注入的东西永远不需要有人去构造它** —— 这是"依赖注入 + 无组装根测试"的经典盲区：
+单元级覆盖率 100%，组合根覆盖率 0%。
+
+### 16.4 修它需要什么（下一个任务的验收面）
+
+1. `src/auth/payment-providers/wechat-native-factory.js`：
+   - `loadMerchantPrivateKey(env)`：`WECHAT_PAY_CERT_CONTENT`（PEM 全文）或 `WECHAT_PAY_CERT_PATH`（文件），二选一，缺失即抛错
+   - `buildAuthorizationHeader({ mchId, serialNo, privateKey, method, path, body, nonce, timestamp })`
+     → `WECHATPAY2-SHA256-RSA2048 mchid="…",nonce_str="…",signature="…",timestamp="…",serial_no="…"`
+     （签名原文 `METHOD\nPATH\nTIMESTAMP\nNONCE\nBODY\n`，RSA-SHA256）
+   - `createWeChatNativeProvider(env, deps)`：`PAYMENT_PROVIDER !== 'wechat_native'` 时返回 `null`
+2. 平台公钥（webhook 验签用）：需要新环境变量
+   - `WECHAT_PAY_PLATFORM_PUBLIC_KEY`（裸 Base64 SPKI 或 PEM）/ `WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH`
+   - `WECHAT_PAY_PUBLIC_KEY_ID`（微信 2024+ 公钥模式的 `PUB_KEY_ID_…`）
+   - **同时要在 `production-config` 里纳入必填**（没有它，checkout 能出码但 webhook 全部 401 ⇒ 用户付了钱拿不到权益）
+3. `logto-runtime.js` 接线：构造后传给 `SubscriptionService`
+4. **组装根测试**（关键）：`createLogtoRuntime({ PAYMENT_PROVIDER: 'wechat_native', …完整 env })`
+   ⇒ 断言 `subscriptionService.paymentProvider !== null`；`none` ⇒ `null`。
+   这条测试是唯一能防住本节的形态 —— 它不注入 provider，而是走真实组装路径。
+
+### 16.5 为什么本轮不修
+
+签名与平台公钥是**安全关键路径**，且必须**一次接全**：
+只接下单不接验签 = 用户付了钱、webhook 401、权益不发放 —— **比现在（根本付不了款）更糟**。
+半接的失败形态是"钱收了但没给货"，那是资金事故，不是功能缺陷。
+
+因此本轮只做**可验证的那一半**（配置透传），并把这条缺口钉进文档与 `tasks.md`。
+
