@@ -57,7 +57,7 @@ const ROUTE_TABLE = {
   weibo:        { mode: 'rpa_vm', timeout: 120000 },
   douyin:       { mode: 'rpa_vm', timeout: 300000 },
   xiaohongshu:  { mode: 'rpa_vm', timeout: 180000 },
-  tencent_video:{ mode: 'rpa_vm', timeout: 300000 },
+  tencent_video:{ mode: 'api', timeout: 300000 }, // 2026-10-22 切 API：竞品能力矩阵（01-analysis/derived/平台能力矩阵.md）标注视频号为 API；我方 api-publish-engine 已有 shipinhao.js 适配器（外部名 tencent_video）
   kuaishou:     { mode: 'rpa_vm', timeout: 300000 },
   toutiao:      { mode: 'rpa_vm', timeout: 120000 },
   bilibili:     { mode: 'api', timeout: 300000 },
