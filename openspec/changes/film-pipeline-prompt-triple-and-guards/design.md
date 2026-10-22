@@ -1,6 +1,11 @@
 # design — film-pipeline-prompt-triple-and-guards
 
 > 决策记录。每条给出：决策 / 备选与否决理由 / 代价。
+>
+> ⚠ **本文件的 D20 / D21 / D22 是「逐轮收敛层」** —— 每一层写的是**那一轮当时的写法**，
+> 后面的轮次（决策层对抗评审第 5-19 轮）又改掉了其中若干条。
+> ⇒ **D20/D21/D22 的正文保留历史留痕，不当作现行口径**；**现行口径见 [D23](#d23-收敛到第-19-轮后的最终口径--旧名--新名对照)**。
+> 照着 D20/D21 的旧写法实施会写回旧字段名（这正是「陈旧字段名回归锁」要防的事）。
 
 ## D1 分镜提示词拆三份，存量数据零迁移
 
@@ -506,3 +511,30 @@ D21 定了「不逐镜复制长文本」；D22 补上它的三个漏洞：**同�
 - i18n key 清单**逐条编号**列出，并在测试里**数一遍 locale 文件的 key 数**、断言等于清单条数 ⇒
   「清单写了几个」与「文件里实际有几个」对不上就是欠账。
 - F-H 的「可单独回退这一笔」在 **squash 合并**下**无执行体** ⇒ 回退口径统一改为「**revert 整个 PR**」。
+
+## D23 收敛到第 19 轮后的最终口径（旧名 → 新名对照）
+
+> **本节是 D20/D21/D22 的「现行口径入口」**，不是又一份口径表。
+> 口径的**完整表述**只有一处：`review-brief-pr3.md` §四末（判据与清单）与
+> `ccg-plan-review-record-pr3.md` §三之二十（最终口径汇总）。
+> 本节只做一件事：**把「D20/D21/D22 正文里的旧写法」与「现行写法」的对应关系列出来** ——
+> 读者从 D20/D21 进来时，一眼能知道哪几处已经被后面几轮改掉了。
+>
+> **不重述口径本身**：同一事实写多处必然漂移（本 change 前 19 轮里已经因此漂了三次，见评审记录 §三之十九之补）。
+
+| D20/D21/D22 正文里的旧写法 | 现行写法 | 何时改的 | 依据 |
+|------|----------|----------|------|
+| `sourceHash`（D20.3 / D20.4 / D20.6 / D21.2） | `promptAssetHash`（plan 级·资产面）**+** `promptRenderHash`（逐镜·渲染面） | 第 8 轮 i1 | 旧名只覆盖 doctrine+任务模板，却叫「资产哈希」⇒ 改色盘不改它、却改逐镜哈希 ⇒ 是**假命题** |
+| `promptContext = { taskId, locale, sourceHash }` | `promptContext = { taskId, taskAvailable, locale, promptAssetHash, frameConstraint, frameConstraintPending, fallbackLocales, assetsIncomplete }` | 第 8-19 轮陆续 | 逐镜渲染哈希**必须含缺失清单**（否则「超限」与「没有」同哈希） |
+| `blockedExport`（D20.5 / D21.4） | `assetsIncomplete` | 第 8 轮（记在 D22.3） | 本 PR **没有导出入口**，叫「导出被阻断」会让人以为导出功能已存在 |
+| 缺失分**四类**（D21.3） | 缺失分**五类**：`byDesign` / `assetMissing` / `templateVar` / `badVarName` / **`oversizeVar`** | 第 10 轮 i1（第 17 轮把 `geo_block` 改判 `byDesign`） | 超长是**独立一类**，不能与「没有」混同 |
+| `geo_block` = `assetMissing`（D21.3） | `geo_block` = **`byDesign`** | 第 17 轮 | 跨模板取块的选取规则未定义 ⇒ 缺的不是资产，是「我们决定不取」；连带把 `assetMissing` 语义补全为「有资产形态、当前取不到」 |
+| `frameConstraint = { text, locale, fallback, truncated }`（D21.1） | `frameConstraint = { hash, length, locale, fallback, truncated, source, originalHash, originalLength }`（**不存原文**） | 第 4 轮 i8 / 第 8 轮 i2 | 方法论原文属提示词资产，落用户项目文件多一条外发面；哈希分**截断前/后**两态 |
+| 每镜 ≤ 1KB（D20.3）/ 单镜清单 ≤ 1,024 字节 | **清单** `promptMissing` ≤ **8 KiB**（8,192 字节，UTF-8）**且** `promptVars`+`promptMissing` **合计** ≤ **256 KiB** | 第 12 / 16 / 17 轮 | **两个对象、两个上限**，别混用；上限在**实现里**强制（`MAX_MISSING_BYTES` / `MAX_MISSING_ENTRIES`），不是断言 |
+| i18n 清单 12 个 key | **27 个**（`doctrine` 7 + `auto.methodology*` 15 + `auto.methodologyReason*` 5） | 第 13 / 19 轮 | 三处计数同源，由机器断言（清单条数 == 27、zh/en 成对、分组数对得上） |
+| F-H「可单独回退这一笔」 | **revert 整个 PR** | 第 4 轮（记在 D22.3） | 本仓一律 **squash 合并** ⇒ 单笔提交可独立回退是**假承诺** |
+
+**实现真值的位置**（要看常量与真值，以代码为准，不以本文档为准）：
+`apps/desktop/electron/services/film-engineering/shot-prompt-task.js` 末尾导出的常量
+（`MAX_KIT_VAR_LEN` / `MAX_SHOT_FIELD_LEN` / `MAX_MISSING_NAME_LEN` / `MAX_MISSING_ENTRIES` / `MAX_MISSING_BYTES`）。
+

@@ -587,6 +587,22 @@ describe('FilmAutoPanel · 方法论接入状态（F-I）', () => {
     w.unmount()
   })
 
+  /**
+   * PRD §9.b M-43：**stale 与 assetsIncomplete 不并列**。
+   *
+   * 为什么必须锁：两者说的**不是同一件事** ——
+   *   · `assetsIncomplete` = **规划时**资产就不全（W10/W11）；
+   *   · `stale` = 规划**之后**资产被换了（重开项目时重算哈希对不上）。
+   * 并列显示 ⇒ 用户以为「现在既不全、又被换了」两件事同时成立 ⇒ 会去查错的方向。
+   * 面板实现是 `assetsIncomplete && !stale` ⇒ 判据锁住这个互斥。
+   */
+  it('「资产已变」与「资产不完整」**不并列**（stale=true ⇒ 只显示「资产已变」）', async () => {
+    const w = await previewWith(Object.assign({}, METHODOLOGY, { stale: true, assetsIncomplete: true }))
+    expect(w.find('[data-testid="fa-methodology-stale"]').exists()).toBe(true)
+    expect(w.find('[data-testid="fa-methodology-assets-incomplete"]').exists()).toBe(false)
+    w.unmount()
+  })
+
   it('没有方法论上下文时**不渲染**该分区（老 kit 兼容）', async () => {
     const w = await previewWith(undefined)
     expect(w.find('[data-testid="fa-methodology"]').exists()).toBe(false)

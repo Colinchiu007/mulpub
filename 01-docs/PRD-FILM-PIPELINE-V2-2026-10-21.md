@@ -702,7 +702,7 @@ split → scene_context（已有）
 | M-18 | **截断前后两态**：`frameConstraint.hash`/`length` 取截断后文本、`originalHash`/`originalLength` 取截断前 ⇒ 截断点之后的改动**可检测** | 合成 | 同上 |
 | M-19 | **kit 不可信的长度上限**：色盘行 / 角色描述超 20,000 字符 ⇒ **不提供该变量**（进 `promptMissing` ⇒ `deliverable=false`），**不静默截断**；未超限照常提供 | 合成 | 同上 |
 | M-20 | **防空集通过**：旧名扫描断言里**被扫描文件数 > 0**（路径写错或列表为空时该判据会恒真） | 合成 | 同上 |
-| M-21 | **逐镜清单体积有界**：`promptMissing` 里**7 个任务变量**的条目 ≤ 7（`templateVar` / `badVarName` / `oversizeVar` **另计**且总量有界）、每条只含 `name` + 枚举 `reason`、单镜序列化 < 1KB | 合成 | `auto-project.test.js` |
+| M-21 | **逐镜清单体积有界**：`promptMissing` 里**7 个任务变量**的条目 ≤ 7（`templateVar` / `badVarName` / `oversizeVar` **另计**且总量有界）、每条只含 `name` + 枚举 `reason`、单镜**清单**序列化 ≤ **8 KiB**（8,192 字节，UTF-8） | 合成 | `auto-project.test.js` |
 | M-22 | **生产路径 CI 恒跑**：①b 用**合成夹具**实现（不依赖 film-kit）⇒ `style_prefix` 恒 `byDesign` ⇒ 进清单 + `deliverable=false` + 占位符原样保留 | 合成 | `auto-plan.test.js` |
 | M-23 | **不指向不存在的功能**：`methodologyAssetsIncomplete` 文案**不含「导入」**（产品里没有资产导入入口，那是 PR-3b），改为如实说明「缺什么 + 能力未接入」；W10/W11 同步 | 合成 | `film-engineering-methodology.test.js` |
 | M-24 | **面板行标签互不相同**：方法论分区每一行的 `<dt>` 是**互不相同**的 key（此前三行复用了「任务模板」）；且每个行标签在 zh/en 都存在 | 合成 | 同上 |
@@ -713,24 +713,18 @@ split → scene_context（已有）
 | M-29 | **三处计数同源**：本 PRD §8.b、方案简报、测试清单长度，出现的每一个「N 个 key / 编号 1-N / 清单条数 == N」的 N **必须都等于 27**；两份文档的 key 清单**逐条编号**都是 1..27；**分组数**也对得上（`doctrine` 7 + `auto.methodology*` 15 + `auto.methodologyReason*` 5 = 27） | 合成 | `film-engineering-methodology.test.js` |
 | M-30 | **哈希的域分层**：截断点**之后**的改动 ⇒ `promptAssetHash`（完整 doctrine）**变**、`frameConstraint.hash`（截断后）**不变**、`frameConstraint.originalHash`（截断前）**变** | 合成 | `shot-prompt-task.test.js` |
 | M-31 | **哈希的负向域**：改色盘 / 角色描述**不改** `promptAssetHash`（不在它的域里），改的是**逐镜** `promptRenderHash` | 合成 | 同上 |
+| M-32 | **巡检断言有内容**：真实 kit 巡检除不变量外，还要断言**每条 `missing` 的 reason ∈ 闭集**、**reason 与渲染行为一致**（byDesign 保留占位符 / assetMissing 不留占位符）、**`deliverable` 与 `blockedVars` 长度与清单一致** | 真实 | 同上 |
 | M-33 | **清单里的名字封顶**：`templateVar` / `badVarName` 的名字来自**不可信**的 kit 模板 ⇒ 落盘前截断到 **64 字符** | 合成 | `shot-prompt-task.test.js` |
 | M-34 | **重开项目时校验资产**：服务端用**当前** kit 重算 `promptAssetHash`，与落盘值不一致 ⇒ `methodology.stale = true` ⇒ 面板显示**区块级**警告「资产已变」 | 合成 | `film-engineering-auto.test.js` + `film-engineering-methodology.test.js` |
 | M-35 | **无任务库态**：缺 `promptLibrary` ⇒ `taskAvailable === false`、`deliverable === false`、`promptAssetHash` 仍按「doctrine + 空模板」算出（**不是**空串）、**不产出** `renderText` | 合成 | `auto-plan.test.js` + `shot-prompt-task.test.js` |
 | M-36 | **`shot_json` 缺值逐字段**：`index`/`shotId`/`beatIndex` → `null`；`title`/`model` → 空串；`characterNames` → `[]` | 合成 | `shot-prompt-task.test.js` |
+| M-37 | **单镜落盘体积**：单镜 `promptVars` + `promptMissing` 序列化 **≤ 256 KiB**；`promptMissing` 本身 **≤ 8 KiB**（8,192 字节，UTF-8）且**非任务条目 ≤ 8**（**实现里强制**，超出部分不落清单） | 合成 | `auto-project.test.js` |
 | M-38 | **缺失态进哈希**：逐镜渲染哈希覆盖**缺失清单** ⇒ 「变量超限」与「变量没有」**不同哈希** | 合成 | 同上 |
 | M-39 | **清单条目硬闸门**（条目数 + **字节数**两道）：模板要 100 个变量 ⇒ 清单仍被封住（任务变量 ≤ 7 + 非任务 ≤ 8，且序列化 ≤ 8 KiB），且 `deliverable` **仍为 false**（闸门不放行） | 合成 | 同上 |
 | M-40 | **截断不切开代理对**：emoji 截断后长度**必为偶数**，两次截断**逐字相同** | 合成 | 同上 |
+| M-41 | **验收编号连续**：简报 §四 验收表的条目编号按出现顺序**连续、无重号**（子项如 ①b 允许同号） | 合成 | `film-engineering-methodology.test.js` |
 | M-42 | **无 kit 时逐镜不写方法论字段**：不传 kit ⇒ 逐镜**不出现** `promptVars` / `promptMissing` / `promptRenderHash` | 合成 | `auto-plan.test.js` |
 | M-43 | **stale 与 assetsIncomplete 不并列**：`stale === true` ⇒ 面板**只显示**「资产已变」，不并列「资产不完整」（后者说的是**规划时**的事） | 合成 | `FilmAutoPanel.test.js` + `film-engineering-auto.test.js` |
-| M-41 | **验收编号连续**：简报 §四 验收表的条目编号按出现顺序**连续、无重号**（子项如 ①b 允许同号） | 合成 | `film-engineering-methodology.test.js` |
-| M-38 | **缺失态进哈希**：逐镜渲染哈希覆盖**缺失清单** ⇒ 「变量超限」与「变量没有」**不同哈希** | 合成 | 同上 |
-| M-39 | **清单条目硬闸门**（条目数 + **字节数**两道）：模板要 100 个变量 ⇒ 清单仍被封住（任务变量 ≤ 7 + 非任务 ≤ 8，且序列化 ≤ 8 KiB），且 `deliverable` **仍为 false**（闸门不放行） | 合成 | 同上 |
-| M-40 | **截断不切开代理对**：emoji 截断后长度**必为偶数**，两次截断**逐字相同** | 合成 | 同上 |
-| M-42 | **无 kit 时逐镜不写方法论字段**：不传 kit ⇒ 逐镜**不出现** `promptVars` / `promptMissing` / `promptRenderHash` | 合成 | `auto-plan.test.js` |
-| M-43 | **stale 与 assetsIncomplete 不并列**：`stale === true` ⇒ 面板**只显示**「资产已变」，不并列「资产不完整」（后者说的是**规划时**的事） | 合成 | `FilmAutoPanel.test.js` + `film-engineering-auto.test.js` |
-| M-41 | **验收编号连续**：简报 §四 验收表的条目编号按出现顺序**连续、无重号**（子项如 ①b 允许同号） | 合成 | `film-engineering-methodology.test.js` |
-| M-37 | **单镜落盘体积**：单镜 `promptVars` + `promptMissing` 序列化 **≤ 256 KiB**；`promptMissing` 本身 **≤ 1,024 字节**且**非任务条目 ≤ 8**（**实现里强制**，超出部分不落清单） | 合成 | `auto-project.test.js` |
-| M-32 | **巡检断言有内容**：真实 kit 巡检除不变量外，还要断言**每条 `missing` 的 reason ∈ 闭集**、**reason 与渲染行为一致**（byDesign 保留占位符 / assetMissing 不留占位符）、**`deliverable` 与 `blockedVars` 长度与清单一致** | 真实 | 同上 |
 
 ## 十、明确不做
 

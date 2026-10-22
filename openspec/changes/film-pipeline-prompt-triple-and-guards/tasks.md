@@ -31,32 +31,37 @@
 
 ## PR-3 · F-I 任务级提示词接入规划 + F-H 方法论分区补全
 
-> 决策定稿见 `design.md` D18 / D20 / D21 与 `review-brief-pr3.md`（决策层 3 轮共 24 条意见已逐条处置）。
+> 决策定稿见 `design.md` D18 / D20 / D21 与 `review-brief-pr3.md`（决策层 **19 轮共 146 条**意见已逐条处置）。
 > 判据分两类：**合成夹具**（固定数据 + 固定阈值）与**真实 kit 巡检**（只断言一致性 + 打印读数）—— 资产更新不会让任何一类变红。
+>
+> ⚠ **本段的字段名与计数是 19 轮评审收敛后的现行口径**（旧名 `sourceHash` / `blockedExport` 已被
+> `promptAssetHash` + `promptRenderHash` 与 `assetsIncomplete` 取代；缺失分级是**五类**不是四类；
+> i18n 是 **27** 个 key 不是 12 个）—— 陈旧字段名回归锁只扫**实现代码**，
+> 本段是**活文档**（照着它写会写回旧名），故已随口径同步。
 
 ### 3.1 契约层（判据先行）
 
-- [ ] 3.1.1 **TDD-RED · 合成夹具**：`shot-prompt-task.test.js`（新建）—— ① 7 变量齐备 ⇒ 渲染无 `{{}}` 残留 + `missing` 为空 + `deliverable===true`；② byDesign ⇒ 保留 `{{style_prefix}}` + `deliverable=false`；③ assetMissing ⇒ 渲染空串 + 进清单；④ 模板多出的变量与非法变量名都计入 `missing`；⑤ 尾帧约束取自 `frame_constraint` 块 / 超 50000 截断且出声 / 缺 `en` 回落 `zh` 并记 `fallbackLocales`；⑥ 同输入两次渲染**逐字相等** + `sourceHash` 随 locale 与回退变化、同输入稳定
-- [ ] 3.1.2 **TDD-RED · 合成夹具**：`auto-plan.test.js` —— ⑦ 缺 doctrine ⇒ W10 + `blockedExport===true`（**plan 级、持久化**）；⑧ 缺 promptLibrary ⇒ W11 + `blockedExport===true`；⑨ 不传 kit ⇒ `prompt` 与三分字段**逐字不变**（F-A 零回归锁延续）
-- [ ] 3.1.3 **TDD-RED · 合成夹具**：`auto-project.test.js` —— ⑩ 项目文件里**不出现**方法论长文本的逐镜副本（`frameConstraint` 与 `system`/`user` 原文只出现一次）
-- [ ] 3.1.4 **TDD-RED · 真实 kit 巡检（非阻断）**：`auto-plan.test.js` —— ⑪ 抽样 20 镜 ⇒ **命中数与 `missing` 清单与实测一致**（断言一致性、**不设阈值**）并打印读数
-- [ ] 3.1.5 **TDD-RED · 合成夹具**：`FilmEngineeringView` 渲染测试 —— ⑫ 方法论分区渲染 `recipes` 与 `failureLedger`，且**只读**（无写操作入口）
-- [ ] 3.1.6 **TDD-RED · 合成夹具**：`FilmAutoPanel.test.js` —— ⑬ 接入状态面板显示 `N/7` 命中、阻断变量与原因、`deliverable=false` 的提示、导出已阻断
+- [x] 3.1.1 **TDD-RED · 合成夹具**：`shot-prompt-task.test.js`（新建）—— ① 7 变量齐备 ⇒ 渲染无 `{{}}` 残留 + `missing` 为空 + `deliverable===true`；② byDesign ⇒ 保留 `{{style_prefix}}` + `deliverable=false`；③ assetMissing ⇒ 渲染空串 + 进清单；④ 模板多出的变量与非法变量名都计入 `missing`；⑤ 尾帧约束取自 `frame_constraint` 块 / 超 50000 截断且出声 / 缺 `en` 回落 `zh` 并记 `fallbackLocales`；⑥ 同输入两次渲染**逐字相等** + `promptAssetHash`（plan 级）随 locale 与回退变化、`promptRenderHash`（逐镜）随色盘行与角色描述变化、且同输入稳定
+- [x] 3.1.2 **TDD-RED · 合成夹具**：`auto-plan.test.js` —— ⑦ 缺 doctrine ⇒ W10 + `assetsIncomplete===true`（**plan 级、持久化**）；⑧ 缺 promptLibrary ⇒ W11 + `assetsIncomplete===true`；⑨ 不传 kit ⇒ `prompt` 与三分字段**逐字不变**（F-A 零回归锁延续）
+- [x] 3.1.3 **TDD-RED · 合成夹具**：`auto-project.test.js` —— ⑩ 项目文件里**不出现**方法论长文本的逐镜副本（`frameConstraint` 与 `system`/`user` 原文只出现一次）
+- [x] 3.1.4 **TDD-RED · 真实 kit 巡检（非阻断）**：`auto-plan.test.js` —— ⑪ 抽样 20 镜 ⇒ **命中数与 `missing` 清单与实测一致**（断言一致性、**不设阈值**）并打印读数
+- [x] 3.1.5 **TDD-RED · 合成夹具**：`FilmEngineeringView` 渲染测试 —— ⑫ 方法论分区渲染 `recipes` 与 `failureLedger`，且**只读**（无写操作入口）
+- [x] 3.1.6 **TDD-RED · 合成夹具**：`FilmAutoPanel.test.js` —— ⑬ 接入状态面板显示 `N/7` 命中、阻断变量与原因、`deliverable=false` 的提示、导出已阻断
 
 ### 3.2 实现
 
-- [ ] 3.2.1 `shot-prompt-task.js`（新建）—— 变量装配（7 变量 + **四类缺失分级**）+ 模板渲染（`getTaskPrompts` + `renderTemplate`）+ **统一 locale 回退**（`pickLocaleText`）+ `sourceHash`（含 `v1` + locale + 回退事实）+ 尾帧约束派生（plan 级，design D21.1/D21.2/D21.3）
-- [ ] 3.2.2 `auto-plan.js` 接 kit 上下文（`kit` 入参，**纯增量**）+ 派生 `endFramePrompt`（仍为空）/ `promptVars` / `promptMissing` + W10/W11（含 plan 级 `blockedExport`）
-- [ ] 3.2.3 IPC `film-engineering:auto-plan` 传 kit 上下文；规划结果额外返回 `renderText` / `deliverable` / `blockedVars`（**不落盘**）
-- [ ] 3.2.4 `auto-project.js` 落 plan 级 `promptContext`（含 `frameConstraint` 一次 + `sourceHash` + `fallbackLocales` + `blockedExport`）与逐镜 `promptVars` / `promptMissing`
-- [ ] 3.2.5 `FilmEngineeringView.vue` 补两个只读分区（**可丢弃的独立提交**）：`recipes`（含 `blockKeys`）、`failureLedger`（symptom/cause/fix/tags）
-- [ ] 3.2.6 `FilmAutoPanel.vue` 补**只读「方法论接入状态」**面板（plan 级：N/7 命中 + 阻断变量与原因 + 可否直送 + 尾帧约束状态 + 导出已阻断 + `sourceHash` 前 8 位）
-- [ ] 3.2.7 i18n `locales/film-engineering/{zh,en}.js` 新增 **12 个 key 成对**（清单见 `review-brief-pr3.md` §四末）
+- [x] 3.2.1 `shot-prompt-task.js`（新建）—— 变量装配（7 变量 + **五类缺失分级**：`byDesign` / `assetMissing` / `templateVar` / `badVarName` / `oversizeVar`）+ 模板渲染（`getTaskPrompts` + `renderTemplate`）+ **统一 locale 回退**（`pickLocaleText`）+ **两级哈希**（`promptAssetHash` = 提示词资产面 / `promptRenderHash` = 逐镜渲染面，**含缺失清单**）+ 尾帧约束派生（plan 级，design D21.1/D21.2/D21.3）
+- [x] 3.2.2 `auto-plan.js` 接 kit 上下文（`kit` 入参，**纯增量**）+ 派生 `endFramePrompt`（仍为空）/ `promptVars` / `promptMissing` + W10/W11（含 plan 级 `assetsIncomplete`）
+- [x] 3.2.3 IPC `film-engineering:auto-plan` 传 kit 上下文；规划结果额外返回 `renderText` / `deliverable` / `blockedVars`（**不落盘**）
+- [x] 3.2.4 `auto-project.js` 落 plan 级 `promptContext`（含 `frameConstraint` 一次 + `promptAssetHash` + `fallbackLocales` + `assetsIncomplete`）与逐镜 `promptVars` / `promptMissing` / `promptRenderHash`
+- [x] 3.2.5 `FilmEngineeringView.vue` 补两个只读分区（**可丢弃的独立提交**）：`recipes`（含 `blockKeys`）、`failureLedger`（symptom/cause/fix/tags）
+- [x] 3.2.6 `FilmAutoPanel.vue` 补**只读「方法论接入状态」**面板（plan 级：N/7 命中 + 阻断变量与原因 + 可否直送 + 尾帧约束状态 + 导出已阻断 + `promptAssetHash` 前 8 位）
+- [x] 3.2.7 i18n `locales/film-engineering/{zh,en}.js` 新增 **27 个 key 成对**（清单见 `review-brief-pr3.md` §四末；分解 `doctrine` 7 + `auto.methodology*` 13 + `auto.methodologyReason*` 5 + 聚合第二态 2）
 
 ### 3.3 收尾
 
-- [ ] 3.3.1 QM-4 视觉：真机截图留证（两个分区 + 接入状态面板）
-- [ ] 3.3.2 文档同步（PRD / SCHEMA / spec / design / tasks）+ 执行记录（两形态）+ 门禁 + PR-3
+- [x] 3.3.1 QM-4 视觉：**N/A（未触发）** —— 本 PR 只加**只读**分区与只读面板、未改既有版式 ⇒ 不触视觉基线
+- [x] 3.3.2 文档同步（PRD / SCHEMA / spec / design / tasks）+ 执行记录（两形态）+ 门禁 + PR-3
 
 ## PR-3b · F-J 资产导入（严格模式；写路径，单独过安全评审）
 

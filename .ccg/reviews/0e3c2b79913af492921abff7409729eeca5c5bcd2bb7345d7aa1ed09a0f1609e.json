@@ -58,7 +58,7 @@
     "required": true,
     "status": "self_play_resolved",
     "performedBy": "self-play",
-    "findings": 138,
+    "findings": 146,
     "error": "Critique校验失败",
     "validationErrors": [
       "issues[0].dimension无效:consistency",
@@ -66,6 +66,6 @@
     ],
     "at": "2026-10-22T03:02:55.844Z",
     "blocking": [],
-    "closureNote": "【决策层 19 轮已闭环】critic 与 proposer 跨家族跑 19 轮决策层对抗评审，累计 138 条意见逐条处置：\n其中 2 条驳回（第 19 轮 i2 前提不成立——duration_sec 实现里已 String() 化；第 17 轮 i5 事实澄清），\n3 条影响实现已改（geo_block 由 assetMissing 改判 byDesign；清单闸门下沉到产出源；哈希改名 promptAssetHash 并写明域边界），\n其余 133 条为文档自洽性与规格缺口，逐条已修。\n逐条处置结论见 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record-pr3.md（含第 19 轮「评审总收口」一节）。\n\n【验证层（diff）外部复核未完成，如实标注】sh scripts/deep-review.sh 跑 2 次均未产出有效 critique：\n引擎 diff 层只认维度词表 correctness/security/performance/maintainability，\n而可用 critic 后端（claude）输出的是决策层词表 consistency/feasibility/completeness/clarity ⇒ Critique 校验失败（见本记录 error/validationErrors）。\n这是后端与该层词表不兼容，不是评审通过，也不是发现了缺陷；本 closureNote 不把校验失败读成通过。\n（另试过把仓内后端清单的 critic 临时切到 codex：引擎 diff 层不读仓内清单，实际仍跑 claude，故不奏效；清单已还原。）\n\n【本变更集未命中高危面】stats.sensitivePathHits 为空；未触碰 scripts/check-*、.github/workflows/、凭证/登录态面\n⇒ 按门禁既有合规出口（第 ② 条）以本 closureNote 收口，status 记 self_play_resolved（由作者自扮演裁决），tier 不写。\n\n【替代覆盖】① 决策层 19 轮 138 条逐条处置；② 本 PR 38 条验收断言（8 个测试文件，影视工程 39 文件 / 717 例全绿）；\n③ QM-1 打包 npx electron-builder --win --x64 exit 0；④ 9 条针对文档自洽性的机器断言（计数同源 / 清单逐条编号 / 分组数 /\n验收条目编号连续且 id 唯一 / (文件, 用例名) 唯一 / 面板行标签互不相同 / 陈旧字段名零残留且现行名在用 / 防空集通过 / 章节交叉引用可解析）。"
+    "closureNote": "【决策层 19 轮已闭环】critic 与 proposer 跨家族跑 19 轮决策层对抗评审，累计 146 条意见逐条处置（分母：19 轮中 18 轮各 8 条 + 第 6 轮 2 条）：\n其中 2 条驳回（第 19 轮 i2 前提不成立——duration_sec 实现里已 String() 化；第 17 轮 i5 事实澄清），\n3 条影响实现已改（geo_block 由 assetMissing 改判 byDesign；清单闸门下沉到产出源；哈希改名 promptAssetHash 并写明域边界），\n其余 141 条为文档自洽性与规格缺口，逐条已修。\n逐条处置结论见 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record-pr3.md（含第 19 轮「评审总收口」一节）。\n\n【验证层（diff）外部复核未完成，如实标注】sh scripts/deep-review.sh 跑 2 次均未产出有效 critique：\n引擎 diff 层只认维度词表 correctness/security/performance/maintainability，\n而可用 critic 后端（claude）输出的是决策层词表 consistency/feasibility/completeness/clarity ⇒ Critique 校验失败（见本记录 error/validationErrors）。\n这是后端与该层词表不兼容，不是评审通过，也不是发现了缺陷；本 closureNote 不把校验失败读成通过。\n（另试过把仓内后端清单的 critic 临时切到 codex：引擎 diff 层不读仓内清单，实际仍跑 claude，故不奏效；清单已还原。）\n\n【本变更集未命中高危面】stats.sensitivePathHits 为空；未触碰 scripts/check-*、.github/workflows/、凭证/登录态面\n⇒ 按门禁既有合规出口（第 ② 条）以本 closureNote 收口，status 记 self_play_resolved（由作者自扮演裁决），tier 不写。\n\n【替代覆盖】① 决策层 19 轮 146 条逐条处置；② 本 PR 38 条验收断言（8 个测试文件，影视工程 39 文件 / 717 例全绿）；\n③ QM-1 打包 npx electron-builder --win --x64 exit 0；④ 9 条针对文档自洽性的机器断言（计数同源 / 清单逐条编号 / 分组数 /\n验收条目编号连续且 id 唯一 / (文件, 用例名) 唯一 / 面板行标签互不相同 / 陈旧字段名零残留且现行名在用 / 防空集通过 / 章节交叉引用可解析）。"
   }
 }
