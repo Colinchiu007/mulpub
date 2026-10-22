@@ -251,72 +251,20 @@
               </div>
             </template>
 
-            <!-- 克隆形象管理（avatar-voice-clone） -->
-            <template v-if="avatarClonePanelOpen">
-              <div class="config-item config-item--full" data-testid="avatar-clone-panel">
-                <h4>{{ avatarText('avatarCloneSectionTitle') }}</h4>
-
-                <!-- 一次性合规提示：不强制勾选，只提示 + 记录已阅 -->
-                <div v-if="!avatarCloneNoticeAcked" class="clone-notice" data-testid="avatar-clone-notice">
-                  <strong>{{ avatarText('avatarCloneNoticeTitle') }}</strong>
-                  <p>{{ avatarText('avatarCloneNoticeBody') }}</p>
-                  <button
-                    type="button"
-                    class="s2v-btn-secondary s2v-btn-sm"
-                    data-testid="avatar-clone-notice-ack"
-                    @click="avatarCloneNoticeAcked = true"
-                  >{{ avatarText('avatarCloneNoticeAck') }}</button>
-                </div>
-
-                <div v-if="avatarClones.length === 0" class="config-hint" data-testid="avatar-clone-empty">
-                  {{ avatarText('avatarCloneEmpty') }}：{{ avatarText('avatarCloneEmptyHint') }}
-                </div>
-                <ul v-else class="clone-list" data-testid="avatar-clone-list">
-                  <li v-for="item in avatarClones" :key="item.id">
-                    <span class="clone-name">{{ item.name }}</span>
-                    <span v-if="item.trainingState === 'training'" class="clone-tag">{{ avatarText('avatarCloneTraining') }}</span>
-                    <span v-else-if="avatarCloneInvalidKey(item)" class="clone-tag clone-tag--warn">
-                      {{ avatarText(avatarCloneInvalidKey(item)) }}
-                    </span>
-                    <button
-                      type="button"
-                      class="s2v-btn-secondary s2v-btn-sm"
-                      :data-testid="'avatar-clone-delete-' + item.id"
-                      @click="removeAvatarClone(item.id)"
-                    >{{ avatarText('avatarCloneDelete') }}</button>
-                  </li>
-                </ul>
-
-                <!-- 创建：名称 + 两种素材入口（照片 / 视频） -->
-                <div class="clone-create">
-                  <input
-                    v-model="avatarCloneNameDraft"
-                    type="text"
-                    class="form-input"
-                    data-testid="avatar-clone-name"
-                    :placeholder="avatarText('avatarCloneNamePlaceholder')"
-                    :disabled="avatarCloneCreating"
-                  />
-                  <button
-                    type="button"
-                    class="s2v-btn-secondary s2v-btn-sm"
-                    data-testid="avatar-clone-create-photo"
-                    :disabled="avatarCloneCreating"
-                    @click="createAvatarClone('photo')"
-                  >{{ avatarText('avatarCloneTypePhoto') }}</button>
-                  <button
-                    type="button"
-                    class="s2v-btn-secondary s2v-btn-sm"
-                    data-testid="avatar-clone-create-video"
-                    :disabled="avatarCloneCreating"
-                    @click="createAvatarClone('digital_twin')"
-                  >{{ avatarText('avatarCloneTypeVideo') }}</button>
-                </div>
-                <span v-if="avatarCloneCreateError" class="inline-error" data-testid="avatar-clone-create-error">
-                  {{ avatarText(avatarCloneCreateError) }}
-                </span>
-              </div>
-            </template>
+            <!-- 克隆形象管理（avatar-voice-clone）：面板本体在 AvatarClonePanel.vue -->
+            <AvatarClonePanel
+              v-if="avatarClonePanelOpen"
+              :clones="avatarClones"
+              :notice-acked="avatarCloneNoticeAcked"
+              :name-draft="avatarCloneNameDraft"
+              :creating="avatarCloneCreating"
+              :create-error="avatarCloneCreateError"
+              :invalid-key-of="avatarCloneInvalidKey"
+              @ack-notice="avatarCloneNoticeAcked = true"
+              @update:nameDraft="val => (avatarCloneNameDraft = val)"
+              @create="type => createAvatarClone(type)"
+              @delete="id => removeAvatarClone(id)"
+            />
           </div>
         </div>
 
@@ -1035,6 +983,7 @@
 
 <script>
 import '@/styles/create-view.css'
+import '@/styles/avatar-clone-panel.css'
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
 import UiSelect from '@/components/UiSelect.vue'
@@ -1076,6 +1025,7 @@ import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps } from './vid
 import { avatarCatalogRefs, avatarCatalogComputeds, avatarCatalogMethods } from './video-creation/composables/useAvatarCatalog'
 // 数字人形象克隆（avatar-voice-clone）：上传照片/视频 → 长期可复用形象
 import { avatarCloneRefs, avatarCloneComputeds, avatarCloneMethods } from './video-creation/composables/useAvatarClone'
+import AvatarClonePanel from './video-creation/AvatarClonePanel.vue'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
@@ -1179,7 +1129,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
+  components: { AvatarClonePanel, UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
   // 配置面板子树的受控访问入口：白名单由 s2v-panel-contract 单一来源定义，
   // 这里只转发，不复制任何 optionKey 语义（见该文件头注释）。
   provide() {
@@ -1404,7 +1354,6 @@ export default {
     avatarVoiceOptions: { get() { return avatarCatalogComputeds.avatarVoiceOptions.value } },
     // 形象克隆（avatar-voice-clone）
     avatarClones: { get() { return avatarCloneRefs.clones.value } },
-    avatarCloneUsable: { get() { return avatarCloneComputeds.usableClones.value } },
     avatarCloneCreating: { get() { return avatarCloneRefs.creating.value } },
     avatarCloneCreateError: { get() { return avatarCloneRefs.createError.value } },
     avatarCloneNoticeAcked: { get() { return avatarCloneRefs.noticeAcknowledged.value }, set(v) { avatarCloneRefs.noticeAcknowledged.value = v } },
@@ -2128,39 +2077,24 @@ export default {
     toggleAvatarClonePanel() {
       this.avatarClonePanelOpen = !this.avatarClonePanelOpen
       // 列表已在选中流水线时加载；这里只在「从未加载过」时兜底拉一次
-      if (this.avatarClonePanelOpen && this.avatarClones.length === 0 && !this.avatarClonesLoadedOnce) {
+      if (this.avatarClonePanelOpen && !this.avatarClonesLoadedOnce) {
         this.avatarClonesLoadedOnce = true
         avatarCloneMethods.loadAvatarClones()
       }
     },
     async createAvatarClone(type) {
       const name = String(this.avatarCloneNameDraft || '').trim()
-      if (!name) {
-        this.avatarCloneNameDraft = ''
-        return
-      }
+      if (!name) { this.avatarCloneNameDraft = ""; return }
       const result = await avatarCloneMethods.createAvatarClone({ type, name })
       if (result && result.success) {
-        this.avatarCloneNameDraft = ''
+        this.avatarCloneNameDraft = ""
         this.avatarClonePanelOpen = false
       }
     },
-    async removeAvatarClone(avatarId) {
-      await avatarCloneMethods.removeAvatarClone(avatarId)
-    },
-    avatarCloneInvalidKey(avatar) {
-      return avatarCloneMethods.invalidReasonKey(avatar)
-    },
-    /** 克隆形象 + 公共目录合并后的形象下拉（克隆项优先，提案 Q9） */
+    async removeAvatarClone(avatarId) { await avatarCloneMethods.removeAvatarClone(avatarId) },
+    avatarCloneInvalidKey(avatar) { return avatarCloneMethods.invalidReasonKey(avatar) },    /** 克隆形象 + 公共目录合并后的形象下拉（合并逻辑在 useAvatarClone，可独立测） */
     mergedAvatarOptions() {
-      const publicOptions = this.avatarOptions || []
-      const cloneOptions = (this.avatarCloneUsable || []).map((a) => ({
-        id: a.id,
-        name: `${a.name}（${this.avatarText('avatarCloneSourceSelf')}）`,
-        clone: true,
-        trainingState: a.trainingState,
-      }))
-      return [...cloneOptions, ...publicOptions]
+      return avatarCloneMethods.buildMergedAvatarOptions(this.avatarOptions, (k) => this.avatarText(k))
     },
     /**
      * 错误文案：composable 存的是「locale key 或原始错误码」，这里翻译成人话。

@@ -2,7 +2,6 @@
 record: avatar-voice-clone
 task: HeyGen 数字人形象克隆（上传照片/视频 → 长期可复用形象）
 date: 2026-10-22
-delivered_by_pr: PENDING
 ---
 
 ## 本次执行记录：HeyGen 数字人形象克隆（avatar-voice-clone，2026-10-22）
@@ -16,9 +15,10 @@ delivered_by_pr: PENDING
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致 |
 | 品牌残留 | ✅ | `node scripts/check-no-brand-residue.js` → PASS |
 | locale 成对 | ✅ | zh/en 各新增 32 键；`check-locale-sync.js --keys` PASS（2220 keys）、`--cjk` PASS（1125 条，无新增硬编码） |
-| 超大文件门禁 | ✅ | `check-max-lines.js` → 无新增超大文件（service 经 4 次拆分：628 → 498 行） |
-| QM-1 打包 | ✅ | `pnpm run build:win` exit 0；asar 内含 heygen-clone 与 avatar-clone 模块；启动烟测存活 8s |
-| QM-6 CCG 决策层 | ⚠️ 未闭环（如实记录） | 两轮 `plan-review.sh` 均未收敛：轮 1 因提案超 opencode 7800 字符上限中断；轮 2 同样因 proposer 输出超限中断。两轮 11 条 Critical/Warning **全部已处置并落码**（见下） |
+| 超大文件门禁 | ✅ | `check-max-lines.js` 无新增超大文件（service 经 4 次拆分 628 → 498 行；克隆面板抽成 `AvatarClonePanel.vue`；克隆样式拆出 `avatar-clone-panel.css`） |
+| 债务基线 | ✅ 经人工授权 | `CreateView.vue` 5359 → 5423（+64），触发熔断后经用户明确授权抬基线，理由见「债务基线抬升说明」 |
+| QM-1 打包 | ✅ | `pnpm run build:win` exit 0；asar 含 9 个新模块且契约字符串在位；启动烟测存活 8s |
+| QM-6 CCG 决策层 | ⚠️ 未闭环（如实记录） | 两轮 `plan-review.sh` 均因 proposer 输出超 opencode 7800 字符上限而中断；`deep-review.sh` 轮 1 因 critic 返回的 dimension 不在驱动 schema 内（completeness/consistency/clarity/feasibility vs correctness/performance/maintainability）解析失败。三层共 12 条问题**全部已处置**（见下），但按出口②写 `closureNote` 而非冒充真收敛 |
 | 远程同步 | 由门禁推导 | 收口由 `scripts/lib/merge-ledger.js` 按主干历史推导；本行不手写状态词 |
 
 ### 已查证的关键事实（动手前）
@@ -65,6 +65,23 @@ delivered_by_pr: PENDING
 1. `callAvatarMethod` 用 `result.data` 真值判成功 → 删除类响应体本就没数据，**成功被当失败**（`remoteDeleted` 恒 false）。
 2. `_safeExtension` 抽到 storage 模块后 service 调用点没跟着改 → ReferenceError。
 3. `avatarClonePanelOpen` / `avatarCloneNameDraft` 误写在 `computed` 块 → Vue 3 无 setter，写入被静默拒绝，面板永远打不开。
+
+### 债务基线抬升说明（maxFileLines 5359 → 5423）
+
+**触发**：本 PR 让 `apps/desktop/src/views/CreateView.vue` 增至 5423 行，越债务熔断基线 64 行。
+
+**先做的压缩（非抬基线了事）**：
+
+| 动作 | 省下 |
+|---|---|
+| 克隆面板整块抽成 `video-creation/AvatarClonePanel.vue`（含合规提示/列表/创建表单） | ~80 行 |
+| `mergedAvatarOptions` 合并逻辑下沉到 `useAvatarClone.buildMergedAvatarOptions`（纯函数，可独立测） | ~8 行 |
+| 5 个 method 转发压缩（删冗余判重条件与注释） | ~8 行 |
+| 克隆样式从 `create-view.css` 拆出 `avatar-clone-panel.css`（否则两者同时越 500 行门禁） | — |
+
+**剩余 64 行是本功能的合理增量**：组件引用 14 + import/注册 4 + data 4 + computed 5 + 动作方法 20 + 「管理克隆形象」按钮 7 + 选中流水线时加载克隆列表 7 + 其他 3。
+
+**授权**：`AGENTS.md` 规定债务基线 `--update` 属「改谁来守门」，必须人工过目。已向用户明示增量构成与三个选项，用户选择「授权抬基线到实际值，理由写进 PR」。
 
 ### 遗留（不假装已闭合）
 

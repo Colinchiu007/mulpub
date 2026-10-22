@@ -164,6 +164,31 @@ const usableClones = computed(() => clones.value.filter((a) => !a.invalidReason 
 /** 训练中的形象（UI 需要展示进度态） */
 const trainingClones = computed(() => clones.value.filter((a) => a.trainingState === 'training'))
 
+/**
+ * 合并「公共目录形象」与「克隆形象」为形象下拉选项（提案 Q9）。
+ *
+ * 优先级：self > third_party_authorized > 公共目录；失效克隆项直接剔除
+ * （training_failed / 远端已失效的选项不该出现在下拉里，否则用户选了
+ * 要到 generate 阶段才炸）。
+ *
+ * 纯函数放在 composable 而不是 CreateView 的 methods：CreateView.vue 已逼近
+ * 债务基线 maxFileLines，且合并逻辑值得独立单测。
+ *
+ * @param {Array<{id: string, name: string}>} publicAvatars 公共目录形象
+ * @param {(key: string) => string} translate locale 取值函数（composable 不依赖 i18n 实例）
+ * @returns {Array<{id: string, name: string, clone: boolean, trainingState?: string}>}
+ */
+function buildMergedAvatarOptions (publicAvatars, translate) {
+  const publicOptions = Array.isArray(publicAvatars) ? publicAvatars : []
+  const cloneOptions = usableClones.value.map((a) => ({
+    id: a.id,
+    name: `${a.name}（${translate('avatarCloneSourceSelf')}）`,
+    clone: true,
+    trainingState: a.trainingState,
+  }))
+  return [...cloneOptions, ...publicOptions]
+}
+
 export const avatarCloneRefs = {
   clones,
   usableClones,
@@ -187,6 +212,7 @@ export const avatarCloneMethods = {
   renameAvatarCloneById,
   invalidReasonKey,
   friendlyError,
+  buildMergedAvatarOptions,
   reset,
 }
 
