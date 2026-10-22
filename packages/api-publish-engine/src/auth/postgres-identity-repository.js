@@ -2,6 +2,8 @@ const crypto = require('crypto')
 const path = require('path')
 const { discoverMigrations, validateMigrationLedger } = require('./postgres-migrations')
 const { PostgresCommerceTransaction, CommerceMethods } = require('./postgres-commerce-store')
+const { PAYMENT_SCHEMA } = require('./payment-schema')
+const { PostgresWebhookTransaction } = require('./postgres-webhook-store')
 
 const DEFAULT_MIGRATION_DIRECTORY = path.resolve(__dirname, '../../../..', 'migrations', 'postgresql')
 
@@ -18,6 +20,7 @@ const REQUIRED_SCHEMA_RELATIONS = [
   'identity_notifications',
   'cloud_accounts',
   'cloud_account_tombstones',
+  'identity_payment_customers',
 ]
 
 const SCHEMA = [
@@ -167,83 +170,10 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_cloud_account_tombstones_user
     ON cloud_account_tombstones(user_id, platform, platform_uid)`,
+  // 006 微信 Native 支付：语句组独立成 payment-schema.js（内联会把本文件推过 500 行债务基线）。
+  // 与迁移的逐字比对口径不变（迁移 → SCHEMA，单向）。
+  ...PAYMENT_SCHEMA,
 ]
-
-class PostgresWebhookTransaction {
-  constructor(client) {
-    this.client = client
-  }
-
-  async claimWebhookEvent(record) {
-    const result = await this.client.query(
-      `INSERT INTO identity_webhook_events
-        (id, provider, event, hook_id, auth_subject, created_at, received_at, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'processing')
-       ON CONFLICT (provider, id) DO NOTHING
-       RETURNING id`,
-      [record.id, record.provider, record.event, record.hookId, record.subject, record.createdAt, record.receivedAt],
-    )
-    return result.rows.length > 0
-  }
-
-  async upsertUserState(provider, subject, patch = {}, options = {}) {
-    const existingResult = await this.client.query(
-      'SELECT * FROM identity_users WHERE auth_provider = $1 AND auth_subject = $2 FOR UPDATE',
-      [provider, subject],
-    )
-    const existing = existingResult.rows[0] || null
-    const eventAt = options.eventCreatedAt ? new Date(options.eventCreatedAt) : null
-    if (eventAt && Number.isNaN(eventAt.getTime())) throw new Error('WEBHOOK_EVENT_TIME_INVALID')
-    if (existing && eventAt && existing.last_event_created_at && new Date(existing.last_event_created_at) >= eventAt) {
-      return { ...existing, applied: false }
-    }
-
-    const status = existing && existing.status === 'deleted' && options.preserveDeleted
-      ? 'deleted'
-      : typeof patch.status === 'string' ? patch.status : existing ? existing.status : 'active'
-    const displayName = Object.prototype.hasOwnProperty.call(patch, 'display_name')
-      ? patch.display_name : existing ? existing.display_name : null
-    const avatarUrl = Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
-      ? patch.avatar_url : existing ? existing.avatar_url : null
-    const id = existing ? existing.id : crypto.randomUUID()
-    const result = await this.client.query(
-      `INSERT INTO identity_users
-        (id, auth_provider, auth_subject, status, display_name, avatar_url, last_event_created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (auth_provider, auth_subject) DO UPDATE SET
-         status = EXCLUDED.status,
-         display_name = EXCLUDED.display_name,
-         avatar_url = EXCLUDED.avatar_url,
-         last_event_created_at = EXCLUDED.last_event_created_at,
-         updated_at = NOW()
-       WHERE identity_users.last_event_created_at IS NULL
-          OR identity_users.last_event_created_at < EXCLUDED.last_event_created_at
-       RETURNING *`,
-      [id, provider, subject, status, displayName, avatarUrl, eventAt ? eventAt.toISOString() : null],
-    )
-    if (!result.rows[0]) return { ...(existing || {}), applied: false }
-    return { ...result.rows[0], applied: true }
-  }
-
-  async revokeUserSessions(provider, subject) {
-    await this.client.query(
-      `UPDATE identity_user_sessions SET revoked_at = NOW()
-       WHERE revoked_at IS NULL AND user_id = (
-         SELECT id FROM identity_users WHERE auth_provider = $1 AND auth_subject = $2
-       )`,
-      [provider, subject],
-    )
-  }
-
-  async completeWebhookEvent(eventId, result) {
-    await this.client.query(
-      `UPDATE identity_webhook_events
-       SET status = 'processed', result = $2::jsonb, processed_at = NOW()
-       WHERE id = $1`,
-      [eventId, JSON.stringify(result || {})],
-    )
-  }
-}
 
 class PostgresIdentityRepository {
   constructor(options = {}) {

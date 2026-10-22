@@ -21,7 +21,7 @@
  *        5 = 脚本自身故障：参数非法 / 读不到预算出处（文件改名、常量被删）
  *        6 = 出处漂移：本次实测 max 高于模块里记的 max ⇒ 记的数已过期，先粘回出处再判余量
  *
- * 七条采集坐标坑（前五条继承 scripts/lock-timing-audit.js 的实测，后两条是本轮新踩/新依赖）：
+ * 八条采集坐标坑（前五条继承 scripts/lock-timing-audit.js 的实测，后三条是本轮新踩/新依赖）：
  *   1. Actions 作业对象**没有** `completed` 字段 ⇒ 判完成态一律用 `status === 'completed'`；
  *   2. 日志请求必须**绕开本机代理**（带 7897 时 Actions 日志/产物会失败）；
  *   3. `gh api` 对含 ANSI 转义序列的响应会**拒答** ⇒ 必须带 `--allow-escape-sequences`；
@@ -38,8 +38,18 @@
  *      哪天去掉，本脚本得到的是**零样本 ⇒ rc=3 出声**，不是静默判"没有长尾"。QM-6 前端轴 F8 建议
  *      另加一条 workflow 结构锁；此处不重复建锁的理由是失效方向已经 fail-closed，且该旗标由
  *      `vitest.config.js` 里 `process.env.CI` 分支持有，不是本脚本能核对的面。
+ *      两个登记 workflow 都当场验过确实打这条行：`electron-ci.yml` 的 `electron-tests` 日志里
+ *      取到该用例 1 条 = 1331ms（run 39394756637）。
+ *   8. **域有两根轴，只扩一根会伪装成已修完**：旧实现是 `WORKFLOW` + `JOB_RE` 两个单数常量，
+ *      于是"还有没有别的 workflow 在跑这条用例"在代码里不可表示。#86 的实测：`QG Coverage`（同 workflow
+ *      另一作业族）1705ms、`electron-ci.yml` 的 `electron-tests` 1331ms 都在产同一行，而旧域一条都不认。
+ *      正解是 `PRODUCERS` 显式登记表 + A/B 两臂负控（见 `apps/desktop/tests/gui-ci-exit-contract.test.js`），
+ *      覆盖度也**逐 workflow 各判**（`shortWorkflows`）——合并成总 run 数会让稀少那条轴静默采不满。
  * 另：作业日志只在 run 结束后可取 ⇒ 本工具是**事后复测**（对着已跑完的 main run），不是 PR 内自证。
  *     每次跑都留现场的是 gui-ci-exit-contract.test.js 里的台账断言。
+ * 成本：单份作业日志量级 ~14MB（既有实测），登记表有 3 个生产者分布在 2 个 workflow 上 ⇒
+ *     `--runs=8` 是每轴各 8 趟 run、最多 8×2+8×1+8×1=32 份日志。这是它**刻意不接进 required check**
+ *     的第二个理由（第一个见 openspec/records/gui-cli-e2e-timeout.md：接进关键路径等于重建预算墙）。
  */
 'use strict';
 
@@ -49,12 +59,45 @@ const path = require('node:path');
 const BUDGET_PATH = path.resolve(__dirname, '..', 'apps', 'desktop', 'tests', 'gui-cli-e2e-budget.js');
 
 const REPO_REMOTE = process.env.MP_AUDIT_REPO || 'Colinchiu007/mulpub';
-const WORKFLOW = 'quality-gate.yml';
-const JOB_RE = /QG Desktop Shards/;
+/**
+ * 采样域 = **(workflow × 作业名) 的生产者登记表**，一个一条，且每条都有当场取证。
+ * 为什么必须是两根轴一起写：旧实现是两个单数常量 `WORKFLOW` + `JOB_RE`，域被拆成两根轴各持一半，
+ * 于是"有没有第二个 workflow 也在跑这条用例"这个问题在代码里根本不可表示（PR #4072 记下过同一形状：
+ * 只扩作业名轴会让人以为域已完整）。
+ * 取证（2026-10-20，逐份作业日志按**目标用例全名**过滤 verbose 行）：
+ *   run 39381404956  QG Desktop Shards (1/2) → 1 条 1261ms；QG Coverage → 1 条 1705ms；
+ *                    QG Desktop Shards (2/2) → 0 条（shard 分配随文件数漂移 ⇒ 仍留在域里，见下）
+ *   run 39394756637  electron-ci.yml / electron-tests → 1 条 1331ms；该 run 的 Changes 作业 → 0 条
+ * ⛔ `(2/2)` 必须留在域内，即使**本次**它 0 命中：该用例落进哪一片由 vitest 的 `--shard` 决定，
+ *    按"今天落在哪片"来排除，重分片后样本会静默缩水而读数照样自洽。
+ */
+const PRODUCERS = [
+  { workflow: 'quality-gate.yml', jobRe: /QG Desktop Shards/ },
+  { workflow: 'quality-gate.yml', jobRe: /QG Coverage/ },
+  { workflow: 'electron-ci.yml', jobRe: /^electron-tests$/ },
+];
 const ESC = String.fromCharCode(27);
 // 默认采样数与 provenance 里记的那条命令**取同一个数**（QM-6 前端轴 F4）：
 // 否则 `--json` 的默认跑法与出处文案指向两个窗口，重跑的人拿到的数对不上记的数。
+// 注意这是**每个 workflow** 各取 N 趟，不是总数 —— 两条轴的 main push 频率不同，合并成总数会让
+// 稀少那条轴静默采不满（判据见 collect 的 shortWorkflows）。
 const DEFAULT_RUNS = 8;
+
+/** 某个 (workflow, 作业名) 是不是登记过的生产者（纯判据，A/B 负控直接打在它上面） */
+function isProducer(workflow, jobName) {
+  return PRODUCERS.some((p) => p.workflow === workflow && p.jobRe.test(String(jobName)));
+}
+
+/** 域涉及哪些 workflow（显式闭合集合；"扫所有 workflow"不许成为那个更省事的写法） */
+function producerWorkflows() {
+  return Array.from(new Set(PRODUCERS.map((p) => p.workflow))).sort();
+}
+
+/** 从一份 run 的作业列表里挑出该 workflow 下已完成的生产者作业 */
+function pickProducerJobs(workflow, jobs) {
+  return (jobs || []).filter((j) => j && j.status === 'completed' && isProducer(workflow, j.name));
+}
+
 
 /** `--k v` 空格形式只认这四个（QM-6 前端轴 G8：缺值必须报 MISSING_FLAG_VALUE，不能报成 UNKNOWN_FLAG——
  *  "这旗标不存在"与"这旗标少了个值"是两件事，混报会把排障方向指反） */
@@ -172,19 +215,19 @@ function stripAnsi(raw) {
 }
 
 /**
- * 列出 wanted 个「main 分支、push 触发、已结束」的 run。
+ * 列出 wanted 个「main 分支、push 触发、已结束」的 run（**按 workflow 各列一份窗口**）。
  * 一律**不带**服务端 event/status 过滤（见文件头第 5 条），改为客户端筛 + 翻页。
  */
-function listRuns(wanted, errors) {
+function listRuns(workflow, wanted, errors) {
   const MAX_PAGES = 12;
   const picked = [];
   let pages = 0;
   for (let page = 1; page <= MAX_PAGES && picked.length < wanted; page++) {
     let list;
     try {
-      list = api('repos/' + REPO_REMOTE + '/actions/workflows/' + WORKFLOW + '/runs?per_page=100&page=' + page);
+      list = api('repos/' + REPO_REMOTE + '/actions/workflows/' + workflow + '/runs?per_page=100&page=' + page);
     } catch (e) {
-      errors.push('run-list p' + page + ' ' + String(e.message).replace(/\r?\n/g, ' ').slice(0, 60));
+      errors.push('run-list ' + workflow + ' p' + page + ' ' + String(e.message).replace(/\r?\n/g, ' ').slice(0, 60));
       break;
     }
     pages += 1;
@@ -209,41 +252,50 @@ function harvest(body, b) {
 
 function collect(b, opts) {
   const errors = [];
-  const listed = listRuns(opts.runs, errors);
-  const runs = listed.runs;
-  if (runs.length < opts.runs) {
-    errors.push('only-' + runs.length + '-of-' + opts.runs + '-runs in ' + listed.pages + ' pages');
-    console.warn('PARTIAL: 只覆盖 ' + runs.length + '/' + opts.runs + ' 个 main push run（pages=' + listed.pages
-      + '）⇒ 用这份数字回填 provenance 前先加大 --runs 或缩小结论适用范围');
-  }
-
   const values = [];
   let jobs = 0;
-  for (const run of runs) {
-    let jobsResp;
-    try { jobsResp = api('repos/' + REPO_REMOTE + '/actions/runs/' + run.id + '/jobs'); }
-    catch (e) { errors.push('jobs ' + run.id); continue; }
-    const shards = (jobsResp.jobs || []).filter((j) => JOB_RE.test(j.name) && j.status === 'completed');
-    if (!shards.length) errors.push('no-shard-job ' + run.id);
-    for (const job of shards) {
-      let body = '';
-      try {
-        body = gh(['api', '--allow-escape-sequences', 'repos/' + REPO_REMOTE + '/actions/jobs/' + job.id + '/logs'], 1 << 28);
-      } catch (e) {
-        errors.push('log ' + job.id + ' ' + String(e.message).replace(/\r?\n/g, ' ').slice(0, 40));
-        continue;
+  let runCount = 0;
+  let pages = 0;
+  // 覆盖度**按 workflow 各自判**：合并成总数会让稀少那条轴静默采不满，而读数照样"够 8 个 run"。
+  const shortWorkflows = [];
+  for (const wf of producerWorkflows()) {
+    const listed = listRuns(wf, opts.runs, errors);
+    pages += listed.pages;
+    runCount += listed.runs.length;
+    if (!coverageSufficient(opts.runs, listed.runs.length)) {
+      shortWorkflows.push(wf + '=' + listed.runs.length + '/' + opts.runs + '(pages=' + listed.pages + ')');
+      errors.push('only-' + listed.runs.length + '-of-' + opts.runs + '-runs for ' + wf);
+    }
+    for (const run of listed.runs) {
+      let jobsResp;
+      try { jobsResp = api('repos/' + REPO_REMOTE + '/actions/runs/' + run.id + '/jobs'); }
+      catch (e) { errors.push('jobs ' + run.id); continue; }
+      const picked = pickProducerJobs(wf, jobsResp.jobs);
+      if (!picked.length) errors.push('no-producer-job ' + wf + ' run=' + run.id);
+      for (const job of picked) {
+        let body = '';
+        try {
+          body = gh(['api', '--allow-escape-sequences', 'repos/' + REPO_REMOTE + '/actions/jobs/' + job.id + '/logs'], 1 << 28);
+        } catch (e) {
+          errors.push('log ' + job.id + ' ' + String(e.message).replace(/\r?\n/g, ' ').slice(0, 40));
+          continue;
+        }
+        const hits = harvest(body, b);
+        if (!hits.length) { errors.push('no-sample job=' + job.id + ' (' + wf + ' :: ' + job.name + ')'); continue; }
+        jobs += 1;
+        for (const v of hits) values.push(v);
+        // 逐作业留痕：这个工具要跑几分钟，没有中间现场就分不清"还在采"与"被杀了"
+        console.error('[case-timeout-audit] wf=' + wf + ' run=' + run.id + ' job=' + job.id
+          + ' hits=' + hits.length + ' max=' + Math.max(...hits) + ' total=' + values.length);
       }
-      const hits = harvest(body, b);
-      if (!hits.length) { errors.push('no-sample job=' + job.id); continue; }
-      jobs += 1;
-      for (const v of hits) values.push(v);
-      // 逐作业留痕：这个工具要跑几分钟，没有中间现场就分不清"还在采"与"被杀了"
-      console.error('[case-timeout-audit] run=' + run.id + ' job=' + job.id
-        + ' hits=' + hits.length + ' max=' + Math.max(...hits) + ' total=' + values.length);
     }
   }
+  if (shortWorkflows.length) {
+    console.warn('PARTIAL: 至少一条 workflow 轴没采满 ⇒ ' + shortWorkflows.join(' , ')
+      + '；用这份数字回填 provenance 前先加大 --runs 或缩小结论适用范围');
+  }
   values.sort((a, b2) => a - b2);
-  return { values, runCount: runs.length, jobs, pages: listed.pages, errors };
+  return { values, runCount, jobs, pages, errors, shortWorkflows };
 }
 
 /**
@@ -292,11 +344,13 @@ function main() {
   } else {
     c = collect(b, opts);
     // 覆盖度不足 ⇒ 与零样本同一档出口：不出 JSON、不判 OK。"只 warn 一下继续"会让粘走 JSON 的人
-    // 拿不到降级信息（QM-6 前端轴 G3）。
-    if (!coverageSufficient(opts.runs, c.runCount)) {
-      console.error('PARTIAL_COVERAGE： requested=' + opts.runs + ' collected=' + c.runCount
-        + '（pages=' + c.pages + '）⇒ 本次不是它声称的那个窗口。要么缩小 --runs 明示窗口，'
-        + '要么等 main push 攒够；不得把这份覆盖度写进 provenance');
+    // 拿不到降级信息（QM-6 前端轴 G3）。判据**逐 workflow**（#86）：合并总数会让稀少那条轴
+    // 静默采不满，而 `runs=` 那个读数照样像够数。
+    if (c.shortWorkflows && c.shortWorkflows.length) {
+      console.error('PARTIAL_COVERAGE：按 workflow 各自核，缺口=' + c.shortWorkflows.join(' , ')
+        + '（requested=' + opts.runs + '/workflow，collected=' + c.runCount + '，pages=' + c.pages + '）'
+        + '⇒ 本次不是它声称的那个窗口。要么缩小 --runs 明示窗口，要么等 main push 攒够；'
+        + '不得把这份覆盖度写进 provenance');
       console.error('       MP_AUDIT_REPO=' + REPO_REMOTE + ' errors=' + c.errors.slice(0, 8).join(' , '));
       process.exitCode = 3;
       return;
@@ -354,5 +408,6 @@ if (require.main === module) main();
 module.exports = {
   collect, harvest, stripAnsi, buildProvenance, parseArgs, judgeDrift, loadBudget,
   coverageSufficient,
-  JOB_RE, DEFAULT_RUNS, SPACED_FLAGS,
+  PRODUCERS, isProducer, producerWorkflows, pickProducerJobs,
+  DEFAULT_RUNS, SPACED_FLAGS,
 };

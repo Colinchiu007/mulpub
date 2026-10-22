@@ -193,6 +193,29 @@
               <div class="fe-doctrine-zh">{{ r.zh }}</div>
             </div>
           </el-card>
+          <!-- 影视工程 v2 · F-H：配方与失败台账（数据早已在 kit 里，此前未渲染；只读，无写操作） -->
+          <el-card shadow="never" class="fe-card" data-testid="fe-doctrine-recipes">
+            <template #header>{{ t('filmEngineering.doctrine.recipes') }}</template>
+            <div v-for="r in (doctrine.recipes || [])" :key="r.key" class="fe-doctrine-rule">
+              <b>{{ r.label }}</b>
+              <div class="fe-doctrine-zh">{{ r.zh }}</div>
+              <div class="fe-doctrine-blockkeys">
+                {{ t('filmEngineering.doctrine.recipeBlocks') }}：{{ (r.blockKeys || []).join(' / ') }}
+              </div>
+            </div>
+          </el-card>
+          <el-card shadow="never" class="fe-card" data-testid="fe-doctrine-failure-ledger">
+            <template #header>{{ t('filmEngineering.doctrine.failureLedger') }}</template>
+            <div v-for="f in (doctrine.failureLedger || [])" :key="f.id" class="fe-doctrine-rule">
+              <b>{{ f.id }} · {{ t('filmEngineering.doctrine.failureSymptom') }}：{{ f.symptom }}</b>
+              <div class="fe-doctrine-zh">{{ t('filmEngineering.doctrine.failureCause') }}：{{ f.cause }}</div>
+              <div class="fe-doctrine-zh">{{ t('filmEngineering.doctrine.failureFix') }}：{{ f.fix }}</div>
+              <div class="fe-doctrine-blockkeys">
+                {{ t('filmEngineering.doctrine.failureTags') }}：
+                <el-tag v-for="tg in (f.tags || [])" :key="tg" size="small" type="info">{{ tg }}</el-tag>
+              </div>
+            </div>
+          </el-card>
           <el-card shadow="never" class="fe-card">
             <template #header>{{ t('filmEngineering.doctrine.glossary') }}</template>
             <div v-for="g in doctrine.glossary" :key="g.term" class="fe-doctrine-glossary">
@@ -740,6 +763,7 @@ onMounted(() => {
 .fe-doctrine-zh { color: #303133; font-size: var(--font-size-sm); margin-top: 4px; line-height: 1.6; }
 .fe-doctrine-en { color: #909399; font-size: var(--font-size-xs); margin-top: 2px; }
 .fe-doctrine-glossary { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.fe-doctrine-blockkeys { color: #909399; font-size: var(--font-size-xs); margin-top: 2px; line-height: 1.6; }
 .fe-doctrine-glossary-zh { font-size: var(--font-size-sm); color: #303133; }
 .fe-doctrine-note { margin-top: 12px; }
 .fe-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }

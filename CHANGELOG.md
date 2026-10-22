@@ -1,3 +1,54 @@
+# [未发布] feat(ci): electron-ci 桌面全量收回单一实现 —— 同一步两片并行 + 共享预算 2700s + 剥 ANSI/时间戳的现场计数
+
+- **动因（2026-10-21 现取读数）**：`electron-ci.yml` 的 `Unit tests (Vitest…)` 步骤在 main push 最近 12 趟里 **8 趟非绿**，逐趟下作业日志核对后 **8/8 都是预算墙**（`rc=124`×1、`TIMEOUT_BUDGET_EXCEEDED`×2、**断言红=0**）；红趟作业墙钟 2177–2215s，成功趟 1511/1542/1820/1934s ⇒ 贴脸逼近 2100s 步骤预算。
+- **形状**：30 行内联 bash 收回 `scripts/electron-ci-desktop-step.js`（workflow 只调用不判定，同 `agent-review-gate.js` / `main-red.js` 先例）。**同一个作业内**并起 `--shard=1/2` + `--shard=2/2` 共享一份预算 ⇒ 作业名仍是 `electron-tests`，**不动** ruleset `main-ci-gate` 的 required context（matrix 会给名字加后缀，那属"改谁来守门"）。`--maxWorkers=1 --no-file-parallelism` 保留，确定性语义与「main 侧第二次独立运行」的 flake 检出原意不丢。
+- **预算 2100 → 2700 的理由（不是"给同样的活加宽墙"）**：`max(单片成功值)=23.2min × 1.5 = 2091s` 对 2100s 只剩 9 秒，而那批样本是**每片独占一个 runner** 测的（`QG Desktop Shards` 7 趟 14 片：min 11.2 / p50 18.6 / max 23.2）；本步是同 runner 两片并行，**争用倍数未测**。贴脸按本仓口径是事前证据 ⇒ 取 `2700s ≈ max × 1.94`，属**单调放宽**（不会让任何原本通过的运行变红），且不与 job 级 `timeout-minutes: 70` 倒挂（其余带 timeout 的步骤合计 20 min，20+45=65<70，由锁逐步骤实算）。
+- **修掉一处计数器失明**：旧 `grep -cE '^[[:space:]]+[✓×↓-]'` 对 vitest 真实行恒 0（`od -c` 实测行首是 `033[32m✓033[39m`，第一个字符是 ESC；Actions 日志还要再剥每行时间戳前缀），于是"跑满预算"被读成"一条都没跑"。按修好的锚重读同一批红趟是 **✓×行=18156–18929、摘要=0** —— 其中 `摘要=0` 是被杀趟的**正确读数**，文案不得读成工具坏。
+- **四档 verdict 各自可分辨**（timeout / ok / failed / crashed）：`rc=124` 与 `rc=1` 的修法相反，并档等于把预算墙读成用例坏。「全部收敛」用 `Promise.allSettled` 而非 `race(h.done)` —— race 在第 1 片收敛时即报 all，慢的一片既没被等也没被归类（现场形态是 verdict 整格缺席，比判错更坏）。
+- **复测入口落在仓库里**：新增 `scripts/electron-ci-shard-audit.js`（读新形状的逐片 `elapsed=`，取不到时退回老基线并自报"这是下界"）；`verdict` 分 NO_SAMPLES / BELOW_FLOOR / HUGGING / OK 四档，**零样本与自身故障都以非零码出声**（把"没量到"读成"预算没问题"是本仓反复出现的同型事故）。输出字段与 `STEP_BUDGET_PROVENANCE` 逐字段对齐，由结构锁钉住。
+- **一次真实拦阻（不是事后追认）**：`workflow-contract.test.js` 的「消费者覆盖面下界 3」在本次改动中途报红（实测 2）。根因是委托判据取**第一个** `node scripts/*.js` 命中，而我在同步写的注释里点名了另一个脚本 ⇒ `electron-tests` 整片从覆盖面消失。正解不是改措辞，而是扫**全部**候选按语义判定，并补两类对照：注释遮挡形态必须仍判 true、只有那个不跑桌面全量的脚本必须判 false。
+- **第二处被现场红的判据（`QG Static`，本机绿/CI 红）**：换调用形态后还有**第三个消费者**不认委托形态 —— `check-desktop-test-prereqs.js` 自己那套形态识别器看不到 `node scripts/…` ⇒ `electron-ci.yml#electron-tests` 从它的域内消失、登记表被判 `STALE_REQUIRED`；而红文案给的"正解"（删掉这条登记）等于**关掉一条 required 检查的前置构建覆盖**。已加第六形态 `delegate`（认委托成立的条件仍是**被点名脚本自己的源码**里三条锚齐命中，读不到文件按"没有委托" fail-closed），并顺带修掉一处设计缺陷：委托判据原先硬编码读 `REPO_ROOT/scripts/…`，与 `collect({root})` 不同源 ⇒ 夹具的正控分支结构性不可表示。新增 4 个夹具 job + 一条 T10（含"该步不得再有任何非 delegate 的桌面命令命中"，把"两份实现"焊死）。**验证口径随之改定**：改调用形态时按 `git grep` 枚举全部消费者逐个跑，而不是靠自己想到的清单。
+- **测试与接线**：新增 `scripts/electron-ci-desktop-step.test.js`（12 条）与 `scripts/electron-ci-shard-audit.test.js`（9 条），都点名进 `quality-gate.yml` 的 `changes` job（不被 docs-only 短路、且在非 PR 早退之前）；`.gitignore` 补两条 `!scripts/*.js` 反选（第 106 行会把新建脚本静默忽略 ⇒ 本地全绿、CI 上 `Cannot find module`，同族第 5/6 次）。既有三锁迁移到委托形状：`workflow-contract.test.js` 45/45、`gui-ci-exit-contract.test.js` 46/46（预算取自模块 + 真 `bash -e -o pipefail` 执行 + 接线判据按代码区剥注释）。
+- **反证 T1–T10 逐条 CAUGHT**，还原后逐字节相同：串行 / `race` 代替 `allSettled` / 不剥 ANSI / 锚要求行首空白 / timeout 与 failed 并档 / provenance 的 max 抬高 / workflow 退回内联 bash / 摘掉逐片 `elapsed=` 打印 / 摘掉时间戳剥离 / 零样本判成通过。
+- **遗留（如实登记）**：① 并行争用倍数只有第一次 CI 真跑才知道 ⇒ 上线后必须跑 `node scripts/electron-ci-shard-audit.js` 按现场重定数；② `realSpawn` 的输出缓冲 32MB 上限会截断**计数用**的副本（不改判定，只可能让 `completed=` 偏小），已注释标明；③ `runStep` 的等待块形如 `while{…break}` 实为单次等待，属可读性异味，未在本片收敛；④ issue #2458 档 4（`CI Failure Handler` 把 `exit 124` 且无摘要行归类为 `ci-timeout-budget`）仍未做。
+
+# [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
+
+- **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。
+- **根因**：Electron 默认给应用装一份「默认应用菜单」，本仓从未替换过它——`Menu.setApplicationMenu` 全仓**零调用**，所以每个窗口都自带这行菜单。**它不是渲染层画出来的 DOM，是原生窗口框架的一部分**，改 CSS 改不掉。
+- **修复**：新增 `apps/desktop/electron/services/native-menu.js` 作单一真源，分两级移除：① **全局** `Menu.setApplicationMenu(null)` 移除默认菜单**模板**（根因级，之后创建的窗口不再自带这行）；② **窗口** 主窗 `autoHideMenuBar: true` + `win.setMenu(null)`，把「这个窗口没有菜单栏」钉死在窗口自己身上——将来即便有人再调 `setApplicationMenu` 装了个菜单，主窗口也不会重新长出这行，按 Alt 也唤不回。两级缺一不可：只做全局，窗口若先于菜单设置创建仍会带菜单；只做窗口，其它窗口（登录窗、授权窗）仍会带菜单。
+- **平台策略**：macOS **保留**原生菜单（它的菜单在屏幕顶部且承载 Cmd+C/V/Q 等平台级快捷键，移除会破坏平台惯例）；本仓 electron-builder 只配了 win（nsis），保留 darwin 分支是为了将来出 mac 包时不至于静默坏掉。
+- **明确不做**：不动托盘右键菜单（`system-tray.js` 是另一套，用户要的是窗口内那一行）、不动应用内导航菜单（`app-menu-config.js` 是运营中心下发的侧边栏配置）、不改任何既有快捷键语义、内嵌视图布局不受影响（`view-bounds.js` 早已统一走 `getContentBounds()` 客户区，菜单栏消失后视图自动铺满新客户区，无任何硬编码偏移）。
+- **回归保护**：新增 `electron/services/native-menu.test.js` 15 例（平台策略 / 全局移除 / 窗口移除 / API 缺失不抛错 / 幂等 / **真实依赖锁**：直接读已安装 Electron 的 `electron.d.ts` 核对 `Menu.setApplicationMenu(Menu|null)`、`BrowserWindow.setMenu(Menu|null)`、`autoHideMenuBar?: boolean` 三处签名，不靠记忆）+ `window.test.js` 2 例（`autoHideMenuBar=true`、`setMenu(null)`）+ `main.test.js` 2 例（启动即置空应用菜单、且发生在窗口创建之前）。
+- **变异反证**：撤掉实现（删 `removeWindowMenuBar(mainWindow)` / `autoHideMenuBar` / `removeApplicationMenu`）后 **4 条新锁当场变红**（window 2 条 + main 2 条），确认不是「恒绿的装饰性断言」。
+- **验证**：3 个测试文件 101 例全绿；eslint（改动 6 文件）rc=0；**QM-1 打包 PASS**（`electron-builder --win --x64` exit 0，产出 `Multi-Publish.Setup.0.2.0.exe`）；**真机验证**：启动打包产物并抓原生窗口截图，标题栏下**直接就是侧边栏与内容区**，File/Edit/View/Window 那一行已消失。
+
+
+# [未发布] docs(changelog): 把 #2842 squash 漏带的那一行「顺带修复」条目逐字节搬回主干（restore-2842-changelog-entry）
+
+- docs(changelog): 现场取证 —— 落地判据对 `fix-rewrite-paragraph-preserve` 报一行 LOST（`落地版本=版本不同@1292b6555(主干独有0行/我这版独有1行)`、`份数=short 1(base=0 tip=1 main=0 可解释容量=0)` ⇒ `onlyInMerge=0`），`--allow-different-landing` 按 §12 收紧后的谓词**拒绝放行**；逐 blob 比对给出的方向是：squash 落地的 CHANGELOG blob `a12acd8a8` 与分支倒数第二笔 `49165a742` **逐字节同一份**，而那一行由最后一笔 `214cbb2e2` 写下，其提交时间 14:55:12Z 比合并时刻 14:43:15Z **晚 12 分钟** ⇒ 产物是 tip 的严格子集，不是"另一版"。
+- docs(changelog): 正解只有"逐字节搬回"这一种：判据按行比较，改写那一行（哪怕补一句出处）不会清除 LOST，只会把一条记录变成两条互相对不上的记录。实质内容当年已由 `e5fb069b7`（#2852，提交主题直写「#2842 合并时序错位漏带」）追平落地，所以本片补的是**记录**不是**行为**，零运行时变更。
+- docs(prd): `01-docs/PRD-BRANCH-MERGED-CHECKER-2026-10-16.md` 追加 §13 ——「合并之后又往分支推提交」这一形态判据只能读成 `onlyInMerge=0` 的 different，是 §12 那一刀（谓词要求 `onlyInMerge>0`）第一次在真实分支上拒绝放行；同时如实留下一格未关：没有任何门禁在看"closed PR 之后 head 又动了"这件事。
+
+# [未发布] fix(gates): CLI e2e 用例预算的采样域补齐两根轴——workflow × 作业名的生产者登记表，覆盖度逐轴判（case-timeout-audit-coverage-domain）
+
+- **这是 PR #4072 记下的同族第二处，且已当场取证**：`scripts/case-timeout-audit.js` 过去把「域」写成**两个单数常量各持一根轴**（`WORKFLOW = quality-gate.yml` + `JOB_RE = /QG Desktop Shards/`），于是「还有别的 workflow 在跑这条用例吗」这个问题在代码里不可表示。逐份作业日志按**目标用例全名**过滤 verbose 行实测：`QG Coverage` 1 条 = **1705ms**、`Shards (1/2)` 1 条 = 1261ms、`Shards (2/2)` **0 条**；而**另一个 workflow** `electron-ci.yml` 的 `electron-tests` 也产同一行 = **1331ms**（同 run 的 `Changes` 作业 0 条）⇒ 两条都不在旧域里，现存 `maxObservedMs=12744` 是旧域读数 = **下界**。
+- **为什么不在 #4072 里顺手改，而在这里改完两根轴**：#4072 当时把它记成「未判定」，结果缺陷又多活了一次合并。教训是**取证成本极低（一次日志 grep）的遗留应当场做完**；本轮取证为「是」后一次把两根轴都做完整，而不是再扩一次作业名轴、把 workflow 轴留下当 #4072 那样的第二处遗留。
+- **修法**：① `PRODUCERS` 显式登记表（每条 = workflow × jobRe，注释里带当场读数与 run 号）；② 三个纯函数 `isProducer / producerWorkflows / pickProducerJobs`，A/B 负控直接打在纯判据上（无需网络）；③ `listRuns(workflow, …)` 按 workflow 各列一份窗口，`collect` 循环 `producerWorkflows()`；④ **覆盖度逐轴判**并产出 `shortWorkflows`——合并 run 总数会让稀少那条轴静默采不满而读数照样「够 8 个 run」；⑤ 删掉两个单数常量与导出键 `JOB_RE`（改导出前先做**未截断** `git grep` 清点消费者）；⑥ `source` 文案写明下界方向与「更低值不构成收紧理由」。预算取值 `60000ms` 一字未动。
+- **一条必须留名的 shard 陷阱**：`QG Desktop Shards (2/2)` 本次 0 命中，很容易被「顺手精确化」排除掉——但该用例落进哪一片由 vitest `--shard` 决定，文件数/顺序一变就重分片，按「今天落在哪片」来排除等于埋一颗静默丢样的雷。所以 A 臂**显式断言 `(2/2)` 必须命中**（变异 K5 实测红）。
+- **现场端到端对照**（`node scripts/case-timeout-audit.js --runs=1`）：`wf=electron-ci.yml … hits=1 max=1331` + 两条 `wf=quality-gate.yml … max=1525/1632` ⇒ `runs=2 jobs=3 samples=3 max=1632 drift=OK_BELOW_RECORD` 且 rc=0；**同一窗口旧域只会采到 1 条**。`errors=1` 是 `(2/2)` 那趟 0 命中的留痕（不是静默跳过）。`drift=OK_BELOW_RECORD` 且**没有**据此把 12744 改小——不对称纪律现场兑现；回填要的是整窗 `--runs=8`（约 32 份日志、十分钟级），已登记为遗留 #1。
+- **TDD / 反证 / 一处自我纠正**：先红 `2 failed | 44 passed`（红因 = `PRODUCERS` 缺席、`source` 未点名生产者）⇒ 实现后 **46 passed**；变异 **K1–K6 逐条指名变红且按字节还原**（K1 退回单条登记 / K2 抹平 workflow 轴 / K3 退化成扫所有作业 / K4 循环写死单 workflow / K5 排除 `(2/2)` / K6 覆盖度搬到循环外）。两处判据自错记录在案：① 正向锚最初按我设想的写法（循环 `PRODUCERS`）锚，实现选了按 workflow 去重分组 ⇒ **改锚点形状**（锁「循环取域并喂进 listRuns」这条可执行链 + `listRuns(` 后不得跟字面量），不放宽强度，K4 照样红；② 最初把 1705/1261 报成「该文件全部 43 条 verbose 行的 max」，按用例全名重过滤后确认这两个数恰好就是该用例的耗时（它是该文件最慢一条）——结论未变，但**用全体取 max 冒充单用例**这个推导是错的。
+- **边界**：`lock-timing-audit.js` 的 workflow 轴仍未扩（#4072 记录 §4 第 3 条）——本片只把 `case-timeout-audit.js` 的两根轴做完整；两个脚本取数对象不同（握手行 vs verbose 行），修法同源但登记表不能共用一份。无 UI / locale / 主进程运行面改动，QM-1 与 QM-4 判 N/A。执行记录：`openspec/records/case-timeout-audit-coverage-domain.md`。
+
+# [未发布] feat(ui): 桌面端视觉系统升级 —— 统一表面层级、品牌渐变与高级感细节（ui-visual-premium）
+
+- **一句话**：把「视觉」从**每页各写各的**收敛成**一套分层令牌 + 一套观感口径** —— 表面五层、圆角六档、品牌渐变统一、标题与数字排版归一、空态不再用虚线；并落一套**机器可复跑的界面面巡检**（32 路由 / 177 界面面 / 每张标注页面·位置·操作状态）。
+- **动因是当场量的，不是推测**：用户反馈「视觉不统一、混乱、粗糙、不精致」。用 `ui-audit-recon.js` 逐路由枚举可见元素的计算样式，得到 **142 种颜色值**（其中 10 种是肉眼难辨的灰）、**22 种圆角**（设计系统只定义了 6 档）、**143 种间距组合**、**3 套字体栈**、**3 种页面标题色**（品牌紫 / 墨色 / 链接蓝）、以及 `19.5px` / `13.3333px` 一类小数像素字号。数字把"感觉不统一"变成了可指认的失败面。
+- **改法（分层，不是换色）**：① **令牌层** `tokens.css` 新增表面/描边/高度/渐变/玻璃/动效/统一字体栈，亮暗两套**同构**（暗底上描边变成"发光的边"而不是"更深的边"）；② **契约层** `cohere-design-system.css` 保持只管「有哪些类、语义是什么」；③ **观感层** `premium-components.css` + `premium-design-system.css` 管「这些类看起来应该怎样」。**观感与契约混在一份文件里，改一次观感就会顶破逐文件行数门禁的登记目标**（实测 TARGET_GROW 1794 > 1698）——分层后契约文件回到 1696 行。
+- **几个具体决定与它们的理由**：卡片与页面底**同色**（都是 `#fff`，只靠 1px `#efefef` 分隔）→ 引入表面阶梯，卡片改白色浮层 + 发丝描边 + 投影；卡片 hover **整块泛粉**（`--soft-stone` #faf6f8）→ 改「升起 + 影加深 + 描边加强」；主按钮是**纯平** `#5048E5` → 改品牌渐变 + 柔光（白字压渐变两端 ≥ 4.5:1，实测 4.91:1 / 5.51:1，亮端锁死在 `#8B3FD9`——再提亮会跌到 3.96:1 不合格）；标题三色并存 → 统一墨色（品牌色只留给图标/状态/CTA）；数据看板数字用 `JetBrains Mono`（本机未装，回退系统等宽体）与首页数字**不同字形** → 统一展示字族 + `tabular-nums`（多卡小数点对齐）；空态与付费占位用**虚线**（产品语义 = "没做完/出错了"）→ 改柔面 + 实线发丝 + 品牌色边条。
+- **配套的机器守卫**：① `ui-audit-recon.js` 逐路由统计色/圆角/间距/字体的碎片度；② `ui-audit-capture.js` 按 6 个维度穷举界面面并逐面截图，标注「页面 / 位置 / 操作状态」；③ `ui-audit-scripts.test.js` 的**路由覆盖守卫**——解析 router 全路径与巡检清单求差集，**新增路由漏登记即红**（巡检的价值全在覆盖完整，漏页若无守卫会安静地让报告看着仍然完整）。
+- **守门与代价**：视觉基线属**有意变更**，由 **CI artifact 的渲染重建**后提交（仓库规矩：基线不得用本机 `test:visual:update-baseline` 的产物——本机与 CI runner 字体/渲染环境不同，同一份代码两边实测差 12~20384 px，在 CI 侧会逐张判 `BASELINE_STALE`；重建后判据本体复跑 **40/40 逐像素相等、违规 0**，本机像素回归亮/暗各 20/20 通过）；CCG 外部双家族评审（critic=claude / proposer=opencode）三轮 8 条意见**逐条裁决并全部处置**（毛玻璃 GPU 成本→半径 20px 降到 14px + `prefers-reduced-transparency` 守卫；暗色同构漏检→补断言；正则注入→补 `escapeRegExp`；零单测→补 6 例含路由覆盖守卫与变异反证；外部证据可核→补可 API 复核的公开评论）；`debt-budget` / `max-lines` 两套行数门禁**全程靠拆分与单键清账消化，一处基线都没抬**（`tokens.css` 压到 499 行、巡检脚本拆成四份、Home 样式搬到域级 CSS 后 `--prune` 单键清账）。
+- **文档**：巡检报告与优化方案 `01-docs/UI-VISUAL-AUDIT-2026-10-20.md` · 产品规格 `01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md` · 令牌口径 `01-docs/design-system-usage.md` §四之二 · 执行记录 `openspec/records/ui-visual-premium.md` · 前后对照证据 `01-docs/assets/ui-visual-audit-2026-10-20/`（10 组关键页面，约 3.5MB；全量 387 张按仓库约定留在 gitignored 目录不入库）。
 # [未发布] feat(门禁): 给「主干红着就别往里合」装执行体，并在自己的 PR 上把它跑红过四次（podcast-ci-new-red-gate）
 
 - feat(门禁): 给「主干红着就别往里合」装上执行体——新增 `scripts/check-main-red.js` + 判据本体 `scripts/lib/main-red.js`，`merge-when-green.sh` 与 `merge-when-green.ps1` 两个合并入口都强制在 REST 合并动作之前调用它（AGENTS「PR 自动合并」判据第 2 条从此不再靠会话临场判断）。动因是实测：该判据比 GitHub 的 required 清单更严却只以散文存在，一条**非 required** 的分片红先随窗口合进 main，main 转红后反过来把之后每个 PR 的 required `Gate Result` 判红，两个 PR 被冻约 40 分钟，而冻住它们的不是自己的改动。
@@ -7277,6 +7328,7 @@ override 只改本仓解析结果，不改对外声明。
 - 01-docs/PRD-REWRITE-ENGINE.md 新增 §十五（15.1-15.9，88 行）：三 pass 流水线实现（Pass 1 杀 AI 词汇 128 条映射+人类基线密度保护 / Pass 2 破 AI 结构 13 条开场铺垫正则+连接词标点 / Pass 3 句长节奏段内修复）+ 反注入护栏与 AI 味评分语义澄清；设置面三级结构（策略级 removeAITaste 唯一开关 / 引擎级 intensity 固定 / 终端用户级无 UI）与运营中心→桌面端完整传播链；与敏感词改写/内容质量评估的机制边界澄清；词表运营中心化等 4 项 P2 登记不落地。
 # [未发布] fix(rewrite): 改写结果分段保留——去 AI 味后处理压平段落修复（2026-10-03，fix-rewrite-paragraph-preserve）
 
+- 顺带修复（用户确认同 PR 处理）：ops-center 平台种子回落快照 weibo contentMax 5000→10000，对齐注册表 #2766（「微博 contentMax 放宽至 10000（用户确认）」）——#2766 只改了注册表未同步该回落快照，test_platform_def_seed_limits 漂移即红，挡住本 PR CI；test_platform_def_seed_limits 4/4 绿。
 ### 根因（QM-5 五步取证）
 - 用户反馈「改写后的文案是一整段没有正常分段」。是 bug 不是没处理：提示词层早要求空行分段（运营中心种子 hard-constraint-default-v1 第 2 条，2026-09-18），LLM 也遵守了；压平发生在本地后处理——`AITasteRemover` Pass 3 的句长节奏修复 `_mergeUniformSentences`（v2 重构 `36a09e5c` 2026-09-09 引入）对全文按终止标点切句后 `join('。')` 重组，换行全丢；次级缺陷：切句剥离标点导致段尾标点丢失、语气标点被统一改写成句号。
 - 逃逸链：remover 单测 6 例全是单段短文本零换行断言（无测试）；引擎 core 测试 mock 全是单行英文（场景缺失）；评审只验 AI 味指标下降未审计结构副作用（审查盲区）。

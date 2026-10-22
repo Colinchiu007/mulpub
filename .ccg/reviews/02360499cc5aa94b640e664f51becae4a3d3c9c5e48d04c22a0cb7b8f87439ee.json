@@ -1,0 +1,76 @@
+{
+  "sha": "e297ccc73fc069f0aa30b45e075502f8df39ceff",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2221 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2221,
+    "fileCount": 103,
+    "codeFileCount": 18,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 27,
+    "docSensitiveContentSample": [
+      "+ .cohere-select {",
+      "+ .cohere-select:focus {",
+      "+      \"+      \\\"| 失败 | 用户可行动作优先 | 「发布失败：账号授权已过期，请到『账号管理』重新授权后再试。」 |\\\",\","
+    ],
+    "ccgSensitiveContentHits": 8,
+    "ccgSensitiveContentSample": [
+      "      \"+ .cohere-select {\",",
+      "      \"+ .cohere-select:focus {\",",
+      "      \"+      \\\"+      \\\\\\\"| 失败 | 用户可行动作优先 | 「发布失败：账号授权已过期，请到『账号管理』重新授权后再试。」 |\\\\\\\",\\\",\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "02360499cc5aa94b640e664f51becae4a3d3c9c5e48d04c22a0cb7b8f87439ee",
+  "decidedAt": "2026-10-21T06:22:26.415Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "claude critic 2.1.303 + opencode proposer 1.18.34 (CCG deep-review.sh, cross-family validation passed); high-risk domains externally reviewed with machine-verifiable public evidence PR #4124#issuecomment-6309670069",
+    "findings": [
+      "i1 (Critical, high-risk): 程序部分成立、事实部分不成立 —— evidenceRef 指向的评论真实存在（gh api issues/4124/comments 可查 id/created_at/正文长度），但 self-play 单方面填 performedBy 不该完成。处置：第三轮深度审查真跑并留产物 .adversarial/ccg-deep-20000c7d/，并在 PR 评论补可独立复核的三条机器命令。",
+      "i2 (Critical): 成立 —— 上一轮 adjudication 引用了重放前的 SHA。处置：分支压成单提交、.adversarial/ 与 .ccg/reviews/ 与当前 head 对齐；维度分按评审原值登记（correctness 3 / security 3 / performance 4 / maintainability 2），不上调。",
+      "i3 (Warning, security): 成立 —— 缺机器可验的取证。处置：已公开 git show --name-only HEAD 的高危面零命中 + 3124 行新增行的鉴权/加密关键字零命中两条命令，评审者可自行复现。",
+      "i4 (Warning, performance): 成立 —— 20px→14px 是静态推理下的风险降低，不是实测结论。处置：performance 维持 4 分不上调；真实 Electron 窗口帧率实测登记为 R6，未拿到数据前不得宣称已解决。",
+      "i5 (Warning, maintainability): 成立 —— 守卫缺变异反证。处置：抽出纯函数 ui-audit-scripts.lib.js#computeUncoveredRoutes，新增用例注入假路由 /__mutation-probe 断言当场判红并点名它（6/6 通过）；巡检脚本拆成 ≤500 行三份。",
+      "i6 (Info): 部分成立。处置：仓内保留 10 组 before/after（约 3.5MB）+ 177 条标注清单（ui-audit-manifest.md）作为评审可看的最小证据与索引；全量 387 张按仓库约定留在 gitignored 目录。",
+      "i7 (Info): 成立。处置：执行记录明文登记「暗色像素回归仅在 headless Chromium 下验证，真实 Electron 窗口复核未做」并列 R6；correctness 不上调。",
+      "i8 (Info): 成立。处置：本 PR 压成单提交并删除重放残留目录；「新增 .adversarial SHA 对齐门禁」按 AGENTS.md 属改守门结构，登记为独立后续项 R7 交人工决定。"
+    ],
+    "evidence": ".adversarial/ccg-deep-20000c7d/adjudication.json",
+    "adjudication": ".adversarial/ccg-deep-20000c7d/adjudication.json",
+    "externalEvidence": "https://github.com/Colinchiu007/mulpub/pull/4124#issuecomment-6309670069",
+    "at": "2026-10-21T06:37:40.004Z"
+  }
+}

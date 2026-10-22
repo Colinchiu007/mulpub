@@ -1,7 +1,18 @@
 // Enhanced features: cookie expiry detection, rich text placeholders, anti-detection
 const assert = require("assert");
 let p=0,f=0;
-function t(n,fn){try{fn();p++;console.log("  "+String.fromCodePoint(0x2705)+" "+n);}catch(e){f++;console.log("  "+String.fromCodePoint(0x274C)+" "+n+": "+e.message);}}
+// 异步用例必须被接住：原实现 try{fn()}catch 对 async function 完全无效 ——
+// 断言失败会变成 unhandledRejection，进程在打印完「N/N 通过」之后崩掉。
+// 后果是双向误导：摘要说全通过、退出码却是非 0，真因被埋在 uncaughtException 栈里。
+var __pending = [];   // 异步用例的完成屏障：摘要与退出码都必须等它们全部结算
+function t(n,fn){
+  function fail(e){f++;console.log("  "+String.fromCodePoint(0x274C)+" "+n+": "+(e&&e.message));}
+  try{
+    var r=fn();
+    if(r&&typeof r.then==="function"){__pending.push(r.then(function(){p++;console.log("  "+String.fromCodePoint(0x2705)+" "+n);},fail));return;}
+    p++;console.log("  "+String.fromCodePoint(0x2705)+" "+n);
+  }catch(e){fail(e);}
+}
 function eq(a,b){assert.deepStrictEqual(a,b);}
 
 console.log("=== Enhanced Features ===");
@@ -89,9 +100,14 @@ t("randomUA varies between calls", function() {
 });
 t("randomDelay returns promise and resolves", async function() {
   var start = Date.now();
-  await randomDelay(10, 20);
+  // 下界不写死 10：Date.now() 只有毫秒分辨率，setTimeout(10) 实测可量到 9 —— 那是
+  // 时钟粒度不是行为缺陷。被测性质是「返回 promise 且会 resolve」：下界只用于排除
+  // 「立刻返回」，上界才是有意义的护栏（防止延迟参数被忽略成秒级）。
+  var pending = randomDelay(10, 20);
+  eq(typeof pending.then, "function");
+  await pending;
   var elapsed = Date.now() - start;
-  eq(elapsed >= 10 && elapsed < 1000, true);
+  eq(elapsed >= 5 && elapsed < 1000, true);
 });
 t("buildBrowserFingerprint returns object", function() {
   var fp = buildBrowserFingerprint();
@@ -101,5 +117,8 @@ t("buildBrowserFingerprint returns object", function() {
   eq(typeof fp.browser_language, "string");
 });
 
-console.log("\n========== "+p+"/"+(p+f)+" ==========");
-if(f) process.exit(1);
+// 等所有异步用例结算后再出摘要与退出码 —— 否则 async 断言失败会被读成通过（假绿）。
+Promise.allSettled(__pending).then(function(){
+  console.log("\n========== "+p+"/"+(p+f)+" ==========");
+  if(f) process.exit(1);
+});

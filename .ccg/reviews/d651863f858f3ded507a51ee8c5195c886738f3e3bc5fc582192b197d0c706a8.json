@@ -1,0 +1,188 @@
+{
+  "sha": "913dbd1f15a0fcf831fde82b39dff80baca57a12",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 19 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 19,
+    "fileCount": 2,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d651863f858f3ded507a51ee8c5195c886738f3e3bc5fc582192b197d0c706a8",
+  "decidedAt": "2026-10-21T16:00:59.409Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "Large `dual` reviews (`3374`/`1577`/`975` lines) have `deepReview` `pending` (`tier: unknown`, `performedBy: null`, `findings: null`). Core auth/payment logic is unverified.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": null,
+          "evidenceRef": null,
+          "reviewedAt": null
+        },
+        "prosecution": "指控成立。`.ccg/reviews/` 下多条 `mode=dual status=pending` 记录属实，`deepReview.performedBy` 为 null、`findings` 为 null，即判定已下、评审未跑。而本次改动确实落在资金链路（微信验签与 AEAD 解密、落账、免登录 webhook），是 highRiskDomains 点名的 auth 面。单模型评审 + 78 例注入式契约锁不构成跨家族交叉验证：注入式测试只能证明我想到的场景对，不能证明我没想的场景不会错——本 PR 已有反例（event_type 读错层级时，夹具跟着错实现写，测试全绿而生产必坏）。更具体：deep-review.sh 首次执行因 /c/Users/… 被拼成 D:\\c\\Users\\… 抛 MODULE_NOT_FOUND；随后直接调引擎时它按「仅最后一个 commit」判成 docs-only SKIP。即长 diff 从未被任何外部模型完整读过一遍。",
+        "defense": "可辩护部分有限，不改变结论。① 引擎本次已真实跑通一轮 critic=claude，产出 8 条问题、最低分 4、覆盖 correctness/security/performance/maintainability 四维（即本条 adjudication 的输入）；② 敏感面另有独立判据：check-main-red、buyout-removal 正向锁、债务熔断、迁移漂移锁；③ event_type 那条已被变异反证证明锁是真的（改回错读法 → 33 pass / 8 fail）。但这些全是单家族证据，opencode 侧一次都没跑，两家族交叉验证的目的完全未达成。",
+        "verdict": "upheld",
+        "rationale": "指控成立且属高危域。跨家族双模型评审从未完成——deep-review.sh 自身路径缺陷使首次尝试失败，随后引擎按单 commit 范围判 SKIP，导致长 diff 无任何外部模型完整审阅。填补方式只能是真跑 opencode 侧并把公开可核的评审链接填进 externalReview.evidenceRef；自扮演裁决（置信权重 0.6）按规则不足以解除高危域阻断。本条保持阻断。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "`skip` review JSON (`1a2a2d9f...`) claims `mode: skip` / `changedLines: 0` / docs-only, but proposal diff is 5112 lines of code. False fast-track skips adversarial verification.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控指向 .ccg/reviews/1a2a2d9f….json：该记录 mode=skip、changedLines=0、理由 docs-only，而同一分支累计 5112 行代码。若判据只看这条记录，会得出本 PR 无需评审的错误结论。",
+        "defense": "指控混淆了两个判定域。① ccg-review-decider 是按 commit 差量判定的：1a2a2d9f 对应提交 992e12d9（只含 openspec/records/wechat-native-payment.md 与两个 .ccg 判定记录），那次提交确实是 docs-only，changedLines=0（排除 .ccg 后）如实；② 同一分支另有针对 46fad32f 的判定记录（mode=single、changedLines=19），与本条并非同一输入；③ 分支级 DUAL 由 ccg-review-decider --base origin/main 单独产出（本轮实测输出「变更 3374 行 > 200 行阈值 → DUAL」），未被这条 skip 覆盖。",
+        "verdict": "dismissed",
+        "rationale": "判定记录以 diff 内容哈希为键、按 commit 生成，skip 只对该 commit 的差量成立，不是分支级结论。可核证据：node scripts/ccg-review-decider.js --base origin/main 本轮输出 DUAL（3374 行 / 35 文件），而 1a2a2d9f 对应纯记录提交。附带记一条真实风险：若将来有人把单 commit 的 skip 记录当分支级免检凭据，就会重演装饰性门禁——建议在 check-pr-exec-record 补一条「skip 记录不得用于分支级放行」的判据（本次未改判据，属建议）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "Lazy `require('./subscription-service')` in `subscription-payment.js` creates circular dependency; `CommerceError` access depends on load order, hiding initialization bugs.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "subscription-service.js 末尾 require('./subscription-payment') 应用 mixin，而 subscription-payment.js 的 commerceError() 内部又 require('./subscription-service') 取 CommerceError。循环存在属实；若 CommerceError 在某加载顺序下为 undefined，new CommerceError(...) 会抛 TypeError 而不是预期错误，错误码与状态码全丢，路由层退化成 500。",
+        "defense": "循环是受控的，且失败形态已被判据钉住。① commerceError() 是调用期求值不是加载期：require 缓存命中时 subscription-service 的 module.exports 已完整赋值，任何请求路径上都拿得到 CommerceError；② 唯一真实故障形态是加载期就读——那正是我第一版写法（顶部 const { CommerceError } = require(...)）已经修掉的 bug；③ 该故障有专门判据：test/cli.test.js 断言 --help 子进程 stderr 必须为空字符串，而循环导致的实际症状正是 stderr 多出 Warning: Accessing non-existent property 'CommerceError' of module exports inside circular dependency。修复前该用例红，修复后绿，属先红后绿实证；④ circularDeps: 0 是 check-debt-budget 的常驻读数，本轮实测通过。",
+        "verdict": "dismissed",
+        "rationale": "指控描述的是加载期读取未完成 exports 这一失效模式，而当前实现是调用期惰性求值，该模式不成立；且其可观测症状已被 cli.test.js（stderr 必须为空）与 circularDeps: 0 两条常驻判据覆盖，修复过程本身是红→绿。残余风险（未来有人改回顶部 require）由同一对判据兜住。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`ME_API_PREFIXES` uses `startsWith` then regex (`paramPattern`). Negative path-traversal regression (`../../admin`) is mentioned in comments but lacks explicit dedicated test case.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控在提出时成立：最初 member-api-service.test.js 只有 10 例，没有一条覆盖 ../../admin/member/grant 这类前缀命中但参数非法的形态。前缀匹配单独使用时是路径穿越入口，renderer 是不可信输入源，缺负例等于把「只比前缀」的错实现放行。",
+        "defense": "已在同一 PR 内补齐并做变异反证。提交 6b0d368b0 新增 4 例：① 合法 orderId 通过且 URL 精确拼接；② 7 种非法形态（../../admin/member/grant、..%2F..%2Fadmin、多级路径、空参数、大写、过短、带 query）全部 MEMBER_API_PATH_NOT_ALLOWED 且 fetcher 零调用；③ 订单详情 POST 拒；④ 下单 GET 拒。变异反证：把 paramPattern 放宽成 /^.*$/（即只比前缀）→ 1 failed / 13 passed，负例精确变红；文件逐字节还原校验 True。",
+        "verdict": "dismissed",
+        "rationale": "指控是「缺负例」，而负例已在 6b0d368b0 落地并经变异反证证明非装饰性（放宽判据即红）。可核证据：apps/desktop/electron/services/identity/member-api-service.test.js 14 例全绿，其中 4 例为本条新增。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "`wechat-pay-qrcode.js` introduces new dependency `qrcode@1.5.4` (sub-deps `pngjs`, `yargs`). Explicit deviation from PRD `手写编码器` increases supply-chain surface on payment-critical path.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控事实部分全部属实：新增 qrcode@^1.5.4，带 pngjs/yargs 等传递依赖；且这是对 PRD §7.2「手写 QR 编码器，零新依赖」的显式推翻。资金链路上每多一个依赖就多一份供应链风险，yargs 这类 CLI 依赖进打包产物更是纯负担。",
+        "defense": "这是知情取舍不是疏漏，且已把风险面压到最小。① 反向选择的代价更高：手写 Byte 模式 + RS 纠错 + 掩码选择 + 格式信息约 350+ 行，而本机没有任何扫码器或参考向量可验证它真能扫。生成一张看起来像码但扫不出的图 = 零收入，且故障形态极隐蔽（界面正常、日志无异常）。② 依赖面已收敛：只装在 apps/desktop（不是 shared-utils），主进程生成 SVG data URL 后交给渲染层，pngjs 不参与运行路径（只用 toString 的 SVG 分支），yargs 仅 CLI 入口引用。③ 有门禁：依赖漏洞审计门禁在本 PR 上 pass；asar 实测 qrcode 120 命中且解包后 require('qrcode') OK。④ 偏离已写进 PR 正文、执行记录 §5 与 commit message，不是偷偷加的。",
+        "verdict": "dismissed",
+        "rationale": "指控为「供应链面增大」而非「有漏洞」，而增大的部分已被作用域（仅 desktop 主进程）、运行路径（SVG 分支不触 pngjs）与既有审计门禁三重收窄；同时它替换掉的是「无法验证正确性的自研编码器」这一更高风险。取舍理由已公开登记，属可追认的工程判断。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "`publish-api-server.js` inserts `_handlePaymentWebhook` before auth checks (correct for webhook), but no regression test verifies non-webhook routes (`/api/v1/me/checkout`) still enforce bearer auth.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": null,
+          "evidenceRef": null,
+          "reviewedAt": null
+        },
+        "prosecution": "指控成立且是本次最需外部复核的一条。_handlePaymentWebhook 被放在 Bearer/API-key 鉴权之前（这是 webhook 的正确位置），但它是一个早期 return 点。一旦内部判断写错（例如把全等判断写成前缀判断，或将来有人复制这个块改成别的路由），鉴权链会被整体绕过，而没有任何测试会红。现有 payment-api.test.js 20 例全是直接调用 mixin 方法的白盒测试，一条都没走完整请求管线，因此证明不了「未登录请求到 /api/v1/me/checkout 会被 401」。",
+        "defense": "可辩护部分：① _handlePaymentWebhook 第一个判断是严格全等 url !== \"/api/v1/webhooks/payment\"，非本路径立即 return false，不含任何前缀通配；② _handleMemberCheckout 位于会员中心区块内、在鉴权之后，且有 _memberUserId 兜底；③ _requiredScope 对 /api/v1/me/ 前缀的 POST 返回 profile:write，改动未触碰该函数。但这些全是代码走读不是判据——恰是本仓反复吃过的「读一遍觉得对」形态。",
+        "verdict": "upheld",
+        "rationale": "指控成立。这是「鉴权链是否仍然生效」这一 auth 高危面的判据缺口：缺一条从 HTTP 入口发起、不带 Authorization 头、断言 /api/v1/me/checkout 返回 401 且不产生订单的管线级测试。它属高危域，自扮演裁决（权重 0.6）不解阻断，须外部复核。本条保持阻断。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "finding": "`.env.example` adds 6 WeChat production variables (`APPID`, `MCH_ID`, `API_V3_KEY`, `CERT_SERIAL_NO`, `CERT_PATH`, `NOTIFY_URL`). Review doesn't verify `production-config.js` covers each with tested error paths.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控在提出时成立：production-config.js 的支付分支只做了手工四档验证（none 档 0 错误 / 缺项报 PAYMENT_CONFIG_INVALID / 非法 provider 报错 / 完整配置 0 错误），没有落成自动化测试。手工验证是一次性的，下一个人改 PAYMENT_PROVIDER 分支时无人拦截。",
+        "defense": "覆盖本身是完整的，缺的只是自动化。① 六个变量全部在必填循环里（APPID/MCH_ID/API_V3_KEY/CERT_SERIAL_NO/NOTIFY_URL），CERT_PATH 与 CERT_CONTENT 二者其一即可；② 另加两条形状校验：APIv3 密钥必须 32 字节、notify_url 必须 https://；③ none 档整块跳过——实测 none 档 payment 相关错误数 = 0，不引入新的必填红；④ 四档手工验证的实际输出已在会话中逐条留痕。",
+        "verdict": "upheld",
+        "rationale": "指控成立但降级：覆盖无遗漏，缺的是回归判据。手工四档验证不可重放，不满足「判据必须有执行体」。应补一个 production-config.payment.test.js（none 档零错误 / 逐变量缺项 / 密钥长度 / notify_url 非 https / 非法 provider），并把本轮四档输出固化成断言。本条不阻断合并（非高危域），但必须作为后续 PR 的第一项，不得当作已闭合。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：3 条指控成立或需外部复核",
+    "at": "2026-10-21T16:38:07.665Z"
+  }
+}

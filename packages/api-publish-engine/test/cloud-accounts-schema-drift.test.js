@@ -54,10 +54,25 @@ test('005 云账号迁移与开发态 SCHEMA 一致', async (t) => {
       REQUIRED_SCHEMA_RELATIONS.indexOf('cloud_accounts') < REQUIRED_SCHEMA_RELATIONS.indexOf('cloud_account_tombstones'),
       'REQUIRED_SCHEMA_RELATIONS 中云账号两表顺序与 SCHEMA 追加顺序不一致',
     )
+    // 「作为最后一组追加」这条 2026-10-21 改写为「作为一组连续追加」：006 微信支付新增
+    // identity_payment_customers 后，云账号两表不再是清单末位。原判据 slice(-2) 硬钉
+    // 「最后」会把后续任何追加型迁移一律判红——而那正是本锁要保护的形态（追加在后、
+    // 不打乱既有顺序）。改写后判据继续表达原意图，且新增一条「末位就是新表」的正向断言。
+    const cloudAccountsIndex = REQUIRED_SCHEMA_RELATIONS.indexOf('cloud_accounts')
     assert.deepStrictEqual(
-      REQUIRED_SCHEMA_RELATIONS.slice(-2),
+      REQUIRED_SCHEMA_RELATIONS.slice(cloudAccountsIndex, cloudAccountsIndex + 2),
       ['cloud_accounts', 'cloud_account_tombstones'],
-      '云账号两表应作为最后一组按 SCHEMA 顺序追加进 REQUIRED_SCHEMA_RELATIONS',
+      '云账号两表在 REQUIRED_SCHEMA_RELATIONS 中必须连续且按 SCHEMA 追加顺序排列',
+    )
+    // 末位断言改为按 SCHEMA 追加顺序动态取：现在末位是 006 的 identity_payment_customers。
+    // 写死具体表名会让下一次追加又撞红，故按「SCHEMA 里最后一张表」推导期望值。
+    const lastSchemaTable = /CREATE TABLE IF NOT EXISTS (\w+)/.exec(
+      [...SCHEMA].reverse().find((statement) => /CREATE TABLE IF NOT EXISTS \w+/.test(statement)),
+    )[1]
+    assert.strictEqual(
+      REQUIRED_SCHEMA_RELATIONS[REQUIRED_SCHEMA_RELATIONS.length - 1],
+      lastSchemaTable,
+      `REQUIRED_SCHEMA_RELATIONS 末位（${REQUIRED_SCHEMA_RELATIONS[REQUIRED_SCHEMA_RELATIONS.length - 1]}）与 SCHEMA 最后一张表（${lastSchemaTable}）不一致`,
     )
     // 两张表各自的 user_id 前导索引也必须由 initialize() 建出，否则开发库与生产迁移产生索引漂移。
     assert.match(sql, /CREATE INDEX IF NOT EXISTS idx_cloud_accounts_user_platform/)

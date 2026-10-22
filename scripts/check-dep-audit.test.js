@@ -63,9 +63,11 @@ test('新公告必须阻断：基线之外的任意 advisory id 触发 NEW_ADVIS
   assert.match(violations[0], /修复版本 >=1.2.3/);
 });
 
-test('基线腐化：已不再命中的公告必须清账', () => {
-  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-gone'), ledger('pip', 'PYSEC-x')] };
-  const { violations } = D.evaluate(base, [entry('pip', 'PYSEC-x')], FUTURE);
+test('基线腐化：某域本轮**仍有产出**、而其中一条公告不再命中 ⇒ 必须清账', () => {
+  // 这条是 RESOLVED 路径的正控，夹具刻意让 npm 域本轮扫出别的东西（GHSA-live）——
+  // 只有「该域确实在测量且有产出」时，「某条不再命中」才是可信的已修信号（2026-10-22 口径改造）。
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-gone'), ledger('npm', 'GHSA-live'), ledger('pip', 'PYSEC-x')] };
+  const { violations } = D.evaluate(base, [entry('npm', 'GHSA-live'), entry('pip', 'PYSEC-x')], FUTURE);
   assert.deepEqual(violations, ['RESOLVED_STILL_BASELINED: npm/GHSA-gone 已不再命中（多半已升级），请 --update 清账']);
 });
 
@@ -526,11 +528,16 @@ test('对偶：别名匹配不得把真正的新公告一起放过', () => {
 });
 
 test('别名匹配不得跨 source：pip 的 alias 不能认领 npm 的同名 id', () => {
-  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'X-1')] };
-  const found = [entry('pip', 'Y-2', { aliases: ['X-1'] })];
+  // 2026-10-22 口径改造随动：夹具原先让 npm 域本轮**完全不产出**，那在新口径下是
+  // 「未证实」（UNVERIFIED_ZERO_SCAN）而不是「已修」，本条要测的 RESOLVED 路径就不成立了。
+  // 补一条 npm 的活条目让该域确实有产出——本条测的仍是跨 source 别名不认领，不是零产出。
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'X-1'), ledger('npm', 'X-live')] };
+  const found = [entry('npm', 'X-live'), entry('pip', 'Y-2', { aliases: ['X-1'] })];
   const { violations, migrations } = D.evaluate(base, found, FUTURE);
   assert.equal(violations.filter((v) => v.includes('NEW_ADVISORY')).length, 1, 'pip 的新条目照红');
   assert.equal(violations.filter((v) => v.includes('RESOLVED_STILL_BASELINED')).length, 1, 'npm 的旧条目照判失效');
+  assert.equal(violations.filter((v) => v.includes('UNVERIFIED_ZERO_SCAN')).length, 0,
+    '该域有产出 ⇒ 不进零产出档：\n' + violations.join('\n'));
   assert.deepEqual(migrations, [], '跨 source 不算同一条公告');
 });
 
@@ -699,4 +706,242 @@ test('裁决 i3：基线条目已存的 aliases 必须参与认领（"双向认�
   assert.equal(migrations[0].from, 'PYSEC-NEW');
   assert.equal(migrations[0].to, 'CVE-OLD');
   assert.equal(migrations[0].matchedVia, 'PYSEC-NEW', '证据字段同样要带（= 被认领的基线键主 id）');
+});
+// ——— 2026-10-22：错误信封不得被当成「空审计报告」 ———
+//
+// 现场：npm 审计端点 `socket hang up` 时，`npm audit` 把**错误 JSON** 打到 stdout：
+//   {"message":"request to .../security/audits/quick failed, reason: socket hang up","error":{...}}
+// 旧实现只要求 stdout 里有 `{` 且能 JSON.parse ⇒ ok:true ⇒ 解析出 0 条命中 ⇒
+// 基线里该域所有条目被判 `RESOLVED_STILL_BASELINED`「已不再命中（多半已升级），请 --update 清账」。
+// 红文案把人指向删基线，而真相是「根本没量到」——照它做会把真实挂账清空、门禁恒绿。
+test('shellRun 必须把错误信封判成「不是审计报告」', async (t) => {
+  /** 注入 spawn：返回给定 stdout，模拟扫描器的真实输出（不启子进程）。 */
+  const fakeSpawn = (stdout) => () => ({ stdout, stderr: '' });
+
+  await t.test('isAuditReport：只有带 vulnerabilities/advisories 键才算审计报告', () => {
+    assert.equal(D.isAuditReport({ vulnerabilities: {} }), true, 'npm v2 的零漏洞报告必须算报告');
+    assert.equal(D.isAuditReport({ advisories: {} }), true, 'pnpm/旧版零漏洞报告必须算报告');
+    assert.equal(D.isAuditReport({ message: 'request to x failed', error: {} }), false, '错误信封不算报告');
+    assert.equal(D.isAuditReport({}), false, '空对象不算报告（区分「量到 0」与「没量到」）');
+    assert.equal(D.isAuditReport([]), false);
+    assert.equal(D.isAuditReport(null), false);
+  });
+
+  await t.test('错误信封 → ok:false，且错误文案点明「不是审计报告」', () => {
+    const stdout = JSON.stringify({
+      message: 'request to https://registry.npmjs.org/-/npm/v1/security/audits/quick failed, reason: socket hang up',
+      error: { code: 'ECONNRESET' },
+    });
+    const res = D.shellRunOnce('npm', ['audit'], { expectReport: 'npm', spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, false, '错误信封绝不能被当成合法报告');
+    assert.match(res.error, /不是审计报告/, '错误文案必须说清是「拿不到报告」而不是「没有漏洞」');
+  });
+
+  await t.test('合法零漏洞报告 → ok:true（不能把「真的没漏洞」误判成扫描失败）', () => {
+    const stdout = JSON.stringify({ auditReportVersion: 2, vulnerabilities: {}, metadata: {} });
+    const res = D.shellRunOnce('npm', ['audit'], { expectReport: 'npm', spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.json.vulnerabilities, {});
+  });
+
+  await t.test('不传 expectAuditReport 时不改行为（pip-audit 的输出形状不同）', () => {
+    const stdout = JSON.stringify({ dependencies: [], fixes: [] });
+    const res = D.shellRunOnce('pip-audit', [], { spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, true, 'pip 域不能被 npm 的报告形状约束误伤');
+  });
+
+  await t.test('重试：第一次错误信封、第二次合法报告 ⇒ 整体成功（端点抖动不该放大成门禁红）', () => {
+    let calls = 0;
+    const spawn = () => {
+      calls += 1;
+      return calls === 1
+        ? { stdout: JSON.stringify({ message: 'request to x failed, reason: socket hang up' }), stderr: '' }
+        : { stdout: JSON.stringify({ vulnerabilities: {}, auditReportVersion: 2 }), stderr: '' };
+    };
+    const res = D.shellRun('npm', ['audit'], { expectReport: 'npm', attempts: 2, retryDelays: [0], spawn });
+    assert.equal(res.ok, true, '第一次失败后必须真的重试并接受第二次的合法报告');
+    assert.equal(calls, 2, '必须恰好尝试两次');
+  });
+
+  await t.test('重试耗尽 → 返回最后一次错误（由 runCheck 记 SCANNER_UNAVAILABLE，不产出空报告）', () => {
+    let calls = 0;
+    const spawn = () => {
+      calls += 1;
+      return { stdout: JSON.stringify({ message: 'request to x failed, reason: socket hang up' }), stderr: '' };
+    };
+    const res = D.shellRun('npm', ['audit'], { expectReport: 'npm', attempts: 3, retryDelays: [0], spawn });
+    assert.equal(res.ok, false);
+    assert.equal(calls, 3, 'attempts=3 必须真的试三次');
+  });
+});
+
+// ——— 接线锁：cwd 必须透传给扫描器 ———
+//
+// 动因（2026-10-22 当场踩到）：给 shellRunOnce 加「错误信封」校验时，一次行级编辑把
+// `cwd: opts.cwd || ROOT` 那行吞掉了，于是 ops-center 域的 `npm audit` 跑在**仓库根**
+// （那里没有它的 package-lock.json）⇒ 拿不到报告 ⇒ 该域被判 SCANNER_UNAVAILABLE
+// 永久跳过。而结果是**绿色**的（只是少扫一个域），不吵不闹 —— 正是最该上锁的形态。
+test('shellRunOnce 必须把 cwd 透传给扫描器', () => {
+  let seen = null;
+  const spawn = (cmd, args, options) => {
+    seen = options;
+    return { stdout: JSON.stringify({ vulnerabilities: {} }), stderr: '' };
+  };
+  const cwd = path.join(process.cwd(), 'ops-center', 'frontend');
+  const res = D.shellRunOnce('npm', ['audit'], { cwd, expectReport: 'npm', spawn });
+  assert.equal(res.ok, true);
+  assert.equal(seen.cwd, cwd, 'cwd 丢失会让 ops-center 域在错误的目录里扫描，且只表现为「扫不到」');
+});
+// ——— pip 域：同一个 bug 的第三份 ———
+//
+// 外部评审（2026-10-22）当场点名：只给两个 npm 域加形状校验、漏掉 pip，
+// 等于把「错误信封被读成零漏洞」这个 bug 留了三分之一。
+// `parsePipAudit()` 对任何缺 `dependencies` 的对象都返回 []，所以这里必须单独上锁。
+test('pip 域也必须做报告形状校验', async (t) => {
+  const fakeSpawn = (stdout) => () => ({ stdout, stderr: '' });
+
+  await t.test('isPipAuditReport：只认顶层 dependencies 数组', () => {
+    assert.equal(D.isPipAuditReport({ dependencies: [] }), true, '零漏洞的 pip 报告（空数组）必须算报告');
+    assert.equal(D.isPipAuditReport({ dependencies: [{ name: 'x', vulns: [] }] }), true);
+    assert.equal(D.isPipAuditReport({ message: 'pip-audit failed', error: {} }), false, '错误信封不算报告');
+    assert.equal(D.isPipAuditReport({ vulnerabilities: {} }), false, 'npm 形状不能冒充 pip 报告');
+    assert.equal(D.isPipAuditReport({}), false);
+    assert.equal(D.isPipAuditReport(null), false);
+  });
+
+  await t.test('pip 错误信封 + expectReport:pip → ok:false（否则会谎报 pip 挂账已修复）', () => {
+    const stdout = JSON.stringify({ message: 'pip-audit: could not resolve requirements', error: { code: 'ENOENT' } });
+    const res = D.shellRunOnce('pip-audit', ['-r', 'x'], { expectReport: 'pip', spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, false);
+    assert.match(res.error, /不是审计报告/);
+  });
+
+  await t.test('pip 合法报告 + expectReport:pip → ok:true', () => {
+    const stdout = JSON.stringify({ dependencies: [], fixes: [] });
+    const res = D.shellRunOnce('pip-audit', ['-r', 'x'], { expectReport: 'pip', spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.json.dependencies, []);
+  });
+
+  await t.test('用 npm 的尺子量 pip 会被拒（两个域形状不同，不能共用一把尺）', () => {
+    const stdout = JSON.stringify({ dependencies: [] });
+    const res = D.shellRunOnce('pip-audit', ['-r', 'x'], { expectReport: 'npm', spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, false, 'npm 形状校验不应接受 pip 报告');
+  });
+});
+/* ── UNVERIFIED_ZERO_SCAN：把「扫描成功但零产出」与「公告真的都修了」分开（2026-10-22）──────
+ * 动因是 CI 现场：dep-audit.yml 那个 job 不装任何依赖，`npm-opscenter` 域返回 0 条，
+ * 判据连报两条 `RESOLVED_STILL_BASELINED … 请 --update 清账`；而同一 commit 在本机
+ * 两种树形态下（ops-center/frontend 有 / 无 node_modules）都照样命中那两条 GHSA。
+ * 照提示跑 --update 会把仍然有效的挂账从安全基线里抹掉 —— 本组锁就是来堵这一格的。
+ */
+test('Z1 CI 形状：域本轮 0 产出而基线里它有挂账 ⇒ 报未证实，且不得报「已不再命中」', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm-opscenter', 'GHSA-68FV-2MGG-JV7Q'), ledger('pip', 'PYSEC-x')] };
+  const { violations } = D.evaluate(base, [entry('pip', 'PYSEC-x')], FUTURE);
+  assert.equal(violations.filter((v) => v.startsWith('RESOLVED_STILL_BASELINED')).length, 0,
+    '0 产出不是已修的证据，一条 RESOLVED 都不许报：\n' + violations.join('\n'));
+  assert.equal(violations.length, 1, '应恰好一条未证实告警：\n' + violations.join('\n'));
+  assert.match(violations[0], /^UNVERIFIED_ZERO_SCAN: npm-opscenter/);
+  assert.match(violations[0], /1\s*条挂账/, '文案必须给出该域有几条挂账，否则读者无从判断影响面');
+  assert.match(violations[0], /不得.*清账|不得.*判成已修/);
+});
+
+test('Z2 负控：域本轮 0 产出、但基线里该域本来就没挂账 ⇒ 不得凭空造债', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-live')] };
+  const { violations } = D.evaluate(base, [entry('npm', 'GHSA-live')], FUTURE);
+  assert.deepEqual(violations, [], 'pip 与 npm-opscenter 都 0 产出但账上无它们 ⇒ 全绿');
+});
+
+test('Z3 与 SCANNER_UNAVAILABLE 不重复：该域本轮没扫成时，未证实由那一条 warning 管', () => {
+  // scannedSources 只含 pip ⇒ npm 既不该被判腐化，也不该被判零产出（那是两类成因，文案不同）。
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-a'), ledger('pip', 'PYSEC-x')] };
+  const { violations } = D.evaluate(base, [entry('pip', 'PYSEC-x')], FUTURE, ['pip']);
+  assert.deepEqual(violations, [], '未扫成的域必须整体不判：\n' + violations.join('\n'));
+});
+
+test('Z4 --update 在「0 产出但有挂账」时必须拒绝写基线，且基线文件逐字节不变', () => {
+  // 这条是 Z1 的另一半：红文案自己会喊 --update，所以恰恰在那一刻必须挡住（writeBaseline 按 found 全量落盘）。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-audit-zero-'));
+  const bp = path.join(dir, 'baseline.json');
+  const body = { reviewBy: FUTURE, advisories: [ledger('npm-opscenter', 'GHSA-68FV-2MGG-JV7Q'), ledger('pip', 'PYSEC-x')] };
+  fs.writeFileSync(bp, JSON.stringify(body, null, 2), 'utf8');
+  const before = fs.readFileSync(bp, 'utf8');
+  const out = [];
+  try {
+    const code = D.runCheck({
+      registry: 'npm',
+      isUpdate: true,
+      baselinePath: bp,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push('ERR ' + a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: { advisories: {} } }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
+        pip: () => ({ ok: true, json: { dependencies: [{ name: 'm', version: '1.0.0', vulns: [{ id: 'PYSEC-x', aliases: [], fix_versions: ['>=1.2.3'] }] }] } }),
+      },
+    });
+    assert.equal(code, 1, '0 产出但有挂账的域存在时 --update 必须失败，读数：\n' + out.join('\n'));
+    assert.ok(out.some((l) => l.includes('拒绝写基线')), '必须点名拒绝：\n' + out.join('\n'));
+    assert.equal(fs.readFileSync(bp, 'utf8'), before, '基线不得被写坏哪怕一字节');
+  } finally {
+    fs.rmSync(bp, { force: true }); fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Z6 没扫成的域拒绝写基线：这一格由既有那道闸守，且必须真的拦住（QM-6 外部评审 i1 的处置）', () => {
+  // npm 本轮 res.ok=false（离线/端点抖动）⇒ 它不在 scannedSources。评审 i1 说这里与 evaluate 的分档
+  // 不一致、建议过滤成「只保留已扫域」——**不采纳**，因为 writeBaseline 的重建源只有 found，
+  // 放过就等于把 npm 在基线里的每一行（含人工 decision/note）整段抹掉。
+  // 实测把这一格拦住的是 runCheck 里那道既有闸（`unavailable.length && isUpdate`），
+  // 它排在本次新增的零产出守卫**之前**——所以新守卫不需要再加过滤，这条用例锁的是"到底有没有人拦"。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-audit-unscanned-'));
+  const bp = path.join(dir, 'baseline.json');
+  const body = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-offline', 'not-exploitable', '逐条复核过三处 algorithms'), ledger('pip', 'PYSEC-x')] };
+  fs.writeFileSync(bp, JSON.stringify(body, null, 2), 'utf8');
+  const before = fs.readFileSync(bp, 'utf8');
+  const out = [];
+  try {
+    const code = D.runCheck({
+      registry: 'npm',
+      isUpdate: true,
+      baselinePath: bp,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push('ERR ' + a.join(' ')),
+      runners: {
+        npm: () => ({ ok: false, error: 'offline' }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
+        pip: () => ({ ok: true, json: { dependencies: [{ name: 'm', version: '1.0.0', vulns: [{ id: 'PYSEC-x', aliases: [], fix_versions: ['>=1.2.3'] }] }] } }),
+      },
+    });
+    assert.equal(code, 1, '有域没扫成时 --update 必须失败，读数：\n' + out.join('\n'));
+    assert.ok(out.some((l) => l.includes('扫描器不可用，拒绝写基线') && l.includes('npm')),
+      '必须点名是哪道闸、哪个域：\n' + out.join('\n'));
+    assert.equal(fs.readFileSync(bp, 'utf8'), before, '基线里那条人工 note 不得被抹掉哪怕一字节');
+  } finally {
+    fs.rmSync(bp, { force: true }); fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Z5 正控（Z4 的对偶）：所有域都有产出时 --update 照常写基线，别把清账通道一起焊死', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-audit-ok-'));
+  const bp = path.join(dir, 'baseline.json');
+  fs.writeFileSync(bp, JSON.stringify({ reviewBy: FUTURE, advisories: [ledger('npm-opscenter', 'GHSA-live'), ledger('pip', 'PYSEC-x')] }, null, 2), 'utf8');
+  try {
+    const code = D.runCheck({
+      registry: 'npm',
+      isUpdate: true,
+      baselinePath: bp,
+      log: () => {}, error: () => {},
+      runners: {
+        npm: () => ({ ok: true, json: { advisories: {} } }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: { axios: { via: [{ source: 1, url: 'https://github.com/advisories/GHSA-live', severity: 'high', range: '>=1.0.0 <1.2.3' }] } } } }),
+        pip: () => ({ ok: true, json: { dependencies: [{ name: 'm', version: '1.0.0', vulns: [{ id: 'PYSEC-x', aliases: [], fix_versions: ['>=1.2.3'] }] }] } }),
+      },
+    });
+    assert.equal(code, 0, '各域都有产出时写基线不得被新守卫误伤：' + bp);
+    const after = JSON.parse(fs.readFileSync(bp, 'utf8'));
+    assert.ok(after.advisories.some((a) => a.source === 'npm-opscenter'), 'npm-opscenter 那条必须落在新基线里');
+  } finally {
+    fs.rmSync(bp, { force: true }); fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

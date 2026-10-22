@@ -1,0 +1,489 @@
+/**
+ * 首页（Home）视觉层。
+ *
+ * 为什么独立成文件：本仓「逐文件行数门禁」对超限文件有登记的增量预算
+ * （Home.vue 登记 654 行、允许增长 200 行）。本轮视觉升级给 Home.vue
+ * 加了主任务卡渐变 / KPI 顶部色条 / 快捷入口抬升等样式，直接写在
+ * <style scoped> 里会顶破预算。
+ *
+ * 做法与采集域一致（apps/desktop/src/features/collection/collection-page.css）：
+ * 由 Home.vue 的 <style scoped> 里 @import 引入 —— 规则仍然带 scoped 属性，
+ * 不影响其余视图的同名类。
+ *
+ * 视觉口径（品牌渐变 / 表面层级 / 图标底座）见 premium-design-system.css，
+ * 本文件只负责「首页这一屏长什么样」。
+ */
+
+
+.mp-home {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.mp-home-welcome {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.mp-home-greeting-col {
+  min-width: 0;
+}
+
+/* 概览行：账号数 + 本月发布（tabular-nums 保证数字对齐） */
+.mp-home-overview {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.overview-num {
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.overview-divider {
+  color: var(--color-text-muted);
+}
+
+.mp-home-quick-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.mp-home-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--elevation-1);
+  transition: border-color var(--motion-fast) var(--ease-default),
+              color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              transform var(--motion-fast) var(--ease-default);
+}
+
+.mp-home-action-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.mp-home-action-btn--primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.mp-home-action-btn--primary:hover {
+  background: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+.action-icon {
+  flex: 0 0 auto;
+}
+
+/* 待办摘要（真实数据项，全 0 显示鼓励语） */
+.mp-home-todo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 24px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.mp-home-todo--clear {
+  color: var(--color-text-muted);
+}
+
+.mp-home-todo-item {
+  padding: 3px 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+}
+
+.mp-home-todo-item--warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.mp-home-todo-item--danger {
+  background: var(--coral-soft, #fef0f0);
+  color: var(--color-danger);
+}
+
+/* 主任务卡：开始发布 + 连续天数
+ * 视觉升级（ui-visual-premium）：改为**品牌渐变主卡** + 玻璃圆片装饰。
+ * 旧版是"白底 + 一个淡紫圆角方块图标"，与下方 6 个快捷入口卡片长得一样，
+ * 主任务没有视觉权重；参考产品的做法是让最重要的那块用品牌渐变立起来。 */
+.mp-home-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 22px 24px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  background: var(--brand-gradient);
+  color: #ffffff;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: var(--brand-glow);
+  transition: box-shadow var(--motion-base) var(--ease-out-soft),
+              transform var(--motion-base) var(--ease-out-soft);
+}
+
+/* 两层光斑：右上暖色 + 右下品牌色，制造柔和的过渡色（参考产品的环境光用法） */
+.mp-home-hero::before {
+  content: '';
+  position: absolute;
+  top: -72px;
+  right: -32px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.30) 0%, rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+}
+
+.mp-home-hero::after {
+  content: '';
+  position: absolute;
+  bottom: -96px;
+  right: 160px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 154, 108, 0.42) 0%, rgba(255, 154, 108, 0) 70%);
+  pointer-events: none;
+}
+.mp-home-hero:hover,
+.mp-home-hero:focus-visible {
+  box-shadow: var(--brand-glow-hover);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+/* 玻璃图标底座：白底半透明 + 内高光，与深色渐变底形成"磨砂玻璃片" */
+.hero-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  flex: 0 0 auto;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+.hero-info {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-title {
+  margin: 0 0 4px;
+  color: #ffffff;
+  font-family: var(--font-family-ui-display);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.hero-desc {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: var(--font-size-sm);
+}
+
+/* 数据概览：紧凑 KPI 条（PRD §5.1，卡片高度 ≤96px） */
+.mp-home-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.mp-home-stat-card {
+  position: relative;
+  padding: 14px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--elevation-1);
+  text-align: center;
+  overflow: hidden;
+  transition: box-shadow var(--motion-base) var(--ease-out-soft),
+              border-color var(--motion-fast) var(--ease-default),
+              transform var(--motion-base) var(--ease-out-soft);
+}
+
+.mp-home-stat-card:hover {
+  border-color: var(--hairline-strong);
+  box-shadow: var(--elevation-3);
+  transform: translateY(-2px);
+}
+
+/* 语义色改为顶部渐隐色条：左侧竖条在圆角卡片上会切出直角 */
+.mp-home-stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--color-primary);
+}
+
+.mp-home-stat-card--success::before { background: var(--color-success); }
+.mp-home-stat-card--danger::before { background: var(--coral); }
+.mp-home-stat-card--info::before { background: var(--action-blue); }
+
+.stat-number {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-ui-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.4px;
+}
+
+.stat-label {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.mp-home-stat-card--success .stat-number { color: var(--color-success); }
+.mp-home-stat-card--danger .stat-number { color: var(--color-danger); }
+.mp-home-stat-card--info .stat-number { color: var(--color-primary); }
+
+/* 全 0 引导与近期动态空态（统一 EmptyState，图标用主题色） */
+.mp-home-zero-cta {
+  min-height: 180px;
+  margin-bottom: 24px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.mp-home-recent-empty {
+  min-height: 120px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.mp-home-empty-glyph {
+  color: var(--color-primary);
+}
+
+/* 快捷入口 */
+.mp-home-section-title {
+  margin: 0 0 16px;
+  color: #25252b;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+/* 深色模式覆盖（P4 2026-10-08）：#25252b 硬编码深灰在暗色 #1a1a1e 底上
+ * 1.14:1 不可读（实测见研究方案 §3.3/§8）。改走 token，暗色自动切换。 */
+[data-theme='dark'] .mp-home-section-title {
+  color: var(--color-text-primary);
+}
+
+.mp-home-shortcuts {
+  margin-bottom: 32px;
+}
+
+.mp-home-shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+
+.mp-home-shortcut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--elevation-1);
+  cursor: pointer;
+  transition: transform var(--motion-base) var(--ease-out-soft),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              border-color var(--motion-fast) var(--ease-default);
+}
+
+.mp-home-shortcut:hover {
+  border-color: var(--hairline-strong);
+  box-shadow: var(--elevation-3);
+  transform: translateY(-3px);
+}
+
+/* 图标底座：圆角方片 + 品牌淡紫底 + 悬停时放大一点 */
+.shortcut-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  background: var(--brand-gradient-soft);
+  color: var(--primary);
+  transition: transform var(--motion-base) var(--ease-out-soft),
+              background var(--motion-base) var(--ease-default);
+}
+
+.mp-home-shortcut:hover .shortcut-icon {
+  transform: scale(1.06);
+  background: var(--brand-gradient);
+  color: #ffffff;
+}
+
+.shortcut-label {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  transition: color var(--motion-fast) var(--ease-default);
+}
+
+.mp-home-shortcut:hover .shortcut-label {
+  color: var(--color-text-primary);
+}
+
+/* 平台列表 */
+.mp-home-platforms {
+  margin-bottom: 32px;
+}
+
+.mp-home-platform-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mp-home-platform-tag {
+  padding: 6px 14px;
+  border: 1px solid #e8eaf2;
+  border-radius: 20px;
+  background: #f9f9fc;
+  color: #4d4f6f;
+  font-size: var(--font-size-sm);
+}
+
+/* 近期动态 */
+.mp-home-recent {
+  margin-bottom: 32px;
+}
+
+.mp-home-recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mp-home-recent-viewall {
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.mp-home-recent-viewall:hover {
+  text-decoration: underline;
+}
+
+.mp-home-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mp-home-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #e8eaf2;
+  border-radius: 10px;
+  background: var(--color-bg-card);
+}
+
+.recent-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recent-item-title {
+  overflow: hidden;
+  color: #25252b;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-item-platform {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f0efff;
+  color: #5048e5;
+  font-size: var(--font-size-xs);
+  flex: 0 0 auto;
+}
+
+.recent-item-status {
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: var(--font-size-xs);
+  flex: 0 0 auto;
+}
+
+.status-success { background: #e8f8ef; color: #2fc27a; }
+.status-failed, .status-error { background: #fef0f0; color: #f56c6c; }
+.status-pending, .status-publishing { background: #f0efff; color: #5048e5; }
+.status-unknown { background: #f5f5f5; color: #999; }
+
+.recent-item-time {
+  color: #8b8e9a;
+  font-size: var(--font-size-xs);
+  flex: 0 0 auto;
+}
+
+@media (max-width: 768px) {
+  .mp-home-stats { grid-template-columns: repeat(2, 1fr); }
+  .mp-home-shortcut-grid { grid-template-columns: repeat(3, 1fr); }
+  .mp-home-welcome { flex-direction: column; align-items: flex-start; }
+}
+
+@media (max-width: 480px) {
+  .mp-home { padding: 16px 12px; }
+  .mp-home-shortcut-grid { grid-template-columns: repeat(2, 1fr); }
+}

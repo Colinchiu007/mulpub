@@ -1,0 +1,64 @@
+{
+  "sha": "2eb731f67ee5f8306370122767042570be2cc992",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1184 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1184,
+    "fileCount": 9,
+    "codeFileCount": 8,
+    "sensitivePathHits": [
+      "migrations/postgresql/006_payment_orders.sql",
+      "packages/api-publish-engine/src/auth/payment-providers/index.js",
+      "packages/api-publish-engine/src/auth/payment-providers/wechat-native.js",
+      "packages/api-publish-engine/src/auth/postgres-identity-repository.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 40,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c50b60037546ca8ee51a82e35f9b5df7fd666beea140ab8923c075940cf6339d",
+  "decidedAt": "2026-10-21T12:30:09.342Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4187#issuecomment-6322086100",
+    "reviewedAt": "2026-10-21T17:18:00Z",
+    "findings": 8,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对分支相对 origin/main 的完整支付 diff（54 文件 / 4663 insertions / 99,065 字符）独立审阅，原始输出逐字公开于 evidence。该 diff 范围严格覆盖本条记录对应的 commit 差量。评审给出 8 条发现 / VERDICT: BLOCK，逐条核验后 5 条为真缺陷并已在 907fbd017 修复：①金额读 payer_total 而非 total（对账静默断裂）②裸 Base64 一律当证书导致微信支付公钥模式全部拒签 ③签名 Base64 字符类含 -/_ 造成解码歧义 ④弹窗轮询非 0 码时泄漏 setInterval ⑤order-status 未要求登录态。另 3 条判定为非目标/已覆盖/规范误解，理由在同一条评论的核验表。配套回归锁 7 例与判据缺口补测 16 例。"
+  }
+}

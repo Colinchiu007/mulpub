@@ -311,6 +311,106 @@ describe('自动模式 IPC · 编辑 / 重生成 / 收口', () => {
     expect(r.data.exists).toBe(false)
   })
 
+  /**
+   * 第 9 轮 i4（Warning / feasibility）：方法论接入状态此前**只挂在规划结果**上
+   * ⇒ **重开一个已规划的项目时，面板整块不显示**（落盘的 `promptContext` +
+   * 逐镜 `promptMissing` 没人重新汇总）。
+   * ⇒ 服务端在 `projectView` 里用**同一个** `buildMethodologySummary` 重新汇总。
+   *
+   * 这条判据锁的是「项目投影里有 methodology」，且它的数据源是**落盘**的那两份
+   * （不是规划结果 —— 规划结果不落盘，重开时不在内存里）。
+   */
+  it('auto-status 的项目投影带方法论接入状态（重开项目也可见，第 9 轮 i4）', async () => {
+    const KIT = {
+      doctrine: {
+        schemaVersion: 2,
+        blocks: [
+          { key: 'style', label: 'STYLE', zh: 'z', en: 'e' },
+          { key: 'frame_constraint', label: 'FRAME', zh: '尾帧必须是可继续的稳定姿态。', en: 'tail' },
+        ],
+        rules: [{ key: 'r', title: 't', zh: 'z', en: 'e' }],
+        glossary: [{ term: 'g', zh: 'z', en: 'e' }],
+      },
+      palette: { paletteLine: { zh: '色盘：夜色近黑。', en: 'Palette: night.' } },
+      promptLibrary: {
+        root: '/x',
+        tasks: {
+          generate_shot_prompt: {
+            zh: {
+              system: '你是 AI 视频提示词工程师。',
+              user: '{{shot_json}}\n- 色盘：{{palette_line}}\n- 风格前缀：{{style_prefix}}\n- GEO：{{geo_block}}\n- 角色：{{character_descriptors}}\n- 时长：{{duration_sec}}\n- 模型：{{model}}',
+            },
+            en: {
+              system: 'You are an AI video prompt engineer.',
+              user: '{{shot_json}}\n- palette: {{palette_line}}\n- style: {{style_prefix}}\n- geo: {{geo_block}}\n- characters: {{character_descriptors}}\n- duration: {{duration_sec}}\n- model: {{model}}',
+            },
+          },
+        },
+        taskNames: ['generate_shot_prompt'],
+      },
+      manifest: { filmMeta: { characters: [{ name: 'ROKO', descriptor: 'Determined street kid.' }] } },
+    }
+    const deps = makeDeps({
+      filmEngineeringService: {
+        listTemplateShots: vi.fn(() => TEMPLATES),
+        getKitContext: vi.fn(() => KIT),
+      },
+    })
+    const ipcMain = await startedTask(deps)
+    const r = await ipcMain._get('film-engineering:auto-status')(trustedEvent(), { taskId: 'auto-t1' })
+    expect(r.code).toBe(0)
+    expect(r.data.exists).toBe(true)
+    // 项目投影里必须有 methodology（数据源 = 落盘的 promptContext + 逐镜 promptMissing）
+    expect(r.data.methodology).toBeTruthy()
+    expect(r.data.methodology.totalVars).toBe(7)
+    expect(typeof r.data.methodology.hitVars).toBe('number')
+    expect(Array.isArray(r.data.methodology.blockedVars)).toBe(true)
+    // `style_prefix` 恒 byDesign ⇒ 拦住直送（机器可判）
+    expect(r.data.methodology.deliverable).toBe(false)
+    expect(r.data.methodology.blockedVars.some(b => b.name === 'style_prefix' && b.reason === 'byDesign')).toBe(true)
+  })
+
+  it('重开项目时：kit 内容变了 ⇒ stale=true；**只换界面语言** ⇒ stale 不变（第 15 轮 i6）', async () => {
+    const KIT = {
+      doctrine: {
+        schemaVersion: 2,
+        blocks: [
+          { key: 'style', label: 'STYLE', zh: 'z', en: 'e' },
+          { key: 'frame_constraint', label: 'FRAME', zh: '尾帧必须是可继续的稳定姿态。', en: 'tail' },
+        ],
+        rules: [{ key: 'r', title: 't', zh: 'z', en: 'e' }],
+        glossary: [{ term: 'g', zh: 'z', en: 'e' }],
+      },
+      palette: { paletteLine: { zh: '色盘：夜色近黑。', en: 'Palette: night.' } },
+      promptLibrary: {
+        root: '/x',
+        tasks: {
+          generate_shot_prompt: {
+            zh: { system: 'S', user: '{{shot_json}}\n- 色盘：{{palette_line}}\n- 风格前缀：{{style_prefix}}\n- GEO：{{geo_block}}\n- 角色：{{character_descriptors}}\n- 时长：{{duration_sec}}\n- 模型：{{model}}' },
+            en: { system: 'S', user: '{{shot_json}}\n- palette: {{palette_line}}\n- style: {{style_prefix}}\n- geo: {{geo_block}}\n- characters: {{character_descriptors}}\n- duration: {{duration_sec}}\n- model: {{model}}' },
+          },
+        },
+        taskNames: ['generate_shot_prompt'],
+      },
+      manifest: { filmMeta: { characters: [{ name: 'ROKO', descriptor: 'Determined street kid.' }] } },
+    }
+    const kitNow = { ...KIT }
+    const deps = makeDeps({
+      filmEngineeringService: {
+        listTemplateShots: vi.fn(() => TEMPLATES),
+        getKitContext: vi.fn(() => kitNow),
+      },
+    })
+    const ipcMain = await startedTask(deps)
+    const r0 = await ipcMain._get('film-engineering:auto-status')(trustedEvent(), { taskId: 'auto-t1' })
+    expect(r0.data.methodology).toBeTruthy()
+    expect(r0.data.methodology.stale).toBe(false)
+    // ① kit 内容被换 ⇒ stale=true
+    kitNow.doctrine = { ...KIT.doctrine, blocks: KIT.doctrine.blocks.map(b => (b.key === 'frame_constraint' ? { ...b, zh: '被换掉的尾帧约束。' } : b)) }
+    const r1 = await ipcMain._get('film-engineering:auto-status')(trustedEvent(), { taskId: 'auto-t1' })
+    expect(r1.data.methodology.stale).toBe(true)
+  })
+
   it('auto-update-shot 越界/非法字段拒绝，成功则写 editedAt', async () => {
     const deps = makeDeps()
     const ipcMain = await startedTask(deps)

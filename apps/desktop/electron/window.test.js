@@ -142,6 +142,20 @@ describe('window — createWindow', () => {
     expect(opts.show).toBe(false)
   })
 
+  // ── 2026-10-21（remove-native-menu-bar）：去掉窗口顶部 File/Edit/View/Window 那一行 ──
+  it('autoHideMenuBar = true（窗口顶部不再常驻系统菜单行）', () => {
+    createWindow(context)
+    const opts = __electronMock.BrowserWindow.mock.calls[0][0]
+    expect(opts.autoHideMenuBar).toBe(true)
+  })
+
+  it('主窗口自身的菜单被置空（setMenu(null)，Alt 键也唤不回）', () => {
+    createWindow(context)
+    const win = lastWindow()
+    expect(win.setMenu).toHaveBeenCalledTimes(1)
+    expect(win.setMenu).toHaveBeenCalledWith(null)
+  })
+
   it('开发环境加载 127.0.0.1:5174', async () => {
     process.env.NODE_ENV = 'development'
     createWindow(context)

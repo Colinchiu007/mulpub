@@ -38,9 +38,27 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  background: linear-gradient(180deg, var(--color-sidebar-bg-start) 0%, var(--color-sidebar-bg-end) 100%);
+  position: relative;
+  /* 侧边栏改为毛玻璃：半透明 + 背景模糊 + 内高光，
+   * 与顶栏形成同一条"玻璃带"，把窗口外框包起来。
+   * 旧：实色淡紫渐变，与右侧内容区之间是一条硬边，像两块拼起来的板子。 */
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   color: var(--color-sidebar-text);
-  border-right: 1px solid var(--color-sidebar-border);
+  border-right: 1px solid var(--hairline-soft);
+  box-shadow: var(--glass-shadow);
+}
+
+/* 侧边栏底部的品牌渐变辉光：给大面积玻璃一个视觉落点，
+ * 避免整块玻璃"空"（参考产品的柔和过渡色用法）。 */
+.mp-sidebar::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 190px;
+  pointer-events: none;
+  background: radial-gradient(120% 100% at 50% 100%, rgba(99, 102, 241, 0.16) 0%, rgba(99, 102, 241, 0) 70%);
 }
 
 .mp-sidebar-header {
@@ -111,11 +129,13 @@
   align-items: center;
   gap: 12px;
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--color-sidebar-text-secondary);
   font-size: var(--font-size-sm);
   text-decoration: none;
-  transition: background .15s ease, color .15s ease;
+  transition: background-color var(--motion-fast) var(--ease-default),
+              color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft);
 }
 
 .mp-primary-item svg {
@@ -130,6 +150,9 @@
   color: var(--color-sidebar-accent);
 }
 
+/* 选中态 = 白色药丸 + 柔和投影（参考产品的胶囊选中态）。
+ * 旧：active 底色是 rgba(255,255,255,.9)，没有投影，
+ *     在玻璃侧栏上几乎看不出"选中"。 */
 .mp-primary-item.active {
   background: var(--color-sidebar-active-bg);
   color: var(--color-sidebar-active-text);

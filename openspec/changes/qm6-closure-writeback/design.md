@@ -22,17 +22,31 @@ openspec/changes/ccg-convergence-exit/specs/ccg-deep-review-convergence/spec.md
 > `git -C ~/.claude/skills/adversarial-review-loop rev-parse --show-toplevel`。
 > 取证力在"这条命令 + 符号链接本身"，不在那个盘符。
 
-三条后果，任一足以否决"改引擎"这条路：
+三条后果，任一足以否决"改引擎"这条路（2026-10-21 全部重量过；命令与对象 id 随文给出，均可离线复现）：
 
-1. **本仓门禁会依赖一个不在本仓、由 nacos 技能同步分发、各机器版本可以不同的文件**，
-   而 mulpub 内对它没有任何字节/哈希锚点。本仓对"门禁消费外部产物"的既有纪律是
-   **必须绑字节 SHA-256 且漂移即 fail closed**（先例：Logto webhook 补丁）。没有锚点的外部依赖，
-   守的是"某台机器此刻恰好是那个版本"——本仓对此的定名是**装饰性门禁**。
-2. **该文件今天已被动过一次本机补丁**：`mtime 2026-10-20 18:00`，新增
-   `if (require.main === module) process.exit(main()); module.exports = { blockingFromAdjudication, externalReviewSatisfied, EXTERNAL_EVIDENCE_RE }`
-   （`:1261-1264`）。这既是好消息（下面 §4 能复用它的判据口径），也是坏消息：
-   **一处未入本仓git的行为改动已经存在**，而 CI runner 上这个文件干脆不存在
-   （`deep-review.sh:536-544` 那段 2026-10-17 修复就是为此而写）。
+1. **本仓门禁会依赖一个不在本仓、由 nacos 技能同步分发、各机器版本可以不同的文件**。
+   比"没有锚点"更准的形态是：**锚点存在，但被消费的字节不等于锚点字节**。
+   `adversarial-review-loop` 在 `skill-repo` 里是一个 **submodule（gitlink，mode 160000）**，
+   外层记录 commit `fe8a518…`，内层 HEAD 也确实等于它；**但**工作树里那份
+   `ccg-deep-review.js` 相对该 HEAD 是 **+49/−3 未提交**（blob `57ef9590…` → `a2842b93…`）。
+   本仓对"门禁消费外部产物"的既有纪律是**必须绑字节 SHA-256 且漂移即 fail closed**
+   （先例：Logto webhook 补丁）。这两层 id 此刻**没有出现在本仓任何产物里**，
+   所以守的仍是"某台机器此刻恰好是那个版本"——本仓对这种门禁的定名是**装饰性门禁**。
+   而且该仓会被 nacos 同步继续推进（今天 `mtime 2026-10-20 18:00` 就是同步时刻），
+   **一次 `git checkout --` 或一次同步就能把下面第 2 条说的那份补丁冲掉**。
+   三条复现命令（`<SR>` = `git -C ~/.claude/skills/adversarial-review-loop rev-parse --show-toplevel` 的输出）：
+   `git -C <SR>/.. ls-tree HEAD adversarial-review-loop` ⇒ 首列 `160000`；
+   `git -C <SR> diff --numstat -- scripts/ccg-deep-review.js` ⇒ `49 3 …`；
+   `git -C <SR> rev-parse HEAD:scripts/ccg-deep-review.js` 对照 `git hash-object scripts/ccg-deep-review.js` ⇒ 两个不同 id。
+2. **tasks 5.1 打算逐字对账的那两个符号，只活在这份未提交补丁里**：
+   `externalReviewSatisfied` 在 HEAD 版命中 **0**、工作树命中 **4**；`EXTERNAL_EVIDENCE_RE` 命中 **0 / 3**
+   （命令：`git -C <SR> show HEAD:scripts/ccg-deep-review.js | grep -ac externalReviewSatisfied`）。
+   好消息是 §4 能复用它的判据口径，不必另发明；坏消息是那个"它"是**一次同步就消失的东西**，
+   而别的机器（含 CI runner）本来就没有它。⇒ **5.2 的"引擎不可读出声"必须扩成两档**：
+   `parity=skipped(engine-absent)`（文件读不到）与 `parity=skipped(symbol-absent:<名>)`
+   （文件在、符号不在），两者文案与计数分开；把后者并入前者，等于让"上游同步把补丁冲掉"
+   这一整类事故在日志里读起来像"这台机器没装技能"——那是两种完全不同的待办。
+   （原记在这里的"本机补丁新增 exports"那条事实并入本条，行号 `:1261-1264` 随补丁一起未入任何 git。）
 3. 因此本片把"写 `tier`"这件事放进**本仓版本控制、可被 CI 真跑**的位置：
    `scripts/deep-review.sh` 调用后由 `scripts/ccg-review-writeback.js` 写。
    引擎继续只管它已经管的事（跑对抗、写 `status`/`performedBy`/`findings`）。
@@ -44,31 +58,37 @@ openspec/changes/ccg-convergence-exit/specs/ccg-deep-review-convergence/spec.md
 
 | 读数 | 值 | 复现命令 |
 | --- | --- | --- |
-| 驱动出口形态 | 4 条 `exec node "$DRIVER" …`，位于 `:850 :852 :859 :861` | `grep -n 'exec node "$DRIVER"' scripts/deep-review.sh` |
+| 驱动出口形态 | 4 条 `exec node "$DRIVER" …`，位于 `:855 :857 :876 :878`（2026-10-21 于本切片基点 `eda41eb0e` 取，并在 `ef81036a8` 复核同值。**上一版写的 `:850 :852 :859 :861` 隔 3 笔合并漂了 5 行** ⇒ 行号只能现取，引用即过期） | `grep -n 'exec node "$DRIVER"' scripts/deep-review.sh` |
 | 引擎对 `deepReview` 的赋值 | **1 处**（`:520` `rec.deepReview = deepReview`），无合并式写回 | `grep -n 'deepReview' <引擎绝对路径>`；`grep -c 'rec.deepReview = {\|\.\.\.rec\.deepReview' <引擎>` = 0 |
 | 引擎成功收口写的键 | `required,status,performedBy,findings,minScore,at` —— **无 `tier`、无 `evidence`** | `sed -n '1252,1256p' <引擎>` |
 | 引擎全文关键字命中 | `tier`=0、`sessionId`=0、`ses_`=0、`durationMs`=0、`exitCode`=0 | `grep -ao <词> <引擎> \| wc -l` |
 | 仓侧初始化 | `buildDeepReviewInit()`（`ccg-review-decider.js:641-650`）写了 `tier:"unknown"`、`evidence:null`、`findings:null` | `grep -n -A 9 'function buildDeepReviewInit' scripts/ccg-review-decider.js` |
-| 产物总体 | `.ccg/reviews` 受管 json **1563** 份，其中 `deepReview.tier` **缺席 1258** | `node scripts/ccg-artifact-shape-survey.js --ref=origin/main`（末行 `[丙的前提]`） |
-| 闭环 × tier 交叉（**手工一次性读，待入库**） | 已闭环 **208**；其中整段无 `tier` **157**；全库有 `tier` 的 **301** 份里 `external`=**23**、`unknown`=**256**、**闭集之外的自造值=22** | 见 tasks 0.1b：该交叉表将由 `scripts/ccg-artifact-shape-survey.js` 承载后重跑，本行是**实现片落地前的临时读数**，不得被后续会话当现状引用 |
+| 产物总体 | `.ccg/reviews` 受管 json **1664** 份（读不到/解析失败 2 ⇒ 参与统计 1662），`deepReview.tier` 缺席 **1282/1662** | `node scripts/ccg-artifact-shape-survey.js --ref=origin/main` 首行与 `[丙的前提]` 行（2026-10-21 于 `origin/main@ef81036a8`） |
+| 闭环 × tier 交叉（**已由工具承载，不再是手工探针**） | 已闭环 **243**：无 `tier` **178**、`external` **33**、`self-play` **23**、`unknown` **6**、闭集外野值 **3**；未闭环 **1419**：无 `tier` **1104**、`unknown` **315**；全库带 `tier` **380**（其中闭集外野值 **3**） | 同上一条命令，看交叉表与 `[闭环×tier]` 行。工具自报它落在哪个 commit（`REF=origin/main@<9位>`），因为主干在并发合并——**同一条命令隔 4 分钟两次读数 1658 → 1662**，不带 sha 的数无法归因 |
+| ↳ 口径变更说明（**不得把 22 读成降到 3**） | 旧那行是手工探针，按 `{external, unknown, 其它}` 三档分桶，「其它」里同时装着 `self-play` 与真野值；工具改按**判据自己的词表**分桶（闭集 = `CLOSED_DEEP_REVIEW_STATUSES` × `classifyEvidenceTier`），于是 `self-play` **23** 被单列出来、真野值只剩 **3**。两个数不可比，可比的是「闭集外野值 = 3」这一档 | 定义见 `scripts/ccg-artifact-shape-survey.js` 的 `vocabOfJudgeAuthority`；它不抄词表，而是向判据问一次 |
 
-**最后一条是本片最硬的动因**：全库 `external` 只有 23 份，而仓内没有任何生产方写 `tier`（上面四行读数合起来就是证明）
-⇒ **这 23 份逐条都是会话手写的**；同时有 22 份写着闭集之外的自造值（`unrecognized`，判据一律拦）。
+**这张表的读法（QM-6 i3 之后补写）**：`值` 列是**现场快照**，含取数当时的行号与条数，会随主干前进而失效，
+它不构成证据；`复现命令` 列才是判据。两列不可混读——把「`:855 :857 :876 :878`」当证据引用，就等于引用一个
+已经漂过 5 行的坐标（本表上一版正是这么写的）。所以任何下游文档要引这些数，**只引命令、并现跑**；
+需要可锚定的身份时用对象 id 而不是行号：`git hash-object scripts/deep-review.sh` 与
+`grep -n 'exec node "$DRIVER"' scripts/deep-review.sh` 同屏打一次，行号只在当次读数里有意义。
+
+**最后一条是本片最硬的动因**：全库带 `tier` 的 380 份里，闭环态 `external` 只有 **33** 份，而仓内没有任何生产方写 `tier`（上面四行读数合起来就是证明）
+⇒ **这 33 份逐条都是会话手写的**；另有 **3** 份写着闭集之外的野值（`unrecognized`，判据对**新增**一律拦，对**存量**不会再扫——它们是历史产物，只在被再次改动进变更集时才进入判定面，这一档如实记在 §8 遗留里）。
 这不是"有人作弊"，是**结构要求由判据提出、结构却无人生产**的可预期结果。
 
 ## 3. 决策
 
 ### D1 驱动侧写回点：`exec` 必须换成"调用 + 捕获 rc + 写回 + 原样退出"
 
-现状是 `exec` 替换进程镜像 ⇒ 评审结束后本仓代码没有任何执行点。四条出口都要改，
-且 `--dry-run` 与 `DRY_NO_DRIVER` 两条分支**不引入写回**（dry-run 不该产生交付物，这条既有语义不动）。
+现状是 `exec` 替换进程镜像 ⇒ 评审结束后本仓代码没有任何执行点。**四条 `exec` 出口里只有真跑的那两条**改成「调用 + 捕获 rc + 写回 + 原样退出」；`--dry-run` 那两条分支（连同 `DRY_NO_DRIVER` 早退）**保持 `exec` 且不引入写回**——dry-run 不该产生交付物，这条既有语义不动。落点由实现片定稿（`run_driver_with_writeback`，`scripts/deep-review-entry-rc.test.js` 的 ⑦ 就是钉「dry-run 里不得出现写回步骤」）。
 
 **为什么先讲 rc**：`exec` 时代入的退出码就是引擎的退出码，而本仓多把锁（`deep-review-deps.test.js`、
 行为锁那批）断言的正是入口 rc。改成调用后，"写回成功"绝不能把 rc=1 洗成 rc=0——
 `escalated`（引擎 `:1240-1249` 返回 1）必须照旧是 1。所以实现顺序是：先补一条"三种 rc 各跑一遍入口"的
 行为锁，再动代码（示踪弹先行）。
 
-### D2 写入条件是四元合取，缺哪条报哪条
+### D2 写入条件是五元合取，缺哪条报哪条
 
 `tier:"external"` 只在**同时**满足时写：
 
@@ -76,7 +96,8 @@ openspec/changes/ccg-convergence-exit/specs/ccg-deep-review-convergence/spec.md
 2. `findings` 是数组且长度 > 0；
 3. `performedBy` **逐字等于**同一份记录的 `reviewBackends.critic`；
 4. 该记录由**本次**驱动刚产出。机制（评审第 1 轮 i3 命中"没给实现"；第 2 轮 codex i1 又命中"给了也不成立"，见下）：
-   **两条同时成立才算本次产出，并各自出声**——
+   **三条同时成立才算本次产出，并各自出声**——
+   ⓪ **动手前的状态必须拿得到**（实现片自查抓到：原实现写成 `if (beforeSha && 不等)`，`beforeSha` 为空时整格跳过并照样把条件名打进 spoke —— **给一个没验证过的条件打勾**）。取不到 ⇒ `before-state-missing`，不写、不猜、不打点：盘上躺着的可能是**上一轮**的合法闭环交付，与"本次刚交付"在字节层面完全同形；
    ① **字节变了**（驱动调用前后各读一次目标记录文件原文，相等 ⇒ `no-write`：引擎这次根本没落盘）；
    ② **语义指纹变了**（对 `deepReview` **去掉 `at` 之后**做规范化摘要，前后不同才算有新交付；相同 ⇒ `no-new-delivery`）。
    只用 ① 会被时间戳单独满足：引擎每个 `writeBack` 站点都写 `at: new Date().toISOString()`（`:1255` 等），
@@ -188,7 +209,8 @@ openspec/changes/ccg-convergence-exit/specs/ccg-deep-review-convergence/spec.md
 
 真解是承认这个循环**必须闭合在 fail-closed 上**：
 
-1. 写回器的正确性**先由测试证明**（tasks 1.1/2.2/3.x 用假驱动 + 注入记录，不需要真外部评审就能验四条件与摘要重算）；
+1. 写回器的正确性**先由测试证明**（tasks 1.1/2.2/3.x 用假驱动 + 注入记录，不需要真外部评审就能验**五条件**与摘要重算——
+   条件数随 §7 i1/i6 从 4 涨到 5，spec 与 D2 已改，这一行当时漏改，2026-10-21 一致性自检抓到）；
 2. 实现片**真的跑一次** `sh scripts/deep-review.sh`，让新驱动给自己写收口；
 3. **第 2 步产不出合规产物时，唯一正解是修写回器**——不得手写、不得拿第 1 步的夹具冒充第 2 步的交付、
    不得为了让 PR 过而放宽矩阵；
@@ -243,9 +265,31 @@ proposer 那条轴要在实现片重跑：按引擎自己的对策「去掉对 r
 | i5 | Warning | **接受**。写回器复用判据的 `CLOSED_DEEP_REVIEW_STATUSES`，判据侧日后放宽/收窄会**静默跟随**——正是 D4 明令不许的"改消费者即改生产者" | 写回器侧加一条**冻结快照**用例：断言该闭集逐项等于快照；闭集变动必须同次改快照并走评审（快照只能整体换、不能单边加宽） |
 | i6 | Warning | **接受，而且是它自己那条规矩的反向适用**：我只对 critic 名立了"期望值必须由上层透传"，路径本身没立 | D2 新增条件 5：记录路径由入口显式透传；缺失 ⇒ `missing-record-path` 当场出声，MUST NOT 回退成"扫目录取最近一个"或"用 HEAD sha 猜" |
 | i7 | Warning | **接受**。原文 `findings` 与 `deepReview.findings` 两种写法混用，且**没定义摘要失配后谁负责、判不判红**（评审后人工追加 `findings` 必然失配） | 全文统一 `deepReview.findings`；补失配处置 = 判 `external-unverified` + 可操作指引，**MUST NOT 把失配说成伪造** |
-| i8 | Info | **拒绝原方案，换一个不丢留痕的形态**。env 开关的问题是"写回被关掉"这件事**不留任何痕迹**，而下一次读到 `tier` 缺席的人无法区分"没交付"与"有人关了开关"——本仓对"以 env 静默改变行为"有一致否决（先例：pre-commit 不加 SKIP env） | 改为驱动上的显式旗标 `--writeback-dry`（只打印将写什么、不落盘），**旗标出现在命令行与产物里**，而不是环境变量 |
+| i8 | Info | **本片不引入任何开关（env 与旗标都不加）**。评审要的"要关就得留痕"是对的，但今天**没有任何人要关这一步**：写回是旁路、失败不改评审 rc、也不动既有产物，加一个 `--writeback-dry` 等于给"跳过 QM-6 收口"新增一条可被误用而无人核对的通道——本仓对未使用的旁路开关有一致否决（同 pre-commit 不加 SKIP env）。原方案里"旗标要出现在产物里"还有一条自相矛盾：dry 的语义是不落盘，而写旗标本身就是落盘 | 现状：无开关。真需要排障通道时，MUST 做成**显式旗标**（进命令行、进日志行），MUST NOT 做成 env；这条留给下一个碰它的人，不是本片的实现项。tasks 9.7 按此改写 |
 
 **这一轮的账要算到实处**：codex 有 3 条 Critical 全落在"实现机制是否真成立"上（i1/i2/i6），最低维度分 4 是三轮里最低的一次——
 单家族那轮（§6）没抓到条件 4 被时间戳满足这一条。
 分数仍未达收敛线（引擎判据：无 Critical 且无未解决 High），**所以这份方案还是没盖章**；
 差别在于：现在两个家族都看过了，剩下的是实现期的事，不是"还有没有第二双眼睛"的事。
+
+## 8. 收口那一次真外部复核：自反检验的实测结果（2026-10-22）
+
+§5 那条内部一致性检验写的是「**本片自己的收口必须由本片落地的驱动写回产出**；如果最后还要手写 `tier`，
+说明写回器没真跑通」。2026-10-22 把它真跑了一次。结论是：**检验成立，但它成立的方式和我原先想的不一样**。
+
+1. **载荷可复现，不需要重建提交**：判定记录名是**内容寻址**（`stagedDiffHash`，64 位 hex），不是 commit sha。
+   主干那枚 squash 提交 `72f371925` 的非 `.ccg` diff 逐字哈希回同一个名字 ⇒ 入口第三条查找路径直接命中，
+   深审对着的就是当初那份 2987 行。这一点原先没有任何文档写过（本仓的会话一直以为"分支没了就得重建"），本节补上。
+2. **写回器按合同拒写两次，两次都拒得对**：第一次记录状态 `self_play_pending`（不在闭环白名单）⇒ `not-closed`；
+   填完裁决重跑 ⇒ 引擎收口为 `self_play_resolved`，但 `performedBy="self-play"`，合取③期望本轮 critic `claude` ⇒ `backend-mismatch`。
+   两次拒写期间既有产物逐字不变、评审 rc 未被改写 ⇒ 旁路语义与「不改 rc」这两条合同第一次在**真实调用路径**上生效过，
+   而不只是夹具里绿（这正是 tasks 9.1/10.1 那一刀要的现场证据）。
+3. **被否证的那半**：`tier=external` 没有"由写回器自动产出"。原因是结构性的——自扮演出口的记录级 `performedBy` 是 `self-play`，
+   与合取③互斥（登记为 tasks 11.5）。**自扮演收口的记录本来就不该盖 external**，所以要改的不是写回器，
+   而是 §5 那句话的适用范围：它只在「引擎按严重度或正常收敛路径出终态（`performedBy` 等于 critic）」那一档成立。
+4. **本片实际的收口形态**：`status=self_play_resolved` + `closureNote`（第 4 轮标记 + 4 条逐条处置 + 那条高危项的外部复核三格），
+   `tier` 字段**缺席**（判据读成 `unknown`）。本 PR 变更集只含 `openspec/`，不命中高危面前缀 ⇒ 按 #3987 立的矩阵，
+   `closureNote` 在这一档够用；而"缺席不拦、野值一律拦"这个分档本来就是量出来的（主干 142 篇已闭环产物里 139 篇整段没有 `tier`）。
+5. **顺带被外部复核纠正的一处自我低估**：8.7 原本记成"某文件漏登记一行前缀"，外部复核指出真问题是
+   `RULES.sensitivePaths` 与 `HIGH_RISK_SURFACES` 两张守门表没有同步机制——`scripts/check-` 在表内、它消费的 `scripts/lib/ccg-delivery-` 在表外。
+   已按实测改记为 tasks 11.1；8.7 的历史文本不改写，只在新条目里写明取代关系。

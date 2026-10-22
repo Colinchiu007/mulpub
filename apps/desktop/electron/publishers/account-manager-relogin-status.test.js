@@ -22,6 +22,17 @@ function loadAccountManager() {
   return require(modulePath)
 }
 
+// ─── 传输层桩（#2878 同型，fix-account-profile-fallback 补） ────────────────────
+// saveCapturedAccount 在「DOM 没采到真昵称」时会调平台创作者 API 兜底
+// （fillProfileFromHttpApi → httpLoginChecker.fetchAccountInfoViaHttpApi）。本文件
+// 的用例只验登录态固化，accountInfo 给空对象 ⇒ 必然走到兜底分支。不打桩就会真的向
+// creator.douyin.com:443 / www.zhihu.com:443 发起出站，被 network-egress-guard 拦下
+// 但仍会往出站台账写基线之外的键，CI 的 Gate 2c3 因此判红（实测已判红）。
+// 用**直接赋值**而不是 vi.spyOn：本文件多处 afterEach 调 vi.restoreAllMocks()，
+// spy 会被还原、出站会复发；赋值不是 spy，restore 动不到它。
+const __httpChecker = require('./http-login-checker')
+__httpChecker.fetchAccountInfoViaHttpApi = async () => ({ supported: false })
+
 describe('updateCapturedAccount — 保存凭证即回写 status=active', () => {
   beforeEach(() => {
     global.__enableElectronMock()

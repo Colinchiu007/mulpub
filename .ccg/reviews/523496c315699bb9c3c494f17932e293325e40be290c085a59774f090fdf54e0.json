@@ -1,0 +1,59 @@
+{
+  "sha": "529ecaa8b7cb896f9838ea46cb2bcc790f305d45",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 层 | **扫描器层**：`shellRun` 识别 npm 把错误 JSON 打到 stdout 的形态（`socket hang up` 时 `{\"message\":…,\"error\":…}` 也能 `JSON.parse`），判成「不是审计报告」⇒ 该域 `res.ok=false` | **判据层**：该域扫成了但 **0 产出**、而基线里它有挂账 ⇒ `UNVERIFIED_ZERO_SCAN`（未证实），并拒绝 `--update` 写基线 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "523496c315699bb9c3c494f17932e293325e40be290c085a59774f090fdf54e0",
+  "decidedAt": "2026-10-22T07:08:00.032Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

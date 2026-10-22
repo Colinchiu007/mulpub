@@ -1,0 +1,61 @@
+{
+  "sha": "b149359519aeeb96479e41e4290c25c23b993a9e",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 10,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 70,
+    "docSensitiveContentSample": [
+      "| 授权落库 | `license-manager.activate()`（A 部分将删除） | `expiresAt = null`（**买断**） |",
+      "| 授权落库 | ~~`license-manager.activate()`（A 部分将删除）~~ | ~~`expiresAt = null`（**买断**）~~（已删除） |",
+      "| **微信 Native 支付** | ✅ **采用**。用户 2026-10-21 确认：个体工商户资质已下、备案域名可做 HTTPS 回调、API v3 密钥与商户证书已到手 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b5ad5c5f408cacfa503a7d64fa9e97ab054e3929f7a8cb660d092b232fffea9f",
+  "decidedAt": "2026-10-21T10:00:33.267Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

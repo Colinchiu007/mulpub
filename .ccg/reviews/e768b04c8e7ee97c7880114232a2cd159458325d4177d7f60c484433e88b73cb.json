@@ -1,0 +1,82 @@
+{
+  "sha": "2d609c050672bd9d7d15e8bce5c55be2499c6176",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 21603 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 21603,
+    "fileCount": 521,
+    "codeFileCount": 198,
+    "sensitivePathHits": [
+      "migrations/postgresql/006_payment_orders.sql",
+      "packages/api-publish-engine/src/auth/payment-providers/index.js",
+      "packages/api-publish-engine/src/auth/payment-providers/wechat-native.js",
+      "packages/api-publish-engine/src/auth/payment-schema.js",
+      "packages/api-publish-engine/src/auth/postgres-commerce-store.js",
+      "packages/api-publish-engine/src/auth/postgres-identity-repository.js",
+      "packages/api-publish-engine/src/auth/postgres-webhook-store.js",
+      "packages/api-publish-engine/src/auth/production-config.js",
+      "packages/api-publish-engine/src/auth/publish-api-payment.js",
+      "packages/api-publish-engine/src/auth/subscription-payment.js",
+      "packages/api-publish-engine/src/auth/subscription-service.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 193,
+    "docSensitiveContentHits": 257,
+    "docSensitiveContentSample": [
+      "      \"suggestion\": \"Move evidence assets to external artifact storage (e.g., CI artifact URL) and keep only the manifest + 1 representative pair in repo; update .gitignore comment to reference external URL.\"",
+      "+      \"defense\": \"部分不成立。高危域标签是由关键词匹配打的（正文里出现「授权」「auth」即命中），本轮 i1/i4 的实际内容是「审计记录元数据口径」与「暗色 token 同构断言」，都不涉及加密算法或鉴权逻辑；用自扮演裁决处理它们，风险面是流程性的而非安全性的。但规则本身不区分标签来源 —— 既然引擎打了高危域，就必须按高危域走，否则这套标记就没有约束力。\",",
+      "+      \"defense\": \"本轮 diff 不引入任何鉴权或加密逻辑（全是 CSS/DOC/测试脚本），安全面仅限两处：① 巡检脚本 accept-baselines.js 用文件名拼 RegExp（第一轮 i6 已修，补了 escapeRegExp）；② 巡检脚本 curate-ui-audit-evidence.js 的文件名拼路径（不经正则，无注入面）。因此「security 6 分」评的是评审面而非产品面。\","
+    ],
+    "ccgSensitiveContentHits": 181,
+    "ccgSensitiveContentSample": [
+      "      \"+ .cohere-select {\",",
+      "      \"+ .cohere-select:focus {\",",
+      "      \"+      \\\"+      \\\\\\\"| 失败 | 用户可行动作优先 | 「发布失败：账号授权已过期，请到『账号管理』重新授权后再试。」 |\\\\\\\",\\\",\""
+    ],
+    "lineReadGaps": [
+      "\"01-docs/research/oss-reinforcement-2026-10-13/GitHub-\\351\\241\\271\\347\\233\\256\\345\\210\\206\\346\\236\\220\\346\\212\\245\\345\\221\\212-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/GitHub-\\351\\241\\271\\347\\233\\256\\345\\210\\227\\350\\241\\250-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/\\345\\206\\263\\347\\255\\226\\347\\202\\271\\345\\210\\206\\346\\236\\220\\344\\270\\216\\345\\273\\272\\350\\256\\256-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/\\345\\256\\236\\346\\226\\275\\350\\256\\241\\345\\210\\222-2026-10-13.md\""
+    ]
+  },
+  "stagedDiffHash": "e768b04c8e7ee97c7880114232a2cd159458325d4177d7f60c484433e88b73cb",
+  "decidedAt": "2026-10-22T08:43:53.826Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

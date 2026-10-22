@@ -115,6 +115,9 @@ class SubscriptionService {
     this.repository = options.repository
     this.now = typeof options.now === 'function' ? options.now : () => new Date()
     this.planOverrides = options.planOverrides || null
+    // 支付通道适配器（PaymentProvider）。未注入 ⇒ 下单入口 fail-closed 503，
+    // 兑换码/后台开通两条既有通道不受影响（它们本就不经过供应商）。
+    this.paymentProvider = options.paymentProvider || null
   }
 
   entitlementPayload(plan) {
@@ -315,8 +318,7 @@ class SubscriptionService {
   }
 
   /** 后台开通（ops-center，阶段 1 不走支付）：channel=admin_grant，金额 0。 */
-  async grant({ userId, plan, durationDays, providerReference = null, operator = null }) {
-    await this.requireUser(userId)
+  async grant({ userId, plan, durationDays, providerReference = null, operator = null }) {    await this.requireUser(userId)
     if (!PLAN_IDS.includes(plan) || plan === 'free') {
       throw new CommerceError('仅支持开通付费档位', 'PLAN_INVALID', 400)
     }
@@ -475,6 +477,13 @@ class SubscriptionService {
     throw new CommerceError('兑换码已被使用，无法吊销', 'REDEEM_CODE_ALREADY_USED', 409)
   }
 }
+
+// 006 微信 Native 支付（最小闭环）：createCheckout / settlePaymentWebhook 由 mixin 挂上来。
+// 为什么不在本文件内联：那组方法 140 行会把本文件推到 632 行，顶破 filesOver500 债务基线
+// （抬高基线掩盖自己引入的债务是禁止的）。体例同 publish-api-commerce.js 的 applyCommerceHelpers。
+// 注意：本行必须排在 class 定义之后、module.exports 之前 —— require 是循环的一侧，
+// subscription-payment.js 内部用惰性 require 取 CommerceError（见该文件 commerceError()）。
+require('./subscription-payment').applySubscriptionPaymentOps(SubscriptionService)
 
 module.exports = {
   SubscriptionService,

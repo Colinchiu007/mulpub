@@ -14,7 +14,7 @@
 
 ## 1. records 携带两个可聚合小节（合同层，先写不改判据）
 
-- [ ] 1.1 在 `openspec/records/` 的模板/说明里定义两个小节：`## CHANGELOG 条目`（必填）、`## learnings`（选填，存在即要求 `### lesson: <slug>` 形状）
+- [x] 1.1 在 `openspec/records/` 的模板/说明里定义两个小节：`## CHANGELOG 条目`（必填）、`## learnings`（选填，存在即要求 `### lesson: <slug>` 形状） —— 证据：`openspec/records/_TEMPLATE.md` 末尾新增两个小节与形状说明（`## CHANGELOG 条目` 正文首行必须是一条 H1；`## learnings` 存在即要求 `### lesson:`），聚合作业当场读数 `records=620 … landed=2` 且 `LAND changelog-rollout-release-gate` 证明新形状真被解析
 - [ ] 1.2 定义**幂等键合同**：聚合产出条目标题 MUST 以 `（<record-slug>）` 结尾，`<record-slug>` 取 `openspec/records/<文件名>`，MUST NOT 取 `frontmatter.task`（那是一句中文长描述，会随改写漂移）
 - [ ] 1.3 验收判据：拿 `origin/main` 现成的记录文件各跑一次解析，输出「识别到的小节名 + 取出块数 + 逐字节回写等于原文」自证；**必须包含一条负面**：正文里出现同名串（如引用规范原文提到 `## CHANGELOG 条目`）时不得被当成小节边界（禁令与存在性判据必须按语义位置切）
 
@@ -44,8 +44,8 @@
 **动代码前的差异审计（补记）**：查到 `openspec/changes/hot-carrier-atomic-landing/`（规格已合入、实现未做），其 D4 明确把 `AGENTS.md`/`CHANGELOG.md`/`01-docs/learnings.md` 移出它的热点载体清单，理由"没量过"，且 tasks 1.2(d) 计划立锁防止后人"顺手补全"。判定为**不同机制、不同读数**（它量共享根未提交窗口，本判据量跨 worktree 的 PR 差量冲突），故不冲突；已在 `specs/changelog-ledger-integrity/spec.md` 新增一条 Requirement 禁止两份清单合并，并写明本处读数**不满足**它设定的重进前提。
 ## 4. 发版接入 + 规范改写 + 转 blocking（独立一片，需人工过目）
 
-- [ ] 4.1 `scripts/release-gate.mjs` 在版本小节校验之前调用聚合器；把"聚合器报错"与"版本小节缺失"分成两个退出码文案（合并成一句会让人去改 CHANGELOG 而不是修聚合器）
-- [ ] 4.2 `AGENTS.md` 改写：删除「PR 里往 CHANGELOG/learnings 顶部插块」的既有口径，新增 records 小节模板；更新「多会话共用写面」清单，把这两个文件标注为"仅聚合器可写"
+- [x] 4.1 `scripts/release-gate.mjs` 在版本小节校验之前调用聚合器；把"聚合器报错"与"版本小节缺失"分成两个退出码文案（合并成一句会让人去改 CHANGELOG 而不是修聚合器） —— 证据：`scripts/release-gate.mjs` 在版本小节校验之前取证聚合器读数，三条文案互斥（`AGGREGATE_FAIL` / `AGGREGATE_PENDING` / 原 `CHANGELOG 未收口`），`aggregateBlocked` 时短路所有读 CHANGELOG 的判据。**刻意偏差**：校验侧只跑 `--dry-run`、不写台账（写出的改动在 tag push 的一次性检出里无人能提交），`AGGREGATE_PENDING` 文案逐字给出 `node scripts/aggregate-changelog.js --write` 这条人能跑的命令；理由与两条锁写在 `openspec/records/changelog-rollout-release-gate.md`。**有意偏差**不改动 tasks 4.1 的判定对象（"两个文案必须分开"照旧成立）。锁：`scripts/release-gate.test.mjs` R1–R13（22 条）+ 变异 7 条全指名
+- [x] 4.2 `AGENTS.md` 改写：删除「PR 里往 CHANGELOG/learnings 顶部插块」的既有口径，新增 records 小节模板；更新「多会话共用写面」清单，把这两个文件标注为"仅聚合器可写" —— 证据：`AGENTS.md` 三处同改 —— 参考文件节的 `CHANGELOG.md` 条目改写为"PR 不得直接编辑台账、只写自己的 `openspec/records/<分支名>.md`"并给出撞车实测数；「多会话共用写面」清单把这两个文件标注"只由聚合器写入"；「发版版本级别 ↔ 改动规模匹配」条目补上 release-gate 的第三条拦截与发版顺序 `--write → 收口 → bump → tag`
 - [ ] 4.3 转 blocking：**前置条件 = 当场重取的在飞 CONFLICTING/UNKNOWN PR 数为 0**，或已逐个确认其差量不含热写面；不满足则本片不开
 - [ ] 4.4 QM-6：本片命中高危面（`scripts/check-`、`.github/workflows/`），MUST 取 `tier=external` + 可核 `evidence`；后端不可得时按四档归因（ENOENT / 额度重置 / IP 封禁 / 403 额度不足）如实登记欠账，MUST NOT 用 `closureNote` 或自扮演冒充高危面闭合
 - [ ] 4.5 收尾链：`gh pr view --json mergeable` + `gh pr checks` 双绿后自动合并；合并后按 AGENTS 第 6 条回读该 merge SHA 的 main push run，读数写 PR 评论（不回写仓库文件）

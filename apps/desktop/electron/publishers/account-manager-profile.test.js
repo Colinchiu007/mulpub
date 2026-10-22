@@ -19,6 +19,19 @@ function loadAccountManager () {
   return require(modulePath)
 }
 
+// ─── 传输层桩（#2878 同型，fix-account-profile-fallback 补） ────────────────────
+// saveCapturedAccount 在「DOM 没采到真昵称」时会调平台创作者 API 兜底
+// （fillProfileFromHttpApi → httpLoginChecker.fetchAccountInfoViaHttpApi）。本文件
+// 的 `saveCapturedAccount — 创建路径（POST）` 用例 accountInfo 给空对象 ⇒ 必然走到
+// 兜底分支；不打桩就会真的向 mp.toutiao.com:443 发起出站，被 network-egress-guard
+// 拦下但仍会往出站台账写基线之外的键，CI 的 Gate 2c3 因此判红（实测已判红）。
+// 用**直接赋值**而不是 vi.spyOn：本文件多处 afterEach 调 vi.restoreAllMocks()，
+// spy 会被还原、出站会复发；赋值不是 spy，restore 动不到它。
+// 需要具体返回值的用例（runHttp 等）仍可再 spyOn 覆盖——spyOn 包在赋值之上，restore
+// 后会回到本桩而不是真实实现。
+const __httpChecker = require('./http-login-checker')
+__httpChecker.fetchAccountInfoViaHttpApi = async () => ({ supported: false })
+
 const TOUTIAO_COOKIE = [{ name: 'sid_tt', value: 'fresh', domain: '.toutiao.com' }]
 const CURRENT_ACCOUNT = {
   id: 'acc-1',

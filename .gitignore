@@ -119,6 +119,13 @@ scripts/*.js
 # 测试文件与 scripts/lib/ 下的判据本体不受该行影响（前者有 !scripts/*.test.js，
 # 后者不在 scripts/*.js 的匹配域内），故此处只需反选 CLI 本身。
 !scripts/check-main-red.js
+# electron-ci 桌面全量步骤本体：第 106 行 scripts/*.js 会把它静默忽略，
+# 而 electron-ci.yml 的那一步直接 node 它 —— 被忽略即 CI 上 Cannot find module。
+# （测试文件由 !scripts/*.test.js 通用例外兜住，见上方各条注释口径。）
+!scripts/electron-ci-desktop-step.js
+# 逐片墙钟复测入口本体：它是 STEP_BUDGET_PROVENANCE 的「可重跑路径」，
+# 被 scripts/electron-ci-shard-audit.test.js 与 changes job 按路径点名 —— 漏反选同上族（Cannot find module）。
+!scripts/electron-ci-shard-audit.js
 # 同型风险四锁 CLI 本体：第 106 行 scripts/*.js 会把它静默忽略，而 Gate 2c6 与
 # scripts/same-type-risk-locks.test.js 都按路径点名它 —— 漏这条 negation 的症状是
 # 本地全绿、CI 上 Cannot find module（#3011 / Gate 2c3 / precommit-spawn-budget 同族，第 4 次）。
@@ -137,6 +144,10 @@ scripts/*.js
 !scripts/ccg-gate.js
 !scripts/ccg-deep-review.js
 !scripts/ccg-review-decider.js
+# 驱动侧写回器本体（change: qm6-closure-writeback）。同 #3011 同族：第 106 行 `scripts/*.js`
+# 会把入口唯一调用的这个文件静默忽略 —— 漏 negation 的症状是本地全绿、真跑 deep-review.sh
+# 时 node 报 Cannot find module，而它被 `|| say` 兜成一句告警，评审照样"成功"。
+!scripts/ccg-review-writeback.js
 !scripts/plan-review.sh
 !scripts/deep-review.sh
 !scripts/openspec-sync-check.js
@@ -283,6 +294,10 @@ gen_*.py
 *.png
 !01-docs/ui-reference/screenshots/mp-live-20260724/*.png
 !01-docs/assets/story2video-scene-context-architecture.png
+# UI 视觉巡检（2026-10-20）的改造前后对照证据：10 组关键页面 × before/after。
+# 进库理由：视觉改动的评审需要「肉眼可证」的同源对照，文字报告无法替代；
+# 体积控制：全量 387 张（48MB）按仓库约定留在 gitignored 的 screenshots/ 下不入库。
+!01-docs/assets/ui-visual-audit-2026-10-20/*.png
 # 产品品牌资产（非测试产物）：侧边栏左上角品牌 Logo，打包时必须随源码入库
 !apps/desktop/src/assets/brand/*.png
 
@@ -447,6 +462,16 @@ shared-user-data.backups/
 # 静默忽略 —— 漏这条 negation 的症状不是"少跑一个测试"，而是 Gate 2b8 在 CI 上 Cannot find module，
 # 以及发版侧 release-gate 找不到聚合器（同 #3011 家族）。自测由第 244 行 !scripts/*.test.js 兜住。
 !scripts/aggregate-changelog.js
+# artifact 清理脚本本体（2026-10-21）。同一行 106 的 scripts/*.js 会把它静默忽略，而它是被
+# cleanup-artifacts.yml 真调用的生产脚本 —— 漏 negation 的症状不是"测试少跑"，是定时作业
+# 每跑一次就 Cannot find module 一次（那条 workflow 只由 schedule 触发，红在 PR 侧不可见）。
+# 自测由 !scripts/*.test.js 通用例外兜住，此处只放行本体。
+!scripts/cleanup-artifacts.js
+# artifact 清理的变异反证驱动本体（2026-10-22，QM-6 i3）：取证工具必须入仓，
+# 否则"9/9 CAUGHT"只是别人复跑不了的一句话。它不是门禁、CI 不点名跑（要改被测源）。
+# 文件名不以 .test.js 结尾是刻意的：check-unwired-tests 的域按该后缀收，收进来就成了一条
+# "必须接进 CI 却永远不该接"的假欠账。
+!scripts/cleanup-artifacts.mutation.js
 # 热写面禁改门禁本体（2026-10-21，change: changelog-record-carrier 片3）。第 106 行 scripts/*.js
 # 同样会静默忽略判据本体：漏 negation 时本地在盘、跑得通，而 Gate 2b9 在 CI 上
 # Cannot find module（同 #3011 家族）。自测由第 244 行 !scripts/*.test.js 兜住，此处只放行本体。

@@ -54,6 +54,23 @@ jobs:
       - name: 门禁用例（判定逻辑，不联网）
         run: node --test scripts/check-dep-audit.test.js
 
+      # ⛔ 这一步与 scripts/check-dep-audit.js 里的 UNVERIFIED_ZERO_SCAN 是一对，动因是实测：
+      # 本 job 原先什么都不装（见上面「不执行 pnpm install」那条注释），于是 `npm-opscenter` 这一域
+      # 在 CI 上 `npm audit --omit=dev` 返回 **0 条**，判据据此连报两条
+      # `RESOLVED_STILL_BASELINED：已不再命中（多半已升级），请 --update 清账`。
+      # 而**同一个 commit** 在本机两种树形态下（ops-center/frontend 有 node_modules / 没有）
+      # 都照样命中 GHSA-68FV-2MGG-JV7Q 与 GHSA-G2V6-RQMX-R4W6 ⇒ 那个 0 测的是「没装过」，不是「已修」。
+      # 照那句提示跑 --update 会把两条仍然有效的挂账从安全基线里抹掉（writeBaseline 按 found 全量落盘）。
+      # ops-center/frontend 不在 pnpm workspace 内，它自带 package-lock.json 由 npm 管理 ⇒ 用 npm ci。
+      # 信任边界（QM-6 外部评审 i2 要求写明）：`npm ci` 会逐个校验 lock 里记录的 integrity，
+      # 装出来的树与锁文件不一致即失败，所以这一步能守住「树被换掉」；它**守不住锁文件本身被改**——
+      # 那一层由 PR 审查 + package-lock.json 的 diff 承担，不在本步职责内，别把本步当供应链校验。
+      # 时长以 CI 自己的步骤时间戳为准（run 39724582110）：该步 7 秒、整 job 43 秒，
+      # 对上面 timeout-minutes: 15 无风险；本机同一命令 4 分钟只作上界参考，不作预算依据。
+      - name: 安装 ops-center/frontend 生产依赖（给 npm-opscenter 域一个真实的测量对象）
+        working-directory: ops-center/frontend
+        run: npm ci --omit=dev --no-audit --no-fund
+
       - name: 依赖漏洞审计（新公告阻断 / 基线腐化阻断 / 挂账到期阻断）
         env:
           NPM_AUDIT_REGISTRY: https://registry.npmjs.org

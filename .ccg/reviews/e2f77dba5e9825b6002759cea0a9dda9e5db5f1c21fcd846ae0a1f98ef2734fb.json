@@ -1,0 +1,90 @@
+{
+  "sha": "05e83ddf14dc53ceb74064b5587910e7a2506d55",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 123 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 123,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e2f77dba5e9825b6002759cea0a9dda9e5db5f1c21fcd846ae0a1f98ef2734fb",
+  "decidedAt": "2026-10-21T06:49:04.342Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时，按引擎第三档出口 self_play 自查。本条为 E2E 一键脚本（工具资产固化）。",
+    "evidenceInRepo": "packages/api-publish-engine/scripts/dy-publish-e2e.cjs（含分轨诊断解读规则注释）",
+    "confidenceWeight": 0.8,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "脚本默认写死 accountId 与视频路径 —— 换账号/换机器就废了。",
+        "verdict": "upheld_partial",
+        "rationale": "属实，但我做了分层处理：· --video / --title / DY_CDP_PORT 可覆盖（环境相关项外置）；· accountId 与文案是内容相关，写死在脚本里（这是本仓特定账号的 E2E 工具，不是通用产品代码）。⚠ 边界：若用户换抖音账号，需改脚本一行。我在注释里没写这一点 —— 是欠缺。缓解：账号列表可用 listAccounts 查（renderer 上下文），脚本里加一个 --list-accounts 更友好，但那是功能增强，本轮不做（YAGNI：当前只有一个抖音账号）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "脚本会在抖音账号产生真实草稿，你把它设为默认动作 —— 是否需要显式确认？",
+        "verdict": "upheld_verified",
+        "rationale": "需要，且已有两层：① 脚本头部明确标注会在抖音账号产生一条草稿（draft 语义），属目标授权的真机测试；② 执行仍需人跑这条命令（脚本不会自启动、不挂定时任务）—— 跑不跑由人决定。这与应用内一键发布按钮的性质相同：工具提供能力，人决定何时用。⚠ 但我要指出：脚本没有 --dry-run（只探测不发布）。若将来需要先验证环境再发布，应加一个 dry-run 模式。当前未加是因为环境探测部分可用独立探针脚本，不必塞进这里。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "轮询 60 轮 x 30s = 30 分钟，与任务超时相同 —— 若任务真的跑满 30 分钟，脚本刚好在边缘。",
+        "verdict": "upheld_partial",
+        "rationale": "边缘情况：任务超时（30 分钟）时，队列会把它标 failed 并入历史，脚本下一轮应能读到。但若进程中断（如应用退出），任务不入历史，脚本会空转到 30 分钟后报「未取到终态」。更稳的做法是轮询中检测 CDP 断开则提前退出并明确报「应用已退出，任务无终态」。本轮未加（脚本已在 catch 里处理 chromium 连接错误，会打印 ERR 后 exit 1）—— 但错误信息不够明确，读者可能误以为是脚本 bug。如实记为可改进项。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 2,
+      "upheldVerified": 1,
+      "note": "i1 承认 accountId 硬编码（可接受但注释未说明，换账号需改一行）；i2 说明两层授权（脚本标注 + 人工执行）并指出无 dry-run；i3 指出轮询边缘与进程中断时的错误信息不够明确。"
+    },
+    "at": "2026-10-21T06:55:53.831Z"
+  }
+}

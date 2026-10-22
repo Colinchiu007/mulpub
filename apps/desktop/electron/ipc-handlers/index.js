@@ -33,6 +33,10 @@ function registerAllHandlers(ipcMain, deps) {
   // 必须注册：缺了它渲染层【去发布】拿不到 AI 标题，只能降级为原始选题。
   require('./gen-video-title')(ipcMain, deps)
   require('./offline')(ipcMain, deps)
+  // 微信 Native 扫码支付（wechat-native-payment，2026-10-21）：下单 + 订单状态轮询。
+  // 与上面被移除的买断链路**不是同一件事**：那条是本地 mock 下单 + 本地写授权，
+  // 这条只调服务端下单、二维码在主进程渲染，订单状态只由服务端 webhook 推进。
+  require('./wechat-pay').registerWeChatPayHandlers(ipcMain, deps)
   // 注意：这里**不要**再注册 `./payment`。
   // 买断授权模型已于 2026-10-17 移除（remove-buyout-license）：那条本地下单链路
   // 在 S1 修复后已经断了（activate 只认 4-4-4 兑换码，订单 UUID 必不匹配 ⇒

@@ -85,7 +85,13 @@ describe("Dashboard 样式源码守卫（PR #2075/#2114 事故回归保护）", 
     ).toHaveLength(0);
   });
 
-  it("hero 卡背景引用 var(--deep-purple) 渐变（token 失效即白底回归）", () => {
+  // 2026-10-20 视觉系统升级：本条断言的**意图**是「hero 卡背景必须是**已定义的渐变 token**，
+  // 一旦引用了不存在的变量 → 声明整体失效 → 深底白字退化成白底白字（PR #2075 事故形态）」。
+  // 升级后 hero 卡改用全局品牌渐变 `--brand-gradient`（与首页主任务卡同一套 token，
+  // 消除"看板是另一条紫路径"的不统一），故断言从"必须引用 --deep-purple"
+  // 改为"必须引用已定义的渐变 token"—— **意图不变，只是 token 换了**。
+  // 额外加一条正向锁：--brand-gradient 必须在 tokens.css 有定义（否则同样会静默失效）。
+  it("hero 卡背景引用已定义的渐变 token（token 失效即白底回归）", () => {
     let heroBg = null;
     eachRule((rule) => {
       if (rule.selector.replace(/\s+/g, "") === ".stat-card.large") {
@@ -94,8 +100,48 @@ describe("Dashboard 样式源码守卫（PR #2075/#2114 事故回归保护）", 
       }
     });
     expect(heroBg, "缺少 .stat-card.large 的 background 声明").toBeTruthy();
-    expect(heroBg).toContain("linear-gradient");
-    expect(heroBg).toContain("var(--deep-purple)");
+    // 直接写渐变，或引用一个本身就是渐变的 token（--brand-gradient）
+    const gradientTokenRef = heroBg.match(/var\((--[a-z0-9-]+)\)/i);
+    if (gradientTokenRef) {
+      const tokensCss = readFileSync(path.join(__dirname, "..", "styles", "tokens.css"), "utf8");
+      const tokenName = gradientTokenRef[1];
+      const decl = new RegExp(`${tokenName}\\s*:\\s*([^;]+);`).exec(tokensCss);
+      expect(decl, `tokens.css 缺少 ${tokenName} 定义（引用它等于声明失效 → 白底回归）`).toBeTruthy();
+      expect(decl[1], `${tokenName} 必须是渐变（linear-gradient）`).toContain("linear-gradient");
+    } else {
+      expect(heroBg).toContain("linear-gradient");
+    }
+  });
+
+  // CCG 评审 i4：hero 卡现在引用 --brand-gradient（暗色主题也必须有定义）。
+  // 旧断言只查了「tokens.css 里有这个 token」，但**没查暗色块里有没有**——
+  // 暗色下若缺定义，hero 卡会回退到无背景（白字压暗底 → 不可读）。
+  // 这里补一条亮/暗双档同构断言：两个块都必须定义 --brand-gradient，且值都含渐变。
+  it("品牌渐变 token 亮/暗双档同构（暗色下 hero 卡不得回退成无背景）", () => {
+    const tokensCss = readFileSync(path.join(__dirname, "..", "styles", "tokens.css"), "utf8");
+    const readBlock = (scope) => {
+      const re = scope === "dark"
+        ? /^\[data-theme="dark"\]\s*\{/m
+        : /^:root\s*\{/m;
+      const m = re.exec(tokensCss);
+      expect(m, `tokens.css 缺少 ${scope} 作用域`).toBeTruthy();
+      let depth = 0;
+      let end = -1;
+      for (let i = tokensCss.indexOf("{", m.index); i < tokensCss.length; i++) {
+        if (tokensCss[i] === "{") depth++;
+        else if (tokensCss[i] === "}") {
+          depth--;
+          if (depth === 0) { end = i; break; }
+        }
+      }
+      return tokensCss.slice(m.index, end);
+    };
+    for (const scope of ["light", "dark"]) {
+      const block = readBlock(scope);
+      const decl = /--brand-gradient\s*:\s*([^;]+);/.exec(block);
+      expect(decl, `tokens.css 的 ${scope} 作用域缺少 --brand-gradient 定义`).toBeTruthy();
+      expect(decl[1], `${scope} 档的 --brand-gradient 必须是渐变`).toContain("linear-gradient");
+    }
   });
 
   it("网格算术不变量：桌面列数 == hero span + 普通卡数（防孤儿换行）", () => {

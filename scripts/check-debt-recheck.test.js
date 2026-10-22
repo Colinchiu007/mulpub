@@ -18,6 +18,38 @@ const { spawnSync } = require('node:child_process')
 
 const R = require('./check-debt-recheck.js')
 
+// 切片 D 把工具面拆成三份（入口 / 纯判决核 / 真 git 装配）。**读源码的锁必须按工具面全貌扫**：
+// 拆分后入口只剩 41 行，"这个文件里不出现 X" 这类判据会退化成恒真——扫描域收缩本身就是失明
+// （同型教训：凡按"目录里有什么"迭代的门禁，永远看不见"该有什么"）。
+const TOOL_FILES = ['check-debt-recheck.js', path.join('lib', 'debt-recheck-core.js'), path.join('lib', 'debt-recheck-live.js')]
+// 这份清单声明"哪些名字必须还活着"（读源码的锁按工具面全貌扫）。
+const TOOL_DECLARATIONS = [
+  'REASON_CLASS', 'assertReasonClass', 'reasonFault', 'excerptOf', 'classifyMergeTree', 'evaluatePr',
+  'summarize', 'measurementLine', 'renderComment', 'findMarkerComment', 'blockingGateInputs',
+  'gitSafeEnv', 'gitRunner', 'mergedTreeEvidence', 'shouldCommentOn', 'commentBudget', 'live', 'main',
+]
+// 下界**按顶层声明集合**算，不按字节/行数算（实现评审 i4：字节下界会把"正常把代码写短"判成
+// 退化，而它真正要防的是"整块实现被删掉而不是被搬走"——那件事的正确信号就是名字不见了，且不误伤重构）。
+function toolSources () {
+  const parts = TOOL_FILES.map((f) => fs.readFileSync(path.join(__dirname, f), 'utf8')
+    .split('\r\n').join('\n'))
+  assert.equal(parts.length, TOOL_FILES.length, '工具面文件清单退化')
+  for (const [i, f] of TOOL_FILES.entries()) {
+    assert.ok(/^(?:const|function)\s+[A-Za-z_$]/m.test(parts[i]),
+      `工具面文件 ${f} 里没有任何顶层声明 ⇒ 该份被清空，扫描域收缩会让结构锁恒真`)
+  }
+  const total = parts.join('\n')
+  const names = new Set()
+  for (const l of total.split('\n')) {
+    const m = l.match(/^(?:const|function)\s+([A-Za-z_$][A-Za-z0-9_$]*)/)
+    if (m) names.add(m[1])
+  }
+  const missing = TOOL_DECLARATIONS.filter((x) => !names.has(x))
+  assert.deepEqual(missing, [],
+    `工具面声明集合退化（有整块实现被删掉而不是被搬走）；缺=${JSON.stringify(missing)}`)
+  return total
+}
+
 function fakeGit (calls) {
   return (args) => {
     calls.push(args.join(' '))
@@ -237,7 +269,7 @@ test('接线：本测试文件必须被 quality-gate.yml 点名（否则等于�
 
 // ── 8) 度量只有一处实现（结构锁）：重算脚本不得点名任何指标名 ────────────────────────
 test('结构锁：重算脚本里不得出现任何债务指标名（度量只有 check-debt-budget.js 一处）', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'check-debt-recheck.js'), 'utf8').split('\r\n').join('\n')
+  const src = toolSources()
   const METRICS = ['maxFileLines', 'filesOver500', 'filesOver1000', 'modelProviderLines', 'modelProviderRequireFanOut', 'circularDeps']
   const hit = METRICS.filter((m) => src.includes(m))
   assert.deepEqual(hit, [],
@@ -262,7 +294,7 @@ test('写入门闩：只有严格 "1" 才开；live() 真调它（否则门闩�
   assert.equal(R.shouldCommentOn({ MP_RECHECK_COMMENT: 'true' }), false, '"看着像开"的取值不得放行写入（严格 "1" 才算）')
   assert.equal(R.shouldCommentOn({ MP_RECHECK_COMMENT: '01' }), false)
   assert.equal(R.shouldCommentOn({ MP_RECHECK_COMMENT: '1' }), true)
-  const src = fs.readFileSync(path.join(__dirname, 'check-debt-recheck.js'), 'utf8').split('\r\n').join('\n')
+  const src = toolSources()
   const calls = (src.match(/shouldCommentOn\(env\)/g) || []).length
   assert.equal(calls, 1, `live() 必须真的经过这道门闩（导出但没人调 = 装饰性开关）；实际调用=${calls}`)
   const wf = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'debt-baseline-recheck.yml'), 'utf8').split('\r\n').join('\n')
@@ -291,7 +323,11 @@ function recheckWorld (opts = {}) {
     if (j.startsWith('fetch')) return opts.fetchFails ? { rc: 128, stdout: '', stderr: "fatal: couldn't find remote ref" } : { rc: 0, stdout: '', stderr: '' }
     if (j.startsWith('rev-parse refs/recheck')) return opts.fetchFails ? { rc: 128, stdout: '', stderr: '' } : { rc: 0, stdout: 'c'.repeat(40) + '\n', stderr: '' }
     if (j.startsWith('merge-tree')) return { rc: 0, stdout: 'd'.repeat(40) + '\n', stderr: '' }
-    if (j.startsWith('commit-tree')) return { rc: 0, stdout: 'e'.repeat(40) + '\n', stderr: '' }
+    if (/(^|\s)commit-tree(\s|$)/.test(j)) {
+      // opts.commitTreeRc：让**默认闭包**面对一次真实失败（锁 H 用它验透传，不是验假实现）
+      if (opts.commitTreeRc) return { rc: opts.commitTreeRc, stdout: '', stderr: opts.commitTreeStderr || '' }
+      return { rc: 0, stdout: 'e'.repeat(40) + '\n', stderr: '' }
+    }
     return { rc: 0, stdout: '', stderr: '' }
   }
   const gh = (args) => {
@@ -318,7 +354,14 @@ function recheckWorld (opts = {}) {
     return { rc, stdout: rc === 0 ? 'DEBT WITHIN BASELINE' : 'DEBT OVER BASELINE', stderr: '' }
   }
   const worktreeAdd = (commitOid) => { seq += 1; return { rc: 0, dir: 'wt-' + seq + '@' + commitOid } }
-  R.live({ env: opts.env || {}, git, gh, worktreeAdd, runChecker, log: (m) => logs.push(String(m)) })
+  // 切片 D：失败阶段也要能表示。不注入 seams 时保持切片 C 的形状（全跑通、由 rcOf 决定判决）。
+  const seams = Object.assign({ worktreeAdd, runChecker }, opts.seams || {})
+  // skipSeams：把某个 seam 交回**生产默认实现**（锁 H 用它证明默认闭包真的透传 stderr）。
+  for (const k of (opts.skipSeams || [])) delete seams[k]
+  R.live({
+    env: opts.env || {}, git, gh, log: (m) => logs.push(String(m)),
+    worktreeAdd: seams.worktreeAdd, runChecker: seams.runChecker, commitTree: seams.commitTree, classify: seams.classify,
+  })
   return { calls, logs, gitCalls, writes: calls.filter((a) => /-f body=/.test(a)), prs }
 }
 
@@ -435,7 +478,7 @@ test('fetch 取不到 PR 头 ⇒ 归 ref-missing，且一次 merge-tree 都不�
 
 // ── 18) 构造函数不得自称判决（前端轴 W-FE2）：它只证明"合并态造得出来" ──────────────────
 test('合并态构造函数：成功回 built=true 且不带任何 verdict；失败回 built=false + reason', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'check-debt-recheck.js'), 'utf8').split('\r\n').join('\n')
+  const src = toolSources()
   const at = src.indexOf('function mergedTreeEvidence')
   assert.ok(at >= 0, '构造函数必须叫 mergedTreeEvidence（旧名 evaluateMergedBaseline 里的 evaluate 会让人以为它在判决）')
   const body = src.slice(at, src.indexOf('\n}', at))
@@ -508,4 +551,387 @@ test('派生集合必须含阻断脚本自己声明的基线文件（无软门�
     ? "const BASELINE_PATH = path.join(__dirname, 'debt-baseline.json');" : ''))
   assert.deepEqual(got, ['scripts/check-debt-budget.js', 'scripts/debt-baseline.json'],
     '收紧账本与收紧判据本体是同一件事的两半，只收脚本名会漏掉账本那一半；实际=' + JSON.stringify(got))
+})
+
+// ══ 切片 D（change: debt-recheck-zero-measurement-fail）════════════════════════════
+// 现场（run 39563222046 / job 119099176198，切片 C 落地后的**第一次真实运行**）：
+//   [recheck] rows=30 IN_BASELINE=0 VIOLATES=0 UNJUDGEABLE=30 CHECKER_FAILED=0
+//   逐条 15 × worktree-setup + 15 × conflict，runChecker 一次都没被调用，而步骤结论 = success。
+// 下面 7 条锁逐格钉住"零测量不得报成功"与"量不到必须说得出是哪一步、为什么"。
+
+// ── 21) 锁 A：含工具故障的一轮必须非零，且不得伪装成对别人 PR 的判决 ──────────────────
+test('零测量轮不得报成功：全 merge-worktree-failed ⇒ exitCode≠0、shouldComment=false', () => {
+  const entries = [
+    { pr: 9, verdict: 'UNJUDGEABLE', reason: 'merge-worktree-failed', stage: 'worktree-add', detail: 'fatal: x' },
+    { pr: 10, verdict: 'UNJUDGEABLE', reason: 'merge-worktree-failed', stage: 'worktree-add', detail: 'fatal: x' },
+  ]
+  const s = R.summarize(entries)
+  assert.notEqual(s.exitCode, 0, '一条都没量到（且不是别人的 PR 冲突）⇒ 这一轮必须可见地失败；实际 exitCode=' + s.exitCode)
+  assert.equal(s.shouldComment, false, '工具失明不得变成往别人 PR 上写评论')
+  assert.deepEqual(s.faultReasons, ['merge-worktree-failed'])
+  assert.equal(s.measured, 0, '读数行必须把"量到了几笔"单独算出来')
+  assert.equal(R.measurementLine(entries), 'MEASURED=0(tool-fault:merge-worktree-failed)')
+})
+
+// ── 22) 锁 B：全 conflict 的一轮退 0（刻意的窄出口），但必须留痕 ──────────────────────
+// 为什么这条不判红：conflict 的含义是"这笔 PR 与主干真有冲突"，GitHub 在 CONFLICTING 状态下
+// 根本不让合并 ⇒ 陈旧绿进不了主干，本作业要防的那件事没发生。判红只会诱导人去改评论/改判据。
+test('全 conflict 的一轮：退 0 但必须打印 MEASURED=0(all-conflict)，与"量了且都在基线内"可区分', () => {
+  const entries = [
+    { pr: 1, verdict: 'UNJUDGEABLE', reason: 'conflict' },
+    { pr: 2, verdict: 'UNJUDGEABLE', reason: 'conflict' },
+  ]
+  const s = R.summarize(entries)
+  assert.equal(s.exitCode, 0, '"他们本来就合不进去"不是本工具故障')
+  assert.equal(s.measured, 0)
+  assert.equal(s.allConflict, true)
+  assert.equal(R.measurementLine(entries), 'MEASURED=0(all-conflict)')
+  assert.equal(R.measurementLine([]), 'MEASURED=0(rows=0)', '没有 open PR 是"无事可做"，必须与"没量到"三种形态都不同形')
+  assert.equal(R.measurementLine([{ pr: 3, verdict: 'IN_BASELINE' }]), 'MEASURED=1')
+})
+
+// ── 23) 锁 A′：结构不变式（不依赖名单完备），第二网专门接 CHECKER_FAILED 整轮崩那种形态 ──
+test('整轮零测量且并非全 conflict ⇒ 非零，即便条目原因没进任何名单', () => {
+  const future = R.summarize([
+    { pr: 1, verdict: 'UNJUDGEABLE', reason: 'conflict' },
+    { pr: 2, verdict: 'UNJUDGEABLE', reason: 'some-reason-added-next-round' },
+  ])
+  assert.notEqual(future.exitCode, 0, '词表外新档按未证实处理（fail closed），不得静默退 0')
+  assert.equal(R.reasonFault('some-reason-added-next-round'), true)
+  const allCrash = R.summarize([
+    { pr: 3, verdict: 'CHECKER_FAILED', detail: '判据自身崩溃' },
+    { pr: 4, verdict: 'CHECKER_FAILED', detail: '判据自身崩溃' },
+  ])
+  assert.notEqual(allCrash.exitCode, 0,
+    '全 CHECKER_FAILED 时 verdict 不是 UNJUDGEABLE，故障名单看不见它 ⇒ 这一网必须是计数判据而不是名单')
+})
+
+// ── 23b) 混合轮：量到一笔**并且**另有工具故障 ⇒ 仍必须非零、且不写评论 ────────────────
+// 这条是被变异反证逼出来的：第一轮 M-D3（退出码只看零测量）在 34 条全绿里**没有对手**——
+// 既有夹具的故障样本都是"整轮零测量"形状，于是"部分失明"这一格从未被表示过。
+// 判据早就写了 `toolFault || zeroMeasurement`，但只有断言能让它有牙。
+test('混合轮：一笔量到 + 一笔工具故障 ⇒ 非零退出且不写评论（部分失明不得当完整结论）', () => {
+  const s = R.summarize([
+    { pr: 1, verdict: 'VIOLATES', detail: 'maxFileLines 610 > 500' },
+    { pr: 2, verdict: 'UNJUDGEABLE', reason: 'merge-commit-failed', stage: 'commit-tree', detail: 'fatal: x' },
+  ])
+  assert.equal(s.measured, 1, '计数侧要如实分开：量到 1 笔、失明 1 笔')
+  assert.notEqual(s.exitCode, 0, '有失明就不许把这一轮报成完整结论——否则"部分没量到"永远静默')
+  assert.equal(s.shouldComment, false, '失明的那笔没结论，而点名要求"这一轮量的是全部在飞 PR"；半份结论不得写成判决')
+})
+
+// ── 24) 锁 C：三个失败单位三个档名（切片 C 把三者抄成一个 worktree-setup，修的人无法按档名定位）──
+test('三个失败单位三个档名，且 seam 未装配仍是 worktree-setup', () => {
+  const mk = (over) => Object.assign({
+    pr: { number: 3 },
+    classify: () => ({ ok: true, treeOid: 'a'.repeat(40) }),
+    commitTree: () => ({ rc: 0, commitOid: 'c'.repeat(40), stderr: '' }),
+    worktreeAdd: () => ({ rc: 0, dir: '/tmp/wt', stderr: '' }),
+    runChecker: () => ({ rc: 0, stdout: 'DEBT WITHIN BASELINE', stderr: '' }),
+  }, over)
+  const noSeam = R.evaluatePr(mk({ commitTree: undefined }))
+  assert.equal(noSeam.reason, 'worktree-setup', '"工具没装配好"这一档名保留给 seam 缺失（切片 C 既有合同）')
+  assert.equal(noSeam.stage, 'seam')
+  const ct = R.evaluatePr(mk({ commitTree: () => ({ rc: 128, commitOid: '', stderr: 'fatal: Unable to auto-detect email address\n' }) }))
+  assert.equal(ct.reason, 'merge-commit-failed', `合成提交失败必须有自己的档名；实际=${JSON.stringify(ct)}`)
+  assert.equal(ct.stage, 'commit-tree')
+  assert.match(ct.detail, /Unable to auto-detect email address/, '现场（失败命令首行 stderr）必须随条目出来，否则下一轮还是猜')
+  const wa = R.evaluatePr(mk({ worktreeAdd: () => ({ rc: 128, dir: '', stderr: 'fatal: already checked out at ...\n' }) }))
+  assert.equal(wa.reason, 'merge-worktree-failed', `只读检出失败必须是另一档；实际=${JSON.stringify(wa)}`)
+  assert.equal(wa.stage, 'worktree-add')
+  assert.match(wa.detail, /already checked out/)
+  assert.ok(ct.reason !== wa.reason && wa.reason !== noSeam.reason, '三档名互不相同')
+  for (const r of ['worktree-setup', 'merge-commit-failed', 'merge-worktree-failed']) {
+    assert.ok(R.TOOL_FAULT_REASONS.includes(r), `${r} 属工具侧故障，必须在故障档里（本次事故就是 worktree-setup 漏了）`)
+    assert.ok(R.UNJUDGEABLE_REASONS.includes(r), `${r} 必须在封闭词表里`)
+  }
+})
+
+// ── 25) 锁 E：归类表只有一处真源，非法值在**加载时**就抛 ───────────────────────────────
+test('归类表派生词表与故障档；值非法 ⇒ assertReasonClass 当场点名（模块加载即经过它）', () => {
+  assert.ok(R.REASON_CLASS && typeof R.REASON_CLASS === 'object', '必须有一张 reason→归类 表')
+  assert.deepEqual(Object.keys(R.REASON_CLASS).slice().sort(), R.UNJUDGEABLE_REASONS.slice().sort(),
+    '词表必须由归类表派生；手抄第二份名单就是本次事故的成因')
+  assert.deepEqual(R.TOOL_FAULT_REASONS.slice().sort(),
+    Object.keys(R.REASON_CLASS).filter((k) => R.REASON_CLASS[k] === 'tool-fault').sort(),
+    '故障档必须由归类表派生，不得再写一遍')
+  assert.deepEqual(Object.keys(R.REASON_CLASS).filter((k) => R.REASON_CLASS[k] === 'other-pr'), ['conflict'],
+    '只有"别人 PR 真冲突"不算本工具故障')
+  assert.throws(() => R.assertReasonClass({ conflict: 'other-pr', 'x-future': '' }), /x-future/,
+    '空值/第三种值必须被点名——否则它既不算故障也不算 conflict，会被静默退 0')
+  assert.doesNotThrow(() => R.assertReasonClass(R.REASON_CLASS))
+  const src = toolSources()
+  assert.ok(/(?:const|let)\s+REASON_CLASS\s*=\s*assertReasonClass\(/.test(src),
+    '真表必须在模块加载处过一遍校验（只导出一个校验函数没人调 = 装饰性校验）')
+})
+
+// ── 26) 锁 D + 锁 F：现场要出现在日志/评论里，两条路对同一阶段必须报同一档 ────────────────
+test('现场进逐条日志与评论表格；mergedTreeEvidence 与 evaluatePr 对同一阶段报同一档名', () => {
+  const failing = { commitTree: () => ({ rc: 128, commitOid: '', stderr: 'fatal: no allowed user identity here\n' }) }
+  const w = recheckWorld({ env: { MP_REPO: 'o/r' }, seams: failing })
+  assert.ok(w.logs.some((l) => /merge-commit-failed/.test(l) && /no allowed user identity/.test(l)),
+    '逐条日志必须同时带档名与失败命令首行；实际日志=' + JSON.stringify(w.logs.slice(0, 6)))
+
+  const body = R.renderComment({
+    entries: [{ pr: 21, verdict: 'UNJUDGEABLE', reason: 'merge-commit-failed', detail: 'fatal: synthetic case' }],
+    baseSha: 'a'.repeat(40), judgedAt: '2026-10-22T00:00:00Z',
+  })
+  assert.match(body, /merge-commit-failed/, '评论现场列必须写档名')
+  assert.match(body, /synthetic case/, '评论现场列必须带得出现场，否则点名等于没点名')
+
+  const mkGit = (failAt) => (args) => {
+    const j = args.join(' ')
+    if (j.startsWith('merge-tree')) return { rc: 0, stdout: 'd'.repeat(40) + '\n', stderr: '' }
+    if (/(^|\s)commit-tree(\s|$)/.test(j)) {
+      return failAt === 'commit-tree'
+        ? { rc: 128, stdout: '', stderr: 'fatal: empty ident name not allowed\n' }
+        : { rc: 0, stdout: 'e'.repeat(40) + '\n', stderr: '' }
+    }
+    if (j.startsWith('worktree add')) return failAt === 'worktree-add' ? { rc: 128, stdout: '', stderr: 'fatal: already registered\n' } : { rc: 0, stdout: '', stderr: '' }
+    return { rc: 0, stdout: '', stderr: '' }
+  }
+  const evArgs = { repo: 'X', baseSha: 'b'.repeat(40), headSha: 'h'.repeat(40), inspect: () => 1 }
+  const c1 = R.mergedTreeEvidence(Object.assign({}, evArgs, { git: mkGit('commit-tree') }))
+  assert.equal(c1.built, false)
+  assert.equal(c1.reason, 'merge-commit-failed', `构造函数那条路必须与判决那条路档位同源；实际=${JSON.stringify(c1)}`)
+  assert.match(c1.detail, /empty ident name/)
+  const c2 = R.mergedTreeEvidence(Object.assign({}, evArgs, { git: mkGit('worktree-add') }))
+  assert.equal(c2.reason, 'merge-worktree-failed')
+  assert.equal(c2.reason, R.evaluatePr({
+    pr: { number: 5 }, classify: () => ({ ok: true, treeOid: 'a'.repeat(40) }),
+    commitTree: () => ({ rc: 0, commitOid: 'c'.repeat(40) }),
+    worktreeAdd: () => ({ rc: 128, dir: '', stderr: 'fatal: already registered\n' }),
+    runChecker: () => { throw new Error('不该被调用') },
+  }).reason, '同一失败阶段在两处必须是同一个名字，否则"边数"会各改一半')
+})
+
+// ── 27) 锁 G：生产默认装配必须被真跑到（现有 25 条全注入替身 ⇒ 默认闭包里的笔误结构性不可见）──
+// 这条**不注入** classify/commitTree/worktreeAdd/runChecker，只注入网络面 gh 与一个真临时仓库；
+// 真跑 merge-tree → commit-tree → worktree add → 真 spawn process.execPath 判据桩。
+// 注意夹具显式声明了 user.email/user.name：因此本锁**证不了**"CI 上没有身份会怎样"（那格仍未证实，
+// 由 detail 字段交给下一次真实运行报出来）。把默认 runChecker 路径改错一个字母，本锁必须红。
+function makeLiveWorld (stubRc) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `debt-recheck-live-${process.pid}-${Date.now()}-`))
+  const remote = path.join(root, 'remote')
+  const clone = path.join(root, 'clone')
+  const run = (cwd, args) => {
+    const r = spawnSync('git', args, { cwd, encoding: 'utf8' })
+    assert.equal(r.status, 0, `git ${args.join(' ')} (cwd=${cwd}) 失败：${r.stderr}`)
+    return (r.stdout || '').trim()
+  }
+  fs.mkdirSync(remote, { recursive: true })
+  run(remote, ['init', '-q', '-b', 'main'])
+  run(remote, ['config', 'commit.gpgsign', 'false'])
+  // 夹具的 bootstrap 提交用显式 -c 带身份：克隆出来的仓库**不配任何身份**，
+  // 这样被测的合成提交就只能靠自己的参数拿身份（见下面 live() 前后的 env 装卸）。
+  const IDE = ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t']
+  fs.mkdirSync(path.join(remote, 'scripts'), { recursive: true })
+  fs.writeFileSync(path.join(remote, 'scripts', 'debt-baseline.json'), '{"maxFileLines":500}\n')
+  fs.writeFileSync(path.join(remote, 'scripts', 'check-debt-budget.js'),
+    'console.log("DEBT WITHIN BASELINE (stub)"); process.exit(' + (Number(stubRc) || 0) + ')\n')
+  fs.writeFileSync(path.join(remote, 'a.txt'), 'base\n')
+  run(remote, ['add', '.'])
+  run(remote, IDE.concat(['commit', '-q', '-m', 'base']))
+  run(remote, ['checkout', '-q', '-b', 'pr11'])
+  fs.writeFileSync(path.join(remote, 'a.txt'), 'base\npr line\n')
+  run(remote, ['add', '.'])
+  run(remote, IDE.concat(['commit', '-q', '-m', 'pr touches only a.txt']))
+  run(remote, ['update-ref', 'refs/pull/11/head', run(remote, ['rev-parse', 'HEAD'])])
+  run(remote, ['checkout', '-q', 'main'])
+  run(root, ['clone', '-q', remote, clone])
+  // 克隆里**不配任何身份**，并在 live() 期间把 GIT_CONFIG_GLOBAL/SYSTEM 指到空文件、清掉 author/committer env：
+  // 合成提交对身份的依赖不得由宿主配置兜着（实现评审 i5）。本机探针实测无身份时
+  // `git commit-tree` rc=128 / "Author identity unknown"，带 -c 则 rc=0 —— 对照读数见下面 probe。
+  const emptyCfg = path.join(root, 'empty.gitconfig')
+  fs.writeFileSync(emptyCfg, '')
+  const IDENTITY_KEYS = ['GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL',
+    'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'EMAIL', 'NAME']
+  const savedIdent = {}
+  for (const k of IDENTITY_KEYS) { savedIdent[k] = process.env[k]; delete process.env[k] }
+  process.env.GIT_CONFIG_GLOBAL = emptyCfg
+  process.env.GIT_CONFIG_SYSTEM = emptyCfg
+  // 前置自证：解析出的 toplevel 必须就是这个克隆。GIT_DIR/GIT_WORK_TREE 若从宿主泄漏，
+  // 这里当场红——不得让它安静地对着别人的仓跑完再报"量到了"（本仓记过同型夹具事故）。
+  assert.equal(path.resolve(run(clone, ['rev-parse', '--show-toplevel'])), path.resolve(clone),
+    '默认装配锁必须确认自己操作的是临时仓库')
+  const logs = []
+  const gh = (args) => {
+    const j = args.join(' ')
+    if (j.startsWith('pr list')) return { status: 0, stdout: JSON.stringify([{ number: 11, title: 'pr only' }]), stderr: '' }
+    return { status: 0, stdout: '', stderr: '' }
+  }
+  let rc
+  let probe = 'unknown'
+  try {
+    rc = R.live({ repoDir: clone, env: { MP_REPO: 'o/r' }, gh, log: (m) => logs.push(String(m)) })
+    // 对照探针必须在**同一份 env 现场里**取。上一版把它放在 finally 之后，宿主配置已经装回来，
+    // 于是裸 commit-tree 照样成功——探针把自己的现场错位读成"这台机器能自造身份"（本仓第一跑就撞上）。
+    const tree = run(clone, ['rev-parse', 'HEAD^{tree}'])
+    const parent = run(clone, ['rev-parse', 'HEAD'])
+    const bare = spawnSync('git', ['-C', clone, 'commit-tree', tree, '-p', parent, '-m', 'probe'], { encoding: 'utf8' })
+    probe = bare.status === 0 ? 'identity-self-invented' : 'identity-required'
+  } finally {
+    for (const [k, v] of Object.entries(savedIdent)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+  }
+  return { root, clone, logs, rc, probe }
+}
+
+test('生产默认装配真跑：不注入任何 seam 也必须量到那一笔（判据桩 exit 0 ⇒ IN_BASELINE）', () => {
+  const world = makeLiveWorld(0)
+  try {
+    assert.ok(world.logs.some((l) => l.includes('pr=11') && l.includes('verdict=IN_BASELINE')),
+      '默认闭包必须真跑完 merge-tree→commit-tree→worktree add→spawn 判据；实际日志=' + JSON.stringify(world.logs))
+    assert.ok(!world.logs.some((l) => /verdict=UNJUDGEABLE/.test(l)), '任何一档 UNJUDGEABLE 都意味着默认链没接通')
+    assert.equal(world.rc, 0, `量到了且合规必须退 0；实际 rc=${world.rc} 日志=${JSON.stringify(world.logs)}`)
+    assert.ok(world.logs.some((l) => /MEASURED=1/.test(l)), '测量留痕行必须由 live() 真打出来（只在纯函数里存在 = 装饰）')
+    // 每笔 PR 用完必须把只读 worktree 与临时 ref 清掉。这一格是外部评审第 2 轮"清理永不执行"那条
+    // 指控的**真半截**：它的前提是错的（`!deps.worktreeAdd` 判的是调用方有没有注入，生产侧为真 ⇒ 会执行），
+    // 但"会执行"从没被断言过——清理坏掉时本文件一条用例都不会红。长期仓库里残留注册会让下一次
+    // `worktree add` 报"already registered"，进而被本工具读成 merge-worktree-fault。
+    const list = spawnSync('git', ['-C', world.clone, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' })
+    assert.equal(list.status, 0, 'worktree list 读不到 = 探针坏了，不得读成"已清理"：' + list.stderr)
+    const entries = String(list.stdout).split('\n').filter((l) => l.startsWith('worktree '))
+    assert.equal(entries.length, 1,
+      `一轮跑完只应剩下克隆自己那一条注册项；实际=${JSON.stringify(entries)}`)
+    const refs = spawnSync('git', ['-C', world.clone, 'for-each-ref', '--format=%(refname)', 'refs/recheck'], { encoding: 'utf8' })
+    assert.equal(String(refs.stdout).trim(), '',
+      '临时 refs/recheck/* 必须逐笔删除，不能留在仓库里；实际=' + JSON.stringify(String(refs.stdout).trim()))
+  } finally {
+    try { fs.rmSync(world.root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
+
+test('生产默认装配真跑（判决侧）：判据桩 exit 1 ⇒ VIOLATES，不是任何 UNJUDGEABLE', () => {
+  const world = makeLiveWorld(1)
+  try {
+    assert.ok(world.logs.some((l) => l.includes('pr=11') && l.includes('verdict=VIOLATES')),
+      '判据返回非零必须走成 VIOLATES；实际日志=' + JSON.stringify(world.logs))
+    assert.ok(!world.logs.some((l) => /verdict=UNJUDGEABLE|verdict=CHECKER_FAILED/.test(l)),
+      '把"违规"演成"量不到"会让故障计数与判决互相顶罪（默认路径拼错正是这一形态）')
+  } finally {
+    try { fs.rmSync(world.root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
+
+// ── 28) 锁 I（设计评审 i5）：宿主带着 GIT_DIR 会**压过** `git -C` ⇒ 整轮读数来自别人的仓库 ──
+// 拆成两条用例是**判据分辨率**要求：摘掉剔除（M-D11）与把告警改成 no-op（M-D12）都必须指名红，
+// 写在同一条里两者红集逐字相同 ⇒ 锁分辨不了这两种退化。
+const GIT_ENV_FIXTURE = () => {
+  const V = require('./lib/debt-recheck-live.js')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `debt-recheck-env-${process.pid}-${Date.now()}-`))
+  const mk = (name, subject) => {
+    const dir = path.join(root, name)
+    fs.mkdirSync(dir, { recursive: true })
+    const init = spawnSync('git', ['init', '-q', '-b', 'main', dir], { encoding: 'utf8' })
+    assert.equal(init.status, 0, '临时仓库建不起来（探针本身坏了）：' + init.stderr)
+    fs.writeFileSync(path.join(dir, 'f.txt'), subject)
+    const env = Object.assign({}, process.env, { GIT_DIR: path.join(dir, '.git'), GIT_WORK_TREE: dir })
+    const add = spawnSync('git', ['add', 'f.txt'], { cwd: dir, encoding: 'utf8', env })
+    assert.equal(add.status, 0, 'add 失败：' + add.stderr)
+    const c = spawnSync('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-q', '-m', subject], { cwd: dir, encoding: 'utf8', env })
+    assert.equal(c.status, 0, 'commit 失败：' + c.stderr)
+    return dir
+  }
+  const A = mk('a', 'AAA-only')
+  const B = mk('b', 'BBB-only')
+  const saved = {}
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) { saved[k] = process.env[k]; delete process.env[k] }
+  return {
+    V, A, B, root,
+    polluted: () => Object.assign({}, process.env, { GIT_DIR: path.join(B, '.git') }),
+    withPolluted: (fn) => { process.env.GIT_DIR = path.join(B, '.git'); try { return fn() } finally { delete process.env.GIT_DIR } },
+    cleanup: () => {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+      try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+    },
+  }
+}
+
+test('GIT_DIR 泄漏（行为侧）：剔除后读数仍来自 repoDir；对照格证明 hazard 真实存在', () => {
+  const f = GIT_ENV_FIXTURE()
+  try {
+    // 对照格：不剔 env 直接问 ⇒ 必须读到 B。这一格证明 hazard 在本机真实存在，
+    // 否则"仍读到 A"那句就是在测一个不会发生的行为（恒真的锁 = 装饰性门禁）。
+    const raw = spawnSync('git', ['-C', f.A, 'log', '-1', '--format=%s'], { encoding: 'utf8', env: f.polluted() })
+    assert.equal(String(raw.stdout).trim(), 'BBB-only',
+      '对照组没被 GIT_DIR 带跑 ⇒ 本机的 git 不采纳它，这条锁失去测量对象（须如实承认并换判据来源，不得留恒真断言）')
+    // ⚠ 判据选择是当场量出来的：`--show-toplevel` 在"GIT_DIR=B 且未设 GIT_WORK_TREE"时**照样回 A**
+    //   （本机探针：同一现场 subject=BBB 而 toplevel=A），拿它当判据会写出一条恒真的锁。
+    const git = f.V.gitRunner(f.A, () => {})
+    const top = f.withPolluted(() => git(['log', '-1', '--format=%s']))
+    assert.equal(top.rc, 0, `读数失败=探针坏了，不得读成"没泄漏"：${top.stderr}`)
+    assert.equal(String(top.stdout).trim(), 'AAA-only',
+      `带 GIT_DIR 时整轮会去量别人的仓库 ⇒ 每条读数都是假的；实际读到=${JSON.stringify(String(top.stdout).trim())}`)
+  } finally { f.cleanup() }
+})
+
+test('GIT_DIR 泄漏（告警侧）：剔除必须出声一次，没剔除不得虚报；gitSafeEnv 只动那三个键', () => {
+  const V = require('./lib/debt-recheck-live.js')
+  const dirty = V.gitSafeEnv({ PATH: 'x', GIT_DIR: '/elsewhere/.git', GIT_INDEX_FILE: '/tmp/i' })
+  assert.ok(!('GIT_DIR' in dirty.env) && !('GIT_INDEX_FILE' in dirty.env),
+    '这三个键必须剔除（它们压过 -C）；实际留下=' + JSON.stringify(Object.keys(dirty.env)))
+  assert.equal(dirty.env.PATH, 'x', '其余 env 原样带着——全清 env 会让 git 连自己的配置都读不到')
+  assert.deepEqual(dirty.stripped.slice().sort(), ['GIT_DIR', 'GIT_INDEX_FILE'])
+  assert.deepEqual(V.gitSafeEnv({ PATH: 'x' }).stripped, [], '没污染时不得虚报一条告警（告警噪声会让人学会忽略它）')
+  const notes = []
+  V.envDefectNotice(['GIT_DIR'], (m) => notes.push(String(m)))
+  V.envDefectNotice([], (m) => notes.push(String(m)))
+  assert.equal(notes.length, 1, '剔除必须出声；静默剔除 = "本机环境一直有问题"永远不被知道')
+  assert.match(notes[0], /另一个仓库/, '告警要写明后果，不然读起来像例行提示')
+  const f = GIT_ENV_FIXTURE()
+  try {
+    const logged = []
+    const git = f.V.gitRunner(f.A, (m) => logged.push(String(m)))
+    f.withPolluted(() => git(['log', '-1', '--format=%s']))
+    assert.ok(logged.some((l) => /GIT_DIR/.test(l)), '由 gitRunner 触发的运行必须自己把剔除现场打出来')
+  } finally { f.cleanup() }
+})
+// ── 29) 锁 H：默认闭包必须把 stderr 透出来（否则"可归因"只在注入面成立，生产面仍是空的）──
+// 这条只把 git 传输层换掉，commitTree/worktreeAdd/runChecker 一律用生产默认实现。
+// 切片 C 的默认闭包 `return { rc, commitOid }` 不带 stderr ⇒ excerptOf 恒空 ⇒ 现场形同不存在。
+test('默认 commitTree 遇到 git 失败 ⇒ 日志必须带出该命令的 stderr 首行', () => {
+  const w = recheckWorld({
+    env: { MP_REPO: 'o/r' },
+    skipSeams: ['commitTree', 'worktreeAdd', 'runChecker'],
+    commitTreeRc: 128,
+    commitTreeStderr: 'fatal: empty ident name (for <>) not allowed\n',
+  })
+  assert.ok(w.gitCalls.some((a) => /(^|\s)commit-tree(\s|$)/.test(a)), '默认闭包必须真的发出 commit-tree（否则这条测的是假实现）')
+  assert.ok(w.logs.some((l) => /merge-commit-failed/.test(l) && /empty ident name/.test(l)),
+    '档名 + 失败命令首行必须同时出现在逐条日志里；实际日志=' + JSON.stringify(w.logs.slice(0, 6)))
+})
+
+// ── 30) 锁 J（实现评审 i5）：合成提交不得依赖"环境里恰好配了身份" ─────────────────────
+// §27 那两条现在跑在"取不到任何身份"的现场里（夹具摘光了配置与 env），所以行为侧已被它们覆盖；
+// 这里补两格：① 对照探针必须证明这一格在本机可表示（否则那条锁只是形式，要如实点名）；
+// ② 默认闭包必须**真的把身份参数发进 argv**（用记录型 git 传输层看命令行，不注入 commitTree）。
+test('身份对照：夹具现场里裸 commit-tree 必须失败，摘掉身份后默认链仍必须量到那一笔', () => {
+  const world = makeLiveWorld(0)
+  try {
+    console.log('  [ident-probe] ' + world.probe)
+    assert.equal(world.probe, 'identity-required',
+      '这台机器的 git 能自造身份 ⇒ "无身份"这一现场不可表示，§27 那两条锁在此平台上是形式。'
+      + '正解是换判据来源（例如显式断言 argv），不是把这条断言放宽；实际=' + world.probe)
+    assert.ok(world.logs.some((l) => l.includes('verdict=IN_BASELINE')),
+      '摘掉一切身份来源后默认链仍必须量到那一笔；实际日志=' + JSON.stringify(world.logs))
+    assert.equal(world.rc, 0, '量到了且合规就必须退 0；实际 rc=' + world.rc)
+  } finally {
+    try { fs.rmSync(world.root, { recursive: true, force: true }) } catch { /* 夹具 */ }
+  }
+})
+
+test('默认闭包把身份参数发进 argv；两处 commit-tree 都挂同一份身份常量', () => {
+  const w = recheckWorld({ env: { MP_REPO: 'o/r' }, skipSeams: ['commitTree', 'worktreeAdd', 'runChecker'] })
+  const ct = w.gitCalls.filter((a) => /(^|\s)commit-tree(\s|$)/.test(a))
+  assert.equal(ct.length, 2, '夹具默认两笔 PR ⇒ 应发两次 commit-tree；实际=' + JSON.stringify(ct))
+  for (const a of ct) {
+    assert.match(a, /-c user\.name=\S+ -c user\.email=\S+ commit-tree/,
+      '每次合成提交都必须自带身份，不得依赖宿主 git 配置；实际=' + JSON.stringify(a))
+  }
+  const src = fs.readFileSync(path.join(__dirname, 'lib', 'debt-recheck-live.js'), 'utf8').split('\r\n').join('\n')
+  assert.equal((src.match(/SYNTHETIC_IDENTITY\.concat\(\['commit-tree'/g) || []).length, 2,
+    '判决那条路与构造那条路都必须挂同一份身份常量——漏一处就是只修一半')
 })

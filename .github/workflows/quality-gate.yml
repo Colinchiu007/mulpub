@@ -104,6 +104,14 @@ jobs:
           # 落在这里的理由与 merge-ledger 同：本 job 不被 docs-only 短路，且在非 PR 早退之前。
           node --test scripts/lib/git-domain.test.js
           node --test scripts/check-debt-budget.test.js
+          # electron-ci 桌面全量步骤的单一实现（两片并行 + 共享预算 + 剥 ANSI 的现场计数）。
+          # 落在这里的理由与上面两条同：本 job 不被 docs-only 短路、且在非 PR 早退之前，
+          # 而它守的是"electron-tests 这一步到底还跑不跑桌面全量"—— 一条被 docs-only 跳过的
+          # 判据等于没有判据（#3114 的同型事故）。只 require node 内置模块，本 job 不装依赖也能跑。
+          node --test scripts/electron-ci-desktop-step.test.js
+          # 预算出处的**复测入口**自身的锁（字段对齐 / 三档退出码 / 两档采样域不混记 / 接线）。
+          # 与上一条同一个落点理由：本 job 不被 docs-only 短路，且在非 PR 早退之前。
+          node --test scripts/electron-ci-shard-audit.test.js
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
             echo "docs-only=false (non-PR event: full run)"
@@ -565,6 +573,59 @@ jobs:
           HEAD_REF="${CL_HEAD:-HEAD}"
           MB="$(git merge-base "$BASE_REF" "$HEAD_REF" 2>/dev/null || true)"
           node scripts/check-no-hot-carrier-edit.js --base="${MB:-$BASE_REF}" --head="$HEAD_REF" --mode=advisory
+      # --- Gate 2b10：CCG 判定记录形态普查（change: qm6-closure-writeback，tasks 0.1b）---
+      # 为什么落 changes 作业：普查工具的输出就是 QM-6 立项读数的唯一生产处（design §2 那三条数），
+      # 而它消费的 .ccg/reviews/** 全部命中 docs-only 白名单 —— 接进被 docs-only 门控的 static-gates，
+      # 等于「只改判据/记录的 PR 可以让这把锁一次都不跑」（同 Gate 2b2 / Gate 2b8 口径，实测事故 #3114）。
+      # 刻意**不**在 CI 上跑真仓采集：逐文件 `git show` 在 1.6k 份产物上实测数分钟（本机 4 分钟档），
+      # 进每个 PR 的关键路径等于把本仓刚推倒的 30 分钟预算墙重新立起来。真仓读数由引用它的人现跑；
+      # 本步骤守的是「交叉表这段代码还咬得住」——夹具仓真跑采集路径 + 纯函数行为对偶 + 变异反证。
+      - name: "Gate 2b10 - CCG artifact shape survey (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/ccg-artifact-shape-survey.test.js
+          # 判定域非空自证：普查量的是 .ccg/reviews/**。该目录若在仓里空了，「读数为 0」与
+          # 「什么都没扫」逐字同形 —— 那正是本仓反复要分开的两档（凡按目录里有什么迭代的锁，
+          # 永远看不见「该有什么」，见 AGENTS「注册即判定域」）。
+          N=$(git ls-tree -r --name-only HEAD -- .ccg/reviews | grep -c '\.json$' || true)
+          echo "[Gate 2b10] real-domain artifacts=$N"
+          [ "$N" -gt 0 ] || { echo "[Gate 2b10] FAIL: 判定域为空 ⇒ 普查工具的覆盖面已塌，不得读成「没有待评审记录」"; exit 1; }
+          # 形状下界（QM-6 后端轴 i6）：只判「目录不空」对「判定域退化成套空壳」完全失明——
+          # 存在 1664 份 JSON 但一份都不带 dual 形态时，交叉表照样报 closed=0 且逐字像「仓里没有待评审记录」。
+          # 下界取「至少 1 份」而不是「至少 459 份」：后者会被并发合并吃掉，且它防的是形状消失、不是规模变化。
+          # 实测成本：git grep 直接读 HEAD 树（不落工作树），0.3 秒。
+          DUAL=$(git grep -c -e '"mode": "dual"' HEAD -- .ccg/reviews 2>/dev/null | wc -l)
+          echo "[Gate 2b10] dual-shaped artifacts=$DUAL"
+          [ "$DUAL" -gt 0 ] || { echo "[Gate 2b10] FAIL: 判定域里没有任何 dual 形态产物 ⇒ 普查的存在性读数不代表覆盖面"; exit 1; }
+          STATUS=$(git grep -c -e '"status":' HEAD -- .ccg/reviews 2>/dev/null | wc -l)
+          echo "[Gate 2b10] artifacts carrying deepReview.status=$STATUS"
+          [ "$STATUS" -gt 0 ] || { echo "[Gate 2b10] FAIL: 没有一份产物带 deepReview.status ⇒ 普查读的字段路径已失效（改名或搬家），不是「没有记录」"; exit 1; }
+
+      # --- Gate 2b11：QM-6 收口写回链（change: qm6-closure-writeback，tasks 6.1）---
+      # 落 changes 作业的理由与 Gate 2b10 同一条：这四个文件是「谁写 tier/evidence」的判据本体，
+      # 它们消费的产品面（scripts/deep-review.sh、scripts/check-pr-exec-record.js）命中高危面前缀；
+      # 接进被 docs-only 门控的 static-gates，等于让"只改判据的 PR"让自己的锁一次都不跑。
+      # ⚠ 最后那条会**真跑** `sh scripts/deep-review.sh`（假驱动 + os.tmpdir 临时 git 仓），
+      #   本机实测 ~60s；它不依赖引擎与真实后端 —— 后端可见性由 CCG_BACKEND_BIN_DIRS 夹具给出，
+      #   因此在 ubuntu runner 上同样执行（不得改成"没引擎就 skip"，那正是本仓的装饰性门禁同型）。
+      - name: "Gate 2b11 - QM-6 closure writeback chain (changes job)"
+        shell: bash
+        run: |
+          node --test \
+            scripts/ccg-delivery-digest.test.js \
+            scripts/ccg-review-writeback.test.js \
+            scripts/ccg-closure-writeback-chain.test.js \
+            scripts/deep-review-entry-rc.test.js
+
+      # --- Gate 2b12：artifact 清理作业的行为锁 ---
+      # 被测对象是 .github/workflows/cleanup-artifacts.yml 里那段清理逻辑（已搬进 scripts/cleanup-artifacts.js）。
+      # 必须接在 changes 作业：cleanup 那条 workflow 只由 schedule 触发，接在那儿等于"红在 PR 侧不可见"，
+      # 那正是它连续 8 天全红而无人发现的成因（2026-10-21 实测：schedule 日日失败、非 required、无监控）。
+      # 本步骤刻意**不**执行清理脚本本体（它会真删 CI 产物），只跑它的行为锁 —— 注入式测试，零真实出站。
+      - name: "Gate 2b12 - Artifact cleanup logic (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/cleanup-artifacts.test.js
 
   static-gates:
     name: QG Static
@@ -2387,3 +2448,4 @@ jobs:
             exit 1
           }
           Write-Host "[GATE-RESULT] PASS - all upstream jobs succeeded"
+

@@ -56,9 +56,66 @@ const VALID_DECISIONS = ['upgrade-tracked', 'accepted-risk', 'not-exploitable', 
 // 否则同一个 GHSA 在两个域各命中一次会互相冒充"已登记"，且 --update 时后写的会把先写的抹掉。
 const DOMAINS = ['npm', 'npm-opscenter', 'pip'];
 
-function shellRun (cmd, args, opts = {}) {
+// 审计端点抖动时的重试间隔（毫秒）。只在默认 runner 上生效；用例注入的 runner 不走这里。
+const DEFAULT_RETRY_DELAYS = [2000, 5000];
+
+/** 同步睡眠：`spawnSync` 路径本身是同步的，重试之间要真的等一会儿才有意义。 */
+function sleepSync (ms) {
+  if (!Number.isInteger(ms) || ms <= 0) return;
   try {
-    const res = spawnSync(cmd, args, {
+    // Atomics.wait 是 Node 里唯一不进事件循环的同步睡眠；环境不支持就放弃等待，不影响判据。
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch (_) {
+    /* 忽略：等待失败不该把扫描判成失败 */
+  }
+}
+
+/**
+ * 判断 JSON 是**审计报告**还是**错误信封**。
+ *
+ * 动因（2026-10-22 实测）：`npm audit` / `pnpm audit` 在请求失败时**也把一段 JSON 打到 stdout**：
+ *
+ *   {"message":"request to https://registry.npmjs.org/-/npm/v1/security/audits/quick failed,
+ *    reason: socket hang up","error":{...}}
+ *
+ * 它完全能通过 `JSON.parse`，但没有 `vulnerabilities` / `advisories` 键 ⇒ 解析出 0 条命中 ⇒
+ * 基线里该域的所有条目被判成 `RESOLVED_STILL_BASELINED`「已不再命中（多半已升级），请 --update 清账」。
+ *
+ * 危害是**指错方向**：红文案让人去删基线，而真相是「根本没量到」；照它 `--update` 会把真实挂账清空，
+ * 门禁从此恒绿。这正是「把工具的失明读成结论」的同型。
+ *
+ * 合法的「零漏洞」报告一定带 `vulnerabilities`（npm v2）或 `advisories`（pnpm/旧版）键 ——
+ * 用「键存在」而不是「数量为 0」来区分，才不会把真的没漏洞误判成扫描失败。
+ */
+function isAuditReport (json) {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return false;
+  const has = (k) => Object.prototype.hasOwnProperty.call(json, k);
+  // npm v2 一定有 vulnerabilities；pnpm/旧版有 advisories；auditReportVersion 是两者的版本标记。
+  // 认这三个中的任意一个：只认前两个会把「结构正确但恰好空」的边角报告误判成扫描失败。
+  return has('vulnerabilities') || has('advisories') || has('auditReportVersion');
+}
+
+/**
+ * pip-audit 的报告形状与 npm 完全不同：顶层 `dependencies` 数组（无漏洞时是空数组）。
+ *
+ * 为什么也要校验：`parsePipAudit()` 对任何缺 `dependencies` 的对象都返回 `[]` ——
+ * 于是 pip-audit 失败时的错误信封会被当成「零漏洞」，基线里 pip 的挂账条目同样会被
+ * 误判成 RESOLVED_STILL_BASELINED。外部评审（2026-10-22）当场点名了这条：
+ * 只修 npm 两个域而漏掉 pip，等于把同一个 bug 留了三分之一。
+ */
+function isPipAuditReport (json) {
+  return !!json && typeof json === 'object' && Array.isArray(json.dependencies);
+}
+
+function shellRunOnce (cmd, args, opts = {}) {
+  try {
+    // spawn 可注入：单测要喂「错误信封」这类只能靠真实端点偶发才能拿到的输出，
+    // 而 Windows 下 shell:true 会吃掉 node -e 的引号，用子进程造假并不可靠。
+    const spawn = opts.spawn || spawnSync;
+    const res = spawn(cmd, args, {
+      // cwd 必须透传：ops-center/frontend 不在 pnpm workspace 内，它自带 package-lock.json，
+      // 必须在那个目录里跑 npm audit。丢了这行 ⇒ npm 在仓库根跑 ⇒ 拿不到报告 ⇒
+      // 该域会被当成 SCANNER_UNAVAILABLE 永久跳过（盲区，且绿色无感）。
       cwd: opts.cwd || ROOT,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
@@ -70,20 +127,78 @@ function shellRun (cmd, args, opts = {}) {
     if (start < 0) {
       return { ok: false, error: '扫描器无 JSON 输出：' + String(res.stderr || '').slice(0, 300) };
     }
+    let json;
     try {
-      return { ok: true, json: JSON.parse(out.slice(start)) };
+      json = JSON.parse(out.slice(start));
     } catch (e) {
       return { ok: false, error: 'JSON 解析失败: ' + e.message };
     }
+    if (opts.expectReport) {
+      // 按域校验形状：pip-audit 与 npm 家族的 JSON 结构完全不同，不能用同一把尺子。
+      const okShape = opts.expectReport === 'pip' ? isPipAuditReport(json) : isAuditReport(json);
+      if (!okShape) {
+        const detail = typeof json.message === 'string' ? json.message : 'JSON 结构不是该域的报告形状';
+        return { ok: false, error: '扫描器返回的不是审计报告（多是端点不可达）：' + detail.slice(0, 300) };
+      }
+    }
+    return { ok: true, json };
   } catch (e) {
     return { ok: false, error: (e && e.message) || String(e) };
   }
 }
 
+/**
+ * 带重试的扫描器调用。
+ *
+ * 为什么重试是必需而不是锦上添花：审计端点的失败形态是 `socket hang up`（大 body 请求
+ * 在链路中途被掐断），属**瞬时**；不重试就会把一次抖动放大成一次门禁红。
+ * 重试仍失败时返回最后一次的错误，由 `runCheck` 记 `SCANNER_UNAVAILABLE`
+ * —— 该域本轮**不判**，其挂账条目也不会被误判成「已不再命中」。
+ */
+function shellRun (cmd, args, opts = {}) {
+  const attempts = Number.isInteger(opts.attempts) && opts.attempts > 0 ? opts.attempts : 1;
+  const delays = Array.isArray(opts.retryDelays) ? opts.retryDelays : DEFAULT_RETRY_DELAYS;
+  let last = { ok: false, error: 'unknown' };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) sleepSync(delays[Math.min(attempt - 1, delays.length - 1)]);
+    last = shellRunOnce(cmd, args, opts);
+    if (last.ok) return last;
+  }
+  return last;
+}
+
+/**
+ * 「本轮该域一条都没扫出来，而基线里它有挂账」⇒ 这是**未证实**，不是**已修**。
+ *
+ * 动因（2026-10-22 实测）：`dep-audit.yml` 的 job 明写「本 job 不执行 pnpm install」，
+ * 于是 `npm-opscenter` 这一域在 CI 上返回 **0 条**，判据据此连报两条
+ * `RESOLVED_STILL_BASELINED：已不再命中（多半已升级），请 --update 清账`。
+ * 而**同一个 commit** 在本机两种树形态下（`ops-center/frontend/node_modules` 存在 / 不存在）
+ * 都照样命中那两条 GHSA ⇒ 「0 命中」测的是**测量域为空**，不是公告消失。
+ * 若照那句提示跑 `--update`，`writeBaseline` 按 found 原样落盘 ⇒ 两条仍然有效的挂账被静默抹掉，
+ * 此后这两条公告永久不再被拦。这是「把工具的失明读成结论」的安全基线版本。
+ *
+ * 判据形状刻意**不看 node_modules 是否存在**：CI 上「装过」与「没装」都可能返回 0，
+ * 反过来「lockfile 里根本没这个域了」也会合法地返回 0。唯一可靠的信号是
+ * **「该域 0 产出 ∧ 基线里该域有挂账」**这个组合——它两种成因都指向「先去看清楚再写基线」。
+ *
+ * @param {Array<{source:string}>} found 本轮全部命中条目
+ * @param {Array<{source:string}>} baselineList 基线挂账条目
+ * @returns {string[]} 需要按未证实处理的 source 列表（按字典序，保证输出稳定）
+ */
+function zeroScanDomains (found, baselineList) {
+  const baselined = new Set((baselineList || []).map((i) => i && i.source).filter(Boolean));
+  const produced = new Set((found || []).map((f) => f && f.source).filter(Boolean));
+  return [...baselined].filter((s) => !produced.has(s)).sort();
+}
+
 /** 默认扫描器：真实调 pnpm / npm / pip-audit（用例注入假实现，避免依赖网络）。 */
 function createDefaultRunners (registry) {
   return {
-    npm: () => shellRun('pnpm', ['audit', '--prod', '--json', '--registry=' + registry]),
+    // 三个域**全部**要形状校验（错误信封绝不能当空报告）+ 3 次重试（端点抖动是瞬时）。
+    // pip 漏掉这条会让同一个 bug 留三分之一：`parsePipAudit()` 对缺 `dependencies` 的对象
+    // 一律返回 `[]`，错误信封会被读成「零漏洞」（外部评审 2026-10-22 点名）。
+    npm: () => shellRun('pnpm', ['audit', '--prod', '--json', '--registry=' + registry], { expectReport: 'npm', attempts: 3 }),
     // ops-center/frontend 不在 pnpm workspace 内（pnpm-workspace.yaml 只列 apps/* 与 packages/*），
     // 它自带 package-lock.json 由 npm 管理 ⇒ 上一轮 axios 的「遗留」原文：它既不在本门禁的两个扫描域里，
     // 也没有任何 workflow 装它，于是以「看起来受门禁保护」的形态存在。这里把它真的扫进来。
@@ -91,9 +206,9 @@ function createDefaultRunners (registry) {
     // 全部落在 vitest→@vitest/mocker→undici 这条 dev 链上）。
     'npm-opscenter': () => shellRun(
       'npm', ['audit', '--omit=dev', '--json', '--registry=' + registry],
-      { cwd: path.join(ROOT, OPS_FRONTEND_REL) },
+      { cwd: path.join(ROOT, OPS_FRONTEND_REL), expectReport: 'npm', attempts: 3 },
     ),
-    pip: () => shellRun('pip-audit', ['-r', PIP_REQUIREMENTS, '--format', 'json', '--progress-spinner', 'off']),
+    pip: () => shellRun('pip-audit', ['-r', PIP_REQUIREMENTS, '--format', 'json', '--progress-spinner', 'off'], { expectReport: 'pip', attempts: 3 }),
   };
 }
 
@@ -498,8 +613,22 @@ function evaluate (baseline, found, today, scannedSources) {
     }
   }
 
+  // 「0 产出但有挂账」这一档必须在 RESOLVED 之前处理：否则 CI 那种空测量域会被读成「都修好了」，
+  // 并把两条仍然有效的挂账从基线里抹掉（动因见 zeroScanDomains 的头注释）。
+  // 只处理**本轮声明扫过**的域：扫描器不可用的域已由 SCANNER_UNAVAILABLE 出声并被下面的
+  // `scanned` 判断排除，重复报一条只会把两类成因混成一句话。
+  const zeroScan = zeroScanDomains(found, list).filter((s) => !scanned || scanned.has(s));
+  for (const source of zeroScan) {
+    const n = list.filter((i) => i && i.source === source).length;
+    violations.push('UNVERIFIED_ZERO_SCAN: ' + source + ' 本轮 0 命中，而基线里它有 ' + n
+      + ' 条挂账 ⇒ 这是「测量域为空」还是「真的都修了」无法区分，**不得**判成已修、**不得**据此清账。'
+      + '先复核这一域：CI 有没有装它的依赖、lockfile 里这些包还在不在、扫描命令换过没有。'
+      + '确认「确实都修了」之后才跑 --update；确认是 CI 侧没装，就补那一步的安装步骤（本条会随之转绿）。');
+  }
+
   for (const item of list) {
     if (scanned && !scanned.has(item.source)) continue;
+    if (zeroScan.includes(item.source)) continue; // 未证实 ≠ 已修，不再逐条报 RESOLVED
     const key = item.source + '/' + item.id;
     if (claimed.has(key)) continue;
     if (!hits.has(key)) {
@@ -589,6 +718,23 @@ function runCheck (opts = {}) {
 
   const base = readBaseline(bp);
   if (isUpdate) {
+    // 这条守卫与 evaluate 里的 UNVERIFIED_ZERO_SCAN 是一对，且**必须成对存在**：
+    // 红文案本身会喊「请 --update 清账」，而 CI 那种空测量域恰恰会让人在那一刻按下 --update。
+    // writeBaseline 按 found 原样落盘 ⇒ 一个 0 产出的域会把它自己的全部挂账从基线里抹掉。
+    //
+    // ⛔ 这里**刻意不套** evaluate 的 `scanned.has(s)` 过滤（QM-6 外部评审 i1 命中后写清，两类成因要分开读）：
+    // evaluate 判「这条挂账现在该出哪句结论」，所以没扫成的域交给 SCANNER_UNAVAILABLE，不再叠一条；
+    // 这里判「这次写基线会不会毁掉我没看过的东西」，重建源只有 found，所以「没扫成」也必须拒写——
+    // 而那一格**已由上面 618 行的既有闸拦掉**（`unavailable.length && isUpdate` ⇒ 拒绝写基线），
+    // 到这一步剩下的只会是「扫成了但 0 产出」的域。故不加过滤是正确的，不是遗漏；
+    // 按评审建议「过滤成只保留已扫域」反而会把既有的那道闸当成不存在。
+    const zero = zeroScanDomains(found, (base && base.advisories) || []);
+    if (zero.length) {
+      error('存在「0 产出但仍有挂账」的域，拒绝写基线：' + zero.join(', ')
+        + ' ⇒ 这是未证实不是已修。先复核这些域的测量域（CI 装没装它的依赖、lockfile 里包还在不在、扫描命令换过没有），'
+        + '确认「确实都修了」之后再重跑 --update。');
+      return 1;
+    }
     const body = writeBaseline(found, base, bp);
     log('基线已写入', bp, '（' + body.advisories.length + ' 条；新增条目 decision=TODO 必须补结论）');
     return 0;
@@ -640,6 +786,12 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   evaluate,
+  // shellRun / isAuditReport / isPipAuditReport 导出仅为单测：错误信封必须被判成
+  // "不是审计报告"，这条判据不能只靠跑真实端点来验（端点不可达时恰好才是要验的场景）。
+  shellRun,
+  shellRunOnce,
+  isAuditReport,
+  isPipAuditReport,
   PARSERS,
   patchedFromRange,
   runCheck,

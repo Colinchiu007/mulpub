@@ -251,3 +251,124 @@ describe('auto-project · 镜头编辑与确认', () => {
     expect(rec).toEqual({ providerCalls: 2, ledgerDoneCount: 1, mismatch: 1 })
   })
 })
+
+describe('F-I · auto-project · 方法论上下文的落盘口径', () => {
+  it('plan 级 promptContext 落一次；逐镜只落 vars/missing（不含方法论长文本）', () => {
+    const home = tmpHome()
+    const project = createProject({
+      home,
+      taskId: 'task-methodology',
+      now: '2026-10-21T00:00:00.000Z',
+      plan: {
+        planId: 'plan-1',
+        aspect: '16x9',
+        seconds: 5,
+        targetDurationSec: 10,
+        providerId: 'minimax',
+        characterMap: {},
+        promptContext: {
+          taskId: 'generate_shot_prompt',
+          locale: 'zh',
+          promptAssetHash: 'a'.repeat(64),
+          frameConstraint: { available: true, hash: 'b'.repeat(64), length: 12, locale: 'zh', fallback: false, truncated: false, source: 'doctrine.frame_constraint' },
+          frameConstraintPending: true,
+          fallbackLocales: { doctrine: {}, palette: {}, task: {} },
+          assetsIncomplete: false,
+        },
+        shots: [
+          { index: 0, shotId: 'auto-000', title: '镜 1', prompt: 'P0', imagePrompt: 'P0', videoPrompt: 'V0', endFramePrompt: '', characterNames: [], refPaths: [], seconds: 5, promptVars: { shot_json: '{}', palette_line: '色盘' }, promptMissing: [{ name: 'style_prefix', reason: 'byDesign' }], promptRenderHash: 'c'.repeat(64) },
+          { index: 1, shotId: 'auto-001', title: '镜 2', prompt: 'P1', imagePrompt: 'P1', videoPrompt: 'V1', endFramePrompt: '', characterNames: [], refPaths: [], seconds: 5, promptVars: { shot_json: '{}', palette_line: '色盘' }, promptMissing: [{ name: 'style_prefix', reason: 'byDesign' }], promptRenderHash: 'd'.repeat(64) },
+        ],
+      },
+    })
+    expect(project.ok).toBeUndefined()
+    // plan 级：上下文落一次
+    expect(project.promptContext).toBeTruthy()
+    expect(project.promptContext.promptAssetHash).toBe('a'.repeat(64))
+    // 逐镜：只落 vars / missing / promptRenderHash
+    expect(project.shots[0].promptVars).toEqual({ shot_json: '{}', palette_line: '色盘' })
+    expect(project.shots[0].promptMissing).toEqual([{ name: 'style_prefix', reason: 'byDesign' }])
+    expect(project.shots[0].promptRenderHash).toBe('c'.repeat(64))
+    // 体积口径：方法论**长文本**不得在逐镜重复（这里断言逐镜没有 frameConstraint 原文）
+    const serialized = JSON.stringify(project)
+    expect(serialized.split('尾帧必须是可继续的稳定姿态。').length - 1).toBe(0)
+    expect(serialized.split('a'.repeat(64)).length - 1).toBe(1)
+  })
+
+  /**
+   * 第 8 轮 i6（Warning / consistency）：⑦ 的体积断言只查了**方法论长文本**，
+   * 没覆盖「N 镜 × 至多 7 条重复 reason」——清单也是逐镜落的。
+   *
+   * 为什么不把清单改成「由重渲染得到」：面板的 `blockedVars` / `deliverable`
+   * **就是**从落盘的 `promptMissing` 汇总的（见 `film-engineering-auto.js` 的
+   * `buildMethodologySummary`）⇒ 清单不落盘，面板就没数据。
+   * ⇒ 保留落盘，但给**体积上限**加判据：清单每条是短结构（名字 + 枚举 reason），
+   *   条数 ≤ 7（变量总数）⇒ 单镜清单体积有界，不随资产文本长度增长。
+   */
+  it('逐镜清单体积有界：条目 ≤ 变量数、每条是短结构（name + 枚举 reason）', () => {
+    const home = tmpHome()
+    const project = createProject({
+      home,
+      taskId: 'task-methodology',
+      now: '2026-10-21T00:00:00.000Z',
+      plan: {
+        planId: 'plan-1',
+        aspect: '16:9',
+        seconds: 5,
+        targetDurationSec: 10,
+        taskId: 'generate_shot_prompt',
+        locale: 'zh',
+        promptAssetHash: 'a'.repeat(64),
+        frameConstraint: { available: true, hash: 'b'.repeat(64), length: 12, locale: 'zh', fallback: false, truncated: false, source: 'doctrine.frame_constraint' },
+        frameConstraintPending: true,
+        fallbackLocales: { doctrine: {}, palette: {}, task: {} },
+        assetsIncomplete: false,
+        shots: [
+          {
+            index: 0, shotId: 'auto-000', title: '镜 1', prompt: 'P0', imagePrompt: 'P0', videoPrompt: 'V0',
+            endFramePrompt: '', characterNames: [], refPaths: [], seconds: 5,
+            promptVars: { shot_json: '{}', palette_line: '色盘' },
+            promptMissing: [
+              { name: 'style_prefix', reason: 'byDesign' },
+              { name: 'geo_block', reason: 'assetMissing' },
+              { name: 'extra_var', reason: 'templateVar' },
+              { name: 'Bad Name', reason: 'badVarName' },
+            ],
+            promptRenderHash: 'c'.repeat(64),
+          },
+        ],
+      },
+    })
+    const miss = project.shots[0].promptMissing
+    expect(Array.isArray(miss)).toBe(true)
+    /**
+     * 第 9 轮 i2（Critical/consistency）：上限必须**分两类**算 ——
+     * `missing` 里除了 7 个任务变量，还可能有 `templateVar` / `badVarName`
+     *（**模板多要的**变量与我们给错的名字），它们**不在 7 个之内**。
+     * 原来的「条数 ≤ 7」在模板多要变量时**必然为假**（自己定的判据把自己打脸）。
+     */
+    const TASK_VAR_NAMES = ['shot_json', 'palette_line', 'style_prefix', 'geo_block', 'character_descriptors', 'duration_sec', 'model']
+    const taskVarEntries = miss.filter(m => TASK_VAR_NAMES.includes(m.name))
+    const otherEntries = miss.filter(m => !TASK_VAR_NAMES.includes(m.name))
+    expect(taskVarEntries.length).toBeLessThanOrEqual(TASK_VAR_NAMES.length)
+    // 非任务变量条目另计，且总量有界（模板乱要变量也不该让清单无限膨胀）
+    // ⚠ 上限 **8**（不是 16）：8 × (64 字符名 + JSON 开销) ≈ 560 B < 1,024 B 的字节上限
+    //   ⇒ 写成 16 会让「条数 ≤ 16」与「序列化 ≤ 1,024 B」**互相矛盾**（第 13 轮 i3）
+    // ⚠ 第 15/16 轮 i2 两次更正：上面的推导**漏算了 7 条任务变量**（总 15 条）**与多字节**，
+    //   第 15 轮又漏算了 **JSON 转义**（引号/反斜杠按 \uXXXX 记 6 字节/字）
+    //   ⇒ 字节上限改为 **8 KiB**（15 × (64×6 B 名 + ~30 B) ≈ 6.2 KB ≤ 8 KB）⇒ 两条**自洽**。
+    expect(otherEntries.length).toBeLessThanOrEqual(8)
+    // **字节**预算（不是字符数）：CJK 名 3 字节/字
+    expect(Buffer.byteLength(JSON.stringify(miss), 'utf8')).toBeLessThanOrEqual(8192)
+    // 每条都是短结构：name + 枚举 reason，不含长文本
+    const REASONS = ['byDesign', 'assetMissing', 'templateVar', 'badVarName', 'oversizeVar']
+    for (const m of miss) {
+      expect(Object.keys(m).sort()).toEqual(['name', 'reason'])
+      expect(typeof m.name).toBe('string')
+      expect(REASONS).toContain(m.reason)
+      expect(m.name.length).toBeLessThanOrEqual(64)
+    }
+    // 单镜清单序列化后仍然很小（不含任何资产原文）
+    expect(JSON.stringify(miss).length).toBeLessThan(1024)
+  })
+})

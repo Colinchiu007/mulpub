@@ -1,0 +1,173 @@
+{
+  "sha": "b3a8de5036e9bfbe7a30515993037a7c0b2202f3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 100 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 100,
+    "fileCount": 5,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "  \"reason\": \"变更 147 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "298322809352f902def1d28d0fc242189a515ebece5c6eeea8235421dcf9da88",
+  "decidedAt": "2026-10-22T02:44:39.496Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i3",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984"
+      },
+      {
+        "id": "i5",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews JSON claims deepReview.required=true with status=pending, tier=unknown, performedBy=null; yet it is committed as finalized evidence. sha points to parent (b3a8de50) not head (a06c0efa), changedLines=100 contradicts the 700-line diff, and layer=diff conflicts with mode=dual semantics.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "产物以 status=pending、tier=unknown、performedBy=null 入库并随提交自动 stage；下一个读它的人可能把\"有产物\"读成\"评审已过\"。且 sha/changedLines 与当前 head 不同源，任何按字段索引产物的工具会指到错误的 diff。",
+        "defense": "这份产物是**判定**记录而不是**结论**记录，拦的方向恰恰是\"pending 不许合\"：pre-commit 写它（AGENTS QM-6 链第 2 步），check-pr-exec-record 的 evaluateDeepReviewDebt 拿状态拦，实测本 PR 从提交到现在每次 enforce 都点名它并拒绝合并（\"CCG 深度审查欠账 1 条 … status=pending\"）。sha=父提交是 pre-commit 时序的既定形态，入口逐字打印\"（pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为）\"。changedLines=100 是本笔提交的暂存差量，713 是深审载荷相对 origin/main 的差量（引擎首行\"变更基线: origin/main（713 行）\"），两个坐标各有出处、不是互相否证。layer=diff 说的是判定来自哪一层，钩子原文\"[CCG] 审查模式判定 [验证层(动手后·diff)]: DUAL\"同一行给出两者，正交。建议里的 status=completed 不在闭环词表 {cleared, needs_revision, self_play_resolved} 内，照做反而永远关不掉。",
+        "verdict": "dismissed",
+        "rationale": "各字段语义都有定义且被本 PR 如实引用；\"不得带 pending 合并\"这条本 PR 正在执行（未合并即为证据）。按建议写 completed 会把一个不在词表里的值送进判据，读作 unrecognized 一律拦。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "openspec/records/artifact-cleanup-resilient.md admits QM-6 not run (\"未跑故本 PR 不合并\") and records deepReview as pending, but then writes \"行为锁 12 条 + 变异 7 条全指名\" and a final 判定 as if closure were complete. The file self-contradicts.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "同一个文件里既写\"QM-6 未跑故本 PR 不合并\"，又列出行为锁与变异反证的通过读数并给出各项 ✅，读者会把它当成一份已闭合的执行记录；且\"12 条 / 7 条\"这类读数与实际不符。",
+        "defense": "现读记录：`grep -na \"12 条\" openspec/records/artifact-cleanup-resilient.md` 零命中，\"7 条\"只出现在两处历史语境（第一轮 critique 的条数、首版夹具那 7 条红）与一条演进句（\"变异从 7 条扩到 9 条\"），QM-5 表与 CHANGELOG 段的现读数都是 15/11。批评真正指向的是**第一笔提交的 commit message 与 PR 正文**里那两个当时为真的数（12/7）——commit message 是历史事实，按本仓口径不改写；PR 正文随本轮更新，且更新动作本身记在这里。记录内部也不自相矛盾：QM-6 行、遗留第 1 条、PR 正文三处同向写着\"未闭合前不合并\"，✅ 只覆盖 QM-5 那五步（根因/逃逸/漏洞/回归/预防），从未覆盖 QM-6。",
+        "verdict": "dismissed",
+        "rationale": "记录现读数自洽且与产物一致；被指的\"矛盾\"在 commit message/PR 正文这一历史面上，处置是不改写历史 + 更新在飞的正文，而不是把已交付的读数抹平。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": ".github/workflows/cleanup-artifacts.yml uses github.token (GH_TOKEN) with --write, which triggers destructive DELETE calls via gh api. No token scope is restricted to actions:write; if the token has broader repo/admin scope, a compromised workflow or injection could delete artifacts across repos via the un-encoded --repo parameter.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984",
+          "reviewedAt": "2026-10-22T02:50:55Z",
+          "note": "域标签由指控自身措辞触发（本 PR 差量不含认证/加解密代码）；外部复核＝critic=claude 的这轮评审 + 公开评论出处"
+        },
+        "prosecution": "定时作业持 workflow token 就能对本仓 5000+ 条 artifact 批量 DELETE。若 permissions 比 actions:write 更宽，或 --repo 被注入成别的仓坐标，一次供应链污染可以跨仓删产物，且这是不可恢复删除。",
+        "defense": "三点逐一核对。① 权限已收口：cleanup-artifacts.yml 第 21-23 行 `permissions: {actions: write, contents: read}`，删 artifact 恰好落在 actions 这一格，没有更宽的 scope 可退；指控说\"没有把 token 限制到 actions:write\"与文件现状相反。② `--repo` 不是外部输入，是 runner 注入的 `${{ github.repository }}`，且这条作业只在 schedule/workflow_dispatch 上跑，不在 fork PR 的路径上；本 PR 还专门把它从\"env 里一个没人读的键\"改成调用点显式给（第二轮 i4 的修法），坐标可见。③ 这条链上唯一外部可控的值是 artifact id，已按形状收口（只接受正整数），不合要求计入 rejected 并把结论压成 REJECTED_PRESENT 非零退出；A13 的样本里就有路径穿越形态 `../9`，断言\"一条都不发删除\"，n8/n10 两条变异各指名反证。④ 建议里的\"专用服务账号 / fine-grained PAT\"与本仓既有口径相反（内置 token 已被 permissions 收窄，再塞一个长期凭据进 CI 是把攻击面变大而不是变小）。",
+        "verdict": "dismissed",
+        "rationale": "三个前提（权限未收窄、repo 可控、id 未校验）经现场核对均不成立，其中 id 那一半本 PR 已加形状门禁并有指名反证。域标签 auth 来自这条指控自身的措辞（token/scope），与被审代码是否碰认证无关，故仍按引擎规则补外部复核，出处用公开评论。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": ".gitignore exceptions (!scripts/cleanup-artifacts.js, !scripts/cleanup-artifacts.mutation.js) are tied to exact filenames. If either file is renamed or removed, the exception becomes dead weight with no compiler-time warning, and scripts/*.js will silently swallow the new file.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "两条 !scripts/* 例外绑死精确文件名；改名即被 .gitignore:106 的 scripts/*.js 静默吞掉，git 不会给任何警告，记录里\"驱动已入仓\"就成了假话。",
+        "defense": "\"静默\"这一半已经被本 PR 自己消掉：A15 用 `git ls-files -- <驱动路径>` 逐字回显做锁，改名后该命令返回空 ⇒ A15 红；n11 就是\"把这条锁指向一个不存在的文件\"的变异，实测指名 A15 变红（红的是锁本身在跑的证据，不是\"文件存在\"）。传 git 前还剥掉 GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE/GIT_COMMON_DIR，否则钩子窗口里它会静默压过 cwd、让这条锁量到别的仓的索引。建议的另一半——\"给所有 tracked 脚本配一条镜像 negation 检查\"——是一条新的常驻判据：要实现 .gitignore 语义、要区分刻意被忽略的临时产物（temp_debug.txt、screenshot_script*.js 之类），属\"改谁来守门\"，须人工过目落点与预算，不在本 PR 顺手做。",
+        "verdict": "dismissed",
+        "rationale": "本 PR 范围内的失效面已由 A15 + n11 覆盖到\"改名即红\"；剩下的通用镜像检查是独立一刀，不是本差量的缺口。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "scripts/cleanup-artifacts.mutation.js modifies scripts/cleanup-artifacts.js in place and relies solely on md5 restoration and a single post-run lock execution. There is no behavior lock covering the mutation driver itself (test only runs cleanup-artifacts.test.js), and a crash during mutation could leave source corrupted.",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984",
+          "reviewedAt": "2026-10-22T02:50:55Z",
+          "note": "域标签由指控自身措辞触发（本 PR 差量不含认证/加解密代码）；外部复核＝critic=claude 的这轮评审 + 公开评论出处"
+        },
+        "prosecution": "驱动就地修改被测源文件，只靠 md5 比对和一次后置锁自证；若在两次写之间被杀，变异后的字节就留在盘上，而没有任何行为锁覆盖驱动本身。",
+        "defense": "① 后果是**可恢复且出声**的，不是静默：被测源受 git 跟踪，`git checkout -- scripts/cleanup-artifacts.js` 精确还原（单文件，不碰宽目录，守本仓 R2）；下一次运行前有 dirty 前置——实测它在脏态直接 `REFUSE: 被测面工作树不等于 HEAD（N 行差异）` 并 exit 2，所以污染态不会被固化成\"还原基线\"（本仓踩过的那个坑正是这么堵的）。② \"改成临时副本\"在这条链上不成立：被测锁按真实路径 `node --test scripts/cleanup-artifacts.test.js` 加载被测模块，副本目录里没有 git 索引，A15 会在副本里必红，等于测不到东西。③ \"覆盖驱动自身的锁\"这一半已兑现：驱动现在支持多靶子，n11 改的正是测试文件那一侧，还原阶段对**两个**文件分别比 md5 并再跑一次被测锁。④ md5 在这里只是\"字节回原位\"的自证，不承担密码学用途——域标签 crypto 是被\"md5/还原\"这类词触发，不是代码碰了加解密。",
+        "verdict": "dismissed",
+        "rationale": "崩溃路径的后果是响的、可精确恢复的，且已有 dirty 前置 + 双靶子还原校验；副本方案会让其中一条锁失去测量对象。域标签按文本触发，仍补外部复核。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "cleanup-artifacts.test.js A12 asserts wf contains actions/checkout and --repo=${{ github.repository }}, but does not assert that the env REPO key is removed using a robust regex; /\\s*REPO\\s*:/m can miss indented or differently-spaced keys, and the assertion only checks absence of the key, not absence of dead env references.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "A12 用 !/^\\s*REPO\\s*:/m 判\"REPO 键已删\"，这只认一种拼写：换个键名（CL_REPO、DAYS）或换种缩进就漏；而且它只断\"某个键不存在\"，不断\"env 里没有未消费的键\"。",
+        "defense": "承重的是**正向**那半：同一段第 135 行断言 `--repo=${{ github.repository }}` 必须出现在命令行上。坐标若再以另一种写法退回\"只在 env 里声明\"，正向断言当场红——不需要穷举坏键名，因为\"坐标必须出现在调用点\"这条本身就否掉了任何 env-only 形态。缩进那一例不成立：断言带 `^` 且开了 `m`，前面是 `\\s*`，缩进行照样命中（本仓对\"禁令类判据要按语义位置切\"的口径也已把注释行排除在扫描域外，`strip` 先剥纯注释）。\"整个 workflow 不得存在未消费 env 键\"是通用判据：要解析 YAML、要按 shell/action 两类消费者归因，且本仓现网大量步骤合法使用 env 却不被脚本读，做出来第一批就是假阳——那是另一刀的范围。",
+        "verdict": "dismissed",
+        "rationale": "具体缺陷（REPO 死键）由正向 + 负向两条锁同时守；建议的泛化版在本仓未经取证，直接做会产出一条恒红的装饰判据。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-22T02:59:43.891Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984",
+    "tierOrigin": "session-written（本分支起点 2f5c0a32f 早于 PR #4151，拿不到主干上新落的 scripts/ccg-review-writeback.js——那才是本仓写 tier=external 的生产方；站在本分支上 tier 只有判定器写的 unknown 占位）。详见 openspec/records/artifact-cleanup-resilient.md 第三轮小节与遗留第 1 条"
+  }
+}

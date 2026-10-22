@@ -370,12 +370,13 @@ import { Document, TrendCharts } from '@element-plus/icons-vue'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { aiRewrite, aiRewriteCancel, aiListRewriteStrategies, aiGetRecommendedStrategies, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
+import { aiRewrite, aiRewriteCancel, draftSave, applyKnowledgeFeedback } from '@/api/publisher'
 import { useNotify } from '@/composables/useNotify'
 import { formatUserError } from '@/utils/user-facing-error'
 import { useLoginGate } from '@/composables/useLoginGate'
-import { useWordCountValidation } from '@/composables/useWordCountValidation'
-import { useCopyLibrary } from '@/composables/useCopyLibrary'
+import { useRewriteWordCount } from '@/composables/useRewriteWordCount'
+import { useRewriteStrategy } from '@/composables/useRewriteStrategy'
+import { useRewriteLibrarySync } from '@/composables/useRewriteLibrarySync'
 import { takeRewriteHandoff } from '@/utils/rewrite-handoff'
 import { useViralSignalStore } from '@/stores/viral-signal'
 import { takeViralSignalHandoff, hasActionableEngagement } from '@/utils/viral-signal-bridge'
@@ -388,7 +389,7 @@ import { usePodcastChannel } from '@/composables/usePodcastChannel'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import RewriteSensitiveWarning from '@/components/RewriteSensitiveWarning.vue'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
-import { deriveDefaultMode, deriveWordCountRange } from '@/utils/rewrite-defaults'
+import { deriveDefaultMode } from '@/utils/rewrite-defaults'
 import { REWRITE_ENGINE_MAX_OUTPUT_CHARS, REWRITE_ENGINE_MAX_INPUT_CHARS, countRewriteChars, shouldSegmentRewrite } from '@/utils/rewrite-engine-limits'
 import { useRewriteCancel } from '@/composables/useRewriteCancel'
 import { deriveOutputTruncatedInfo, deriveModelTruncatedInfo, deriveSegmentedCount } from '@/utils/rewrite-truncation'
@@ -453,18 +454,11 @@ const platform = ref('')
 const industry = ref('')
 const purpose = ref('')
 const tone = ref('')
-// 字数区间控制（默认 800-2000；长文成稿在改写前按原文长度自适应，避免被硬截断）
-const wordCountMin = ref(800)
-const wordCountMax = ref(2000)
-// 字数区间是否已被用户手动编辑：手动值优先于自适应推导
-let wordCountManuallySet = false
+// 字数区间（状态 + 校验 + 自适应推导，见 composables/useRewriteWordCount）
+const { wordCountMin, wordCountMax, wordCountError, markWordCountManuallySet, applyWordCountDefaults } = useRewriteWordCount((key) => t('rewritePage.' + key))
 
-// 策略选择（2026-09-15 改为默认「手动选择」展开下拉，降低发现成本；未选时仍传 null 走引擎自动匹配）
-// 注：AiWriterPanel / Collection 采集页保持默认 auto，不受影响
-const strategyMode = ref('manual')
-const rewriteStrategyId = ref('')
-const rewriteStrategies = ref([])
-const previewStrategyName = ref('--')
+// 策略选择（列表 + 预览 + 竞态守卫 + 正文防抖，见 composables/useRewriteStrategy）
+const { strategyMode, rewriteStrategyId, rewriteStrategies, previewStrategyName, loadRewriteStrategies, refreshStrategyPreview } = useRewriteStrategy({ platform, industry, purpose, tone, content, rewriting })
 
 // 弹窗
 const showPublishModal = ref(false)
@@ -480,7 +474,8 @@ const libraryHandoff = ref(null)
 // 属「跳转即自动改写」入口 → 改写成功后视口直接定位到改写结果区；手动开始 / titleHint 预填不滚动。
 // 挂载期置位一次；非响应式（不参与渲染，仅控制成功分支的一次滚动行为）。
 let autoFocusResult = false
-const { upsertRewrite: upsertCopyRewrite } = useCopyLibrary()
+// 改写结果 → 文案库回写（两条互斥写入路径，见 composables/useRewriteLibrarySync）
+const { syncHandoffToLibrary, syncResultToLibrary } = useRewriteLibrarySync({ rewriteResult, rewriteTitle, platform })
 // 本页平台下拉白名单：交接平台不在白名单时不带入（保持「通用」）
 const REWRITE_PAGE_PLATFORMS = ['douyin', 'xiaohongshu', 'wechat_mp', 'bilibili', 'zhihu']
 
@@ -525,63 +520,6 @@ async function focusRewriteResult () {
   }
 }
 
-/**
- * 改写成功后回写文案库（同一 fromKey 覆盖为最新结果；失败静默，不影响改写主流程）。
- * @param {object|null} handoff - 本次改写对应的交接载荷（一次性，由 startRewrite 捕获后传入）
- */
-async function syncHandoffToLibrary (handoff) {
-  if (!handoff || !handoff.fromKey || !rewriteResult.value.trim()) return
-  try {
-    await upsertCopyRewrite({
-      fromKey: handoff.fromKey,
-      fromTitle: handoff.fromTitle || '',
-      title: rewriteTitle.value || handoff.title || '',
-      content: rewriteResult.value,
-      platform: handoff.platform || '',
-      sourceUrl: handoff.sourceUrl || '',
-    })
-  } catch {
-    // 文案库回写失败不阻塞改写主流程
-  }
-}
-
-/**
- * 改写成功后写入文案库（2026-09-18 用户要求：改写完成后的文案应进入文案库）。
- *
- * 与 syncHandoffToLibrary 的区别：
- * - syncHandoffToLibrary 仅处理「从文案库进入改写」的交接场景（按 fromKey 覆盖原记录）；
- * - syncResultToLibrary 覆盖所有改写成功场景，按「正文哈希」稳定 key 写入：
- *   同一正文连续改写视为更新（覆盖），不同正文追加新记录，避免文案库被重复改写刷屏。
- * 交接场景（libraryHandoff 存在）由 syncHandoffToLibrary 按 fromKey 更新原记录，
- * 此处跳过，避免同一条改写产生双份记录（双模型评审 MAJOR-2/3）。
- * 失败静默，不影响改写主流程。
- */
-async function syncResultToLibrary () {
-  if (!rewriteResult.value.trim()) return
-  try {
-    // 稳定 key：基于改写结果正文的简单哈希（同一正文连续改写 → 覆盖更新）
-    const contentKey = hashString(rewriteResult.value)
-    await upsertCopyRewrite({
-      fromKey: 'rewrite:' + contentKey,
-      fromTitle: '',
-      title: rewriteTitle.value || '',
-      content: rewriteResult.value,
-      platform: platform.value || '',
-      sourceUrl: '',
-    })
-  } catch {
-    // 文案库回写失败不阻塞改写主流程
-  }
-}
-
-/** 简单字符串哈希（djb2）：用于文案库稳定 key，避免同一正文重复改写刷屏 */
-function hashString (str) {
-  let h = 5381
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) + h + str.charCodeAt(i)) >>> 0
-  }
-  return h.toString(36)
-}
 // 跳转防重入（单一互斥锁）：连点/跨按钮并发点击不会重复存草稿、不会产生双草稿
 let navigatingToDestination = false
 
@@ -591,63 +529,6 @@ const rewriteModes = [
   { value: 'expand', label: t('rewritePage.modeExpand') },
   { value: 'create', label: t('rewritePage.modeCreate') },
 ]
-
-// ── 策略列表与匹配预览 ──
-/** 加载启用策略（内置 + 远程下发）；失败静默降级为空列表，改写仍可用自动匹配 */
-async function loadRewriteStrategies() {
-  try {
-    const res = await aiListRewriteStrategies()
-    if (res && res.code === 0) rewriteStrategies.value = res.data || []
-  } catch (_e) {
-    // 策略列表为空时改写仍可用（走自动匹配）
-  }
-}
-
-/** 预览请求序列号：快速切换平台时只保留最后一次请求的结果（竞态防护） */
-let previewSeq = 0
-
-/** 刷新自动匹配预览：取推荐列表第一名；失败降级为 --，不阻塞改写 */
-async function refreshStrategyPreview() {
-  if (rewriting.value) return
-  const seq = ++previewSeq
-  try {
-    // 预览必须与 startRewrite 下发同一套 userSettings，否则预览名与实际命中策略会漂移
-    const res = await aiGetRecommendedStrategies({
-      platform: platform.value || undefined,
-      industry: industry.value || undefined,
-      purpose: purpose.value || undefined,
-      tone: tone.value || undefined,
-    }, content.value.trim())
-    if (seq !== previewSeq) return // 已有更新的请求，丢弃本次过期结果
-    if (res && res.code === 0 && Array.isArray(res.data) && res.data.length > 0) {
-      previewStrategyName.value = res.data[0].name || '--'
-    } else {
-      previewStrategyName.value = '--'
-    }
-  } catch (_e) {
-    if (seq === previewSeq) previewStrategyName.value = '--'
-  }
-}
-
-// 目标平台/行业/目的/语气变化 → 预览随新 userSettings 刷新（refreshStrategyPreview 内含竞态守卫）
-// rewrite-default-strategy-fix：行业/目的/语气同样参与匹配，变化也需刷新预览。
-// ⚠ content 必须一起监听（CCG 深度审查 i3）：启发式兜底依赖原文形态，
-//   只监听设置项会导致「粘贴长文但没动下拉」时预览名不刷新，
-//   而实际改写会用新的 content 重新匹配 ⇒ 预览名与实际命中策略漂移。
-// ⚠ content 走 300ms 防抖（CCG 二轮 i3）：正文逐字输入会高频触发预览请求，
-//   previewSeq 只保证「过期结果不渲染」，拦不住请求本身。下拉选择是离散低频
-//   动作可即时刷新；正文连续键入合并到停顿后一次，交互上无感知差异。
-let contentPreviewTimer = null
-function scheduleContentPreview() {
-  if (contentPreviewTimer) clearTimeout(contentPreviewTimer)
-  contentPreviewTimer = setTimeout(() => {
-    contentPreviewTimer = null
-    refreshStrategyPreview()
-  }, 300)
-}
-onUnmounted(() => { if (contentPreviewTimer) clearTimeout(contentPreviewTimer) })
-watch([platform, industry, purpose, tone], refreshStrategyPreview)
-watch(content, scheduleContentPreview)
 
 // 改写结果被用户编辑（textarea v-model）→ 已存草稿内容过期：置空 id，下次操作按当前内容重存
 // （saveToDraft 成功后 savedDraftId 更新，此处仅在内容再次变化时失效，不构成循环）
@@ -717,9 +598,6 @@ const canStartRewrite = computed(() => {
   return content.value.trim().length > 0 && !wordCountError.value
 })
 
-// ── 字数区间校验（共享 composable，与 Collection 页一致）──
-const { error: wordCountError } = useWordCountValidation(wordCountMin, wordCountMax, (key) => t('rewritePage.' + key))
-
 /** P1-E 评审 W-1：移除标题参考 chip 时同步清空爆款信号（信号与标题同源，语义一致） */
 // ── 方法 ──
 
@@ -733,13 +611,6 @@ function onModeChipClick(value) {
 }
 
 /**
- * 字数区间被用户编辑：置位「已手动」标志，此后不再自适应覆盖。
- */
-function markWordCountManuallySet() {
-  wordCountManuallySet = true
-}
-
-/**
  * 改写前按当前正文推导默认参数（仅当用户未手动设置时）。
  *
  * mode：成稿→imitate（保留原文），选题种子→create（从种子生全文）。
@@ -749,11 +620,7 @@ function applyInputDerivedDefaults(trimmed) {
   if (!modeManuallySet) {
     rewriteMode.value = deriveDefaultMode(trimmed)
   }
-  if (!wordCountManuallySet) {
-    const range = deriveWordCountRange(trimmed)
-    wordCountMin.value = range.min
-    wordCountMax.value = range.max
-  }
+  applyWordCountDefaults(trimmed)
 }
 function clearTitleHint() {
   titleHint.value = ''
@@ -1105,325 +972,5 @@ function onPublishVideo(pipelineId, detail) {
 }
 </script>
 
-<style scoped>
-/* ═══════════════════════════════════════════════════════════════════
-   改写页视觉重构（2026-09-16）
-   设计原则（交互设计师视角）：
-   1. 一组内容 = 一组字段：配置项按「内容依据 → 改写模式 → 输出控制」
-      三段组织；段内每个字段行布局完全统一（标签独占一行 + 控件下一行）。
-   2. 一个控件只有一个视觉焦点：卡片标题建立层级；开关在勾选态用校色边框 +
-      浅底表达「已启用」，未勾选为白底灰边。
-   3. 交互信号不得误导：表单卡片不显示手型光标、不随悬停浮起（全局
-      .cohere-card 是「卡片墙」语义，用在表单容器上会让人误以为整块可点）。
-   4. 结果区有主次：元信息（轻文本）→ 质量评估（结论强调条）→ 动作（主次分离）。
-   ═══════════════════════════════════════════════════════════════════ */
-
-/* ── 卡片与标题 ──
-   特异性取到 (0,3,0) 以稳定覆盖全局 .cohere-card:hover（(0,2,0)），
-   不依赖样式表加载顺序。 */
-.rewrite-input-card,
-.rewrite-config-card,
-.rewrite-result-card {
-  margin-bottom: var(--space-lg);
-  padding: var(--space-xl);
-  cursor: default;
-}
-.rewrite-input-card.cohere-card:hover,
-.rewrite-config-card.cohere-card:hover,
-.rewrite-result-card.cohere-card:hover {
-  background: var(--canvas);
-  box-shadow: none;
-}
-
-/* 卡片标题：全局 .cohere-section-title 没有任何样式定义，此前退化为正文字号，
-   卡片内所有内容层级相同——这是「界面混乱」的根因之一。 */
-.cohere-section-title {
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--ink);
-  line-height: 1.4;
-  letter-spacing: -0.1px;
-  margin-bottom: var(--space-lg);
-}
-
-/* ── 内容依据：两个来源开关并排（两列网格，窄屏回落单列）── */
-.config-switches {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-sm);
-  margin-bottom: var(--space-xl);
-}
-@media (max-width: 820px) {
-  .config-switches { grid-template-columns: minmax(0, 1fr); }
-}
-.config-switch {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--r-sm);
-  background: var(--canvas);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.config-switch:hover { border-color: var(--coral); }
-.config-switch.is-on {
-  border-color: var(--coral);
-  background: var(--coral-soft);
-}
-.config-switch.disabled { opacity: 0.6; cursor: default; }
-.config-switch.disabled:hover { border-color: var(--border-light); }
-.config-switch.disabled.is-on { background: var(--coral-soft); }
-
-/* 关键修复：勾选框固定尺寸。
-   .config-switch 是 flex 容器，checkbox 作为 flex item 默认 align-self:stretch，
-   会被拉伸到整行宽，原生勾选框因而绘制在行的中央、与文字脱离。 */
-.config-switch input[type="checkbox"] {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  margin: 2px 0 0;
-  accent-color: var(--coral);
-}
-.switch-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.switch-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--ink);
-  line-height: 1.4;
-}
-.switch-icon { font-size: var(--font-size-base); line-height: 1; }
-.switch-hint {
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-  color: var(--muted);
-}
-
-/* ── 字段行：标签独占一行、控件在下一行。
-   原实现里「目标平台」是唯一样式不同的字段（标签与下拉同一行），
-   字段布局不统一正是「混乱」的来源；此处一次性拉齐，
-   并用 :deep() 覆盖子组件（策略选择器）内部的同名标签。 ── */
-.rewrite-config-card :deep(.cohere-form-label) {
-  display: block;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--ink);
-  line-height: 1.4;
-  margin-bottom: 6px;
-}
-
-.mode-chips {
-  display: flex;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-}
-.mode-chip {
-  padding: 6px 14px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--r-sm);
-  background: var(--canvas);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  color: var(--ink);
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-.mode-chip:hover:not(:disabled) { border-color: var(--coral); }
-.mode-chip.active {
-  border-color: var(--coral);
-  background: var(--coral-soft);
-  color: var(--coral);
-  font-weight: 500;
-}
-.mode-chip:disabled { opacity: 0.5; cursor: default; }
-
-/* 字数区间：label 传空串时隐藏，避免 flex gap 留下 8px 视觉空隙 */
-.config-row :deep(.word-count-label:empty) { display: none; }
-/* 校验错误独占一行，避免把「- 2000 字」挤到下一行 */
-.config-row :deep(.word-count-error) { flex-basis: 100%; margin-top: 2px; }
-
-/* 短字段并排：字数控制 + 目标平台。只设列间距，行距交给 .config-row 的
-   margin-bottom，保证与其它字段的垂直节奏一致。 */
-.config-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: var(--space-xl);
-}
-@media (max-width: 820px) {
-  .config-grid { grid-template-columns: minmax(0, 1fr); }
-}
-
-/* 行业 / 目的 / 语气 三列并排（窄屏逐级降为单列，避免挤压成不可读的窄条） */
-.config-grid--three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: var(--space-lg);
-}
-@media (max-width: 1024px) {
-  .config-grid--three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 820px) {
-  .config-grid--three { grid-template-columns: minmax(0, 1fr); }
-}
-
-/* 策略选择器内部的单选文案字号与其它字段保持一致（子组件默认 12px） */
-.rewrite-config-card :deep(.strategy-radio) { font-size: var(--font-size-sm); }
-.rewrite-config-card :deep(.strategy-mode-row) { gap: var(--space-lg); }
-
-/* 字段控件宽度对齐（下拉类统一 280px） */
-.config-select {
-  max-width: 280px;
-  width: 100%;
-}
-.rewrite-config-card :deep(.strategy-select) {
-  max-width: 280px;
-  width: 100%;
-}
-.rewrite-config-card :deep(.strategy-preview) {
-  margin-top: 6px;
-  display: inline-block;
-}
-
-/* ── 执行区：与配置字段用分隔线断开，明确「先配置 → 后执行」 ── */
-.rewrite-submit {
-  margin-top: var(--space-lg);
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--border-light);
-}
-.rewrite-submit .rewrite-start-btn { margin-top: 0; }
-
-/* ── 结果区 ── */
-.rewrite-result-card .result-textarea { margin-top: var(--space-md); }
-
-/* 改写结果标题（2026-09-18）：引擎提炼 ≤20 字标题，纯文字展示（非输入框） */
-.rewrite-result-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-top: var(--space-md);
-  padding: 10px 12px;
-  background: var(--coral-soft);
-  border-radius: var(--r-sm);
-}
-.rewrite-result-title-label {
-  flex: 0 0 auto;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--coral);
-}
-.rewrite-result-title-text {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--ink);
-  line-height: 1.4;
-  word-break: break-all;
-}
-
-/* 输出截断可见化（rewrite-limits-50000，2026-10-19）：结果卡顶部的暖橙横幅，
-   与质量评估 warn 色一致；不抢视觉焦点但一定可见。 */
-.rewrite-output-truncated-banner {
-  margin: 0 0 var(--space-md);
-  padding: 10px var(--space-md);
-  border: 1px solid #f3d5a3;
-  border-radius: 8px;
-  background: #fdf6ec;
-  color: #92610c;
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
-}
-
-/* 质量评估：左侧结论强调条取代原先「结果卡片内再套一个带边框的卡片」，
-   结论等级用颜色直接编码（合格 / 需注意 / 建议优化）。 */
-.rewrite-quality-report {
-  margin: 0 0 var(--space-md);
-  padding: 2px 0 2px var(--space-lg);
-  background: transparent;
-  border: none;
-  border-left: 3px solid var(--border-light);
-  border-radius: 0;
-}
-.quality-accent-pass { border-left-color: #2e9e5b; }
-.quality-accent-warn { border-left-color: #d97706; }
-/* 结论=「建议优化」：去错误红，与 .quality-verdict-fail 同步降级为暖橙提示色
-   （BUGFIX-REWRITE-QUALITY-UX 与 #1892 视觉重构的整合） */
-.quality-accent-fail { border-left-color: #ea580c; }
-.quality-head {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--ink);
-  margin-bottom: 6px;
-}
-.rewrite-quality-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 20px;
-}
-.quality-metric {
-  font-size: var(--font-size-xs);
-  color: var(--muted);
-}
-.quality-metric strong { font-weight: 600; color: var(--ink); }
-/* 结论区配色（与 #1892 视觉重构整合后的最终方案）：
-   #1892 已将结论文字统一为中性 --ink，并由左侧 3px 强调条（.quality-accent-*）承载三态颜色。
-   本次沿用该设计，**不再给结论文字上色**，原因：
-   ① 三态色在 12-13px 小字号下对比度均低于 WCAG AA 4.5:1（实测 pass 3.23:1 / warn 3.02:1 /
-      fail 3.37:1），彩色文字反而降低可读性；
-   ② 三态中 warn 与 fail 色相仅差约 12°，小字号下几乎无法区分，颜色信息本就不该由文字承载；
-   ③ 颜色信号已由强调条承担（非文本图形，仅需 3:1，暖橙 #ea580c 对白底 3.37:1 达标）。
-   本次中性化的是**文案**（不合格 → 建议优化），颜色中性化体现为强调条去红（见下）。 */
-.rewrite-quality-suggestions {
-  margin: var(--space-sm) 0 0;
-  padding-left: 18px;
-  font-size: var(--font-size-xs);
-  line-height: 1.7;
-  color: var(--muted);
-}
-.rewrite-quality-suggestions li { margin-bottom: 2px; }
-.quality-suggestions-title {
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  color: var(--ink);
-  margin-bottom: 4px;
-}
-.rewrite-quality-none {
-  margin: 0 0 var(--space-md);
-  font-size: var(--font-size-xs);
-  color: var(--muted);
-}
-
-/* ── 改写结果快捷操作：复制（BUGFIX-REWRITE-QUALITY-UX）── */
-.rewrite-copy-row {
-  display: flex;
-  /* 与下方动作行的次按钮**同为左对齐**：动作行是 flex + gap、次按钮靠左，
-     仅主按钮「去发布」用 margin-left:auto 推到右侧。若复制行右对齐，会与
-     紧邻的动作行形成 Z 形错位（设计评审 Q4）。 */
-  justify-content: flex-start;
-  margin-top: var(--space-sm);
-}
-/* 固定最小宽度：按钮文案在「复制 / 已复制」间切换时不产生宽度跳动
-   （88px 可容纳较宽的「✅ 已复制」，且远小于卡片宽度，不影响 BUGFIX-REWRITE-PAGE-WIDTH 的列宽稳定） */
-.rewrite-copy-btn { min-width: 88px; }
-.rewrite-copy-btn:disabled { opacity: 0.5; cursor: default; }
-
-/* 结果区次操作按钮：全局 .cohere-btn-secondary 是零内边距的纯文本样式，
-   在动作行与复制行中补内边距与悬停底色，使其成为可识别的按钮。 */
-.rewrite-result-actions .cohere-btn-secondary,
-.rewrite-copy-row .cohere-btn-secondary {
-  padding: 8px 12px;
-  border-radius: var(--r-sm);
-  transition: background 0.15s, color 0.15s;
-}
-.rewrite-result-actions .cohere-btn-secondary:hover,
-.rewrite-copy-row .cohere-btn-secondary:hover {
-  background: var(--coral-soft);
-  color: var(--coral);
-}
-</style>
+<style scoped src="./rewrite-view.css"></style>
 

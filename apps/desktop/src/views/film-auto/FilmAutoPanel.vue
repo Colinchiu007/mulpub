@@ -31,6 +31,7 @@ import { getApi } from '@/api/electron-bridge'
 import { ElMessage } from 'element-plus'
 import StageProgress from '@/views/video-creation/StageProgress.vue'
 import FilmAutoSegmentEditor from './FilmAutoSegmentEditor.vue'
+import MethodologyStatusPanel from './MethodologyStatusPanel.vue'
 import { MAX_AUTO_SCRIPT_LENGTH, MAX_AUTO_REFS, MIN_AUTO_DURATION_SEC, MAX_AUTO_DURATION_SEC, AUTO_ASPECTS, AUTO_SHOT_SECONDS, AUTO_DEFAULT_ASPECT, AUTO_DEFAULT_SHOT_SECONDS, AUTO_DEFAULT_TARGET_DURATION_SEC, planShotCount } from './auto-constants'
 
 const DURATION_PRESETS = Object.freeze([30, 60, 90, 120])
@@ -78,6 +79,24 @@ const durationValid = computed(() => (
   form.targetDurationSec <= MAX_AUTO_DURATION_SEC
 ))
 const estimatedShots = computed(() => planShotCount(form.targetDurationSec, form.shotSeconds))
+/**
+ * 方法论接入状态（第 9 轮 i4）。
+ *
+ * 面板这块**只读状态**在两种状态下都要可见：
+ *   - 刚规划完 ⇒ 数据来自规划结果（`plan.methodology`）；
+ *   - **重开一个已规划的项目** ⇒ 规划结果不在内存里，只有落盘的
+ *     `promptContext` + 逐镜 `promptMissing` ⇒ 由服务端用**同一个**
+ *     `buildMethodologySummary` 重新汇总（`project.methodology`）。
+ *
+ * ⚠ 汇总逻辑**只在主进程有一份**（渲染端不另写实现）——
+ * 两份实现必然漂移，而漂移会让「面板显示的接上量」与「落盘的清单」对不上。
+ */
+const methodology = computed(() => {
+  const fromPlan = plan.value && plan.value.methodology
+  if (fromPlan) return fromPlan
+  const fromProject = project.value && project.value.methodology
+  return fromProject || null
+})
 const canPlan = computed(() => !busy.value && scriptLength.value > 0 && !scriptTooLong.value && durationValid.value)
 function fail (message, code) {
   errorCode.value = code || ''
@@ -356,6 +375,15 @@ defineExpose({
       <el-button type="primary" size="small" :disabled="!confirmed" :loading="busy" data-testid="fa-start" @click="startRun">
         {{ t('filmEngineering.auto.startBtn') }}
       </el-button>
+    </section>
+
+    <!-- 影视工程 v2 · F-I：方法论接入状态（只读；回答「我的自动分镜接上了多少方法论」）
+         独立成块（第 9 轮 i4）：刚规划完与**重开一个已规划的项目**两种状态下都要可见 ——
+         数据源分别是 plan.methodology 与 project.methodology（**同一份**主进程汇总实现）。
+         标记与文案在子组件 MethodologyStatusPanel.vue（拆分动因：CI 行数门禁 500 行；
+         外层卡片留在本组件，因为它用的是本组件的 scoped .fa-card 样式）。 -->
+    <section v-if="methodology" class="fa-card" data-testid="fa-methodology-card">
+      <MethodologyStatusPanel :methodology="methodology" />
     </section>
 
     <!-- ③ 运行 / ④ 收口 / ⑤ 片段编辑 -->

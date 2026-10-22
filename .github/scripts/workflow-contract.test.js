@@ -1278,20 +1278,80 @@ const DESKTOP_SUITE_ONE_LINE_RE = /--filter @multi-publish\/desktop\s+(?:test(?!
 const DESKTOP_SUITE_ARRAY_RE = /"@multi-publish\/desktop",\s*\n\s*"test(?![\w:-])"/;
 const DESKTOP_SUITE_NO_BUILD_ACK = []; // 承认清单：起始为空、只能缩小；新增必须带原因
 
+// 第三步形状：workflow 把"跑桌面全量"**委托**给仓库脚本（2026-10-21 起 electron-ci 就是这个形状）。
+// 关键：不能只认脚本名字 —— 那等于把判据换成一条名字白名单，脚本内容改成不跑桌面全量时本锁照绿。
+// 所以委托成立的条件是"被点名的那个脚本自己的源码里真的有桌面全量的调用形状"，三条锚缺一不可。
+// ⚠ 必须扫**全部** `node scripts/*.js` 命中而不是取第一个：一个 `run:` 块的注释里点名别的脚本
+// （本 PR 现场：注释写着"复测入口 node scripts/electron-ci-shard-audit.js"）会让"首个匹配"
+// 指向一个不跑桌面全量的脚本 ⇒ electron-tests 整片从覆盖面消失，而"少一个消费者"读起来
+// 与"全部合规"完全同形。这是"第一个空结果就收工"的另一个落点。
+const DESKTOP_SUITE_DELEGATE_RE = /node\s+scripts\/([A-Za-z0-9._-]+\.js)/g;
+const delegateCache = new Map();
+function delegateScriptRunsSuite (file) {
+  if (delegateCache.has(file)) return delegateCache.get(file);
+  let ok = false;
+  try {
+    const src = fs.readFileSync(path.join(__dirname, "..", "..", "scripts", file), "utf8");
+    ok = /const\s+DESKTOP_PKG\s*=\s*["']@multi-publish\/desktop["']/.test(src)
+      && /["']--filter["']\s*,\s*DESKTOP_PKG\s*,\s*["']test["']/.test(src)
+      && /--shard=/.test(src);
+  } catch (e) {
+    ok = false; // 读不到就是"没有委托"，不得按"有委托"放过
+  }
+  delegateCache.set(file, ok);
+  return ok;
+}
+function stepRunsDesktopSuite (step) {
+  const run = String(step.run || "");
+  if (DESKTOP_SUITE_ONE_LINE_RE.test(run) || DESKTOP_SUITE_ARRAY_RE.test(run)) return true;
+  // 取**全部**委托候选：注释里先出现的另一个脚本名不得把真正的委托挡掉（见上方 ⛔ 注释）。
+  // 用 matchAll 而不是 exec/test —— 带 g 的共享正则在 .test() 下是有状态的（lastIndex 会漂），
+  // 那会让"第二次调用结果和第一次不一样"这种坑藏在同一份文件里。
+  for (const m of run.matchAll(DESKTOP_SUITE_DELEGATE_RE)) {
+    if (delegateScriptRunsSuite(m[1])) return true;
+  }
+  return false;
+}
+
+// 委托这一支必须**双向**可测：只证"真委托被认出"等于给判据开了"任何叫 scripts/*.js 的步骤都算"的口子。
+test('桌面全量的委托形状：认得出现实里的那一步，也拒得出不跑桌面全量的脚本', () => {
+  const real = { run: "node scripts/electron-ci-desktop-step.js\n" };
+  assert.equal(stepRunsDesktopSuite(real), true,
+    "electron-ci 的委托步没被认出 ⇒ 它从本锁覆盖面消失，而『零个消费者』读起来完全像『全部合规』");
+  assert.ok(Array.from(real.run.matchAll(DESKTOP_SUITE_DELEGATE_RE)).length > 0,
+    "委托锚本身没命中 ⇒ 上面那条是靠别的支路绿的");
+  // 负控（本 PR 现场踩到的形态）：注释里**先**出现另一个 `node scripts/…` 时，
+  // 只取首个匹配的判据会把 electron-tests 整片判成"不是消费者"。
+  const shadowed = {
+    run: "# 复测入口 node scripts/electron-ci-shard-audit.js\n"
+      + "          node scripts/electron-ci-desktop-step.js\n",
+  };
+  assert.equal(stepRunsDesktopSuite(shadowed), true,
+    "注释里的另一个脚本名把真委托挡掉 ⇒ 覆盖面少一个消费者，而『少一个』读起来与『全部合规』同形");
+  assert.equal(stepRunsDesktopSuite({ run: "node scripts/electron-ci-shard-audit.js\n" }), false,
+    "只有那个不跑桌面全量的脚本时必须判 false —— 否则上面那条 true 是同义反复");
+  for (const fake of [
+    { run: "node scripts/electron-ci-desktop-step.js && echo done" }, // 同一条，只是带尾巴：仍必须认
+    { run: "node scripts/no-such-desktop-runner.js" },                 // 读不到 ⇒ 不算委托
+    { run: "node scripts/check-unwired-tests.js" },                   // 读得到但不跑桌面全量
+  ]) {
+    const want = fake.run.includes("electron-ci-desktop-step");
+    assert.equal(stepRunsDesktopSuite(fake), want,
+      "委托判据方向错：" + JSON.stringify(fake.run.slice(0, 42)) + " 期望 " + want);
+  }
+});
+
 function desktopStepsRunSuite(steps) {
-  return steps.some(step => {
-    const run = String(step.run || '');
-    return DESKTOP_SUITE_ONE_LINE_RE.test(run) || DESKTOP_SUITE_ARRAY_RE.test(run);
-  });
+  // ⛔ 必须走 stepRunsDesktopSuite：委托形状（workflow 只 `node scripts/…`）若不认，
+  //    electron-tests 会从本锁的覆盖面里**消失**，而"零个消费者"读起来与"全部合规"完全同形
+  //    —— 下面的 rows.length 下界就是为这一刻准备的（本次实测正是它先报出覆盖面退化）。
+  return steps.some(step => stepRunsDesktopSuite(step));
 }
 
 // 判据函数与"从盘上取 job"分离：顺序这一支必须由合成 steps 直接喂，否则收集器只扫 testIdx 之前的步骤，
 // `buildIdx > testIdx` 永不可达 —— 那就是又一道装饰性判据（写得出、点不到火）。
 function judgeDesktopSuiteJob(steps) {
-  const isSuite = step => {
-    const run = String(step.run || '');
-    return DESKTOP_SUITE_ONE_LINE_RE.test(run) || DESKTOP_SUITE_ARRAY_RE.test(run);
-  };
+  const isSuite = step => stepRunsDesktopSuite(step);
   const hasBothBuilds = step => DESKTOP_SUITE_BUILD_SCRIPTS.every(script => String(step.run || '').includes(script));
   const testIdx = steps.findIndex(isSuite);
   const buildIdx = steps.findIndex(hasBothBuilds);

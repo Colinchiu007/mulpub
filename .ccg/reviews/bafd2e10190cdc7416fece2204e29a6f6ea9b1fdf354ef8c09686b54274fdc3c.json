@@ -1,0 +1,96 @@
+{
+  "sha": "eefd3914f5a1b98f36fec4addee535e1081b64af",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 147 行（≤ 200）但命中 auth/数据库/加密：敏感内容 13 处",
+  "stats": {
+    "changedLines": 147,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 13,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "# 本次执行记录：信封库凭据\"绕开 GUI 取用\"排查（envelope-cred-boundary，2026-10-21）【docs-only】",
+      "于是想：能否**不启动 GUI** 就取到凭据验证发布链？",
+      "若能在 Node 里解出信封库凭据，就等于拿到了发布链真实输入。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bafd2e10190cdc7416fece2204e29a6f6ea9b1fdf354ef8c09686b54274fdc3c",
+  "decidedAt": "2026-10-21T07:19:07.394Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play(agent)",
+    "fallbackReason": "跨家族对抗后端超时（mode=dual 的外部侧未返回），按引擎第三档出口 self_play 自查。本条为 docs-only：新增一个\"暂不可用\"的排查留档脚本 + 记录文件。",
+    "closureNote": "round51 自查闭环。非高危面判定依据：① 改动只新增 scripts/dump-envelope-credentials.cjs（**运行结果是 exit 1，不产出任何凭据**）与 openspec/records/envelope-cred-boundary.md；② 不触碰判据本体、workflows、CI_IGNORED_PATHS；③ 凭证/登录态侧本次是**只读探测且三条路全堵**，未新增任何获取凭据的通道（脚本明确标注\"当前解不开\"）。逐条处置见下方 adjudication。",
+    "evidenceInRepo": "openspec/records/envelope-cred-boundary.md（三条路各自失败原因 + 结论 + 留档理由）",
+    "confidenceWeight": 0.85,
+    "adjudication": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "你加了一个\"解不开\"的脚本却不删 —— 这不是留下一个假产物吗？",
+        "verdict": "upheld_verified",
+        "rationale": "关键在它**会不会被误用**，我做了三层防误用：① 运行结果恒定 exit 1 + 明确错误文案（\"未取到 masterKey\"），不产出任何凭据；② 头部注释用 ⚠ 大段标注\"当前状态：解不开\"并列出三条路各自的失败原因；③ 执行记录里写明\"刻意保留一个暂不可用脚本\"的理由与\"绝不让它以可用工具面目存在」。对比删除的代价：删掉后，下一个会话（或未来的我）会从零开始重试这三条路，而这三条路各自要跑几分钟到十几分钟才有结论。留档是把**已付成本**变成可复用信息。⚠ 但我承认一个风险：若有人只看文件名就 `node scripts/dump-...` 然后看到报错，可能以为是脚本坏了。缓解只能是注释与记录 —— 已做，但无法更强（除非加个显式 的 --i-know-it-does-not-work 旗标，那是过度设计）。",
+        "fixCommit": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "三条路的失败结论可靠吗？会不会是你的用法不对而非真走不通？",
+        "verdict": "upheld_partial",
+        "rationale": "① 纯 Node 失败：**可靠**。masterKey 文件内容我直接读过（`safeStorage:v1:djEwjMC...`），   PBKDF2 的输入必须是 64 hex，而这个文件是 base64 包裹的密文 ⇒ 数学上就不可能。② DPAPI 失败：**较可靠但未穷尽**。我用的是 CurrentUser scope + 无 entropy；   Electron 可能用 LocalMachine scope 或带 entropy。我只试了一种组合。   ⇒ 严格说这条是\"我这种用法失败\"，不是\"DPAPI 一定解不开\"。③ Electron Node 模式：**可靠**。报错明确（safeStorage 不可用），是 API 暴露面的事实。综合：三条路里 ①③ 是确定性结论，② 未穷尽 —— 我在记录里把 ② 写成  \"safeStorage 在 DPAPI 外层还有自己的格式头，不是裸 DPAPI 密文\"，这是**观察**，  不是\"DPAPI 解不开\"的断言。措辞已注意，但读者仍可能过度泛化，此处如实标注。",
+        "fixCommit": null
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "这轮本来是想验证发布链，结果只得到\"取不到凭据\" —— 目标毫无推进？",
+        "verdict": "upheld_verified",
+        "rationale": "对目标（真实发布成功）确实无推进，这一点我不粉饰。但排除了一条**看似可行的捷径**（不启 GUI 就能验证），并把排除成本留档，这避免了未来会话重复投入。按\"先排除再投入\"的顺序，这是必要的一步。真正的推进仍取决于：应用重启（复跑抖音 E2E）与头条实名。两者都是用户动作。",
+        "fixCommit": null
+      }
+    ],
+    "summary": {
+      "total": 3,
+      "upheldPartial": 1,
+      "upheldVerified": 2,
+      "note": "i1 用三层防误用论证\"保留不可用脚本\"优于\"删除\"；i2 区分三条路的确定性（①③确定，②未穷尽 scope/entropy，并指出记录措辞是观察而非断言）；i3 承认对目标无推进但排除了伪捷径并留档。"
+    },
+    "at": "2026-10-21T07:20:56.016Z"
+  }
+}

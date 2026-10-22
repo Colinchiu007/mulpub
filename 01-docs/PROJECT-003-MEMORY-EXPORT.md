@@ -145,6 +145,74 @@ Level 3: AI 看图 (预留)
 - rimraf v3 API兼容: `rimraf.rimrafSync || rimraf.sync`
 - 基类测试用try/catch包裹避免Jest worker崩溃
 
+### 3.5 桌面端视觉系统：三层文件分工（2026-10-20，ui-visual-premium）
+
+**决策**：把「视觉」拆成三层文件，各管一件事，**互不混用**：
+
+| 层 | 文件 | 职责 | 变更触发 |
+|---|---|---|---|
+| 令牌层 | `src/styles/tokens.css`（唯一真源） | 颜色 / 圆角 / 间距 / 字体 / 表面 / 描边 / 高度 / 渐变 / 玻璃 / 动效 | 改「值」 |
+| 契约层 | `src/styles/cohere-design-system.css` | **有哪些类、语义是什么**（类名契约） | 增删类名 |
+| 观感层 | `src/styles/premium-components.css` + `premium-design-system.css` | **这些类看起来应该怎样**（观感口径） | 改「样子」 |
+
+**为什么**：观感与契约混在一份文件里时，改一次观感就会顶破「逐文件行数门禁」的登记目标
+（实测 TARGET_GROW：1794 > 1698）。分层后，契约文件回到 1696 行、观感独立成层，
+两类超限各有各的处置（搬走 / `--prune` 单键清账），**都不必抬基线**。
+
+**关键口径**（写新页面时照抄）：
+
+- 表面五层：`--surface-canvas`（画布/过渡色）→ `--surface-raised`（卡片）→
+  `--surface-sunken`（内嵌/空态）→ `--glass-bg`（顶栏/侧栏）→ `--surface-scrim`（模态背板）
+- 圆角 6 档：`--r-xs/sm/md/lg/xl/pill`（卡片主力档 `--r-lg` 16px）
+- 品牌渐变：`--brand-gradient`（`#5B5EE8 → #8B3FD9`）—— 白字压其上两端 ≥ 4.5:1
+- 阴影统一用**品牌紫调**（`--elevation-1..4`），不用中性黑（中性黑会让白底界面发灰）
+- 标题：墨色 `--color-text-strong` + 600 字重 + `--font-family-ui-display`；
+  品牌色只留给图标底座 / 状态徽章 / CTA
+- 数字：`--font-family-ui-display` + `font-variant-numeric: tabular-nums`（多卡小数点对齐）
+- 状态表达**双通道**（颜色 + 文字/图标），不得只用颜色
+- 空态/占位**禁用虚线描边**（虚线语义 = "没做完/出错了"）
+
+**配套的机器守卫**（防止回潮）：
+
+- `tests/visual-testing/scripts/ui-audit-recon.js` — 逐路由枚举计算样式，统计色/圆角/间距/字体碎片
+- `tests/visual-testing/scripts/ui-audit-capture.js` — 按 6 维度穷举界面面并逐面截图（页面/位置/操作状态标注）
+- `tests/visual-testing/ui-audit-scripts.test.js` — **路由覆盖守卫**：router 全路径 vs 巡检清单求差集，
+  新增路由漏登记即红（巡检脚本在 `tests/visual-testing/scripts/`，被 vitest exclude，
+  故测试放在 `tests/visual-testing/` 根下）
+
+**完整报告**：`01-docs/UI-VISUAL-AUDIT-2026-10-20.md` ·
+**产品规格**：`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md` ·
+**令牌口径**：`01-docs/design-system-usage.md` §四之二
+
+### 3.6 视觉基线必须由 CI artifact 的渲染重建，本机产物不得提交（2026-10-21，ui-visual-premium）
+
+**规则**：`scripts/check-baseline-freshness.js` 的漂移阈值是 **0 px**（不是像素套件的 6%），
+且判据原文写着「基线必须由 CI artifact 的渲染重建（QM-4 第 7 条），
+本机 `test:visual:update-baseline` 的产物不得提交」。
+
+**踩过的坑**：本机跑 `run-pixel-tests.js` 重新生成基线，本机自测 20/20 零漂移，
+但 CI 的 QG Visual 一直红——**同一份代码，本机与 CI runner 的字体/渲染环境不同**，
+两边渲染实测差 12 ~ 20384 px 不等，本机产物在 CI 侧逐张判 `BASELINE_STALE`。
+
+**更隐蔽的一格**：只由**亮色像素套件**产出的基线（如 `home-baseline.png`），
+在 CI 的两轮甄别里第二轮**没有渲染**（第二轮只重跑 views 两套 + 暗档）⇒
+「只有单轮红证据且另一轮没采到（无证据，不得当 flake 放行）」⇒ 判红。
+**只有第一轮零违规，判据才会在第一轮直接放行**（工作流 `if` 短路），根本不会进第二轮。
+
+**正确做法**：
+
+```bash
+gh run download <run-id> -n quality-gate-visual-reports -D <dir>
+# <dir>/tests/visual-testing/screenshots-round1/ = Gate 7 那轮的渲染
+# 按 findRender 的同源规则（先 <name>.png，后 <name>-current.png）重建 base-screenshots/
+node scripts/check-baseline-freshness.js \
+  --renders=<dir>/tests/visual-testing/screenshots-round1 \
+  --baselines=apps/desktop/tests/visual-testing/base-screenshots --partial
+```
+
+**判据**：凡是要动视觉基线的 PR，**先看 CI 的 artifact，不要先在本机重生成**。
+本机像素回归通过（≤6%）**不代表** CI 侧零漂移（要求 0 px），这两条判据不是同一条。
+
 ---
 
 ## 四、竞品分析

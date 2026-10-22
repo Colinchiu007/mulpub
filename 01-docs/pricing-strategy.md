@@ -78,15 +78,37 @@ youtube    tiktok  twitter  instagram  facebook
 
 ## 4. 支付
 
-`apps/desktop/electron/services/payment-manager.js:23`
+> ⚠️ **本节 2026-10-21 更正。** 原文写「已实现：支付宝、微信支付」并引用
+> `apps/desktop/electron/services/payment-manager.js:23` 的 `PAYMENT_METHODS`——
+> **该文件已于 2026-10-17 随买断授权模型一并删除**（PR #3851，见
+> `openspec/records/remove-buyout-license.md`）。那是一句**假的文档声明**：
+> 引用的代码不存在，「已实现」指的是已被切断的本地 mock 下单链路。
+> 2026-10-17 PR #3798 已把所有升级入口改指会员中心，本页此后描述的才是事实。
 
-```js
-const PAYMENT_METHODS = ['alipay', 'wechat']
-```
+**当前真实状态（2026-10-21）**：
 
-**已实现：支付宝、微信支付。**
-**未实现：Stripe / 海外支付。** v1.0 写的「Stripe（海外，后续）」至今没有代码，
-海外用户目前**无法自助付费**——这是商业化上比定价更靠前的阻塞项。
+| 通道 | 状态 | 证据 |
+|---|---|---|
+| 兑换码核销 | ✅ 可用 | `subscription-service.js` `redeem()`，渠道 `channel='redeem'` |
+| ops-center 后台开通 | ✅ 可用（仅运营） | `grant()`，渠道 `channel='admin_grant'` |
+| **微信 Native 扫码支付** | 🟡 **设计定稿，编码未开始** | PRD：`PRD-WECHAT-PAY-INTEGRATION-2026-10-21.md`；change：`openspec/changes/wechat-native-payment/` |
+| 支付宝 | ❌ 未实现 | 无代码 |
+| Stripe / 海外支付 | ❌ 未实现 | 无代码，海外用户仍无法自助付费 |
+
+**微信支付接入的最小闭环口径**（2026-10-21 用户确认）：
+一次性下单 → Native 扫码 → webhook 回调 → 复用 `applySubscription` 发放权益。
+**不做**自动续费（需另签「委托代扣」资质）、升降级、自助退款、试用、促销码、客户门户。
+续期语义 = 用户重新下一单，由既有续叠逻辑顺延时长。
+
+**费率**：0.6%。按现行定价：
+
+| 档位 | 月付手续费 | 年付手续费 |
+|---|---|---|
+| standard ¥59 / ¥499 | ¥0.354 | ¥2.994 |
+| pro ¥119 / ¥999 | ¥0.714 | ¥5.994 |
+
+叠加 §1 成本占比（standard 27.1% / pro 18.5%）后毛利仍为正。
+**改价时必须重算这两列的乘积**（见 §7 改价流程第 3 步）。
 
 ## 5. 转化路径（设计意图，非已实现）
 
@@ -134,7 +156,7 @@ const PAYMENT_METHODS = ['alipay', 'wechat']
 
 1. 改 `plan-matrix.js` 的 `BASE_MATRIX`（含 `PLAN_MATRIX_VERSION`）
 2. 跑 `packages/api-publish-engine` 相关测试，确认 `NUMERIC_KEYS` 覆盖完整
-3. 回写本文档
+3. 回写本文档（**含 §4 支付表与手续费列** —— 改价后费率乘积必须重算）
 4. 回写 `01-docs/marketing/` 全组（`README.md` / `01` / `02` / `03` / `04`）
 5. 核对 `apps/desktop/` 侧栏等 UI 文案里的价格字面量
 

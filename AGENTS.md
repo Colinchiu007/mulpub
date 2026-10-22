@@ -128,7 +128,7 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 - squash 合并后**分支 tip 不是 `origin/main` 的祖先**，用 `git merge-base --is-ancestor <branch> origin/main` 判「已合并」必然为假（`git branch -d` 同因拒绝）。删本地分支前的判据**面必须收敛到本 PR 自己的改动集，并按文件类别拆两半**（2026-10-16 由 #3674 立；下面每条假阳性率都取自当天 5 次真实合并的实测，不得当修辞）：
   先取改动集 `FILES=$(git diff --name-only "$(git merge-base origin/main <branch-tip>)" <branch-tip>)`。
   ① **普通文件**逐字节比 blob：`[ "$(git rev-parse <branch-tip>:<f>)" = "$(git rev-parse <merge-SHA>:<f>)" ]`，逐文件要求相等。
-  ② **多会话共用写面**（`CHANGELOG.md`、`01-docs/learnings.md`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`、`scripts/doc-abs-paths-baseline.json` 这类追加/置顶型文件）**只能按行级多重集判，且必须双向**：
+  ② **多会话共用写面**（`CHANGELOG.md`、`01-docs/learnings.md`、`.quality-gates.md`、`scripts/gate-record-debt-ledger.json`、`scripts/doc-abs-paths-baseline.json` 这类追加/置顶型文件；其中 `CHANGELOG.md` 与 `01-docs/learnings.md` 自 2026-10-21 起**只由聚合器写入**、PR 不得直接编辑，口径见「参考文件」节的 `CHANGELOG.md` 条目）**只能按行级多重集判，且必须双向**：
      ⚠️ 下面两行是 **v1/v2 的旧写法**，已被下一行的实测否证并整体替换 —— 保留只为说明来路，**不要照抄**（照抄就会复刻那三类假阳性）。
      用 `git diff --unified=0 <base> <branch-tip> -- <f>` 取出**我的新增行**，逐条要求在 `<merge-SHA>:<f>` 中出现次数 ≥ 我给的次数；
      再取出**我的删除行**（去重、去空白、`trim` 后比较），逐条要求其**不出现**在主干该文件里——单向只证"我的东西都在"，证不出"我删掉的那行没被后续合并带回来"。
@@ -414,7 +414,7 @@ CRITICAL 必须修复才能继续。
 
 - `01-docs/DEVELOPMENT_REPORT.md` — 开发报告
 
-- `CHANGELOG.md`（仓库根）— 变更日志
+- `CHANGELOG.md`（仓库根）— 变更日志。**⛔ 不由 PR 直接编辑**（`01-docs/learnings.md` 同）：每个 PR 把变更说明写进自己的 `openspec/records/<分支名>.md` 里的 `## CHANGELOG 条目` 小节（**一条变更一个 H1 标题块**，正文首行必须是台账级 H1），台账由 `node scripts/aggregate-changelog.js --write` 在**发版时**统一搬运，幂等键是记录名（= 分支名），不是标题文本。动因是实测：往这两个文件顶部插块时，任意两个在飞 PR 结构上必撞（2026-10-20 对 4 个可判定的 CONFLICTING PR 跑 `git merge-tree`，冲突文件**只有**这两个），CI 全绿也合不进去。现状由 `scripts/check-no-hot-carrier-edit.js`（CI `Gate 2b9`，advisory 档）按 PR 差量点名；**发版前必须先跑聚合器再收口**，`scripts/release-gate.mjs` 会在拿不到聚合器读数或有 N 条待搬时直接判红（`AGGREGATE_FAIL` / `AGGREGATE_PENDING`）。
 
 - `01-docs/DESIGN.md` — 设计规范
 
@@ -611,7 +611,7 @@ Code review 时除逻辑正确性外，必须逐项检查：
 - **Prompt 批量结果内容合同**：`OPTIMIZE_BATCH` 不得只校验 prompt-engine 返回数组的数量；每项必须是非空字符串，或按资产阶段实际读取顺序包含非空 `prompt` / `optimized_prompt` / `optimized`。等长的 `{}`、`null`、空白字段必须在 `StageExecutor` 立即 fail closed。回归测试必须经真实 `PromptBridge`、`ServiceBus` 和本机临时 HTTP 服务覆盖包装响应，不能只 mock 最终数组。
 
 - **打包状态优先于开发环境变量**：许可证、调试入口、logger 和开发短路必须以 `app.isPackaged === false` 为前提；`NODE_ENV=development`、`ELECTRON_IS_DEV=1` 等环境变量不得让已打包应用进入开发权限或开发日志路径。测试必须同时覆盖打包/未打包状态和残留环境变量。
-- **发版版本级别 ↔ 改动规模匹配**：合并发版 PR / 打 tag 前，确认 `pnpm version:bump` 的级别与改动匹配（0.x 基线：新功能 / 破坏性变更 bump `minor`，修复 bump `patch`）；`release-gate` 会硬性拦截「未 bump 就打 tag」「CHANGELOG 未收口」，并对「破坏性变更却 `patch` 级」软警告（属人工判断，不阻断）。
+- **发版版本级别 ↔ 改动规模匹配**：合并发版 PR / 打 tag 前，确认 `pnpm version:bump` 的级别与改动匹配（0.x 基线：新功能 / 破坏性变更 bump `minor`，修复 bump `patch`）；`release-gate` 会硬性拦截「未 bump 就打 tag」「CHANGELOG 未收口」，并对「破坏性变更却 `patch` 级」软警告（属人工判断，不阻断）。**2026-10-21 起它还拦第三件事：台账没由聚合器收口**（`AGGREGATE_FAIL` = 取不到 `scripts/aggregate-changelog.js --dry-run` 的读数，含 `records=0` 这种"采集面退化"；`AGGREGATE_PENDING` = 确有 N 条执行记录条目还没搬进台账）。两条文案刻意不合并成一句，因为解法不同：前者要修聚合器，后者只要跑 `node scripts/aggregate-changelog.js --write`。所以发版 SOP 的顺序是 ①`--write` 搬台账 → ②把顶部 `## [未发布]` 收口成 `## [vX.Y.Z]` → ③bump → ④打 tag；顺序反了会在 `CHANGELOG 未收口` 那条上白红一次。
 
 - **Adapter capability 单一来源**：修改 `BaseAdapter.KNOWN_METHODS` 后必须检索所有 Adapter 的 `capabilities()` 手动覆盖；已进入 `KNOWN_METHODS` 的能力不得再次 `concat`。回归测试必须断言 `supports(method) === true`、能力只出现一次，并覆盖 `ModelProviderManager` 的调用入口。
 
@@ -1069,7 +1069,7 @@ codeagent-wrapper --backend <FRONTEND_PRIMARY> --lite "审查 <change> 实现：
   - **收口转变检测**（tasks 8.1 判据侧）：`mode=dual` 产物 base 非闭环 → head 闭环，而本次没带出处（既无 `tier=external` + 可核 `evidence`，也无带轮次标记与逐条处置结论的 `closureNote`）⇒ 点名。它比矩阵**刻意更严**：非高危面上 `self-play` 收口算闭环（那问的是「这个东西存不存在」），但「把 pending 翻成闭环值」这个**动作**仍要出处——两档口径不同不是漂移，由用例钉住，别当遗漏「顺手统一」。base 取不到时不判红，计入「未证实」读数并打印；⛔ 不得把工具的失明读成「没有欠账」。
   - **撞线时的处置纪律**：⛔ 不得靠削宽判据让它不红（缩清单、放宽 `evidence` 形态、把 `unrecognized` 改回放行都算）。两个机械出口就写在红文案里，不必去猜：① 补跑真外部评审（`sh scripts/deep-review.sh`）拿 `tier=external` + 可核 `evidence`；② 确认判定确属假阳性 ⇒ **非高危面**写含轮次标记 + 逐条处置结论的 `closureNote`，再把 `status` 置为闭环值（高危面不适用这一条）。
 - 矩阵**没覆盖到**的四格是已登记欠账，不得读成「已闭合」：① `mode=single` 在 `evaluateDeepReviewDebt` 里直接 `continue`，而判定器的 `RULES.sensitivePaths` 与 `HIGH_RISK_SURFACES` 是两份独立清单、实测已分叉 ⇒ 改判据本体的小改动被判 `single` 时，凭一条 pending 记录即可通过（tasks 8.5；修法在写入方——由 decider 把高危路径判成 dual，但那会把 DUAL 钩子的 23–40 分钟加到每次改判据的提交上，属「谁来守门」，须人工过目）；② 引擎侧的 crypto 高危域标签（`highRiskDomains`）与本矩阵的路径前缀是**两个轴**，判据不读前者；③ 跨面行为变更（改非高危路径的共享函数、而调用方是高危面）前缀匹配结构性看不见（design §3 残余，tasks 2.5）；④ **CI 侧本判据仍以 `--mode=advisory` 运行**（`quality-gate.yml` 的 Gate 2c2 打印理由后 `exit 0`）⇒「**QG Changes 全绿」不等于「QM-6 已闭合」**，真实拦截发生在 enforce（本机 / 评审链）与测试里；转 required 属改「谁来守门」（tasks 8.6）。
-- `tier=external` 此刻**仍由会话手写进产物**：全仓没有任何生产方写 `tier`（评审引擎在仓外用户技能目录 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`，全文 `tier` 出现 0 次、只写 `status`/`performedBy`；`scripts/deep-review.sh` 同为 0）。所以上面的出口 ① 目前是**手写代用**，`closureNote` 里必须如实写明这一层，不得把写手的字段说成工具产物。
+- **`tier=external` 自 2026-10-22 起由工具写**（change: `qm6-closure-writeback`）：`sh scripts/deep-review.sh` 在**驱动返回之后**调 `scripts/ccg-review-writeback.js`，五条合取（闭环 status / findings 非空 / `performedBy` 等于清单里的 critic / 动手前后字节与语义指纹都变了 / 记录路径由入口显式透传）全部成立才写 `tier=external` + `evidence=delivery@<sha256(deepReview.findings)>`；任一不成立 ⇒ 不写、不改 status、点名缺哪一条（`not-closed` / `empty-findings` / `backend-mismatch` / `no-write` / `no-new-delivery` / `before-state-missing` / `record-unreadable`）。三条要记住的边界：① **写回是旁路**，恒不改评审 rc（`deep-review-entry-rc.test.js` 用假驱动分别断言 rc=0/1/2 逐字相等与信号终止的实测映射）；② **`delivery@` 不是签名**——任何填写方一条命令可自算，判据只做"形状 + 就地重算自洽"，失配降 `external-unverified` 而不是指控伪造；③ 由会话手写 `tier` 仍然是**能过判据**的，但那属代用，`closureNote` 里必须写明「tier 由会话手写」并给轮次与逐条处置，不得说成工具产物。评审引擎本身（仓外 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`）全文 `tier` 出现 0 次、收口是 `rec.deepReview = deepReview` 的**整体替换**（会把初值里的 `tier`/`evidence` 键吃掉）——这就是本模块必须存在于**驱动返回之后**的原因。
 - 纯文档/流程变更（`openspec/`、`docs/`、`scripts/` 工具脚本）不强制 QM-6，但建议执行
 
 ## 测试质量增强工具（v0.16.0）

@@ -315,6 +315,12 @@ function registerHandlers (ipcMain, deps) {
   }
 
   // 出期宿主同样惰性构造：注册动作本身不得解析 media tool 路径（打包前它们可能不存在）。
+  // tasks 4.5b④（QM6 i3 采纳）：音色接线的**装配点与实例都只有一处**——拆进 `podcast-voice-deps.js`
+  // 后由 WeakMap 记忆化，预览（浮层显示「谁说话」）与出期宿主（真的决定谁说话）拿到同一个对象引用，
+  // 那条不变量现由 `podcast-voice-deps.test.js` 断言，不再只剩源码形状。回退顺序不在这里写。
+  const { createVoiceDepsFactory } = require('../services/podcast-voice-deps')
+  const voiceResolveDeps = createVoiceDepsFactory({ deps, log, ownerSubjectOf: resolveIpcOwnerSubject })
+
   let episodeHost = deps && deps.podcastEpisodeHost ? deps.podcastEpisodeHost : null
   function getEpisodeHost () {
     if (episodeHost) return episodeHost
@@ -325,6 +331,8 @@ function registerHandlers (ipcMain, deps) {
       channelServiceOf: (id, options) => getService(id, options),
       hostingService: getHostingService(),
       logger: log,
+      // 与预览同一份音色接线（缺任一读取实现时宿主在文本出期那站当场拒绝，不退回静音老路）
+      voice: voiceResolveDeps(),
       // 打包产物优先；解析不到时宿主会把这一站判成抽取前置条件不成立，不回退宿主 PATH
       findFfmpeg: () => mediaToolPaths.findFfmpeg(),
       findFfprobe: () => mediaToolPaths.findFfprobe(),
@@ -341,47 +349,11 @@ function registerHandlers (ipcMain, deps) {
   //    前端自抄一份切分必然与「实际发出去的块数」漂移，而那个数正是确认框唯一要告诉用户的。
   // 3. 缺实现即拒：deps 没接 store 或没接 modelProviderManager 时不猜默认值，让浮层如实显示「没解析出来」。
   let planPreview = deps && deps.podcastEpisodePlanPreview ? deps.podcastEpisodePlanPreview : null
-  let previewDepWarned = false
   function getPlanPreview () {
     if (planPreview) return planPreview
     const { createEpisodePlanPreview } = require('../services/podcast-episode-plan-preview')
-    const { createVoiceReaders } = require('../services/podcast-episode-tts-adapters')
-    const catalog = require('../services/tts-voice-catalog')
-    const { resolveProviderDefaultModel } = require('../services/model-provider-manager')
-    const readers = createVoiceReaders({
-      // 偏好键的字面量只在 adapters 那一处，本层不再抄一份（抄了就有两份键格式，改一处即漂移）
-      readSetting: (key) => {
-        const s = deps && deps.store
-        if (!s || typeof s.getUserSetting !== 'function') {
-          if (!previewDepWarned) {
-            previewDepWarned = true
-            log.warn('[ipc:podcast] 预览缺 store 注入：音色偏好按未配置处理（不猜默认音色，只报一次）')
-          }
-          return null
-        }
-        return s.getUserSetting(key, null, resolveIpcOwnerSubject(deps && deps.identityService))
-      },
-      getVoiceCapability: (providerId, model) => catalog.getVoiceCapability(providerId, model),
-    })
-    planPreview = createEpisodePlanPreview({
-      defaultProviderOf: () => {
-        const m = deps && deps.modelProviderManager
-        if (!m || typeof m.getDefault !== 'function') {
-          if (!previewDepWarned) {
-            previewDepWarned = true
-            log.warn('[ipc:podcast] 预览缺 modelProviderManager 注入：② ③ 两层没有定位键，将如实拒绝')
-          }
-          return null
-        }
-        const row = m.getDefault('tts')
-        if (!row || !row.id) return null
-        // 默认模型取法只有 model-provider-manager 一份实现，本层不自己挑 models[0]
-        return { providerId: String(row.id), model: resolveProviderDefaultModel(row, 'tts') }
-      },
-      readPreference: readers.readPreference,
-      getCapability: readers.getCapability,
-      warn: (msg) => log.warn(String(msg || ''))
-    })
+    // 三个读取实现取自上面那唯一一处接线（`voiceResolveDeps`），本层不再自建第二份
+    planPreview = createEpisodePlanPreview(voiceResolveDeps())
     return planPreview
   }
   ipcMain.handle('podcast:hosting:get', withSenderCheck(handlerFor('hosting:get', async () => ({ hosting: getHostingService().getHosting() }))))

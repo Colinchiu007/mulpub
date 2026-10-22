@@ -121,3 +121,31 @@ strategyId: strategyMode.value === 'manual' ? (rewriteStrategyId.value || null) 
 - [ ] 侧边栏一级导航出现「文案改写」，运营中心种子同步
 - [ ] 四处策略区块标题均显示「改写策略」（en: Rewrite strategy）
 - [ ] desktop 全量单测通过；CI 13 项 required 全绿
+
+---
+
+## 附：数据层归属的变更（rewrite-view-decompose，2026-10-21）
+
+本 PRD 定义的**全部策略选择行为**（默认手动模式、自动匹配预览、下发契约 `strategyId`、
+预览与改写同口径）**一条未改**。本次只把**数据层**从视图搬进 composable：
+
+| 项 | 变更前 | 变更后 |
+|---|---|---|
+| 展示层组件 | `components/RewriteStrategyPicker.vue` | 不变 |
+| 列表加载 + 预览 + 竞态守卫 + 正文防抖 | `views/RewriteView.vue` 内联 | `composables/useRewriteStrategy.js` |
+
+**两条机制一条不减**：
+
+| 机制 | 防的是什么 | 落点 |
+|---|---|---|
+| 竞态守卫（请求序号） | 快速切换平台时，慢的旧响应覆盖快的新响应 | composable 内 |
+| 正文防抖（300ms） | 逐字输入变成逐字请求 | composable 内（`watch(content)` → `setTimeout`） |
+
+⚠️ 两者缺一都会出问题：竞态守卫只保证「过期结果不渲染」，**拦不住请求本身**，
+所以必须有防抖配合。
+
+新增回归锁：`composables/useRewriteStrategy.test.js`（12 例）。其中竞态守卫与 300ms 防抖
+是**搬出视图后第一次有独立测试锁住**的两条契约 —— 在视图里它们是一个 `let previewSeq` 加一个
+定时器，没有各自的测试。
+
+详见 `01-docs/PRD-REWRITE-VIEW-DECOMPOSITION-2026-10-21.md` §六。

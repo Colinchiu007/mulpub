@@ -31,6 +31,7 @@ const { createContactSheetApi } = require('./contact-sheet')
 const { createApprovalGateApi } = require('./approval-gate')
 const { createReplayApi } = require('./replay')
 const { createIdentityApi } = require('./identity')
+const { createWeChatPayApi } = require('./wechat-pay')
 const { createTtsVoiceCatalogApi } = require('./tts-voice-catalog')
 const { createTtsVoiceCloneApi } = require('./tts-voice-clone')
 const { createAvatarCatalogApi } = require('./avatar-catalog')
@@ -101,6 +102,7 @@ const fullApi = {
   ...createApprovalGateApi(ipcRenderer),
   ...createReplayApi(ipcRenderer),
   ...createIdentityApi(ipcRenderer),
+  ...createWeChatPayApi(ipcRenderer),
   ...createTtsVoiceCatalogApi(ipcRenderer),
   ...createTtsVoiceCloneApi(ipcRenderer),
   // 数字人形象/音色目录（avatar-spokesperson 流水线 UI 用）

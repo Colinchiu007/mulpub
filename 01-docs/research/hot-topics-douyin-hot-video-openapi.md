@@ -79,7 +79,7 @@
 1. **自托管签名方案**：`Evil0ctal/Douyin_TikTok_Download_API`（20,724★，**Apache-2.0**，含 `DOUYIN_HOT_SEARCH` 端点封装）作为**用户自装的外部服务**，应用只调其 HTTP 接口。代码不入包（许可证姿态要求），并标 `riskLevel: 'high'` + 独立熔断。
 2. **归档型降级**（PRD §5 那片）：继续只做「在榜天数 / 峰值排名」这类**名次派生量**，明确不对用户提供条目，也不宣称条目能力。
 3. **付费数据服务**（TikHub / JustOneAPI 一类）：可作为可选数据源，但界面必须如实标注付费来源，且需单独过一次合规评估。
-4. ❌ **禁止**：MediaCrawler（**非商业学习许可 1.1**，禁商用禁大规模抓取）、`cv-cat/Spider_XHS` / `DouYin_Spider` / `creatorhub`（**无许可证文件** ⇒ 默认保留所有权利）、把 GPL-3.0 的 TrendRadar / TikTokDownloader 代码引入安装包。
+
 
 ---
 

@@ -1,0 +1,79 @@
+{
+  "sha": "060755d5e70a61100deee751489761ecfb0f0d8f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1268 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1268,
+    "fileCount": 8,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3117c8469d6c3c6ddb4d0245fa1425e460de100389450d3cfc56421113ac817c",
+  "decidedAt": "2026-10-21T17:37:14.146Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "claude",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": 8,
+    "template": ".adversarial\\ccg-deep-070cae15\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
+    "at": "2026-10-21T17:38:49.743Z",
+    "tier": "external",
+    "evidence": "PR #4204 评论（第 1 轮 8 条 findings 与逐条处置）：https://github.com/Colinchiu007/mulpub/pull/4204#issuecomment-6323452201 ；裁决产物 .adversarial/ccg-deep-070cae15/adjudication.json（5 条逐项 prosecution/defense/verdict/rationale）",
+    "externalReview": {
+      "performedBy": "claude",
+      "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4204#issuecomment-6323452201",
+      "reviewedAt": "2026-10-21T18:44:15.653Z"
+    },
+    "dispositions": {
+      "i1": "dismissed（前提与 §28 断言冲突；其\"默认闭包丢 stderr\"那一半为真并已修 + §29 + M-D9）",
+      "i2": "upheld，属评审链工具 ⇒ 登记为独立一刀",
+      "i3": "dismissed（刻意不对称），文档半采纳进 design D2",
+      "i4": "upheld，字节下界换成声明集合判据（M-D14 反证）",
+      "i5": "upheld 并落码（SYNTHETIC_IDENTITY + 无身份现场 + 对照探针，见 design D9）",
+      "i6": "无动作",
+      "i7": "dismissed（相邻两行已给全）",
+      "i8": "采纳（design D11 固定下一次运行的读数格式）"
+    },
+    "closureNote": "第 1 轮评审对象是提交 070cae15 的树；i4/i5 的改动在其后 ⇒ 本产物按 needs_revision 收口（它确实逼出了改动），最终树的盖章由 f4027a36 那条承担。诚实边界：tier=external 这个字段由本次会话手写——全仓无生产方写 tier（评审引擎在仓外技能目录，只写 status/performedBy）。",
+    "closedAt": "2026-10-21T18:44:15.653Z"
+  }
+}

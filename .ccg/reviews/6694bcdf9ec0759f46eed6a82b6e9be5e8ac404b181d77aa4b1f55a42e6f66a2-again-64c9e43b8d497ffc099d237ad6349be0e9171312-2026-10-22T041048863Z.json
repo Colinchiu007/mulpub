@@ -1,0 +1,59 @@
+{
+  "sha": "64c9e43b8d497ffc099d237ad6349be0e9171312",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 18 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 18,
+    "fileCount": 4,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"defense\": \"防线成立且**已取证**：这些数值**本就公开在仓库里**——`01-docs/LEARNINGS-DASH-FULL-ENTITLEMENT-2026-10-17.md` 第 51–53 行写着「跨家族评审的 opencode 后端有 7800 字符输入上限（实测边界 (8125, 8145]）会被同步拒绝（~120ms、exit 1、无任何错误信息）」。评审记录只是再次记录了同一条**已公开的工程事实**，且这些是**实测参数**、不是凭据/密钥/内网地址。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6694bcdf9ec0759f46eed6a82b6e9be5e8ac404b181d77aa4b1f55a42e6f66a2",
+  "decidedAt": "2026-10-22T04:10:48.853Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

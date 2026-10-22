@@ -1762,3 +1762,720 @@ return { success:false, error:'publish timeout', platform:'douyin' }
 1. 用**小视频**（如 5MB 以内）先跑通链路，排除"大文件上传慢"的干扰；
 2. 全程记录 `onProgress` 回调的阶段与百分比；
 3. 应用退出时先看是否有崩溃日志，再归因。
+### 16.21 分区 cookie 同样无法在应用外读取（2026-10-21，独立证据源）
+
+> §16.18.2 已确立「发布链主源是信封库」。本节补一条**独立证据源**的验证：
+> 分区 cookie 也无法在应用外读取 —— 与信封库同结论，但来自不同机制。
+
+#### 16.21.1 实测
+
+抖音分区 `rpa-douyin-01ab122e` 的 `Cookies` 文件 **53248 字节**（mtime 05:15，最近有写入），
+说明应用确实在往里写 cookie。但用 Playwright 以该分区为 profile 启动后：
+
+```
+ctx.cookies()                        → 0 条（全部域）
+ctx.cookies('https://creator.douyin.com') → 0 条
+关键键 sessionid/sessionid_ss/sid_tt/odin_tt/msToken/passport_csrf_token → 全部 false
+```
+
+⇒ **文件在增长，但外部读不出内容**。
+
+#### 16.21.2 成因（与信封库同源，机制不同）
+
+| 凭据形态 | 保护机制 | 外部可读？ |
+| --- | --- | --- |
+| 信封库 `*.json.enc` | PBKDF2-SHA512 + AES-256-GCM，masterKey 被 `safeStorage` 包住 | ❌（§16.21 之前三轮排查） |
+| 分区 `Cookies`（SQLite） | ⚠ **机制未确证**（可能与 Chromium cookie value 加密 / app-bound encryption、或 Playwright profile 格式不兼容有关） | ❌（本节） |
+
+⇒ 两条路都堵，但这是安全边界按设计生效，不是缺陷。
+
+> ⚠ **成因的确定性边界**：本节只确证了两个**事实**——① Cookies 文件 53248 字节且 mtime 很近；
+> ② Playwright 以该分区为 profile 读出来 0 条（全部域）。
+> "加密导致读不出"是连接二者的**解释之一**，未排除的其他解释包括：
+> Playwright 不认 Electron 分区结构、cookie 为 session-only 随进程退出即消失、
+> 或 domain 落在 Electron partition 命名空间。**不要把这条成因当定论。**
+
+#### 16.21.3 对验证方法的结论
+
+「用分区 cookie 在应用外探测平台接口」这条路**不可行** ——
+这同时修正了一个此前的隐患：§16.18.2 里我用分区 cookie 调 `auth_data` 得 300330，
+当时的解读是"分区凭据与信封库不同步"；现在看更可能是**分区 cookie 本身就读不出来**
+（那次之所以有反应，是因为 Playwright 起了自己的 profile，某些未加密字段仍在）。
+
+⇒ 教训：**外部探测拿不到有效凭据时，不要把"探测失败"归因成"凭据失效"**，
+   应先确认"凭据是否真的取到了"。
+
+#### 16.21.4 唯一可行的验证途径
+
+经 GUI 应用自身（`publish:batch` IPC，内部用信封库凭据）—— 即 `dy-publish-e2e.cjs` 的做法。
+**前置：应用必须已启动。**
+### 16.22 抖音视频发布**首次真实成功**（2026-10-21，DOM 轨）
+
+> 本节是四平台里第一个 `status=success` 的真机记录。含证据链与**未闭合项**。
+
+#### 16.22.1 任务终态（应用队列实读）
+
+```json
+{
+  "id": "task_1_1792569782094",
+  "platform": "douyin",
+  "status": "success",
+  "result": { "success": true, "url": ".../creator-micro/content/post/video?enter_from=publish_page",
+              "platform": "douyin", "mode": "dom" },
+  "submitAttempted": true,
+  "submittedAt": 1792569891100,
+  "createdAt":  "2026-10-21T08:03:02.094Z",
+  "completedAt":"2026-10-21T08:04:51.100Z"
+}
+```
+
+⇒ **全程 109 秒**（此前两次分别为 10 分钟 timeout / 20 分钟无终态）。
+  `submittedAt` 是真实提交时间戳（此前失败样本该字段为 `null`）。
+
+#### 16.22.2 证据链（三环，各自独立）
+
+| # | 证据 | 说明 |
+| --- | --- | --- |
+| ① | 任务 `status=success` + `submittedAt` 非空 | 应用自己的发布链判定成功**且**记录了提交时刻 |
+| ② | 排除 URL 导航判定（`_waitForSuccessNavigation`） | 该判据要求 URL 含 `success` / `publish/success`（`rpa-view-navigation-helpers.js`），而 `result.url` 是 `content/post/video` ⇒ **不是**这条路径 |
+| ③ | 发布页表单**仍持着本次内容** | 重新打开发布页：`hasUploadArea=false`（上传区已消失 ⇒ 视频已上传）、正文本字匹配（「你还记得大明是"东亚病夫"吗…」）、描述计数 `170/1000` ⇒ 内容确实进入过发布流程，不是空表单 |
+
+⇒ 由 ② 反推：**大概率**命中 `rpa-view-platforms.js:1050` —— 等到了 `aweme/create_v2` / `create` / `post`
+  的**真实网络响应**（`_waitForResponse` 监听 session 响应，`rpa-view-helpers.js`），
+  若如此则意味着**服务端确认创建**，而非"按钮点了但没反应"。
+
+> ⚠ **推理边界**（CCG i2 指出后修正）：② 只证明了"**不是** `_waitForSuccessNavigation` 这条路径"，
+> **没有**穷尽 `_publish_douyin` 里所有 `return {success:true}` 的分支（未通读整个函数）。
+> 因此"命中 L1050 / 服务端确认创建"是**高概率推断，不是定论**。
+> 要证成它，需在 L1050 附近加埋点，把 `resp`（服务端响应体）落进历史 —— 那也正是下一步 ②。
+
+#### 16.22.3 为什么内容管理页（作品 238）没看到它
+
+实测：内容管理页只有「作品 / 作品合集」两个 tab，**没有草稿 tab**；
+作品列表按"最新发布"排序，最新一条是 2026-10-18。
+
+未解释（**不做猜测**）：本条内容为何不在列表。可能原因包括私密/待审核/草稿态、
+列表有默认筛选、或发布落在另一个入口。**在拿到平台侧明确状态前，不宣称"草稿已生成"。**
+
+#### 16.22.4 未闭合（如实）
+
+| 项 | 状态 |
+| --- | --- |
+| 应用侧发布成功 | ✅ 已证实（三环证据） |
+| **平台侧产物 ID**（`aweme_id` / `item_id`） | ❌ **未取到** —— `result` 里没有（DOM 轨不返回服务端 ID） |
+| 平台侧状态（草稿/私密/已发布） | ❌ 未确认（内容管理页不可见） |
+| 分轨诊断 `track` / `apiTrackAttempted` | ❌ 未记录 ⇒ **应用跑的是旧二进制**（埋点 #4155 已合并，但进程早于它启动） |
+
+⇒ 下一步：重启应用（加载新二进制）后重跑一次，届时 `track` 会告诉我们是哪条轨；
+  同时应让 DOM 轨成功时**带回服务端响应体**（含 `aweme_id`）——这是 §16.19.4 埋点之外的
+  **第四项缺口**：成功路径没有产物 ID 留档。
+### 16.24 西瓜上传页入口疑云：竞品用 `studio.ixigua.com`，我们用 `mp.toutiao.com`（2026-10-21）
+
+> 按用户指示「发布相关实现首选复用竞品逆向成果」复查头条视频上传入口，发现一处**未验证的差异**。
+
+#### 16.24.1 竞品逆向成果的实际入口
+
+`04-rea-evidence/<参考产品>-主进程清点.json` 的 URL 清点（按出现次数）：
+
+| 用途 | 竞品 URL | count |
+| --- | --- | --- |
+| **上传页** | `https://studio.ixigua.com/upload?from=post_article` | **6** |
+| 上传页（带 gid） | `https://studio.ixigua.com/upload?gid=` | 2 |
+| 创建条目 | `https://studio.ixigua.com/api/upload/CreateItem/?_signature=_` | 2 |
+| 上传授权 | `https://studio.ixigua.com/api/upload/getAuthKey/?params=%7B%22type%22:%22` | 1 |
+| 话题建议 | `https://studio.ixigua.com/ugc/publish/post/v1/suggest/?words=` | 1 |
+| 内容列表 | `https://studio.ixigua.com/api/content/list` | 1 |
+| VOD | `https://vas-lf-x.ixigua.com/video/openapi/v1/` | 1 |
+
+而 `studio.ixigua.com` 这个 host 在清点里 **count=41**（远比 `mp.toutiao.com` 的 xigua 路径热）
+⇒ 竞品实际主战场是 **`studio.ixigua.com`**（西瓜创作平台）。
+
+#### 16.24.2 我们当前登记的入口
+
+`packages/api-publish-engine/src/platform-entries.js` L12：
+```js
+toutiao: "https://mp.toutiao.com/profile_v4/xigua/upload-video"
+```
+
+⇒ **与竞品不同域**。哪一个对？**未验证**（见 16.24.3）。
+
+#### 16.24.3 验证尝试与结论边界
+
+2026-10-21 用头条分区 cookie 在应用外探测两个 URL：
+
+| URL | 落地 | file input |
+| --- | --- | --- |
+| `mp.toutiao.com/profile_v4/xigua/upload-video` | 重定向到 `mp.toutiao.com/login/?redirect_url=...` | 0 |
+| `studio.ixigua.com/upload?from=post_article` | 重定向到 **`creator.douyin.com/`** | 0 |
+
+⇒ 两者都落到登录页 ⇒ **应用外无法验证**（分区凭据读不出，见 §16.21）。
+
+⚠ 但第二个结果本身是条线索：`studio.ixigua.com` 会跳到 **`creator.douyin.com`**
+（抖音创作者中心）—— 提示西瓜创作平台可能已并入抖音创作者中心（字节跳动产品整合）。
+若如此，头条视频发布的真实入口可能已变，我们登记的 URL 与选择器都可能过期。
+
+#### 16.24.4 待办（需在应用内已登录态验证）
+
+1. 在应用内（有效登录态）分别打开两个 URL，看哪个落在真实上传页（有 `input[type=file]`）；
+2. 若竞品的 `studio.ixigua.com/upload` 是对的 ⇒ 更新 `platform-entries.js` 的 `toutiao` 视频入口，
+   并按竞品成果核对 `CreateItem` / `getAuthKey` 两个接口（**优先复用，不自己研究**）；
+3. 重新真机取证该页的 DOM 选择器（现有 `toutiao_video` 是 10-18 对 `mp.toutiao.com` 取的）。
+### 16.26 `no login` 判据的交叉验证：与参数无关，是真实登录态缺失（2026-10-21）
+
+> §16.25 的 CCG 自查提出一个未排除项：`getAuthKey` 可能需要 POST/参数，
+> 那样 `no login` 可能是**参数缺失的误报**。本节用竞品逆向成果里的正确调用形态做 A/B，闭合该疑点。
+
+#### 16.26.1 竞品成果里的正确形态
+
+`04-rea-evidence/<参考产品>-主进程清点.json`：
+```
+https://mp.toutiao.com/xigua/api/upload/getAuthKey/?params=%7B%22type%22%3A%22
+```
+
+⇒ 竞品调用时 URL **带 `?params={"type":"..."}`** query 参数。而 §16.25 我用的是**裸 URL**。
+
+#### 16.26.2 A/B 实测（同 session，四种形态）
+
+| 形态 | 结果 |
+| --- | --- |
+| GET 裸 URL | `200 {"status":-12,"message":"no login"}` |
+| GET `?params={"type":"video"}` | `200 {"status":-12,"message":"no login"}` |
+| GET `?params={"type":"video","source":1}` | `200 {"status":-12,"message":"no login"}` |
+| POST `?params={"type":"video"}` | `403 {"code":403,"msg":"invalid csrf token"}` |
+
+⇒ **三种 GET 形态全部 `no login`，与参数无关** ⇒ §16.25 的判据成立，不是参数缺失误报。
+
+#### 16.26.3 顺带得到的新信息
+
+POST 返回的是 **403 `invalid csrf token`**（而非 `no login`）——
+说明该接口**存在 POST 形态**，且它要求 csrf token（与登录态是两个独立的前置）。
+
+⇒ 对后续实现的含义：若走 POST 提交通路，需先解决 csrf token（`summon.bytedance.com/secsdk_csrf_token`，
+  竞品成果里亦有该 URL）；而**判登录态用 GET 就够**（无需先解 csrf）。
+
+#### 16.26.4 结论（闭合）
+
+「该账号在西瓜上传接口上没有登录态」这一真因**已从单点读数升级为 A/B 验证过的结论**。
+阻塞性质不变：**需要用户在西瓜创作平台侧完成账号授权**（代码侧无解）。
+### 16.28 视频号首次真机发布失败 + API 轨早已存在（2026-10-21）
+
+> 视频号的**第一次**完整链路真机尝试。失败，但定位到关键事实。
+
+#### 16.28.1 实测终态
+
+```json
+{
+  "id": "task_3_1792579422985",
+  "platform": "tencent_video",
+  "status": "failed",
+  "error": "视频号 正文未写入，已中止，未点击发布。本次未向平台提交任何内容，也未占用发布间隔。
+           请重试；若反复失败请检查正文字数是否超平台上限。",
+  "submitAttempted": false,
+  "startedAt":   "2026-10-21T10:47:59.674Z",
+  "completedAt": "2026-10-21T10:49:07.452Z",
+  "lastAttemptNotSubmitted": true
+}
+```
+
+⇒ fail-closed 生效（未提交、未占间隔）。**68 秒**即失败（10:47:59→10:49:07）⇒ 不是超时，
+  是填充阶段就失败。另注意 `createdAt`→`startedAt` 隔了 **4分17秒**（窗口创建 + cookie 恢复）。
+
+#### 16.28.2 关键事实：视频号 **API 轨早已存在且完整**
+
+`config/platforms.yaml` 视频号：`has_api: true` + `publishMode: api-then-dom`
+（2026-10-06 修正过 `has_api=false` 与 `api-then-dom` 的矛盾）。
+
+`packages/api-publish-engine/src/publish/platforms/shipinhao-video.js`（288 行）已实现：
+
+| 环节 | 内容 |
+| --- | --- |
+| 上传 | 分片上传（`applyuploaddfs` / `uploadpartdfs` / `completepartuploaddfs`） |
+| CDN 主机 | **2026-10-18 已修**：旧 `finderassistancea.video.qq.com` 返 404 ⇒ 新 `finder.video.qq.com`（取自创作页自身代码 `finder-helper-web/chunk-common`），旧主机保留兜底 |
+| 提交 | `post_create` / **`post_draft`** 双分支 |
+| 描述合成 | 无标题平台 ⇒ 标题并入描述（`post_create` 请求体无标题字段） |
+| 测试 | `test/shipinhao-video-chain.test.js` 存在 |
+
+⇒ 本次失败的是 **DOM 轨**（"正文未写入"），说明 **API 轨先失败并降级**，
+  但**失败原因没有留档**（任务历史只记终态 error）—— 与 §16.19.4 同型缺口。
+
+#### 16.28.3 竞品逆向成果（视频号完整 API 链，按用户指示复用）
+
+`05-<参考产品>-materials/RPA分析报告.md` §2.2：
+
+| 功能 | API |
+| --- | --- |
+| **发布（草稿）** | `/micro/content/cgi-bin/mmfinderassistant-bin/post/post_draft` |
+| 发布 | `/micro/content/cgi-bin/mmfinderassistant-bin/post/post_create` |
+| 权限数据 | `/cgi-bin/mmfinderassistant-bin/auth/auth_data` |
+| 账号状态 | `/cgi-bin/mmfinderassistant-bin/post/check_finder_comm_face` |
+| 上传 | 分片到 `finderassistancea.video.qq.com`（apply/uploadpart/completepart） |
+| 数据格式 | **XML**（`<p>` 段落 / `<topic>` 话题 / `<friend>` @好友） |
+| 签名 | `Content-MD5` + `X-Arguments` |
+
+⇒ 与我们 `shipinhao-video.js` 的实现**同源**（分片 + Content-MD5 + post_draft/post_create 双分支）
+  —— 证明方向正确，无需重做；差异在 CDN 主机（已按创作页实测更新）。
+
+#### 16.28.4 剩余工作
+
+| # | 事项 | 性质 |
+| --- | --- | --- |
+| 1 | **重启应用**（加载 #4150/#4155 的分轨埋点）后重跑视频号 ⇒ 看 `apiTrackFailed` 真实原因 | 前置 |
+| 2 | 若 API 轨仍败，按竞品成果核对 `post_draft` 请求体（XML 结构 / Content-MD5 / X-Arguments） | 代码 |
+| 3 | 修 DOM 轨的正文填充（`desc_textarea` 首个候选是裸 `textarea`，可能取错元素） | 代码 |
+
+#### 16.28.5 探测方法修正（本轮教训）
+
+本轮一开始用**用户手开的视频号页面**探测，得到 `cookieLen=0` / `auth_data=300330` /
+页面空白 —— 差点误判成"视频号未登录"。真因是**那个页面不在应用窗口池里，从未走过
+cookie 恢复**（`rpa-view-manager.js` L222 只在 `!reused` 时执行）。
+
+⇒ 判据域教训（已单列小节，见 §16.29）：**非应用管理的页面不能用于判定登录态**。
+### 16.29 探测方法纪律：非应用管理的页面不能用于判定登录态（2026-10-21）
+
+> §16.28.5 提到"已单列小节"，本节即该小节。
+
+#### 16.29.1 本轮真实经历
+
+探测视频号发布页时，我用了 `ctx.pages()[0]`（用户手开的「视频号助手」标签页），得到：
+
+```
+title     = 视频号助手        （HTML 框架加载成功）
+bodyLen   = 186458           （DOM 有内容）
+innerText = ""                （渲染不出任何文本）
+cookieLen = 0                 （页面 cookie 为空）
+auth_data = {"errCode":300330,"errMsg":"request failed"}
+```
+
+⇒ 若就此下结论，会写成"视频号未登录"—— **错误**。
+
+#### 16.29.2 真因
+
+那个页面是**用户手动打开的标签页**，不在应用管理的窗口池里 ⇒
+**从未走过 cookie 恢复**（`rpa-view-manager.js` L222 `_restoreCookies` 只在 `!reused`
+即应用自己新建窗口时执行）⇒ 页面 cookie 为空 ⇒ 接口全失败 ⇒ 渲染不出内容。
+
+#### 16.29.3 纪律（三条）
+
+| # | 纪律 |
+| --- | --- |
+| ① | **判定平台登录态，只能用应用管理的页面/链路**（`publishBatch` 或 `_acquireWindow` 建的窗口） |
+| ② | 用户手开页面只能用于"HTML 框架是否可达"，**不能**用于"接口是否已授权" |
+| ③ | 探测时若改了应用主窗口的 URL，**测完必须恢复**（本轮把应用主页导航走了，已恢复） |
+
+#### 16.29.4 与既有教训的关联
+
+| 既有 | 本条 |
+| --- | --- |
+| §16.18.2 分区凭据 ≠ 信封库凭据 | 同源：凭据源不同，结论不能互推 |
+| §16.21 分区 cookie 外部读不出 | 同源：外部/非管理页面无有效凭据 |
+| §16.25 `mp.toutiao.com` 已登录但 `xigua/api/upload` no login | 同源：**页面能打开 ≠ 接口已授权** |
+| §16.23.3 API 轨预演 ≠ 发布链就绪 | 同源：判据域必须跟着被测轨道走 |
+
+⇒ 五条同型，可归纳为一句：**判据域必须跟着被测性质走；不同源/不同轨/不同管理面的
+   读数不能互相外推。**
+### 16.31 头条视频「上传未完成」时间线自洽 + 一次字段误读自我纠错（2026-10-21）
+
+> §16.25/§16.28 之后，头条视频错误已推进到「视频上传未完成」。本节把时间线算清楚，
+> 并纠正我自己的一次字段误读。
+
+#### 16.31.1 ⚠️ 一次字段误读（自我纠错）
+
+我此前把任务的 `startedAt` 读成 **11:47:59.674Z**，并据此算出
+「`startedAt` 晚于 `completedAt`（负 273 秒），数据异常」。
+
+**真相**：11:47:59.674 是 `lastAttemptAt`（Unix 秒 1792582707896 转出来的），
+**不是** `startedAt`。真正的 `startedAt` 是 **11:39:27.913Z**。
+
+⇒ 教训（与 §16.22.3「确认片段属于哪一侧」同型）：**时间字段有多个（createdAt /
+   startedAt / completedAt / lastAttemptAt），读之前先确认取的是哪一个**；
+   我曾据错读字段宣称"数据异常"，差点写成一条假的缺陷记录。
+
+#### 16.31.2 修正后的时间线（自洽）
+
+| 区间 | 时长 | 含义 |
+| --- | --- | --- |
+| `createdAt` 11:29:29 → `startedAt` 11:39:27 | **9分58秒** | 队列等待 + 窗口创建 + cookie 恢复 |
+| `startedAt` 11:39:27 → `completedAt` 11:43:26 | **3分59秒** | 实际执行（导航 + 上传等待 + 填充 + 门禁） |
+| 合计 | 13分57秒 | |
+
+#### 16.31.3 与上传等待预算对照（关键推论）
+
+`upload-wait-strategy.js` 的确定性参数：
+
+| 参数 | 值 |
+| --- | --- |
+| `computeBudgetMs(0.24MB)` | `60000 + 0.24×10000` = 62.4s ⇒ 被下界抬到 **90s** |
+| `STABILIZE_MS`（稳定期） | 25s |
+| `STALL_MS`（停滞阈值） | **180s** |
+
+⇒ **90s 预算 + 180s 停滞 = 270s**，加页面操作（预期 60~90s）得 **330~360s**；
+实测执行段 **239s（3分59秒）** —— **区间吻合但不在正中**。
+
+> ⚠ **确定性边界**（CCG i1 指出后修正）：
+> ① 阶段定位的可靠性来自**错误文本本身**（「未检测到上传完成信号」是门禁给出的明确阶段），
+>    **不依赖**时间推算；时间只是佐证「没花在别处」。
+> ② 时间吻合**可能是巧合**：239s 里有相当一部分可能是字段填充重试开销
+>    （`FieldRetryState(3)` 每次最多 3 次），与上传等待的对应关系没那么紧。
+> ③ 因此本节结论是「**阶段定位明确 + 执行段时长与上传等待预算同量级**」，
+>    **不是**「时间吻合所以确定卡在那里」。
+
+⇒ 头条的**阶段定位**是「上传完成信号检测」；`submitAttempted:false` 证明仍未提交、
+未占间隔（fail-closed 持续生效）。
+
+#### 16.31.4 下一步的候选方向（有依据，待复跑验证）
+
+西瓜上传页的上传完成信号判据是「页面出现预览 / 编辑器 / 上传完成文案」
+（`upload-waiter.js` 的四元组探针：`positive` = https 视频预览 || 编辑器输入 ||
+`location.href` 含 post/video）。
+
+| # | 候选方向 | 依据 |
+| --- | --- | --- |
+| 1 | 探针对西瓜页的**特异性不足**（例如上传完成后 URL 不含 `post/video`、编辑器选择器不同） | 探针原为抖音页取证（§16.30.1 同源教训：判据域跟着页面走） |
+| 2 | 上传实际未完成（平台侧慢/失败）但**无负向信号** ⇒ 只能等停滞 | 90s+180s 的预算就是为这种情况设计 |
+| 3 | 上传入口点击后**未真正触发上传**（file input 注入成功但页面未接收） | 需 #4185 的诊断（`track`/`apiTrackFailed`）+ 页面快照才能区分 |
+
+⇒ 三者都需要**复跑一次带诊断的版本**才能区分 —— 与 §16.30.3 结论一致：
+  剩余唯一信息缺口是运行时诊断。
+### 16.32 头条视频双缺陷定位并修复：上传完成探针 + 无正文位门禁（2026-10-21）
+
+> §16.31 把头条卡点定位在「上传完成信号检测」。本节用**发布窗口实时采样**拿到页面真实形状，
+> 证明它其实是**两个代码缺陷**（不是平台问题），并给出修法与验证口径。
+
+#### 16.32.1 取证方法（可复用）
+
+发布期间应用会创建一个专用 RPA 窗口 ⇒ 它作为独立 page target 出现在 CDP `/json/list` 里。
+用外部脚本每 8s 采样一次该页面，即可在**不改产品代码、不加日志**的前提下拿到上传前后真实 DOM。
+
+#### 16.32.2 西瓜上传页上传成功后的真实形状（实测）
+
+```
+url        = /profile_v4/xigua/upload-video
+fullText   = 「…添加视频 上传成功 dy-small.mp4 大小: 143.9KB 视频时长: 12s
+              重新上传 删除 发布设置 标题 4/30 封面 上传封面 … 发布 手机预览效果…」
+inputs     = 仅 1 个可见：input.xigua-input，placeholder=「请输入 0～30 个字符」
+buttons    = 「添加视频」「发布」（发布 disabled=false）
+videoCount = 0    textareaCount = 0    contenteditable = 0
+```
+
+⇒ **上传其实成功了**（页面明写「上传成功」「重新上传 删除」+ 文件名/大小/时长）。
+
+#### 16.32.3 缺陷 A：上传完成探针 `positive` 对西瓜页恒为 false
+
+`upload-waiter.js` 的探针对 `positive` 的定义（旧）：
+```js
+positive = 存在 https <video> || 存在 input[placeholder*="标题"]/textarea[placeholder]/[contenteditable=true]
+           || location.href 含 "post/video"
+```
+
+对西瓜页逐条落空：
+
+| 判据 | 实测 | 结果 |
+| --- | --- | --- |
+| https `<video>` | `videoCount=0` | ❌ |
+| `input[placeholder*="标题"]` | 实际 placeholder「请输入 0～30 个字符」，**不含"标题"** | ❌ |
+| `textarea[placeholder]` / `[contenteditable=true]` | 页面上一个都没有 | ❌ |
+| URL 含 `post/video` | 实际 `/profile_v4/xigua/upload-video` | ❌ |
+
+而 `decideUploadWait` 的 P4 是 `positiveSignal && !uploading` ⇒ **永不成立** ⇒ 只能等满
+90s 预算后 best-effort（实测日志 `13:51:39 video upload-complete signal not detected`，
+正好是开始上传后 90s）。
+
+**关键**：页面上的「上传成功」此前只进了 `structural`（用于停滞判定的辅助），没进 `positive`。
+
+#### 16.32.4 缺陷 B：该页没有正文输入位，但门禁 P4 强制要求正文写入
+
+实测 `textareaCount=0`、`contenteditable=0`，页面只有「标题」+「封面」+「发布」。
+而 `toutiao_video.editor` 登记了 4 个候选（`textarea.byte-textarea.abstract` /
+`[contenteditable="true"]` / `[contenteditable]` / `.ProseMirror`）—— 一个都不存在：
+
+```
+13:48:42 waitForElement timeout sel=textarea.byte-textarea.abstract
+13:48:45 waitForElement timeout sel=[contenteditable="true"]
+13:48:48 waitForElement timeout sel=[contenteditable]
+13:48:51 waitForElement timeout sel=.ProseMirror
+13:48:51 content editor not found among 4 candidates
+```
+
+⇒ 门禁 P4「有正文 ⇒ 正文必须写入成功」**必然失败**。**即使上传确认修好，也发不出去。**
+
+#### 16.32.5 修法（两处，都有回归锁）
+
+**A. 探针补「强完成文案」正向判据**（平台无关的语义信号）：
+```js
+var doneCopy = /上传成功|上传完成|上传完毕/.test(t);   // 只认强文案，不认「重新上传」
+positive = !!(vv || ed || doneCopy || location.href.indexOf("post/video") !== -1)
+```
+不把「重新上传」放进 positive 的理由：它可能是**静态提示**（上传前的说明文案），
+而「上传成功/上传完成/上传完毕」只会在真的传完之后出现。
+
+**B. 新增平台能力声明 `isNoBodyVideoPlatform`**（不硬编码平台名到门禁里）：
+
+| 层 | 改动 |
+| --- | --- |
+| `publish-capabilities.json` | 新增顶层 `"noBodyVideoPlatforms": ["toutiao"]` |
+| `publish-capabilities.js` | 导出 `NO_BODY_VIDEO_PLATFORMS` + `isNoBodyVideoPlatform(id)`（未知平台 false） |
+| `publish-precondition.js` | 入参 `noBodyPlatform` ⇒ **P4 在该平台不适用**（与既有 `noTitlePlatform` 对称） |
+| `rpa-view-platforms.js` | 计算 `noBodyPlatform = isNoBodyVideoPlatform(platform) && !!article.video_path`；跳过正文填充并记 `fillReport.content = { ok: true, skipped: "no-body-field" }` |
+
+**三条设计纪律**：
+1. 只对**视频形态**生效（`&& !!article.video_path`）—— 头条图文有 ProseMirror 正文，不受影响；
+2. 未知/未声明平台一律 false ⇒ **fail-closed 到默认判据**，不放宽；
+3. 跳过填充仍**显式记账**（`skipped: "no-body-field"`），不是静默丢弃。
+
+#### 16.32.6 验证口径（TDD）
+
+新增 `apps/desktop/tests/toutiao-video-signal-and-nobody.test.js`（8 例，先红后绿）：
+
+| 组 | 锁什么 |
+| --- | --- |
+| ① | `positive` 引用 `doneCopy`，且 `doneCopy` 的文案含「上传成功/完成/完毕」；`structural` 不回归 |
+| ② | 声明 `noBodyPlatform` ⇒ 通过；**未声明 ⇒ 仍 `content-not-filled`** |
+| ③ | `isNoBodyVideoPlatform("toutiao")=true`、`"douyin"=false`、未知/undefined=false |
+
+相关回归：`publish-precondition(.wiring)` / `upload-wait-strategy` / `publish-upload-order` /
+`publish-capabilities` 共 **56 例全绿**。
+
+#### 16.32.7 行数门禁的一个实录
+
+`rpa-view-platforms.js` 是**零增长容差点名还账**文件（目标 1484 行，改动前 1482）。
+本次改动先 +3 行 ⇒ 1485 超线；把一处 3 行注释压成 2 行（信息不丢失）后回到 **1484** 转绿。
+⇒ 纪律：在该文件上加代码必须**同次**在文件内压缩等量注释，不得靠上调 targets 过关。
+
+### 16.33 小红书 406 的字段级取证：竞品端点 + 线上 bundle 的真实 payload 字段族（2026-10-21）
+
+> §16.11/§16.12/§16.15 已排除「缺请求头」「缺 /api 前缀」「sign-URI 形态」三条假设，
+> 结论是「406 = 服务端对 `note` 端点**请求体字段/格式**的拒绝」。本节为字段级对照取证。
+
+#### 16.33.1 竞品逆向成果里的小红书（按用户指示先查）
+
+| 来源 | 内容 |
+| --- | --- |
+| `05-<参考产品>-materials/RPA分析报告.md` §2.4 | 只有 **上传**（腾讯云 COS 分片：`getUploadIdResponse` / `uploadVideoPart` / `getUploadedVideoEtag`，头 `x-cos-security-token`）、数据分析、内容删除 —— **没有发布/草稿 API 路径** |
+| `04-rea-evidence/<参考产品>-主进程清点.json` URL 清点 | 有（按 count）：`edith.xiaohongshu.com/web_api/sns/v2/note` **4**、`creator.xiaohongshu.com/publish/publish` **4**、`creator.xiaohongshu.com/api/media/v1/upload/web/permit?biz_name=spectrum&scene=` **2**、`creator.xiaohongshu.com/api/galaxy/user/info` **1** |
+
+⇒ **发布链 = permit → 上传 → `web_api/sns/v2/note`**。
+
+#### 16.33.2 我们的实现已经与竞品同款（不是端点错）
+
+`packages/api-publish-engine/src/publish/platforms/xiaohongshu-draft.js`：
+```
+1. POST creator.xiaohongshu.com/api/media/v1/upload/web/permit → { file_id, token, cos_key }
+2. ros-upload（分片）
+3. POST edith.xiaohongshu.com/web_api/sns/v2/note  （draft=true 存草稿）
+```
+
+⇒ 与竞品清点**完全一致** ⇒ 406 **不是**端点选错，也不是链选错。
+
+#### 16.33.3 线上 bundle 取证（公开可下，无需登录）
+
+创作页 `creator.xiaohongshu.com/publish/publish` 的主 bundle 位于
+`fe-static.xhscdn.com/formula-static/ugc/public/resource/js/project-publish-vue.<hash>.js`（2.25MB）。
+在里面直接读到三件事：
+
+**① 端点常量**
+```js
+POST_NOTE: concat(l, "/web_api/sns/v2/note")
+USER_INFO: concat(s, "/api/galaxy/user/my-info")
+```
+
+**② 该端点被登记在「必须签名」清单里**
+```js
+"creator-platform": { signIncludesUrl: [
+  { pattern: "web_api/sns/v5/creator/topic/template/list", mode: "endsWith" },
+  { pattern: "web_api/sns/v2/note", mode: "endsWith" }
+] }
+```
+⇒ 与我们的 signer 一致（我们确实签了它，且 §16.15 已验证「签名有效、得 406 而非 401」）。
+
+**③ 笔记模型字段族（前端 store 的真实键名）**
+```
+title  type  desc  ats  hash_tag  cover  video_info  metadata
+post_loc  post_locs  scheduled_post_time  post_timing  order_cooperate
+privacy  images_list  biz_relations  label_map
+```
+
+字段名要点（对 406 直接相关）：用 `type` **不是** `note_type`；用 `desc` **不是** `content`；
+用 `images_list` / `video_info` **不是** `images` / `video`；`hash_tag` 是独立字段（话题不是内联在 desc 里）。
+
+#### 16.33.4 一处**已确认的路径偏差**（与本 406 无关但应修）
+
+| 位置 | 我们 | 线上 bundle |
+| --- | --- | --- |
+| 用户信息 | `/api/galaxy/user/info` | **`/api/galaxy/user/my-info`** |
+
+⇒ 竞品清点里的 `user/info` 可能是旧版或另一入口；线上代码用的是 `my-info`。
+这条**不影响 note 提交**（不同端点），但会影响「登录态/用户信息」探测的准确性，应单独核实。
+
+#### 16.33.5 结论与下一步（按证据强度分层）
+
+| 结论 | 强度 |
+| --- | --- |
+| 发布链与端点选型正确（permit → upload → sns/v2/note） | **实测**（与竞品清点一致 + 线上 bundle 常量） |
+| `note` 在「必须签名」清单内，我们已签 | **实测**（线上 bundle `signIncludesUrl`） |
+| payload 字段族应为 `type/desc/hash_tag/images_list/video_info/...` | **实测**（线上 bundle store 键名），但是否**全部必填**未知 |
+| 406 的具体缺项 | **未证实** —— 仍需抓一次真实请求做逐字段 diff |
+
+**下一步（下一轮）**：用 §16.32.1 的「发布窗口实时采样」同法，在应用内打开小红书创作页，
+驱动页面点「存草稿」，并用 CDP `Network` 域捕获该次真实 `POST /web_api/sns/v2/note` 的
+**请求体与请求头**，再与我们的构造逐字段 diff。这是唯一能把「未证实」变「实测」的路径。
+
+> 顺带说明：若页面侧「存草稿」能成功，则**草稿目标已达成**（DOM 轨），
+> 捕获到的 payload 还可反过来修 API 轨 —— 两条收益一次取证。
+
+### 16.34 头条里程碑：上传门禁打通（第 6 个真因=翻译层白名单）+ 暴露封面与标题两个新缺陷（2026-10-22）
+
+#### 16.34.1 决定性真因：`_probeUploadSignal` 的白名单把新字段全丢了
+
+`upload-waiter._probeUploadSignal` 会把页面返回值**按固定白名单重建**：
+```js
+return { uploading, pagePercent, positive, structural }   // 旧
+```
+⇒ 前两轮新增的 `doneStrong` / `uploadingText` / `textLen` **全在这一层被静默丢弃**，且**零报错**。
+
+**指纹**：首帧日志 `upload probe textLen=undefined`（来自兜底对象，正常应为页面文本长度）。
+
+**同类缺陷史**：PR #4185 修的是 `RpaVmPublisher` 重新构造返回对象丢 `track/apiTrackFailed`。
+两处同型：**翻译层白名单漏字段 ⇒ 上游埋点/字段白做，且没有报错可查**。
+
+**修法**：`empty` 兜底与 `return` **两处同步**补 `uploadingText / doneStrong / textLen`，
+并在注释里写死「加字段必须两处同步」。
+
+#### 16.34.2 修好后的真机对比（决定性）
+
+| 项 | 修前 | 修后 |
+| --- | --- | --- |
+| 首帧日志 | `textLen=undefined` | **`textLen=125`** |
+| 上传完成信号 | 永远收不到（90s/300s/600s 全部耗尽） | **147 秒**命中（P3.5 认出「上传成功」） |
+| 结果 | 卡在上传门禁 | **`filling title...` → `publishing...`** |
+
+⇒ 之前所有「预算耗尽」都是**假象**：判定层从未收到任何信号。
+（§16.31/§16.32/§16.33 三次给预算加下界，方向都不对——这条要作为方法论教训记住。）
+
+#### 16.34.3 新缺陷 A：封面是**必填**，而 `toutiao_video` 没有 `cover_input` 选择器
+
+发布后截图（`toutiao-verify-*.png`）显示页面标签为 **`*封面`**（红星=必填），封面区仍是
+「+ 上传封面」空白；点「发布」后页面**停在上传页不动** ⇒ 平台校验不通过 ⇒ 验证必然超时。
+
+而 `PLATFORM_PUBLISH_SELECTORS.toutiao_video` 此前**没有 `cover_input`**，
+`rpa-view-platforms` 的封面步骤条件是 `if (article.cover_path && sel.cover_input)` ⇒ **静默跳过、日志无痕**。
+
+**修法**：① 给 `toutiao_video` 登记 `cover_input`（image file input 四个候选）；
+② 封面步骤增加「有 cover_path 但平台无 cover_input ⇒ warn」——**未实现必须可见**。
+
+#### 16.34.4 新缺陷 B：标题被平台自动填成**文件名**，我们的填充没有回读校验
+
+同一张截图：标题输入框内容为 **`dy-small`**（= 视频文件名，4/30 字），
+而日志只打了 `title input hasTitle=true` + `filling title...`，**没有任何回读**。
+⇒ 两种情况无法区分：(a) 我们的写入没生效；(b) 写入后被平台的「按文件名自动填充」覆盖。
+
+**待办**：标题填充后必须**回读 `el.value` 并与期望值比较**，不一致则重试一次并留日志
+（抖音链路已有 `douyin title: fill not applied (readback=0)` 同款判据，头条侧缺失）。
+
+#### 16.34.5 验证阶段：三条兜底全失效（下一个要修的）
+
+```
+confirm dialog probe: NO_DIALOG
+verifying...
+page console: Uncaught SyntaxError: Unexpected token )   ← 需查是否我们注入的验证脚本写坏
+artifact lookup 未命中 （作品可能仍在审核队列或该 API 口径已变）
+publish verify snapshot: 页面仍在上传页（未跳转）
+publish verification timeout endpoint=.../xigua/upload-video
+[toutiao-xhr] code=undefined reason=NO_BODY
+[toutiao-direct] 签名失败 via=page → SIGN_FAILED
+```
+
+要点：**西瓜页发布后不跳转**（与头条图文同型，见 §16.34.1 上方 2026-09-30 记录），
+所以 `success_mode=url` 天然不适用；正解是查**作品列表 API** 的 `ArticleAttr.Status`
+（2=已发布 / 6=审核中），这条路竞品验证过。
+
+#### 16.34.6 确定性边界（不夸大）
+
+| 结论 | 强度 |
+| --- | --- |
+| 白名单丢字段是真因、修好后上传门禁通过 | **实测**（textLen 125 vs undefined；147s vs 600s） |
+| 发布被点击（`publishing...`） | **实测**（日志） |
+| 封面必填且此前未传 | **实测**（截图 `*封面` + 空白） |
+| 标题=文件名、我们未回读 | **实测**（截图 `dy-small` + 日志无回读） |
+| **是否已真正发出去** | **未证实** —— 验证超时且三条兜底全失效；需查作品列表 |
+
+### 16.35 标题填充改为「等值回读 + 不一致重填」（2026-10-22）
+
+#### 16.35.1 为什么旧的"读回校验"不够
+
+`_fillInput` 内建回读的判据是：**读回值为空且待填值非空 ⇒ 抛错**。
+它挡得住"根本没写进去"，但挡不住"**写进去又被平台改成别的值**"：
+
+| 读回结果 | 旧判据 | 新判据 |
+| --- | --- | --- |
+| 空 | 抛错 ✅ | 抛错 ✅ |
+| 等于期望值 | 成功 ✅ | 成功 ✅ |
+| **非空但不等于期望值** | **判成功 ❌（漏判）** | 判不一致 → 重填一次 ⚠ |
+
+#### 16.35.2 真机证据
+
+`toutiao-verify-*.png`（发布后截图）显示标题输入框内容为 **`dy-small`**（= 视频文件名，4/30），
+而本次发布的标题是「被误解的明朝：西方史料里的另一个大明」；日志里只有 `filling title...`，
+**没有任何回读痕迹** ⇒ 无法区分「没写进去」与「写进去后被平台的按文件名自动填充覆盖」。
+
+#### 16.35.3 实现（独立模块，避免零增长门禁）
+
+`apps/desktop/electron/services/title-fill-verify.js`：
+
+| 导出 | 职责 |
+| --- | --- |
+| `readValue(win, sel)` | 读 `el.value`（回退 `textContent`），任何异常返回空串（不抛） |
+| `fillAndVerifyTitle(ctx, win, sel, value, opts)` | 填 → 读 → 比对（trim）；不一致**重填一次**并 warn；返回 `{ ok, readback, retried }` |
+
+调用点（`rpa-view-platforms`）由两行换成一行（净 -1 行），`fillReport.title` 现在带 `readback`，
+**历史与诊断可查**（不再只看 `{ok:true}`）。
+
+#### 16.35.4 为什么"仍不一致只告警不失败"
+
+标题被平台改写属于**平台行为**，硬失败会把一次本可成功的发布判死；
+但**必须可见**——否则用户会看到文件名当标题而无人知道。故：重试一次 + 两次 warn + 回读值入账。
+
+#### 16.35.5 读数
+
+| 项 | 读数 |
+| --- | --- |
+| 新增 `title-fill-verify.test.js` | **4 passed**（等值成功 / 重填成功 / 平台反复覆盖 / 取不到元素不抛） |
+| desktop 相关回归 | rpa-view-platforms + 头条信号 **105 passed** |
+| 行数门禁 | `rpa-view-platforms.js` 1483（目标 1484，未超） |
+
+#### 16.35.6 未验证
+
+尚未真机复跑：**不知道**回读会不会真的抓到 `dy-small`（若抓到，说明是"被覆盖"，
+那还需要在**发布前**再校验一次；若是"没写进去"，说明选择器命中错了元素）。
+
+### 16.36 四平台视频发布现状与「探针读不到 ≠ 事实为假」（2026-10-22 会话小结）
+
+#### 16.36.1 各平台实测状态
+
+| 平台 | 已证实 | 未证实/待修 |
+| --- | --- | --- |
+| 抖音 | 真机真实发布成功（109s，`result.mode=dom`，`submitAttempted=true`） | 平台侧 `aweme_id` 未取证 |
+| 今日头条 | 上传入口/完成信号/标题写入/封面 CDP 设文件均已通 | 封面弹窗「下一步」仍 `cannot-click`；发布后验证（页面不跳转，`success_mode=url` 不适用） |
+| 视频号 | 登录态有效、上传动作执行 | 上传后页面不进编辑态；编辑器选择器未命中 |
+| 小红书 | 视频上传成功（页面显示「检测为高清视频」）、标题与正文写入成功 | 草稿是否落库**未证实**（发布页无草稿按钮、无草稿计数节点） |
+
+#### 16.36.2 元教训：探针读不到 ≠ 事实为假
+
+本会话反复出现同一类误判，根因都是**用了一个在该页面上无效的探针**：
+
+| 现象 | 当时的结论 | 真相 |
+| --- | --- | --- |
+| 头条 `upload probe textLen=undefined` | 页面没渲染文案 | `_probeUploadSignal` 白名单把新字段静默丢弃 |
+| 小红书「草稿箱计数 0→0」 | 草稿没保存 | 页面**根本没有** `SPAN.draft-title` 节点，计数恒 0 |
+| 视频号「editor 未命中」 | 选择器写错 | 取证时页面只有上传区，编辑器尚未渲染（时机） |
+
+**纪律**：下结论前先自问「我的观测手段在这个页面上有效吗」——
+先验证探针本身（dump 元素是否存在、字段是否透传），再用探针验证业务。
+
+#### 16.36.3 已固化的三条判据纪律
+
+1. **完成信号要覆盖平台真实文案**：头条 `上传成功`、小红书 `检测为高清视频/设置封面`，单一文案必漏；
+   更稳的是「是否进入下一步 UI」（如出现「设置封面」区块）。
+2. **翻译层必须两处同步**：`_probeUploadSignal` 的 `empty` 兜底与 `return` 白名单要一起加字段，
+   否则上游埋点白做且零报错（PR #4185 的 `track/apiTrackFailed` 同型）。
+3. **回退路径会吃掉主路径的错误**：`_setFileInput` 的 JS 回退必抛 `Script failed to execute`，
+   排查笼统报错先问「上一层被谁吞了」（PR #4211 修法：纯 CDP + 原始错误可见）。

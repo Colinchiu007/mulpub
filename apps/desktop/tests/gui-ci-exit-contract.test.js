@@ -490,6 +490,92 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(cliE2eBudget.stripComments('const u = "http://example.com"; // t 10000')).toContain('http://example.com');
   });
 
+  // ── 2026-10-20：采样域有**两根轴**，旧写法只在其中一根上各写了一半（任务 #86）───────────
+  // 当场实测（按**目标用例全名**过滤 verbose 行，逐份作业日志）：
+  //   run 39381404956（quality-gate.yml）：QG Coverage 1 条 = 1705ms ← 旧域里没有这一族
+  //                                        QG Desktop Shards (1/2) 1 条 = 1261ms
+  //                                        QG Desktop Shards (2/2) 0 条（shard 分配漂移所致，见下）
+  //   run 39394756637（electron-ci.yml） ：electron-tests 1 条 = 1331ms ← 连 workflow 轴都不覆盖
+  //                                        Changes 0 条（B 臂负控）
+  // 旧实现是两个单数常量 `WORKFLOW = 'quality-gate.yml'` + `JOB_RE = /QG Desktop Shards/`：
+  // "域"被拆成两根轴各持一半，而**没有任何判据在问第二根轴存不存在** —— 这正是 PR #4072 记下的
+  // 「修掉一根轴 ≠ 域完整」那一格，所以本片一次把两根轴都做成显式登记表 + A/B 负控。
+  it('采样域必须是 workflow × 作业名的生产者登记表，A/B 两臂各钉住一根轴', () => {
+    const audit = require(path.join(PROJECT_ROOT, 'scripts', 'case-timeout-audit.js'));
+    expect(Array.isArray(audit.PRODUCERS), '缺 PRODUCERS：域得同时回答"哪个 workflow 的哪个作业"，只留一个 JOB_RE 会重演只扩一根轴的缺陷')
+      .toBe(true);
+    expect(typeof audit.isProducer).toBe('function');
+    expect(typeof audit.producerWorkflows).toBe('function');
+    for (const p of audit.PRODUCERS) {
+      expect(typeof p.workflow, '生产者项必须点名 workflow（否则作业名漂到别的 workflow 上也会被误认）').toBe('string');
+      expect(p.jobRe instanceof RegExp, '生产者项必须带作业名正则').toBe(true);
+    }
+
+    // A 臂：三个当场实测到的生产者必须命中
+    expect(audit.isProducer('quality-gate.yml', 'QG Desktop Shards (1/2)')).toBe(true);
+    // ⛔ (2/2) 也必须命中，即使**本次**它 0 命中：该用例落进哪一片由 vitest 的 --shard 分配决定，
+    // 而文件数/顺序一变就会重分。按"今天落在哪片"来排除，等于埋下一颗静默丢样的雷。
+    expect(audit.isProducer('quality-gate.yml', 'QG Desktop Shards (2/2)'),
+      '按今天落在哪一片来排除另一片 ⇒ 重分片后样本静默缩水，而读数照样"自洽"').toBe(true);
+    expect(audit.isProducer('quality-gate.yml', 'QG Coverage')).toBe(true);
+    expect(audit.isProducer('electron-ci.yml', 'electron-tests')).toBe(true);
+
+    // B 臂（作业名轴）：同 workflow 下不跑该用例的作业必须不命中 —— 否则"扩面"只是把过滤写宽，
+    // 采到的样本从哪来将无法归因。
+    for (const name of ['QG Static', 'QG Unit Tests', 'QG Changes', 'GUI Gate Result', 'build']) {
+      expect(audit.isProducer('quality-gate.yml', name), '作业名域把不跑该用例的作业也算进来了：' + name).toBe(false);
+    }
+    expect(audit.isProducer('electron-ci.yml', 'Changes'),
+      '当场实测该作业 0 命中（它只装依赖/检出），不得算生产者').toBe(false);
+    // B 臂（workflow 轴）：同一个作业名挂在**未登记的** workflow 上不得算命中。
+    expect(audit.isProducer('gui-test.yml', 'electron-tests'),
+      'workflow 轴没有负控 ⇒ 登记表会退化成"看作业名像不像"').toBe(false);
+
+    // 域必须是显式闭合集合：扫所有 workflow / 扫所有作业都不许成为"更省事"的那个写法
+    expect(audit.producerWorkflows()).toEqual(['electron-ci.yml', 'quality-gate.yml']);
+
+    // 选作业的纯函数（collect 的眼睛）：合成一份真实形态的作业列表，逐个点名该挑谁、该拒谁，
+    // 并且未完成的作业不得进日志抓取（判完成态一律 status，见文件头第 1 条坑）
+    const picked = audit.pickProducerJobs('quality-gate.yml', [
+      { name: 'QG Desktop Shards (1/2)', status: 'completed' },
+      { name: 'QG Desktop Shards (2/2)', status: 'completed' },
+      { name: 'QG Coverage', status: 'completed' },
+      { name: 'QG Static', status: 'completed' },
+      { name: 'QG Unit Tests', status: 'in_progress' },
+      { name: 'QG Changes', status: 'completed' },
+    ]);
+    expect(picked.map((j) => j.name)).toEqual(['QG Desktop Shards (1/2)', 'QG Desktop Shards (2/2)', 'QG Coverage']);
+
+    // 反"只扩一根轴"：两个单数常量不许回来，且 collect 必须真的按 workflow 分别取窗口
+    const src = fs.readFileSync(path.join(PROJECT_ROOT, 'scripts', 'case-timeout-audit.js'), 'utf8');
+    expect(src, '单数 WORKFLOW 常量回来了 ⇒ 域又只剩一根轴').not.toMatch(/^const WORKFLOW = /m);
+    expect(src, '单数 JOB_RE 常量回来了 ⇒ 作业名与 workflow 又分家了').not.toMatch(/^const JOB_RE = /m);
+    // 正向锚：collect 必须**按 workflow 分别取 run 窗口**（变量名不锁，锁的是"循环取域 + 把域喂进 listRuns"
+    // 这条可执行链）；只写登记表不调用 = workflow 轴只是注释。
+    expect(src, 'collect 没有按每个 workflow 分别列 run ⇒ workflow 轴只是注释，没在跑')
+      .toMatch(/for \(const \w+ of producerWorkflows\(\)\)[\s\S]{0,800}listRuns\(\w+,/);
+    expect(src, 'listRuns 又被写死成单个 workflow 字面量 ⇒ 两根轴重新分家')
+      .not.toMatch(/listRuns\(\s*['"]/);
+    // 覆盖度必须**按轴各自判**：只核总 run 数，会让稀少那条轴静默采不满而读数照样"够 8 个 run"
+    expect(src, 'PARTIAL 判据没有逐 workflow 检查 ⇒ 一条轴采不到东西时读数照样"完整"')
+      .toMatch(/shortWorkflows/);
+    // 同一件事的行为面锚：判据必须**在循环体内**对每个 workflow 各判一次，
+    // 搬到循环外比较合并总数就红（K6 实测红在这里，而不是红在"变量没出现过"）
+    expect(src, 'coverageSufficient 被搬到 workflow 循环之外 ⇒ 判的是合并总数，不是每条轴的窗口')
+      .toMatch(/for \(const \w+ of producerWorkflows\(\)\)[\s\S]{0,1200}coverageSufficient\(opts\.runs, listed\.runs\.length\)/);
+  });
+
+  it('出处文案必须把三个生产者写全，并标明现存 max 是下界（不得被读成全量分布）', () => {
+    const p = cliE2eBudget.GUI_CLI_E2E_BUDGET_PROVENANCE;
+    // 这三句是"域由谁构成"的唯一对外说明——它比代码短就表示有人在扩域时没同步复述
+    for (const who of ['QG Desktop Shards', 'QG Coverage', 'electron-ci.yml 的 electron-tests']) {
+      expect(p.source, '出处没点名生产者：' + who).toContain(who);
+    }
+    expect(p.source, '现存 max 是旧域（只有 Shards）量的 ⇒ 必须写成下界，否则回填的人会当分布引用')
+      .toMatch(/下界/);
+    expect(p.source).toContain('node scripts/case-timeout-audit.js');
+  });
+
   // 实测反转了"依赖失败 ⇒ 检查不到来"的直觉：QG Changes 红过的 4 个历史 run 里，下游作业的
   // check run 全部存在且 conclusion=skipped；而 skipped 满足 required ⇒ 判据作业坏了会让这条
   // gate **静默假通过**。所以必须有 if:always() 的聚合作业把三种失败压成一个可见的红。
@@ -699,14 +785,18 @@ describe('GUI/CI 工作流门禁契约', () => {
     const diagnosticStep = steps.find((step) => step.name === 'Vitest failure diagnostics');
 
     expect(job.env).toMatchObject({ NODE_ENV: 'test' });
-    expect(unitStep.run).toContain('BUDGET_SECONDS=2100');
-    expect(unitStep.run).toMatch(/timeout --signal=TERM --kill-after=30s \$\{BUDGET_SECONDS\}s/);
-    expect(unitStep.run).toContain('--maxWorkers=1');
-    expect(unitStep.run).toContain('--no-file-parallelism');
-    expect(unitStep.run).toContain('--reporter=verbose');
-    expect(unitStep.run).toContain('--testTimeout=10000');
-    expect(unitStep.run).toContain('--hookTimeout=10000');
-    expect(unitStep.run).toContain('--teardownTimeout=10000');
+    // 2026-10-21 起本步**只调用不判定**（单一实现 scripts/electron-ci-desktop-step.js）：
+    // 旗标集合不能再从 YAML 里 grep —— 那会变成"两处各存一份、由其中一份漂移"。
+    // 判据域因此搬到被调用方的导出上：串行/单 worker/verbose/三个 timeout 必须在 buildShardArgs 里。
+    const bodyLines = String(unitStep.run).split(/\r?\n/).filter((l) => l.trim() && !/^\s*#/.test(l));
+    expect(bodyLines, '委托形态的步骤必须只有一条可执行语句（多一条就多一处被 -e 提前杀死的窗口）')
+      .toEqual(['node scripts/electron-ci-desktop-step.js']);
+    const step = require('../../../scripts/electron-ci-desktop-step.js');
+    const argv = step.buildShardArgs(1, step.SHARD_COUNT);
+    for (const flag of ['--maxWorkers=1', '--no-file-parallelism', '--reporter=verbose',
+      '--testTimeout=10000', '--hookTimeout=10000', '--teardownTimeout=10000']) {
+      expect(argv, '桌面全量的旗标集合漂了：缺 ' + flag).toContain(flag);
+    }
     expect(diagnosticStep.if).toBe('failure()');
     expect(diagnosticStep.run).toContain('tasklist.exe');
     expect(source).not.toContain('maxWorkers=4');
@@ -729,31 +819,48 @@ describe('GUI/CI 工作流门禁契约', () => {
     const job = workflow.jobs['electron-tests'];
     const unitStep = job.steps.find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
-    // 1) 预算挂在步骤级实测上：既要对被替换的旧墙有实质余量，也要覆盖健康耗时的倍数
-    const budgetSeconds = Number(unitStep.run.match(/BUDGET_SECONDS=(\d+)/)[1]);
-    const measuredStepElapsedSeconds = 794; // 自证行实测，不是 job 总时长
+    // 1) 预算挂在**单一真源**上：workflow 不再持有数字，判据因此搬到被调用方的导出与它的实际行为。
+    const step = require('../../../scripts/electron-ci-desktop-step.js');
+    const budgetSeconds = step.STEP_BUDGET_MS / 1000;
+    const measuredStepElapsedSeconds = 794; // 自证行实测（串行全量态），不是 job 总时长
     const retiredWallSeconds = 20 * 60;     // 旧魔数 20m
+    // ⛔ 这条反向判据必须**剥掉注释行**再判：本步的注释里就原样写着 `BUDGET_SECONDS=2100`
+    //（那是"为什么不再在这里写它"的说明）。整段文本判会让锁被自己的解释打红（同仓第五落点，第三次）。
+    const codeOnly = String(unitStep.run).split(/\r?\n/).filter((l) => !/^\s*#/.test(l)).join('\n');
+    expect(codeOnly).not.toMatch(/BUDGET_SECONDS=\d/); // 数字只能有一处
     expect(budgetSeconds).toBeGreaterThan(retiredWallSeconds);
     expect(budgetSeconds).toBeGreaterThanOrEqual(retiredWallSeconds * 1.5);
     expect(budgetSeconds).toBeGreaterThanOrEqual(measuredStepElapsedSeconds * 2);
-    // 旧魔数不得复活（它的问题不是"比自然耗时只多 1 分钟"，而是既无实测依据、红时又不可归因）
-    expect(unitStep.run).not.toMatch(/--kill-after=30s 20m/);
+    // 新增的一档（并行形态的下界）：预算必须盖得住「最慢一片 × 安全倍数」，
+    // 否则两片并行只是把撞墙的概率换了个位置。
+    const p = step.STEP_BUDGET_PROVENANCE;
+    expect(budgetSeconds).toBeGreaterThanOrEqual(p.maxObservedShardMin * 60 * p.safetyMultiplier);
+    expect(p.shards).toBeGreaterThanOrEqual(10);
+    expect(p.runs).toBeGreaterThanOrEqual(5);
 
-    // 2) 超时必须能自证，而不是让人再去下 7MB 日志反推
-    expect(unitStep.run).toContain('TIMEOUT_BUDGET_EXCEEDED');
-    expect(unitStep.run).toContain('elapsed=');
-    // 输出被 tee 走之后，判成败只能读 PIPESTATUS：`cmd | tee` 的 $? 是 tee 的（恒 0）
-    expect(unitStep.run).toContain('RC=${PIPESTATUS[0]}');
-    expect(unitStep.run).toMatch(/exit "\$\{RC\}"/);
-
-    // 3) 预算不得倒挂：job 级上限必须容得下「本步骤预算 + 其余显式 timeout-minutes 之和」，
-    //    否则抬内层只是把不可归因的超时从 timeout(1) 换成 Actions 的 job killer。
-    const otherCapsMinutes = job.steps.reduce(
-      (sum, step) => sum + (typeof step['timeout-minutes'] === 'number' ? step['timeout-minutes'] : 0),
-      0,
-    );
-    expect(job['timeout-minutes']).toBeGreaterThan(otherCapsMinutes + budgetSeconds / 60);
-    expect(source).toContain('# 预算不得倒挂');
+    // 2) 超时必须能**自证**：不再是 grep 文案，而是真把一片挂死喂给 runStep，看它报什么。
+    return step.runStep({
+      spawnImpl: (argv) => ({
+        shard: argv.find((a) => /^--shard=/.test(a)),
+        done: new Promise(() => {}), // 永不收敛
+      }),
+      budgetMs: 40,
+      kill: () => {},
+      now: () => Date.now(),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    }).then((res) => {
+      expect(res.rc, '被预算掐断必须报 124 档').toBe(124);
+      expect(res.report).toContain('[electron-ci-step] elapsed=');
+      expect(res.report).toContain('TIMEOUT_BUDGET_EXCEEDED');
+      // 3) 预算不得倒挂：job 级上限必须容得下「本步骤预算 + 其余显式 timeout-minutes 之和」，
+      //    否则抬内层只是把不可归因的超时从 timeout(1) 换成 Actions 的 job killer。
+      const otherCapsMinutes = job.steps.reduce(
+        (sum, s2) => sum + (typeof s2['timeout-minutes'] === 'number' ? s2['timeout-minutes'] : 0),
+        0,
+      );
+      expect(job['timeout-minutes']).toBeGreaterThan(otherCapsMinutes + budgetSeconds / 60);
+      expect(source).toContain('# 预算不得倒挂');
+    });
   });
   /**
    * #2525 的标题是「让超时失败能自证」，正文也写了 `RC=${PIPESTATUS[0]}` 与一整段
@@ -763,42 +870,54 @@ describe('GUI/CI 工作流门禁契约', () => {
    *
    * 旧锁的判据域是「这四行字符串在 YAML 里存在」，被测性质却是「这四行会在运行时执行」。
    * 两者不是一回事，于是锁一直是绿的、自证一直是死的。本用例把判据域换成**真执行**。
+   *
+   * 2026-10-21 搬家后：那四行不再是 bash，而是 `scripts/electron-ci-desktop-step.js` 里的逻辑
+   * （由它自己的测试真跑判定分支）。本用例因此改成守**委托这一层**还剩的风险：
+   * 一条 `node …` 在 `bash -e -o pipefail` 下退出码是否原样传出、诊断是否在非零退出后仍可见。
+   * 上面那段历史不改写 —— 它是"为什么必须有真执行判据"的出处，不是现状描述。
    */
   it('自证块必须在 bash -e -o pipefail 下真能执行，而不是只在 YAML 里存在', () => {
     const { workflow } = readWorkflow('electron-ci.yml');
     const unitStep = workflow.jobs['electron-tests'].steps
       .find((step) => step.name === 'Unit tests (Vitest, non-Electron, single-worker deterministic)');
 
-    // 只做两处按题意的替换，其余结构（timeout / tee / PIPESTATUS / 自证块）一字不动。
-    // 用文本替换而不是伪造 `pnpm`：`timeout` 是外部命令，看不见 shell 函数表（函数桩 → 127），
-    // 靠 PATH 注入 stub 又会被本机含中文的用户名目录搅乱（实测 127）。
-    const body = String(unitStep.run)
-      .replace(/BUDGET_SECONDS=\d+/, 'BUDGET_SECONDS=1')
-      .replace(/pnpm --filter[\s\S]*?2>&1 \| tee "\$LOG"/, 'sleep 2 2>&1 | tee "$LOG"');
-    assert(body.includes('sleep 2 2>&1 | tee "$LOG"'), '内层命令替换失败 ⇒ 会真跑整套桌面测试');
+    // 2026-10-21 迁移：本步的判定逻辑已收进 scripts/electron-ci-desktop-step.js，
+    // 步骤体只剩一条 `node …`。#2525 那条教训（「YAML 里存在」≠「运行时会执行」）**不因搬家而失效**，
+    // 所以这里仍然用真执行来判，只是被执行的性质换了：
+    //   旧：一段 bash 里 `timeout` 之后的自证行会不会被 `-e` 跳过；
+    //   新：一条 `node x.js` 在 `bash -e -o pipefail` 下**退出码是否原样传出**、
+    //       以及它打在 stderr 的诊断是否在非零退出后仍然可见（委托形态下唯一还会丢东西的地方）。
+    const body = String(unitStep.run).split(/\r?\n/).filter((l) => l.trim() && !/^\s*#/.test(l)).join('\n');
+    expect(body).toBe('node scripts/electron-ci-desktop-step.js');
 
     const bash = resolveGitBash();
     assert(bash, 'Git Bash 必须可解析：bash 步骤的语义只能用它复现');
-
-    const res = spawnSync(bash, ['-e', '-o', 'pipefail', '-c', body], {
-      cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'electron-ci-budget-')),
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'electron-ci-delegate-'));
+    // 在临时目录里复刻"被委托的那一条命令"：打印诊断到 stderr 后按 124 退出。
+    const stub = path.join(dir, 'step-stub.js');
+    fs.writeFileSync(stub, 'process.stderr.write("[electron-ci-step] elapsed=1ms budget=1ms rc=124\\n")\n'
+      + 'process.stderr.write("TIMEOUT_BUDGET_EXCEEDED\\n")\nprocess.exit(124)\n', 'utf8');
+    const res = spawnSync(bash, ['-e', '-o', 'pipefail', '-c', 'node step-stub.js'], {
+      cwd: dir,
       encoding: 'utf8',
       timeout: 60000,
       // PATH 显式给成 POSIX 形态：Node 直接 spawn MSYS bash 时不做 Windows→POSIX 转换，
       // 继承来的 `C:\…;C:\…` 被按 ":" 切坏，连 `date` 都 command not found（实测 127）。
-      env: { ...process.env, PATH: '/usr/bin:/bin' },
+      // ⛔ 但**必须把 node 自己所在目录放进去**：上一版只给 `/usr/bin:/bin`，于是被测的那条
+      // `node …` 直接 127，而 127 与"步骤退出码没传出"在这条断言里长得一模一样（实测踩到）。
+      env: {
+        ...process.env,
+        PATH: path.dirname(process.execPath).replace(/\\/g, '/')
+          .replace(/^([A-Za-z]):/, (m, d) => '/' + d.toLowerCase()) + ':/usr/bin:/bin',
+      },
     });
     const out = String(res.stdout || '') + String(res.stderr || '');
-
-    // ① 被步骤级 timeout 掐断，不是断言失败
-    expect(res.status, 'exit 124 = 被 timeout(1) 掐断').toBe(124);
-    // ② 自证行必须真的出现 —— #2525 承诺而从未兑现的那一半
-    expect(out, '自证行缺席 ⇒ 自证块又被 -e 提前杀掉了').toContain('[electron-ci-timeout-budget] elapsed=');
+    expect(res.status, '被委托方的退出码必须原样传出（124 被吞成 0 就是"红着却绿"）').toBe(124);
+    expect(out, '非零退出时诊断仍必须可见 —— 搬家后这一步只剩一条命令，丢了就没有第二次机会')
+      .toContain('TIMEOUT_BUDGET_EXCEEDED');
+    expect(out).toMatch(/\[electron-ci-step\] elapsed=/);
     expect(out).toMatch(/rc=124/);
-    expect(out).toContain('TIMEOUT_BUDGET_EXCEEDED');
-    // ③ 覆盖到诊断尾部：空 log 上 `grep -c` 返回 1，若少了 `|| true`，恢复后的 `set -e`
-    //    会把步骤码改写成非 124，而 `status===124` 会红得指错根因。
-    expect(out).toContain('已完成测试行数');
+    fs.rmSync(dir, { recursive: true, force: true });
   }, SHELL_HARNESS_TIMEOUT_MS);
 
   it('自主审计成功分支不会继续写入基础设施失败状态', () => {
