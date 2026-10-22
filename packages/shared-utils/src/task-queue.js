@@ -538,6 +538,7 @@ class TaskQueue extends EventEmitter {
   }
 
   async _executeTask (task) {
+    if (this._debug) this._debug('[queue] exec task=' + task.id + ' platform=' + task.platform)
     if (task.cancelRequested || task.status === 'cancelled') return
     task.status = 'running'
     task.startedAt = new Date().toISOString()
