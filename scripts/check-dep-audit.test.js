@@ -725,14 +725,14 @@ test('shellRun 必须把错误信封判成「不是审计报告」', async (t) =
       message: 'request to https://registry.npmjs.org/-/npm/v1/security/audits/quick failed, reason: socket hang up',
       error: { code: 'ECONNRESET' },
     });
-    const res = D.shellRunOnce('npm', ['audit'], { expectAuditReport: true, spawn: fakeSpawn(stdout) });
+    const res = D.shellRunOnce('npm', ['audit'], { expectReport: 'npm', spawn: fakeSpawn(stdout) });
     assert.equal(res.ok, false, '错误信封绝不能被当成合法报告');
     assert.match(res.error, /不是审计报告/, '错误文案必须说清是「拿不到报告」而不是「没有漏洞」');
   });
 
   await t.test('合法零漏洞报告 → ok:true（不能把「真的没漏洞」误判成扫描失败）', () => {
     const stdout = JSON.stringify({ auditReportVersion: 2, vulnerabilities: {}, metadata: {} });
-    const res = D.shellRunOnce('npm', ['audit'], { expectAuditReport: true, spawn: fakeSpawn(stdout) });
+    const res = D.shellRunOnce('npm', ['audit'], { expectReport: 'npm', spawn: fakeSpawn(stdout) });
     assert.equal(res.ok, true);
     assert.deepEqual(res.json.vulnerabilities, {});
   });
@@ -751,7 +751,7 @@ test('shellRun 必须把错误信封判成「不是审计报告」', async (t) =
         ? { stdout: JSON.stringify({ message: 'request to x failed, reason: socket hang up' }), stderr: '' }
         : { stdout: JSON.stringify({ vulnerabilities: {}, auditReportVersion: 2 }), stderr: '' };
     };
-    const res = D.shellRun('npm', ['audit'], { expectAuditReport: true, attempts: 2, retryDelays: [0], spawn });
+    const res = D.shellRun('npm', ['audit'], { expectReport: 'npm', attempts: 2, retryDelays: [0], spawn });
     assert.equal(res.ok, true, '第一次失败后必须真的重试并接受第二次的合法报告');
     assert.equal(calls, 2, '必须恰好尝试两次');
   });
@@ -762,7 +762,7 @@ test('shellRun 必须把错误信封判成「不是审计报告」', async (t) =
       calls += 1;
       return { stdout: JSON.stringify({ message: 'request to x failed, reason: socket hang up' }), stderr: '' };
     };
-    const res = D.shellRun('npm', ['audit'], { expectAuditReport: true, attempts: 3, retryDelays: [0], spawn });
+    const res = D.shellRun('npm', ['audit'], { expectReport: 'npm', attempts: 3, retryDelays: [0], spawn });
     assert.equal(res.ok, false);
     assert.equal(calls, 3, 'attempts=3 必须真的试三次');
   });
@@ -781,7 +781,44 @@ test('shellRunOnce 必须把 cwd 透传给扫描器', () => {
     return { stdout: JSON.stringify({ vulnerabilities: {} }), stderr: '' };
   };
   const cwd = path.join(process.cwd(), 'ops-center', 'frontend');
-  const res = D.shellRunOnce('npm', ['audit'], { cwd, expectAuditReport: true, spawn });
+  const res = D.shellRunOnce('npm', ['audit'], { cwd, expectReport: 'npm', spawn });
   assert.equal(res.ok, true);
   assert.equal(seen.cwd, cwd, 'cwd 丢失会让 ops-center 域在错误的目录里扫描，且只表现为「扫不到」');
+});
+// ——— pip 域：同一个 bug 的第三份 ———
+//
+// 外部评审（2026-10-22）当场点名：只给两个 npm 域加形状校验、漏掉 pip，
+// 等于把「错误信封被读成零漏洞」这个 bug 留了三分之一。
+// `parsePipAudit()` 对任何缺 `dependencies` 的对象都返回 []，所以这里必须单独上锁。
+test('pip 域也必须做报告形状校验', async (t) => {
+  const fakeSpawn = (stdout) => () => ({ stdout, stderr: '' });
+
+  await t.test('isPipAuditReport：只认顶层 dependencies 数组', () => {
+    assert.equal(D.isPipAuditReport({ dependencies: [] }), true, '零漏洞的 pip 报告（空数组）必须算报告');
+    assert.equal(D.isPipAuditReport({ dependencies: [{ name: 'x', vulns: [] }] }), true);
+    assert.equal(D.isPipAuditReport({ message: 'pip-audit failed', error: {} }), false, '错误信封不算报告');
+    assert.equal(D.isPipAuditReport({ vulnerabilities: {} }), false, 'npm 形状不能冒充 pip 报告');
+    assert.equal(D.isPipAuditReport({}), false);
+    assert.equal(D.isPipAuditReport(null), false);
+  });
+
+  await t.test('pip 错误信封 + expectReport:pip → ok:false（否则会谎报 pip 挂账已修复）', () => {
+    const stdout = JSON.stringify({ message: 'pip-audit: could not resolve requirements', error: { code: 'ENOENT' } });
+    const res = D.shellRunOnce('pip-audit', ['-r', 'x'], { expectReport: 'pip', spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, false);
+    assert.match(res.error, /不是审计报告/);
+  });
+
+  await t.test('pip 合法报告 + expectReport:pip → ok:true', () => {
+    const stdout = JSON.stringify({ dependencies: [], fixes: [] });
+    const res = D.shellRunOnce('pip-audit', ['-r', 'x'], { expectReport: 'pip', spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.json.dependencies, []);
+  });
+
+  await t.test('用 npm 的尺子量 pip 会被拒（两个域形状不同，不能共用一把尺）', () => {
+    const stdout = JSON.stringify({ dependencies: [] });
+    const res = D.shellRunOnce('pip-audit', ['-r', 'x'], { expectReport: 'npm', spawn: fakeSpawn(stdout) });
+    assert.equal(res.ok, false, 'npm 形状校验不应接受 pip 报告');
+  });
 });

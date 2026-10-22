@@ -89,8 +89,22 @@ function sleepSync (ms) {
  */
 function isAuditReport (json) {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return false;
-  return Object.prototype.hasOwnProperty.call(json, 'vulnerabilities')
-    || Object.prototype.hasOwnProperty.call(json, 'advisories');
+  const has = (k) => Object.prototype.hasOwnProperty.call(json, k);
+  // npm v2 一定有 vulnerabilities；pnpm/旧版有 advisories；auditReportVersion 是两者的版本标记。
+  // 认这三个中的任意一个：只认前两个会把「结构正确但恰好空」的边角报告误判成扫描失败。
+  return has('vulnerabilities') || has('advisories') || has('auditReportVersion');
+}
+
+/**
+ * pip-audit 的报告形状与 npm 完全不同：顶层 `dependencies` 数组（无漏洞时是空数组）。
+ *
+ * 为什么也要校验：`parsePipAudit()` 对任何缺 `dependencies` 的对象都返回 `[]` ——
+ * 于是 pip-audit 失败时的错误信封会被当成「零漏洞」，基线里 pip 的挂账条目同样会被
+ * 误判成 RESOLVED_STILL_BASELINED。外部评审（2026-10-22）当场点名了这条：
+ * 只修 npm 两个域而漏掉 pip，等于把同一个 bug 留了三分之一。
+ */
+function isPipAuditReport (json) {
+  return !!json && typeof json === 'object' && Array.isArray(json.dependencies);
 }
 
 function shellRunOnce (cmd, args, opts = {}) {
@@ -119,9 +133,13 @@ function shellRunOnce (cmd, args, opts = {}) {
     } catch (e) {
       return { ok: false, error: 'JSON 解析失败: ' + e.message };
     }
-    if (opts.expectAuditReport && !isAuditReport(json)) {
-      const detail = typeof json.message === 'string' ? json.message : 'JSON 结构里没有 vulnerabilities/advisories';
-      return { ok: false, error: '扫描器返回的不是审计报告（多是端点不可达）：' + detail.slice(0, 300) };
+    if (opts.expectReport) {
+      // 按域校验形状：pip-audit 与 npm 家族的 JSON 结构完全不同，不能用同一把尺子。
+      const okShape = opts.expectReport === 'pip' ? isPipAuditReport(json) : isAuditReport(json);
+      if (!okShape) {
+        const detail = typeof json.message === 'string' ? json.message : 'JSON 结构不是该域的报告形状';
+        return { ok: false, error: '扫描器返回的不是审计报告（多是端点不可达）：' + detail.slice(0, 300) };
+      }
     }
     return { ok: true, json };
   } catch (e) {
@@ -152,8 +170,10 @@ function shellRun (cmd, args, opts = {}) {
 /** 默认扫描器：真实调 pnpm / npm / pip-audit（用例注入假实现，避免依赖网络）。 */
 function createDefaultRunners (registry) {
   return {
-    // 两个 npm 域都要 `expectAuditReport`（错误信封绝不能当空报告）+ 3 次重试（端点抖动是瞬时）。
-    npm: () => shellRun('pnpm', ['audit', '--prod', '--json', '--registry=' + registry], { expectAuditReport: true, attempts: 3 }),
+    // 三个域**全部**要形状校验（错误信封绝不能当空报告）+ 3 次重试（端点抖动是瞬时）。
+    // pip 漏掉这条会让同一个 bug 留三分之一：`parsePipAudit()` 对缺 `dependencies` 的对象
+    // 一律返回 `[]`，错误信封会被读成「零漏洞」（外部评审 2026-10-22 点名）。
+    npm: () => shellRun('pnpm', ['audit', '--prod', '--json', '--registry=' + registry], { expectReport: 'npm', attempts: 3 }),
     // ops-center/frontend 不在 pnpm workspace 内（pnpm-workspace.yaml 只列 apps/* 与 packages/*），
     // 它自带 package-lock.json 由 npm 管理 ⇒ 上一轮 axios 的「遗留」原文：它既不在本门禁的两个扫描域里，
     // 也没有任何 workflow 装它，于是以「看起来受门禁保护」的形态存在。这里把它真的扫进来。
@@ -161,9 +181,9 @@ function createDefaultRunners (registry) {
     // 全部落在 vitest→@vitest/mocker→undici 这条 dev 链上）。
     'npm-opscenter': () => shellRun(
       'npm', ['audit', '--omit=dev', '--json', '--registry=' + registry],
-      { cwd: path.join(ROOT, OPS_FRONTEND_REL), expectAuditReport: true, attempts: 3 },
+      { cwd: path.join(ROOT, OPS_FRONTEND_REL), expectReport: 'npm', attempts: 3 },
     ),
-    pip: () => shellRun('pip-audit', ['-r', PIP_REQUIREMENTS, '--format', 'json', '--progress-spinner', 'off']),
+    pip: () => shellRun('pip-audit', ['-r', PIP_REQUIREMENTS, '--format', 'json', '--progress-spinner', 'off'], { expectReport: 'pip', attempts: 3 }),
   };
 }
 
@@ -710,11 +730,12 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   evaluate,
-  // shellRun / isAuditReport 导出仅为单测：错误信封必须被判成"不是审计报告"，
-  // 这条判据不能只靠跑真实端点来验（端点不可达时恰好才是要验的场景）。
+  // shellRun / isAuditReport / isPipAuditReport 导出仅为单测：错误信封必须被判成
+  // "不是审计报告"，这条判据不能只靠跑真实端点来验（端点不可达时恰好才是要验的场景）。
   shellRun,
   shellRunOnce,
   isAuditReport,
+  isPipAuditReport,
   PARSERS,
   patchedFromRange,
   runCheck,
