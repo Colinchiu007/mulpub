@@ -25,7 +25,7 @@ date: 2026-10-21
 
 | 来源 | 争议 | 处置与取证 |
 |---|---|---|
-| opencode i1 / i6 | 契约测试硬编码 `50000` 却声称「与引擎上限对齐」；引擎上限合法上调时会先红且报错指向档位而非真因 | **已修**：改为**直接读**仓内权威源再比对，钉的是**对齐关系**而非字面值。**且补到三方**：① 引擎真源 `packages/rewrite-engine/src/rewrite-engine-core.js` 的 `MAX_OUTPUT_CHARS`、② 渲染层镜像 `apps/desktop/src/utils/rewrite-engine-limits.js` 的 `REWRITE_ENGINE_MAX_OUTPUT_CHARS`、③ Python 三档 `_LENGTH_RANGES[*][1]` —— 少钉一处 = 留一处新暗上限（JS 侧结构锁只保证 ①②，本片把 ③ 纳入）。读法与仓库既有先例同构（`rewrite-engine-limits.test.js:31`）。**双向反证**：改 ① ⇒ 变红、�� ② ⇒ 变红、还原 ⇒ 变绿 |
+| opencode i1 / i6 | 契约测试硬编码 `50000` 却声称「与引擎上限对齐」；引擎上限合法上调时会先红且报错指向档位而非真因 | **已修**：改为**直接读**仓内权威源再比对，钉的是**对齐关系**而非字面值。**且补到三方**：① 引擎真源 `packages/rewrite-engine/src/rewrite-engine-core.js` 的 `MAX_OUTPUT_CHARS`、② 渲染层镜像 `apps/desktop/src/utils/rewrite-engine-limits.js` 的 `REWRITE_ENGINE_MAX_OUTPUT_CHARS`、③ Python 三档 `_LENGTH_RANGES[*][1]` —— 少钉一处 = 留一处新暗上限（JS 侧结构锁只保证 ①②，本片把 ③ 纳入）。读法与仓库既有先例同构（`rewrite-engine-limits.test.js:31`）。**双向反证**：改 ① ⇒ 变红、改 ② ⇒ 变红、还原 ⇒ 变绿 |
 | opencode i4 | 溯源散文在代码注释与测试 docstring **双份**，必然漂移 | **已修**：完整溯源只留 `service.py` 的 `_LENGTH_RANGES` 注释一处（单一真源），测试 docstring 与 PRD 只引用它 |
 | claude i4（第一轮）/ opencode i2 | 需补「`max` 有运行时消费方」的证据链，否则改动可能是空操作 | **已修**：`service.py` 注释补上消费链（`max` → `RewriteConfig.max_word_count` → 引擎 prompt 的字数区间；引擎**不按 max 截断**、只回真实产出字数） |
 
