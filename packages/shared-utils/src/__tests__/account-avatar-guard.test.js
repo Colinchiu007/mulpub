@@ -35,6 +35,16 @@ describe('account-avatar-guard 平台品牌图判据', () => {
     expect(isBrandImageUrl('https://wx.qlogo.cn/finderhead/yYI4pIsF7XFJ6ZVIQSYPf0vz9ITZv28GTYwAJy0gK4GgKUmSH9jS5GiblcAIuW5hvTBSsJK9epY0/0')).toBe(false)
   })
 
+  // 回归锁（CCG 评审 i1）：前缀必须是**封闭词表**，不得用「任意词 + 连字符」这种
+  // 开放形态 —— `user-logo.png` 是常见的真头像文件名，误杀的后果是
+  // 「有头像的账号显示成灰色通用头像」，与本模块要修的缺陷同一类。
+  it('真头像文件名里含 logo 字样也不得被误杀（封闭词表，不接受任意前缀）', () => {
+    expect(isBrandImageUrl('https://cdn.example.com/user-logo.png')).toBe(false)
+    expect(isBrandImageUrl('https://cdn.example.com/avatar/company-logo.jpg')).toBe(false)
+    expect(isBrandImageUrl('https://cdn.example.com/catalog.png')).toBe(false)
+    expect(isBrandImageUrl('https://cdn.example.com/photos/my-brand-photo.png')).toBe(false)
+  })
+
   it('非 URL / 空值不判品牌图（宁可不判，也不误杀）', () => {
     expect(isBrandImageUrl('')).toBe(false)
     expect(isBrandImageUrl(null)).toBe(false)

@@ -30,10 +30,13 @@
  *
  * 允许的前缀是**封闭词表**而不是任意前缀：`catalog.png` 这类普通词里恰好含 "logo"
  * 的文件名必须放行（误判品牌图 = 误杀真头像，比漏判更糟），所以只认
- * site/web/app/default/placeholder/official 这些**站点语义明确**的词，
- * 以及「任意词 + 连字符」这一形态（`brand-logo.svg`）。
+ * site/web/app/default/placeholder/official/brand 这些**站点语义明确**的词。
+ *
+ * ⛔ 不得引入「任意词 + 连字符」这种开放前缀（`user-logo.png` 会被误杀成品牌图）：
+ * 那是真头像文件名的常见形态，误杀的后果是「有头像的账号显示成灰色通用头像」——
+ * 与本模块要修的缺陷同一类。CCG 评审 i1 即指此点，已按封闭词表改回。
  */
-const BRAND_ASSET_FILE_RE = /(?:^|[/\\])(?:(?:site|web|app|default|placeholder|official)[-_]?)?(?:[a-z0-9]+[-_])?(?:logo|favicon|brand)(?:[-_.][a-z0-9_-]+)*\.(?:png|jpe?g|gif|webp|svg|ico)(?:[?#].*)?$/i
+const BRAND_ASSET_FILE_RE = /(?:^|[/\\])(?:(?:site|web|app|default|placeholder|official|brand)[-_]?)?(?:logo|favicon|brand)(?:[-_.][a-z0-9_-]+)*\.(?:png|jpe?g|gif|webp|svg|ico)(?:[?#].*)?$/i
 
 /**
  * 已知平台把品牌图放在**非文件名形态**路径下的情形（实测值）。
@@ -45,6 +48,11 @@ const BRAND_ASSET_PATH_PATTERNS = [
 
 /**
  * 判定一个头像候选值是不是「站点品牌图」。
+ *
+ * 已知局限（如实标注，CCG 评审 i8）：只判**绝对 URL**。相对路径（`/logo.png`）
+ * 与 `data:` URI 一律**不判** —— 判错会误伤真头像，而漏判只会在极端形态下
+ * 让品牌图溜过去。页面内采集到的头像候选在绝大多数平台都是绝对 URL
+ * （`el.src` 由浏览器解析成绝对地址），故该局限不构成实际风险。
  * @param {unknown} url
  * @returns {boolean}
  */

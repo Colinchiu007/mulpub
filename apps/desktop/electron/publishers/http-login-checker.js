@@ -58,6 +58,13 @@ function toCount (v) {
  * 公众号 loginpage HTML 的身份解析 —— **唯一实现**。
  * 登录判定表（uid 提取）与账号资料表（昵称 + uid）读的是同一页，
  * 各写一份正则必然漂移（昵称抽到了但 uid 没抽到这类半命中最难查）。
+ *
+ * 依赖与校验（CCG 评审 i3）：
+ * - 依赖：页面模板内嵌 `uin: "<数字>"` 与 `nick_name: "<名字>"` 两处赋值。
+ *   模板改版会让这里取不到 —— 属**如实降级**（取不到就不产出，不猜），
+ *   不做「换个正则再试」，因为那只会把「模板变了」伪装成「账号没登录」。
+ * - 校验：uid 走 `normalizeUid` 形态白名单（占位值 `0`/`null`/`{{userId}}` 一律拒绝）；
+ *   昵称拒绝空串与模板占位（`{{nickname}}` 之类），避免把模板变量当账号名落库。
  * @param {unknown} html
  * @returns {{nickname: string, platformAccountId: string}}
  */
@@ -69,7 +76,9 @@ function parseWechatMpIdentity (html) {
   const uinMatch = /uin:\s{0,}"([0-9]{3,})"/.exec(html)
   const uid = normalizeUid(uinMatch && uinMatch[1])
   const nickMatch = /nick_name\s*[:=]\s*"([^"]{1,40})"/.exec(html)
-  const nickname = trimText(nickMatch && nickMatch[1])
+  let nickname = trimText(nickMatch && nickMatch[1])
+  // 模板占位不是昵称：SSR 未填充时页面里会原样输出 `{{nickname}}` 之类的字面量
+  if (/^\{\{.*\}\}$/.test(nickname) || !nickname) nickname = ''
   return { nickname, platformAccountId: uid }
 }
 
@@ -705,6 +714,13 @@ function mergeProfileFields (acc, next) {
  * - 任何异常/非 2xx/非对象响应 → 只返回已合并到的部分，不抛错；
  * - 只读端点，不引入有副作用的端点。
  *
+ * 时延（CCG 评审 i7）：**互不依赖的来源并发取**，只有 `url` 是函数（依赖前序结果，
+ * 例：B 站 relation/stat 需要 nav 给出的 mid）的来源才串行。
+ * 串行取时最坏是「来源数 × 8s」线性累加（头条/小红书/B 站各 2 个来源），
+ * 在批量检测里会明显拖慢；并发后最坏只剩「依赖链长度 × 8s」。
+ * 合并顺序按**来源声明顺序**（Promise.all 保序），不按完成顺序 ——
+ * 「先到先得」的语义必须与来源顺序一致，否则结果随网络抖动漂移。
+ *
  * @param {string} platform
  * @param {Array<{name:string, value:string}>} cookies
  * @returns {Promise<{supported: boolean, nickname?: string, followers?: number, platformAccountId?: string, avatar?: string}>}
@@ -717,17 +733,18 @@ async function fetchAccountInfoViaHttpApi (platform, cookies) {
 
   /** @type {{nickname?:string, avatar?:string, followers?:number, platformAccountId?:string}} */
   const merged = {}
-  for (const source of sources) {
-    if (!source || typeof source.extract !== 'function') continue
+
+  /** 取一个来源的字段（不发请求的 cookie 型来源直接本地派生） */
+  const runSource = async (source) => {
+    if (!source || typeof source.extract !== 'function') return {}
     // cookie 型来源（快手）：纯本地派生，绝不发网络请求
     if (source.uidSource === 'cookie') {
-      mergeProfileFields(merged, source.extract(null, Array.isArray(cookies) ? cookies : []))
-      continue
+      return source.extract(null, Array.isArray(cookies) ? cookies : [])
     }
-    if (typeof source.precheck === 'function' && !source.precheck(cookieHeader)) continue
+    if (typeof source.precheck === 'function' && !source.precheck(cookieHeader)) return {}
     // url 可以是函数：拿到前面来源的结果再决定（例如 B 站 relation/stat 需要 mid）
     const url = typeof source.url === 'function' ? source.url(merged) : source.url
-    if (!url) continue
+    if (!url) return {}
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), HTTP_CHECK_TIMEOUT_MS)
     try {
@@ -748,19 +765,35 @@ async function fetchAccountInfoViaHttpApi (platform, cookies) {
       const response = await fetch(url, fetchOptions)
       clearTimeout(timer)
       // redirect:'manual' 下 3xx 的 ok 为 false → 与既有行为一致：不产出、不判失效
-      if (!response.ok) continue
+      if (!response.ok) return {}
       if (source.responseType === 'html') {
         const html = await response.text().catch(() => '')
-        mergeProfileFields(merged, source.extract(html))
-        continue
+        return source.extract(html)
       }
       const data = await response.json().catch(() => null)
-      if (!data || typeof data !== 'object') continue
-      mergeProfileFields(merged, source.extract(data))
+      if (!data || typeof data !== 'object') return {}
+      return source.extract(data)
     } catch (e) {
       clearTimeout(timer)
       // 单个来源失败不影响其它来源（粉丝数取不到不该把昵称一起丢掉）
+      return {}
     }
+  }
+
+  // 按来源顺序切段：连续的「静态 url」来源合成一段并发跑；
+  // 「动态 url」来源（依赖前序结果）单独一段，等前面的段合并完再跑。
+  for (let i = 0; i < sources.length;) {
+    if (typeof sources[i].url === 'function') {
+      mergeProfileFields(merged, await runSource(sources[i]))
+      i += 1
+      continue
+    }
+    let end = i
+    while (end < sources.length && typeof sources[end].url !== 'function') end += 1
+    const group = sources.slice(i, end)
+    const results = await Promise.all(group.map(runSource))
+    for (const result of results) mergeProfileFields(merged, result)
+    i = end
   }
   return shapeInfoResult(merged)
 }

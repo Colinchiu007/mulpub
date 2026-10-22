@@ -99,8 +99,29 @@ date: 2026-10-22
 
 ## 评审
 
-- **QM-6 CCG 双家族外部评审**：`scripts/ccg-review.ps1 -Mode Deep`（critic=claude / proposer=opencode）。
-  实跑读数与处置见下（**不以自审冒充通过；后端跑不出来就如实写具体失败原因**）。
+- **QM-6 CCG 双家族外部评审**：`scripts/ccg-review.ps1 -Mode Deep`
+  - 后端体检：critic=**claude**（`/c/Users/邱领/.local/bin/claude.exe`，2.1.303）、
+    proposer=**opencode**（`/d/Program Files/npm-global/opencode.cmd`，1.18.34）——
+    **两个后端都真实可跑**（`X --version` 已自检），不是「工具不可用」。
+  - 判定：DUAL（变更 1361 行 > 200 行阈值）⇒ 双模型深度审查已跑。
+  - critic 产出 **8 条问题**（correctness 4 / security 7 / performance 6 / maintainability 3，最低分 3），
+    引擎进入自扮演裁决，要求逐条填 adjudication（`.adversarial/ccg-deep-6a6e95a9/adjudication.json`）。
+  - 逐条处置（裁决全文与证据在该文件）：
+
+    | # | 严重度 | 结论 | 处置 |
+    |---|---|---|---|
+    | i1 | Critical | **成立** | 品牌图正则含「任意词 + 连字符」开放前缀，与注释的封闭词表自相矛盾，会误杀 `user-logo.png` 这类真头像文件名 ⇒ **已修**：改为只认封闭词表，并补回归锁断言 4 个真头像形态一律不判品牌图 |
+    | i2 | Critical | **不成立** | `sha=9adf66fd` 是**父提交**（工具既定行为，脚本实跑自证「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上」），同一记录内另存评审目标 sha；`1361 vs 2177` 是「代码文件口径（`codeFileCount=13`）vs 整份 diff 口径」两个分母，实测 `git diff --numstat origin/main...HEAD` = 16 文件 / 1821 行，代码文件 13 个与记录吻合 ⇒ 工件未过期、未错配 |
+    | i3 | Warning | **成立（昵称那半）** | uid 侧不成立（`normalizeUid` 已做形态白名单与占位拒绝）；昵称侧缺校验 ⇒ **已修**：拒绝模板占位（`{{nickname}}`）与空串，并在 docblock 写明依赖/校验/改版时行为（如实降级，不换正则重试） |
+    | i4 | Warning | **不成立** | `01-docs/` 在 `check-docs-sync.sh` 的 `PRD_PATTERN` 内（文档层由门禁认定，非构建输入是分层设计）；PRD 与本记录互相引用；PRD 是用户明确要求的交付物 ⇒ 保留 |
+    | i5 | Warning | **不成立** | 实现是 `const out = { ...raw }` 浅拷贝后 `delete`，**入参不被修改**，同一对象调用两次结果恒等 ⇒ 不改（改了反而偏离纯函数约定） |
+    | i6 | Info | 已有覆盖 | 锁里已有前置断言「解析退化即红」（`parseItBlocks(...).length > 八平台数 × 2`） |
+    | i7 | Info | **已修** | 互不依赖的资料来源改**并发取**（Promise.all 保序 ⇒ 合并顺序仍按来源声明顺序），只有 `url` 为函数的依赖链串行 ⇒ 消掉「来源数 × 8s」线性累加 |
+    | i8 | Info | 已文档化 | `isBrandImageUrl` 只判绝对 URL 这一局限写进 docblock（相对路径不判，理由：误判会误伤真头像） |
+
+  - 裁决后复跑：受影响的 `apps/desktop/electron/publishers/` + `electron/tests/account-profile-collector.test.js`
+    + `src/features/accounts/` ⇒ **33 文件 / 556 例全绿**（1 例既有 skip）；
+    `packages/shared-utils/src/__tests__/account-avatar-guard.test.js` ⇒ **7 例全绿**（含 i1 回归锁）。
 
 ### 遗留（不假装已闭合）
 
