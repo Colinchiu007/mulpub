@@ -14,7 +14,7 @@
 |---|---|
 | 校准方式 | 逐条探测代码/测试是否存在（27 项 + 8 项两轮），支付相关测试 **111/111 通过** |
 | 结果 | 完成 **35** 项 / 未完成 **2** 项（`0.3`、`8.8`）/ 实现方式变更 **3** 项（`4.4`、`6.5`、`6.6`） |
-| 仍未完成的实质待办 | 只有 `0.3` 与 `8.8`，且**卡在同一件事：真机凭据** |
+| 仍未完成的实质待办 | `0.3` / `8.8`（真机凭据）；**`9.8`（provider 未接线，见下）** |
 | 相关 PR | #4187（主体）、#4219（订单页）、#4225（依赖审计判据，与本 change 无关但同批修复） |
 
 ---
@@ -163,6 +163,17 @@
 
 ---
 
+## 9.8 ⛔ 阻断缺口：provider 从未被构造（2026-10-22 发现，未修）
+
+- [ ] 9.8.1 `src/auth/payment-providers/wechat-native-factory.js`：私钥加载 + `buildAuthorizationHeader` + `createWeChatNativeProvider(env, deps)`
+- [ ] 9.8.2 平台公钥环境变量（`WECHAT_PAY_PLATFORM_PUBLIC_KEY` / `_PATH` / `WECHAT_PAY_PUBLIC_KEY_ID`）+ 纳入 `production-config` 必填
+- [ ] 9.8.3 `logto-runtime.js` 接线：构造后传给 `SubscriptionService({ paymentProvider })`
+- [ ] 9.8.4 **组装根测试**：`createLogtoRuntime` 走真实组装路径，断言 `wechat_native` ⇒ provider 非 null、`none` ⇒ null
+
+> 证据：`logto-runtime.js:127` 构造 `SubscriptionService` 时**没传** `paymentProvider`；
+> `subscription-service.js:120` 默认 `null`；`subscription-payment.js:56` 因此恒回 503。
+> 全仓 `src` 里 `WeChatNativeProvider` **只出现在它自己的定义文件**，生产代码从未 `new` 过它。
+> 详见 PRD §16。**这一条不解决，第 15 节（配置透传）全部白做。**
 ## 10. 仍未做（汇总，供后续会话直接接手）
 
 | 项 | 阻塞点 | 谁来做 |
