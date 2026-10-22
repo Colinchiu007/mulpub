@@ -481,6 +481,11 @@ shared-user-data.backups/
 # 静默忽略：而它的自测由第 244 行 !scripts/*.test.js 通用例外进了仓 ⇒ 漏这条 negation 的后果是
 # "测试在盘、判据不在盘"，CI 上以 Cannot find module 的形式红，本地全绿（同 #3011 家族）。
 !scripts/check-debt-recheck.js
+# 定时作业报警覆盖面判据（2026-10-22，change: schedule-failure-watch）：
+# 它要防的是"手抄的名单漂了没人知道"，所以本体与行为锁都必须入库、都必须被 Gate 2b13 点名跑。
+!scripts/check-schedule-failure-watch.js
+!scripts/check-schedule-failure-watch.test.js
+!scripts/check-schedule-failure-watch.mutation.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）
