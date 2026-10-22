@@ -155,3 +155,27 @@ test('settlePaymentWebhook：留痕与结算的关系', async (t) => {
     assert.equal(applied.length, 0);
   });
 });
+
+test('eventRecorded 的三值契约（键永远存在）', async (t) => {
+  await t.test('事务里没有 DB client（测试替身）⇒ 键存在且为 null，表示"不适用"', async () => {
+    // 直接构造一个没有 client 的 tx，模拟旧式 fake repository。
+    const applied = [];
+    const repository = {
+      async getOrderById () {
+        return { id: ORDER_ID, user_id: 'u', plan: 'standard', amount: 100, channel: 'payment', period: 'month' };
+      },
+      async markOrderPaid () {},
+      async commerceTransaction (cb) {
+        return cb({
+          async applySubscription (args) { applied.push(args); return { plan: args.plan, periodEnd: null }; },
+          async createNotification () {},
+        });
+      },
+    };
+    const service = new SubscriptionService({ repository, now: () => new Date('2026-10-23T00:00:00Z') });
+    const result = await service.settlePaymentWebhook({ orderId: ORDER_ID });
+    assert.equal('eventRecorded' in result, true, '缺键会被调用方读成"成功"');
+    assert.equal(result.eventRecorded, null, 'null = 不适用（没有可写的事件表），不是失败');
+    assert.equal(applied.length, 1);
+  });
+});

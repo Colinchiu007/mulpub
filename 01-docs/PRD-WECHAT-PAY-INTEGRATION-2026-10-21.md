@@ -656,6 +656,18 @@ claim(同一事务) → markOrderPaid → applySubscription → createNotificati
    —— 不静默，但也不阻断。
 3. **收口失败同样不回滚**：权益已经发了，`eventRecorded` 降级为 false。
 
+### 15.9.1.1 `eventRecorded` 的三值契约
+
+结算结果里的 `eventRecorded` **键永远存在**（缺键会被调用方读成"成功"）：
+
+| 值 | 含义 | 调用方动作 |
+|---|---|---|
+| `true` | 事件已落库并收口为 `processed` | 无 |
+| `false` | 回调已结算，但事件写失败 | `_handlePaymentWebhook` 落 `PAYMENT_EVENT_NOT_RECORDED` 日志；响应仍 200 |
+| `null` | **不适用**（事务里没有 DB client，只出现在测试替身） | 无 |
+
+`null` 与 `false` 不能合并：前者是"没有可写的事件表"，后者是"有表但写失败了"。
+把两者混成一个值，会让"写失败"在测试环境里被习惯性忽略，进而漏到生产。
 ### 15.9.2 幂等键的选择理由
 
 微信重投同一笔支付时 `Wechatpay-Nonce` **每次都会变**，`transaction_id` 才稳定；

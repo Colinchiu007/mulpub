@@ -341,6 +341,15 @@ SELECT event, status, count(*) AS n
  GROUP BY event, status;
 -- 正常：绝大多数 status='processed'。出现 processing 积压 ⇒ 结算链路在报错
 
+-- 卡在 processing 的事件（超过 10 分钟）—— 这是要人工看的那条线
+-- 成因：结算成功但收口 UPDATE 失败（服务端日志会有 PAYMENT_EVENT_NOT_RECORDED）。
+-- 权益**已经发了**，这条只是留痕没闭环；不要据此重新发放。
+SELECT id, event, auth_subject, received_at
+  FROM identity_webhook_events
+ WHERE provider='wechat_pay' AND status='processing'
+   AND received_at < now() - interval '10 minutes'
+ ORDER BY received_at DESC LIMIT 20;
+
 -- 未落账的订单（有支付但没 paid）—— 这是要盯的那条线
 SELECT id, user_id, amount, created_at
   FROM identity_orders

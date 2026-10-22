@@ -85,6 +85,25 @@ claim → markOrderPaid → applySubscription → createNotification → complet
 
 均逐字节还原 True。全量 `packages/api-publish-engine` rc=0（Vitest 47 文件 / **504 例**）。
 
+## 5.5 外部评审处置（VERDICT: PASS，0 Critical / 0 High）
+
+跨家族评审（claude，非本实现家族）给出 **PASS**，并逐条确认了三件我最担心的事：
+
+| 复核项 | 结论 |
+|---|---|
+| 事务语义 | 提前 `return` 走的是 **COMMIT** 而非 ROLLBACK；结算失败则连 claim 一起回滚 ⇒ **不会留下"已抢占但没结算"的毒行** |
+| 并发双投 | 第二个事务在 `ON CONFLICT` 上阻塞；第一个提交则它拿到 `[]` 跳过结算，第一个回滚则它接手 ⇒ **只有一个会结算** |
+| SQL | 占位符 7 个 / 2 个均正确；`$2::jsonb` 正确；`NOT NULL` 列（`hook_id`/`created_at`/`received_at`）全部供给；`ON CONFLICT (provider,id)` 对得上 `003` 的唯一约束 |
+
+两条 Medium：
+
+| # | 意见 | 处置 |
+|---|---|---|
+| 4 | `tx.client` 缺失时 `eventRecorded` 键被省略，契约不一致（缺键会被读成成功） | **采纳**：键永远存在，`null` 表示"不适用"。新增 1 例锁住；变异（改回省略）→ 12 pass / 2 fail |
+| 5 | 上一投递若"结算成功但收口失败"，事件行会永久停在 `processing`，后续重投只跳过、不修复 | **不修代码**（自动改 `processed` 会在"其实没结算"时谎报），改为**可查判据**：RUNBOOK 观测段加「卡在 processing 超过 10 分钟」的 SQL，并注明「权益已发，不要据此重新发放」。PRD §15.9.2 记录该边界 |
+
+> 这轮评审的价值在于把"我以为对"的三条（事务、并发、SQL）逐条验证了一遍，
+> 而不是提新意见。对资金路径来说，**"确认无误"和"发现错误"同样有价值**。
 ## 6. 文档同步（关键：不让文档再次落后于实现）
 
 | 文件 | 改动 |

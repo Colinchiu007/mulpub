@@ -258,7 +258,11 @@ class SubscriptionPaymentOps {
         downgradeSuppressed: applied.downgradeSuppressed === true,
         orderId: orderId,
         periodEnd: applied.periodEnd ?? null,
-        ...(eventRecorded === null ? {} : { eventRecorded }),
+        // 三值语义，**键永远存在**（缺键会被读成"成功"）：
+        //   true  = 已落库
+        //   false = 写失败（调用方已落 PAYMENT_EVENT_NOT_RECORDED）
+        //   null  = 不适用（事务里没有 DB client，只出现在测试替身）
+        eventRecorded,
       }
     })
   }
