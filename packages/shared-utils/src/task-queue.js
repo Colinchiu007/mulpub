@@ -12,6 +12,8 @@ const EventEmitter = require('events')
 // 在归一后不等，会找不到等待中的任务却报 no_waiting_window）。守卫只用 publish-frequency-policy，
 // 不反向依赖本模块，无循环依赖。
 const PublishIntervalGuard = require('./publish-interval-guard')
+/** 频控等待上限：超过则强制重新入队重判，避免任务无限等待（2026-10-23） */
+const MAX_FREQ_WAIT_MS = 15 * 60 * 1000
 // R14：持久化快照（待派发 / running / delayed）的字段取舍统一到一处，
 // 见 task-projection.js 头注释（publishTime 曾在三份手抄白名单里全部缺席）。
 const { projectTask } = require('./task-projection')
@@ -582,10 +584,14 @@ class TaskQueue extends EventEmitter {
           if (task.cancelRequested || task.status === 'cancelled') return
           this._queue.unshift(task)
           this._processNext()
-        }, waitMs)
+        }, Math.min(waitMs, MAX_FREQ_WAIT_MS))
         if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
         this._pendingTimers.add(requeueTimer)
-        this._delayed.set(task.id, { task, timer: requeueTimer })
+        // 2026-10-23：频控等待既要有日志（否则任务"消失"无从观测），也要有上限——
+      // 异常的 waitMs（如时钟漂移/配置错误）会让任务一等就是数小时甚至数天，
+      // 而外部只看到 running=0、无报错。上限 15 分钟后强制重新入队重判。
+      console.warn('[task-queue] 频控等待 task ' + task.id + ' 频控等待 ' + Math.round(waitMs / 1000) + 's'),
+      this._delayed.set(task.id, { task, timer: requeueTimer })
         this._saveState()
         return
       }
