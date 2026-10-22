@@ -347,6 +347,53 @@ function mentionsName (text, name) {
   return re.test(t)
 }
 
+/**
+ * 在一条**已取好**的提交链上，找出「主干最后一次完整跑完的那一版」。
+ *
+ * 动因（2026-10-21~22 现场）：闸门原先读 `origin/main` 的**当前 tip**，而主干每 15–30 分钟
+ * 被推进一次、整条 quality-gate 要 44 分钟 ⇒「全部检查已完成」这个窗口期望时长为负
+ * ⇒ 闸门常态落 rc=3。实测一份 24 项全绿、mergeable=MERGEABLE 的 PR 被卡约 8 小时。
+ * 本函数把问题从「主干**此刻**是否全绿」换成「主干**最后一次完整结论**是不是绿的」——
+ * 后者才是「我有没有把主干弄坏」该问的问题；前者回答的是「现在有没有人在跑检查」。
+ *
+ * 三条不可让的口径：
+ *  1. **先判 fail 再判 pending**（顺序承重）：若先判 pending，「中间某提交真红、更新的提交
+ *     还在跑」会被跳过 ⇒ 把红读成绿。变异反证见 tasks 1.1.7。
+ *  2. **零 run 的提交必须跳过**：`rows.length === 0` 的含义是「这一版没有任何非 workflow_run 的
+ *     run」，**不是**「全部通过」。真机实测 `85dc44ddc` 就是这一形态（真实 run 数 0，
+ *     而同 sha 上 `handle-ci-failure` 有 97 行）。漏掉这条会把「从没跑过」读成「全绿」。
+ *  3. **找不到绿基线一律 fail-closed**：`too-stale` / `unknown` 都不得判绿。
+ *
+ * @param {{chain:string[], rowsAt:(sha:string)=>object[], maxStale?:number}} input
+ *        chain 从新到旧（调用方用 `git rev-list --first-parent` 保证）；rowsAt 可取任意 sha 的行
+ * @returns {{kind:'green'|'red'|'too-stale'|'unknown', sha:(string|null), staleness:number, rows:object[]}}
+ */
+function pickBaseline (input = {}) {
+  const chain = Array.isArray(input.chain) ? input.chain : []
+  const rowsAt = typeof input.rowsAt === 'function' ? input.rowsAt : () => []
+  const maxStale = input.maxStale == null ? 3 : input.maxStale
+  const tip = chain.length > 0 ? chain[0] : null
+
+  for (let i = 0; i < chain.length; i++) {
+    const sha = chain[i]
+    const rows = rowsAt(sha)
+    // 口径 2：零 run ≠ 全绿 ⇒ 跳过，继续往回找
+    if (!Array.isArray(rows) || rows.length === 0) continue
+    // 口径 1：先判 fail —— 真红优先于「再往前找绿」
+    if (rows.some((r) => bucketOf(r) === 'fail')) {
+      return { kind: 'red', sha, staleness: i, rows }
+    }
+    if (!rows.some((r) => bucketOf(r) === 'pending')) {
+      // 口径 3：找到绿基线，但太旧就不认（fail-closed）
+      return i > maxStale
+        ? { kind: 'too-stale', sha, staleness: i, rows }
+        : { kind: 'green', sha, staleness: i, rows }
+    }
+  }
+  // 走到这里 = 窗口内没有一版跑完（或全零 run）⇒ 未证实
+  return { kind: 'unknown', sha: tip, staleness: 0, rows: tip ? rowsAt(tip) : [] }
+}
+
 /** 单行现场读数——每次跑都必须打印，让下一个读者知道这次测了什么。 */
 function readout (v, meta) {
   const c = v.counts || {}
@@ -357,6 +404,11 @@ function readout (v, meta) {
     + ' mainFail=' + (c.mainFail == null ? '?' : c.mainFail)
     + ' newRed=' + (c.newRed == null ? '?' : c.newRed) + ' uncertain=' + (c.uncertain == null ? '?' : c.uncertain)
     + ' unknown=' + (c.prUnknown == null ? '?' : c.prUnknown) + '/' + (c.mainUnknown == null ? '?' : c.mainUnknown) + ' prPending=' + (c.prPending == null ? '?' : c.prPending)
+    // 本判据的「判的是哪棵树」唯一可见面：dist 缺省时打印 `<none>`，绝不静默省略
+    // （AGENTS：判据的读数行不得让读者「测了什么都不知道」）。
+    + ' baseline=' + ((meta && meta.baseline && meta.baseline.sha) ? String(meta.baseline.sha).slice(0, 9) : '<none>')
+    + ' staleness=' + ((meta && meta.baseline && meta.baseline.staleness != null) ? meta.baseline.staleness : '-')
+    + ' baseKind=' + ((meta && meta.baseline && meta.baseline.kind) ? meta.baseline.kind : '-')
     + ' allow=' + ((meta && meta.allowMainRed) ? 'yes' : 'no')
 }
 
@@ -383,4 +435,4 @@ function resolveRepoSlug (src = {}) {
   return { slug: null, via: 'none' }
 }
 
-module.exports = { VERDICTS, FAILED_STATES, PENDING_STATES, SKIPPED_STATES, COMMIT_PENDING_STATES, bucketOf, namesBy, aggregateRows, judge, mentionsName, readout, resolveRepoSlug }
+module.exports = { VERDICTS, FAILED_STATES, PENDING_STATES, SKIPPED_STATES, COMMIT_PENDING_STATES, bucketOf, namesBy, aggregateRows, judge, pickBaseline, mentionsName, readout, resolveRepoSlug }

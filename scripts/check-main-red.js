@@ -40,7 +40,7 @@
  */
 const path = require('node:path')
 const cp = require('node:child_process')
-const { judge, readout, resolveRepoSlug } = require('./lib/main-red')
+const { judge, pickBaseline, readout, resolveRepoSlug } = require('./lib/main-red')
 
 const REPO_DEFAULT = 'Colinchiu007/mulpub'
 
@@ -277,6 +277,27 @@ function createGhCollector (repo) {
       }
       return rows
     },
+    /**
+     * 主干基线（2026-10-22 阶段 1）：沿第一父链回溯 `maxBack` 个提交，取**最后一次完整跑完**的那一版。
+     *
+     * 为什么不能读 tip：tip 每 15–30 分钟前进一次、整条 quality-gate 要 44 分钟
+     * ⇒「全部检查已完成」的窗口期望时长为负 ⇒ 闸门常态 rc=3。
+     * 判据本体的顺序与 fail-closed 口径全在纯函数 `pickBaseline` 里（可零网络单测）。
+     *
+     * @param {{tip?:string, maxBack?:number, maxStale?:number}} [opts]
+     * @returns {{kind:'green'|'red'|'too-stale'|'unknown', sha:(string|null), staleness:number, rows:object[]}}
+     */
+    mainBaseline (opts = {}) {
+      const maxBack = opts.maxBack == null ? 12 : opts.maxBack
+      const maxStale = opts.maxStale == null ? 3 : opts.maxStale
+      // 第一父链：只看主干自己的提交序列，不跟进 merge 进来的旁支
+      const raw = runGit(['rev-list', '--first-parent', 'origin/main', '-n', String(maxBack)])
+      const chain = String(raw == null ? '' : raw).trim().split('\n').map((s) => s.trim()).filter(Boolean)
+      // ⛔ 链为空不得当成「没有红」：正是 tip 取不到读数的形态 ⇒ 交给 pickBaseline 判 unknown
+      // 注：这里必须用**方法简写**而非箭头函数——箭头函数没有自己的 this，
+      //     `this.mainRowsAt` 会取到外层（模块级）的 this ⇒ undefined ⇒ 运行期 TypeError。
+      return pickBaseline({ chain, rowsAt: (sha) => this.mainRowsAt(sha), maxStale })
+    },
   }
 }
 
@@ -302,7 +323,15 @@ async function main (argv, collector) {
     console.log('MAIN-RED verdict=SELF_FAULT exit=4 reason=采集层没有 mainRowsAt 接口：主干基准必须读该 tip 的非 workflow_run run 集合，不得回落到 check-runs')
     return 4
   }
+  // ⛔ 采集层必须提供 mainBaseline（2026-10-22 阶段 1）：主干侧读数不再取自 tip，
+  //    而取自「最后一次完整跑完的那一版」。缺少它就 fail-closed，**不得**静默回落到
+  //    「直接读 tip」——那会把本判据存在的理由（窗口常态为负）原样退回。
+  if (typeof c.mainBaseline !== 'function') {
+    console.log('MAIN-RED verdict=SELF_FAULT exit=4 reason=采集层没有 mainBaseline 接口：主干基准必须沿链回溯到「最后一次完整结论」，不得回落到当前 tip')
+    return 4
+  }
   let last = null
+  let baseline = null
   let moved = null
   const moves = []
   let stable = false
@@ -320,7 +349,10 @@ async function main (argv, collector) {
     let shaAfter
     try {
       shaBefore = c.mainSha()
-      mainRows = c.mainRowsAt(shaBefore)
+      // 阶段 1：主干行取自「最后一次完整结论」，而不是 tip。
+      // tip 上有检查在跑不再是否决条件——这正是本判据存在的理由（窗口常态为负）。
+      baseline = c.mainBaseline({ tip: shaBefore })
+      mainRows = baseline.rows
       prSha = c.prHeadSha(opts.pr)
       prRows = c.checksAt(prSha)
       shaAfter = c.mainSha()
@@ -368,7 +400,7 @@ async function main (argv, collector) {
     allowMainRed: opts.allowMainRed,
     mainMoved: stable ? null : moved,
   })
-  console.log(readout(v, { mainSha: last.mainSha, prSha: last.prSha, allowMainRed: opts.allowMainRed }))
+  console.log(readout(v, { mainSha: last.mainSha, prSha: last.prSha, allowMainRed: opts.allowMainRed, baseline }))
   if (moves.length) {
     console.log('  稳定窗：读数期间主干移动 ' + moves.length + ' 次（'
       + moves.map((m) => String(m.from).slice(0, 9) + '→' + String(m.to).slice(0, 9)).join('，')

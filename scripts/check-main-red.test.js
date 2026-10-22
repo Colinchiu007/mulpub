@@ -28,6 +28,27 @@ const prRow = (name, state) => ({ name, state })
 const apiRow = (name, conclusion) => ({ name, status: 'completed', conclusion })
 const apiPending = (name) => ({ name, status: 'in_progress', conclusion: null })
 
+/**
+ * 夹具包装器（2026-10-22 阶段 1 起必需）。
+ *
+ * 阶段 1 把主干侧读数从「当前 tip」换成「最后一次完整结论」：`main()` 现在调
+ * `collector.mainBaseline({tip})` 取 rows，不再是 `mainRowsAt(tip)`。
+ * 本文件的历史夹具只提供 mainRowsAt（#4221 形态），直接跑会因缺接口判 rc=4。
+ *
+ * ⚠️ 这**不是**把 mainBaseline 做成「回落读 tip」——那会让夹具与生产接口不同形，
+ *    将来漏实现 mainBaseline 的采集层就会静默退步。包装器只补夹具；
+ *    生产代码对 mainBaseline 缺失仍是硬检查（rc=4）。
+ * ⚠️ 它构造 `kind:'green', staleness:0`，即「tip 就是绿基线」，等价于这些用例
+ *    原本要测的「给定主干行 ⇒ 判据怎么判」。基线化本身的行为由
+ *    `main-red-baseline.test.js`（12 例，含 2 处变异反证）单独覆盖。
+ */
+function run2 (argv, mock) {
+  if (mock && typeof mock.mainBaseline !== 'function') {
+    mock.mainBaseline = () => ({ kind: 'green', sha: mock.mainSha(), staleness: 0, rows: mock.mainRowsAt() })
+  }
+  return run(argv, mock)
+}
+
 test('两种响应形状必须落进同一个桶（否则一侧的读数其实是探针失明）', () => {
   assert.strictEqual(bucketOf(prRow('A', 'FAILURE')), 'fail')
   assert.strictEqual(bucketOf(apiRow('A', 'failure')), 'fail')
@@ -183,7 +204,7 @@ test('run() 的退出码取自判据，取数抛错时收敛到 4 而不是 0', 
     mainRowsAt: () => [apiRow('A', 'success')],
     checksAt: () => [apiRow('A', 'success'), apiRow('B', 'success')],
   }
-  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], good), 0)
+  assert.strictEqual(await run2(['--pr', '7', '--retry-seconds', '0'], good), 0)
 
   const boom = {
     repo: 'o/r',
@@ -192,7 +213,7 @@ test('run() 的退出码取自判据，取数抛错时收敛到 4 而不是 0', 
     mainRowsAt: () => [],
     checksAt: () => [],
   }
-  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], boom), 4, '取数失败不得被读成"主干没红"')
+  assert.strictEqual(await run2(['--pr', '7', '--retry-seconds', '0'], boom), 4, '取数失败不得被读成"主干没红"')
 
   const mainRed = {
     repo: 'o/r',
@@ -201,7 +222,7 @@ test('run() 的退出码取自判据，取数抛错时收敛到 4 而不是 0', 
     mainRowsAt: () => [apiRow('QG Desktop Shards (2/2)', 'failure')],
     checksAt: () => [apiRow('QG Desktop Shards (2/2)', 'failure')],
   }
-  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], mainRed), 2)
+  assert.strictEqual(await run2(['--pr', '7', '--retry-seconds', '0'], mainRed), 2)
 
   const newRed = {
     repo: 'o/r',
@@ -210,7 +231,7 @@ test('run() 的退出码取自判据，取数抛错时收敛到 4 而不是 0', 
     mainRowsAt: () => [apiRow('A', 'success')],
     checksAt: () => [apiRow('A', 'success'), apiRow('QG Visual', 'failure')],
   }
-  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], newRed), 1)
+  assert.strictEqual(await run2(['--pr', '7', '--retry-seconds', '0'], newRed), 1)
 })
 
 test('接线锁：两个合并入口都必须调本判据，且必须排在合并动作之前', () => {
@@ -603,10 +624,14 @@ test('主干基准必须来自 run 集合：workflow_run 触发的 run 不进基
   )
 })
 
-test('结构锁：主干侧必须走 mainRowsAt，check-runs 只允许用于 PR 侧（噪声源不得回潮）', () => {
+test('结构锁：主干侧必须走 mainBaseline→mainRowsAt，check-runs 只允许用于 PR 侧（噪声源不得回潮）', () => {
   const src = fs.readFileSync(path.join(__dirname, 'check-main-red.js'), 'utf8')
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n')
-  assert.ok(/c\.mainRowsAt\(/.test(code), '主干侧必须调 mainRowsAt（读该 tip 的非 workflow_run run 集合）')
+  // 2026-10-22 阶段 1：主干侧入口从 mainRowsAt(tip) 上移到 mainBaseline({tip})，
+  // 断言随之改为主干侧必须调 mainBaseline，**且 mainBaseline 内部必须调 this.mainRowsAt**。
+  // 原意未变：主干侧绝不能回落到 c.checksAt（那是 81/102 噪声的来源）。
+  assert.ok(/c\.mainBaseline\(/.test(code), '主干侧必须调 mainBaseline（沿链回溯到最后一次完整结论）')
+  assert.ok(/this\.mainRowsAt\(/.test(code), 'mainBaseline 内部必须调 this.mainRowsAt（读该 commit 的非 workflow_run run 集合）')
   const checksAtCalls = (code.match(/c\.checksAt\(/g) || []).length
   assert.strictEqual(checksAtCalls, 1, 'c.checksAt 只能出现一次（PR 侧）；主干侧回落到 check-runs 就是把 81/102 的噪声放回来')
 })
@@ -621,7 +646,7 @@ test('读数期间主干 tip 移动 ⇒ 本次读数作废并有界重试（拿�
     mainRowsAt: () => [apiRow('A', 'success')],
     checksAt: () => [apiRow('A', 'success')],
   }
-  const { code, out } = await captureStdout(() => run(['--pr', '7', '--attempts', '3', '--retry-seconds', '0'], moving))
+  const { code, out } = await captureStdout(() => run2(['--pr', '7', '--attempts', '3', '--retry-seconds', '0'], moving))
   assert.strictEqual(code, 0, '重试后拿到稳定读数就应判绿，实到 ' + code)
   assert.match(out, /MAIN-RED STALE/, '必须打印读数作废的事实，否则下一个读者不知道这次重试过')
   assert.match(out, /m1→m2/, '必须点名移动前后的 tip')
@@ -636,7 +661,7 @@ test('重试耗尽仍不稳定 ⇒ 判未证实(3)，且必须点名两个 sha�
     mainRowsAt: () => [apiRow('A', 'success')],
     checksAt: () => [apiRow('A', 'success'), apiRow('B', 'failure')],
   }
-  const { code, out } = await captureStdout(() => run(['--pr', '7', '--attempts', '2', '--retry-seconds', '0'], alwaysMoving))
+  const { code, out } = await captureStdout(() => run2(['--pr', '7', '--attempts', '2', '--retry-seconds', '0'], alwaysMoving))
   assert.strictEqual(code, 3, '重试耗尽必须判未证实，实到 ' + code)
   assert.match(out, /INCOMPLETE/, '读数行必须自报档位')
   assert.match(out, /m\d+→m\d+/, '必须点名移动前后的 tip')
@@ -649,7 +674,7 @@ test('采集层缺 mainRowsAt ⇒ 判自身故障(4)，不得静默回落到 che
     prHeadSha: () => 'p1',
     checksAt: () => [apiRow('A', 'success')],
   }
-  const { code, out } = await captureStdout(() => run(['--pr', '7', '--retry-seconds', '0'], noMainRows))
+  const { code, out } = await captureStdout(() => run2(['--pr', '7', '--retry-seconds', '0'], noMainRows))
   assert.strictEqual(code, 4, '缺 mainRowsAt 必须判自身故障，实到 ' + code)
   assert.match(out, /mainRowsAt/, '错误文案必须点名缺的是哪个接口')
 })
@@ -662,7 +687,7 @@ test('主干侧零行仍按未证实处理（不得读成「主干绿」）', as
     mainRowsAt: () => [],
     checksAt: () => [apiRow('A', 'success')],
   }
-  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], emptyMain), 3, '主干零行不得读成绿')
+  assert.strictEqual(await run2(['--pr', '7', '--retry-seconds', '0'], emptyMain), 3, '主干零行不得读成绿')
 })
 
 test('基准作废（tip 移动）⇒ 未证实(3)，且不得把 PR 侧的红报成新增红', () => {
@@ -702,7 +727,7 @@ test('稳定窗总等待必须有上限（评审 i4：attempts × retry-seconds 
     mainRowsAt: () => [apiRow('A', 'success')],
     checksAt: () => [apiRow('A', 'success')],
   }
-  const { code, out } = await captureStdout(() => run(
+  const { code, out } = await captureStdout(() => run2(
     ['--pr', '7', '--attempts', '99', '--retry-seconds', '3600', '--max-wait-seconds', '0'], alwaysMoving))
   assert.strictEqual(code, 3, '上限到 ⇒ 判未证实，实到 ' + code)
   assert.match(out, /STABLE-WAIT-CAP/, '必须打印「因上限停手」的事实，否则下一次读者会以为它重试满了')
@@ -751,12 +776,12 @@ test('分页中断 / 429 / token 失效 ⇒ 采集层抛错 ⇒ 判自身故障(
     mainRowsAt: () => { throw new Error('gh api rc=1 429 Too Many Requests') },
     checksAt: () => [apiRow('A', 'success')],
   }
-  const { code, out } = await captureStdout(() => run(['--pr', '7', '--retry-seconds', '0'], paged))
+  const { code, out } = await captureStdout(() => run2(['--pr', '7', '--retry-seconds', '0'], paged))
   assert.strictEqual(code, 4, '取数失败必须判自身故障，实到 ' + code)
   assert.match(out, /SELF_FAULT/, '读数行必须自报档位')
   assert.match(out, /429/, '失败原因必须被念出来，否则下一个读者不知道是限流还是别的')
   // 深度评审 i5：取数失败在预算内**先重试**，不立刻把一次网络抖动写成「闸门自身故障」
-  const { code: code2, out: out2 } = await captureStdout(() => run(
+  const { code: code2, out: out2 } = await captureStdout(() => run2(
     ['--pr', '7', '--attempts', '3', '--retry-seconds', '0'], paged))
   assert.strictEqual(code2, 4, '重试用尽后仍是自身故障')
   assert.match(out2, /COLLECT-FAIL/, '取数失败必须被记录（可核对重试了几次）')
@@ -764,7 +789,7 @@ test('分页中断 / 429 / token 失效 ⇒ 采集层抛错 ⇒ 判自身故障(
 })
 
 test('生效的稳定窗参数必须被打印（评审 i4：环境变量透传的值不能只有设值的人知道）', async () => {
-  const { out } = await captureStdout(() => run(['--pr', '7', '--attempts', '2', '--retry-seconds', '0'], {
+  const { out } = await captureStdout(() => run2(['--pr', '7', '--attempts', '2', '--retry-seconds', '0'], {
     repo: 'o/r',
     mainSha: () => 'm1',
     prHeadSha: () => 'p1',
