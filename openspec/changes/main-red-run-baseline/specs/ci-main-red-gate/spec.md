@@ -13,8 +13,10 @@
 
 系统 SHALL 以 `actions/runs?head_sha=<tip>` 为主干基准来源（**MUST 分页**：`--paginate` +
 `per_page=100`；实测单页装不下 30+ 个 run 的 tip），并且**只取 `event != 'workflow_run'` 的 run**；
-每个 workflow MUST 取**最新**一次 run，判定序 MUST 为
-`run_number` → `run_attempt`（**缺失时按 1 计**）→ 时间戳兜底（`updated_at` 优先，其次 `created_at`），
+run MUST 按 **(workflow 名, event, run_number) 触发实例**分组，**不同实例 MUST 全部进基准**
+（按 workflow 名折叠会让**后到的绿 schedule run 覆盖先前的红 push run** ⇒ 主干误判绿）；
+同一实例内取**最新 attempt**，判定序 MUST 为
+`run_attempt`（**缺失时按 1 计**）→ 时间戳兜底（`updated_at` 优先，其次 `created_at`），
 MUST NOT 依赖 API 返回顺序的隐含假设（选错 run 会污染基准）。
 再从端点 `actions/runs/{run_id}/jobs` 取该 run 的**作业级**终态（`jobs[].name/status/conclusion`）
 作为主干侧读数行。作业名即 check-run 名（GitHub 用作业名做 check run 名）。
@@ -22,6 +24,15 @@ PR 侧 MUST 仍读 `commits/<sha>/check-runs`。
 两侧的**行粒度 MUST 一致**（都落在作业名这一层），差集按名字对齐；
 但两端**取数端点不同**（主干 `actions/runs`、PR `check-runs`），
 MUST NOT 把「行粒度一致」表述成「同一个 API」。
+
+**作业终态 MUST 映射到下列五档，且映射 MUST 闭合**（未列状态一律 `unknown` ⇒ 闸门 fail-closed）：
+| 作业终态 | 档 |
+|---|---|
+| `failure` / `cancelled` / `timed_out` / `error` / `action_required` | fail |
+| `queued` / `in_progress` / `pending` / `waiting` / `requested` / `conclusion=null 且未完成` | pending |
+| `skipped` / `neutral` / `stale` | skipped |
+| `success` | pass |
+| **任何未列状态**、以及 `completed` 却没有 `conclusion` | unknown（最保守 ⇒ 判据 fail-closed） |
 
 **同名多行 MUST 取最严格的一格**（`fail` > `unknown` > `pending` > `skipped` > `pass`）：
 跨 workflow 的同名作业（如 `Changes` 在多个 workflow 各有一份）、可重用工作流的
@@ -50,7 +61,11 @@ PR 侧同名红 MUST 仍判「新增红」（MUST NOT 因主干缺格而被读�
 MUST NOT 因此修改任何 workflow 的 `permissions`，MUST NOT 新增仓库 secret。
 凭据不足导致 403 时 MUST 走上面的 fail-closed 路径，MUST NOT 静默返回空。
 
-**请求预算**（depth 评审 i8）：一次读数的请求数 = 1（runs 列表，分页）+ N（逐 run 取 jobs），
+**取数失败 MUST 先在预算内重试**（默认 3 次尝试），仍失败才判自身故障（退出码 4）——
+一次网络抖动 MUST NOT 被写成「闸门自身故障」。**生效的稳定窗参数 MUST 打印**
+（`attempts` / `retry-seconds` / `max-wait-seconds`），否则「环境变量透传成了什么」只有设值的人知道。
+
+**请求预算**（深度评审 i8）：一次读数的请求数 = 1（runs 列表，分页）+ N（逐 run 取 jobs），
 N = 该 tip 的非 `workflow_run` workflow 数（实测 6–8）⇒ 每次尝试 ≤ 9 次；
 有界重试最多 3 次尝试 ⇒ 单次判定 ≤ 27 次请求。长期 429 会把闸门钉在 rc=4（fail-closed，可重跑）。
 

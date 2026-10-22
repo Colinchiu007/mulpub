@@ -226,6 +226,22 @@ codex/claude 组合重跑 4 轮，全部正常产出**」。本片照该先例�
 | i7 | Warning | 「默认 GITHUB_TOKEN 已含 actions:read」只在未声明 permissions 时成立；需改承载判据的 workflow，而 Impact 未列 | **前提不成立（已核）**：**没有任何 workflow 跑 `scripts/check-main-red.js`**（quality-gate.yml:449 只是注释提到它），判据是**本地工具**（合并入口调用，用 gh CLI 本机凭据），CI 只跑它的**测试**（不联网）⇒ 不需要改任何 workflow 的 `permissions`，Impact 也不必加文件。文档已改写为该形态 |
 | i8 | Info | runs 分页后逐 run 取 jobs 是 N+1 请求，还要乘 3 次尝试；限流预算未评估 | **成立（已写明）**：请求预算 = 1（runs 列表，分页）+ N（逐 run 取 jobs，N = 非 workflow_run 的 workflow 数，实测 6–8）⇒ 每次尝试 ≤ 9 次、整次判定 ≤ 27 次；长期 429 ⇒ rc=4（fail-closed，可重跑） |
 
+## 决策层第六轮（2026-10-22，critic=codex / proposer=claude）
+
+> critic=codex 产出 **8 条 / Critical 3**（最低分 5）；proposer=claude 逐条给了决策，
+> 但引擎的**自动改写应用**再次失败（`edits[].before` 逐字匹配不上）⇒ 仍按模板人工逐条落。
+
+| # | 严重度 | 意见（摘要） | 处置 |
+|---|--------|--------------|------|
+| i1 | Critical | 主干 tip 每 15–30 分钟前进、quality-gate 要 44 分钟，稳定窗只有 180s ⇒ 新 tip 的 run 必然未完成，常态落 rc=3，闸门等于「永不可绿」 | **部分采纳**（与 proposer 的 `partially_accepted` 一致）：**不**引入「钉住旧 tip 当已验证」（那要改守门者的权限，须人工过目）；本片做的是让「未证实」这个答案**诚实且可归因**，并把「读数窗口 vs tip 节奏」如实写成遗留（要靠合并批量化 / CI 分层解，不在本片范围） |
+| i2 | Critical | C1 对同一 workflow 只取最新 run ⇒ **后到的绿 schedule run 会覆盖先前的红 push run**，主干误判绿；与「同名多行取最严格」自相矛盾 | **成立（已修，代码）**：分组键从「workflow 名」改为 **(workflow, event, run_number) 触发实例**——不同实例**全部进基准**，同一实例内取最新 attempt。回归锁 1 例（push 实例 + schedule 实例 + 重跑 attempt） |
+| i3 | Critical | 作业终态映射未定义（cancelled/timed_out/action_required/neutral/stale/conclusion=null 都不在序列内） | **成立（已补）**：spec 新增**闭合映射表**（fail / pending / skipped / pass / unknown 五档，未列状态一律 unknown ⇒ fail-closed）；回归锁 1 例逐状态验证 |
+| i4 | Warning | 环境变量透传的 attempts/retry-seconds 未定义校验，且无日志证明生效值 | **成立（已修）**：判定层本就校验（非法值抛错 ⇒ rc=4 fail-closed，不会静默削弱）；另**打印生效参数**（`MAIN-RED 稳定窗 attempts=… retry-seconds=… max-wait-seconds=…`），回归锁 1 例 |
+| i5 | Warning | 180s 恰等于 max-wait 却未计入 fetch/API 耗时；fetch 一次抖动即判 rc=4 | **成立（已修）**：① 取数失败**先在预算内重试**（默认 3 次尝试），仍失败才判自身故障——一次网络抖动不再被写成「闸门自身故障」；② 文档写明 180s **只约束等待**，fetch/API 各自受其请求超时约束。回归锁 1 例 |
+| i6 | Warning | C4 契约锁只查步骤，抓不到 workflow 级 `defaults.shell`；也证明不了 handler 在 ubuntu 上真能跑 | **成立（已修 + 留观测点）**：契约锁新增 workflow 级 `defaults.run.shell` 断言；「ubuntu 上真能跑」需要**一次真实运行**才能证 ⇒ 登记为**合并后的观测点**（见遗留） |
+| i7 | Warning | 若某 required check 只由 workflow_run 产生，主干侧永缺该行 ⇒ 主干红被静默吞掉 | **前提不成立（已核，证据 E4c）**：当前 10 条 required check **全部**由 push/PR 触发的 workflow 产生，**没有一条只由 workflow_run 产生**（那只产 `handle-ci-failure`，它不是 required）⇒ 排除 workflow_run 不会吞掉任何 required check 的红。required 名单变化时要重核这条 ⇒ 登记为遗留的观测点 |
+| i8 | Info | 权限证据只覆盖 actions:read；PR 侧仍读 check-runs 需 checks:read | **成立（已补证据）**：`gh auth status` 实测 scope = `gist, read:org, repo, workflow`（`repo` 覆盖两个端点），证据落 evidence.md E4b；两个端点都真读到了（烟测读数即证据） |
+
 ## 遗留（不假装已闭合）
 
 1. **CCG 引擎的输入长度协议**（i2）：opencode 后端单次输入上限 7800 字节，

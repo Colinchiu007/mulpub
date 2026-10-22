@@ -80,6 +80,25 @@ gh api "repos/:owner/:repo/actions/runs?head_sha=<tip>&per_page=20" \
 共享预算 2700s + 剥 ANSI/时间戳计数）。其后主干连续 3 次 push 的 `Electron CI` 全绿。
 本片不再碰 `electron-ci.yml` 的预算与分片。
 
+## E4b · 凭据 scope 实测（i8）
+
+```
+gh auth status → Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+```
+
+`repo` 覆盖 `actions/runs`（需 `actions:read`）与 `check-runs`（需 `checks:read`）——
+本片两个端点都真读到了（下面的烟测读数就是证据）。**不新增任何仓库 secret**。
+
+## E4c · required check 的触发事件（i7）
+
+当前 10 条 required check 全部由 **push/PR 触发**的 workflow 产生——
+`quality-gate.yml`（QG Static / QG Unit Tests / QG Coverage / Gate Result）、
+`electron-ci.yml`（electron-tests）、`build.yml`（build）、`gui-test.yml`（gui-test / GUI Gate Result）、
+`doc-gate.yml`（文档同步检查）、`debt-guard.yml`（债务熔断检查）、以及「单元测试 + Lint」所在 workflow。
+**没有一条 required check 只由 `workflow_run` 产生**（那只产 `handle-ci-failure`，它不是 required），
+所以本片排除 `workflow_run` **不会吞掉任何 required check 的红**。
+（required 名单变化时这条要重核——登记为遗留的观测点。）
+
 ## E5 · 本片落地后的实跑读数（真实 API 烟测）
 
 ```

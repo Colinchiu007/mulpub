@@ -811,6 +811,15 @@ test('CI Failure Handler 必须让出 Windows 并发额度（2026-10-22，change
     /(^|[\s"'`;&|(])(cmd\.exe|where\.exe|setlocal|endlocal)([\s"'`;&|)]|$)/i,
     'handler 的步骤不得用 cmd 专有命令（ubuntu runner 上没有 cmd）',
   );
+  // workflow 级 defaults.run.shell 会**继承到所有步骤**——只查步骤会漏掉它（深度评审 i6）。
+  const defShell = wf.defaults && wf.defaults.run && wf.defaults.run.shell;
+  if (defShell != null) {
+    assert.doesNotMatch(
+      String(defShell),
+      /pwsh|powershell/i,
+      'workflow 级 defaults.run.shell 会继承到每个步骤，不得是 PowerShell（ubuntu runner 上没有）',
+    );
+  }
 });
 
 test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线去重', () => {

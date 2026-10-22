@@ -165,8 +165,14 @@ function isLaterRun (a, b) {
  *
  * 纯函数（不碰网络、不碰 git），可单测——排除 `workflow_run` 这一步是本片的核心，
  * 它的判据必须能被测到，而不能只活在一次真实 API 调用里。
+ *
+ * ⚠️ 分组键是 **(workflow 名, event, run_number)**，不是 workflow 名（深度评审 i2，Critical）：
+ *    按 workflow 名分组会把**不同触发实例**（push 的红 vs 之后 schedule 的绿）混成一组，
+ *    取「最新」就会让**后到的绿覆盖先前的红** ⇒ 主干误判绿。
+ *    同一 (workflow, event, run_number) 才是「同一次触发的重跑」——那里面取最新 attempt
+ *    才是对的（重跑已修复 ⇒ 该次触发以重跑结果为准）。
  * @param {object[]} runs 该 tip 上的全部 run（每条至少含 event/name/run_number/run_attempt）
- * @returns {object[]} 参与基准的 run
+ * @returns {object[]} 参与基准的 run（每个触发实例一条）
  */
 function selectMainRuns (runs) {
   const latest = new Map()
@@ -179,12 +185,11 @@ function selectMainRuns (runs) {
     //    另一类情形**不同**：「新事件类型」（非 workflow_run 的未知 event，如 GitHub 将来新增
     //    merge_group）不在排除名单里 ⇒ **自动进基准**，是安全侧，不会被丢弃。
     if (!event) throw new Error('actions/runs 的行缺 event 字段（形状变了，不得按「无检查」处理）：' + JSON.stringify(r).slice(0, 120))
-    // ⛔ `workflow_run` 触发的 run 一律不参与：GitHub 把它们的 check run 挂在**默认分支当前 tip**
-    //    上（不管触发它的是哪个 PR 的 CI），实测主干 tip 上 102 条检查行里 81 条是同一个
-    //    `handle-ci-failure`。它们是「对别的 CI 的反应」，不是「主干自己的验证」。
     if (event === 'workflow_run') continue
-    const key = String(r.name == null ? '' : r.name).trim()
-    if (!key) continue
+    const name = String(r.name == null ? '' : r.name).trim()
+    if (!name) continue
+    // 分组键带 workflow 名：run_number 是**每个 workflow 各自**的计数器，跨 workflow 会撞号。
+    const key = name + '|' + event + '|' + String(r.run_number)
     const prev = latest.get(key)
     if (!prev || isLaterRun(r, prev)) latest.set(key, r)
   }
@@ -302,6 +307,11 @@ async function main (argv, collector) {
   const moves = []
   let stable = false
   let waited = 0
+  let lastError = null
+  // 生效参数必须被打印（深度评审 i4）：环境变量透传过来的 attempts/retry-seconds 若被误设，
+  // 现场必须能看出这一轮**实际**用了什么，否则「生效值」只有设值的人知道。
+  console.log('MAIN-RED 稳定窗 attempts=' + opts.attempts + ' retry-seconds=' + opts.retrySeconds
+    + ' max-wait-seconds=' + opts.maxWaitSeconds)
   for (let attempt = 1; attempt <= opts.attempts; attempt++) {
     let shaBefore
     let mainRows
@@ -315,8 +325,17 @@ async function main (argv, collector) {
       prRows = c.checksAt(prSha)
       shaAfter = c.mainSha()
     } catch (e) {
-      console.log('MAIN-RED verdict=SELF_FAULT exit=4 reason=' + ((e && e.message) || String(e)))
-      return 4
+      // 取数失败（fetch 抖动 / 429 / token 失效…）**不立刻判 rc=4**：先在预算内重试
+      // （深度评审 i5）——一次网络抖动不该把「普通故障」写成「闸门自身故障」。
+      lastError = e
+      console.log('MAIN-RED COLLECT-FAIL attempt=' + attempt + '/' + opts.attempts
+        + ' reason=' + ((e && e.message) || String(e)))
+      if (attempt < opts.attempts && waited + opts.retrySeconds <= opts.maxWaitSeconds) {
+        await sleep(opts.retrySeconds * 1000)
+        waited += opts.retrySeconds
+        continue
+      }
+      break
     }
     last = { mainSha: shaBefore, prSha, mainRows, prRows }
     if (shaBefore === shaAfter) { stable = true; break }
@@ -338,6 +357,10 @@ async function main (argv, collector) {
     }
     await sleep(opts.retrySeconds * 1000)
     waited += opts.retrySeconds
+  }
+  if (!last) {
+    console.log('MAIN-RED verdict=SELF_FAULT exit=4 reason=' + ((lastError && lastError.message) || '取数失败'))
+    return 4
   }
   const v = judge({
     prRows: last.prRows,

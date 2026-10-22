@@ -183,7 +183,7 @@ test('run() 的退出码取自判据，取数抛错时收敛到 4 而不是 0', 
     mainRowsAt: () => [apiRow('A', 'success')],
     checksAt: () => [apiRow('A', 'success'), apiRow('B', 'success')],
   }
-  assert.strictEqual(await run(['--pr', '7'], good), 0)
+  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], good), 0)
 
   const boom = {
     repo: 'o/r',
@@ -192,7 +192,7 @@ test('run() 的退出码取自判据，取数抛错时收敛到 4 而不是 0', 
     mainRowsAt: () => [],
     checksAt: () => [],
   }
-  assert.strictEqual(await run(['--pr', '7'], boom), 4, '取数失败不得被读成"主干没红"')
+  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], boom), 4, '取数失败不得被读成"主干没红"')
 
   const mainRed = {
     repo: 'o/r',
@@ -201,7 +201,7 @@ test('run() 的退出码取自判据，取数抛错时收敛到 4 而不是 0', 
     mainRowsAt: () => [apiRow('QG Desktop Shards (2/2)', 'failure')],
     checksAt: () => [apiRow('QG Desktop Shards (2/2)', 'failure')],
   }
-  assert.strictEqual(await run(['--pr', '7'], mainRed), 2)
+  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], mainRed), 2)
 
   const newRed = {
     repo: 'o/r',
@@ -210,7 +210,7 @@ test('run() 的退出码取自判据，取数抛错时收敛到 4 而不是 0', 
     mainRowsAt: () => [apiRow('A', 'success')],
     checksAt: () => [apiRow('A', 'success'), apiRow('QG Visual', 'failure')],
   }
-  assert.strictEqual(await run(['--pr', '7'], newRed), 1)
+  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], newRed), 1)
 })
 
 test('接线锁：两个合并入口都必须调本判据，且必须排在合并动作之前', () => {
@@ -584,9 +584,10 @@ test('主干基准必须来自 run 集合：workflow_run 触发的 run 不进基
   ])
   assert.deepStrictEqual(
     chosen.map((r) => r.id).sort(),
-    [4, 5],
+    [3, 4, 5],
     'workflow_run 的 run 不得进主干基准（它挂到主干 tip 上是 GitHub 的语义，不是主干自己的验证）；'
-      + '同一 workflow 必须取最新一次（run_number 最大者）',
+      + '**不同触发实例**（run_number 不同，如 push#10 与 push#11）都要进基准；'
+      + '**同一实例**（run_number 相同）取最新 attempt（这里 attempt=2 那条）',
   )
   // 重跑不增加 run_number，只增加 run_attempt ⇒ 只比一维会把「重跑已修复」读成「主干仍红」
   const rerun = selectMainRuns([
@@ -648,7 +649,7 @@ test('采集层缺 mainRowsAt ⇒ 判自身故障(4)，不得静默回落到 che
     prHeadSha: () => 'p1',
     checksAt: () => [apiRow('A', 'success')],
   }
-  const { code, out } = await captureStdout(() => run(['--pr', '7'], noMainRows))
+  const { code, out } = await captureStdout(() => run(['--pr', '7', '--retry-seconds', '0'], noMainRows))
   assert.strictEqual(code, 4, '缺 mainRowsAt 必须判自身故障，实到 ' + code)
   assert.match(out, /mainRowsAt/, '错误文案必须点名缺的是哪个接口')
 })
@@ -661,7 +662,7 @@ test('主干侧零行仍按未证实处理（不得读成「主干绿」）', as
     mainRowsAt: () => [],
     checksAt: () => [apiRow('A', 'success')],
   }
-  assert.strictEqual(await run(['--pr', '7'], emptyMain), 3, '主干零行不得读成绿')
+  assert.strictEqual(await run(['--pr', '7', '--retry-seconds', '0'], emptyMain), 3, '主干零行不得读成绿')
 })
 
 test('基准作废（tip 移动）⇒ 未证实(3)，且不得把 PR 侧的红报成新增红', () => {
@@ -750,10 +751,49 @@ test('分页中断 / 429 / token 失效 ⇒ 采集层抛错 ⇒ 判自身故障(
     mainRowsAt: () => { throw new Error('gh api rc=1 429 Too Many Requests') },
     checksAt: () => [apiRow('A', 'success')],
   }
-  const { code, out } = await captureStdout(() => run(['--pr', '7'], paged))
+  const { code, out } = await captureStdout(() => run(['--pr', '7', '--retry-seconds', '0'], paged))
   assert.strictEqual(code, 4, '取数失败必须判自身故障，实到 ' + code)
   assert.match(out, /SELF_FAULT/, '读数行必须自报档位')
   assert.match(out, /429/, '失败原因必须被念出来，否则下一个读者不知道是限流还是别的')
+  // 深度评审 i5：取数失败在预算内**先重试**，不立刻把一次网络抖动写成「闸门自身故障」
+  const { code: code2, out: out2 } = await captureStdout(() => run(
+    ['--pr', '7', '--attempts', '3', '--retry-seconds', '0'], paged))
+  assert.strictEqual(code2, 4, '重试用尽后仍是自身故障')
+  assert.match(out2, /COLLECT-FAIL/, '取数失败必须被记录（可核对重试了几次）')
+  assert.ok((out2.match(/COLLECT-FAIL/g) || []).length >= 2, '至少重试过一次，实到 ' + (out2.match(/COLLECT-FAIL/g) || []).length)
+})
+
+test('生效的稳定窗参数必须被打印（评审 i4：环境变量透传的值不能只有设值的人知道）', async () => {
+  const { out } = await captureStdout(() => run(['--pr', '7', '--attempts', '2', '--retry-seconds', '0'], {
+    repo: 'o/r',
+    mainSha: () => 'm1',
+    prHeadSha: () => 'p1',
+    mainRowsAt: () => [apiRow('A', 'success')],
+    checksAt: () => [apiRow('A', 'success')],
+  }))
+  assert.match(out, /稳定窗 attempts=2 retry-seconds=0 max-wait-seconds=\d+/, '必须打印本轮实际生效的参数，实到 ' + out)
+})
+
+test('不同触发实例的 run 必须**都**进基准（评审 i2：后到的绿 schedule run 不得覆盖先前的红 push run）', () => {
+  const chosen = selectMainRuns([
+    { id: 1, name: 'quality-gate', event: 'push', run_number: 100, run_attempt: 1 },
+    { id: 2, name: 'quality-gate', event: 'schedule', run_number: 101, run_attempt: 1 },
+    { id: 3, name: 'quality-gate', event: 'push', run_number: 100, run_attempt: 2 },
+  ])
+  const ids = chosen.map((r) => r.id).sort()
+  assert.deepStrictEqual(ids, [2, 3],
+    'push 实例（取最新 attempt=2）与 schedule 实例是**两次不同的触发**，都要进基准——按 workflow 名折叠会让后到的绿覆盖先前的红')
+})
+
+test('作业终态映射必须闭合：未列状态一律 unknown（评审 i3）', () => {
+  assert.strictEqual(bucketOf(apiRow('X', 'cancelled')), 'fail', 'cancelled 是失败态')
+  assert.strictEqual(bucketOf(apiRow('X', 'timed_out')), 'fail')
+  assert.strictEqual(bucketOf(apiRow('X', 'action_required')), 'fail')
+  assert.strictEqual(bucketOf(apiRow('X', 'neutral')), 'skipped')
+  assert.strictEqual(bucketOf(apiRow('X', 'stale')), 'skipped')
+  assert.strictEqual(bucketOf(apiPending('X')), 'pending')
+  assert.strictEqual(bucketOf(apiRow('X', 'some_new_state')), 'unknown', '未列状态必须落 unknown（最保守 ⇒ 闸门 fail-closed）')
+  assert.strictEqual(bucketOf({ name: 'X', status: 'completed', conclusion: null }), 'unknown')
 })
 
 test('event 为 null / 空字符串 ⇒ 一律抛错（评审 i6：空值不得通过过滤）', () => {
@@ -774,13 +814,14 @@ test('选最新 run 必须有兜底：run_attempt 缺失按 1 计，两维都不
   ])
   assert.deepStrictEqual(missingAttempt.map((r) => r.id), [2],
     'attempt 缺失按 1 计后，两条同级 ⇒ 落回时间戳定序（更新的那条胜）')
-  // run_number 更大 ⇒ 直接胜出，不看 attempt
-  const newerPush = selectMainRuns([
+  // run_number 不同 ⇒ **不同触发实例** ⇒ 都在基准里（不折叠，见评审 i2）
+  const twoInstances = selectMainRuns([
     { id: 3, name: 'quality-gate', event: 'push', run_number: 6, run_attempt: 3 },
     { id: 4, name: 'quality-gate', event: 'push', run_number: 7, run_attempt: 1 },
   ])
-  assert.deepStrictEqual(newerPush.map((r) => r.id), [4], 'run_number 更大者胜')
-  // attempt 更大 ⇒ 胜出（重跑不增加 run_number）
+  assert.deepStrictEqual(twoInstances.map((r) => r.id).sort(), [3, 4],
+    '不同 run_number = 不同触发实例，必须都在基准里（折叠会让后到的绿覆盖先前的红）')
+  // 同一实例内 attempt 更大 ⇒ 胜出（重跑不增加 run_number）
   const rerun = selectMainRuns([
     { id: 5, name: 'quality-gate', event: 'push', run_number: 8, run_attempt: 1 },
     { id: 6, name: 'quality-gate', event: 'push', run_number: 8, run_attempt: 2 },
