@@ -560,6 +560,7 @@ class TaskQueue extends EventEmitter {
       const accountId = task.accountId
       const verdict = this._publishIntervalGuard.check(task.platform, accountId)
       if (!verdict.allowed) {
+        if (this._debug) this._debug('[queue] blocked bucket=' + verdict.bucket + ' reason=' + verdict.reason + ' remainingMs=' + verdict.remainingMs + ' daily=' + JSON.stringify(verdict.daily || null))
         task.status = 'pending'
         task.startedAt = null
         this._running.delete(task.id)
