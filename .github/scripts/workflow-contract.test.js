@@ -793,6 +793,24 @@ test('CI Failure Handler 必须让出 Windows 并发额度（2026-10-22，change
     [],
     'handler 的步骤不得显式声明 pwsh/powershell：ubuntu runner 上没有 PowerShell',
   );
+  // 决策层 i3：显式 shell 只是其中一种 Windows 依赖；**隐式**依赖同样会让迁移后直接失败。
+  // 逐条点名形态（而不是只 match 一个词）：Windows 盘符路径、.ps1 脚本、cmd 专有命令。
+  const stepText = (job.steps || []).map((s) => JSON.stringify(s)).join('\n');
+  assert.doesNotMatch(
+    stepText,
+    /[A-Za-z]:\\\\/,
+    'handler 的步骤不得含 Windows 盘符路径（ubuntu runner 上不存在）',
+  );
+  assert.doesNotMatch(
+    stepText,
+    /\.ps1\b/i,
+    'handler 的步骤不得引用 .ps1 脚本（ubuntu runner 上没有 PowerShell）',
+  );
+  assert.doesNotMatch(
+    stepText,
+    /(^|[\s"'`;&|(])(cmd\.exe|where\.exe|setlocal|endlocal)([\s"'`;&|)]|$)/i,
+    'handler 的步骤不得用 cmd 专有命令（ubuntu runner 上没有 cmd）',
+  );
 });
 
 test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线去重', () => {

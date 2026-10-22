@@ -14,11 +14,21 @@
 系统 SHALL 以 `actions/runs?head_sha=<tip>` 为主干基准来源（**MUST 分页**：`--paginate` +
 `per_page=100`；实测单页装不下 30+ 个 run 的 tip），并且**只取 `event != 'workflow_run'` 的 run**；
 每个 workflow MUST 取**最新**一次 run（`run_number` 与 `run_attempt` 同时最大），
-再取该 run 的**作业级**终态（`{name, status, conclusion}`）作为主干侧读数行。
+再从端点 `actions/runs/{run_id}/jobs` 取该 run 的**作业级**终态（`jobs[].name/status/conclusion`）
+作为主干侧读数行。作业名即 check-run 名（GitHub 用作业名做 check run 名）⇒ 两侧名字天然对齐。
 PR 侧 MUST 仍读 `commits/<sha>/check-runs`。
-两侧的**行粒度 MUST 一致**（都落在作业名这一层：check-run 名 == 作业名），差集按名字对齐；
+两侧的**行粒度 MUST 一致**（都落在作业名这一层），差集按名字对齐；
 但两端**取数端点不同**（主干 `actions/runs`、PR `check-runs`），
 MUST NOT 把「行粒度一致」表述成「同一个 API」。
+
+**基准的事件范围**：MUST 等于该 tip 上的**全部非 `workflow_run` run**（含 `push` / `schedule` /
+`workflow_dispatch`）。`pull_request` 事件的 run 的 `head_sha` 是 PR 分支提交，
+只有当它恰好等于 tip 时才会落进这个集合（此时它验的就是这个提交，计入是安全的）。
+唯一被排除的 MUST 是 `workflow_run` —— 它是「对别的 CI 的反应」，不是「主干自己的验证」。
+
+**失败处理**：任一 API 调用失败（429 / 5xx / token 失效 / 分页中断 / 403 权限不足）MUST 抛错
+⇒ 闸门判自身故障（退出码 4），MUST NOT 读成「无检查」或「主干绿」。
+读 `actions/runs` 与读 `check-runs` 用同一份凭据，**MUST NOT** 需要新增授权。
 
 理由（实测，2026-10-22）：GitHub 把 `workflow_run` 触发的工作流的 check run 一律挂在
 **默认分支当前 tip** 上，不管触发它的是哪个 PR 的 CI。实测主干 tip 上 102 条检查行里
@@ -57,6 +67,9 @@ MUST NOT 把「行粒度一致」表述成「同一个 API」。
 （主干基准与 PR 读数不在同一棵树上，差集不可归因），MUST 以有界次数重试
 （`--attempts`，默认 3；`--retry-seconds`，默认 90）。重试耗尽 ⇒ MUST 判「未证实」
 （退出码 3）并点名两个 sha。**MUST NOT** 把 tip 钉死在旧 sha 上继续判绿。
+
+**比较对象 MUST 是 tip SHA**（`origin/main` 的 rev-parse 结果），不是完整数据集：
+SHA 相同即视为稳定、继续判读、不重试；SHA 不同才作废本次读数。
 
 **每次尝试 MUST 重新取当前 tip**（fetch + rev-parse），MUST NOT 复用上一次的 sha：
 下一次尝试从**新的当前 tip** 开始。这样「重试」既不是死等同一个 sha，也不是钉死在旧 sha。

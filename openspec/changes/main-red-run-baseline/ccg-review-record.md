@@ -134,6 +134,37 @@ GitHub 将来新增任何事件类型（`merge_group` 等）都会**自动进基
 ② `.github/scripts/workflow-contract.test.js` 新增契约锁直接断言 `runs-on === 'ubuntu-latest'`
 （把它改回 `windows-latest` 当场变红）。**无需处置。**
 
+## 决策层第二轮（2026-10-22，方案压缩后重跑，critic=claude）
+
+> 触发：方案正文原 10165 字节 > opencode 后端 7800 字节上限 ⇒ 修订环节被同步拒绝。
+> 处置：把现场读数拆到 `evidence.md` 后把方案压到 6865 字节重跑。
+> 再次撞上**产物目录碰撞**（引擎 slug 只取方案文件名，`proposal.md` 已被别的 change 用过）⇒
+> 按引擎给的出路 ①，用唯一名副本 `plan-main-red-run-baseline.md`（内容与方案逐字相同）跑，
+> **不动别人的产物目录**。
+
+| 项 | 值 |
+|----|-----|
+| 判定 | 轮 1：8 条问题（**Critical 0**），最低维度分 **6**（completeness 7 / consistency 8 / clarity 8 / feasibility 6 / security 8） |
+| 停止原因 | **converged**（无 Critical、无未解决的 High） |
+| 决策层裁决 | **cleared** |
+| 判定记录 | `.ccg/reviews/ef571cd84ce6b03144e0482050f73cd6a8eae673.json`（`deepReview.status=cleared`，`performedBy=claude`） |
+
+> 最低分从第一轮的 **4** 升到 **6**、Critical 从 2 降到 0 —— 升的正是第一轮那两条 Critical
+> （档位表述自相矛盾、「两端口径完全一致」与换 API 矛盾）被改掉的结果。
+
+### 8 条的处置
+
+| # | 严重度 | 意见（摘要） | 处置 |
+|---|--------|--------------|------|
+| i3 | Warning | 迁移到 ubuntu 只锁了显式 pwsh，未审计**隐式** Windows 依赖（路径 / shell / 命令） | **已修**：契约锁加三条断言——不得含 Windows 盘符路径、不得引用 `.ps1`、不得用 cmd 专有命令（`cmd.exe`/`where.exe`/`setlocal`）；另核实 `.github/scripts/classify-ci-failure.js` 无 `win32`/`windows`/`powershell` 命中 |
+| i1 | Warning | 未说明**怎么**取作业级终态（缺端点路径与终态映射） | **已修**：spec 与提案写明端点 `actions/runs/{run_id}/jobs`、取 `jobs[].name/status/conclusion`；并说明作业名 == check-run 名 ⇒ 名字对齐天然成立 |
+| i2 | Warning | 未定义分页中断 / 429 / 5xx / token 超时的处理 | **已修**：spec 与提案写明「任一 API 失败 ⇒ 采集层抛错 ⇒ 判自身故障(4)，不得读成『无检查』」；实现上 gh 非零 rc 已由采集层抛错 |
+| i4 | Warning | 稳定窗的**比较对象**未写明（tip SHA 还是完整数据集） | **已修**：写明「比较对象是 tip SHA（`origin/main` 的 rev-parse 结果）；SHA 相同即稳定、继续判读、不重试」 |
+| i6 | Warning | 过滤只排除 `workflow_run`，未说明 `schedule` / `release` / `pull_request` 是否计入 | **已修**：写明「基准 = 该 tip 上的全部非 `workflow_run` run（含 push / schedule / workflow_dispatch）；`pull_request` 事件的 run 只有在其 `head_sha` 恰好等于 tip 时才落进集合，计入安全」 |
+| i5 | Info | 「运行时代码无」与实际改了 `scripts/` 不一致，易误导范围判定 | **已修**：改为「**不触 `apps/`、`packages/`**（QM-1 N/A）；改的是 `scripts/` 下的**门禁运行时**（合并入口与判据本体，PR 侧必跑）与 `.github/workflows/` 的 CI 配置」 |
+| i7 | Info | 换端点后的 token 权限要求未说明（权限不足会静默返回空） | **已修**：写明「与读 check-runs 同一份 gh 凭据、scope 相同、**无需新增授权**；权限不足 ⇒ 403/404 ⇒ gh 非零 rc ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**」 |
+| i8 | Info | 「AGENTS 口语的四档」这个外部引用降低可审计性 | **已修**：删掉口语引用，直接定义五档并逐档说明 |
+
 ## 遗留（不假装已闭合）
 
 1. **CCG 引擎的输入长度协议**（i2）：opencode 后端单次输入上限 7800 字节，
