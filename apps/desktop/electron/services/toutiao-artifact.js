@@ -54,6 +54,14 @@ async function probeEndpoints (win, title) {
     + 'return {ok:false,detail:"no-endpoint-hit"}'
     + '})()'
   try {
+    // 2026-10-23 真机：头条作品页与视频号同型，内容可能渲染在子 iframe ⇒ 逐 frame 执行并取并集
+    const frames = (win.webContents.mainFrame && win.webContents.mainFrame.framesInSubtree) || []
+    for (const fr of frames) {
+      try {
+        const r = await fr.executeJavaScript(code)
+        if (r && (r.hit === true || r.ok === true || r === true)) return r
+      } catch (_e) { /* 跨域/已销毁 frame 跳过 */ }
+    }
     return await win.webContents.executeJavaScript(code, true)
   } catch (e) {
     return { ok: false, detail: 'exec-failed:' + String(e && e.message).slice(0, 80) }
