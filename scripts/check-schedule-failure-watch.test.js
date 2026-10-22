@@ -130,6 +130,29 @@ test('T3b 注释里的 schedule 字样不得被读成一次声明（散文 ≠ �
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
+test('T11 缩进弹性：`on:` 之下用 4 个空格缩进（合法 YAML）也必须被识别为定时作业', () => {
+  // 上一版锚点写死「恰好 2 个空格」，改成 4/6 空格缩进的合法文件会**静默返回 0**，
+  // 于是判据报"没有待覆盖项 ⇒ 通过"——正是本刀要消灭的那类静默。
+  const deep = y([
+    'name: Deep Indent Gate',
+    'on:',
+    '    schedule:',
+    "        - cron: '0 6 * * *'",
+    'jobs:',
+    '    a:',
+    '        runs-on: ubuntu-latest',
+    '        steps: []',
+  ])
+  const dir = fixture({ 'ci-failure-handler.yml': HANDLER([]), 'deep-indent.yml': deep })
+  try {
+    const r = judge(dir)
+    assert.deepEqual(r.scheduledNames, ['Deep Indent Gate'], '缩进变化不得让作业从检测里消失')
+    assert.equal(r.uncovered.length, 1)
+    assert.equal(r.oddShape.length, 0, 'cron 在同一份 body 里，oddShape 自证应成立')
+    assert.equal(r.verdict, 'FAIL')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('T10 只有陈旧名单项（无未覆盖）也必须判 FAIL —— 单向锁不算锁', () => {
   const dir = fixture({
     'ci-failure-handler.yml': HANDLER(['Cleanup Artifacts', 'Renamed Away Gate']),

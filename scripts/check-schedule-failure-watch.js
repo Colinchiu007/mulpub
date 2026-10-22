@@ -26,10 +26,13 @@ function loadWorkflows (root) {
     rows.push({
       file: f,
       name,
-      scheduled: /^\s{2}schedule:[ \t]*$/m.test(body),
+      // 缩进下界用「至少 2」而不是「恰好 2」：把 YAML 改成 4/6 空格缩进是合法的，
+      // 而恰好-N 的锚点在那种文件上会**静默返回 0**，判据就报"没有待覆盖项 ⇒ 通过"。
+      // 两个方向的代价不对称：多匹配会在真仓立刻响（T7 报未覆盖），少匹配是静的。
+      scheduled: /^[ \t]{2,}schedule[:][ \t]*$/m.test(body),
       hasCron: /cron[:]/.test(body),
       runList: (() => {
-        const m = body.match(/^\s{4}workflows[:]\s*\[([^\]]*)\]/m)
+        const m = body.match(/^[ \t]{4,}workflows[:][ \t]*\[([^\]]*)\]/m)
         if (!m) return null
         return m[1].split(',').map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
       })(),

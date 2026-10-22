@@ -1,6 +1,6 @@
 ---
 record: schedule-failure-watch
-task: 定时作业的失败报警覆盖面（cleanup 连红 8 天的上游：报警装置存在，但名单是手抄的）
+task: 定时作业的失败报警覆盖面（cleanup 的定时 run 连红 9 次的上游：报警装置存在，但名单是手抄的）
 date: 2026-10-22
 ---
 
@@ -9,25 +9,38 @@ date: 2026-10-22
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
 | 变更类型与隔离 | ✅ | 混合档（`.github/workflows/` ×2 + `scripts/` 判据本体）。入口 `scripts/session-init.sh schedule-failure-watch`；起点 `HEAD == origin/main == 85dc44ddc`；`rev-parse --abbrev-ref HEAD` == 分支名。第一次被共享根脏挡下（他人在飞的 `scripts/check-dep-audit.js`），**未绕过入口、未手搓 worktree**，等那笔提交落地后才建 |
-| 第一性原因（QM-5 ①） | ✅ | 不是"没有报警装置"：`.github/workflows/ci-failure-handler.yml` 早就存在，`workflow_run` 失败 ⇒ 自动开 Issue + 在 PR 留言（实测它在 2026-10-22 当天有 completed/skipped 的正常心跳，确实活着）。真因是它的 `on.workflow_run.workflows` 名单**手抄了 5 个名字**（第 16 行），而仓里带 `on.schedule:` 的作业有 4 条（`Cleanup Artifacts`、`时钟位移引信巡检`、`依赖漏洞审计门禁`、`Sidecar Parity (cross-repo)`），**一条都不在名单里**。所以 cleanup 连红 8 天没有任何一处会响 |
+| 第一性原因（QM-5 ①） | ✅ | 不是"没有报警装置"：`.github/workflows/ci-failure-handler.yml` 早就存在，`workflow_run` 失败 ⇒ 自动开 Issue + 在 PR 留言（实测它在 2026-10-22 当天有 completed/skipped 的正常心跳，确实活着）。真因是它的 `on.workflow_run.workflows` 名单**手抄了 5 个名字**（第 16 行），而仓里带 `on.schedule:` 的作业有 4 条（`Cleanup Artifacts`、`时钟位移引信巡检`、`依赖漏洞审计门禁`、`Sidecar Parity (cross-repo)`），**一条都不在名单里**。所以 cleanup 连续 9 次 schedule run `completed failure`（run `38385152658`…`39570873661`，2026-10-13 ~ 10-21；最后一次绿是 run `38239617921`，10-12）没有任何一处会响 |
 | 逃逸分析（QM-5 ②） | ✅ | 单元层：这份名单没有任何载体（既无脚本读它也无测试读它）；CI 层：定时作业不产生 PR、不参与 required check，红了只落在 Actions UI；审查层：本仓有「测试有没有被 workflow 点名」的 `check-unwired-tests.js`、有「白名单条目必须接进不被短路的 job」的前提锁，唯独**没有"报警覆盖面有没有漂"的同族锁** —— 于是这份手抄清单从写下那天起就是滞后的，且漂移零成本 |
 | 系统性漏洞（QM-5 ③） | ✅ | 类别=审查盲区 + 流程缺失：仓里已有三类「清单与真源对账、登记项只能缩小」的先例（`KNOWN_UNWIRED`、`MUST_LIVE_IN_UNGATED_JOB`、`HIGH_RISK_SURFACES`），报警名单是第四份手抄清单，也是唯一一份"漂了不会响"的。另有半条：**判据的"没扫到"必须与"扫了且全绿"可区分**（本仓同一周刚因 `collected != candidates` 报错过"一个没跑的文件在摘要里与跑了且绿完全同形"） |
-| 修复 + 回归保护（QM-5 ④） | ✅ | ① 名单补齐 4 条定时作业；② 新增判据本体 `scripts/check-schedule-failure-watch.js`，**双向**不变量：带 `on.schedule:` 的作业必须被名单覆盖（漏 = "挂了没人知道"），名单里的名字必须还能在某个 workflow 的 `name:` 上找到（陈旧 = "读起来像已覆盖，实际永不触发"）；三种工具失明（目录读不到 / 一个 yml 都没枚举到 / 名单块解析不出）统一 `SCANNER_FAULT` 非零退出，绝不退化成"没有待覆盖项 ⇒ 通过"；另带 `oddShape` 自证档（声明了 schedule 却找不到 cron ⇒ 我的形状判据抓到了别的东西）。判据只读文件、零出站、只用 node 内置（落点 `changes` 作业无 Install deps，用 js-yaml 会以 `MODULE_NOT_FOUND` 被读成"违规"）；另记一条与 Gate 12c 的现场摩擦（不是缺陷、但会咬人）：该判据按"某个字母后紧跟冒号再紧跟斜杠或反斜杠"数绝对路径，于是正则字面量 `/cron:/`、`workflows:\s*` 与"键名冒号紧跟转义换行"的 YAML 夹具串都会被数成新增本机绝对路径。正解是改写法（把冒号收进字符组 `cron[:]`、夹具用行数组 join），**不是**调大账本；控制对照：同一判据取空差量（`--base == --head`）读数 `counts=1161 files=561` 与主干一致 ⇒ 本 PR 净增 0；③ 行为锁 `scripts/check-schedule-failure-watch.test.js` **11 条**（T1-T10 含 T3b）：夹具正反控 + 真仓规模下界与成员钉 + 接线自检 + 驱动追踪锁；④ 接进 `quality-gate.yml` 的 `changes` 作业 `Gate 2b13`（只跑判据与锁，不动任何真实资源）|
+| 修复 + 回归保护（QM-5 ④） | ✅ | ① 名单补齐 4 条定时作业；② 新增判据本体 `scripts/check-schedule-failure-watch.js`，**双向**不变量：带 `on.schedule:` 的作业必须被名单覆盖（漏 = "挂了没人知道"），名单里的名字必须还能在某个 workflow 的 `name:` 上找到（陈旧 = "读起来像已覆盖，实际永不触发"）；缩进下界取「至少 2 个空格/制表符」而非「恰好 2」——合法换缩进的文件在旧锚点下会**静默返回 0** 并让判据报"没有待覆盖项通过"（QM-6 第一轮 i5 命中，T11 钉住）；三种工具失明（目录读不到 / 一个 yml 都没枚举到 / 名单块解析不出）统一 `SCANNER_FAULT` 非零退出，绝不退化成"没有待覆盖项 ⇒ 通过"；另带 `oddShape` 自证档（声明了 schedule 却找不到 cron ⇒ 我的形状判据抓到了别的东西）。判据只读文件、零出站、只用 node 内置（落点 `changes` 作业无 Install deps，用 js-yaml 会以 `MODULE_NOT_FOUND` 被读成"违规"）；另记一条与 Gate 12c 的现场摩擦（不是缺陷、但会咬人）：该判据按"某个字母后紧跟冒号再紧跟斜杠或反斜杠"数绝对路径，于是正则字面量 `/cron:/`、`workflows:\s*` 与"键名冒号紧跟转义换行"的 YAML 夹具串都会被数成新增本机绝对路径。正解是改写法（把冒号收进字符组 `cron[:]`、夹具用行数组 join），**不是**调大账本；控制对照：同一判据取空差量（`--base == --head`）读数 `counts=1161 files=561` 与主干一致 ⇒ 本 PR 净增 0；③ 行为锁 `scripts/check-schedule-failure-watch.test.js` **12 条**（T1-T11 含 T3b）：夹具正反控 + 真仓规模下界与成员钉 + 接线自检 + 驱动追踪锁 + 缩进弹性锁；④ 接进 `quality-gate.yml` 的 `changes` 作业 `Gate 2b13`（只跑判据与锁，不动任何真实资源）|
+| 变异反证 | ✅ | 驱动入仓 `scripts/check-schedule-failure-watch.mutation.js`，三靶子（判据本体 / 行为锁自身 / 两份 workflow）。终跑 `SUMMARY CAUGHT=6 MISSED=2 PROBLEM=0 TOTAL=8`、`RESULT=OK`、三靶子还原 md5 一致、还原后被测锁 `rc=0 tests=12`：m1 单向锁→T10；m2 不剥注释→T3；m8 缩进下界退回恰好 2→T11；m5 摘 workflow 接线→T7；m6 从名单删掉 Cleanup Artifacts→T7；m7 名单塞不存在的名字→T7。剩 2 条 MISSED 是**声明过的重叠防呆**（m3 行尾归一：JS 多行 `$` 在 CR 前即成立；m4 空域守卫：空域时 handler 分支必然也命中），驱动反过来校验"确实没抓住"，前提一变就红 |
 | 防止再次发生（QM-5 ⑤） | ✅ | ① 把"手抄的清单"变成有真源可推导的不变量（真源 = 各 workflow 文件自己的 `on.schedule:` 与 `name:`），判据与夹具里都不再另存一份作业名枚举；② 双向不变量 + 三档失明各有一条夹具锁 ⇒ 新增定时作业忘了进名单、或名单里留了个已改名的作业，`Gate 2b13` 当场红并点名文件；③ 变异驱动入仓 `scripts/check-schedule-failure-watch.mutation.js`（脏树拒绝 / 锚点命中恰为 1 / 三靶子 / 还原后再跑一次被测锁），并把第 6 条纪律写进驱动头：**MISSED 必须声明并按声明校验**（冗余/重叠防呆要写清被谁覆盖，驱动反过来校验"确实没抓住"，前提一变就红）—— 把 MISSED 报成 CAUGHT 是谎，把冗余防呆当成"已被反证守住"是第二种谎；④ 名单不变量与两条方向一起写进 workflow 的注释里，下一个改它的人读到的是判据而不是回忆 |
 | 夹具自己的一课（不写成实现缺陷） | ✅ | 驱动**首跑 7 条里 5 条 MISSED**。逐条查下去：3 条是我的测试写空了（T1 的夹具同时含两类缺陷 ⇒ 摘掉单向判据它照样绿；T3 用 `#   schedule:` 测"剥注释"，而那行本来就匹配不上锚点；m5 摘的是断言本身 ⇒ 断言恒真时测试照绿），已分别补 **T10（只留陈旧项的夹具）**、把 T3 换成**名单括号内夹注释**这一真会坏的形状、把 m5 的靶子从"测试文件"改成 **quality-gate.yml 的接线行**；另 2 条（m3 行尾归一、m4 空域守卫）经核确实是**重叠/冗余防呆**（JS 多行 `$` 在 `\r` 前即成立；空域时 handler 一定也找不到、下一条分支已覆盖），按第 6 条纪律标成 `expectMiss` 并写明原因，而不是把 MISSED 报成 CAUGHT  ② 本行第一次重写用的是 bash 里的内联 `node -e`，其中反引号被 bash 当命令替换执行 —— 结果是这一行里几处引用被静默吃掉、并把一个 `.js` 当 shell 脚本跑了一遍（无破坏，但记录当场变成假话）。已改用 .cjs 文件重写，并在此如实记下：**本仓明令禁止带反引号/嵌套引号的内联 `node -e`，我自己踩了**。 |
 | 行尾与 diff 对账 | ✅ | 三处 CRLF 面改动（`ci-failure-handler.yml`、`quality-gate.yml`、`.gitignore`）全部用"按当场 eol 逐行写回"的脚本插入，未统一回写；每个锚点断言命中数、写盘前断言 CR 守恒（handler +15、gate +15、gitignore +4/+1） |
 | QM-1 打包 / QM-4 视觉 | N/A | 差量文件集实测为 `.github/workflows/{ci-failure-handler,quality-gate}.yml`、`scripts/check-schedule-failure-watch{,.test,.mutation}.js`、`.gitignore`、本记录 —— 不触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | 待跑（PENDING） | 本笔命中 `.github/workflows/` **高危面**前缀 ⇒ 闭合只认 `deepReview.tier=external` + 可核 `evidence`。**且这条在本仓有实测边界**：`tier=external` 的生产方 `scripts/ccg-review-writeback.js` 只认"真外部交付"那一档，自扮演收口拿不到 `tier`（已登记），所以高危面这一格大概率仍要会话手写 + 如实声明。未闭合前不合并 |
+| QM-6 CCG 双模型外部评审 | 第一轮已跑并逐条处置（见下节）；补齐 i5/i6 后的第二轮在前头 | `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过）。本笔命中 `.github/workflows/` **高危面**前缀 ⇒ 闭合只认 `tier=external` + 可核 `evidence`；`tier` 的生产方 `scripts/ccg-review-writeback.js`（#4151）本轮**现场在工作**并以 `reason=not-closed` 正确拒写 —— 它只认真外部交付，自扮演收口拿不到 `tier`，所以那一格仍需会话手写并声明 |
 | 远程同步 | 由门禁推导 | 不手写状态词、不为收口另开 PR |
 
+## QM-6 第一轮深审（critic=claude，8 条）逐条处置
+
+产物 `.ccg/reviews/`（本次判定的内容寻址键），存档 `.adversarial/ccg-deep-707ac4fa/`。维度分 correctness 4 / security 3 / performance 8 / maintainability 3，最低分 3；收敛落 `self_play`，待裁决 8 条，`requiresExternalReview=[]`（本轮**没有**高危域条目 —— 与 PR #4199 第三轮不同，那轮的两条来自指控措辞）。
+
+| 条目 | 指控 | 处置 | 证据 |
+| --- | --- | --- | --- |
+| i1/i2/i4 | 变异驱动就地改受跟踪的文件、没有 try/finally 或原子替换，崩溃会留下被改坏的源；i2 特别点名靶子里有 `quality-gate.yml`；i4 更进一步说"破坏性工具不该入库" | **不成立**（后果是响的、可精确恢复），i4 与上一刀的裁决直接相反、按上一刀的理由保持 | 驱动动手前有 dirty 前置：本会话实测它在脏态打 `REFUSE: 被测面工作树不等于 HEAD（…）` 并 exit 2 ⇒ "上次崩在中间"不会把污染态固化成还原基线；恢复是单文件 `git checkout -- <精确路径>`（不碰宽目录，守 R2）；每条变异的替换都是**同一行内的合法文本**（m5 把接线行换成 `echo wiring-removed`，不破坏 YAML 结构），且跑完对三个靶子分别比 md5 并**再跑一次被测锁**（终跑 `RESTORE md5=true files=3 rc=0`）。i4 建议的"不入库"与 PR #4199 第一轮 i3 的结论（取证工具不入库 ⇒ 别人复跑不了）正面冲突；两边我按后者保持，并在此写明这是**同一族意见的对撞**而不是我漏读 |
+| i3 | `.ccg/reviews/*.json` 的 `sha` 不等于 PR head（写的是父提交）、`required:true` 配 `status:pending` 等于"给未验证的产物盖章" | **不成立** | 同 #4199 已登记的形态：pre-commit 在新提交**生成之前**跑，父提交命名是既定行为，入口逐字打印过；`status=pending` 的用途正是让 `check-pr-exec-record --mode=enforce` 拦合并 —— 本 PR 现在就是带着它不开合并，机制在生效而不是在说谎。建议里的"对齐 head SHA"反而会把判定产物写成与任何提交都不可核对的东西 |
+| i5 | `^\s{2}schedule:` 把缩进写死，YAML 换缩进即静默漏检 | **成立 ⇒ 已修** | 改成 `[ \t]{2,}`（名单正则同步），并加 **T11**：4/8 空格缩进的合法文件必须仍被识别；驱动 m8 重新定义为"把下界退回恰好 2"，实测指名 T11 变红（这一条从"重叠防呆 MISSED"升级成 CAUGHT，正是被这条指控逼出来的）。取向的理由写进注释：**多匹配会在真仓立刻响，少匹配是静的**，而"静默返回 0 ⇒ 报通过"正是本刀要消灭的形状 |
+| i6 | 记录里的"连红 N 天"这类断言没带 run 号，读起来像未证 | **成立 ⇒ 已修**（并且它是对的） | 按 `gh run list --workflow=cleanup-artifacts.yml --event schedule` 重取：连续 **9** 次 `completed failure`（run `38385152658`…`39570873661`，2026-10-13 ~ 10-21），最后一次绿是 run `38239617921`（10-12）⇒ 我原写的"自 10-14 起 8 天"**少数了一天**。已把 run 号写进记录，并同步去改 #4199 的 PR 正文（那里也写着 8 天）；commit message 里的旧读数按"历史事实不改写"原则留着，由本行说明它是被否证的旧值 |
+| i7 | 产物引用了"未配置的后端（opencode、claude）"且 `tier:unknown`，构成未决依赖 | **不成立** | 后端是配好的：`sh scripts/deep-review.sh --check-deps` 当次实跑打 `体检通过：后端可用`，两个裸名分别解析到 `~/.local/bin/claude.exe` 与 `/d/Program Files/npm-global/opencode.cmd`；真源是 `scripts/ccg-review-backends.list`（critic=claude、proposer=opencode），本轮跨家族校验通过。`tier` 的 `unknown` 是判定器**新建时**写的占位值（`ccg-review-decider.js:685`），不是"依赖没配" |
+| i8 | `expectMiss` 靠人手写 missWhy 说明"这条确实被别处覆盖"，人写错了就没人查 | **部分成立 ⇒ 已把能自动化的部分自动化** | 机器可校的那半已在驱动里：声明 `expectMiss` 时驱动**要求该变异确实抓不到**，一旦抓到了就 `PROBLEM(声明冗余却抓住了)` 并让 `RESULT` 非 OK ⇒ "它已被别处覆盖"这件事的**下半**（移除后无人红）是机器校的。人写的那半是"被谁覆盖"的归因文字 —— 要全自动就得让驱动去证明存在另一条能抓同一缺陷的变异，那是跨变形的等价类判定，本仓没有那样的机制。i5/i6 修完之后，本轮的 MISSED 从 3 降到 2，就是这条被压实的过程本身 |
 - 判定：混合 PR（含 workflow 与 `scripts/` 判据本体），不走 docs-only 快速通道
 - 保留门禁：品牌残留 ✅ | 绝对路径账本未放宽 ✅（本记录不写本机绝对路径）| `check-workflow-structure` 0 违规 | `check-step-failfast` ✅（Gate 2b13 的 run 块两条命令、`shell: bash` fail-fast）| `check-unwired-tests` OK | `check-record-qm5-rows` OK | `check-gate-record-debt` OK | `check-text-encoding-integrity` 无新增损坏
 
 ### 现场读数（引用前先重跑，都是活数）
 
 - `node scripts/check-schedule-failure-watch.js` 修复前：`workflows=16 scheduled=4 list=5 未覆盖=4 陈旧名单项=0 判定=FAIL`；修复后：`list=9 未覆盖=0 判定=OK`
-- `node --test scripts/check-schedule-failure-watch.test.js` → `# tests 11 / pass 11 / fail 0`
-- `node scripts/check-schedule-failure-watch.mutation.js` → `SUMMARY CAUGHT=5 MISSED=3 PROBLEM=0 TOTAL=8`、`RESTORE md5=true files=3 还原后被测锁 rc=0 tests=11`
+- `node --test scripts/check-schedule-failure-watch.test.js` → `# tests 12 / pass 12 / fail 0`
+- `node scripts/check-schedule-failure-watch.mutation.js` → `SUMMARY CAUGHT=6 MISSED=2 PROBLEM=0 TOTAL=8`、`RESTORE md5=true files=3`、还原后被测锁 `rc=0 tests=12`
 
 ## 遗留（不假装已闭合）
 
@@ -40,7 +53,7 @@ date: 2026-10-22
 
 # fix(ci): 定时作业全部接进失败自动报警，并加一把防漂移锁（schedule-failure-watch）
 
-- 现场：`Cleanup Artifacts` 连红 8 天无人发现。报警装置其实早就有（`ci-failure-handler.yml`：`workflow_run` 失败 ⇒ 自动开 Issue + PR 留言），但它的工作流名单是手抄的 5 个名字，仓里 4 条带 `on.schedule:` 的作业一条都不在里面 —— 定时作业没有 PR、不参与 required check，红了只落在 Actions UI 里。
+- 现场：`Cleanup Artifacts` 的 schedule run 连红 9 次无人发现（run `38385152658`…`39570873661`，2026-10-13 ~ 10-21；最后一次成功是 run `38239617921`，10-12）。报警装置其实早就有（`ci-failure-handler.yml`：`workflow_run` 失败 ⇒ 自动开 Issue + PR 留言），但它的工作流名单是手抄的 5 个名字，仓里 4 条带 `on.schedule:` 的作业一条都不在里面 —— 定时作业没有 PR、不参与 required check，红了只落在 Actions UI 里。
 - 修法：名单补齐 4 条定时作业；新增判据本体 `scripts/check-schedule-failure-watch.js`，**双向**对账（带 schedule 的必须被覆盖 / 名单里的名字必须还存在），三种"工具失明"统一判 `SCANNER_FAULT` 而不是退化成"没有定时作业 ⇒ 全绿"；接进 `quality-gate.yml` 的 `changes` 作业 `Gate 2b13`（放 `static-gates` 等于给自己关校验，因为 `.github/workflows/**` 在 docs-only 白名单里）。
 - 行为锁 11 条（夹具正反控 + 真仓规模下界 + 接线自检 + 驱动追踪锁）；变异驱动入仓，8 条变异 `CAUGHT=5 / MISSED=3`，其中 3 条 MISSED 是**声明过的重叠防呆**并逐条写明被谁覆盖 —— 驱动首跑时 7 条里 5 条 MISSED，查出 3 条是我的测试写空了（单向夹具、匹配不上的锚点、摘断言本身），补成 T10/重写 T3/把反证靶子改到 workflow 接线行。
 

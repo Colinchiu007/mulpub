@@ -48,10 +48,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-707ac4fa\\adjudication.json",
+    "note": "裁决尚未填写：8/8 条未定（i1, i2, i3, i4, i5, i6, i7, i8）",
+    "at": "2026-10-22T07:05:37.639Z"
   }
 }
