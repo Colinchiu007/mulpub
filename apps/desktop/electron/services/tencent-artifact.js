@@ -43,7 +43,8 @@ async function confirmPublished (win, title, opts) {
     return { ok: false, evidence: 'not-found', detail }
   }
 
-  const timeoutMs = Number(o.timeoutMs) > 0 ? Number(o.timeoutMs) : 25000
+  // 2026-10-23 真机：post-list-timeout textLen=15 —— 先放宽到 45s 排除首屏慢
+  const timeoutMs = Number(o.timeoutMs) > 0 ? Number(o.timeoutMs) : 45000
   const intervalMs = Number(o.intervalMs) > 0 ? Number(o.intervalMs) : 2500
   const deadline = Date.now() + timeoutMs
   let lastLen = 0
@@ -60,6 +61,11 @@ async function confirmPublished (win, title, opts) {
       }
     } catch (_e) { /* 页面切换中继续轮询 */ }
   }
+  let diag = 'url=? readyState=?'
+  try {
+    diag = await win.webContents.executeJavaScript('(function(){return "url="+location.href+" readyState="+document.readyState+" text="+((document.body&&document.body.innerText)||"").replace(/\\s+/g," ").slice(0,80)})()', true)
+  } catch (_e) {}
+  if (log) log.warn('RpaView', '[tencent_video] artifact 诊断 ' + diag)
   const detail = 'post-list-timeout:textLen=' + lastLen
   if (log) log.warn('RpaView', '[tencent_video] artifact 未命中（' + detail + '）')
   return { ok: false, evidence: 'not-found', detail }
