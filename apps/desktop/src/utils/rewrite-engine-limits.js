@@ -53,9 +53,11 @@ export function buildRewriteLengthOptions (resolve) {
     const count = LENGTH_TARGET_CHARS[value]
     const label = resolve(key, { count })
     // 兜底：locale key 缺失/未命中时**不要留一个空白下拉项**（用户会看到三个
-    // 没有文字的选项）。退而求其次给出档位名 + 数字 + 单位（与 locale 模板同口径），
-    // 至少还看得出目标字数。
-    return { value, label: label && label.trim() ? label : `${value} (~${count} chars)` }
+    // 没有文字的选项）。退而求其次给出档位标识 + 目标字数。
+    // ⚠️ 兜底刻意**不带单位词**：单位词要本地化（中文「字」/ 英文「chars」），
+    // 在这里硬编码任一种都会变成"半本地化"的错文案（评审 i3）。
+    // 正常路径的单位由 locale 模板负责；异常路径只需"可读 + 有数字"。
+    return { value, label: label && label.trim() ? label : `${value} (~${count})` }
   })
 }
 
