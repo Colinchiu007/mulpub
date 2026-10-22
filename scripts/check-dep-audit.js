@@ -167,6 +167,31 @@ function shellRun (cmd, args, opts = {}) {
   return last;
 }
 
+/**
+ * 「本轮该域一条都没扫出来，而基线里它有挂账」⇒ 这是**未证实**，不是**已修**。
+ *
+ * 动因（2026-10-22 实测）：`dep-audit.yml` 的 job 明写「本 job 不执行 pnpm install」，
+ * 于是 `npm-opscenter` 这一域在 CI 上返回 **0 条**，判据据此连报两条
+ * `RESOLVED_STILL_BASELINED：已不再命中（多半已升级），请 --update 清账`。
+ * 而**同一个 commit** 在本机两种树形态下（`ops-center/frontend/node_modules` 存在 / 不存在）
+ * 都照样命中那两条 GHSA ⇒ 「0 命中」测的是**测量域为空**，不是公告消失。
+ * 若照那句提示跑 `--update`，`writeBaseline` 按 found 原样落盘 ⇒ 两条仍然有效的挂账被静默抹掉，
+ * 此后这两条公告永久不再被拦。这是「把工具的失明读成结论」的安全基线版本。
+ *
+ * 判据形状刻意**不看 node_modules 是否存在**：CI 上「装过」与「没装」都可能返回 0，
+ * 反过来「lockfile 里根本没这个域了」也会合法地返回 0。唯一可靠的信号是
+ * **「该域 0 产出 ∧ 基线里该域有挂账」**这个组合——它两种成因都指向「先去看清楚再写基线」。
+ *
+ * @param {Array<{source:string}>} found 本轮全部命中条目
+ * @param {Array<{source:string}>} baselineList 基线挂账条目
+ * @returns {string[]} 需要按未证实处理的 source 列表（按字典序，保证输出稳定）
+ */
+function zeroScanDomains (found, baselineList) {
+  const baselined = new Set((baselineList || []).map((i) => i && i.source).filter(Boolean));
+  const produced = new Set((found || []).map((f) => f && f.source).filter(Boolean));
+  return [...baselined].filter((s) => !produced.has(s)).sort();
+}
+
 /** 默认扫描器：真实调 pnpm / npm / pip-audit（用例注入假实现，避免依赖网络）。 */
 function createDefaultRunners (registry) {
   return {
@@ -588,8 +613,22 @@ function evaluate (baseline, found, today, scannedSources) {
     }
   }
 
+  // 「0 产出但有挂账」这一档必须在 RESOLVED 之前处理：否则 CI 那种空测量域会被读成「都修好了」，
+  // 并把两条仍然有效的挂账从基线里抹掉（动因见 zeroScanDomains 的头注释）。
+  // 只处理**本轮声明扫过**的域：扫描器不可用的域已由 SCANNER_UNAVAILABLE 出声并被下面的
+  // `scanned` 判断排除，重复报一条只会把两类成因混成一句话。
+  const zeroScan = zeroScanDomains(found, list).filter((s) => !scanned || scanned.has(s));
+  for (const source of zeroScan) {
+    const n = list.filter((i) => i && i.source === source).length;
+    violations.push('UNVERIFIED_ZERO_SCAN: ' + source + ' 本轮 0 命中，而基线里它有 ' + n
+      + ' 条挂账 ⇒ 这是「测量域为空」还是「真的都修了」无法区分，**不得**判成已修、**不得**据此清账。'
+      + '先复核这一域：CI 有没有装它的依赖、lockfile 里这些包还在不在、扫描命令换过没有。'
+      + '确认「确实都修了」之后才跑 --update；确认是 CI 侧没装，就补那一步的安装步骤（本条会随之转绿）。');
+  }
+
   for (const item of list) {
     if (scanned && !scanned.has(item.source)) continue;
+    if (zeroScan.includes(item.source)) continue; // 未证实 ≠ 已修，不再逐条报 RESOLVED
     const key = item.source + '/' + item.id;
     if (claimed.has(key)) continue;
     if (!hits.has(key)) {
@@ -679,6 +718,23 @@ function runCheck (opts = {}) {
 
   const base = readBaseline(bp);
   if (isUpdate) {
+    // 这条守卫与 evaluate 里的 UNVERIFIED_ZERO_SCAN 是一对，且**必须成对存在**：
+    // 红文案本身会喊「请 --update 清账」，而 CI 那种空测量域恰恰会让人在那一刻按下 --update。
+    // writeBaseline 按 found 原样落盘 ⇒ 一个 0 产出的域会把它自己的全部挂账从基线里抹掉。
+    //
+    // ⛔ 这里**刻意不套** evaluate 的 `scanned.has(s)` 过滤（QM-6 外部评审 i1 命中后写清，两类成因要分开读）：
+    // evaluate 判「这条挂账现在该出哪句结论」，所以没扫成的域交给 SCANNER_UNAVAILABLE，不再叠一条；
+    // 这里判「这次写基线会不会毁掉我没看过的东西」，重建源只有 found，所以「没扫成」也必须拒写——
+    // 而那一格**已由上面 618 行的既有闸拦掉**（`unavailable.length && isUpdate` ⇒ 拒绝写基线），
+    // 到这一步剩下的只会是「扫成了但 0 产出」的域。故不加过滤是正确的，不是遗漏；
+    // 按评审建议「过滤成只保留已扫域」反而会把既有的那道闸当成不存在。
+    const zero = zeroScanDomains(found, (base && base.advisories) || []);
+    if (zero.length) {
+      error('存在「0 产出但仍有挂账」的域，拒绝写基线：' + zero.join(', ')
+        + ' ⇒ 这是未证实不是已修。先复核这些域的测量域（CI 装没装它的依赖、lockfile 里包还在不在、扫描命令换过没有），'
+        + '确认「确实都修了」之后再重跑 --update。');
+      return 1;
+    }
     const body = writeBaseline(found, base, bp);
     log('基线已写入', bp, '（' + body.advisories.length + ' 条；新增条目 decision=TODO 必须补结论）');
     return 0;

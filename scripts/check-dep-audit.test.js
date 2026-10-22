@@ -63,9 +63,11 @@ test('新公告必须阻断：基线之外的任意 advisory id 触发 NEW_ADVIS
   assert.match(violations[0], /修复版本 >=1.2.3/);
 });
 
-test('基线腐化：已不再命中的公告必须清账', () => {
-  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-gone'), ledger('pip', 'PYSEC-x')] };
-  const { violations } = D.evaluate(base, [entry('pip', 'PYSEC-x')], FUTURE);
+test('基线腐化：某域本轮**仍有产出**、而其中一条公告不再命中 ⇒ 必须清账', () => {
+  // 这条是 RESOLVED 路径的正控，夹具刻意让 npm 域本轮扫出别的东西（GHSA-live）——
+  // 只有「该域确实在测量且有产出」时，「某条不再命中」才是可信的已修信号（2026-10-22 口径改造）。
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-gone'), ledger('npm', 'GHSA-live'), ledger('pip', 'PYSEC-x')] };
+  const { violations } = D.evaluate(base, [entry('npm', 'GHSA-live'), entry('pip', 'PYSEC-x')], FUTURE);
   assert.deepEqual(violations, ['RESOLVED_STILL_BASELINED: npm/GHSA-gone 已不再命中（多半已升级），请 --update 清账']);
 });
 
@@ -526,11 +528,16 @@ test('对偶：别名匹配不得把真正的新公告一起放过', () => {
 });
 
 test('别名匹配不得跨 source：pip 的 alias 不能认领 npm 的同名 id', () => {
-  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'X-1')] };
-  const found = [entry('pip', 'Y-2', { aliases: ['X-1'] })];
+  // 2026-10-22 口径改造随动：夹具原先让 npm 域本轮**完全不产出**，那在新口径下是
+  // 「未证实」（UNVERIFIED_ZERO_SCAN）而不是「已修」，本条要测的 RESOLVED 路径就不成立了。
+  // 补一条 npm 的活条目让该域确实有产出——本条测的仍是跨 source 别名不认领，不是零产出。
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'X-1'), ledger('npm', 'X-live')] };
+  const found = [entry('npm', 'X-live'), entry('pip', 'Y-2', { aliases: ['X-1'] })];
   const { violations, migrations } = D.evaluate(base, found, FUTURE);
   assert.equal(violations.filter((v) => v.includes('NEW_ADVISORY')).length, 1, 'pip 的新条目照红');
   assert.equal(violations.filter((v) => v.includes('RESOLVED_STILL_BASELINED')).length, 1, 'npm 的旧条目照判失效');
+  assert.equal(violations.filter((v) => v.includes('UNVERIFIED_ZERO_SCAN')).length, 0,
+    '该域有产出 ⇒ 不进零产出档：\n' + violations.join('\n'));
   assert.deepEqual(migrations, [], '跨 source 不算同一条公告');
 });
 
@@ -821,4 +828,120 @@ test('pip 域也必须做报告形状校验', async (t) => {
     const res = D.shellRunOnce('pip-audit', ['-r', 'x'], { expectReport: 'npm', spawn: fakeSpawn(stdout) });
     assert.equal(res.ok, false, 'npm 形状校验不应接受 pip 报告');
   });
+});
+/* ── UNVERIFIED_ZERO_SCAN：把「扫描成功但零产出」与「公告真的都修了」分开（2026-10-22）──────
+ * 动因是 CI 现场：dep-audit.yml 那个 job 不装任何依赖，`npm-opscenter` 域返回 0 条，
+ * 判据连报两条 `RESOLVED_STILL_BASELINED … 请 --update 清账`；而同一 commit 在本机
+ * 两种树形态下（ops-center/frontend 有 / 无 node_modules）都照样命中那两条 GHSA。
+ * 照提示跑 --update 会把仍然有效的挂账从安全基线里抹掉 —— 本组锁就是来堵这一格的。
+ */
+test('Z1 CI 形状：域本轮 0 产出而基线里它有挂账 ⇒ 报未证实，且不得报「已不再命中」', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm-opscenter', 'GHSA-68FV-2MGG-JV7Q'), ledger('pip', 'PYSEC-x')] };
+  const { violations } = D.evaluate(base, [entry('pip', 'PYSEC-x')], FUTURE);
+  assert.equal(violations.filter((v) => v.startsWith('RESOLVED_STILL_BASELINED')).length, 0,
+    '0 产出不是已修的证据，一条 RESOLVED 都不许报：\n' + violations.join('\n'));
+  assert.equal(violations.length, 1, '应恰好一条未证实告警：\n' + violations.join('\n'));
+  assert.match(violations[0], /^UNVERIFIED_ZERO_SCAN: npm-opscenter/);
+  assert.match(violations[0], /1\s*条挂账/, '文案必须给出该域有几条挂账，否则读者无从判断影响面');
+  assert.match(violations[0], /不得.*清账|不得.*判成已修/);
+});
+
+test('Z2 负控：域本轮 0 产出、但基线里该域本来就没挂账 ⇒ 不得凭空造债', () => {
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-live')] };
+  const { violations } = D.evaluate(base, [entry('npm', 'GHSA-live')], FUTURE);
+  assert.deepEqual(violations, [], 'pip 与 npm-opscenter 都 0 产出但账上无它们 ⇒ 全绿');
+});
+
+test('Z3 与 SCANNER_UNAVAILABLE 不重复：该域本轮没扫成时，未证实由那一条 warning 管', () => {
+  // scannedSources 只含 pip ⇒ npm 既不该被判腐化，也不该被判零产出（那是两类成因，文案不同）。
+  const base = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-a'), ledger('pip', 'PYSEC-x')] };
+  const { violations } = D.evaluate(base, [entry('pip', 'PYSEC-x')], FUTURE, ['pip']);
+  assert.deepEqual(violations, [], '未扫成的域必须整体不判：\n' + violations.join('\n'));
+});
+
+test('Z4 --update 在「0 产出但有挂账」时必须拒绝写基线，且基线文件逐字节不变', () => {
+  // 这条是 Z1 的另一半：红文案自己会喊 --update，所以恰恰在那一刻必须挡住（writeBaseline 按 found 全量落盘）。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-audit-zero-'));
+  const bp = path.join(dir, 'baseline.json');
+  const body = { reviewBy: FUTURE, advisories: [ledger('npm-opscenter', 'GHSA-68FV-2MGG-JV7Q'), ledger('pip', 'PYSEC-x')] };
+  fs.writeFileSync(bp, JSON.stringify(body, null, 2), 'utf8');
+  const before = fs.readFileSync(bp, 'utf8');
+  const out = [];
+  try {
+    const code = D.runCheck({
+      registry: 'npm',
+      isUpdate: true,
+      baselinePath: bp,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push('ERR ' + a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: { advisories: {} } }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
+        pip: () => ({ ok: true, json: { dependencies: [{ name: 'm', version: '1.0.0', vulns: [{ id: 'PYSEC-x', aliases: [], fix_versions: ['>=1.2.3'] }] }] } }),
+      },
+    });
+    assert.equal(code, 1, '0 产出但有挂账的域存在时 --update 必须失败，读数：\n' + out.join('\n'));
+    assert.ok(out.some((l) => l.includes('拒绝写基线')), '必须点名拒绝：\n' + out.join('\n'));
+    assert.equal(fs.readFileSync(bp, 'utf8'), before, '基线不得被写坏哪怕一字节');
+  } finally {
+    fs.rmSync(bp, { force: true }); fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Z6 没扫成的域拒绝写基线：这一格由既有那道闸守，且必须真的拦住（QM-6 外部评审 i1 的处置）', () => {
+  // npm 本轮 res.ok=false（离线/端点抖动）⇒ 它不在 scannedSources。评审 i1 说这里与 evaluate 的分档
+  // 不一致、建议过滤成「只保留已扫域」——**不采纳**，因为 writeBaseline 的重建源只有 found，
+  // 放过就等于把 npm 在基线里的每一行（含人工 decision/note）整段抹掉。
+  // 实测把这一格拦住的是 runCheck 里那道既有闸（`unavailable.length && isUpdate`），
+  // 它排在本次新增的零产出守卫**之前**——所以新守卫不需要再加过滤，这条用例锁的是"到底有没有人拦"。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-audit-unscanned-'));
+  const bp = path.join(dir, 'baseline.json');
+  const body = { reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-offline', 'not-exploitable', '逐条复核过三处 algorithms'), ledger('pip', 'PYSEC-x')] };
+  fs.writeFileSync(bp, JSON.stringify(body, null, 2), 'utf8');
+  const before = fs.readFileSync(bp, 'utf8');
+  const out = [];
+  try {
+    const code = D.runCheck({
+      registry: 'npm',
+      isUpdate: true,
+      baselinePath: bp,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push('ERR ' + a.join(' ')),
+      runners: {
+        npm: () => ({ ok: false, error: 'offline' }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
+        pip: () => ({ ok: true, json: { dependencies: [{ name: 'm', version: '1.0.0', vulns: [{ id: 'PYSEC-x', aliases: [], fix_versions: ['>=1.2.3'] }] }] } }),
+      },
+    });
+    assert.equal(code, 1, '有域没扫成时 --update 必须失败，读数：\n' + out.join('\n'));
+    assert.ok(out.some((l) => l.includes('扫描器不可用，拒绝写基线') && l.includes('npm')),
+      '必须点名是哪道闸、哪个域：\n' + out.join('\n'));
+    assert.equal(fs.readFileSync(bp, 'utf8'), before, '基线里那条人工 note 不得被抹掉哪怕一字节');
+  } finally {
+    fs.rmSync(bp, { force: true }); fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Z5 正控（Z4 的对偶）：所有域都有产出时 --update 照常写基线，别把清账通道一起焊死', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-audit-ok-'));
+  const bp = path.join(dir, 'baseline.json');
+  fs.writeFileSync(bp, JSON.stringify({ reviewBy: FUTURE, advisories: [ledger('npm-opscenter', 'GHSA-live'), ledger('pip', 'PYSEC-x')] }, null, 2), 'utf8');
+  try {
+    const code = D.runCheck({
+      registry: 'npm',
+      isUpdate: true,
+      baselinePath: bp,
+      log: () => {}, error: () => {},
+      runners: {
+        npm: () => ({ ok: true, json: { advisories: {} } }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: { axios: { via: [{ source: 1, url: 'https://github.com/advisories/GHSA-live', severity: 'high', range: '>=1.0.0 <1.2.3' }] } } } }),
+        pip: () => ({ ok: true, json: { dependencies: [{ name: 'm', version: '1.0.0', vulns: [{ id: 'PYSEC-x', aliases: [], fix_versions: ['>=1.2.3'] }] }] } }),
+      },
+    });
+    assert.equal(code, 0, '各域都有产出时写基线不得被新守卫误伤：' + bp);
+    const after = JSON.parse(fs.readFileSync(bp, 'utf8'));
+    assert.ok(after.advisories.some((a) => a.source === 'npm-opscenter'), 'npm-opscenter 那条必须落在新基线里');
+  } finally {
+    fs.rmSync(bp, { force: true }); fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
