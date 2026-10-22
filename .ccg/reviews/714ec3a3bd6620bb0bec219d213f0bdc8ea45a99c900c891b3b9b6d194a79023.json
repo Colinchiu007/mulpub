@@ -48,10 +48,65 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/714ec...json added with status=pending and performedBy=null/findings=null; committing unfinished audit artifacts corrupts review chain and may break downstream automation expecting cleared artifacts.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：新增的 .ccg/reviews/714ec....json 带 status=pending、performedBy=null/findings=null 入库 ⇒ 把未完成的评审工件提交进源码树，破坏评审/审计链，并可能让下游自动化读到非终态记录。",
+        "defense": "防线成立且机制上必然：判定记录由 pre-commit 在提交时生成，那时深审尚未运行，状态只能是 pending；它由评审链在裁决填完并重跑深审后回写为终态（cleared / self_play_resolved 等）。本轮之所以仍是 pending，正是因为裁决尚未填完（引擎输出「未写回 reason=not-closed」）。同批另两份记录（c179b217 / f81a33da）在深审跑过后已是 status=cleared、performedBy=claude、findings 非空 ⇒ 审计链在链路跑通后完整。",
+        "verdict": "dismissed",
+        "rationale": "pending 是「提交时尚未评审」的正常初态，由评审链回写为终态；本片已逐条填完裁决，重跑深审后本记录同样会被回写为终态并随 PR 落地（与同批另两份记录一致）。审计链在链路闭合后完整，不存在永久 pending 的工件入库。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "rewrite-engine-limits.test.js still parses Python _LENGTH_RANGES via regex (match / matchAll). If Python formatting or variable naming changes, regex may miss definitions; the added key-set equality assertion reduces silent pass risk but does not eliminate root fragility.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：结构锁仍用正则（match / matchAll）解析 Python 的 _LENGTH_RANGES；Python 侧格式或变量名一变，正则可能漏掉定义；已加的 key 集合相等断言降低了静默通过的风险，但没有消除根因脆弱性。",
+        "defense": "防线成立：① 正则失配时，锁内「key 集合精确等于三档」的断言会直接红（空集 ≠ 三档）⇒ 不存在「漏解析而静默通过」；② 失效是显式失败（抛断言并点名「Python service.py 里找不到 _LENGTH_RANGES 定义」/「渲染层缺少 X 档目标字数」），不是静默失配；③ 为何不把三档下沉成 JSON 契约文件（评审上轮也提过）：那要新增构建产物 + 生成链路 + CI 同步责任，而本仓长度三档只有一处定义，直接读它的成本远低于引入一条新的同步机制 —— 权衡已写在测试头注释里。",
+        "verdict": "dismissed",
+        "rationale": "脆弱性已知并被显式化：失配即红、失败信息可定位；改用 JSON 契约文件需要新增同步机制，成本高于收益（本仓只有一处定义）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "Three .ccg/reviews/*.json audit artifacts added to repo source tree, mixing review metadata with code; one (714ec...) is pending, others contain full external review evidence, increasing repo noise.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：三个 .ccg/reviews/*.json 评审工件入库，把评审元数据混进源码树，增加仓库噪音。",
+        "defense": "防线成立：.ccg/** 是本仓被跟踪的评审链产物目录（主干 2977 个文件），深审债务门禁（check-pr-exec-record.js / ccg-gate.js）正是从版本库里读这些记录来判定「上一轮的评审是否已闭环」；不入库 ⇒ 门禁读不到 ⇒ 债务永远挂账、下一轮无法判定闭环。产物入库是机制要求，不是疏漏。",
+        "verdict": "dismissed",
+        "rationale": "评审工件入库是门禁读债务的前提（与仓库既有机制一致），非噪音问题。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "buildRewriteLengthOptions test verifies real resolveNotifyText interpolation but has no negative/failure case; if resolve fails for a single key, the multi-file locale change could expose raw {count} to users.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：buildRewriteLengthOptions 的测试只验证了真实 resolveNotifyText 的插值（正向用例），没有反向/失败用例；若某个 key 解析失败（多文件 locale 改动下可能发生），UI 可能露出原始 {count}。",
+        "defense": "防线部分成立：正向断言确实覆盖了「三档都插值成功」，但缺的正是「resolve 失效」这一侧 —— 而该侧的真实后果比「露出 {count}」更糟：若 locale key 未命中，resolveNotifyText 返回空串 ⇒ 下拉项文案全空，用户看到三个没有文字的选项。",
+        "verdict": "upheld",
+        "rationale": "已修（不止补用例，也补了行为）：① buildRewriteLengthOptions 增加兜底 —— resolve 返回空/空白时改用「档位名 (~数字)」，杜绝空白下拉项；② 新增负向用例：模拟 resolve 返回空，断言三项兜底文案都非空且仍带各自目标字数。这样「locale 缺失」从静默劣化变成可检出的确定行为。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：1 条指控成立或需外部复核",
+    "at": "2026-10-22T18:31:02.314Z"
   }
 }

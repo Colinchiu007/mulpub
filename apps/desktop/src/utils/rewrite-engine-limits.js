@@ -49,10 +49,13 @@ const LENGTH_LABEL_KEYS = [
  * @returns {{ value: string, label: string }[]}
  */
 export function buildRewriteLengthOptions (resolve) {
-  return LENGTH_LABEL_KEYS.map(({ value, key }) => ({
-    value,
-    label: resolve(key, { count: LENGTH_TARGET_CHARS[value] }),
-  }))
+  return LENGTH_LABEL_KEYS.map(({ value, key }) => {
+    const count = LENGTH_TARGET_CHARS[value]
+    const label = resolve(key, { count })
+    // 兜底：locale key 缺失/未命中时**不要留一个空白下拉项**（用户会看到三个
+    // 没有文字的选项）。退而求其次给出档位名 + 数字，至少还看得出目标字数。
+    return { value, label: label && label.trim() ? label : `${value} (~${count})` }
+  })
 }
 
 /**
