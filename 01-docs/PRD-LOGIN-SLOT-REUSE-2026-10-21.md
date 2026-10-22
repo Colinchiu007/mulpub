@@ -173,12 +173,72 @@ close(): captured=true ⇒ 槽位保留（供发布链兜底读取）
 | 会话级 | `session.webRequest.onErrorOccurred` | 监测域内的请求失败（连接重置/超时） |
 | 会话级 | `session.webRequest.onCompleted` | 监测域内的 HTTP ≥ 400（如字节 CDN 的 504） |
 | CDP | `Network.requestWillBeSent` → `loadingFinished` | 慢请求（≥ 阈值）耗时 + 状态码；监测域内请求失败 |
-| CDP | 同上 | **图形验证码组件加载完成**（`webmssdk.js` / `secsdk-captcha/captcha.js`）——灰显遮罩结束的时刻 |
+| CDP | 同上 | **图形验证码组件加载完成**（`webmssdk.js` / `secsdk-captcha/captcha.js` / `rc-verifycenter/sec_sdk_build/<ver>/captcha/index.js`）——灰显遮罩结束的时刻 |
 
 监测域（实测得来，非拍脑袋）：`toutiao.com`、`toutiaostatic.com`、`bytecdn.cn`、`ibytedtos.com`、
-`bytescm.com`、`bytegoofy.com`、`ibytedapm.com`、`snssdk.com`、`zijieapi.com`、`bytedance.com`。
+`bytescm.com`、`bytegoofy.com`、`ibytedapm.com`、`snssdk.com`、`zijieapi.com`、`bytedance.com`、
+`yhgfb-cn-static.com`、`bytetos.com`（后两条为 2026-10-22 现场补测新增，见 §5.6）。
 
 **未登记平台走默认（微信域）过滤面，既有行为与既有契约锁一字不动。**
+
+### 5.6 观测面覆盖补正（2026-10-22）
+
+#### 5.6.1 动因：上一版承诺的观测，在真实链路上**不生效**
+
+2026-10-21 本仓交付了「头条号登录期网络观测」，其中包含一条承诺：**记录图形验证码组件加载完成的
+时刻**（= 用户点「获取验证码」后灰显遮罩结束的时刻）。2026-10-22 从
+`https://mp.toutiao.com/` 的**实际登录页 HTML** 里抓资源清单时发现：真实生效的验证码入口是
+
+```
+lf-rc{1,2}.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js
+```
+
+而上一版登记的形态只有 `sf16-secsdk.ibytedtos.com/…/webmssdk/…` 与
+`sf16-scmcdn-*.ibytedtos.com/…/secsdk-captcha/…`。于是有**两处同时漏**：
+
+| 漏点 | 后果 |
+| --- | --- |
+| ① 域不在监测域清单里 | 该域的请求**根本进不了** `webRequest` 过滤面 ⇒ 它的失败请求、慢请求**一条都不会被记** |
+| ② 路径形态不匹配已登记锚点 | 即便进了过滤面，也不会被判成「验证码组件」⇒ 灰显时刻读数**缺失** |
+
+两条都漏 ⇒ 对这条**实际生效**的验证码入口，观测承诺整体落空；改完 OpenClash 规则后
+应用日志里**仍看不到**验证码组件何时就绪，下次复现仍只能靠外部抓包倒推。
+
+现场读数（2026-10-22 22:00 前后）：
+
+| 资源 | 首次（冷） | 再次（命中边缘） | 体积 |
+| --- | --- | --- | --- |
+| `…/sec_sdk_build/4.0.10/captcha/index.js` | 首包 **2.65 ~ 2.96s** | 首包 **0.13s** | 77,476 B |
+
+⇒ 该入口的耗时**高度间歇**（边缘命中与否），这正是「灰显几秒」那段波动的来源，
+也正是最需要被观测到的那一段。
+
+#### 5.6.2 判据
+
+1. **监测域补两条**：`yhgfb-cn-static.com`（验证码中心）、`bytetos.com`（风控 glue）。
+   补后该域的失败请求 / HTTP≥400 / 慢请求才会进日志。
+2. **验证码组件判定新增「组合锚点」**：路径**同时**含 `/sec_sdk_build/` 与 `/captcha/` 才算命中。
+
+   为什么必须是**两个段一起**判，而不是再加一个单段锚点：
+
+   | 判法 | 问题 |
+   | --- | --- |
+   | 只认 `/captcha/` | 任何路径里带 captcha 字样的无关资源都被误判 ⇒ 噪声淹没真信号 |
+   | 只认 `/sec_sdk_build/` | 该版本目录下的**非**验证码资源也被算成验证码组件 ⇒ 灰显时刻读数失真 |
+   | **两段同时**（本次采用） | 判据仍然窄；`/sec_sdk_build/` 是字节验证码中心的版本目录，专属性足够 |
+
+3. **老形态一字不动**：`/secsdk-captcha/`、`/webmssdk/` 两个锚点与「只认路径、不认查询串/域名」的
+   既有约束全部保留，未登记平台行为不变。
+
+#### 5.6.3 不做什么
+
+- **不改**已交付的槽位复用逻辑（缓存跨次留存、导航前清凭证）——本次只补观测面。
+- **不把** `sdk-glue.js` 判成验证码组件：它是风控 glue，不是验证码；
+  「组件加载完成」这个时刻的语义是「灰显遮罩结束」，把 glue 算进去会让该读数提前、失真。
+  它在监测域内 ⇒ 它的慢请求/失败**照常被记**，只是不占「验证码组件」这个事件。
+- **不**为了「多记点日志」而放宽成按 URL 子串匹配（既有反例锁 `?x=webmssdk.js` 不算）。
+- **不**改其他平台的观测面（微信/腾讯过滤面一字不变）。
+
 
 ---
 

@@ -725,6 +725,60 @@ describe('login-network-diagnostics — 头条号登录期观测', () => {
     expect(monitor.isCaptchaSdkUrl('not a url')).toBe(false)
   })
 
+  // ── 2026-10-22 现场补测：真实登录页 HTML 里实际生效的验证码组件形态 ──
+  // 动因：从 https://mp.toutiao.com/ 实际抓到的登录页资源清单里，验证码组件的
+  // 入口是 `lf-rc{1,2}.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/<ver>/captcha/index.js`
+  // ——**既不在**已登记的监测域清单里（⇒ 整条域的请求根本进不了 webRequest 过滤面），
+  // **也不匹配**已登记的路径锚点（⇒ 即便进来了也不会判成验证码组件）。
+  // 两条都漏 ⇒ 本刀承诺的「记录图形验证码组件加载完成（灰显遮罩结束的时刻）」，
+  // 在真实头条登录链路上对这条实际生效的入口**不生效**。现场读数：该文件首包
+  // 冷时 2.65~2.96s、命中边缘后 0.13s ⇒ 正是「灰显几秒」那段波动的来源。
+  const TOUTIAO_CAPTCHA_RC_URL =
+    'https://lf-rc1.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js'
+
+  it('真实登录页的验证码入口（rc-verifycenter 形态）被判为验证码组件', () => {
+    const monitor = require('./login-network-monitor')
+    expect(monitor.isCaptchaSdkUrl(TOUTIAO_CAPTCHA_RC_URL)).toBe(true)
+    // 冗余节点 rc2 同形态
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc2.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js'
+    )).toBe(true)
+  })
+
+  it('验证码组件新形态不得泛化：只有 sec_sdk_build 目录下的 captcha 才算', () => {
+    const monitor = require('./login-network-monitor')
+    // 同版本目录但不是 captcha → 不算
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/index.js'
+    )).toBe(false)
+    // 有 captcha 段但不在 sec_sdk_build 版本目录下、也不是已登记的 secsdk-captcha 包 → 不算
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/static-us/other-captcha/@latest/captcha.js'
+    )).toBe(false)
+    // ⚠️ 变异反证 M4 首轮 ESCAPED 暴露的负例弱点：上一条的路径里其实**没有真正的
+    // `/captcha/` 段**（末尾是 `captcha.js`），所以「去掉 sec_sdk_build 条件」它也不变 ⇒ 钉不住。
+    // 下面这条才是真的含 `/captcha/` 段、但不在字节验证码中心的版本目录下 ⇒ 必须不算。
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/some/other/dir/captcha/index.js'
+    )).toBe(false)
+    // 查询串里出现标记 → 不算
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/a.js?x=sec_sdk_build/captcha'
+    )).toBe(false)
+  })
+
+  it('头条监测域必须覆盖真实登录页用到的风控与验证码域', () => {
+    const monitor = require('./login-network-monitor')
+    const hosts = monitor.monitoredHostsOf('toutiao')
+    // 缺任一 ⇒ 该域的失败请求/慢请求在日志里永远看不到
+    expect(hosts).toContain('yhgfb-cn-static.com')
+    expect(hosts).toContain('bytetos.com')
+    // 该域的请求必须真的落进过滤面
+    expect(monitor.urlFiltersFor('toutiao', [])).toContain('*://yhgfb-cn-static.com/*')
+    expect(monitor.urlFiltersFor('toutiao', [])).toContain('*://*.yhgfb-cn-static.com/*')
+    expect(monitor.isMonitoredHost('toutiao', TOUTIAO_CAPTCHA_RC_URL)).toBe(true)
+  })
+
   it('监测域外的请求不计时（防把无关请求算进来）', async () => {
     const onMessage = attachToutiao()
     await onMessage(null, 'Network.requestWillBeSent', { requestId: 'x1', request: { url: 'https://example.com/a.js' }, timestamp: 100 })

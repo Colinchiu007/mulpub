@@ -32,7 +32,10 @@ const PLATFORM_MONITORED_HOSTS = {
     'ibytedapm.com',
     'snssdk.com',
     'zijieapi.com',
-    'bytedance.com'
+    'bytedance.com',
+    // ── 2026-10-22 现场补测（从 https://mp.toutiao.com/ 实际抓到的登录页资源清单）──
+    'yhgfb-cn-static.com', // 验证码中心：lf-rc{1,2}.…/obj/rc-verifycenter/sec_sdk_build/<ver>/captcha/index.js
+    'bytetos.com'          // 风控 glue：lf-c-flwb.…/obj/rc-client-security/web/glue/<ver>/sdk-glue.js
   ]
 }
 
@@ -136,13 +139,33 @@ function isMonitoredHost (platform, url) {
 const CAPTCHA_SDK_MARKERS = ['/secsdk-captcha/', '/webmssdk/']
 
 /**
+ * 验证码组件的**组合锚点**（2026-10-22 现场补测）。
+ *
+ * 动因：从 https://mp.toutiao.com/ 实际抓到的登录页资源清单显示，**真实生效**的
+ * 验证码入口是字节「验证码中心」的版本目录形态：
+ *   `lf-rc{1,2}.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js`
+ * 该形态**既不匹配**上面的两个单段锚点（路径里没有 `secsdk-captcha`、也没有 `webmssdk`），
+ * 于是「记录图形验证码组件加载完成」这条承诺在真实链路上对这条入口**不生效**。
+ * 现场读数：该文件首包冷时 2.65~2.96s、命中边缘后 0.13s ⇒ 正是「灰显几秒」那段波动的来源。
+ *
+ * 为什么是**两个段一起**判、而不是再加一个单段锚点：
+ * - 只认 `/captcha/` ⇒ 任何路径里带 captcha 字样的无关资源都会误判（噪声淹没真信号）；
+ * - 只认 `/sec_sdk_build/` ⇒ 该版本目录下的非验证码资源也会被算成验证码组件（灰显时刻读数失真）。
+ * 两个段同时出现才命中，判据仍然窄；且 `/sec_sdk_build/` 是字节验证码中心的版本目录，
+ * 专属性足够。
+ */
+const CAPTCHA_SDK_DIR_MARKER = '/sec_sdk_build/'
+const CAPTCHA_SDK_SEGMENT = '/captcha/'
+
+/**
  * @param {string} url
  * @returns {boolean}
  */
 function isCaptchaSdkUrl (url) {
   const path = pathOf(url)
   if (!path) return false
-  return CAPTCHA_SDK_MARKERS.some(function (m) { return path.indexOf(m) !== -1 })
+  if (CAPTCHA_SDK_MARKERS.some(function (m) { return path.indexOf(m) !== -1 })) return true
+  return path.indexOf(CAPTCHA_SDK_DIR_MARKER) !== -1 && path.indexOf(CAPTCHA_SDK_SEGMENT) !== -1
 }
 
 /** 慢请求阈值（毫秒）：超过即认为「这一步卡了」。可经 MP_LOGIN_SLOW_REQUEST_MS 覆盖。 */
@@ -176,6 +199,8 @@ module.exports = {
   PLATFORM_MONITORED_HOSTS,
   TIMING_OBSERVE_PLATFORMS,
   CAPTCHA_SDK_MARKERS,
+  CAPTCHA_SDK_DIR_MARKER,
+  CAPTCHA_SDK_SEGMENT,
   DEFAULT_SLOW_REQUEST_MS,
   SLOW_REQUEST_LOG_LIMIT,
   monitoredHostsOf,
