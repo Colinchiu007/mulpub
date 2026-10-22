@@ -1,0 +1,66 @@
+{
+  "sha": "2c30a96c504a730d347a013c8721a8fbfc81c334",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 217 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 217,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/payment-providers/wechat-native.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "**修复前，运维看到 SIGN_ERROR 会以为是网络问题，实际是密钥/签名不对 —— 排查方向完全相反。**",
+      "不需要任何真凭据。它验证的是**服务端半程**（下单 → 微信认签名 → 拿到 code_url）；",
+      "**修复前，运维看到 SIGN_ERROR 会以为是网络问题，实际是密钥/签名不对 —— 排查方向完全相反。**"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"**修复前，运维看到 SIGN_ERROR 会以为是网络问题，实际是密钥/签名不对 —— 排查方向完全相反。**\",",
+      "      \"不需要任何真凭据。它验证的是**服务端半程**（下单 → 微信认签名 → 拿到 code_url）；\",",
+      "      \"**修复前，运维看到 SIGN_ERROR 会以为是网络问题，实际是密钥/签名不对 —— 排查方向完全相反。**\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T23:20:59.243Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

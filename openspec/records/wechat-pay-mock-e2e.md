@@ -67,7 +67,27 @@ date: 2026-10-23
 
 均逐字节还原 True。全量 `packages/api-publish-engine` rc=0。
 
-## 6. 它证明了什么、没证明什么
+## 5.5 外部评审（1 Critical + 4 High）——4 采纳 / 1 驳回 / 1 部分成立
+
+| # | 意见 | 核验 | 处置 |
+|---|---|---|---|
+| 1 | Critical：`payload.code` 在非对象载荷上会崩 | **不成立** —— `payload && payload.code` 对字符串/数组只得到 `undefined`，不抛。但「200 里带 truthy 非字符串 code」确实会误判 | 加固为 `对象 && typeof code === 'string' && length > 0` |
+| 2 | High：SIGN_ERROR 应返回 401 而非 502 | **驳回** | 401 的语义是「终端用户未认证」，这里是**我们服务端**没向微信认证，用户本人已登录。改 401 会让客户端误判会话过期触发重登，比 502「支付暂不可用」更糟。诊断需求已由 message 里的 SIGN_ERROR 满足 |
+| 3 | High：`apiBase` 无 scheme 校验 | 成立 | 只允许 https，http 仅限回环，构造期抛 TypeError |
+| 4 | High：mock 里 assert 抛在回调中 → 服务端崩、客户端悬等 | 成立（失败伪装成超时） | 整个 handler 包 try/catch，异常转 500 响应并记 `seen.errors` |
+| 5 | High：缺 signature 时 `verify(undefined)` 抛 OpenSSL | 成立 | 验签前先判 `fields.signature` |
+| 6 | Medium：`server.close()` 遇 keep-alive 一直等 | 成立 | `closeAllConnections()` 再 close |
+| 7 | Low：测试用生产签名器，系统性 bug 两边同错 | 设计取舍，不改 | 集成测试目标是端到端能过 |
+
+### 一条自省：变异反证本身也会假绿
+
+第一版「放松错误体判定」的变异**没红** —— 因为我的测试数据是 `code: 0`（falsy，
+`payload.code` 与 `typeof === 'string'` 两种实现都放过）。换成 truthy 的 `code: 42`
+才真正区分开。
+
+**变异用例的数据必须选在「两种实现行为不同」的那一侧**，否则测的是"两次都一样的运气"。
+
+## 6. 它证明了什么、没证明什么## 6. 它证明了什么、没证明什么
 
 | 证明了 | 没证明 |
 |---|---|

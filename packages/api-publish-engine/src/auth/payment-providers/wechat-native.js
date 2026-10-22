@@ -200,6 +200,12 @@ class WeChatNativeProvider {
     // 默认生产地址；`apiBase` 只为「本地 mock 预演」与将来的沙箱域名开放。
     // 注意：它**不能**由环境变量直接驱动 —— 线上被改成 http:// 会把签名和报文暴露在明文链路上。
     this.apiBase = String(options.apiBase || WECHAT_API_BASE).replace(/\/+$/, '')
+    // 只允许 https；http 仅限回环（mock 测试）。理由：apiBase 一旦能指向明文 http，
+    // 签名与报文就会暴露在链路上 —— 这种"配置能改安全属性"的口子迟早会被用来临时绕过。
+    const isLoopback = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(this.apiBase)
+    if (!/^https:\/\//.test(this.apiBase) && !isLoopback) {
+      throw new TypeError('WeChatNativeProvider: apiBase 必须是 https，或 http 回环地址（仅测试用）')
+    }
     this.certificateProvider = options.certificateProvider || null
     this.signRequest = options.signRequest || null
   }
@@ -266,7 +272,10 @@ class WeChatNativeProvider {
     } catch {
       throw new PaymentProviderError('PAYMENT_PROVIDER_UPSTREAM_FAILED', '微信下单响应不可解析')
     }
-    if (payload && payload.code) {
+    // 只认「对象 + code 是字符串」为错误体：字符串/数组载荷上的 .code 是 undefined（不会崩），
+    // 但 200 的成功体若恰好带一个非字符串 code 字段，不能当成错误。
+    const isErrorPayload = payload !== null && typeof payload === 'object' && typeof payload.code === 'string' && payload.code.length > 0
+    if (isErrorPayload) {
       // 微信错误体形如 { code: 'PARAM_ERROR', message: '...' }；原样上抛 code 供对账。
       throw new PaymentProviderError(
         'PAYMENT_PROVIDER_UPSTREAM_REJECTED',
