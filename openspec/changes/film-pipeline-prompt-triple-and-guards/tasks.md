@@ -65,9 +65,17 @@
 
 ## PR-3b · F-J 资产导入（严格模式；写路径，单独过安全评审）
 
-- [ ] 3b.1 **设计**：导入面设计（选目录 → `requireAssets: true` 校验 → 原子落盘 → 失效缓存）+ 写路径安全清单（只拷白名单文件 / 不跟随符号链接 / 半份 kit 不留 / 失败回滚）
+> 方案：**`pr3b-import-design.md`**（本段任务已按该方案细化；方案里的「待拍板三点」在 3b.2 评审前定）。
+> 独立 worktree：`film-kit-import`（`D:\Data\projects\mp-worktrees\mp-film-kit-import`，**非 C 盘**）。
+
+- [x] 3b.1 **设计**：导入面设计（选目录 → `requireAssets: true` 校验 → 原子落盘 → 失效缓存）+ 写路径安全清单（只拷白名单文件 / 不跟随符号链接 / 半份 kit 不留 / 失败回滚）—— 产出 `pr3b-import-design.md`（已核实：目标目录 `container.setup.js:463`；严格模式 `kit-loader.js:307`；白名单真源 `film-kit/SCHEMA.md`；缓存是 service 实例字段；选目录先例 `ipc-handlers/pipeline.js:295`；kit 体积实测 2.848 MB / 最大单文件 2.530 MB ⇒ 上限 256 MB / 32 MB）
 - [ ] 3b.2 **决策层评审**：写路径单独一轮对抗性审查（不与只读接线混批）
 - [ ] 3b.3 **TDD-RED**：`kit-import.test.js` —— 严格模式校验失败 ⇒ 不落盘；成功 ⇒ userData/film-kit 齐备且 service 缓存已失效；符号链接 ⇒ 拒绝；中途失败 ⇒ 无半份 kit
+- [ ] 3b.3b **TDD-RED 补 4 条**（本轮新增，覆盖最易漏的三条写路径纪律）：白名单外的文件**不**被拷入；超限文件 ⇒ 拒绝且**未开始拷**；导入过程中**没有**写到 staging/.bak 之外的路径；换入失败后旧 kit 仍在原处且内容**逐字相同**
+- [ ] 3b.4 实现：`kit-import.js`（新建，fs/dialog/时钟**全部可注入**）+ IPC `film-engineering:import-kit` + service 缓存失效
+- [ ] 3b.4b 实现：preload **两处**同步（`access-control.js` 通道白名单 + `film-engineering.js` API 构造）+ `src/api/electron-bridge.js` 桥接
+- [ ] 3b.5 i18n + UI 入口 + 文档同步（PRD §9.c / `film-kit/SCHEMA.md` 导入契约 / design D19 / tasks / 执行记录）+ 门禁 + PR-3b
+
 - [ ] 3b.4 实现：`kit-import.js`（新建）+ IPC `film-engineering:import-kit` + service 缓存失效
 - [ ] 3b.5 i18n + UI 入口 + 文档同步 + 执行记录 + 门禁 + PR-3b
 
