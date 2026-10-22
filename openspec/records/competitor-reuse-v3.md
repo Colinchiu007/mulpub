@@ -2,7 +2,7 @@
 record: competitor-reuse-v3
 task: competitor-reuse-account-publish 任务书第三版 —— 补小红书三阶段证据链、账号模块清单、已失效结论表；并按用户要求移除「不复制竞品代码」「不做风控规避」两条红线
 date: 2026-10-22
-delivered_by_pr: <PR 号>
+delivered_by_pr: 4248
 ---
 
 ## 本次执行记录：competitor-reuse-v3（2026-10-22）【docs-only】
