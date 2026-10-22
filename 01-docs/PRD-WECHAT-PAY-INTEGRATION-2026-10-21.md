@@ -470,11 +470,122 @@ COMMIT;
 
 ## 14. 上线检查清单
 
+- [ ] **先应用 `006_payment_orders.sql` 迁移**（`assertReady()` 会检查 `identity_payment_customers`；不先迁移，新版本**整个服务起不来**，不只是支付不可用）
 - [ ] 沙箱全链路 E2E-1 ~ E2E-7 通过
 - [ ] 生产商户凭据注入服务端环境（**不入仓、不入包**）
+- [ ] **确认 `docker-compose.yml` 已透传全部支付变量**（见 §15.2；漏传的表现是「配了也没用，前端恒显示通道未开放」）
 - [ ] `WECHAT_PAY_NOTIFY_URL` 指向生产域名，且该路径在 nginx/网关放行（免登录，但需防 CC）
 - [ ] 微信商户平台配置回调 URL + 开启 APIv3 回调加密（`AEAD_AES_256_GCM`）
 - [ ] `production-config` 校验通过（`PAYMENT_PROVIDER=wechat_native`）
 - [ ] 生产环境复跑 E2E-1（**沙箱通过不构成生产通过**）
 - [ ] 灰度：先白名单小流量，观察 webhook 到达率与订单 paid 率
 - [ ] 回滚待命：`PAYMENT_PROVIDER=none` 重启即关闭入口（零代码回退）
+
+## 15. 启用步骤（从「代码已合并」到「用户真的能付款」）
+
+> 本节为 2026-10-22 实测补写。此前的 PRD 只有「清单」，没有可执行步骤；
+> 而实测发现两个**不照做就永远付不了款**的坑，且它们都不报错，只表现为「前端功能不存在」。
+
+### 15.1 第一步：应用迁移（不做的后果是整站不可用）
+
+```bash
+# 在仓库根，DB 连接串与生产同源
+BUSINESS_DATABASE_URL='postgres://...' \
+  node packages/api-publish-engine/scripts/migrate-postgres.js --dry-run   # 先看 pending
+
+BUSINESS_DATABASE_URL='postgres://...' \
+  node packages/api-publish-engine/scripts/migrate-postgres.js            # 再真跑
+```
+
+容器内部署时：
+
+```bash
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/migrate-postgres.js --dry-run
+```
+
+| 事实 | 说明 |
+|---|---|
+| **生产禁止自动迁移** | `PostgresIdentityRepository.initialize()` 在 `production` 下直接抛 `PRODUCTION_AUTO_MIGRATE_FORBIDDEN` |
+| **就绪检查会验表** | `assertReady()` 校验 `REQUIRED_SCHEMA_RELATIONS`，其中已含 `identity_payment_customers` ⇒ 不迁移则 `BUSINESS_DATABASE_SCHEMA_NOT_READY` ⇒ **健康检查失败、整站不可用** |
+| **迁移有台账锁** | `identity_schema_migrations` 记 checksum；改已应用的迁移文件会 `MIGRATION_CHECKSUM_MISMATCH` 硬失败。**不要改 006，只能新增 007+** |
+
+`--dry-run` 输出示例：
+
+```json
+{"applied":[],"skipped":["002_logto_identity.sql","003_logto_webhook_events.sql","004_member_commerce.sql","005_cloud_accounts.sql"],"pending":["006_payment_orders.sql"]}
+```
+
+### 15.2 第二步：把支付变量真正送进容器
+
+`docker-compose.yml` 的 `environment` 必须逐项透传（**2026-10-22 之前一个都没传**）：
+
+| 变量 | 取值约束 | 缺失时 |
+|---|---|---|
+| `PAYMENT_PROVIDER` | `none`（默认）/ `wechat_native` | 视为 `none`：入口隐藏 |
+| `WECHAT_PAY_APPID` | 公众号/移动应用 AppID | 启动期 `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_MCH_ID` | 商户号 | 同上 |
+| `WECHAT_PAY_API_V3_KEY` | **必须 32 字符** | `PAYMENT_API_V3_KEY_INVALID` |
+| `WECHAT_PAY_CERT_SERIAL_NO` | 商户证书序列号 | `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_CERT_PATH` **或** `WECHAT_PAY_CERT_CONTENT` | 二选一：私钥 `apiclient_key.pem` 的**容器内路径** / PEM 全文 | `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_NOTIFY_URL` | **必须 HTTPS**，且与商户平台配置逐字一致 | `PAYMENT_NOTIFY_URL_HTTPS_REQUIRED` |
+
+证书文件放置（走 `CERT_PATH` 时）：`packages/api-publish-engine/config/wechat-pay/apiclient_key.pem`
+—— 该目录已被 compose 以 `./config → /app/packages/api-publish-engine/config` bind 进容器。
+
+**接线锁**：`packages/api-publish-engine/test/payment-env-passthrough.test.js` 断言
+「`.env.example` 声明的每个支付变量都在 compose 里透传」「compose 不得多传未声明的」「一律用 `:-` 默认而非 `:?` 必填」。
+新增支付变量而忘了改 compose，这条锁当场红。
+
+### 15.3 第三步：重启并自检
+
+```bash
+# 1) 配置自检（在容器内跑，读的就是容器真实环境）
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/validate-production-config.js --phase required
+
+# 2) 就绪探针
+curl -fsS http://127.0.0.1:3030/api/v1/ready
+
+# 3) 端点存在性（未登录应 401，而不是 404）
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3030/api/v1/me/checkout
+```
+
+三条都要过。第 1 条报 `PAYMENT_CONFIG_INVALID` 时，`errors[]` 里的 `field` 就是缺的那个变量名。
+
+### 15.4 前端用户会看到什么
+
+按钮显示条件是**「已登录」**，不是「已开通支付」—— 这是刻意设计（见 §7.4）：预判需要额外一次探测请求，
+而 503 的文案已能把「通道未开放」讲清楚。因此**「按钮在、点了报错」正是未配置时的预期形态**，不是 bug。
+
+弹窗状态机与逐态文案（`memberCenter.*`，zh/en 成对）：
+
+| 状态 | 触发 | 主提示文字（zh） | 可用操作 |
+|---|---|---|---|
+| `loading` | 打开后立即 | `payCreating`「正在创建订单…」 | 关闭 |
+| `qrcode` | 拿到 `codeUrl` | `payScanHint`「请使用微信「扫一扫」扫描下方二维码」+ `payAmountLabel`「支付金额」 | 关闭 |
+| `polling` | 轮询开始（与 qrcode 叠加） | `payWaiting`「等待支付结果…」 | 关闭 |
+| `paid` | 轮询到 `paid` | `paySuccess`「支付成功，权益已开通」 | **关闭按钮禁用**（让用户看到成功反馈） |
+| `failed` | `failed` | `payFailed`「支付未完成，未扣款，可重试」 | `payRetry`「重试」 |
+| `expired` | 二维码过期 | `payExpired`「二维码已过期」 | `payRefresh`「刷新二维码」 |
+| `timeout` | 30 分钟硬上限 | `payTimeout`「支付超时，可重新发起」 | `payRestart`「重新发起」 |
+| `error` | 其它失败 | `payChannelUnavailable`「支付通道暂未开放，可使用激活码开通」 | `payClose`「关闭」/ `payRetry`「重试」 |
+
+改前 / 改后对比：
+
+| 场景 | 改前（compose 未透传） | 改后（配置齐全） |
+|---|---|---|
+| 会员中心「订阅」页 | 有 `payNow`「立即购买」按钮 | 同左 |
+| 点「立即购买」 | 弹窗转 `error` 态：**「支付通道暂未开放，可使用激活码开通」** | 先「正在创建订单…」，随后出二维码与金额 |
+| 扫码支付成功 | 不可能发生 | 「支付成功，权益已开通」，关闭禁用；`paid` 事件触发 `identityStore.load()`，**档位与到期时间就地刷新** |
+| 取消 / 超时 | — | 30 分钟后「支付超时，可重新发起」；**权益不变** |
+
+### 15.5 回滚
+
+```bash
+# 只关入口：不动数据、不改代码
+PAYMENT_PROVIDER=none   # 然后重启服务
+```
+
+效果：`/me/checkout` 恢复 503 `PAYMENT_PROVIDER_UNAVAILABLE`，前端回到「支付通道暂未开放」；
+已产生的 `pending` 订单不会被清理（它们永远不会 `paid`，无副作用）；已生效的订阅不受影响。
