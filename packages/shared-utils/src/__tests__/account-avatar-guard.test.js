@@ -23,8 +23,8 @@ describe('account-avatar-guard 平台品牌图判据', () => {
   it('文件名形态的品牌资产（logo/favicon/brand）判为品牌图', () => {
     expect(isBrandImageUrl('https://example.com/static/logo.png')).toBe(true)
     expect(isBrandImageUrl('https://example.com/favicon.ico')).toBe(true)
-    expect(isBrandImageUrl('https://example.com/assets/brand-logo.svg')).toBe(true)
     expect(isBrandImageUrl('https://example.com/img/sitelogo.png?v=2')).toBe(true)
+    expect(isBrandImageUrl('https://example.com/assets/logo-official.png')).toBe(true)
   })
 
   it('真实用户头像不得被误判为品牌图', () => {
@@ -43,6 +43,14 @@ describe('account-avatar-guard 平台品牌图判据', () => {
     expect(isBrandImageUrl('https://cdn.example.com/avatar/company-logo.jpg')).toBe(false)
     expect(isBrandImageUrl('https://cdn.example.com/catalog.png')).toBe(false)
     expect(isBrandImageUrl('https://cdn.example.com/photos/my-brand-photo.png')).toBe(false)
+  })
+
+  // 回归锁（CCG 评审 i2）：品牌词后面的**后缀**同样是封闭词表 ——
+  // `logo-portrait.png` / `brand-new-avatar.jpg` 这类真头像文件名不得被误杀。
+  it('品牌词后的任意后缀不得被误杀（后缀也是封闭词表）', () => {
+    expect(isBrandImageUrl('https://cdn.example.com/logo-portrait.png')).toBe(false)
+    expect(isBrandImageUrl('https://cdn.example.com/brand-new-avatar.jpg')).toBe(false)
+    expect(isBrandImageUrl('https://cdn.example.com/logo-2024.png')).toBe(false)
   })
 
   it('非 URL / 空值不判品牌图（宁可不判，也不误杀）', () => {

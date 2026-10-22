@@ -28,15 +28,18 @@
  * 只认**路径里的独立文件名段**（`logo.png` / `logo-toutiao.png` / `favicon.ico`），
  * 不认域名片段（`logo.example.com` 之类的用户头像 CDN 完全合法）。
  *
- * 允许的前缀是**封闭词表**而不是任意前缀：`catalog.png` 这类普通词里恰好含 "logo"
- * 的文件名必须放行（误判品牌图 = 误杀真头像，比漏判更糟），所以只认
- * site/web/app/default/placeholder/official/brand 这些**站点语义明确**的词。
+ * 前缀与后缀都是**封闭词表**：
+ * - 前缀：site/web/app/default/placeholder/official（站点语义明确的词）；
+ * - 后缀：toutiao/official/header/footer/icon/qrcode/watermark（已观测或语义明确的品牌资产形态）。
  *
- * ⛔ 不得引入「任意词 + 连字符」这种开放前缀（`user-logo.png` 会被误杀成品牌图）：
- * 那是真头像文件名的常见形态，误杀的后果是「有头像的账号显示成灰色通用头像」——
- * 与本模块要修的缺陷同一类。CCG 评审 i1 即指此点，已按封闭词表改回。
+ * ⛔ 不得引入开放形态（CCG 评审 i1 与 i2 连续两轮各指一处）：
+ * - 「任意词 + 连字符」前缀 ⇒ `user-logo.png` 这类**真头像常见文件名**被误杀；
+ * - 「品牌词 + 任意后缀」⇒ `logo-portrait.png` / `brand-new-avatar.jpg` 被误杀。
+ * 两种误杀的共同后果是「有头像的账号显示成灰色通用头像」——与本模块要修的缺陷同一类，
+ * 只是错法从「显示平台 logo」换成「什么都不显示」。宁可漏判（品牌图溜过去，显示平台 logo）
+ * 也不误杀（把真头像删掉）。
  */
-const BRAND_ASSET_FILE_RE = /(?:^|[/\\])(?:(?:site|web|app|default|placeholder|official|brand)[-_]?)?(?:logo|favicon|brand)(?:[-_.][a-z0-9_-]+)*\.(?:png|jpe?g|gif|webp|svg|ico)(?:[?#].*)?$/i
+const BRAND_ASSET_FILE_RE = /(?:^|[/\\])(?:(?:site|web|app|default|placeholder|official)[-_]?)?(?:logo|favicon|brand)(?:[-_](?:toutiao|official|header|footer|icon|qrcode|watermark))?\.(?:png|jpe?g|gif|webp|svg|ico)(?:[?#].*)?$/i
 
 /**
  * 已知平台把品牌图放在**非文件名形态**路径下的情形（实测值）。

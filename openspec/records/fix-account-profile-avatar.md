@@ -123,6 +123,23 @@ date: 2026-10-22
     + `src/features/accounts/` ⇒ **33 文件 / 556 例全绿**（1 例既有 skip）；
     `packages/shared-utils/src/__tests__/account-avatar-guard.test.js` ⇒ **7 例全绿**（含 i1 回归锁）。
 
+- **第 2 轮**（针对第 1 轮处置的提交，判定 SINGLE / 81 行）：critic=claude 产出 **6 条**
+  （correctness 3 / security 6 / performance 8 / maintainability 5，最低分 3），裁决如下：
+
+  | # | 严重度 | 结论 | 处置 |
+  |---|---|---|---|
+  | i1 | Critical | **不成立** | 「`toCount` 引用未定义变量 `n`、粉丝数全部失效」被**源码 + 实跑**双重推翻：`n` 由上一行 `const` 声明；且本 PR 有 5 条 `followers` 断言（头条 369 / 小红书 457 / B 站 1234 / 视频号 50 / 抖音 266）实跑通过，若真抛 ReferenceError 会同时红 |
+  | i2 | Critical | **成立** | 品牌图正则的**后缀**仍是开放形态 ⇒ `logo-portrait.png` / `brand-new-avatar.jpg` 这类真头像会被误杀 ⇒ **已修**：后缀改封闭词表（保住实测观测到的 `logo-toutiao.png`），并补回归锁断言三个形态不被误杀 |
+  | i3 | Warning | **成立（可观测性那半）** | 「结构化 JSON 优先」不成立（loginpage 内嵌的是 **JS 对象字面量**，不是 JSON）；但「静默降级、无法观测」成立 ⇒ **已修**：页面不像登录页却取不到身份字段时打 `warn`，使「模板改版」与「账号未登录」可区分 |
+  | i4 | Warning | **成立（security）** | 多个资料端点共用整包 Cookie，URL 配错即跨域泄露 ⇒ **已修**：新增 `scopedCookieHeader` —— ①**域名闸**（目标主机不在 `PLATFORM_COOKIE_DOMAINS[platform]` 内 ⇒ 一个 Cookie 都不发、也不发请求，fail-closed）②**逐 Cookie 过滤**（只发 domain 匹配目标主机的；无 domain 的保留，因为上游已按平台过滤过）。补两条回归锁：只发同主机 Cookie / 未登记主机时零请求零凭据 |
+  | i5 | Info | 认可 | 评审自评并发实现正确；后续可加「批量检测整体超时 + 并发数上限」⇒ backlog |
+  | i6 | Warning | **成立** | `shapeInfoResult` 只查 `typeof number`，NaN 会被写回真源 ⇒ **已修**：收口处改为 `Number.isFinite && >= 0`（不依赖上游自觉） |
+
+- **第 2 轮处置后复跑**：`apps/desktop/electron/publishers/` + `electron/tests/` + `src/features/accounts/`
+  ⇒ **93 文件 / 1434 例**，其中 3 例失败经查为**环境性**（`electron/preload/index.bundle.js` 是
+  gitignore 的构建产物，fresh worktree 里没有；共享根同样没有）⇒ 跑 `pnpm run build:preload` 后
+  **11/11 全绿**。该失败与本次改动无关（本次 diff 未触及 `apps/desktop/electron/preload/**`）。
+
 ### 遗留（不假装已闭合）
 
 - **公众号头像/粉丝数**：会话已失效（`cgi-bin/home` 返回错误页），无真机证据；头像仍走 DOM 采集（平台模板含 `img.user_avatar`），重新登录后可得；粉丝数无只读取证 ⇒ 留空。

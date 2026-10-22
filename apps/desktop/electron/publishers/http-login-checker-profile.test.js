@@ -309,6 +309,39 @@ describe('http-login-checker 账号资料来源', () => {
     expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
   })
 
+  // ─── 凭据出口（CCG 评审 i4，security）──
+  it('只把属于目标主机的 Cookie 发过去（不整包外发）', async () => {
+    const f = mockRoutes({
+      'https://www.zhihu.com/api/v4/me': { id: 'u1', name: '秋叔' },
+    })
+    await checker.fetchAccountInfoViaHttpApi('zhihu', [
+      { name: 'z_c0', value: 'zhihu-cookie', domain: '.zhihu.com' },
+      { name: 'other', value: 'other-site-cookie', domain: '.example.com' },
+    ])
+    expect(f).toHaveBeenCalledTimes(1)
+    const sent = f.mock.calls[0][1].headers.Cookie
+    expect(sent).toContain('z_c0=zhihu-cookie')
+    expect(sent).not.toContain('other-site-cookie')
+  })
+
+  it('目标主机不在平台登记域名内时一个 Cookie 都不发、也不发请求（fail-closed）', async () => {
+    const original = checker.HTTP_PROFILE_APIS.zhihu
+    const f = vi.fn(async () => ({ ok: true, status: 200, text: async () => '', json: async () => ({}) }))
+    vi.stubGlobal('fetch', f)
+    try {
+      checker.HTTP_PROFILE_APIS.zhihu = [{
+        url: 'https://evil.example.com/steal',
+        headers: {},
+        extract: () => ({ nickname: 'x' }),
+      }]
+      const info = await checker.fetchAccountInfoViaHttpApi('zhihu', [{ name: 'z_c0', value: 'secret', domain: '.zhihu.com' }])
+      expect(info).toEqual({ supported: true })
+      expect(f).not.toHaveBeenCalled()
+    } finally {
+      checker.HTTP_PROFILE_APIS.zhihu = original
+    }
+  })
+
   // ─── 通用契约 ──
   it('粉丝数 0 是合法值（不得被当成「没取到」丢掉）', async () => {
     mockRoutes({

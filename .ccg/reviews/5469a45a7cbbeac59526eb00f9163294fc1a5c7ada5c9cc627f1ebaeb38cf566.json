@@ -1,0 +1,59 @@
+{
+  "sha": "47ac2f249dc6d196b44feed60eb65f9d8aaec508",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 124 行（≤ 200）但命中 auth/数据库/加密：敏感内容 4 处",
+  "stats": {
+    "changedLines": 124,
+    "fileCount": 6,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "  | i4 | Warning | **成立（security）** | 多个资料端点共用整包 Cookie，URL 配错即跨域泄露 ⇒ **已修**：新增 `scopedCookieHeader` —— ①**域名闸**（目标主机不在 `PLATFORM_COOKIE_DOMAINS[platform]` 内 ⇒ 一个 Cookie 都不发、也不发请求，fail-closed）②**逐 Cookie 过滤**（只发 domain 匹配目标主机的；无 domain 的保留，因为上游已按平台过滤过）。补两条回归锁：只发同主机 Cookie / 未登记主机时零请求零凭据 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "5469a45a7cbbeac59526eb00f9163294fc1a5c7ada5c9cc627f1ebaeb38cf566",
+  "decidedAt": "2026-10-22T22:18:04.614Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

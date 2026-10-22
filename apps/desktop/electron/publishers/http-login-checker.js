@@ -24,6 +24,7 @@
 const log = require('../services/logger')
 const {
   PLATFORM_DASHBOARD_URLS,
+  PLATFORM_COOKIE_DOMAINS,
   hasPlatformSessionCookie,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 
@@ -79,6 +80,11 @@ function parseWechatMpIdentity (html) {
   let nickname = trimText(nickMatch && nickMatch[1])
   // 模板占位不是昵称：SSR 未填充时页面里会原样输出 `{{nickname}}` 之类的字面量
   if (/^\{\{.*\}\}$/.test(nickname) || !nickname) nickname = ''
+  // 失效可观测（CCG 评审 i3 的「记录失效日志」）：页面**不像登录页**却取不到身份字段
+  // ⇒ 多半是模板改版，而不是账号没登录。这类情况静默降级会让排查无从下手，故出声。
+  if (!uid && !nickname && !/扫码登录|请使用微信扫码|请登录|welcome_login/.test(html)) {
+    log.warn('HttpLoginChecker', 'wechat_mp: loginpage looks signed-in but identity fields not parsed (template change?) html len=' + html.length)
+  }
   return { nickname, platformAccountId: uid }
 }
 
@@ -666,6 +672,52 @@ async function tryHttpLoginCheck (platform, cookies, accountId) {
 }
 
 /**
+ * 资料端点的凭据出口：**按目标主机过滤 Cookie + 平台域名白名单闸门**。
+ *
+ * 为什么必须做（CCG 评审 i4，security）：资料通道一个平台可能有**多个**端点，
+ * 而 Cookie 是一整包会话值。若某个来源的 URL 配错（写成了别的主机），
+ * 整包 Cookie 就会跟着发过去 ⇒ 会话凭据跨域泄露。
+ *
+ * 两道闸：
+ *  1. **域名闸**：目标主机必须落在本平台登记的 Cookie 域（`PLATFORM_COOKIE_DOMAINS`）
+ *     之内，否则**一个 Cookie 都不发**（fail-closed）—— 配置错 = 请求失败，不是泄露。
+ *  2. **逐 Cookie 过滤**：只发 domain 匹配目标主机的那些 Cookie（浏览器同源规则的等价物），
+ *     顺带减少无关 Cookie 外发。
+ *
+ * 「只发同主机 Cookie 会不会导致取不到数据」已被实测排除：2026-10-22 的取证探针
+ * 就是按主机过滤 Cookie 的，五个平台（小红书/知乎/头条/B 站/抖音）全部取到真实响应。
+ */
+function scopedCookieHeader (platform, cookies, url) {
+  let host = ''
+  try {
+    host = new URL(url).hostname.toLowerCase()
+  } catch (_) {
+    return ''
+  }
+  if (!host) return ''
+  const allowed = PLATFORM_COOKIE_DOMAINS[platform] || []
+  const hostAllowed = allowed.some(domain => {
+    const d = String(domain).toLowerCase()
+    // baidu.com 父域条目只允许精确匹配（与 isPlatformCookieDomain 同一口径）
+    if (d === 'baidu.com') return host === 'baidu.com'
+    return host === d || host.endsWith('.' + d)
+  })
+  if (!hostAllowed) return ''
+  const parts = []
+  for (const c of cookies) {
+    if (!c || !c.name || !c.value) continue
+    const domain = String(c.domain || '').replace(/^\./, '').toLowerCase()
+    // 无 domain 的 Cookie：**保留**。上游（getAccountPartitionCookies / 凭证快照）已按平台
+    // 过滤过，缺 domain 只意味着这条记录没带域信息，不构成跨域风险；
+    // 而在这里丢掉它会让真实请求拿不到会话 ⇒ 资料取不到。
+    // 跨域泄露的主防线是上面的**平台域名闸门**（URL 主机不在平台域内 ⇒ 一个 Cookie 都不发）。
+    if (!domain) { parts.push(c.name + '=' + c.value); continue }
+    if (host === domain || host.endsWith('.' + domain)) parts.push(c.name + '=' + c.value)
+  }
+  return parts.join('; ')
+}
+
+/**
  * 把 extract 结果收口成 IPC/写回可用的对象：字段缺席 = 不修改（buildProfilePatch 语义）。
  * 空串昵称、空串 uid 一律不进结果，避免把上一次的真值反向清空。
  * @param {{nickname?:string,followers?:number,platformAccountId?:string,avatar?:string}} [info]
@@ -675,7 +727,9 @@ function shapeInfoResult (info) {
   const out = { supported: true }
   if (!info || typeof info !== 'object') return out
   if (typeof info.nickname === 'string' && info.nickname.trim()) out.nickname = info.nickname.trim()
-  if (typeof info.followers === 'number') out.followers = info.followers
+  // 粉丝数：必须是**有限非负数**（CCG 评审 i6）。`typeof === 'number'` 不够 ——
+  // NaN 也是 number，写回后端会得到一个永远显示不出来的粉丝数。
+  if (typeof info.followers === 'number' && Number.isFinite(info.followers) && info.followers >= 0) out.followers = info.followers
   if (typeof info.platformAccountId === 'string' && info.platformAccountId) out.platformAccountId = info.platformAccountId
   // 头像：2026-10-22 起纳入契约。此前 HTTP 通道**根本没有头像的位置**，
   // 于是所有走 HTTP 快速路径的平台（抖音/头条/B站/知乎/小红书）头像恒为空，
@@ -745,6 +799,12 @@ async function fetchAccountInfoViaHttpApi (platform, cookies) {
     // url 可以是函数：拿到前面来源的结果再决定（例如 B 站 relation/stat 需要 mid）
     const url = typeof source.url === 'function' ? source.url(merged) : source.url
     if (!url) return {}
+    // 凭据出口：按目标主机过滤 + 平台域名闸门（详见 scopedCookieHeader 的注释）
+    const scopedHeader = scopedCookieHeader(platform, cookies, url)
+    if (!scopedHeader) {
+      log.warn('HttpLoginChecker', 'profile source host not allowed, skip (no cookie sent): platform=' + platform + ' url=' + String(url).slice(0, 120))
+      return {}
+    }
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), HTTP_CHECK_TIMEOUT_MS)
     try {
@@ -752,7 +812,7 @@ async function fetchAccountInfoViaHttpApi (platform, cookies) {
         method: source.method || 'GET',
         headers: {
           ...(source.headers || {}),
-          Cookie: cookieHeader,
+          Cookie: scopedHeader,
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         },
         signal: controller.signal,
