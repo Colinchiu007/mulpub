@@ -1857,6 +1857,59 @@ test("遗留10-T6 saveRecord 的 stagedDiffHash 必须与本次判定同源（op
   }
 })
 
+test("命名配方行为锁：默认档必须排除 .ccg（位置不是判据，行为才是）", () => {
+  // ── 动因（本 PR 实测，Gate 2c2 当场红） ──────────────────────────────────
+  // `check-pr-exec-record.test.js` 的「命名配方」结构锁用
+  //   src.indexOf('diff", "--cached", "--no-textconv"') → src.slice(h, h + 200)
+  // 读那一次 git 调用的字符窗口，再断言窗口内出现排除 `.ccg` 的 pathspec。
+  // 本 PR 为了给合并态换 pathspec，把缺省配方上提到了 saveRecord 的函数头
+  // （更"整洁"的写法），于是字面量从窗口内的 114 偏移飘到窗口外 —— **行为一寸未变**
+  // 而锁失明、CI 红。修法是让缺省留在调用点实参里（见 decider 函数体注释）。
+  //
+  // ── 为什么这里还要一条行为锁 ────────────────────────────────────────────
+  // 上面那条锁守的是**字面量位置**，那是别人的实现形态；一旦有人合理地重排代码，
+  // 它会红（可发现）；但它也可能被人为了变绿而放宽。真正不能被破坏的是行为：
+  // 「默认档不把判定器自己写出的 `.ccg/` 产物算进 stagedDiffHash」。
+  // 两条锁各守一侧，谁也不替谁：
+  //   ① 结构锁（既有）＝ 配方在窗口内可被找到；
+  //   ② 行为锁（本用例）＝ 配方真的排除了 `.ccg`。
+  // 变异反证：把默认档尾巴上的排除项摘掉 ⇒ 默认档读到 `.ccg` 内容 ⇒ 本用例变红。
+  const fx = mkGitFixture({
+    baseFiles: { "seed.txt": "seed\n" },
+    ours: { "a.js": "const a = 1;\n" },
+    theirs: { "t.js": "const t = 1;\n" },
+    merge: false,
+    // 只暂存一个 `.ccg/` 产物 —— 这是 pre-commit 在「纯流程/文档提交」里真实遇到的形状
+    stageOnly: { ".ccg/reviews/trace.json": '{"trace":1}\n' },
+  })
+  const sha = "e".repeat(40)
+  const stub = { wrapperExists: false, names: [], byName: {} }
+  const save = (opts) =>
+    withCwd(fx.dir, () =>
+      decider.saveRecord({ mode: "skip", reason: "x", stats: {} }, sha, "diff", undefined, stub, opts)
+    )
+  try {
+    const dflt = save(undefined)
+    const noFilter = save({ diffPaths: ["--", "."] })
+    assert.ok(dflt && noFilter, "两次都必须返回路径（否则断言会以 TypeError 假红）")
+
+    assert.strictEqual(
+      path.basename(dflt),
+      `${sha}.json`,
+      "默认档必须排除 .ccg ⇒ 暂存区只剩 .ccg 产物时读到空 diff ⇒ 回落父 sha 名；" +
+        "读到内容说明排除项没生效（判定器会把自己的输出算进自己的文件名，随自身输出移位）"
+    )
+    assert.match(
+      path.basename(noFilter),
+      /^[0-9a-f]{64}\.json$/,
+      "显式放开 .ccg 的档必须读到内容 ⇒ 64 位内容寻址名。这一半是**反向对照**：" +
+        "缺了它，未暂存任何东西的空夹具也会让上面那条「默认档回落」通过（对排除项失效免疫）"
+    )
+  } finally {
+    fx.cleanup()
+  }
+})
+
 test("遗留10-T7 交集里的 glob 元字符文件名必须按字面量取（:(literal) 锁）", () => {
   const shared = twentyLines("const w")
   const oursLib = shared.replace("const w1 = 1;", "const w1 = 100;")

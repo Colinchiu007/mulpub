@@ -1,0 +1,60 @@
+{
+  "sha": "37b6248900562f8dfced11936d82b2a3bf42a877",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 2,
+    "ccgSensitiveContentSample": [
+      "      \"      \\\"      \\\\\\\"  标签来自驱动 `classifyHighRisk` 把 \\\\\\\\\\\\\\\"hash\\\\\\\\\\\\\\\" 误当加密词，解除阻断的正规路径是外部复核，不是改数据。\\\\\\\"\\\",\",",
+      "      \"      \\\"      \\\\\\\"        \\\\\\\\\\\\\\\"rationale\\\\\\\\\\\\\\\": \\\\\\\\\\\\\\\"指控的唯一依据是把该函数与「曾做过短哈希命名」的另一处历史实现混同，代码事实与之相反。外部后端 claude 独立读代码后给出同一结论（PR #4232 评论 6334281343）：`recordFileName` 在 `scripts/ccg-review-decider.js:755-759` 无 `.slice(0,16)`，T8 在 `scripts/ccg-review-decider.test.js:1932-1938` 与实现一致。同时明确 `crypto-related=no`——本条的「哈希」指 `stagedDiffHash` 这一内容寻址摘要，不涉及密钥/加密算法/安全协议，`crypto` 高危域标签系 `classifyHighRisk` 的宽正则误命中（驱动注释本身已承认该正则含 hash/signature/session 等工程高频词）。标签未手动清空，改由外部复核满足阻断解除条件。\\\\\\\\\\\\\\\"\\\\\\\"\\\"\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "4f34a47b816d2194aa9c815f4a0d4be6068787cd0fb5cc0c6efaf8227fe48ebe",
+  "decidedAt": "2026-10-22T09:43:41.605Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

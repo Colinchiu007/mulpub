@@ -93,11 +93,13 @@
 ## 3. 变异反证（每条单独跑，红必须是**指名**的那条）
 
 > 评估域：`node --test --test-name-pattern=遗留 scripts/ccg-review-decider.test.js`。
-> 分三批：M1–M11 的 baseline 实测 `rc=0 / pass=8 / fail=0`（T1–T8 命中该 pattern），
+> 分四批：M1–M11 的 baseline 实测 `rc=0 / pass=8 / fail=0`（T1–T8 命中该 pattern），
 > 算术自洽：域内 8 条 ⇒ 任一变异跑完 `pass + fail = 8`；M12/M13 是在 T9/T10 落地后补跑的，
 > baseline 实测 `rc=0 / pass=10 / fail=0` ⇒ 这两条 `pass + fail = 10`；
 > M14 是在 T11 落地后补跑的，评估域收窄为 `--test-name-pattern=T11`
-> （baseline `rc=0 / pass=1 / fail=0`）—— 它与前两批不在同一个 pattern 下，故不参与那种算术。
+> （baseline `rc=0 / pass=1 / fail=0`）—— 它与前两批不在同一个 pattern 下，故不参与那种算术；
+> M16 守的是另一条**不属于 `遗留10-Tn` 族**的行为锁，评估域为
+> `--test-name-pattern=命名配方行为锁`（baseline `rc=0 / pass=1 / fail=0`）。
 > 下方「实测红集」是**跑出来的**，不是预期；凡与预期不同的都在条目里写明原因。
 
 - [x] M1 `detectMergeState` 恒 `merging:false` ⇒ 实测 `pass=3 fail=5`，红 =
@@ -142,39 +144,71 @@
       只收窄 numstat/diff）⇒ 预期只有 T11 红，断言位置应在 `changedLines` / `ccgChangedLines`
       （消费面）。如实记为未实测：实现上它与 M14 落在同一函数的两处 pathspec，红集形态可推，
       但不把推断写成实测
+- [x] M16 摘掉默认档实参尾巴上的 `:(exclude).ccg`（**行为锁的反证**，不是结构锁的反证）
+      ⇒ 实测 `--test-name-pattern=命名配方行为锁` 下 `pass=0 fail=1`，红 = 只有「默认档必须真的
+      排除 `.ccg`（位置不是判据，行为才是）」。失败断言是 `strictEqual` 而不是 `match`：
+      `expected` = 40 位父 sha 名（暂存 diff 在排除 `.ccg` 后为空 ⇒ 回落 `HEAD` 命名），
+      `actual` = `4de98fbd….json`（把 `.ccg` 内容读进判定域后算出的 64-hex 名）。
+      **这条锁刻意不编进 `遗留10-Tn` 族**：它的动因是 CI 的 `Gate 2c2` 当场红（见 4.12），
+      与遗留 10/7 的语义无关；编进族里会让 `--test-name-pattern=遗留` 的域从 10 变 11，
+      前两批的算术自洽（`pass + fail = 8` / `= 10`）随之失真。
 
-**14/14 实测 CAUGHT**（M15 不计入）。每条跑完都做还原校验（`src === original` 逐字节相等 +
-`node --check` rc=0），源文件不曾以变异态存在过跨条。M12/M13/M14 的跑法是脚本化的
+**15/15 实测 CAUGHT**（M15 不计入）。每条跑完都做还原校验（`src === original` 逐字节相等 +
+`node --check` rc=0），源文件不曾以变异态存在过跨条。M12/M13/M14/M16 的跑法是脚本化的
 （备份 → 精确替换 → 跑 → 还原 → **sha256 复核还原结果与基线一致**），
 且脚本会先自证「变异已落盘」再跑 —— 否则「锚点没命中」会被读成「测试没抓到」。
 M12/M13 两次跑完打印的还原 sha 均等于当时基线 `d18336b179a4d016`；
-M14 的还原 sha 等于 T11 落地后的基线 `d184754d4abd0e27`（新增用例使文件变长，基线随之变化，
-两次读数不同是**正确**的，不是还原失败）。
+M14 的还原 sha 等于 T11 落地后的基线 `d184754d4abd0e27`；
+M16 的还原 sha 等于行为锁落地后的基线 `a6e2ca68a043`（每加用例文件就变长，基线随之变化，
+读数不同是**正确**的，不是还原失败）。
 
 ## 4. 门禁与评审
 
-- [ ] 4.1 `node --test scripts/ccg-review-decider.test.js` 全量通过：**70 例**（既有 52 + T1–T11 新增），
-      零 fail / 零 skip
-- [ ] 4.2 回归锁：既有 52 例逐一仍在且通过（非 merge 路径「零行为变化」的证据）
-- [ ] 4.3 `node scripts/check-pr-exec-record.js --mode=enforce`
-- [ ] 4.4 `node scripts/check-doc-abs-paths.js`（本 PR 文档不得新增本机绝对路径）
-- [ ] 4.5 `node scripts/check-no-brand-residue.js`
-- [ ] 4.6 `node scripts/check-step-failfast.js`
-- [ ] 4.7 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（预期 false：混合 PR）
-- [ ] 4.8 `node scripts/check-unwired-tests.js`（本单元只往已接线的测试文件追加用例，未新增文件）
-- [ ] 4.9 QM-6：真跑 `sh scripts/deep-review.sh`，产物写 `tier=external` + 可核 `evidence`；
+- [x] 4.1 `node --test scripts/ccg-review-decider.test.js` 全量通过：**71 例**
+      （既有 52 + T1–T11 新增 + 命名配方行为锁 1 条），零 fail / 零 skip
+      ✅ 实测全量 **71 例 / 0 fail / 0 skip**，`rc=0`（耗时 414.8s，读数见执行记录「本机读数」一节）
+- [x] 4.2 回归锁：既有 52 例逐一仍在且通过（非 merge 路径「零行为变化」的证据）
+      ✅ 既有 52 例逐一仍在并通过；变异 M1–M16 全部 CAUGHT（M12/M13/M14/M16 红集互不相交）
+- [x] 4.3 `node scripts/check-pr-exec-record.js --mode=enforce`
+      ✅ rc=0：`TIER-COVERAGE dual-closed total=1 external=1 … unknown(字段缺席)=0 unrecognized=0`、`TRANSITION-CHECK 转变=无转变`、`新增记录 1`
+- [x] 4.4 `node scripts/check-doc-abs-paths.js`（本 PR 文档不得新增本机绝对路径）
+      ✅ 读数 `counts=1161 domain=562 files=561`（本 PR 文档未新增本机绝对路径，统一用 `<worktreeRoot>` / `<tempDir>` 占位）
+- [x] 4.5 `node scripts/check-no-brand-residue.js`
+- [x] 4.6 `node scripts/check-step-failfast.js`
+- [x] 4.7 `node scripts/classify-docs-only.js --base=origin/main --head=HEAD`（预期 false：混合 PR）
+      ✅ `docs-only=false`、`files=9`（含 `scripts/*.js` 与 `scripts/*.test.js` ⇒ 混合 PR，走完整质量节拍）
+- [x] 4.8 `node scripts/check-unwired-tests.js`（本单元只往已接线的测试文件追加用例，未新增文件）
+- [x] 4.9 QM-6：真跑 `sh scripts/deep-review.sh`，产物写 `tier=external` + 可核 `evidence`；
       `reviewBackends` 与 `deepReview.performedBy` 对账一致（`scripts/ccg-review-backends.list` 为真源）
-- [ ] 4.10 执行记录 `openspec/records/ccg-decider-merge-skip.md`：逐条读数、变异反证红集、
+      ✅ 轮 1 `70e58a90e` 7 条（i1/i6 已落实现 + 锁 T9/T10）、轮 2 `bb42676d3` 存档 critique 7 条
+      （裁决覆盖 i1–i4，全 `dismissed`）；`tier=external` **由会话手写**——`scripts/ccg-review-writeback.js`
+      在自扮演路径上五条合取中的 `performedBy === 清单 critic` 结构性不可达，故走门禁红文案的出口②；
+      `evidence=delivery@4cc601b8…` 由 `deliveryEvidence(findings)` 实算；外部复核真跑
+      `codeagent-wrapper --backend claude`，结论贴 PR 评论作 `evidenceRef`。逐条处置见执行记录「QM-6 两轮外部评审」一节
+- [x] 4.10 执行记录 `openspec/records/ccg-decider-merge-skip.md`：逐条读数、变异反证红集、
       遗留清单（不写「远程同步」手写状态词，表行状态列写「由门禁推导」）
-- [ ] 4.11 **两条既有结构锁同 PR 更新并留理由**（不是「为了让测试变绿而改测试」）：
+      ✅ 执行记录 300 行（CRLF 纯、末尾有换行）；`远程同步` 行保持「由门禁推导」；QM-6 行已按产物回填
+- [x] 4.11 **两条既有结构锁同 PR 更新并留理由**（不是「为了让测试变绿而改测试」）：
       ① Test 36 的 `/String\(git\(\[/` 判据**不放宽**，改的是实现（先判 `null` 再 `String`）；
       ② 「丙3.2 接线锁」正则尾部 `\s*\)` → `\s*[,)]`（只放宽「第 5 参之后还有没有参数」，
       `backends` 标识符仍逐字要求），并用 T8 补上「第 6 参到底传了什么」这一维。
       详见 design §10
+      ✅ 两处判据都**没有放宽**（Test 36 改实现、丙3.2 只放宽尾部参数位），T8 覆盖第 6 实参
+- [x] 4.12 **CI 红当场闭环**：首轮推送后 `QG Changes` 的 `Gate 2c2 - Execution-record presence` 红
+      （根因：收尾把默认 pathspec 从 `saveRecord` 调用点**上提到函数头**，行为一寸未变，
+      但 `scripts/check-pr-exec-record.test.js` 的同源结构锁按 `git diff --cached` 那一行的
+      **字符窗口**（`slice(h, h + 200)`）定位排除项，上提把字面量推出窗口）。
+      处置三条：① 缺省**留在调用点实参里**（判据可定位性优先于代码整齐度），
+      ② 约束写进 JSDoc 与 6 行说明注释（下一次改这里的人先看到「为什么不能上提」），
+      ③ 补一条**行为锁**（M16）——结构锁守「配方能在窗口内被找到」，行为锁守「配方真的
+      排除了 `.ccg`」，两条各守一侧、谁也不替谁。**既有结构锁一行未改**（139 例全量复跑通过）。
+      ✅ `node scripts/check-pr-exec-record.test.js` **139/139 pass、rc=0**（修复前是红）；
+      `node --check` 两文件 rc=0；`scripts/ccg-review-decider.test.js` 全量 **71/71 pass**
 
 ## 5. 收尾
 
-- [ ] 5.1 PR 正文含「为什么」，不只含「改了什么」
+- [x] 5.1 PR 正文含「为什么」，不只含「改了什么」
+      ✅ PR <https://github.com/Colinchiu007/mulpub/pull/4232> 正文含「为什么」、分层说明与门禁读数
 - [ ] 5.2 CI 全绿后 squash 合并、删远端分支
 - [ ] 5.3 `check-branch-merged.js --ref <tip> --merge <merge SHA>` rc=0 后删本地分支
 - [ ] 5.4 main push 回读（`quality-gate` / `Electron CI` / `Build & Release` / `债务熔断门禁`），

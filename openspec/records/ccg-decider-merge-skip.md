@@ -12,17 +12,75 @@ date: 2026-10-21
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 运行时代码 + 判定规则：`scripts/ccg-review-decider.js` 是 **pre-commit 闸门本体**（每次提交都跑），属运行面；且命中 `check-pr-exec-record.js::HIGH_RISK_SURFACES` 的前缀 `scripts/ccg-review-`，因此 QM-6 必须真跑外部评审（不能只写 `closureNote`）。隔离 worktree `<worktreeRoot>/mp-ccg-decider-merge-skip` + 裸分支 `ccg-decider-merge-skip`，分支起点 = 当时的 `origin/main` = `2dbda6925`；`node scripts/verify-worktree-deps.js` rc=0（`@multi-publish/*` 全部解析到本 worktree）。改动面：`scripts/ccg-review-decider.js`、`scripts/ccg-review-decider.test.js`、`openspec/changes/ccg-decider-merge-skip/`、本记录。**不含 `CHANGELOG.md`**：该文件自 2026-10-21（change: changelog-record-carrier，`85dc44ddc` 起的 `origin/main` 已含）起明确「⛔ 不由 PR 直接编辑」，条目真源改为本记录的 `## CHANGELOG 条目` 小节，发版时由 `scripts/aggregate-changelog.js --write` 聚合搬运；顺带使本分支与主干在热写面上文件集不相交（实测 4/4 个可判定的 CONFLICTING PR，冲突文件**只有** `CHANGELOG.md` 与 `01-docs/learnings.md`）。 |
+| 变更类型与隔离 | PASS | 运行时代码 + 判定规则：`scripts/ccg-review-decider.js` 是 **pre-commit 闸门本体**（每次提交都跑），属运行面；且命中 `check-pr-exec-record.js::HIGH_RISK_SURFACES` 的前缀 `scripts/ccg-review-`，因此 QM-6 必须真跑外部评审（不能只写 `closureNote`）。隔离 worktree `<worktreeRoot>/mp-ccg-decider-merge-skip` + 裸分支 `ccg-decider-merge-skip`（分支起点为创建时的 `origin/main` = `2dbda6925`；期间主干两次前进，最终在 `3621894d42` 上以**单条线性提交**重建——不做 rebase 的理由见「行尾与 diff 对账」行与 `design.md` §11）；`node scripts/verify-worktree-deps.js` rc=0（`@multi-publish/*` 全部解析到本 worktree）。改动面：`scripts/ccg-review-decider.js`、`scripts/ccg-review-decider.test.js`、`openspec/changes/ccg-decider-merge-skip/`、本记录。**不含 `CHANGELOG.md`**：该文件自 2026-10-21（change: changelog-record-carrier，`85dc44ddc` 起的 `origin/main` 已含）起明确「⛔ 不由 PR 直接编辑」，条目真源改为本记录的 `## CHANGELOG 条目` 小节，发版时由 `scripts/aggregate-changelog.js --write` 聚合搬运；顺带使本分支与主干在热写面上文件集不相交（实测 4/4 个可判定的 CONFLICTING PR，冲突文件**只有** `CHANGELOG.md` 与 `01-docs/learnings.md`）。 |
 | 第一性原因（QM-5 ①） | PASS | 两条遗留项同源，引入点都是 `d98f54dbc`（PR #2955，2026-10-05T17:09:40Z，那次的名义是「新增深度审查本地入口 `deep-review.sh`」，两处缺陷是搭车改动）。① 它写了 `collectStaged()`，输入是 `git diff --cached`；而 pre-commit 在**合并提交**上运行时，index 相对 `HEAD` 的差异恰好是「ours tip → 合并结果」= **对方那一侧**的改动集（合并前 `HEAD` 是 ours，`MERGE_HEAD` 是 theirs），于是判档读的是对方的规模，`layer` 仍是 `diff`、`sha` 仍是 ours tip，看不出任何异常。② 它写盘用 `JSON.stringify(record, null, 2)`，**从不补末尾换行**，于是每个判定记录都缺 POSIX 意义上的尾换行。两条相隔 16 天（2026-10-05 → 2026-10-21）。 |
-| 逃逸分析（QM-5 ②） | PASS | 三层同时漏过，逐层有具体原因，不是「没人想到」：① **单测层**：既有 52 条用例里**没有一条构造过 `MERGE_HEAD`**（`git merge` 形态），夹具全是「单父 + 工作区改文件 + `git add`」，于是「输入其实是对方一侧」这件事在测试里**结构性地不可表示**——夹具没有第二种父提交可供区分。② **断言层**：判 `dual` 本身不像故障，理由字符串是「变更 1880 行 > 200 行阈值（对齐 §12.6 Red Team）」，1880 行看起来完全像一个真实的大改动，没有任何读数在说「这 1880 行不是你写的」；`layer:"diff"` 也让它与正常路径同形。③ **门禁层**：这条记录由 pre-commit 自动 `git add` 进那次提交，而 `scripts/check-pr-exec-record.js` 只问「本变更集内的 `dual` 记录有没有闭环」，**不问「这条 `dual` 记录该不该存在」**——它无从判断记录里的规模读数是否属于本 PR，于是误产记录的唯一后果是变成一笔必须偿还的评审欠账，而不是一个被拦下的错误。通用形状：**判据的输入面（`--cached`）与闸门所处的时刻（merge）之间，没有任何一条断言把两者绑起来**。 |
+| 逃逸分析（QM-5 ②） | PASS | 三层同时漏过，逐层有具体原因，不是「没人想到」：① **单测层**：既有 52 条用例（分支起点 `2dbda6925` 口径；重建基准 `3621894d42` 上该文件已由他人补到 59 条）里**没有一条构造过 `MERGE_HEAD`**（`git merge` 形态），夹具全是「单父 + 工作区改文件 + `git add`」，于是「输入其实是对方一侧」这件事在测试里**结构性地不可表示**——夹具没有第二种父提交可供区分。② **断言层**：判 `dual` 本身不像故障，理由字符串是「变更 1880 行 > 200 行阈值（对齐 §12.6 Red Team）」，1880 行看起来完全像一个真实的大改动，没有任何读数在说「这 1880 行不是你写的」；`layer:"diff"` 也让它与正常路径同形。③ **门禁层**：这条记录由 pre-commit 自动 `git add` 进那次提交，而 `scripts/check-pr-exec-record.js` 只问「本变更集内的 `dual` 记录有没有闭环」，**不问「这条 `dual` 记录该不该存在」**——它无从判断记录里的规模读数是否属于本 PR，于是误产记录的唯一后果是变成一笔必须偿还的评审欠账，而不是一个被拦下的错误。通用形状：**判据的输入面（`--cached`）与闸门所处的时刻（merge）之间，没有任何一条断言把两者绑起来**。 |
 | 系统性漏洞（QM-5 ③） | PASS | 具体到文件与环节：`scripts/ccg-review-decider.test.js`（`node --test`，由 `quality-gate.yml` Gate 2b 显式点名）只覆盖 `layer=diff` 的单父路径，**没有任何 merge-state 夹具**，也没有一条断言把「落盘文件名/hash」与「判定所依据的 diff」绑在一起；`scripts/check-pr-exec-record.js` 的 `evaluateDeepReviewDebt` 校验的是记录**存在性 + 闭环状态**，不校验记录的**测量域**。两者叠加 ⇒ 误产记录既不会被测试发现，也不会被门禁质疑。补的口子正是这两处：行为层 T1/T2（测量域）+ T8（CLI 级接线，把落盘哈希钉到交集档）。 |
-| 修复 + 回归保护（QM-5 ④） | PASS | **修复**：① `detectMergeState()` 用 `git rev-parse --verify MERGE_HEAD` 返回 `{merging, mergeHead, probeError}`，读取失败 fail-open 回落旧口径；② `collectMergeStaged(state)` 以 `git merge-base HEAD MERGE_HEAD` 为 base，两侧各 `git diff --name-only --no-renames <base> <rev>` 后取**交集**——读不到 base 返回 `null`（→ 走既有「未判定」口径），交集为空直接返回零值形态且**不派生子进程**，非空才用 `:(literal)` pathspec 调既有 `collectFromDiff`；`mergeScope` 五元组（`mergeHead/base/oursFileCount/theirsFileCount/intersectionFileCount`）挂 `collected` 顶层并进 `stats`。③ `judge()` 在阈值链**之前**插入 `mergeNoIntersection` 分支（先回答「这是不是一次没有共同改动的合并」，再谈规模）。④ `main()` 合并态改走 `collectMergeStaged`，「暂存区无变更」早退**仅在非合并态**生效；`mode==='skip' && staged.mergeScope` 时**不落盘**。⑤ 尾 LF 抽出单点实现 `recordBody(record) = JSON.stringify(record, null, 2) + "\n"`，主/备两条写盘路径共用（实测 `recordBody` 定义 1 处、调用 2 处）；`saveRecord` 新增第 6 参 `opts.diffPaths`，默认值 `["--", ".", ":(exclude).ccg"]` ⇒ 非合并态**逐字节不变**。⑥ `.ccg` 自产物三面分工：观测面（`collectMergeStaged` 的三处 git 参数）**不排除**，消费面（`judge()` 的 `isSelfArtifact`）**排除**，命名面（`main()` 的 `mergeDiffPaths`）**保留排除**——git 层排除会让 `ccgChangedLines` 结构性恒 0（与主干刚修掉的暂存档缺陷同形），而命名面算进 hook 自动 stage 的 `.ccg/reviews/*.json` 会让同一次改动在「钩子跑没跑」下得到两个记录名。**回归保护 T1–T11** 追加在既有 `scripts/ccg-review-decider.test.js`（不新建文件，避免落进 `cover` 之外的收集面）：`mkGitFixture` 真造 git 仓库（`git merge --no-ff --no-commit` 保持 `MERGE_HEAD`、自声明 `core.autocrlf=false`），T1 交集为空判 `skip` 且不落盘、T2 交集非空按交集判且带五元组、T3 非合并态对照、T4 linked worktree 里探测仍成立、T5 尾 LF 两条写盘路径、T6 `saveRecord` 的 `diffPaths` 同源、T7 `:(literal)` 对 glob 元字符文件名、T8 CLI 级接线锁、T9 探测失明与「真的不在合并中」可分（i1）、T10 判定域漏进非交集文件即升 `dual`（i6）、T11 `.ccg` 观测进/消费出（三向）。 |
-| 防止再次发生（QM-5 ⑤） | PASS | ① **测试进 CI**：T1–T11 在既有 `scripts/ccg-review-decider.test.js`，该文件被 `quality-gate.yml` Gate 2b 的 `node --test` 点名；`node scripts/check-unwired-tests.js` rc=0（检查域内 113 个测试文件全部已接线）。② **变异反证 14/14 全部 CAUGHT**（逐条红集见下节；M15 为预测项未实测，不计入），每条跑完都自证 `src === original: true` + `node --check` rc=0。③ **两条既有结构锁同 PR 更新**（Test 36 的 `String(git([…]))` 断言改成「先判 null 再 `String`」；Test 49 丙3.2 的接线锁尾部 `\s*\)` → `\s*[,)]`），理由是新增了同名调用的第二形态，**属必要的判据扩宽而非放宽**，论证写在 `design.md` §10。④ **设计侧留下可复查的论证**：为什么取交集而不是并集 / 为什么不按 ours 统计 / 为什么空交集不派生子进程（§3），三处 `.ccg` 路径的观测面/消费面/命名面分工（§3 末节），以及 8 条残余风险（§9；其中第 8 条「热文件累加面」的初稿读数被收尾时的真实合并实测**否证并改写**，错法本身也留在文档里）。⑤ **pre-commit 自身的现场验证**：本 PR 收尾把 `origin/main` 合进本分支时，两种口径在真实仓库上给出不同答案——这正是新口径的端到端证据（见「收尾实测」一节）。 |
-| 行尾与 diff 对账 | PASS | 对账基准取**最终**的 `origin/main`（`3621894d4`；本 PR 期间主干两次前进：`2dbda6925` → `85dc44ddc` → `3621894d4`，收尾按最后一次重置）。改动集 **7 个文件**：`git diff --cached --numstat origin/main` = `339/9 scripts/ccg-review-decider.js` + `748/1 scripts/ccg-review-decider.test.js` + 5 个 `openspec/**` 新文件（`design.md 370/0`、`proposal.md 78/0`、`specs/ccg-decider-merge-skip/spec.md 85/0`、`tasks.md 182/0`、本记录 `242/0`）；`git diff --cached --ignore-cr-at-eol --numstat origin/main` **逐文件数字完全相同** ⇒ 没有整文件行尾重写。**`CHANGELOG.md` 不在改动集内**（原因见「变更类型与隔离」行；条目内容改落本记录的 `## CHANGELOG 条目` 小节，`node scripts/aggregate-changelog.js --dry-run` 打印的 `LAND ccg-decider-merge-skip` 就是它被采信的机械证据）。另有 2 个 `.ccg/reviews/*.json`（`0b6390f8…`、`231634088…`）曾出现在暂存区：它们是重建前旧 sha 的判定产物，收尾用 `node scripts/safe-delete.js` 删除，**不随 PR 入库**。行尾实测（工作副本，`\r\n` 与裸 `\n` 分别计数）：`scripts/ccg-review-decider.js` crlf=1298 / lf_only=0，`scripts/ccg-review-decider.test.js` crlf=2200 / lf_only=0，本记录 crlf=242 / lf_only=0，四个新 openspec 文件 crlf=0 / lf_only=365、78、85、182，七者 `ends_with_lf=true`。主干侧 `git ls-files --eol "openspec/records/*.md"` 655 份全是 `i/lf w/crlf`，故工作副本呈 CRLF 是 checkout 转换、不是内容 ⇒ 任何「工作副本字节 == blob 字节」的判据都会假红，只能两口径 numstat 相减。`recordBody` 的尾 LF 只作用于判定记录**产物**，不回头清理历史存量（理由见「遗留 7 的行为证据」）。 |
-| 接线棘轮 | PASS | `node scripts/check-unwired-tests.js` rc=0（113 个）；`node scripts/check-step-failfast.js` rc=0（40 个受管 run 块）；`node scripts/check-no-brand-residue.js` rc=0（扫描 11184 个 tracked 文件）；`node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD` rc=0（`counts=1161 domain=562 files=561 canJudge=true`，与账本逐文件对齐，无新增本机绝对路径）；`node scripts/openspec-sync-check.js` rc=0（387 tasks / 80 active changes / 243 archives）。 |
+| 修复 + 回归保护（QM-5 ④） | PASS | **修复**：① `detectMergeState()` 用 `git rev-parse --verify MERGE_HEAD` 返回 `{merging, mergeHead, probeError}`，读取失败 fail-open 回落旧口径；② `collectMergeStaged(state)` 以 `git merge-base HEAD MERGE_HEAD` 为 base，两侧各 `git diff --name-only --no-renames <base> <rev>` 后取**交集**——读不到 base 返回 `null`（→ 走既有「未判定」口径），交集为空直接返回零值形态且**不派生子进程**，非空才用 `:(literal)` pathspec 调既有 `collectFromDiff`；`mergeScope` 五元组（`mergeHead/base/oursFileCount/theirsFileCount/intersectionFileCount`）挂 `collected` 顶层并进 `stats`。③ `judge()` 在阈值链**之前**插入 `mergeNoIntersection` 分支（先回答「这是不是一次没有共同改动的合并」，再谈规模）。④ `main()` 合并态改走 `collectMergeStaged`，「暂存区无变更」早退**仅在非合并态**生效；`mode==='skip' && staged.mergeScope` 时**不落盘**。⑤ 尾 LF 抽出单点实现 `recordBody(record) = JSON.stringify(record, null, 2) + "\n"`，主/备两条写盘路径共用（实测 `recordBody` 定义 1 处、调用 2 处）；`saveRecord` 新增第 6 参 `opts.diffPaths`，默认值 `["--", ".", ":(exclude).ccg"]` ⇒ 非合并态**逐字节不变**。⑥ `.ccg` 自产物三面分工：观测面（`collectMergeStaged` 的三处 git 参数）**不排除**，消费面（`judge()` 的 `isSelfArtifact`）**排除**，命名面（`main()` 的 `mergeDiffPaths`）**保留排除**——git 层排除会让 `ccgChangedLines` 结构性恒 0（与主干刚修掉的暂存档缺陷同形），而命名面算进 hook 自动 stage 的 `.ccg/reviews/*.json` 会让同一次改动在「钩子跑没跑」下得到两个记录名。**回归保护 T1–T11** 追加在既有 `scripts/ccg-review-decider.test.js`（不新建文件，避免落进 `cover` 之外的收集面）：`mkGitFixture` 真造 git 仓库（`git merge --no-ff --no-commit` 保持 `MERGE_HEAD`、自声明 `core.autocrlf=false`），T1 交集为空判 `skip` 且不落盘、T2 交集非空按交集判且带五元组、T3 非合并态对照、T4 linked worktree 里探测仍成立、T5 尾 LF 两条写盘路径、T6 `saveRecord` 的 `diffPaths` 同源、T7 `:(literal)` 对 glob 元字符文件名、T8 CLI 级接线锁、T9 探测失明与「真的不在合并中」可分（i1）、T10 判定域漏进非交集文件即升 `dual`（i6）、T11 `.ccg` 观测进/消费出（三向）。另加一条**命名配方行为锁**（不属 `遗留10-Tn` 族，动因见「变异反证」M16）：默认档必须真的排除 `.ccg`。 |
+| 防止再次发生（QM-5 ⑤） | PASS | ① **测试进 CI**：T1–T11 在既有 `scripts/ccg-review-decider.test.js`，该文件被 `quality-gate.yml` Gate 2b 的 `node --test` 点名；`node scripts/check-unwired-tests.js` rc=0（检查域内 124 个测试文件全部已接线）。② **变异反证 15/15 全部 CAUGHT**（逐条红集见下节；M15 仍为预测项未实测，不计入），每条跑完都自证 `src === original: true` + `node --check` rc=0。③ **两条既有结构锁同 PR 更新**（Test 36 的 `String(git([…]))` 断言改成「先判 null 再 `String`」；Test 49 丙3.2 的接线锁尾部 `\s*\)` → `\s*[,)]`），理由是新增了同名调用的第二形态，**属必要的判据扩宽而非放宽**，论证写在 `design.md` §10。④ **设计侧留下可复查的论证**：为什么取交集而不是并集 / 为什么不按 ours 统计 / 为什么空交集不派生子进程（§3），三处 `.ccg` 路径的观测面/消费面/命名面分工（§3 末节），以及 8 条残余风险（§9；其中第 8 条「热文件累加面」的初稿读数被收尾时的真实合并实测**否证并改写**，错法本身也留在文档里）。⑤ **pre-commit 自身的现场验证**：本 PR 收尾把 `origin/main` 合进本分支时，两种口径在真实仓库上给出不同答案——这正是新口径的端到端证据（见「收尾实测」一节）。⑥ **CI 红当场闭环**：收尾把默认 pathspec 上提到 `saveRecord` 的函数头（更整洁、行为一寸未变），`Gate 2c2` 立刻红——`check-pr-exec-record.test.js` 的结构锁按 `git diff --cached` 那一行的**字符窗口**（`slice(h, h+200)`）定位排除项，上提把字面量推出窗口。修法是让缺省**留在调用点实参里**（判据的可定位性优先于代码整齐度），并补一条行为锁（M16）：结构锁守「配方能在窗口内被找到」，行为锁守「配方真的排除了 `.ccg`」，两条各守一侧、谁也不替谁。 |
+| 行尾与 diff 对账 | PASS | 对账基准取**本分支重建时的 `origin/main` = `3621894d42`**（也就是当前 merge-base；本 PR 期间主干两次前进：`2dbda6925` → `85dc44ddc` → `3621894d42`，收尾按最后一次重建。收尾阶段主干又前进到 `98e94bc3b0`，与本次改动集不相交，直接对它取 numstat 会把他人新增文件读成反向删除，故一律用 merge-base 取证）。改动集共 **9 个文件 = 7 个实质文件 + 2 份钩子产物**（实质文件是 2 个 `scripts/**` 加 5 个 `openspec/**`；钩子产物是 pre-commit 自动 stage 的判定记录：commit 1 的 `66b0fc21…`，与收口提交那一份。后者**不在此抄哈希与 commit sha**——它的文件名是那次暂存 diff 的内容寻址键，而本记录内容本身就是该 diff 的一部分，抄写即自指、改一个字就永远对不上；档位是 `mode=single`（本提交的源文件变更规模远低于 200 行阈值、判定器不把自身产物算作敏感命中 ⇒ 落 `single`；`evaluateDeepReviewDebt` 对 `single` 直接 `continue`，故不构成 QM-6 欠账，也不与 commit 1 那份 `dual` 记录的要求混淆）。同类文件在基线 `3621894d42` 上已跟踪 **1855** 份（属既有入库形态），计入本 PR 两份后 HEAD 为 **1857**）：`git diff --numstat 3621894d42` = `349/9 scripts/ccg-review-decider.js` + `801/1 scripts/ccg-review-decider.test.js` + 5 个 `openspec/**` 新文件（`design.md 400/0`、`proposal.md 78/0`、`specs/ccg-decider-merge-skip/spec.md 85/0`、`tasks.md 216/0`、本记录 `300/0`）+ `130/0 .ccg/reviews/66b0fc21….json` 与收口提交那份判定记录（后者行数随其内容而定，**不抄数字**）；两份均由 pre-commit 钩子随对应提交入库；`git diff --ignore-cr-at-eol --numstat 3621894d42` **逐文件数字完全相同** ⇒ 没有整文件行尾重写。**`CHANGELOG.md` 不在改动集内**（原因见「变更类型与隔离」行；条目内容改落本记录的 `## CHANGELOG 条目` 小节，`node scripts/aggregate-changelog.js --dry-run` 打印的 `LAND ccg-decider-merge-skip` 就是它被采信的机械证据）。另有 2 个 `0b6390f8…`、`231634088…` 属重建前旧 sha 的判定产物，**已**用 `node scripts/safe-delete.js` 删除、未入库（收尾复验：`.ccg/reviews/` 内已无这两个前缀）（与上面那个本 PR 自己的 `66b0fc21…` 区分：它由钩子随提交自动 stage，属既定形态）。行尾实测（工作副本，`\r\n` 与裸 `\n` 分别计数）：`scripts/ccg-review-decider.js` crlf=1308 / lf_only=0，`scripts/ccg-review-decider.test.js` crlf=2253 / lf_only=0，本记录 crlf=300 / lf_only=0，四个新 openspec 文件 crlf=0 / lf_only=400、78、85、216，判定记录 json lf_only=130（`66b0fc21…`），以上 8 份 `ends_with_lf=true`（收口提交那份同形，末字节为 `\n`）。主干侧 `git ls-files --eol "openspec/records/*.md"` 655 份全是 `i/lf w/crlf`，故工作副本呈 CRLF 是 checkout 转换、不是内容 ⇒ 任何「工作副本字节 == blob 字节」的判据都会假红，只能两口径 numstat 相减。`recordBody` 的尾 LF 只作用于判定记录**产物**，不回头清理历史存量（理由见「遗留 7 的行为证据」）。 |
+| 接线棘轮 | PASS | `node scripts/check-unwired-tests.js` rc=0（124 个）；`node scripts/check-step-failfast.js` rc=0（42 个受管 run 块）；`node scripts/check-no-brand-residue.js` rc=0（扫描 11640 个 tracked 文件）；`node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD` rc=0（`counts=1161 domain=582 files=561 canJudge=true`，与账本逐文件对齐，无新增本机绝对路径）；`node scripts/openspec-sync-check.js` rc=0（387 tasks / 92 active changes / 243 archives）。**以上均为本 PR 收尾时在本 worktree 实测的 live 读数**；其中 tracked 数、检查域内文件数与 active changes 会随 `origin/main` 前进漂移，故不作阈值、只作现场留痕，真正参与判定的是各自的 rc。 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/**`、`packages/rpa-engine/**` 或任何渲染层文件 ⇒ 打包验证与视觉回归均不适用。改动面是一个纯 Node 判据脚本 + 其测试 + 文档。 |
-| QM-6 双模型评审 | PENDING_QM6 | 待填：真跑 `sh scripts/deep-review.sh` 后按该次产物填写（`mode` / `performedBy` / `reviewBackends` 实值 / `tier` 与 `evidence` 的**来源归属**）。本行不得先写 `PASS`。 |
+| QM-6 双模型评审 | PASS | 判定 `mode=dual`（`sha=3621894d4…`、`stagedDiffHash=66b0fc21…`，理由「变更 1097 行 > 200 行阈值」、`layer=diff`）； `reviewBackends` 实值 `proposer=opencode` / `critic=claude`（`from` 均为 `list`、`overridden=false`）， `backendAvailability` 2/2、`wrapperReady=true`。 两轮：① `70e58a90e`（作废留证，重建线性提交前的旧 sha）raise 7 条 ⇒ i1/i6 **已落实现**（`probeError` 分档、`mergeScopeLeak` 升 `dual`）+ 回归锁 T9/T10 + 变异 M12/M13，其余 5 条逐条处置见下节； ② `bb42676d3`（收口轮，`critiqueFingerprint=fe6257ddbb45155a`）存档 critique 7 条，**裁决覆盖 i1–i4**（Critical 1 + Warning 3；`i5`–`i7` 为 Info 未裁决、不进 `deepReview.findings`），四条全 `dismissed` 且逐条带 `file:line`。 **`tier=external` 由会话手写，不是 `scripts/ccg-review-writeback.js` 的产物**（该工具在自扮演路径上五条合取中的 `performedBy === 清单 critic` 结构性不可达，按门禁红文案出口②收口，原因见下节末）， `evidence=delivery@4cc601b8d4866f589007d8d852174c77b20a8cb5753cda73f6b828be32e3f0dd` 由 `scripts/lib/ccg-delivery-digest.js` 的 `deliveryEvidence(findings)` **实算**（判据侧 `matchesDeliveryEvidence` 就地重算自洽）； `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` rc=0（`TIER-COVERAGE dual-closed total=1 external=1 unknown(字段缺席)=0 unrecognized=0`、`TRANSITION-CHECK 转变=无转变`）。 |
 | 远程同步 | 由门禁推导 | 本行不需要事后回写：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）。合并前这篇文件还不在基线上，分类机判 `NOT_IN_BASE` ⇒ byDesign，也不需要登记任何手动状态；反过来把状态列写成 `PASS` 会被判「预写不存在的证据」而红。 |
+
+## QM-6 两轮外部评审：sha、轮次与逐条处置
+
+> **归属声明**：本记录里 `tier` 与 `evidence` 两格**由会话手写**，其余读数一律取自产物文件
+> （`.ccg/reviews/66b0fc21….json`、`.adversarial/ccg-deep-<sha>/`、`codeagent-wrapper` 的原始输出日志），未手抄。
+
+### 轮 1：`70e58a90e`（作废留证）
+
+该 sha 是重建线性提交前的旧提交，现已不在历史里；但那一轮 critique 的 7 条指控针对的是**同一份代码事实**，
+所以逐条处置照录于此（不因 sha 作废就不了了之）。
+
+| 项 | 级别 | 指控 | 处置 |
+| --- | --- | --- | --- |
+| i1 | Critical | `detectMergeState()` 把 git 的任何失败都当「不在合并中」，掩盖真实故障 | **已修复**：分三档——`status===128/1` 视为「确实不在合并中」（正常返回）；拿不到退出码或其它退出码视为**探测失明**，返回 `probeError` 并出声告警、仍 fail-open（L149-164）。回归锁 T9（L1969）、变异 M12 红集仅 T9 |
+| i2 | Critical | `withCwd()` 直接改 `process.chdir()`，无并发隔离 | **不成立**：`node --test` 默认**每个测试文件一个子进程**（文件之间不共享 cwd），文件内顶层用例默认串行（本文件不含 `concurrency` 选项），且 `withCwd` 是 `try/finally` 还原（L1489-1496） |
+| i3 | Warning | 源文件新增「超过 400 行」内嵌设计文档，与 `openspec/` 形成双源 | **数字与事实相反**：`git diff origin/main -- scripts/ccg-review-decider.js` 新增 **339** 行（`//` 71 + ` *` 96 = 注释 167、空行 10、代码 162），400 已超过整个新增量；设计文档在 `openspec/changes/ccg-decider-merge-skip/design.md`，源码内只有函数级「为什么」注释（含变异红集与历史归因） |
+| i4 | Warning | `judge()` 直接信任 `mergeScope.intersectionFileCount===0`，未校验 `mergeHead` 形态与 base 一致性 | **无外部输入面**：`mergeHead` 来自 `git rev-parse --verify MERGE_HEAD`（git 自己产出的 40 位 hex）、`base` 来自 `git merge-base`、交集由 `collectMergeStaged()` 自算；畸形仓库的后果是「用自己仓库的形状判自己的档」，不构成越权。另 `mergeScopeLeak` 取**上界**守卫（`files.length > intersectionFileCount` 即升 `dual`），防判定域被撑大 |
+| i5 | Info | T1–T8 每条都造真实仓库，CI 耗时显著增加 | **接受**：全量 70 例的实测耗时见「本机读数」一节；该文件跑在 Gate 2b（秒级门禁），未到拆分必要 |
+| i6 | Warning | `changedLines` 循环 `staged.files`，若混入非交集内容会高估而后仍走阈值链 | **已修复**：`judge()` 在阈值链**最前**插入 `mergeScopeLeak` 分支（L582-592 判、L600-606 升 `dual`）——出声告警、按最保守方向判 `dual`、不抛错。回归锁 T10（L2029）、变异 M13 红集仅 T10 |
+| i7 | Info | `recordBody()` 抽取正确消除了两处写盘遗漏尾 LF 的风险 | **无缺陷**：属正面确认，不产生改动（抽取口径见 L761-780） |
+
+### 轮 2：`bb42676d3`（收口轮）
+
+- 判定产物：`.ccg/reviews/66b0fc21….json`；`mode=dual`、`layer=diff`、`stagedDiffHash=66b0fc21…`、
+  `stats={changedLines:1097,fileCount:7,codeFileCount:2,sensitiveContentHits:1}`。
+- 后端实值：`proposer=opencode` / `critic=claude`（`from` 均为 `list`、`overridden=false`），
+  `backendAvailability` 2/2、`wrapperReady=true`。
+- 存档 critique **7 条**（i1–i7），`critiqueFingerprint=fe6257ddbb45155a`
+  （驱动按 `[id, severity, finding]` 计算，覆盖全部 7 条）。
+- **裁决只覆盖 i1–i4**（Critical 1 + Warning 3）；i5–i7 为 Info，未裁决 ⇒ 不进 `deepReview.findings`
+  （驱动 `finalizeAdjudication` 只把裁决项写进 findings）。这里如实写明，避免被读成「7 条都逐条裁决过」。
+- i1 带 `highRiskDomains:["crypto"]` ⇒ `requiresExternalReview=[i1]`。**未手动清空该标签**：
+  标签来自驱动 `classifyHighRisk` 把 "hash" 误当加密词，解除阻断的正规路径是外部复核，不是改数据。
+
+| 项 | 指控 | 处置 | 依据 |
+| --- | --- | --- | --- |
+| i1 | T8 断言文件名 == 完整 64 字符交集哈希，而 `recordFileName` 恒截到 16 字符 | `dismissed` | 现实现 `recordFileName()` **不做** `.slice(0,16)`：64-hex 直接返回 `${h}.json`，否则回落 `${sha}.json`（L755-759）；T8（L1894）断言与实现一致。指控把本函数与「曾做过短哈希命名」的另一处历史实现混同 |
+| i2 | `main()` 在 `--input` / `--base` 路径上也调 `detectMergeState()`，多做无意义 git 调用 | `dismissed` | 本次新增调用点只有一处、且落在 `else` 分支（默认值 S1078 / 调用 S1117）；`--input`/`--base` 路径不经过它 |
+| i3 | T9 直接改 `process.env`（PATH），`node --test` 并发下可能被读到 | `dismissed` | 隔离形态是 `try/finally` 复位 + 文件级子进程并发（同轮 1 i2 的同一事实） |
+| i4 | `design.md`（370 行）嵌入源码目录、无运行时价值、显著增加 PR 体积 | `dismissed` | 事实描述准确（370 行、无运行时消费），但文件在 `openspec/changes/ccg-decider-merge-skip/`（本仓变更文档的标准位，非源码目录），且「无运行时价值」不等于缺陷——变更文档是流程要求的交付物 |
+
+- **外部复核真跑**（非自扮演）：`codeagent-wrapper --backend claude --lite -`，输出 4 条 verdict 全 `dismissed`、
+  逐条带 `file:line`，并明确 `crypto-related=no`；原始日志落 `<tempDir>/p70-claude-review.log`。
+  结论贴 PR 评论 <https://github.com/Colinchiu007/mulpub/pull/4232#issuecomment-6334281343>
+  （`created_at=2026-10-22T06:25:29Z`），该 URL 即判定记录 `externalReview[i1].evidenceRef`。
+- 收口运行输出：`♻ 复用存档 critique（7 条）`、`✅ 自扮演裁决未发现阻断项` ⇒ `status=self_play_resolved`。
+
+### 为什么走门禁的「出口②」（会话手写 `tier`）
+
+`scripts/ccg-review-writeback.js` 的五条合取之一是 `performedBy` 必须等于 `scripts/ccg-review-backends.list`
+里的 critic；而自扮演路径恒写 `performedBy="self-play"`。于是**该工具在本 PR 的收口形态下不可达**——
+不是我绕开它，而是它按设计不会写。门禁红文案把「补跑真外部评审」与「会话手写 + 如实标注」都列为出口，本 PR 走后者：
+
+- `tier="external"`；`evidence="delivery@4cc601b8d4866f589007d8d852174c77b20a8cb5753cda73f6b828be32e3f0dd"`；
+- `evidence` 用 `scripts/lib/ccg-delivery-digest.js` 的 `deliveryEvidence(findings)` **实算**
+  （判据侧 `matchesDeliveryEvidence` 会就地重算；手写一个不一致的值只会被降成 `external-unverified`）；
+- 写入前后的语义指纹：`52f2492c…` → `d633e796…`（变了，说明确实发生了写回而不是空操作）；
+- 该框架缺口（自扮演路径无法自动写 `tier`）只登记、**不在本 PR 修**——它属「改谁来守门」。
 
 ## 遗留 10 的现场证据（为什么合并提交会判 `dual`）
 
@@ -67,7 +125,7 @@ date: 2026-10-21
   两条路径的末字节都是 `\n`，因此「只修了一条写盘路径」会被单独抓住。
 - **可复算**：`String(fs.readFileSync(file, "utf8"))` 的末字符可直接断言，不需要重新格式化整个文件。
 
-## 变异反证（14/14 全部 CAUGHT；M15 为预测项，未实测）
+## 变异反证（15/15 全部 CAUGHT；M15 为预测项，未实测）
 
 评估域与批次（同一 pattern 内跑完的才做算术自洽，跨批不混算）：
 
@@ -75,10 +133,10 @@ date: 2026-10-21
 |------|---------|----------|-----|
 | 第一批 | `--test-name-pattern=遗留` | `rc=0 / pass=8 / fail=0` | M1–M11（T1–T8 命中该 pattern） |
 | 第二批 | 同上 | `rc=0 / pass=10 / fail=0` | M12/M13（T9/T10 落地后补跑） |
-| 第三批 | `--test-name-pattern=T11` | `rc=0 / pass=1 / fail=0` | M14（T11 落地后补跑） |
+| 第三批 / 第四批 | `--test-name-pattern=T11` / `=命名配方行为锁` | 各 `rc=0 / pass=1 / fail=0` | M14 / M16（各自落地后补跑；两个 pattern 各自只命中自己那一条） |
 
 前两批的算术自洽：域内 8 条 ⇒ 任一变异跑完 `pass + fail = 8`；域内 10 条 ⇒ `pass + fail = 10`。
-第三批评估域只有 T11 一条，故不参与那种算术。逐条单跑，红集如下（台账以 `tasks.md` §3 为准）：
+第三批/第四批的评估域各只有一条（T11 / 命名配方行为锁），故不参与那种算术。逐条单跑，红集如下（台账以 `tasks.md` §3 为准）：
 
 | 变异 | 内容 | 实测红集 |
 |------|------|----------|
@@ -97,15 +155,15 @@ date: 2026-10-21
 | M13 | 删掉 `judge` 的 `mergeScopeLeak` 升档（i6） | **仅 T10**（`fail=1`） |
 | M14 | 把 `:(exclude).ccg` 加回 `sideFiles()`（观测面收窄） | **仅 T11**（`fail=1`），首个失败断言是 `collected.files` 的 `deepStrictEqual` |
 | M15 | **预测项，未实测**：只把 `:(exclude).ccg` 加回 `pathspecs`（交集仍含 `.ccg`，只收窄 numstat/diff） | 预期仅 T11 红，落点应在 `changedLines` / `ccgChangedLines` |
+| M16 | 摘掉默认档实参尾巴上的 `:(exclude).ccg`（**行为锁**的反证，不是结构锁） | **仅「命名配方行为锁」**（`fail=1`）；失败断言是 `strictEqual`：`expected` = 40 位父 sha 名（空 diff 回落），`actual` = `4de98fbd….json`（读到 `.ccg` 内容后的 64-hex 名） |
 
-M12/M13/M14 的红集互不相交（分别只打 T9 / T10 / T11），因为它们守的是三台不同的机器：
-「探测失明的可见性」「判定域上界」「`.ccg` 的观测面/消费面分层」。M15 只把推断写成预期，
+M12/M13/M14/M16 的红集互不相交（分别只打 T9 / T10 / T11 / 命名配方行为锁），因为它们守的是四台不同的机器：
+「探测失明的可见性」「判定域上界」「`.ccg` 的观测面/消费面分层」「命名配方的**行为**（而不是字面量位置）」。M15 只把推断写成预期，
 不写成实测——它与 M14 落在同一函数的两处 pathspec，红集形态可推，但没有跑过就不算证据。
 
 第一批里五处与写码前预测不符的地方**一律以实测为准**，并已回写 `design.md` §8：M1 少 T6（T6 直接调
 `saveRecord`，不经 `detectMergeState`）、M1/M2 多 T7/T8（退回整侧或改并集会让「交集」形态整体消失）、
-M8 多 T8（接线锁比对的哈希也一起吃域外文件）、M10 少 T2（T2 断 `collected.mergeScope`，M10 摘的是
-`stats.mergeScope`，两个载体）、M11 多 T4（零值形态是 T4 的判据之一）。
+M8 多 T8（接线锁比对的哈希也一起吃域外文件）、M10 少 T2（T2 断 `collected.mergeScope`，M10 摘的是 `stats.mergeScope`，两个载体）、M11 多 T4（零值形态是 T4 的判据之一）。
 
 两条最值得记的读数：
 
@@ -119,13 +177,13 @@ M8 多 T8（接线锁比对的哈希也一起吃域外文件）、M10 少 T2（T
 
 | 命令 | 结果 |
 |------|------|
-| `node --test scripts/ccg-review-decider.test.js`（全量，合并后） | `# tests 70 / pass 70 / fail 0` |
-| TDD 红灯留证（实现前） | `RC=1`、`# tests 59 / pass 52 / fail 7`（T1–T7 红，T8 后补；T9–T11 是评审派生项，各自先红后绿） |
-| `node scripts/openspec-sync-check.js` | rc=0（387 tasks / 80 active / 243 archives） |
-| `node scripts/check-unwired-tests.js` | rc=0（113 个测试文件） |
+| `node --test scripts/ccg-review-decider.test.js`（全量，合并后） | `# tests 70 / pass 70 / fail 0`，`# duration_ms 835604`（≈13.9 分钟，本机 2026-10-22 一次跑完；单次 CLI 派生约 13.8s，70 例累计即此量级，属「等子进程」而非挂死） |
+| TDD 红灯留证（实现前） | `RC=1`、`# tests 59 / pass 52 / fail 7`（当时夹具基数 52 + 新增 T1–T7 = 59 例、其中 7 红；T8 后补；T9–T11 是评审派生项，各自先红后绿） |
+| `node scripts/openspec-sync-check.js` | rc=0（387 tasks / 92 active / 243 archives） |
+| `node scripts/check-unwired-tests.js` | rc=0（124 个测试文件） |
 | `node scripts/check-step-failfast.js` | rc=0（40 个 run 块） |
-| `node scripts/check-no-brand-residue.js` | rc=0（11184 个 tracked 文件） |
-| `node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD` | rc=0（`counts=1161 domain=562 files=561`） |
+| `node scripts/check-no-brand-residue.js` | rc=0（11640 个 tracked 文件） |
+| `node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD` | rc=0（`counts=1161 domain=582 files=561`） |
 | `node scripts/verify-worktree-deps.js` | rc=0 |
 
 ## 沿用遗留清单（本轮**不**处理，逐条说明为什么）

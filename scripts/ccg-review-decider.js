@@ -791,6 +791,8 @@ function recordBody(record) {
  * @param {string[]} [opts.diffPaths]
  *   「本次判定所依据的那批文件」的 pathspec（追加在 `git diff --cached` 之后）。
  *   缺省即历史配方 `["--", ".", ":(exclude).ccg"]` ⇒ **非合并态逐字节不变**。
+ *   ★ 该缺省的字面量必须留在 git 调用点的实参里（理由见函数体注释）：结构锁按那一行的
+ *     字符窗口定位它，上提到函数头会让锁失明 —— 行为不变而 CI 红。
  *
  *   ★ 为什么必须能把 pathspec 换掉（遗留 10 的第二半，实测现场）：
  *     `stagedDiffHash` 是记录文件名（内容寻址）与「事后按 parent..HEAD 找记录」的共同键。
@@ -801,10 +803,18 @@ function recordBody(record) {
  *     回归锁：`遗留10-T6`（两档 pathspec 必须算出不同哈希）。
  */
 function saveRecord(result, sha, layer, plannedFiles, backends, opts) {
+  // null = 「没指定 ⇒ 用历史缺省配方」，而**缺省的字面量留在下面那次 git 调用的实参里**。
+  //
+  // ★ 为什么不在函数头就把缺省填进 diffPaths（本 PR 实测踩过，Gate 2c2 当场红）：
+  //   `check-pr-exec-record.test.js` 的「命名配方」结构锁按 `git diff --cached` 那行的
+  //   indexOf 读其后 200 字符窗口，再断窗口内含排除 `.ccg` 的 pathspec。缺省上提到
+  //   函数头是更"整洁"的写法，行为一寸未变，但字面量从窗口内的 114 偏移飘到窗口外
+  //   ⇒ 锁失明、CI 红。判据的可定位性优先于代码的整齐度：这条 recipe 必须待在被测的
+  //   那一次 argv 里。行为侧的兜底锁在 `ccg-review-decider.test.js` 的「命名配方行为锁」。
   const diffPaths =
     opts && Array.isArray(opts.diffPaths) && opts.diffPaths.length
       ? opts.diffPaths
-      : ["--", ".", ":(exclude).ccg"];
+      : null;
   const dir = path.join(process.cwd(), ".ccg", "reviews");
   fs.mkdirSync(dir, { recursive: true });
   // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
@@ -835,7 +845,7 @@ function saveRecord(result, sha, layer, plannedFiles, backends, opts) {
     try {
       d = git([
         "diff", "--cached", "--no-textconv", "--no-ext-diff", "--no-renames",
-        ...diffPaths,
+        ...(diffPaths || ["--", ".", ":(exclude).ccg"]),
       ]);
     } catch (e) {
       return { hash: undefined, empty: false, error: String(e && e.message ? e.message : e) };
