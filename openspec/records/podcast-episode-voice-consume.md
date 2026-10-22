@@ -11,7 +11,7 @@ date: 2026-10-21
 | 变更类型 | 运行时代码（主进程服务 + IPC 接线）+ 验收锁 |
 | 隔离 | worktree `<仓库父目录>/mp-worktrees/mp-podcast-episode-voice-consume`（本机落点由 `git worktree list` 现取），分支 `podcast-episode-voice-consume`，`verify-worktree-deps.js` OK |
 | 单测 | 4 个文件（host / episode-ipc / script-ipc / plan-preview-ipc）：**89 passed / 0 failed**。首跑曾报 87/2，那 2 条见下方「归因更正」——属跑法顺序，非仓库缺陷 |
-| QM-1 打包 | **PASS（第③层）**：`pnpm run build:dir` rc=0 → 以隔离 userData（`%TEMP%\mp-qm1-4200`）启动 `dist-electron/win-unpacked/Multi-Publish.exe`，子 env 经 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()` 剔除 `ELECTRON_RUN_AS_NODE`；12 秒 `alive=true`、**stderr 0 字节**、红线命中 0、配置/插件路径指向 asar=no、**DEP0180 命中 0**、stdout 22,696 字节（业务日志走 stdout，与 stderr 分道）；收尾按 PID 收口 `CLEANED pid=3604`，未按名字批量 kill |
+| QM-1 打包 | **PASS（第③层，拆分后重跑为准）**：`pnpm run build:dir` rc=0 → 隔离 userData 启动 `dist-electron/win-unpacked/Multi-Publish.exe`，子 env 经 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()` 剔除 `ELECTRON_RUN_AS_NODE`；`alive=true`、**stderr 0 字节**、红线 0、`app.asar` 内部路径 0、**DEP0180 命中 0**、stdout 22,856 字节；新模块在产物内（`\electron\services\podcast-voice-deps.js`）；收尾按 PID `CLEANED`，未按名字批量 kill。拆分前那份（stdout 22,696 字节）由这份取代，不并列引用 |
 | QM-6 双模型 | **已闭合（出口②）**：critic=claude 外部评审真跑（8 条 findings，最低维度分 3）⇒ 引擎进自扮演裁决档（权重 0.6），6 条逐条裁决 **3 upheld（i2/i3/i6）/ 3 dismissed（i1/i4/i5）**；upheld 的 i3 当场记忆化修复，i2/i6 拆成 `tasks 4.5b⑤` 并附三条验收判据。产物 `24792dc6…json` 的 `deepReview.status` 由 `self_play_pending` 收为 `self_play_resolved`，`closureNote` 含轮次标记与逐条处置；`node scripts/check-pr-exec-record.js --mode=enforce` 现返回 **OK**。⛔ 如实标注：`tier=external` 仍是手写代用（全仓无生产方写该字段），且裁决那一半是自扮演而非跨家族复核，不得读成「双模型已交叉收敛」 |
 | 远程同步 | 由门禁推导 |
 
@@ -106,10 +106,19 @@ owner subject 被带上；⑤ 接线锁——`podcast.js` 内 `createVoiceDepsFa
 宿主与预览共用同一 getter、且该文件不得再自带 `createVoiceReaders(` 或第二份 `tts-voice-preference:` 键）。
 读数：`vitest run` 三文件（新锁 + host + plan-preview-ipc）**81 passed / 0 failed**。
 
-## 本记录写下时仍未做的三件事（不得读成已完成）
+## 拆分后的补证（2026-10-22 现跑，覆盖本节上方那三条「未做」中的前两条）
 
-1. **拆分后的 QM-1 未重跑**：新模块必须进 asar。拆分前那份「LIVE stderr 0 字节 / DEP0180 0」的 PASS
-   不构成拆分后的证据，`build:dir` + 启动三层判定要重取。
-2. **五条新锁的变异反证未实跑**：摘掉 WeakMap 记忆化 / 摘掉 `warnOnce` 去重 / 把装配搬回 `podcast.js`
-   三形变各应指名红。按本仓口径，「锁存在且用例绿」不证明「锁会红」。
-3. **4.5b④ 判据③ 的真机试听未做**（本 PR 会让已配默认 provider 的账号当场换发声者）。
+1. **QM-1 已在拆分后重跑**：`pnpm run build:dir` rc=0 → 隔离 userData 启动，`alive=true`、
+   **LIVE stderr 0 字节**、四类红线 0、`app.asar` 内部路径 0、**DEP0180 命中 0**、stdout 22,856 字节（业务日志走 stdout）；
+   收尾按 PID 收口（`CLEANED`），未按名字批量 kill。新模块**确在产物内**：
+   `asar list … app.asar | grep -i podcast-voice-deps` → `\electron\services\podcast-voice-deps.js`
+   ⇒ 三层判据落第③层。拆分前那份 PASS 已被这份取代，不并列引用。
+2. **三条变异反证已实跑且各自指名红**（驱动 `%TEMP%\mut-voice-deps-4200.cjs`，按本仓驱动纪律自证跑了多少条、改了多少字节）：
+   基线 `rc=0 failed=0 passed=5`（先证明「真的跑了且全绿」，否则后面的红不算反证）；
+   `M1` 摘掉 WeakMap 记忆化（52 字节）⇒ ①红；`M2` 让预览拿独立拷贝 `Object.assign({}, voiceResolveDeps())`（19 字节）⇒ ⑤红；
+   `M3` 摘掉 `warnOnce` 去重（41 字节）⇒ ②红。汇总 `CAUGHT=3 MISSED=0 SKIP-PATCH=0`，
+   还原经 md5 双文件自证（`RESTORE-CHECK svc=true ipc=true`）。
+   另记一条归属：§4.5b④ 那六条锁用的是**实现缺席证明**（实现前实测 6 failed / 实现后 0 failed），
+   它证明的是"锁对着被测行为敏感"，与上面的 no-op 变异是两类证据，不得互相顶替。
+3. **仍未做（不得读成已完成）**：4.5b④ 判据③ 的**真机试听**——本 PR 会让已配默认 provider 的账号当场换发声者，
+   需人工听一段成片；打包启动不覆盖这一格。
