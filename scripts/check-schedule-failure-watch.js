@@ -14,6 +14,27 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
+const SCHED_LINE = /^[ \t]{2,}schedule[:][ \t]*$/
+const CRON_ITEM = /^[ \t]{2,}[-*][ \t]+cron[:]/
+
+/**
+ * 「这文件真有定时触发器吗」= 有一行像 `schedule:` **且它后面几行里紧跟一个 `- cron:` 列表项**。
+ * 两个条件都要：只认前者会把文档/示例里的 `schedule:` 字样读成一次声明（QM-6 第二轮 i5）；
+ * 只认后者会把 cron 出现在别处当成声明。代价是仍不认 flow style（`on: {schedule: …}`）——
+ * 那需要真 YAML 解析器，而落点作业无 Install deps，所以配 T11（正形）+ T12（反形）两条夹具，
+ * 而不是假装形状判据完备。
+ */
+function hasScheduleTrigger (body) {
+  const lines = body.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (!SCHED_LINE.test(lines[i])) continue
+    for (let k = i + 1; k <= Math.min(i + 4, lines.length - 1); k++) {
+      if (CRON_ITEM.test(lines[k])) return true
+    }
+  }
+  return false
+}
+
 function loadWorkflows (root) {
   const dir = path.join(root, '.github', 'workflows')
   let names
@@ -29,7 +50,9 @@ function loadWorkflows (root) {
       // 缩进下界用「至少 2」而不是「恰好 2」：把 YAML 改成 4/6 空格缩进是合法的，
       // 而恰好-N 的锚点在那种文件上会**静默返回 0**，判据就报"没有待覆盖项 ⇒ 通过"。
       // 两个方向的代价不对称：多匹配会在真仓立刻响（T7 报未覆盖），少匹配是静的。
-      scheduled: /^[ \t]{2,}schedule[:][ \t]*$/m.test(body),
+      // 但只按"有一行像 schedule:"认触发器会把文档/示例里的字样读成定时作业（QM-6 第二轮 i5），
+      // 所以再要一个**紧邻的 cron 列表项**做合取条件 —— 形状判据永远配一条反例夹具（T12）。
+      scheduled: hasScheduleTrigger(body),
       hasCron: /cron[:]/.test(body),
       runList: (() => {
         const m = body.match(/^[ \t]{4,}workflows[:][ \t]*\[([^\]]*)\]/m)

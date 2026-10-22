@@ -153,6 +153,41 @@ test('T11 缩进弹性：`on:` 之下用 4 个空格缩进（合法 YAML）也�
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
+test('T12 反形夹具：有一行像 schedule: 但后面没有 cron 列表项 ⇒ 不算定时作业（合取条件生效）', () => {
+  // 形状判据必须配一条反例：只看"有一行像 schedule:"会把文档/示例里的字样读成一次声明，
+  // 于是名单判据会对一份**没有**定时器的文件要求覆盖（假阳），也会把 oddShape 一路点脏。
+  const docOnly = y([
+    'name: Doc Only Gate',
+    'on:',
+    '  workflow_dispatch:',
+    'jobs:',
+    '  a:',
+    '    runs-on: ubuntu-latest',
+    '    steps:',
+    '      - name: 说明',
+    '        run: |',
+    '          echo "配置样例如下"',
+    '  schedule:',
+    '    timeout-minutes: 5',
+  ])
+  const dir1 = fixture({ 'ci-failure-handler.yml': HANDLER(['Doc Only Gate']), 'doc-only.yml': docOnly })
+  try {
+    const r = judge(dir1)
+    assert.deepEqual(r.scheduledNames, [], '合取条件被摘掉时这条必须红（见驱动 m9）')
+    assert.equal(r.uncovered.length, 0, '文档里提一句 schedule: 不该凭空造出一条"必须被覆盖"的义务')
+    assert.equal(r.stale.length, 0, '该文件确实存在 ⇒ 名单里那条不算陈旧')
+    assert.equal(r.verdict, 'OK')
+  } finally { fs.rmSync(dir1, { recursive: true, force: true }) }
+  // 正向对偶：同一份文件补上紧邻的 cron 项，就必须被认成定时作业
+  const withCron = docOnly.replace('  schedule:\n    timeout-minutes: 5', "  schedule:\n    - cron: '15 4 * * *'")
+  const dir2 = fixture({ 'ci-failure-handler.yml': HANDLER([]), 'doc-only.yml': withCron })
+  try {
+    const r = judge(dir2)
+    assert.deepEqual(r.scheduledNames, ['Doc Only Gate'], '补了 cron 项还不认，就是单向夹具')
+    assert.equal(r.oddShape.length, 0)
+  } finally { fs.rmSync(dir2, { recursive: true, force: true }) }
+})
+
 test('T10 只有陈旧名单项（无未覆盖）也必须判 FAIL —— 单向锁不算锁', () => {
   const dir = fixture({
     'ci-failure-handler.yml': HANDLER(['Cleanup Artifacts', 'Renamed Away Gate']),
