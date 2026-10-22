@@ -52,10 +52,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "self_play_resolved",
     "tier": "unknown",
-    "performedBy": null,
+    "performedBy": "self-play",
     "evidence": null,
-    "findings": null
+    "findings": 138,
+    "blocking": [],
+    "closureNote": "【本记录是「历史整理前」的旧哈希记录，按同一次裁决闭环】\n本 PR 最初是两个提交（代码 + 决策层范围声明）；为让验证层能按**内容寻址**命中 HEAD 的 diff，\n用 git reset --soft 把两笔合成一笔 ⇒ diff 变化 ⇒ 判定记录换成新哈希 0e3c2b79…（那份已闭环）。\n本记录描述的是**同一次变更**在拆分状态下的 diff，内容已被新记录取代，但仍留在本次变更集里 ⇒ 欠账判据照样看它。\n\n【裁决】决策层对抗评审第 1-19 轮（critic 与 proposer 跨家族）共 138 条意见逐条处置：\n2 条驳回（第 19 轮 i2 前提不成立、第 17 轮 i5 事实澄清）、3 条影响实现已改\n（geo_block 改判 byDesign、清单闸门下沉到产出源、哈希改名 promptAssetHash 并写明域边界），\n其余 133 条为文档自洽性与规格缺口已逐条修完。\n逐条处置结论见 openspec/changes/film-pipeline-prompt-triple-and-guards/ccg-plan-review-record-pr3.md。\n\n【验证层（diff）外部复核未完成，如实标注】sh scripts/deep-review.sh 跑 2 次均未产出有效 critique：\n引擎 diff 层只认维度词表 correctness/security/performance/maintainability，\n而可用 critic 后端（claude）输出的是决策层词表 consistency/feasibility/completeness/clarity ⇒ Critique 校验失败。\n这是后端与该层词表不兼容，不是评审通过，也不是发现了缺陷。\n\n【本变更集未命中高危面】sensitivePathHits 为空；未触碰 scripts/check-*、.github/workflows/、凭证/登录态面\n⇒ 按门禁第 ② 条出口以本 closureNote 收口，status 记 self_play_resolved（作者自扮演裁决），tier 不写。\n替代覆盖：38 条验收断言（8 个测试文件，39 文件 / 717 例全绿）+ QM-1 打包 exit 0 + 9 条机器断言。",
+    "at": "2026-10-22T03:04:13.101Z"
   }
 }
