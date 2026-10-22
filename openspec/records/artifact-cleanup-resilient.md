@@ -12,16 +12,17 @@ date: 2026-10-21
 | 第一性原因（QM-5 ①） | ✅ | 不是脚本逻辑写错，是**把它绑成一次成败的形状**错了：`gh api --paginate` 把 54 页列举串成一条管道，任意一页 5xx ⇒ `set -euo pipefail` 整步退出。取证：`GET /repos/…/actions/artifacts` 现读 **HTTP 500 + `Content-Length: 0`**（gh 因此报 `unexpected end of JSON input`，读起来像"我们的解析坏了"）；同一 URL 隔几秒再请求 ⇒ 200；`per_page=1` 500 而 `per_page=100&page=3` 200 ⇒ **间歇性**，不是某个坏记录。`total_count=5350`（≈54 页）⇒ 每天必撞一次 |
 | 逃逸分析（QM-5 ②） | ✅ | 单元层：逻辑内联在 `run:` 块里，**没有任何测试载体**；集成/CI 层：它只在 schedule 上跑，PR 侧根本不触发；审查层：不是 required check，`check-main-red` 按检查名对齐时才第一次把它显形。红自 **2026-10-14** 起连续 8 天（窗口内 8/8 `completed failure`），期间没有任何东西在看它 |
 | 系统性漏洞（QM-5 ③） | ✅ | 两类：① 「承载 CI 行为的 `run:` 块」没有可测载体（同仓先例已要求把逻辑抽成脚本 + 接进 PR 侧作业）；② **schedule 作业的健康度无人监控** —— 这条本片只做了"让它自己能红得有意义"，监控本身是另一刀（见遗留） |
-| 修复 + 回归保护（QM-5 ④） | ✅ | 逻辑搬进 `scripts/cleanup-artifacts.js`（只依赖 node 内置；注入 `api`/`del`）：逐页列举 + 每页重试、首页失败判 `UNPROVEN` 且一条都不删、半途失败判 `DEGRADED` 但仍如实处理已列举部分、`--write` 才删、DELETE 带 `--silent`、**进 DELETE 路径段的 id 必须按形状收口**（非纯正整数计入 `rejected=` 出声）。行为锁 `scripts/cleanup-artifacts.test.js` **14 条**（A1-A14）；接进 `quality-gate.yml` 的 `changes` 作业 `Gate 2b10`（只跑锁、不跑真删），`check-unwired-tests` 现读 `检查域内测试文件 118 个 → OK` |
-| 变异反证 | ✅ | 驱动**已入仓** `scripts/cleanup-artifacts.mutation.js`（QM-6 i3：取证工具只留在临时目录，等于"7/7 CAUGHT"是别人复跑不了的一句话）。复跑：`node scripts/cleanup-artifacts.mutation.js`（干净工作树；脏态须显式 `--allow-dirty`，它自己会拒）。实跑读数 **9/9 CAUGHT、红集互不相同、每条 `tests=14`、还原 md5 一致、还原后被测锁 rc=0**：n1 首页失败当"无待删"→A4；n2 去重试→A3；n3 expired 也删→A1；n4 cutoff 退成当天零点→A2；n5 dry-run 也删→A7；n6 去掉 `--silent`→A9；n7 半途失败仍判 OK→A5；n8 id 不校验形状原样拼 URL→A13；n9 首行不再打印 `rejected=`→A14 |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 逻辑搬进 `scripts/cleanup-artifacts.js`（只依赖 node 内置；注入 `api`/`del`）：逐页列举 + 每页重试、首页失败判 `UNPROVEN` 且一条都不删、半途失败判 `DEGRADED` 但仍如实处理已列举部分、`--write` 才删、DELETE 带 `--silent`、**进 DELETE 路径段的 id 必须按形状收口**（非纯正整数计入 `rejected=` 且结论落 `REJECTED_PRESENT`、非零退出）。行为锁 `scripts/cleanup-artifacts.test.js` **15 条**（A1-A15）；接进 `quality-gate.yml` 的 `changes` 作业 `Gate 2b10`（只跑锁、不跑真删） |
+| 变异反证 | ✅ | 驱动**已入仓** `scripts/cleanup-artifacts.mutation.js`（QM-6 i3：取证工具只留在临时目录，等于"全 CAUGHT"是别人复跑不了的一句话）。复跑：`node scripts/cleanup-artifacts.mutation.js`（干净工作树；脏态须显式 `--allow-dirty`，它自己会拒并报出差异文件）。实跑读数 **11/11 CAUGHT、每条 `tests=15`、还原 md5 一致（两个靶子都校）、还原后被测锁 rc=0**：n1 首页失败当"无待删"→A4；n2 去重试→A3；n3 expired 也删→A1；n4 cutoff 退成当天零点→A2；n5 dry-run 也删→A7；n6 去掉 `--silent`→A9；n7 半途失败仍判 OK→A5；n8 id 不校验形状原样拼 URL→A13；n9 首行不再打印 `rejected=`→A14；n10 `rejected>0` 仍判 OK→A13；n11 把追踪锁指向不存在的文件（锁自身空转）→A15。**n8 与 n10 都指名 A13** —— 摘的是两条不同性质（形状校验 vs 结论档位），A13 同时断言这两件事，所以"红集互不相同"这句在本轮不成立，按实测写 |
 | 夹具自己的一课（不写成实现缺陷） | ✅ | 首版 7 条红的根因是夹具取页码用了 `/page=(\d+)/` —— 它先匹配到同一 URL 里的 **`per_page=3`** ⇒ 每页都读成第 3 页 ⇒ 全体"空页"。判据：`[?&]page=`。写进注释当永久提醒 |
 | 行尾与 diff 对账 | ✅ | 三处 CRLF 面改动（`.gitignore`、`quality-gate.yml`、`cleanup-artifacts.yml`）均用"按当场 eol 逐行写回"的脚本插入，未统一回写；两口径 numstat 对账由提交前检查留证 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | 第一轮已跑并逐条处置（见下节）；第二轮在补齐 i3/i4/i5 后重跑 | `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过，判定 DUAL）。`.github/workflows/` 命中**高危面**前缀 ⇒ 闭合只认 `deepReview.tier=external` + 可核 `evidence`，`closureNote` 在那一侧不够格。`evidence` 取本轮 critique 与逐条裁决的**公开 PR 评论 URL**；`tier` 字段此刻全仓无生产方写入（tasks 8.1b 未落），所以那一格由会话写、并在本节如实标注为手写，不得说成工具产物 |
+| QM-6 CCG 双模型外部评审 | 两轮已跑并逐条处置（见上两节）；补齐后的第三轮 + 裁决填写 + 高危面出处仍在前头 | `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过，判定 DUAL）。`.github/workflows/` 命中**高危面**前缀 ⇒ 闭合只认 `deepReview.tier=external` + 可核 `evidence`，`closureNote` 在那一侧不够格。`evidence` 取本轮 critique 与逐条裁决的**公开 PR 评论 URL**；`tier` 字段此刻全仓无生产方写入（tasks 8.1b 未落），所以那一格由会话写、并在本节如实标注为手写，不得说成工具产物 |
 | 远程同步 | 由门禁推导 | 不手写状态词、不为收口另开 PR |
 
 - 判定：混合 PR（含 workflow 与 `scripts/` 判据本体），不走 docs-only 快速通道
-- 保留门禁：品牌残留 ✅（11503 tracked 文件）| 绝对路径账本未放宽 ✅ | `check-step-failfast` ✅ | `check-workflow-structure` 16 文件 0 违规 | `check-no-hot-carrier-edit --mode=enforce` 对本 PR 判定 PASS
+- 保留门禁：品牌残留 ✅ | 绝对路径账本未放宽 ✅（本记录不写本机绝对路径，引用临时产物一律用"临时目录里的那次"描述）| `check-step-failfast` ✅ | `check-workflow-structure` 0 违规 | `check-unwired-tests` OK | `check-gate-record-debt` OK | `check-text-encoding-integrity` 无新增损坏 | `check-no-hot-carrier-edit` 对本 PR PASS
+- 以上各项都是**现场活数**（tracked 文件数、检查域内测试文件数会随每笔并发提交自增），所以本节只记结论档位、不写死总数；复跑命令即各判据自身。
 
 ### QM-6 第一轮深审（critic=claude，7 条）逐条处置
 
@@ -42,9 +43,29 @@ date: 2026-10-21
 1. 仓库坐标必须由**调用点**显式给，禁止只在 workflow 的 `env:` 里声明一个脚本不读的键。
 2. 上游返回值进请求**路径段**前必须按形状收口并计数出声，不得以"GitHub 当然返回整数"代劳。
 
+## QM-6 第二轮深审（critic=claude，补齐 i3/i4/i5 之后重跑，8 条）逐条处置
+
+产物 `.ccg/reviews/06589aa9…json`（上一笔的 `67e602c3…` 已摘除：它是旧 head 的内容寻址键，`deep-review` 只服务当前树，留着就是变更集里永远关不掉的一条 dual 欠账）。存档 `.adversarial/ccg-deep-b3a8de50/`。最低维度分 maintainability=4，收敛落 `self_play`，待裁决 5 条、**高危域需外部复核 0 条**。
+
+| 条目 | 指控 | 处置 | 证据 |
+| --- | --- | --- | --- |
+| i1 | 产物 `sha` 指父提交、`changedLines=147` 与"提案 637 行"不符、`layer=diff` 与 `mode=dual` 不一致、`status=pending` 与"提案声称已闭合"矛盾 | **不成立** | 现读产物：`sha=d38956983…`（= 本次提交的父）、`stats.changedLines=147`（本笔暂存差量）、引擎首行 `变更基线: origin/main（650 行）`（分支全量差量）—— 两个坐标各有定义，"637"在仓内取不到。`layer` 说的是**判定来自哪一层**（钩子原文 `[CCG] 审查模式判定 [验证层(动手后·diff)]: DUAL`），与 `mode` 正交，不构成"不一致"。`status=self_play_pending` 正是"未闭合"的如实读数，本记录与 PR 正文都写着未闭合不合并，没有任何一处声称已闭合 |
+| i2 | 驱动靠正则解析 `node --test` 输出且硬编码 `MIN_TESTS`，格式一变即假阴/假阳 | **不成立**（失败方向是响的） | `# tests` 取不到 ⇒ `total=-1` ⇒ 该条判 PROBLEM ⇒ `RESULT=NOT OK` ⇒ exit 1；`not ok` 行取不到 ⇒ 红集空 ⇒ `缺=[A_n]` ⇒ 同样响。`MIN_TESTS` 是**下界不是等式**：加用例不动它也不会假阴，删用例立刻红。"锁本身在不在跑"另有 n11 反证（把追踪锁指向一个不存在的文件 ⇒ 指名 A15 变红） |
+| i3 | `Number.isInteger(a.id)` 会把字符串数字判成 rejected，产生假阳性 | **成立一半 ⇒ 已修另一半；兼容字符串那一半不采纳** | 现读上游：`GET /repos/…/actions/artifacts?per_page=3` 三条 id 全 `typeof === 'number'`（2026-10-22 实测；且**第一次调用当场返回空体**、第二次才成——正是本 PR 所修间歇故障的现场复现）。把判据改成 `Number(a.id)` 会连 `"1e3"`/`" 123 "` 一起放行，那是把边界换成另一层模糊。采纳的是这条指出的真风险的另一面：**`rejected>0` 时结论不得是 `OK`** —— 新增 `REJECTED_PRESENT` 档并非零退出，否则 `candidates=0 deleted=0 rejected=5000 verdict=OK` 会被消费退出码的人读成"清理做完了"。A13 同时补正向对偶（全合法形状仍判 OK），n10 指名反证已实测变红 |
+| i4 | `quality-gate.yml` 新增 `node --test` 仍无 setup-node/版本守卫，"提案承认但未修" | **不成立**（不属本 PR 差量） | 同第一轮 i7。补一句范围：`changes` 作业里 `node --test` 现读 105 条，给该作业装 setup-node 是在改这 105 条既有判据的运行前提与安装面，属另一刀，不在这里顺手做 |
+| i5 | 驱动的 dirty 检查用相对路径传 `git status`，cwd 一变即失效 | **不成立** | `git()` 助手每次调用都传 `{ cwd: ROOT }`，ROOT 由 `path.resolve(__dirname, '..')` 得出，与调用方 cwd 无关；被测源读写一律 `path.join(ROOT, rel)`。本轮从第二个靶子（测试文件）跑 n11 也通，顺带证明多文件定位同样正确 |
+| i6 | `.gitignore` 例外绑精确文件名，驱动改名即被静默忽略，无编译期警告 | **成立 ⇒ 已修** | 新增 A15 追踪锁：`git ls-files -- scripts/cleanup-artifacts.mutation.js` 必须逐字回显该路径；`rc≠0` 一律抛错按**未证实**处理（不得读成"已追踪"）。传 git 前剥掉 `GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE/GIT_COMMON_DIR` —— 它们会静默压过 `cwd`，让这条锁量到别的仓的索引。锁自身由 n11 反证 |
+| i7 | `.ccg/reviews/` JSON 末尾缺换行 | **不成立** | 现读当前产物 `endsNL=true、cr=0`。缺换行的是**被摘掉的那一份旧产物**（旧 blob 实测 `endsNL=false`），critique 抄的是 diff 删除侧 |
+| i8 | 含 `\n` 的锚点在 CRLF 源上会破坏行尾/语法，建议写入前 `node --check` | **不成立**（语法破坏伪装不成 CAUGHT） | 驱动按**被测文件真实行尾**展开 `from`/`to`（`src.includes('\r\n') ? '\r\n' : '\n'`）后再断言命中恰为 1；源被改坏时 `not ok` 行不含 `(A…)` ⇒ 投影成 `?` ⇒ `缺` 非空 ⇒ PROBLEM ⇒ exit 1。`node --check` 只会更早出声，不改变结论，故不采纳 |
+
+### 第二轮之后新增的两条口径
+
+1. 「拒绝处理」必须进**结论档位**，不能只进读数：`rejected>0 ⇒ REJECTED_PRESENT ⇒ 非零退出`。
+2. 「某文件已入仓」这类声明必须由一条锁在数（A15），且传 git 前要剥掉会压过 `cwd` 的 `GIT_DIR` 系变量。
+
 ## 遗留（不假装已闭合）
 
-1. **QM-6 高危面闭合仍未落**：第一轮 7 条已逐条处置（i3/i4/i5 已修并入仓，i1/i6/i7 否证带证据，i2 由本轮出口消解），第二轮评审与 `tier=external` + `evidence` 那一格要在补齐后的 head 上重新取。**未闭合前不合并**。
+1. **QM-6 高危面闭合仍未落**：两轮共 15 条已逐条处置（成立并已修的：第一轮 i3/i4/i5 + 第二轮 i3(半)/i6；否证带证据的：其余各条），补齐后的第三轮评审、`self_play_resolved` 与 `tier=external` + `evidence` 那一格都还在前头。**未闭合前不合并**。
 2. **schedule 作业的健康度仍无人监控**：本片让 `cleanup` 自己"红得有信息量"（`ARTIFACT-CLEAN … verdict=` 首行 + 非零退出），但仍然没有任何东西在**看**它 —— 连续 8 天全红就是这条缺口的现场。正解是一刀独立的"定时作业健康巡检"（读 `gh run list --event schedule` 的近 N 天结论并出声），属新增常驻判据、须人工过目落点与预算。
 3. **500 是上游的，重试只是把可恢复故障挡掉**：若 GitHub 的列举接口退化到重试也救不动，本脚本会判 `UNPROVEN`/`DEGRADED` 并非零退出（不会静默），但**清理仍会停摆**。artifact 存量现读 5350；GitHub 自身 90 天过期是兜底，所以停摆的后果是额度压力而非数据丢失。
 
@@ -55,5 +76,5 @@ date: 2026-10-21
 - 症状：`Cleanup Artifacts` 自 2026-10-21 回溯连续 8 天 `completed failure`，日志只有一句 `unexpected end of JSON input`，看着像脚本坏了。
 - 真因：GitHub 的 artifacts 列举接口对本仓（`total_count=5350`，约 54 页）返回**间歇性 500 空体**（实测同一 URL 一次 500 一次 200），而 `gh api --paginate` 把全部页绑成一条管道、无重试，`set -euo pipefail` 于是每天必退出。
 - 修法：逻辑从 `run:` 块搬进 `scripts/cleanup-artifacts.js` —— 逐页列举 + 每页重试；首页彻底失败判 `UNPROVEN` 且一条都不删，半途失败判 `DEGRADED`（已列举部分照常处理、结论不得是 OK）；默认 dry-run，真删要显式 `--write`；DELETE 带 `--silent`（204 空体与上面的 500 同形，属潜伏的第二颗雷）。
-- 两条边界口径（外部双模型评审命中后补）：**仓库坐标由调用点在命令行上显式给**，禁止只在 workflow 的 `env:` 里声明一个脚本不读的键；**上游返回的 id 进 DELETE 路径段前按形状收口**（只接受正整数），其余计入首行的 `rejected=` 出声，不得以"GitHub 当然返回整数"代劳。
-- 新增行为锁 14 条 + 变异反证 9 条全指名，**变异驱动本体也入仓**（`scripts/cleanup-artifacts.mutation.js`，自带"脏树拒绝 + 锚点命中恰为 1 + 还原后再跑一次被测锁"三条前置），接进 `quality-gate.yml` 的 `changes` 作业（`Gate 2b10`），使这段逻辑从此在每次 PR 上被执行过。
+- 两条边界口径（外部双模型评审命中后补）：**仓库坐标由调用点在命令行上显式给**，禁止只在 workflow 的 `env:` 里声明一个脚本不读的键；**上游返回的 id 进 DELETE 路径段前按形状收口**（只接受正整数），其余计入首行的 `rejected=` 并把结论压成 `REJECTED_PRESENT`、非零退出 —— "有条目被我拒了"不许被读成"清理做完了"。
+- 新增行为锁 15 条 + 变异反证 11 条全指名，**变异驱动本体也入仓**（`scripts/cleanup-artifacts.mutation.js`，自带"脏树拒绝 + 锚点命中恰为 1 + 多靶子 + 还原后再跑一次被测锁"四条前置），接进 `quality-gate.yml` 的 `changes` 作业（`Gate 2b10`），使这段逻辑从此在每次 PR 上被执行过。

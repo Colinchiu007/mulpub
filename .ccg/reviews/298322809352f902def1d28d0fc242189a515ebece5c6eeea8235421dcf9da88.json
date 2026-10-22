@@ -1,23 +1,25 @@
 {
-  "sha": "d38956983c8f422bd89a0d47cba0c16566b91756",
+  "sha": "b3a8de5036e9bfbe7a30515993037a7c0b2202f3",
   "layer": "diff",
   "mode": "dual",
-  "reason": "变更 147 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "reason": "变更 100 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
   "stats": {
-    "changedLines": 147,
-    "fileCount": 7,
-    "codeFileCount": 4,
+    "changedLines": 100,
+    "fileCount": 5,
+    "codeFileCount": 3,
     "sensitivePathHits": [],
     "plannedPathHits": [],
     "sensitiveContentHits": 3,
     "docSensitiveContentHits": 0,
     "docSensitiveContentSample": [],
-    "ccgSensitiveContentHits": 0,
-    "ccgSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "  \"reason\": \"变更 147 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处\","
+    ],
     "lineReadGaps": []
   },
-  "stagedDiffHash": "06589aa9fcd364a197ae39bcd14d73153296213e3a0f988a31444dd8aae5684c",
-  "decidedAt": "2026-10-22T02:25:05.290Z",
+  "stagedDiffHash": "298322809352f902def1d28d0fc242189a515ebece5c6eeea8235421dcf9da88",
+  "decidedAt": "2026-10-22T02:44:39.496Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",

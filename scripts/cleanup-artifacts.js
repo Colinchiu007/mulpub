@@ -18,7 +18,9 @@
  *    workflow 的 `env:` 里声明一个脚本根本不读的键：那种写法今天靠 runner 自带的 `GITHUB_REPOSITORY`
  *    恰好兜住，读起来却像"坐标已经接好了"——判据对、传参错位，接线锁抓不到（QM-6 i4 实测命中）。
  * 5. **上游返回的 id 会被拼进 DELETE 的路径段**，所以按形状收口（纯正整数），不合要求的计入
- *    `rejected=` 并在首行出声；不得"GitHub 当然返回整数"就当它不存在（QM-6 i5）。
+ *    `rejected=` 并在首行出声；且 `rejected>0` 时结论不得是 `OK`（判 `REJECTED_PRESENT`、非零退出）——
+ *    "有条目被我拒了"和"有页我没列完"一样，都不许被读成"清理做完了"。现读 GitHub 返回 number 型 id，
+ *    所以这一档今天恒为 0；它守的是"形状变了要有人知道"，不是"兼容另一种形状"。
  *
  * 依赖：只允许 node 内置（落点 `changes` 作业无 Install deps）。
  * 用法：node scripts/cleanup-artifacts.js [--days=5] [--dry-run|--write] [--repo=o/r] [--retries=3]
@@ -109,7 +111,11 @@ function runCleanup (deps) {
     }
   }
   return {
-    verdict: degraded > 0 ? 'DEGRADED' : 'OK',
+    // rejected>0 与 degraded>0 同类：「看见了但没处理」。把它们都收成 OK 就等于对
+    // 消费这个退出码的人说"清理做完了"，而实际有条目被形状判据挡在门外（QM-6 第三轮 i3）。
+    // 现读 GitHub 的 artifacts API 返回 number 型 id（2026-10-22 实测 3/3 条 `typeof === 'number'`），
+    // 所以这里不是"兼容字符串"，而是"哪天形状变了要有人知道"。
+    verdict: degraded > 0 ? 'DEGRADED' : rejected > 0 ? 'REJECTED_PRESENT' : 'OK',
     cutoff, pages, degraded, rejected, candidates: ids.length, deleted, deletedIds,
   }
 }

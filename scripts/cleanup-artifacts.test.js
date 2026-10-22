@@ -154,7 +154,26 @@ test('A13 上游返回的 id 会进 DELETE 的路径段 ⇒ 非纯正整数一�
   assert.equal(r.rejected, 4, '路径穿越 / 小数 / 0 / id 缺席四种坏形状都要计数')
   assert.equal(calls.length, 1, '坏形状不得发出删除请求')
   assert.match(calls[0][calls[0].length - 1], /\/artifacts\/\d+$/, `DELETE 路径段必须是纯数字：${calls[0][calls[0].length - 1]}`)
-  assert.equal(r.verdict, 'OK')
+  assert.equal(r.verdict, 'REJECTED_PRESENT', '有条目被我拒了就不许判 OK——与"有页没列完"同档')
+  // 正向对偶：全是合法形状时不得也报非 OK，否则这条判据退化成"恒红"的装饰
+  const clean = runCleanup({ now: NOW, opt: { ...OPT, perPage: 5, write: true }, api: fakeApi({ 1: [art(11, '2026-01-01T00:00:00Z')] }), del: recDel().del })
+  assert.equal(clean.rejected, 0)
+  assert.equal(clean.verdict, 'OK')
+})
+
+test('A15 变异驱动必须真被 git 追踪（记录里写"驱动已入仓"，就得有东西在数这件事）', () => {
+  const { spawnSync } = require('node:child_process')
+  const rel = 'scripts/cleanup-artifacts.mutation.js'
+  const env = { ...process.env }
+  // GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE 会静默压过 cwd：钩子窗口里跑本锁时它们指向别的仓，
+  // 于是这条锁量的根本不是本仓的追踪态（本仓实测踩过同款，见记忆 git-dir-overrides-cwd-in-test-spawns）。
+  for (const k of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) delete env[k]
+  const r = spawnSync('git', ['ls-files', '--', rel], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8', env })
+  if (r.status !== 0) {
+    throw new Error(`git ls-files 取不到读数（rc=${r.status}），按未证实处理、不得当作已追踪：${String(r.stderr || '').slice(0, 200)}`)
+  }
+  assert.equal((r.stdout || '').trim(), rel,
+    `${rel} 不在索引里：.gitignore 的 scripts/*.js 会静默吞掉新建脚本，"驱动已入仓"就成了假话（QM-6 i6）`)
 })
 
 test('A14 首行读数必须带 rejected=（算了数却不出声，等于把坏形状静默吞掉）', () => {
