@@ -155,7 +155,7 @@ class TaskQueue extends EventEmitter {
     // 这里在入队时补写 owner，保持「谁创建谁可见可执行」。
     if (task && typeof task === 'object' && task.owner_subject === undefined) {
       const currentOwner = this._getCurrentOwnerSubject()
-      if (currentOwner !== undefined) task = { ...task, owner_subject: currentOwner }
+      if (currentOwner) task = { ...task, owner_subject: currentOwner }
     }
     const ownerSubject = this._getCurrentOwnerSubject()
     if (ownerSubject === null) throw new Error('任务队列无法识别当前用户')
@@ -491,7 +491,8 @@ class TaskQueue extends EventEmitter {
   }
 
   _processNext () {
-    if (this._paused) return
+    if (this._paused) { console.warn('[queue] paused=true 跳过驱动 queue=' + this._queue.length + ' running=' + this._running.size); return }
+    if (this._queue.length > 0 && this._running.size === 0) console.warn('[queue] drive queue=' + this._queue.length + ' running=0 delayed=' + this._delayed.size)
     // 自愈（2026-10-23）：若当前没有任何任务在跑，但通道计数仍有残留，说明上一个任务
     // 异常退出时没递减 _runningByChannel ⇒ 该通道会被永久判忙、后续任务全部跳过
     // （现象：running=0、队列非空、无任何报错、重启后能跑一次）。此处清掉残留。

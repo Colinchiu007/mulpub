@@ -107,10 +107,13 @@ function createAppContext() {
       throw new RiskSuspendedError(platform, taskAccountId)
     }
     // publish-progress-ux：任务开始边界事件（对齐账号批量检测 start/done 双边界先例）
+    console.warn('[exec] enter task=' + task.id + ' platform=' + platform)
     taskProgressRouter.register(platform, task.id)
+    console.warn('[exec] registered task=' + task.id)
     progressEmitter.emit(task.id, platform, 'start', {
       stage: '准备发布...', percent: 0, batchId: task.batchId || null,
     })
+    console.warn('[exec] creating publisher task=' + task.id)
     const publisher = publisherRouter.createPublisher(platform, {
       rpaViewManager, store, pythonBridge, accountManager: AccountManager,
     })
