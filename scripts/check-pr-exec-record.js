@@ -33,6 +33,12 @@ const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const { changedFileStatuses } = require('./classify-docs-only.js')
+// `delivery@<sha256>` 的规范化口径与写回器共用一份实现（tasks 4.1）：两边各算一份哈希，
+// 写回器写的与判据认的就会永远对不上 —— 那才是本片真正要防的失效形态。
+const { isDeliveryEvidenceShape, matchesDeliveryEvidence } = require('./lib/ccg-delivery-digest.js')
+// 降档文案只说「重算值不符」，不说「真伪」：该摘要任何填写方都能一条命令自算（tasks 8.5 / 4.1c），
+// 把它说成抓到伪造，等于对作者动机下一个判据并不支持的结论。
+const DELIVERY_MISMATCH_HINT = '摘要与本记录 findings 重算值不符 ⇒ 降为 external-unverified；这不是指控伪造，是该档无法就地自洽'
 
 const RECORDS_RE = /^openspec\/records\/[^_][^/]*\.md$/
 const EXEMPT_RE = /^openspec\/records\/_exempt\/[^_][^/]*\.md$/
@@ -805,6 +811,7 @@ function makeEvidenceProbe (opts) {
 }
 function evidenceForm (ev) {
   const s = String(ev).trim()
+  if (isDeliveryEvidenceShape(s)) return 'delivery'
   // PR 引用：`#` 左侧必须是边界（否则 `issue#1234` 这种行号写法也算），右侧允许跟进说明文字
   // —— "PR #3900 后端轴" 这种"指针 + 一句话"是主干既有写法，把它要求成整串只有号会把合规出口削掉。
   if (/(^|[^0-9A-Za-z_])#\d{3,}/.test(s)) return 'pr'
@@ -868,6 +875,9 @@ function classifyEvidenceTier (dr, existsAt) {
     // 路径形态且调用方给了「存在性探针」时，必须验到该 revision 里真有这个对象（X2-5）。
     // 探针是**注入参数**（本仓新判据落点纪律第 3 条）：不给就不验，测试与仓外调用方保持原语义。
     if (evidenceForm(ev) === 'path' && typeof existsAt === 'function' && !existsAt(ev)) return 'external-unverified'
+    // 第二档可就地验证的形态：不只看形状，还拿本记录自己的 findings 重算比对。
+    // 取不到 findings（键缺席 / 非数组）一律降档 —— 把「验不了」读成「验过了」是本仓定性的装饰性门禁。
+    if (evidenceForm(ev) === 'delivery' && !matchesDeliveryEvidence(dr.findings, ev)) return 'external-unverified'
     return 'external'
   }
   return t
@@ -1125,7 +1135,8 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase, existsAt) {
         // 高危面（含判据本体自指）只认可核外部出处；非高危面的 unknown 放过是**刻意**的 ——
         // 新记录天生 tier=unknown，此刻加严就等于「每次改判据都必须先跑完外部评审才能提交」，
         // 与缺陷G 那次「对 single 也要求闭环 ⇒ 无法闭合的循环」同型。
-        noteBadClosure(rel, `以 ${cor} 收口，需 tier=external + 可核 evidence`)
+        noteBadClosure(rel, `以 ${cor} 收口，需 tier=external + 可核 evidence`
+          + (evidenceForm(rec.deepReview.evidence) === 'delivery' ? '；' + DELIVERY_MISMATCH_HINT : ''))
       }
     }
 
@@ -1181,13 +1192,16 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase, existsAt) {
           + `（由 ${riskHits.slice(0, 2).map((h) => h.files.slice(0, 2).join(', ')).join(' ; ')} 拉进来）⇒`
           + ' 本集内所有收口只认 tier=external + 可核 evidence；closureNote（假阳性出口）只在非高危面够用。'
         : '')
-      // ★ 文案不得示范自家合同禁止的动作。当前事实是：**没有任何工具会写 tier**
-      //   （仓外引擎全文 `tier` 出现 0 次，见 tasks 8.1b），所以"把 tier=external 写进产物"
-      //   这一步此刻只能由会话手写。把它说出来，而不是装作它是合规路径 ——
-      //   否则这条门禁的实际效果就是逼人做它自己合同里禁止的事（QM-6 第二轴 finding#1）。
-      + '\n    出口：① 跑真外部评审（sh scripts/deep-review.sh）—— 但工具侧写入 tier/evidence 尚未落地（tasks 8.1b），'
-      + '\n         此刻由会话按评审交付把 tier=external + 可核 evidence 写进产物属**手写代用**，'
-      + '\n         必须同次在记录里写明「tier 由会话手写」并给出轮次与逐条处置，否则该收口只算未证实；'
+      // ★ 文案不得示范自家合同禁止的动作。历史上这里写的是「工具侧还没落地，只能手写」，
+      //   那在当时是真话（仓外引擎全文 `tier` 出现 0 次），但也是一块指路牌：留着旧措辞
+      //   就是在教人手写。现在 `sh scripts/deep-review.sh` 跑完后由
+      //   scripts/ccg-review-writeback.js 写 tier/evidence，所以正解只有那一条；
+      //   手写仍然**能**通过判据（delivery@ 只是本地一致性校验、不是签名，见
+      //   lib/ccg-delivery-digest.js 文件头），但它是代用而不是合规路径，必须如实标注。
+      + '\n    出口：① 跑真外部评审（sh scripts/deep-review.sh）—— 驱动返回后由 ccg-review-writeback.js '
+      + '\n         写 tier=external + delivery@ 摘要，这是唯一不需要人工补字段的路径；'
+      + '\n         若因故只能由会话把 tier/evidence 手写进产物，必须在同次记录里写明「tier 由会话手写」'
+      + '\n         并给出轮次与逐条处置，否则该收口只算未证实；'
       + '\n    ② 非高危面可按门禁既有合规出口写 closureNote（须含轮次标记与逐条处置结论，光一句长话不算）。'
       + '\n    不得反向处置：删掉 tier 只是退回 unknown 被放过，那不等于评审做过 —— 覆盖率读数会把它显出来。'
     )

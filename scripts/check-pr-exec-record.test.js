@@ -1726,13 +1726,17 @@ test('评审#6：高危面收口必须点名"是哪个文件把变更集拉进�
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
-test('评审#1：出口文案不得示范自家合同禁止的动作（tier 目前只能由会话手写，必须把这层说出来）', () => {
+test('评审#1：出口文案不得示范自家合同禁止的动作（第一出口必须点名驱动侧写回器，手写仍要如实标注）', () => {
   const repo = repoWithFile(ART, { mode: 'dual', deepReview: SELF_PLAY })
   try {
     const block = mod.evaluateDeepReviewDebt(st([['A', ART], ['M', RISK_GATE]]), repo, () => null)
       .reasons.find((x) => /收口不成立/.test(x)) || ''
     assert.match(block, /deep-review\.sh/, '第一出口必须是"跑真评审（工具回写）"')
-    assert.match(block, /由会话手写/, '工具侧写入（tasks 8.1b）未落地 ⇒ 手写 tier 这件事必须在文案里说出来，不能装作它是合规路径')
+    // 本片（qm6-closure-writeback）落地了写回器 ⇒ 指路牌必须指向**真的那一格**：
+    //   只说"跑 deep-review.sh"不够，读者无法知道 tier 是谁写的。旧文案写的是
+    //   "工具侧尚未落地、只能手写"，在本片之后就是假指路。
+    assert.match(block, /ccg-review-writeback/, '第一出口必须点名写回器本体（tasks 4.5：文案是指路牌，留旧措辞就是在教人手写）')
+    assert.match(block, /由会话手写/, '手写不是签名、判据挡不住 ⇒ 文案必须说出来"手写属代用且要标注"，不得把它写成合规路径')
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
 })
 
@@ -2507,4 +2511,57 @@ test('2.3 边界（不过拦负控）：非高危面 + self-play 收口 ⇒ 本�
       `非高危面上的自扮演此刻仍算闭环（等 tasks 4.x 的变异产物货币才收紧）。实际 ${JSON.stringify(r.reasons)}`)
     assert.strictEqual(r.checked, 1)
   } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+// ── tasks 4.2 / 4.3 / 4.4：delivery@ 档（qm6-closure-writeback D3）────────────
+// 标记块：delivery-form-block
+const { deliveryEvidence } = require('./lib/ccg-delivery-digest.js')
+const D_FINDINGS = [{ id: 'i1', severity: 'Critical', finding: 'A' }, { id: 'i2', severity: 'Warning', finding: 'B' }]
+
+test('delivery@ 被认成第六种可核形态，且要求整串就是它（不是"串里出现过"）', () => {
+  const ev = deliveryEvidence(D_FINDINGS)
+  assert.strictEqual(mod.evidenceForm(ev), 'delivery')
+  assert.strictEqual(mod.evidenceForm('see ' + ev + ' for details'), null,
+    '把指针埋在散文里也算可核，等于回到"自由文本当出处"那一格（后端轴 Critical#1 同型）')
+  assert.strictEqual(mod.evidenceForm('delivery@deadbeef'), null, '非 64 位小写 hex 不算')
+  assert.strictEqual(mod.evidenceForm('delivery@' + 'F'.repeat(64)), null, '大写 hex 不算（摘要一律小写）')
+})
+
+test('delivery@ 与 path 档并列成"两档可就地验证"：与本记录 findings 重算相符才读成 external', () => {
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: deliveryEvidence(D_FINDINGS), findings: D_FINDINGS }), 'external')
+})
+
+test('三条负控各自降 external-unverified（tasks 4.3），且不得说成伪造', () => {
+  const ev = deliveryEvidence(D_FINDINGS)
+  const a = mod.classifyEvidenceTier({ tier: 'external', evidence: 'delivery@' + 'f'.repeat(64), findings: D_FINDINGS })
+  assert.strictEqual(a, 'external-unverified', '① 抄来的合法 hex（随便 64 位）必须降档，实得 ' + a)
+  const b = mod.classifyEvidenceTier({ tier: 'external', evidence: ev, findings: [{ id: 'z', severity: 'Info', finding: '别的记录的正文字段' }] })
+  assert.strictEqual(b, 'external-unverified', '② 从别的记录整段复制过来必须降档，实得 ' + b)
+  const c = mod.classifyEvidenceTier({ tier: 'external', evidence: ev, findings: D_FINDINGS.slice(0, 1) })
+  assert.strictEqual(c, 'external-unverified', '③ findings 被截断后摘要对不上必须降档，实得 ' + c)
+})
+
+test('形状对但本记录没有 findings ⇒ 降档，不得因"验不了"而读成通过（闭集要分缺席与野值）', () => {
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: deliveryEvidence(D_FINDINGS) }), 'external-unverified')
+  assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: deliveryEvidence(D_FINDINGS), findings: null }), 'external-unverified')
+})
+
+test('4.4 如实标注：其余四档仍只判形状 —— 测试就是这条的证明，不是文案', () => {
+  // 这几条"内容上毫无意义但形状合法"的串仍应读成 external ⇒ 说明它们**没有**被验证。
+  // 把这四档一并说成"已验证"就是给下一个读者假证据（design §3-D3 强度边界）。
+  for (const ev of ['PR #3987', 'ses_probe0001', 'a'.repeat(40)]) {
+    assert.strictEqual(mod.classifyEvidenceTier({ tier: 'external', evidence: ev }, () => true), 'external',
+      ev + ' 只判形状；改成内容验证会让本条变红，那说明口径变了，文案要跟着改')
+  }
+})
+
+test('4.1c 文案锁：delivery 降档必须说"重算值不符"，不得说"伪造/证据无效"（剥注释后判）', () => {
+  const src = mod.stripCommentsForScan(fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8'))
+  assert.ok(src.includes('摘要与本记录 findings 重算值不符'),
+    '红文案要给的是"怎么修"，不是定性；说成伪造会把一次口径漂移升级成对作者动机的指控')
+  const i = src.indexOf('摘要与本记录 findings 重算值不符')
+  const near = src.slice(Math.max(0, i - 900), i + 900)
+  for (const bad of ['伪证', '伪造证据', '证据无效']) {
+    assert.ok(!near.includes(bad), `降档文案附近出现了 ${bad} —— delivery 摘要任何人可自算，判的是自洽不是真伪`)
+  }
 })

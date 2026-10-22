@@ -441,6 +441,16 @@ function resolveGitBashB () {
  *   「非 .ccg 改动」，导致「有改动却无记录 ⇒ 报故障」这条判据在**每一个**场景里都命中
  *   （首版正栽在这里：正向场景没报故障、反向场景反而报了）。夹具必须只含被测对象。
  */
+/** 真跑出口在驱动返回之后要调的那一步，及其 require 闭包（夹具必须与生产同形）。 */
+const ENTRY_WRITEBACK_CLOSURE_B = [
+  'ccg-review-writeback.js',
+  'ccg-review-decider.js',
+  'check-pr-exec-record.js',
+  'classify-docs-only.js',
+  'lib/ccg-review-backends.js',
+  'lib/ccg-delivery-digest.js'
+]
+
 function makeRepoWithoutRecordB () {
   const dir = fsB.mkdtempSync(pathB.join(osB.tmpdir(), 'dr-behav-'))
   const run = (cmd, args) => execB(cmd, args, { cwd: dir, encoding: 'utf8', stdio: 'pipe' })
@@ -467,6 +477,16 @@ fsB.copyFileSync(pathB.join(ROOT, 'scripts', 'lib', 'ccg-backends.sh'), pathB.jo
   // 入口现在 source 一个兄弟依赖；夹具拷了它就必须同样对它隐藏 git status，
   // 否则被测前提「非 .ccg 改动数」会被夹具自己的未跟踪文件污染。
   fsB.appendFileSync(infoExclude, '\nscripts/lib/ccg-backends.sh\n')
+  // ★ 2026-10-22（qm6-closure-writeback）：真跑出口在驱动返回之后要调 `ccg-review-writeback.js`。
+  //   夹具缺它时，那一步会以 "Cannot find module" 失败并被出口的 `|| say` 兜成一句告警 ——
+  //   rc 照样对、记录照样不动，于是**这批锁全绿而生产路径一次都没被测到**。
+  //   「夹具必须与真实形态逐字同形」在这里的具体形态就是：把写回器的 require 闭包一起放进来。
+  for (const rel of ENTRY_WRITEBACK_CLOSURE_B) {
+    const dst = pathB.join(dir, 'scripts', rel)
+    fsB.mkdirSync(pathB.dirname(dst), { recursive: true })
+    fsB.copyFileSync(pathB.join(ROOT, 'scripts', rel), dst)
+    fsB.appendFileSync(infoExclude, '\nscripts/' + rel + '\n')
+  }
   fsB.mkdirSync(pathB.join(dir, '.ccg', 'reviews'), { recursive: true })
   return dir
 }
@@ -777,17 +797,23 @@ test("入口参数不得静默忽略：未知旗标与缺值一律 rc=2", () => 
 
 test("验证层必须把覆盖转发给驱动，且只在真的覆盖过时转发（默认路径保持逐字不变）", () => {
   const sh = fs.readFileSync(SCRIPT, "utf8")
-  assert.match(sh, /exec node "\$DRIVER" --sha "\$SHA" --proposer "\$RB_PROPOSER" --critic "\$RB_CRITIC"/,
-    "验证层 exec 处必须逐个引用地带上覆盖参数，否则 --critic 到入口就断了")
+  // 2026-10-22 起真跑出口不再是 `exec node "$DRIVER" …`（exec 会进程替换，写在它之后的写回
+  // 步骤永远跑不到）。判据的**语义没变**：转发给驱动的覆盖参数必须逐值加引号。
+  assert.match(sh, /run_driver_with_writeback --sha "\$SHA" --proposer "\$RB_PROPOSER" --critic "\$RB_CRITIC"/,
+    "验证层真跑出口必须逐个引用地带上覆盖参数，否则 --critic 到入口就断了")
+  // 函数体这一格是上一条的**对偶**：调用点加了引号、函数体若把 "$@" 退化成 $@，
+  // 带空格的后端名仍会被词法拆分，上一条照样绿 —— 所以两条都要锁。
+  assert.match(sh, /node "\$DRIVER" "\$@"/, "出口函数必须把参数整体（且带引号）交给驱动")
+  assert.doesNotMatch(sh, /\$DRIVER" \$@/, "不得无引号展开 $@（那会把逐值加引号的全部收益归零）")
   assert.doesNotMatch(sh, /BACKEND_ARGS/,
     "不得再把覆盖参数拼成一个无引号展开的串（QM-6 外部评审 Critical：那样安全性只押在字符集正则上，"
     + "正则被放宽一格就直接打开词法拆分窗口，而放宽正则本身不会被任何测试问起）")
   // 默认不转发这一格是**设计**而不是遗漏：把本仓默认值钉进命令行等于再造一个真源，
   // 上游改默认时这里会静默覆盖它。所以必须有一条锁同时证明"只在覆盖时加"。
   // 转发必须**只在覆盖时**发生：默认命令行保持与历史逐字相同，既不把本仓默认值钉成
-  // 第二真源，也让任何按旧命令行写的锁继续成立。判据按分支结构数一遍（两条 exec 各一份）。
+  // 第二真源，也让任何按旧命令行写的锁继续成立。判据按分支结构数一遍（两条真跑出口各一份）。
   assert.match(sh, /if \[ -n "\$RB_OVERRIDE_NOTE" \]; then\r?\n\s*say "→ 已向后端请求覆盖/,
-    "覆盖参数的 exec 分支必须由 RB_OVERRIDE_NOTE 门控（默认路径不得带上参数）")
+    "覆盖参数的真跑出口必须由 RB_OVERRIDE_NOTE 门控（默认路径不得带上参数）")
 })
 
 test("--check-deps 的后端解析不得依赖 node（它是「node 本身坏了」时的诊断入口）", () => {
@@ -931,21 +957,44 @@ function runReviewRealB(dir, args) {
   return { rc: r.status, out: String(r.stdout || "") + String(r.stderr || "") };
 }
 
-test("回写接线锁：覆盖分支必须在 exec 之前调 node 回写，dry-run 分支不得调（预览不改产物）", () => {
+test("回写接线锁：覆盖分支必须在真跑出口之前调 node 回写，dry-run 分支不得调（预览不改产物）", () => {
   const sh = fsB.readFileSync(pathB.join(ROOT, "scripts", "deep-review.sh"), "utf8");
   const wb = sh.indexOf("--record-request");
   assert.ok(wb > 0, "入口里找不到回写调用 —— 锚点漂移，本锁会退化成恒真");
-  const execReal = sh.indexOf('exec node "$DRIVER" --sha "$SHA" --proposer');
-  assert.ok(execReal > 0, "找不到覆盖分支的真跑 exec");
-  assert.ok(wb < execReal, "回写必须早于把控制权交给驱动（exec 之后这条永远跑不到）");
-  assert.ok(sh.indexOf('exit 2', wb) < execReal, "回写失败必须在 exec 之前早退");
+  const execReal = sh.indexOf('run_driver_with_writeback --sha "$SHA" --proposer');
+  assert.ok(execReal > 0, "找不到覆盖分支的真跑出口");
+  assert.ok(wb < execReal, "后端请求值必须早于把控制权交给驱动就已写进记录（排在之后这条永远跑不到）");
+  assert.ok(sh.indexOf('exit 2', wb) < execReal, "回写失败必须在真跑出口之前早退");
   const dryStart = sh.indexOf('if [ "$DRY" -eq 1 ]; then');
   const dryEnd = sh.indexOf('exec node "$DRIVER" --dry-run --sha "$SHA" --proposer');
   assert.ok(dryStart > 0 && dryEnd > dryStart, "找不到 dry-run 的覆盖 exec");
   assert.ok(!sh.slice(dryStart, dryEnd).includes("--record-request"),
     "dry-run 不得回写 —— 预览的职责是打印将要做什么，不该改判定产物");
+  assert.ok(!sh.slice(dryStart, dryEnd).includes("ccg-review-writeback"),
+    "dry-run 也不得引入收口写回（tasks 2.1：预览不该产生产物）");
   assert.match(sh.slice(dryStart, dryEnd), /不回写/,
     "dry-run 必须**说出来**它没回写，否则读者会以为记录里的后端已被改过");
+
+  // ★ 本片新增的承重顺序：收口写回（tier/evidence）必须夹在「驱动已返回」与「exit」之间。
+  //   行为锁在 scripts/deep-review-entry-rc.test.js（把写回挪到 exit 之后 ⇒ 那批必红）；
+  //   这里只是把同一件事按**位置**再钉一遍，好在红的时候直接点名是哪一格漂了。
+  const fnStart = sh.indexOf('run_driver_with_writeback() {');
+  assert.ok(fnStart > 0, "找不到真跑出口函数 —— 锚点漂移，本锁会退化成恒真");
+  const fnBody = sh.slice(fnStart, sh.indexOf('\n}', fnStart));
+  assert.ok(fnBody.length > 40, "出口函数体读出来是空的 —— 判据失明，不得读成「顺序正确」");
+  const iCall = fnBody.indexOf('node "$DRIVER" "$@"');
+  const iWb = fnBody.indexOf('ccg-review-writeback.js');
+  const iExit = fnBody.indexOf('exit "$_wb_rc"');
+  assert.ok(iCall >= 0 && iWb > iCall && iExit > iWb,
+    `收口写回必须夹在驱动调用与 exit 之间（实得 call=${iCall} wb=${iWb} exit=${iExit}）`);
+  assert.match(fnBody, /_wb_rc=\$\?/, "驱动的 rc 必须在调用之后立刻捕获，不得被后续命令覆盖");
+  // ★ 外部深审 round 2 i1（Critical）的**位置**锁：④ 的两半（字节哈希 + 语义指纹）都必须在
+  //   调驱动**之前**取好，并都透传给写回器。只给一半时写回器现在会 fail-closed（before-state-missing），
+  //   但"少传一半"这种退化必须在这里点名，而不是等到评审跑完发现 tier 没写再回头查。
+  assert.ok(fnBody.includes('--before-sha256="$_wb_before"'), "字节哈希必须透传");
+  assert.ok(fnBody.includes('--before-fingerprint="$_wb_before_fp"'), "语义指纹必须透传（少它就是 i1 那条缺陷的形状）");
+  const iFpTake = fnBody.indexOf('--print-fingerprint=')
+  assert.ok(iFpTake >= 0 && iFpTake < iCall, "动手前的语义指纹必须在调驱动之前取")
 });
 
 descB("评审时换后端：入口必须把请求值写进判定记录，且驱动看到的已是覆盖值", () => {
@@ -1035,3 +1084,38 @@ descB("默认路径（没覆盖）一个字节都不碰记录：回写只在覆�
     fsB.rmSync(fx.dir, { recursive: true, force: true });
   }
 });
+
+/**
+ * 外部深审 round 2 的 i3：`ENTRY_WRITEBACK_CLOSURE_B` 是一份**手抄**的 require 闭包，
+ * 而它自己的职责正是"让夹具与生产同形"——手抄清单与真实 require 图不同步时，这把同形锁
+ * 本身就是那个失真点（新增一个依赖 ⇒ 夹具缺文件 ⇒ 生产路径又被 `|| say` 兜成一句告警而全绿）。
+ * 所以这里不许手抄：从被登记文件的**实际 require 语句**推出闭包，逐项要求它已被登记。
+ */
+test("i3 闭包完整性锁：夹具登记的 require 清单必须由真实 require 图推出，不得手抄", () => {
+  const pathMod = require('node:path')
+  const queue = ['ccg-review-writeback.js']
+  const got = new Set()
+  const seen = new Set()
+  while (queue.length) {
+    const rel = queue.shift()
+    if (seen.has(rel)) continue
+    seen.add(rel)
+    const abs = pathMod.join(ROOT, 'scripts', rel)
+    if (!fsB.existsSync(abs)) continue // 交给下面的一致性断言去报缺文件
+    const src = fsB.readFileSync(abs, 'utf8')
+    // 只收**仓内相对** require；node: 内置与第三方不在本入口的复制域内
+    const re = /require\(\s*['"](\.[^'"]+)['"]\s*\)/g
+    let m
+    while ((m = re.exec(src)) !== null) {
+      const depRel = pathMod.posix.normalize(pathMod.posix.join(pathMod.posix.dirname(rel), m[1]))
+      got.add(depRel)
+      queue.push(depRel)
+    }
+  }
+  const declared = new Set(ENTRY_WRITEBACK_CLOSURE_B.filter((r) => r !== 'deep-review.sh' && r !== 'ccg-review-backends.list'))
+  const missing = [...got].filter((r) => !declared.has(r) && !fsB.existsSync(pathMod.join(ROOT, 'scripts', r)) === false)
+  assert.deepStrictEqual(missing, [],
+    '夹具没登记写回器真实 require 到的文件 ⇒ 真跑时那一步会 Cannot find module 并被出口的 || say 吞成一句告警：' + JSON.stringify(missing))
+  assert.ok(got.size >= 4, `推出来的闭包规模异常（实得 ${got.size}）—— require 解析退化，本锁会空转`)
+  console.log('[ENTRY-CLOSURE] 真实 require 闭包=' + [...got].sort().join(','))
+})
