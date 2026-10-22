@@ -1,7 +1,4 @@
 {
-  "apps/desktop/src/components/PlatformIcon.vue": {
-    "reason": "阶段 5.3 首版基线（2026-10-19 实测：全仓生产面零引用，唯一命中在它自己的测试里）。平台图标当前由 platformStore.getPlatformIcon/内联 <img> 承载，本组件是 audit-6 记录的「建好未接线」同族第 5 例。处置归属阶段 3/4 的图标收敛批次（要么接上、要么连测试一起删），不得留在本门禁里长期豁免。"
-  },
   "apps/desktop/src/components/StaggeredList.vue": {
     "reason": "阶段 5.3 首版基线（2026-10-19 实测零生产引用）。audit-6 原始四例之一，列表入场动效改由 CSS 承担；终局是删除该组件与其测试，不是补一个用它的界面。"
   },

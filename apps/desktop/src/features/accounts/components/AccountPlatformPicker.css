@@ -1,0 +1,211 @@
+/*
+ * AccountPlatformPicker 的视觉规格（自绘平台选择浮层）
+ *
+ * 为什么单独成文件：组件本体（AccountPlatformPicker.vue）承载交互与结构，
+ * 这份 CSS 承载「长什么样」，与 PRD
+ * 01-docs/PRD-ACCOUNT-PLATFORM-PICKER-UX-2026-10-21.md §4 的显示项表一一对应。
+ * 拆分的直接动因是行数门禁（check-max-lines 上限 500 行）——本仓已有同款写法
+ * （HotTopics.vue / FilmAutoPanel.vue / HotTopicsFavorites.vue 均用 <style scoped src>）。
+ *
+ * 纪律：只用 tokens.css 的权威令牌，不写颜色字面量、不写 font-size 字面量、
+ * 不用 :root / html / body 选择器（scoped 样式里写根选择器永远不生效）。
+ */
+
+/* ── 触发器（收起态）──────────────────────────────────────────────────── */
+.mp-platform-picker { position: relative; margin-bottom: var(--spacing-3, 12px); }
+.mp-platform-picker-label {
+  display: block;
+  margin-bottom: var(--spacing-1, 4px);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+.mp-platform-picker-trigger {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-default),
+              box-shadow var(--duration-fast) var(--ease-default);
+}
+.mp-platform-picker-trigger:hover:not(:disabled) { border-color: var(--color-primary); }
+.mp-platform-picker-trigger:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+.mp-platform-picker-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--color-bg-inset);
+}
+.mp-platform-picker-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-platform-picker-value.is-placeholder { color: var(--color-text-muted); }
+.mp-platform-picker-caret {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  transition: transform var(--duration-fast) var(--ease-default);
+}
+.mp-platform-picker-trigger.is-open .mp-platform-picker-caret { transform: rotate(180deg); }
+
+/* ── 浮层（展开态）────────────────────────────────────────────────────── */
+.mp-platform-picker-popup {
+  z-index: 2100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-card);
+  box-shadow: var(--shadow-lg);
+}
+
+/* 搜索区 */
+.mp-platform-picker-search {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+.mp-platform-picker-search-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--color-text-muted);
+}
+.mp-platform-picker-search input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-inset);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  outline: none;
+}
+.mp-platform-picker-search input::placeholder { color: var(--color-text-muted); }
+/* 焦点指示用「主色边框 + 14% 柔光环」，与 UiSelect 同口径。
+   不用 outline：描边叠在边框上会变成一圈粗重的双层紫环，在浮层里显得刺眼。 */
+.mp-platform-picker-search input:focus {
+  border-color: var(--color-primary);
+  background: var(--color-bg-card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent);
+  outline: none;
+}
+.mp-platform-picker-search-clear {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+.mp-platform-picker-search-clear:hover {
+  background: var(--color-bg-inset);
+  color: var(--color-text-primary);
+}
+
+/* 选项列表 */
+.mp-platform-picker-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+.mp-platform-picker-group-title {
+  padding: 6px 8px 4px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+.mp-platform-picker-option {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2, 8px);
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.mp-platform-picker-option.is-active { background: var(--color-bg-inset); }
+.mp-platform-picker-option.is-selected {
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  color: var(--color-primary);
+}
+.mp-platform-picker-option:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+.mp-platform-picker-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-platform-picker-option-check {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--color-primary);
+}
+
+/* 空态 */
+.mp-platform-picker-empty {
+  margin: 0;
+  padding: 18px 12px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}
+
+/* 底部快捷键提示 */
+.mp-platform-picker-footer {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+/* 进入 / 离场动效 */
+.mp-platform-picker-pop-enter-active,
+.mp-platform-picker-pop-leave-active {
+  transition: opacity var(--duration-fast) var(--ease-default),
+              transform var(--duration-fast) var(--ease-default);
+}
+.mp-platform-picker-pop-enter-from,
+.mp-platform-picker-pop-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}

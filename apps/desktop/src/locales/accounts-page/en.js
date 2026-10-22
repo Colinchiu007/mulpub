@@ -47,6 +47,21 @@ export default {
     addAccount: 'Add Account',
     loginMethod: 'Login method',
     selectPlatformLabel: 'Select platform',
+    // Platform picker (self-drawn popup): group names and a11y labels must be
+    // translatable — the platform directory category is a structural key only.
+    platformPicker: {
+      searchPlaceholder: 'Search platforms',
+      emptyResult: 'No matching platform',
+      emptyPlatforms: 'No platforms available',
+      groupDomestic: 'Domestic',
+      groupInternational: 'International',
+      triggerAria: 'Select platform',
+      searchAria: 'Search platforms by name',
+      clearSearchAria: 'Clear search',
+      listAria: 'Platform list',
+      optionAria: 'Select {platform}',
+      hint: '↑↓ to move · Enter to select · Esc to close',
+    },
     browserLogin: 'Browser login',
     qrLogin: 'QR login',
     qrUnavailable: 'QR login is not available for this platform',

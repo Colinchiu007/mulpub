@@ -47,6 +47,21 @@ export default {
     addAccount: '添加账号',
     loginMethod: '登录方式',
     selectPlatformLabel: '选择平台',
+    // 平台选择器（自绘浮层）：分组名与无障碍文案都必须可翻译，
+    // 分类值（中文/海外）只作结构键用，不直接当标签。
+    platformPicker: {
+      searchPlaceholder: '搜索平台',
+      emptyResult: '未找到匹配的平台',
+      emptyPlatforms: '暂无可选平台',
+      groupDomestic: '国内平台',
+      groupInternational: '国际平台',
+      triggerAria: '选择平台',
+      searchAria: '按平台名称搜索',
+      clearSearchAria: '清空搜索',
+      listAria: '平台列表',
+      optionAria: '选择平台 {platform}',
+      hint: '↑↓ 选择 · Enter 确认 · Esc 关闭',
+    },
     browserLogin: '网页登录',
     qrLogin: '扫码登录',
     qrUnavailable: '当前平台暂不支持扫码登录',
