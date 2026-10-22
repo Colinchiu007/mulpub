@@ -898,3 +898,36 @@ test('pickRequiredContexts：两套机制的并集，取不到时不得返回空
     assert.deepEqual([...got], ['build']);
   });
 });
+// ——— 外部评审（2026-10-22）抓到的两条真缺陷的回归锁 ———
+test('required 过滤：矩阵分片名 + this 绑定（两条都是"单测全绿、运行时才炸"的形态）', async (t) => {
+  const M = require('./check-main-red.js');
+
+  await t.test('matchesRequired：容忍 matrix 的 (1/2) 后缀', () => {
+    const req = new Set(['QG Desktop Shards', 'build']);
+    assert.equal(M.matchesRequired('QG Desktop Shards (1/2)', req), true, '分片名必须匹配到基础名');
+    assert.equal(M.matchesRequired('QG Desktop Shards (2/2)', req), true);
+    assert.equal(M.matchesRequired('QG Desktop Shards', req), true);
+    assert.equal(M.matchesRequired('Build & Release', req), false, '非 required 不得匹配（宽松匹配会把噪声放回来）');
+  });
+
+  await t.test('matchesRequired：required 为 null 时一律不过滤', () => {
+    assert.equal(M.matchesRequired('任意作业', null), true);
+  });
+
+  await t.test('baseJobName：只剥尾部 (n/m)，不从中间剥', () => {
+    assert.equal(M.baseJobName('QG Desktop Shards (1/2)'), 'QG Desktop Shards');
+    assert.equal(M.baseJobName('shard (1/2) of 3'), 'shard (1/2) of 3', '不在尾部就不该剥');
+    assert.equal(M.baseJobName(''), '');
+  });
+
+  // ⛔ 结构锁：`mainRowsAt` 必须是**方法简写**。写成箭头函数时 `this` 为 undefined，
+  //    调到 `this.requiredContexts()` 直接 TypeError —— 而 `node -e "require(...)"` 只加载不执行，
+  //    单元测试也碰不到那一行，于是"语法 OK + 单测全绿"与"运行必崩"可以同时成立。
+  //    这条锁断言的是**源码形态**，因为只有形态能提前拦住它。
+  await t.test('mainRowsAt 不得改回箭头函数（this 绑定结构锁）', () => {
+    const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'check-main-red.js'), 'utf8');
+    assert.match(src, /mainRowsAt\s*\(\s*sha\s*\)\s*\{/, 'mainRowsAt 必须是方法简写');
+    assert.doesNotMatch(src, /mainRowsAt\s*:\s*\([^)]*\)\s*=>/, '不得写成箭头函数：箭头没有自己的 this');
+    assert.match(src, /this\.requiredContexts\(\)/, '确实在 mainRowsAt 里调用了 this.requiredContexts()（否则这条锁失去意义）');
+  });
+});

@@ -251,6 +251,27 @@ function pickRequiredContexts (protectionJson, rulesetDetails) {
   return names
 }
 
+/** 去掉 GitHub matrix 的 `(1/2)` 分片后缀，得到基础作业名（纯函数，可单测）。 */
+function baseJobName (name) {
+  return String(name == null ? '' : name).replace(/\s*\(\d+\/\d+\)\s*$/, '').trim()
+}
+
+/**
+ * 某个作业名是否属于 required 集合（纯函数，可单测）。
+ *
+ * 为什么要容忍 `(1/2)`：GitHub 把 matrix 作业报成 `QG Desktop Shards (1/2)`，
+ * 而 required context 可能只写 `QG Desktop Shards`。只做**逐字相等**匹配时，分片作业会被滤掉 ——
+ * 若那条恰好是红的，就等于把红滤成绿（外部评审 Critical）。
+ * 反过来，`required` 为空/取不到时一律返回 true（不过滤）。
+ */
+function matchesRequired (name, required) {
+  if (!required) return true
+  const full = String(name == null ? '' : name).trim()
+  if (!full) return false
+  if (required.has(full)) return true
+  const base = baseJobName(full)
+  return base !== full && required.has(base)
+}
 /** 默认取数：全部走 gh，失败即抛（由 main 转成退出码 4，不静默返回空数组） */
 function createGhCollector (repo) {
   const run = (args) => {
@@ -352,7 +373,11 @@ function createGhCollector (repo) {
      * ⛔ 但**不是「同一个 API」**（评审 i2 指出的自相矛盾处）：主干侧读 `actions/runs`，
      *    PR 侧读 `commits/<sha>/check-runs`。一致的是**粒度与名字集合**，不是取数端点。
      */
-    mainRowsAt: (sha) => {
+    mainRowsAt (sha) {
+      // ⛔ 必须是**方法简写**，不能是箭头函数：下面要用 `this.requiredContexts()`。
+      //    箭头函数没有自己的 this（模块级 this 为 undefined）⇒ 实测
+      //    `Cannot read properties of undefined (reading 'requiredContexts')`。
+      //    这个错误 `node -e "require(...)"` 查不出来（只加载不执行），只有真跑到这一行才暴露。
       // ⛔ 按 sha 缓存（CCG 深度评审 i2，Critical）：稳定窗最多尝试 3 轮，每轮都会重算
       //    mainBaseline（沿链最多 maxBack 条），而每条 mainRowsAt 是 1 次 actions/runs +
       //    N 次 actions/runs/{id}/jobs 的 N+1 请求。不缓存时 3 轮 × 5 条 × (1+N) 很容易
@@ -375,7 +400,14 @@ function createGhCollector (repo) {
       // 只保留 required 检查参与「是否已完整跑完」的判定（见 pickRequiredContexts 的说明）。
       // required 为 null（取不到清单）时不过滤，维持原口径 —— 宁可慢，不可误判为绿。
       const required = this.requiredContexts()
-      const scoped = required ? rows.filter((r) => required.has(String((r && r.name) || '').trim())) : rows
+      let scoped = required ? rows.filter((r) => matchesRequired(r && r.name, required)) : rows
+      // ⛔ 空交集保护（外部评审 Critical）：required 非空、却一条作业都没匹配上 ⇒ 名字层面对不齐
+      //    （required 可能写的是汇总名，而作业名带 `(1/2)` 分片后缀）。此时空数组**不得**被当成
+      //    「没有检查 / 已完成」—— 那正好是「把对不齐读成绿」。退回全部作业（旧口径，更严）并出声。
+      if (required && rows.length > 0 && scoped.length === 0) {
+        console.log('MAIN-RED INFO 主干侧 required 清单与作业名无交集，回退为全部作业（不把「对不齐」读成「没有检查」）')
+        scoped = rows
+      }
       rowsCache.set(sha, scoped)
       return scoped
     },
@@ -544,4 +576,4 @@ if (require.main === module) {
 
 // parseCheckRunLines 必须可单独被测：它是「宿主输出 → 判据输入」那一层的唯一入口，
 // 藏在一个需要真 gh 的闭包里就只能靠集成跑，而那类跑一次要几十秒、还依赖模型额度。
-module.exports = { main, run, parseArgs, createGhCollector, parseCheckRunLines, parseJsonLines, isLaterRun, pickRequiredContexts, selectMainRuns }
+module.exports = { main, run, parseArgs, createGhCollector, parseCheckRunLines, parseJsonLines, isLaterRun, pickRequiredContexts, matchesRequired, baseJobName, selectMainRuns }
