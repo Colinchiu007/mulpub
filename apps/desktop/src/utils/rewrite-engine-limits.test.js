@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 import {
   REWRITE_ENGINE_MAX_INPUT_CHARS,
   REWRITE_ENGINE_MAX_OUTPUT_CHARS,
+  LENGTH_TARGET_CHARS,
+  buildRewriteLengthOptions,
   countRewriteChars,
   prepareRewriteInput,
   shouldSegmentRewrite,
@@ -12,6 +14,8 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ENGINE_CORE = resolve(HERE, '../../../../packages/rewrite-engine/src/rewrite-engine-core.js')
+// Python 侧长度三档真源（长度三档只在 Python 聚合后端有定义）
+const PY_SERVICE = resolve(HERE, '../../../../packages/python-backend/src/multi_publish/aggregation/service.py')
 
 describe('rewrite-engine-limits — 与引擎上限的结构锁', () => {
   it('渲染层常量 === 引擎 MAX_INPUT_CHARS，且分流判据消费该常量（防两处漂移）', () => {
@@ -37,8 +41,7 @@ describe('rewrite-engine-limits — 与引擎上限的结构锁', () => {
   })
 })
 
-describe('countRewriteChars — Unicode 码点口径（与引擎 [...content].length 一致）', () => {
-  it('BMP 字符按 1 计', () => {
+describe('countRewriteChars — Unicode 码点口径（与引擎 [...content].length 一致）', () => {  it('BMP 字符按 1 计', () => {
     expect(countRewriteChars('中文abc')).toBe(5)
   })
 
@@ -101,5 +104,60 @@ describe('shouldSegmentRewrite — 分段提示判据', () => {
     expect(shouldSegmentRewrite('')).toBe(false)
     expect(shouldSegmentRewrite(null)).toBe(false)
     expect(shouldSegmentRewrite('短文')).toBe(false)
+  })
+})
+
+describe('LENGTH_TARGET_CHARS — 长度三档目标字数的跨语言结构锁（fix-length-compress-target-800）', () => {
+  // 为什么需要这把锁：界面上的「精简（约 N 字）」与后端实际用的 target 是**两处副本**。
+  // 只改一边 ⇒ 用户看到的字数与实际产出的字数不符，且没有任何其它判据会发现。
+  it('渲染层镜像 === Python _LENGTH_RANGES 的 target（只改一边即红）', () => {
+    const source = readFileSync(PY_SERVICE, 'utf8')
+    const block = source.match(/_LENGTH_RANGES\s*=\s*\{([\s\S]*?)\n\}/)
+    expect(block, 'Python service.py 里找不到 _LENGTH_RANGES 定义').toBeTruthy()
+    const targets = {}
+    for (const m of block[1].matchAll(/"(\w+)":\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g)) {
+      targets[m[1]] = { min: Number(m[2]), max: Number(m[3]), target: Number(m[4]) }
+    }
+    // 解析必须真的拿到三档：正则失配时「解析到 0 条」也要红，不能静默通过
+    expect(Object.keys(targets).sort()).toEqual(['compress', 'expand', 'keep'])
+    for (const [name, v] of Object.entries(targets)) {
+      expect(LENGTH_TARGET_CHARS[name], `渲染层缺少 ${name} 档目标字数`).toBe(v.target)
+    }
+  })
+
+  it('三档 target 的单调关系成立（区分档位语义的唯一依据就是 target）', () => {
+    expect(LENGTH_TARGET_CHARS.compress).toBeLessThan(LENGTH_TARGET_CHARS.keep)
+    expect(LENGTH_TARGET_CHARS.keep).toBeLessThan(LENGTH_TARGET_CHARS.expand)
+  })
+})
+
+describe('buildRewriteLengthOptions — 长度下拉文案带目标字数（fix-length-compress-target-800）', () => {
+  const resolve = (key, params) => {
+    const labels = {
+      'collection.rewriteLengthKeep': '保持原文（约 {count} 字）',
+      'collection.rewriteLengthCompress': '精简（约 {count} 字）',
+      'collection.rewriteLengthExpand': '扩写（约 {count} 字）',
+    }
+    return String(labels[key] || key).replace('{count}', String(params && params.count))
+  }
+
+  it('三个选项都带上了各自的目标字数', () => {
+    const options = buildRewriteLengthOptions(resolve)
+    expect(options.map(o => o.value)).toEqual(['keep', 'compress', 'expand'])
+    expect(options[0].label).toContain('1500')
+    expect(options[1].label).toContain('800')
+    expect(options[2].label).toContain('2500')
+  })
+
+  it('文案里不得残留 {count} 占位符（漏传参数就会露出来）', () => {
+    for (const o of buildRewriteLengthOptions(resolve)) {
+      expect(o.label).not.toContain('{count}')
+    }
+  })
+
+  it('精简档的目标字数 === 镜像常量（800）', () => {
+    const compress = buildRewriteLengthOptions(resolve).find(o => o.value === 'compress')
+    expect(compress.label).toContain(String(LENGTH_TARGET_CHARS.compress))
+    expect(LENGTH_TARGET_CHARS.compress).toBe(800)
   })
 })

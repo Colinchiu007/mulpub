@@ -331,7 +331,7 @@ def test_length_ranges_mapping():
     from multi_publish.aggregation.service import _LENGTH_RANGES
 
     assert _LENGTH_RANGES["keep"] == (300, 50000, 1500)
-    assert _LENGTH_RANGES["compress"] == (100, 50000, 400)
+    assert _LENGTH_RANGES["compress"] == (100, 50000, 800)
     assert _LENGTH_RANGES["expand"] == (800, 50000, 2500)
     assert len(_LENGTH_RANGES) == 3
 

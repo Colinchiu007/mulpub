@@ -15,6 +15,47 @@ export const REWRITE_ENGINE_MAX_INPUT_CHARS = 50000
 export const REWRITE_ENGINE_MAX_OUTPUT_CHARS = 50000
 
 /**
+ * 长度三档的**目标字数**镜像（Python 侧 `multi_publish/aggregation/service.py`
+ * 的 `_LENGTH_RANGES[*].target`）。
+ *
+ * 为什么这里要再写一份：长度三档只在 Python 聚合后端有定义，渲染层不能 import 它
+ * （会把后端依赖带进 bundle）。渲染层需要它，是因为长度下拉要**把目标字数显示出来**
+ * ——用户点「精简」之前就该知道会拿到多少字，而不是点完才在结果里看到长度。
+ *
+ * 与上面的引擎上限同理，这里靠 `rewrite-engine-limits.test.js` 的**跨语言结构锁**
+ * 保证与 Python 侧一致：只改一边 ⇒ 测试红，不会让「界面写 800 字、实际产出 400 字」
+ * 这类静默失配发生。
+ */
+export const LENGTH_TARGET_CHARS = {
+  keep: 1500,
+  compress: 800,
+  expand: 2500,
+}
+
+/** 长度三档 → locale key（文案在 collection locale，带 {count} 插值目标字数） */
+const LENGTH_LABEL_KEYS = [
+  { value: 'keep', key: 'collection.rewriteLengthKeep' },
+  { value: 'compress', key: 'collection.rewriteLengthCompress' },
+  { value: 'expand', key: 'collection.rewriteLengthExpand' },
+]
+
+/**
+ * 构造长度下拉的选项（文案带目标字数）。
+ *
+ * 抽成纯函数是为了能直接单测「文案确实带上了字数、且没有残留 {count} 占位符」，
+ * 而不必 mount 整个自动流水线视图。
+ *
+ * @param {(key: string, params?: { count?: number }) => string} resolve - 文案解析函数
+ * @returns {{ value: string, label: string }[]}
+ */
+export function buildRewriteLengthOptions (resolve) {
+  return LENGTH_LABEL_KEYS.map(({ value, key }) => ({
+    value,
+    label: resolve(key, { count: LENGTH_TARGET_CHARS[value] }),
+  }))
+}
+
+/**
  * 按 Unicode 码点计数（与引擎 `[...content].length` 同口径）。
  * 不能用 String.length：emoji 等代理对会被算成 2，截断时还可能从中间劈开。
  * @param {string} content
