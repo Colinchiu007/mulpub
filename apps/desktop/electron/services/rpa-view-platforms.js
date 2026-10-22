@@ -394,7 +394,7 @@ const platformsMixin = {
           await this._setFileInput(win, article.cover_path, coverSel)
         } catch (coverError) {
           if (platform !== 'baijiahao' || !sel.cover_input || sel.cover_input.length === 0) throw coverError
-          await this._setFileInput(win, article.cover_path, sel.cover_input[0])
+          await require('./toutiao-cover').setFileViaCdp(win, article.cover_path, sel.cover_input[0]) // 纯 CDP：_setFileInput 的 JS fallback 对 file input 必抛（FileList 只读），视频号封面曾因此 Script failed to execute
         }
         await this._sleep(2000)
       } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message+' | sel='+String((sel.cover_input||[]).join(' , ')).slice(0,120)) }
