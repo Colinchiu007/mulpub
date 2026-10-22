@@ -42,9 +42,13 @@ services:
       - WECHAT_PAY_MCH_ID=${WECHAT_PAY_MCH_ID:-}
       - WECHAT_PAY_API_V3_KEY=${WECHAT_PAY_API_V3_KEY:-}
       - WECHAT_PAY_CERT_SERIAL_NO=${WECHAT_PAY_CERT_SERIAL_NO:-}
-      # 商户私钥 apiclient_key.pem 的**容器内路径**（放 ./config 下即被 bind 进容器）。
-      # 只支持文件形态：CERT_CONTENT（PEM 走环境变量）目前没有消费方，见 PRD §16.4。
+      # 商户私钥：路径（容器内，放 ./config 下即被 bind）或 PEM 全文，二选一
       - WECHAT_PAY_CERT_PATH=${WECHAT_PAY_CERT_PATH:-}
+      - WECHAT_PAY_CERT_CONTENT=${WECHAT_PAY_CERT_CONTENT:-}
+      # 平台公钥（回调验签）：路径或内容，二选一；缺它 → 付了钱拿不到权益
+      - WECHAT_PAY_PLATFORM_PUBLIC_KEY=${WECHAT_PAY_PLATFORM_PUBLIC_KEY:-}
+      - WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH=${WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH:-}
+      - WECHAT_PAY_PUBLIC_KEY_ID=${WECHAT_PAY_PUBLIC_KEY_ID:-}
       - WECHAT_PAY_NOTIFY_URL=${WECHAT_PAY_NOTIFY_URL:-}
     volumes:
       # API Key 与可选 publish-api.json 都在包内 config/ 目录读写，必须持久化到该路径。

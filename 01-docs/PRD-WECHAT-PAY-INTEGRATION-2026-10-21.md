@@ -527,7 +527,9 @@ docker compose -f packages/api-publish-engine/docker-compose.yml \
 | `WECHAT_PAY_MCH_ID` | 商户号 | 同上 |
 | `WECHAT_PAY_API_V3_KEY` | **必须 32 字符** | `PAYMENT_API_V3_KEY_INVALID` |
 | `WECHAT_PAY_CERT_SERIAL_NO` | 商户证书序列号 | `PAYMENT_CONFIG_INVALID` |
-| `WECHAT_PAY_CERT_PATH` **或** `WECHAT_PAY_CERT_CONTENT` | 二选一：私钥 `apiclient_key.pem` 的**容器内路径** / PEM 全文 | `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_CERT_PATH` **或** `WECHAT_PAY_CERT_CONTENT` | 二选一：商户私钥 `apiclient_key.pem` 的**容器内路径** / PEM 全文 | `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_PLATFORM_PUBLIC_KEY` **或** `WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH` | 二选一：微信支付公钥（裸 Base64 SPKI 或 PEM）/ 其文件路径。**回调验签用，与商户私钥同等必需** | `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_PUBLIC_KEY_ID` | 形如 `PUB_KEY_ID_…`；**可选**，配了就按它核对回调头里的 serial，对不上即 `PAYMENT_WEBHOOK_CERT_NOT_FOUND` | 不按 serial 过滤 |
 | `WECHAT_PAY_NOTIFY_URL` | **必须 HTTPS**，且与商户平台配置逐字一致 | `PAYMENT_NOTIFY_URL_HTTPS_REQUIRED` |
 
 证书文件放置（走 `CERT_PATH` 时）：`packages/api-publish-engine/config/wechat-pay/apiclient_key.pem`
@@ -590,9 +592,10 @@ PAYMENT_PROVIDER=none   # 然后重启服务
 效果：`/me/checkout` 恢复 503 `PAYMENT_PROVIDER_UNAVAILABLE`，前端回到「支付通道暂未开放」；
 已产生的 `pending` 订单不会被清理（它们永远不会 `paid`，无副作用）；已生效的订阅不受影响。
 
-## 16. ⛔ 已知阻断缺口：provider 从未被构造（2026-10-22 发现，**未修**）
+## 16. ✅ 已修复：provider 从未被构造（2026-10-22 发现并当日修复）
 
 > 本节记录的是一条**会让第 15 节全部白做**的缺口。它不属于"配置没做好"，是**代码没接上**。
+> **修复见 §16.6**；16.1~16.3 保留为问题现场，供后人理解为什么 111 条测试全绿也发现不了。
 
 ### 16.1 事实（可在当前主干逐行核对）
 
@@ -639,6 +642,42 @@ return new SubscriptionService({ repository, paymentProvider: new WeChatNativePr
    ⇒ 断言 `subscriptionService.paymentProvider !== null`；`none` ⇒ `null`。
    这条测试是唯一能防住本节的形态 —— 它不注入 provider，而是走真实组装路径。
 
+### 16.6 修复（同日，PR `wechat-pay-provider-wiring`）
+
+| 位点 | 改动 |
+|---|---|
+| `src/auth/payment-providers/wechat-native-factory.js`（新增） | `readPem`（内容/路径二选一）、`buildAuthorizationHeader`（微信 APIv3 签名）、`createWeChatNativeProvider(env, deps)` |
+| `src/auth/logto-runtime.js` | 构造 provider 并传给 `SubscriptionService({ paymentProvider })`；`options.paymentProvider !== undefined` 保留测试可控性 |
+| `src/auth/production-config.js` | 平台公钥纳入 `wechat_native` 必填（此前只校验商户私钥） |
+| `.env.example` / `docker-compose.yml` | 新增 `WECHAT_PAY_PLATFORM_PUBLIC_KEY(_PATH)` / `WECHAT_PAY_PUBLIC_KEY_ID`；恢复 `WECHAT_PAY_CERT_CONTENT`（现在真的有消费方了） |
+| `test/payment-provider-factory.test.js`（新增） | 工厂单测 + **真密钥对验签** + **组装根测试** |
+
+**签名原文**（微信固定格式，五行四换行 + 末尾换行）：
+
+```
+HTTP方法\nURL路径\n时间戳\n随机串\n请求报文主体\n
+```
+
+报文主体必须与实际发出的**逐字节一致**（本仓发的是 `JSON.stringify(body)`，签名原文也用它），
+否则线上表现是 `SIGN_ERROR`、所有下单失败。
+
+**验签侧**：`certificateProvider.getBySerial(serial)` 只持有一把平台公钥；配了
+`WECHAT_PAY_PUBLIC_KEY_ID` 就按 serial 核对，对不上返回 `null` ⇒ `PAYMENT_WEBHOOK_CERT_NOT_FOUND`。
+这是刻意 fail-closed：**换公钥却没更新配置必须吵出来**，不能拿旧公钥默默验过。
+
+**为什么保留 §16.5 的"不修"判断**：那条判断说的是"不能**半接**"。本次是**一次接全**
+（下单签名 + 回调验签 + 组装根测试同时落地），因此不违背它。
+
+### 16.7 判据
+
+新增 **21 例**（`payment-provider-factory.test.js`）。变异反证两条，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 撤掉 `logto-runtime` 里的 `paymentProvider,` | **19 pass / 2 fail**，组装根用例精确变红 |
+| 签名原文去掉末尾换行 | **19 pass / 2 fail**，验签用例精确变红 |
+
+均逐字节还原 True。全量 `packages/api-publish-engine` rc=0（Vitest 47 文件 / 504 例 + node:test）。
 ### 16.5 为什么本轮不修
 
 签名与平台公钥是**安全关键路径**，且必须**一次接全**：
