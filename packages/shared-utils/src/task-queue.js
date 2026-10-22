@@ -149,6 +149,14 @@ class TaskQueue extends EventEmitter {
    * @returns {string} taskId
    */
   add (task) {
+    // 2026-10-23：身份模式下 `_isTaskOwnedByCurrentUser` 要求 task.owner_subject 等于当前 owner，
+    // 而调用方（publish:batch）从不写该字段 ⇒ 任务被恒判「非当前用户」并推回队列，
+    // 表现为：publish:batch ok 有 taskId、零执行日志、零报错、running=0（真机连续复现）。
+    // 这里在入队时补写 owner，保持「谁创建谁可见可执行」。
+    if (task && typeof task === 'object' && task.owner_subject === undefined) {
+      const currentOwner = this._getCurrentOwnerSubject()
+      if (currentOwner !== undefined) task = { ...task, owner_subject: currentOwner }
+    }
     const ownerSubject = this._getCurrentOwnerSubject()
     if (ownerSubject === null) throw new Error('任务队列无法识别当前用户')
     return this._add(task, ownerSubject)
