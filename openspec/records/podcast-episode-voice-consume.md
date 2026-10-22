@@ -9,7 +9,7 @@ date: 2026-10-21
 | 项目 | 状态 |
 |---|---|
 | 变更类型 | 运行时代码（主进程服务 + IPC 接线）+ 验收锁 |
-| 隔离 | worktree `D:\Data\projects\mp-worktrees\mp-podcast-episode-voice-consume`，分支 `podcast-episode-voice-consume`，`verify-worktree-deps.js` OK |
+| 隔离 | worktree `<仓库父目录>/mp-worktrees/mp-podcast-episode-voice-consume`（本机落点由 `git worktree list` 现取），分支 `podcast-episode-voice-consume`，`verify-worktree-deps.js` OK |
 | 单测 | 4 个文件 89 条：**87 passed / 2 failed**（那 2 条是 tracked bundle 锁，在 pristine main 同样红，非本 PR 引入，见「既有红」） |
 | QM-1 打包 | PENDING（本 PR 改 `apps/desktop/electron/`，须本地打包 + 启动 8s 三层 stderr 判定） |
 | QM-6 双模型 | PENDING |
