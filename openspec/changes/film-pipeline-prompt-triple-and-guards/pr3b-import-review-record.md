@@ -122,4 +122,62 @@ proposer=codex 修订成功（应用 20 处、9 条全部采纳）⇒ 轮 4 分�
 ⇒ 三条都不是「想不到攻击面」，而是**「某个决定没落到可断言的行为上」**——与 PR-3 记录里那句
 「文档里的『体积/数量』类断言，必须能对应到一条可执行判据」是同一个病。
 
+---
+
+## 轮 4 / 5 / 6：23 条（Critical 2 + 3 + 1），**全部成立、全部采纳**
+
+> 逐轮只列**Critical 与新引入的机制**（Warning/Info 的清单在方案里已逐条落地，见 §二 S 表与 §六 判据表）。
+
+### 轮 4（8 条 / Critical 2）—— 两条 Critical 都指向「校验没写死」
+
+| # | 级别/维度 | 意见 | 处置 | 落点 |
+|---|-----------|------|------|------|
+| i1 | Critical / security | S9 只用 `path.normalize`，**未对 stagingDir 做 resolve 锚定**；Windows 下绝对路径/驱动盘差异拦不住 | **成立·已改**：S9 改为 `path.isAbsolute(rel)` ⇒ 拒 + **`core/ipc-security.js` 已有的 `isPathInside(stagingRoot, path.resolve(stagingRoot, rel))`**（复用，不另写前缀比较；`path.relative` 口径天然处理分隔符归一化） | S9 |
+| i2 | Critical / feasibility | 「导入进行中」标记只在**内存** ⇒ 主进程重启/服务重建时丢失，可能静默回落随包版 | **成立·已改**：标记 = 内存标志 **+ `userData/.import-lock` 落盘文件**（service 初始化时读它），删标记时同步删文件 | S11/S12 |
+| i3 | Warning / consistency | 判据表混标来源、编号与文字不一致 | **成立·已改**：判据拆 **A 组（原 4 条）/ B 组（新增 12 条）** | §六 |
+| i4 | Warning / feasibility | dialog 归 IPC 还是 service 未定 | **成立·已改**：写死「`dialog` 在 **IPC 层**；service 只收 kitDir 字符串，不碰 Electron UI 原语」 | §一 架构边界 |
+| i5 | Warning / security | 白名单未限制**文件类型**（`exe`/`bat` 也可能被拷进来） | **成立·已改**：扩展名允许集 `{json,md}` + `images/` 的 `{webp,json}`；无扩展名/其它扩展名一律拒 | S10 |
+| i6 | Warning / security | `nlink > 1` 一刀切的取舍没写明 | **成立·已改**：`SCHEMA.md` 写明「**一律拒绝**是设计选择（不做跨目录 inode/dev 对比）」 | §四 取舍② |
+| i7 | Info / completeness | `images/` 无消费方未在代码层标注 | **成立·已改**：`SCHEMA.md` + `kit-import.js` 注释显式写「`images/` 目前无消费方」，并留 **TODO(images-consumption)** 指向本文件 | §四、§七 |
+| i8 | Info / clarity | 上限常量只在测试里出现 | **成立·已改**：常量在 `kit-import.js` 顶部**导出**，测试与 `SCHEMA.md` 同名导入断言（数值只在代码里存在一次） | S14 |
+
+### 轮 5（8 条 / Critical 3）
+
+| # | 级别/维度 | 意见 | 处置 | 落点 |
+|---|-----------|------|------|------|
+| i1 | Critical / security | 硬链判据 `stats.nlink > 1` 未区分 `lstat`/`stat`：`lstat` 对软链返回**链接本身**的 stat（nlink 恒 1）⇒ 判不出目标的硬链 | **成立·已改**：**软链用 `lstat` 判、硬链用 `stat`（跟随）取目标 inode 的 nlink**；并写明「同目录内的合法硬链也一律拒（设计选择）」 | S2 |
+| i2 | Critical / consistency | `.import-lock` 与 `.bak` 同生命周期，但 ⑤ 删锁、⑥ 才删 `.bak` ⇒ 崩在 ⑤-⑥ 间时 `.bak` 在、锁已删 | **成立·已改**：**锁最后删**（顺序改为 ⑤ 删 `.bak` → ⑥ 删锁）⇒ 崩在 ⑤-⑥ 间时锁仍在，状态可辨 | §二、S12 |
+| i3 | Critical / security | 回滚只覆盖 ③ 之后；两遍扫描/拷贝中断时 **staging 残留**未定义 | **成立·已改**：**任何异常 ⇒ 服务层 `finally` 递归删 staging** ⇒ 磁盘上不留半份 staging | §二 回滚分支 |
+| i4 | Warning / completeness | `images-manifest.json` 与实际文件是否一一对应未定义 | **成立·已改**：`SCHEMA.md` 写「manifest 的键必须与 `images/` 内文件**一一对应**（多/少都拒）」 | §四 |
+| i5 | Warning / feasibility | `SCHEMA.md` 如何引用 `MAX_KIT_*` 未说明 | **成立·已改**：`SCHEMA.md` 写「常量的唯一来源是 `kit-import.js` 的导出」，测试同名导入断言 | S14 |
+| i6 | Warning / security | `path.resolve` 对绝对路径会**忽略** stagingRoot ⇒ 两步重复、不是纵深防御 | **成立·已改**：写死**两步互补** —— 绝对路径在**第一步**就被拒，**不进入**第二步 | S9 |
+| i7 | Warning / consistency | 审计日志的路径/格式/保留策略未定义 | **成立·已改**：新增 **S17 审计契约**（文件名、字段、写入时机、轮转条件） | S17 |
+| i8 | Info / clarity | 取消的清理语义未定义 | **成立·已改**：取消 ⇒ `{cancelled:true, reason:'CANCELLED'}`，**不写、不清缓存、不写审计** | §一 |
+
+### 轮 6（7 条 / Critical 1）—— **开始收敛**（条数 9→8→7，Critical 3→2→1）
+
+| # | 级别/维度 | 意见 | 处置 | 落点 |
+|---|-----------|------|------|------|
+| i1 | Critical / consistency | 我把顺序改成「⑤ 删 .bak → ⑥ 删锁」，却**忘了同步 S15** ⇒ S15 描述的「⑤-⑥ 间 .bak 残留」**状态不可达** | **成立·已改**（**自己引入的不一致**）：S15 改为**两种残留状态** —— ① ⑤ 失败（`.bak` 仍在 = 旧 kit，`film-kit` 已是新的 ⇒ 可安全删）；② ⑤ 成功、⑥ 前崩（`.bak` 已删、只剩锁 ⇒ 只需删锁） | S15 |
+| i2 | Warning / feasibility | dialog 的异步与取消后的控制流未写 | **成立·已改**：写明 IPC 层 `await` 对话框 + 取消即返回 | §一 |
+| i3 | Warning / security | 「窗口级写限制另开切片」只在方案里 | **成立·已改**：`SCHEMA.md` 明示「本批只做 `withSenderCheck` + 审计，**不**假装已有视图级授权」 | §四 取舍③ |
+| i4 | Warning / security | 同目录硬链也拒这件事没在 S2 里点明 | **成立·已改**：S2 补「同目录内的合法硬链也一律拒 —— 设计选择」 | S2 |
+| i5 | Info / completeness | `images/` 无消费方没设**追踪机制** | **成立·已改**：`kit-import.js` 头部留 **TODO(images-consumption)** 指向本文件 | §四、§七 |
+| i6 | Info / clarity | 审计日志的**轮转条件**未定义 | **成立·已改**：单文件追加；**> 10,000 行或 > 10 MB 时手动轮转** | S17 |
+| i7 | Info / feasibility | **已存在**的 `userData/film-kit` 超限怎么办没说 | **成立·已改**：**祖父条款** —— 已存在的目录**不受**新上限约束（超限也不拦、不自动清理），新限额只约束**新导入** | §四 |
+
+**累计**：第 1-6 轮共 **48 条**意见，**全部成立、全部采纳、零驳回**。
+
+## 两条实测规律（本轮最有价值的产出）
+
+1. **两个 proposer 都不适合「让引擎自动收敛」**：
+   `proposer=codex` 能跑通但**把方案改差**（7→5、6→5，两次都触发引擎回滚）；
+   `proposer=opencode` 是**输入太长进不去**（7,800 字符上限，而「方案 + 意见 + 指令」至少 12,000）。
+   ⇒ 收敛只能靠**作者把方案写对**；迭代方式：用默认后端跑（opencode 机械失败 ⇒ **不改文件 ⇒ 不回退**），
+   逐轮把 critic 的轮 1 意见**自己外科式落地**，再跑下一轮。
+2. **方案越写越长 ⇒ critic 越找越多**（每修一条就要加一段说明 ⇒ 文本自己长大 ⇒ 同一事实写多处的机会不随轮次减少）。
+   ⇒ 处置：**边落实边压缩** —— 10,197 字符 → 7,807（合并 S 表与判据表的重复列、删元说明），
+   压缩后 critic 的条数立刻从 9 降到 8、再降到 7。
+
+
 
