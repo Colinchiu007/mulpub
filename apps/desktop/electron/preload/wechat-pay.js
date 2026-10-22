@@ -14,6 +14,7 @@ function createWeChatPayApi (ipcRenderer) {
   return {
     wechatPayCreateOrder: (payload) => ipcRenderer.invoke('wechat-pay:create-order', payload),
     wechatPayOrderStatus: (payload) => ipcRenderer.invoke('wechat-pay:order-status', payload),
+    wechatPayListOrders: () => ipcRenderer.invoke('wechat-pay:list-orders'),
   }
 }
 

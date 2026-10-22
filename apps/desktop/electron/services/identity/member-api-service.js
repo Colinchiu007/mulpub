@@ -28,6 +28,8 @@ const ME_API_PATHS = new Map([
   // 微信 Native 支付下单：只放 POST。body 白名单在 ipc-handlers/wechat-pay.js 里收窄到
   // plan/period 两个字段，金额由服务端按 plan-matrix 计算（客户端传 amount 一律丢弃）。
   ['/api/v1/me/checkout', { methods: ['POST'] }],
+  // 订单列表（会员中心「订单与账单」页）。只读；分页由服务端 limit 固定 50。
+  ['/api/v1/me/orders', { methods: ['GET'] }],
 ])
 
 /**
