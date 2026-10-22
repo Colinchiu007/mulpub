@@ -20446,4 +20446,70 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 - **不做**：不给 name 加模糊匹配/相似度判据（只把误判边界从「完全相等」挪到「足够相似」）；
   不做存量数据迁移（历史上被清掉的账号无法恢复，未受影响的存量账号在新判据下全部保留）。
 
+## 账号资料采集兜底：SPA 平台昵称/头像回落（2026-10-21，fix-account-profile-fallback）
+
+> 单一真源在 `01-docs/PRD-ACCOUNT-PROFILE-FALLBACK-2026-10-21.md`。本节只登记**产品契约**。
+
+### 一、问题（用户实测，紧随上一个修复）
+
+上一个修复让第 2 个头条号能入库了，但用户复查发现：新账号的**账号名与头像不是真实信息**
+（`account_name` 显示「今日头条」、头像空）。数据实况（`shared-user-data/backend-data/accounts.json`）：
+
+| 账号 | account_name | avatar | platform_account_id |
+|---|---|---|---|
+| 第 1 个头条号（9-07） | 观四方 | 平台默认 logo | 1342958645023752 |
+| 第 2 个头条号（10-21） | **今日头条** | **空** | **空** |
+
+### 二、根因
+
+不是采集器选择器写错，而是**采集时机早于 SPA 渲染完成**：
+
+```
+08:35:36.010  AuthView URL pattern detected login success: toutiao .../profile_v4/?is_new_connect=0
+08:35:36.362  AuthView login page finished after 56295ms        ← 页面渲染持续 56 秒
+08:35:39.029  AuthView pending session-marker evidence          ← 3 秒后自动完成触发采集
+08:35:39.029  AccountManager Saved credential store for account 45261bb5
+```
+
+`_scheduleAutoCompletion` 在登录成功判据命中后只等 **3000ms** 就 `_extractAuthData`，
+此刻头条号后台 SPA 的昵称节点还没渲染，`collectWithWebContents` 跑在空 DOM 上返回 `{}`，
+于是 `profileForCreate` 把 `account_name` 回落成 `name`（= 平台显示名）。
+
+用户随后点「保存账号」也已晚：attempt 早被 `_settleLogin` 消费并 `close()`，
+`completeLogin` 静默返回 true，那一下没有重新采集。
+
+### 三、契约
+
+**创建账号时，若 DOM 采集没拿到真昵称，用已捕获的 Cookie 调平台创作者 API 补字段。**
+
+| 字段 | DOM 命中 | DOM 未命中 |
+|---|---|---|
+| `account_name` | 保留 DOM 值 | HTTP `nickname`；仍无则保持 `name` 回落值 |
+| `platform_account_id` | 保留 DOM 值 | HTTP `platformAccountId`；仍无则为空串 |
+| `followers` | 保留 DOM 值 | HTTP `followers`；仍无则为 null |
+| `avatar` | 保留 DOM 值 | HTTP `avatar`（当前各平台 extract 均不返回，属预留）；仍无则为空串 |
+
+- **触发判据**：`profile.account_name === name`（没有真昵称）。只此一条，不附加「头像也为空」。
+- **兜底不得改变 `name`**：`name` 是 `document.title` 落盘位，只作「无真昵称」的比对基线。
+- **任何失败都不阻断账号创建**（网络错误、`supported:false`、Cookie 为空）——资料是增强信息，
+  不能把一次成功的登录保存变成失败。
+- **不为已成功采集的账号多发请求**：DOM 拿到真昵称时不调 HTTP API。
+
+### 四、交互与显示
+
+- 修复后：同平台第 2 个账号保存完，账号卡片即显示平台返回的真实昵称；头像仍可能为空
+  （当前 8 个平台的 extract 都不返回头像），头像回填依赖后续「检测登录态」时的
+  `refreshProfileFromPage`（DOM 路径）或 `refreshProfileFromHttpApi`。
+- 用户可主动点账号卡片的「检测」触发回填：`refreshProfileFromHttpApi` 走同一批 API，
+  经 `buildProfilePatch` 只下发变化字段，且 `name_source=manual` 的行不被覆盖。
+- **提示文字不变**：本次不新增/不改任何 i18n 键。
+
+### 五、回归保护
+
+`apps/desktop/electron/publishers/account-manager.test.js` 新增 4 例：
+DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底只补空位不覆盖已命中昵称、
+兜底失败不阻断创建。变异反证：摘掉 `saveCapturedAccount` 里的
+`fillProfileFromHttpApi` 调用，前两例当场变红。
+
+
 
