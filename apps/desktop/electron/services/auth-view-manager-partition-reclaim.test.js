@@ -94,6 +94,77 @@ async function flush () {
   for (let i = 0; i < 12; i += 1) await Promise.resolve()
 }
 
+describe('AuthViewManager ↔ 登录槽位（2026-10-21：同平台复用分区，缓存跨次留存）', () => {
+  it('openLogin 落到按平台复用的稳定分区目录（同一平台两次登录同一目录）', async () => {
+    const { manager } = arrange()
+    manager.openLogin('toutiao', 0)
+    await flush()
+    const partitions = __electronMock.session.fromPartition.mock.calls.map((c) => c[0])
+    expect(partitions).toContain('persist:auth-auth-toutiao-slot')
+
+    manager.close()
+    await flush()
+
+    const { manager: manager2 } = arrange()
+    manager2.openLogin('toutiao', 0)
+    await flush()
+    const partitions2 = __electronMock.session.fromPartition.mock.calls.map((c) => c[0])
+    expect(partitions2).toContain('persist:auth-auth-toutiao-slot')
+    manager2.close()
+    await flush()
+  })
+
+  it('槽位目录名不含时间戳 —— 每次登录都是同一个目录，缓存才能跨次留存', async () => {
+    const { manager } = arrange()
+    manager.openLogin('toutiao', 0)
+    await flush()
+    const slotNames = __electronMock.session.fromPartition.mock.calls
+      .map((c) => c[0])
+      .filter((p) => p.includes('toutiao'))
+    expect(slotNames.length).toBeGreaterThan(0)
+    for (const p of slotNames) {
+      expect(p).not.toMatch(/-\d{10,}$/)
+    }
+    manager.close()
+    await flush()
+  })
+
+  it('导航前先清掉槽位里的旧凭证：loadURL 必须发生在清理之后', async () => {
+    const { manager, view, session } = arrange(WECHAT_COOKIE)
+    const order = []
+    session.clearStorageData.mockImplementation(function () { order.push('wipe'); return Promise.resolve(undefined) })
+    view.webContents.loadURL.mockImplementation(function () { order.push('load'); return Promise.resolve(undefined) })
+    manager.openLogin('wechat_mp', 0)
+    await flush()
+    // 复用槽位后凭证隔离靠这一步：不清就会带着上一个账号的登录态直接进已登录页
+    expect(order).toEqual(['wipe', 'load'])
+    manager.close()
+    await flush()
+  })
+
+  it('槽位里没有旧凭证时也照样清理（隔离不靠「有没有 Cookie」判定）', async () => {
+    const { manager, view, session } = arrange([])
+    const order = []
+    session.clearStorageData.mockImplementation(function () { order.push('wipe'); return Promise.resolve(undefined) })
+    view.webContents.loadURL.mockImplementation(function () { order.push('load'); return Promise.resolve(undefined) })
+    manager.openLogin('wechat_mp', 0)
+    await flush()
+    expect(order).toEqual(['wipe', 'load'])
+    manager.close()
+    await flush()
+  })
+
+  it('清理失败不阻断登录：导航照常发生（清理是旁路）', async () => {
+    const { manager, view, session } = arrange(WECHAT_COOKIE)
+    session.clearStorageData.mockRejectedValue(new Error('wipe boom'))
+    manager.openLogin('wechat_mp', 0)
+    await flush()
+    expect(view.webContents.loadURL).toHaveBeenCalled()
+    manager.close()
+    await flush()
+  })
+})
+
 describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目录上）', () => {
   it('openLogin 开局回收上一轮遗留：非最新删除、最新与账号分区保留', async () => {
     mkPartitionDirs([
@@ -138,16 +209,23 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
   it('close() 后本次会话真正持有的 session 被清空（递错句柄等于没清）', async () => {
     const { manager, session } = arrange([])
     manager.openLogin('douyin', 0)
+    // 开局清理（登录槽位：一律清理）先落定，再看关闭时的行为
+    await flush()
     session.clearStorageData.mockClear()
     manager.close()
     await flush()
     expect(session.clearStorageData).toHaveBeenCalledTimes(1)
-    expect(session.clearCache).toHaveBeenCalledTimes(1)
+    // 登录槽位要跨多次登录存活（HTTP 缓存就在里面）⇒ 清存储但**不清缓存**。
+    // 少了这条断言，"顺手把缓存也清了"这种回退会静默通过。
+    expect(session.clearCache).not.toHaveBeenCalled()
   })
 
   it('取到凭证入库的会话不得被清空——发布链的磁盘兜底要看它', async () => {
     const { manager, session } = arrange(WECHAT_COOKIE)
     manager.openLogin('wechat_mp', 0)
+    // 开局清理（登录槽位：复用分区 ⇒ 必须先清掉上一轮的凭证）先落定，再看关闭时的行为
+    await flush()
+    session.clearStorageData.mockClear()
     await manager.completeLogin()
     await flush()
     expect(session.clearStorageData).not.toHaveBeenCalled()
@@ -156,6 +234,7 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
   it('超时终态的会话同样走回收（timeout 不是「留着不管」的出口）', async () => {
     const { manager, session } = arrange([])
     manager.openLogin('wechat_mp', 5000)
+    await flush()
     session.clearStorageData.mockClear()
     const attempt = manager._activeLoginAttempt
     manager._settleLogin(attempt, { timeout: true })
@@ -166,6 +245,7 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
   it('取消但页面里已有该平台 Cookie 的会话不得被清（C2：取消 ≠ 没有可用登录态）', async () => {
     const { manager, session } = arrange(WECHAT_COOKIE)
     manager.openLogin('wechat_mp', 0)
+    await flush()
     session.clearStorageData.mockClear()
     manager.close()
     await flush()
@@ -180,6 +260,8 @@ describe('AuthViewManager ↔ 分区回收接线（#2701，端到端落在真目
     vi.advanceTimersByTime(5)
     const bad = arrange([])
     bad.manager.openLogin('wechat_mp', 0)
+    await flush()
+    bad.session.clearStorageData.mockClear()
     bad.manager.close()
     await flush()
     expect(bad.session.clearStorageData).toHaveBeenCalledTimes(1)

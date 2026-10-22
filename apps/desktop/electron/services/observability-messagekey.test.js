@@ -37,6 +37,12 @@ const TARGET_FILES = [
   path.join(SERVICES_DIR, 'ops-center-sync.js'),
   path.join(SERVICES_DIR, 'login-network-diagnostics.js'),
   path.join(SERVICES_DIR, 'auth-partition-reclaim.js'),
+  // 登录槽位（2026-10-21）：槽位开局清的三条 notify 落在本模块（规则与清理已从
+  // auth-partition-reclaim 外移到独立模块，见 auth-login-slot.js 的头注释）。
+  path.join(SERVICES_DIR, 'auth-login-slot.js'),
+  // 刻意**不**纳入 login-network-monitor.js：它是纯判定模块（监测域清单 / 过滤面 / 匹配），
+  // 一条 notify 都没有 —— 纳入会让「该文件应有至少一个 notify 调用」这条反退化守卫
+  // 恒红（那是为「扫描域退化成空集」准备的，不是为「这里本来就不打日志」准备的）。
   // forced-update-gate（2026-10-19）：阻断门装配器（phase1 抽出，EnforceGate notify 全在此文件）
   path.join(SERVICES_DIR, 'enforce-gate-assembly.js'),
   // 断连韧性（ops-center-resilience）：快照模块纳入登记域 —— 它用的是字面量 notify。
@@ -169,6 +175,12 @@ const ALLOWED_KEYS = new Set([
   'LoginRespDiag:qr-bytes',
   'LoginRespDiag:key-endpoint-rejected',
   'LoginRespDiag:diag-self-error',
+  // 2026-10-21（login-slot-reuse-and-toutiao-diagnostics）：头条号登录期观测。
+  // slow-request = 监测域内慢请求（带耗时与阈值）；captcha-sdk-loaded = 图形验证码组件加载完成
+  // （用户看到的灰显遮罩结束的时刻）；monitored-request-failed = 监测域内请求失败。
+  'LoginRespDiag:slow-request',
+  'LoginRespDiag:captcha-sdk-loaded',
+  'LoginRespDiag:monitored-request-failed',
   'AuthReclaim:partition-readdir-failed',
   'AuthReclaim:delete-outside-root-refused',
   'AuthReclaim:partition-remove-failed',
@@ -180,6 +192,12 @@ const ALLOWED_KEYS = new Set([
   'AuthReclaim:kept-as-publish-fallback',
   'AuthReclaim:cookie-probe-failed-kept',
   'AuthReclaim:no-partition-to-reclaim',
+  // 2026-10-21：登录槽位（按平台复用的稳定分区）开局清理的三条。
+  'AuthReclaim:login-slot-wiped',
+  'AuthReclaim:login-slot-wipe-failed',
+  'AuthReclaim:login-slot-wipe-unsupported',
+  // 2026-10-21：槽位 + 调用方未显式给 captured ⇒ 登记表里那条是上一轮的证据，记 warn 点名
+  'AuthReclaim:login-slot-captured-missing',
   // phase4-events.js
   'PublishMonitor:audit-requery-cookie-resolution-failed',
   'PublishMonitor:audit-requery-skipped',
