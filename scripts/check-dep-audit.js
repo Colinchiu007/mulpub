@@ -56,9 +56,52 @@ const VALID_DECISIONS = ['upgrade-tracked', 'accepted-risk', 'not-exploitable', 
 // 否则同一个 GHSA 在两个域各命中一次会互相冒充"已登记"，且 --update 时后写的会把先写的抹掉。
 const DOMAINS = ['npm', 'npm-opscenter', 'pip'];
 
-function shellRun (cmd, args, opts = {}) {
+// 审计端点抖动时的重试间隔（毫秒）。只在默认 runner 上生效；用例注入的 runner 不走这里。
+const DEFAULT_RETRY_DELAYS = [2000, 5000];
+
+/** 同步睡眠：`spawnSync` 路径本身是同步的，重试之间要真的等一会儿才有意义。 */
+function sleepSync (ms) {
+  if (!Number.isInteger(ms) || ms <= 0) return;
   try {
-    const res = spawnSync(cmd, args, {
+    // Atomics.wait 是 Node 里唯一不进事件循环的同步睡眠；环境不支持就放弃等待，不影响判据。
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch (_) {
+    /* 忽略：等待失败不该把扫描判成失败 */
+  }
+}
+
+/**
+ * 判断 JSON 是**审计报告**还是**错误信封**。
+ *
+ * 动因（2026-10-22 实测）：`npm audit` / `pnpm audit` 在请求失败时**也把一段 JSON 打到 stdout**：
+ *
+ *   {"message":"request to https://registry.npmjs.org/-/npm/v1/security/audits/quick failed,
+ *    reason: socket hang up","error":{...}}
+ *
+ * 它完全能通过 `JSON.parse`，但没有 `vulnerabilities` / `advisories` 键 ⇒ 解析出 0 条命中 ⇒
+ * 基线里该域的所有条目被判成 `RESOLVED_STILL_BASELINED`「已不再命中（多半已升级），请 --update 清账」。
+ *
+ * 危害是**指错方向**：红文案让人去删基线，而真相是「根本没量到」；照它 `--update` 会把真实挂账清空，
+ * 门禁从此恒绿。这正是「把工具的失明读成结论」的同型。
+ *
+ * 合法的「零漏洞」报告一定带 `vulnerabilities`（npm v2）或 `advisories`（pnpm/旧版）键 ——
+ * 用「键存在」而不是「数量为 0」来区分，才不会把真的没漏洞误判成扫描失败。
+ */
+function isAuditReport (json) {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return false;
+  return Object.prototype.hasOwnProperty.call(json, 'vulnerabilities')
+    || Object.prototype.hasOwnProperty.call(json, 'advisories');
+}
+
+function shellRunOnce (cmd, args, opts = {}) {
+  try {
+    // spawn 可注入：单测要喂「错误信封」这类只能靠真实端点偶发才能拿到的输出，
+    // 而 Windows 下 shell:true 会吃掉 node -e 的引号，用子进程造假并不可靠。
+    const spawn = opts.spawn || spawnSync;
+    const res = spawn(cmd, args, {
+      // cwd 必须透传：ops-center/frontend 不在 pnpm workspace 内，它自带 package-lock.json，
+      // 必须在那个目录里跑 npm audit。丢了这行 ⇒ npm 在仓库根跑 ⇒ 拿不到报告 ⇒
+      // 该域会被当成 SCANNER_UNAVAILABLE 永久跳过（盲区，且绿色无感）。
       cwd: opts.cwd || ROOT,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
@@ -70,20 +113,47 @@ function shellRun (cmd, args, opts = {}) {
     if (start < 0) {
       return { ok: false, error: '扫描器无 JSON 输出：' + String(res.stderr || '').slice(0, 300) };
     }
+    let json;
     try {
-      return { ok: true, json: JSON.parse(out.slice(start)) };
+      json = JSON.parse(out.slice(start));
     } catch (e) {
       return { ok: false, error: 'JSON 解析失败: ' + e.message };
     }
+    if (opts.expectAuditReport && !isAuditReport(json)) {
+      const detail = typeof json.message === 'string' ? json.message : 'JSON 结构里没有 vulnerabilities/advisories';
+      return { ok: false, error: '扫描器返回的不是审计报告（多是端点不可达）：' + detail.slice(0, 300) };
+    }
+    return { ok: true, json };
   } catch (e) {
     return { ok: false, error: (e && e.message) || String(e) };
   }
 }
 
+/**
+ * 带重试的扫描器调用。
+ *
+ * 为什么重试是必需而不是锦上添花：审计端点的失败形态是 `socket hang up`（大 body 请求
+ * 在链路中途被掐断），属**瞬时**；不重试就会把一次抖动放大成一次门禁红。
+ * 重试仍失败时返回最后一次的错误，由 `runCheck` 记 `SCANNER_UNAVAILABLE`
+ * —— 该域本轮**不判**，其挂账条目也不会被误判成「已不再命中」。
+ */
+function shellRun (cmd, args, opts = {}) {
+  const attempts = Number.isInteger(opts.attempts) && opts.attempts > 0 ? opts.attempts : 1;
+  const delays = Array.isArray(opts.retryDelays) ? opts.retryDelays : DEFAULT_RETRY_DELAYS;
+  let last = { ok: false, error: 'unknown' };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) sleepSync(delays[Math.min(attempt - 1, delays.length - 1)]);
+    last = shellRunOnce(cmd, args, opts);
+    if (last.ok) return last;
+  }
+  return last;
+}
+
 /** 默认扫描器：真实调 pnpm / npm / pip-audit（用例注入假实现，避免依赖网络）。 */
 function createDefaultRunners (registry) {
   return {
-    npm: () => shellRun('pnpm', ['audit', '--prod', '--json', '--registry=' + registry]),
+    // 两个 npm 域都要 `expectAuditReport`（错误信封绝不能当空报告）+ 3 次重试（端点抖动是瞬时）。
+    npm: () => shellRun('pnpm', ['audit', '--prod', '--json', '--registry=' + registry], { expectAuditReport: true, attempts: 3 }),
     // ops-center/frontend 不在 pnpm workspace 内（pnpm-workspace.yaml 只列 apps/* 与 packages/*），
     // 它自带 package-lock.json 由 npm 管理 ⇒ 上一轮 axios 的「遗留」原文：它既不在本门禁的两个扫描域里，
     // 也没有任何 workflow 装它，于是以「看起来受门禁保护」的形态存在。这里把它真的扫进来。
@@ -91,7 +161,7 @@ function createDefaultRunners (registry) {
     // 全部落在 vitest→@vitest/mocker→undici 这条 dev 链上）。
     'npm-opscenter': () => shellRun(
       'npm', ['audit', '--omit=dev', '--json', '--registry=' + registry],
-      { cwd: path.join(ROOT, OPS_FRONTEND_REL) },
+      { cwd: path.join(ROOT, OPS_FRONTEND_REL), expectAuditReport: true, attempts: 3 },
     ),
     pip: () => shellRun('pip-audit', ['-r', PIP_REQUIREMENTS, '--format', 'json', '--progress-spinner', 'off']),
   };
@@ -640,6 +710,11 @@ if (require.main === module) process.exitCode = main();
 
 module.exports = {
   evaluate,
+  // shellRun / isAuditReport 导出仅为单测：错误信封必须被判成"不是审计报告"，
+  // 这条判据不能只靠跑真实端点来验（端点不可达时恰好才是要验的场景）。
+  shellRun,
+  shellRunOnce,
+  isAuditReport,
   PARSERS,
   patchedFromRange,
   runCheck,

@@ -1,0 +1,61 @@
+{
+  "sha": "636030118ec0b2667bbdda2e7d0b8cb3cb3fe30a",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 170 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 170,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "❌ RESOLVED_STILL_BASELINED: npm-opscenter/GHSA-68FV-2MGG-JV7Q 已不再命中（多半已升级），请 --update 清账",
+      "❌ RESOLVED_STILL_BASELINED: npm-opscenter/GHSA-G2V6-RQMX-R4W6 已不再命中（多半已升级），请 --update 清账",
+      "**危害不是「报红」，是「指错方向」**：文案让人去删基线。照它 `--update`，会把真实挂账清空，"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b2368f377dab0f0db146d6fca6399a6e0cc2cf311e3c24ce1ed4d015ad64034d",
+  "decidedAt": "2026-10-22T03:38:57.567Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
