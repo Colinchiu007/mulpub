@@ -164,6 +164,23 @@ i1 让本次修复的**兜底契约**从"loginStatus 缺失就用 valid"收窄�
 探针 A 的还原**第一次没生效**：PowerShell 正则的锚点与实际缩进不匹配，`Select-String` 显示"已还原"但文件里仍是探针形态；是全量复跑（164/164 期望值）时才发现少了 1 条绿。
 **"以为还原了"不等于"还原了"** —— 变异反证的还原步骤必须由全量复跑确认，不能由局部 grep 确认。
 
+### 8.3 自扮演闭环的出处（`self_play_resolved` 为什么可以算闭环）
+
+引擎第三档出口把状态写成 `self_play_pending`（5/5 条无 verdict），那是**公开承认未闭环**。
+本 PR 在 `.adversarial/ccg-deep-497ffb45/adjudication.json`（gitignore 的工作产物，不进主干）
+逐条填齐 prosecution / defense / verdict / rationale 后，把判定记录
+`.ccg/reviews/bef9b956….json` 的 `deepReview` 推进为：
+
+- `status = self_play_resolved`（`check-pr-exec-record.js` 的 `CLOSED_DEEP_REVIEW_STATUSES` 显式承认的第三档出口）
+- `performedBy = self-play`
+- `tier = self_play`（**不是** `external`——本轮没有真跨家族复核）
+- `closureNote` = 轮次标记 + 8 条逐条处置结论（upheld 已修 / 已补登记 / dismissed 的理由与反证）
+
+**为什么这不算冒充闭环**：`self_play_resolved` 的语义是"自扮演已裁决"，不是"外部已确认"。
+i1 属 auth 高危域，按裁决单要求仍需 claude 外部复核并填 `externalReview` 三格，本记录**如实留空**；
+PR 评论（#4236）也已单列说明这一格未取得。代码侧已修 + 有 2 条回归锁，与"评审已被外部确认解除"
+是两件事，记录里分开写。
+
 ### 8.4 登记给后续 change 的事项（由评审 i2/i5/i7 触发）
 
 1. **locales 失效键的机械判据**（i2）：建 `deprecated-keys` 登记表 + 一个「locales 中零引用键」的 CI 判据。当前 5 个键只有注释标注，无机械闸门。删键须先处理 `batchCheckAllPersistFailed`（仍被首页横幅 `useExpiredAccountsBanner.js:63` 读取）。
