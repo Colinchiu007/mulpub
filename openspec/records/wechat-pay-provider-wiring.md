@@ -99,6 +99,20 @@ assert.ok(rt.subscriptionService.paymentProvider instanceof WeChatNativeProvider
 
 它**不注入** provider，而是走真实组装路径 —— 这就是当初唯一能抓住本缺口的那条断言。
 
+## 5.5 外部评审处置（1 High 驳回 + 1 Medium 采纳）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| 1 | **High**：签名原文必须用**含域名的完整 URL**，只用 `/v3/...` 会导致 `SIGN_ERROR` | **有据驳回**。微信官方文档《请求参数里带Body参数，如何计算签名》原文：「第二步，获取请求的绝对URL，**请注意需要去除域名部分**」，示例签名串为 `POST\n/v3/pay/transactions/jsapi\n…`。**path-only 是正确的**，加域名反而会全量 SIGN_ERROR |
+| 2 | Medium：`readPem` 不校验 PEM 格式，垃圾内容要到第一次下单才以 OpenSSL 错误炸出来 | **采纳**。新增 `assertPrivateKey`（`crypto.createPrivateKey`）与 `assertPlatformKey`（X509 证书 或 SPKI 公钥，含裸 Base64），在**构造期**校验，抛 `PAYMENT_CERT_INVALID` |
+
+评审内部本身矛盾：它先报「子代理结果（PASS / 0 缺陷）与我的直接检查不一致」，然后按自己的直觉得出 BLOCK。
+这正是「不要盲信外部评审」的实例 —— 单一高置信度的错误意见，比没有意见更危险。
+
+驳回依据留档：官方文档页 `https://pay.weixin.qq.com/doc/v3/merchant/4012365336`（抓取于 2026-10-23）。
+
+**采纳项带来的判据**：新增 4 例（垃圾私钥 / 垃圾公钥 / 裸 Base64 公钥通过 / 总数 25 例）。
+
 ## 6. 仍未做
 
 | 项 | 阻塞 |

@@ -260,3 +260,23 @@ test('组装根：createLogtoRuntime 会把 provider 交给 SubscriptionService'
     assert.equal(rt.subscriptionService.paymentProvider, null);
   });
 });
+test('加载期校验凭据：垃圾内容必须在启动时炸，而不是等用户点购买', async (t) => {
+  await t.test('商户私钥不是合法 PEM → PAYMENT_CERT_INVALID（构造期）', () => {
+    const { env } = FULL_ENV();
+    env.WECHAT_PAY_CERT_CONTENT = 'not a pem at all';
+    assert.throws(() => F.createWeChatNativeProvider(env), (e) => e.code === 'PAYMENT_CERT_INVALID');
+  });
+
+  await t.test('平台公钥不可解析 → PAYMENT_CERT_INVALID（构造期）', () => {
+    const { env } = FULL_ENV();
+    env.WECHAT_PAY_PLATFORM_PUBLIC_KEY = 'garbage-garbage';
+    assert.throws(() => F.createWeChatNativeProvider(env), (e) => e.code === 'PAYMENT_CERT_INVALID');
+  });
+
+  await t.test('裸 Base64 公钥（无 PEM 头）也能通过校验', () => {
+    const { env, publicKey } = FULL_ENV();
+    const bare = publicKey.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+    env.WECHAT_PAY_PLATFORM_PUBLIC_KEY = bare;
+    assert.ok(F.createWeChatNativeProvider(env) instanceof WeChatNativeProvider, '微信支付公钥是裸 Base64 SPKI，必须支持');
+  });
+});

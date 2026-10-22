@@ -32,6 +32,55 @@ const WECHAT_NATIVE = 'wechat_native';
 const NONCE_BYTES = 16;
 const AUTH_SCHEMA = 'WECHATPAY2-SHA256-RSA2048';
 
+/**
+ * 校验「这是不是一把能用的私钥」。
+ *
+ * 为什么在加载期校验而不是等第一次下单：`crypto.createSign().sign(垃圾内容)` 抛的是
+ * OpenSSL 的 `error:...:asn1 encoding routines` —— 那个错误发生在用户点「立即购买」的那一刻，
+ * 表现为一次 502，而根因（env 里粘错了内容）跟现象隔了三层。加载期校验把它变成启动期的一条明确报错。
+ */
+function assertPrivateKey (pem) {
+  try {
+    crypto.createPrivateKey(pem);
+  } catch (error) {
+    throw new PaymentProviderError(
+      'PAYMENT_CERT_INVALID',
+      `商户私钥不是合法的 PEM 私钥：${(error && error.message) || error}`,
+      500,
+    );
+  }
+}
+
+/**
+ * 校验平台凭据。允许两种形态（与 `toVerifiableKey` 的口径一致）：
+ * ① X509 证书（PEM 含 CERTIFICATE 头，或裸 Base64 的证书）；
+ * ② 微信支付公钥（裸 Base64 SPKI 或 PEM 公钥）。
+ */
+function assertPlatformKey (value) {
+  const text = String(value || '').trim();
+  if (text.includes('-----BEGIN CERTIFICATE-----')) {
+    try {
+      new crypto.X509Certificate(text);
+      return;
+    } catch (error) {
+      throw new PaymentProviderError('PAYMENT_CERT_INVALID', `平台证书不可解析：${(error && error.message) || error}`, 500);
+    }
+  }
+  const candidates = [text];
+  if (!text.includes('-----BEGIN')) {
+    // 裸 Base64：可能是证书也可能是 SPKI 公钥，两种都试（与 provider 的 toVerifiableKey 同口径）。
+    candidates.unshift(
+      `-----BEGIN PUBLIC KEY-----\n${text}\n-----END PUBLIC KEY-----`,
+    );
+  }
+  for (const candidate of candidates) {
+    try {
+      crypto.createPublicKey(candidate);
+      return;
+    } catch (_) { /* 继续试下一种 */ }
+  }
+  throw new PaymentProviderError('PAYMENT_CERT_INVALID', '平台公钥既不是可解析的证书，也不是可解析的公钥', 500);
+}
 /** 读一份 PEM：优先内联内容，其次文件路径。两者都没有即抛（绝不返回空串让下游拿空密钥去签名）。 */
 function readPem (env, contentVar, pathVar, deps = {}) {
   const inline = String(env[contentVar] || '').trim();
@@ -138,6 +187,10 @@ function createWeChatNativeProvider (env = {}, deps = {}) {
   // 微信 2024+ 公钥模式用 `PUB_KEY_ID_…` 作为回调头里的 serial；配置了就按它核对。
   const publicKeyId = String(env.WECHAT_PAY_PUBLIC_KEY_ID || '').trim();
 
+  // 加载期就把「能不能用」验掉，别等用户点购买时才炸（见 assertPrivateKey 的说明）。
+  assertPrivateKey(merchantPrivateKey);
+  assertPlatformKey(platformPublicKey);
+
   const now = typeof deps.now === 'function' ? deps.now : () => new Date();
   const makeNonce = typeof deps.nonce === 'function'
     ? deps.nonce
@@ -182,6 +235,8 @@ function createWeChatNativeProvider (env = {}, deps = {}) {
 module.exports = {
   AUTH_SCHEMA,
   WECHAT_NATIVE,
+  assertPlatformKey,
+  assertPrivateKey,
   buildAuthorizationHeader,
   createWeChatNativeProvider,
   readPem,
