@@ -193,7 +193,7 @@ describe('buildRewriteLengthOptions — 长度下拉文案带目标字数（fix-
     expect(LENGTH_TARGET_CHARS.compress).toBe(800)
   })
 
-  it('负向用例：locale 未命中时不得留下空白下拉项，且仍带目标字数', () => {
+  it('负向用例：locale 未命中时不得留下空白下拉项，且仍带目标字数与单位', () => {
     // 评审 i4：插值断言只有正向用例，缺「resolve 失效」这一侧。
     // 这里模拟 locale key 缺失/未命中（resolve 返回空）⇒ 必须有兜底文案，
     // 否则用户会看到三个**没有文字**的下拉项（且看不出目标字数）。
@@ -202,6 +202,8 @@ describe('buildRewriteLengthOptions — 长度下拉文案带目标字数（fix-
     for (const o of fallback) {
       expect(o.label, `${o.value} 档兜底文案为空`).toBeTruthy()
       expect(o.label, `${o.value} 档兜底文案缺目标字数`).toContain(String(LENGTH_TARGET_CHARS[o.value]))
+      // 兜底文案也要带单位（评审 i5）：与 locale 模板同口径，否则用户看不出是字数
+      expect(o.label, `${o.value} 档兜底文案缺单位`).toContain('chars')
     }
   })
 })
