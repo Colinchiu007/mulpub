@@ -136,5 +136,24 @@ if (wasOffline && !isOffline) { log.info(...); processCachedTasks(); notifyFront
 - **不给 `license-access-control.js` 的 `PUBLIC_CHANNELS` 加 `offline:lost`**。
   核对方式不是想当然：该表管的是**请求型**通道（`ipcMain.handle`），
   而推送型通道 `offline:restored` 从来不在表内。往里加一条 send 通道 = 写一条永不命中的死条目。
-- 不改恢复侧的任何行为（`processCachedTasks()` 的顺序与语义保持原样）。
+- 不改恢复侧的**任务处理**行为（`processCachedTasks()` 的顺序与语义保持原样）。
+  ⚠️ 2026-10-22 第三轮更正：本条原先写的是「不改恢复侧的**任何**行为」，而外部评审 i1（Critical）
+  证明恢复侧确实要改一处 —— `offline:restored` 回调只赋值、不作废在途读回，
+  于是迟到的旧 `offlineStatus()` 结论能把「已恢复」的横幅改回「离线」。
+  现在恢复回调末尾同样调 `reconcile()`（`++readEpoch` 即「作废在途」这个动作本身）。
+  口径收窄为「不改任务处理，但改新鲜度守卫」：守卫两侧对称是正确性要求，不是扩面。
+  完整判据见 §7.4 与 spec 的 Scenario「两个方向的推送都必须作废在途的旧读回」。
+
+### 7.4 恢复方向的新鲜度对称（第三轮 i1，2026-10-22）
+
+| 项 | 内容 |
+| --- | --- |
+| 现象 | 断网 → 横幅出现；网络恢复 → 主进程推 `offline:restored`、横幅消失，**但随后又自己变回离线** |
+| 根因 | 守卫只装在一侧。`offline:lost` 回调末尾调 `reconcile()`，而 `reconcile()` 内部就是 `const epoch = ++readEpoch` ⇒ 断网方向自动作废在途读回；`offline:restored` 回调只写 `isOffline=false` + `cachedTaskCount`，**不作废** |
+| 数据校验口径 | 状态只被「最后一次发起的读」的结论改写，不被「最后一次到达的读」改写。IPC 不保证多次调用的响应按发起顺序返回，所以两者不等价 |
+| 交互/显示 | 恢复横幅仍是一次性回执（`role="status"` + 自动消失），本轮只改裁决时序，不改可见文案与颜色 |
+| 修复 | 恢复回调末尾补 `reconcile()` —— 对称化，不新增第二份 epoch 写法 |
+| 回归锁 | `useOfflineStatus.live.test.js` 用例「恢复方向也必须作废在途的旧结论」：把那次复核做成慢响应、在 `restored` 之后释放，断言横幅不得回到离线。红侧实测 `1 failed / 16 passed`（红的正是新加那条），修复后 `44 passed / 0 failed`（与主进程侧 `tests/offline-manager.test.js` 同跑） |
+| 刻意不做 | 不给 `restored` 单独引入第二个计数器；不把「载荷里的 cachedCount」当最终真源（仍以复核为准，载荷只是首帧提示） |
+
 - 不新增 locale 键：断网文案沿用第一轮那两条，播报锚点沿用常驻 region。

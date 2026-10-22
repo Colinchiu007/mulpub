@@ -345,3 +345,55 @@ cd apps/desktop && pnpm.cmd exec vitest run src electron tests
   两条 PR 并行时后合并者必须把期望值改成"各加各的"（142/340 → 143/341），
   这条冲突是**真语义冲突不是文本冲突**，`git merge-tree` 探不出来，必须以"计数断言 + 成员断言"复核。
 
+
+## 八、第三轮 QM-6：外部评审**跑起来了但结论被截断**，现场可见的那 1 条 Critical 已修（2026-10-22）
+
+### 8.1 驱动读数（两次，都不干净）
+
+| 跑法 | 结果 |
+| --- | --- |
+| `sh scripts/deep-review.sh`（不带 `CCG_ARL_DIR`） | **rc=2**：`✗ 找不到 ccg-deep-review.js`。引擎不在仓内（真源 `~/.qoder-cn/skills/adversarial-review-loop/scripts`），入口必须显式给 `CCG_ARL_DIR` —— 这不是"评审失败"，是**一条都没跑** |
+| `CCG_ARL_DIR=<引擎 scripts 目录> sh scripts/deep-review.sh` | 依赖体检通过、跨家族校验通过（`proposer=opencode / critic=claude`），**轮 1 调用 claude 后 JSON 解析失败**：`模型输出被截断…括号计数恰好配平（12/12，那是已闭合的内层对象），但结尾不是 }`，rc=2 |
+
+⛔ 第二次的 rc=2 **不得**被读成"评审过了没问题"，也不得被读成"评审没跑"：
+它跑到了模型出口，只是结论不完整。产物目录 `.adversarial/ccg-deep-e9b93f3b/` 里
+因此没有可用的 critique/裁决配对，`check-pr-exec-record.js --mode=enforce` 侧本 PR 仍是欠账。
+
+### 8.2 从被截断的输出里**可读**的那 1 条，当场核为真并已修
+
+驱动在抛错前打印了已解析的 JSON 片段，里面有 `i1 / severity: Critical / correctness`：
+「恢复路径不受新鲜度守卫保护 —— `useOfflineStatus.js` 的 `offline:restored` 回调只写
+`isOffline=false` 与 `cachedTaskCount`，既不 `readEpoch++` 也不 `reconcile()`；而
+`offline:lost` 与浏览器事件之后都会发起复核」。
+
+**这条不是假阳性，是实测成立**（读源码即判，不必猜）：`reconcile()` 内部 `const epoch = ++readEpoch`，
+所以"发起复核"这个动作本身就等于"作废在途的旧结论"；`lost` 做了，`restored` 没做 ⇒ 一次更早发出的
+`offlineStatus()`（例如浏览器 `offline` 事件触发的那次）可以在**恢复推送之后**才落地，
+把横幅从"已恢复"改回"离线"，且两条读的日志各自都完全正常。
+
+修法与后果：
+
+- 先写**红侧**用例 `恢复方向也必须作废在途的旧结论`（把那次复核做成慢响应，在 restored 之后释放），
+  实测 `1 failed | 16 passed`，红的正是新加那条（断言 `迟到的旧结论不得把已恢复的横幅改回离线`）；
+- 修复＝在 `onOfflineRestored` 回调末尾补 `reconcile()`（对称化，不新增第二份 epoch 写法）；
+- 复跑 `src/composables/useOfflineStatus.live.test.js` + `tests/offline-manager.test.js`
+  ⇒ **2 files passed / 44 passed / 0 failed**。
+
+### 8.3 这一格为什么值得单记
+
+本批上一轮已经写下「驱动跑到最后一句就人没了」那类**工具自错**的账；这次是同族的第二种形态：
+**评审真的跑了、真的判出了 Critical，但产品化的结论因为输出长度被丢掉**，
+而驱动给的补救建议（"让 critic 只挑 Critical/Warning"）指向的是**收窄提问**，不是重跑同样的输入。
+可复现的下一步是分批 + 收窄，不是把 rc=2 记成"已评审"。
+
+### 8.4 写文档时自己造的第二处错（当场抓到并修，记下来）
+
+给 CHANGELOG 插这两条 bullet 时，我把内容写在 `node -e "..."` 的**双引号 shell 字符串**里，
+而正文含反引号标识符（`readEpoch` / `offline:restored` / `CCG_ARL_DIR`）⇒
+bash 先把反引号当命令替换执行，落盘的文本里这些标识符**整段消失**，
+且 rc=0、`git diff --numstat` 两口径一致（行尾对账看不出内容缺失）。
+发现方式是回读插入行而不是信"命令成功"。
+正解已执行：内容走 `Write` 建的文件 + 脚本按标识符存在性做**前置断言**
+（`SRC_MISSING readEpoch` 之类直接 exit），坏行判定也用「必须缺标识符」这条形状断言把住，
+防止把已经正确的行当成坏行再插一遍。这条与 AGENTS「Never put backtick-markdown in shell-quoted code」
+同源，但落点在**文档写入**而不是代码。

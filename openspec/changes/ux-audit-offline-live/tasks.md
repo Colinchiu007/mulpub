@@ -60,3 +60,18 @@
       ⇒ `1084 files: 1 failed / 1082 passed / 1 skipped`，`19068 tests: 1 failed / 19062 passed / 5 skipped`，
       `Errors` 段经 `grep -c -a` 读回为 **0**；唯一那条红是 `feedback.test.js` 的 `fs.symlinkSync` EPERM
       （本机无符号链接权限，main 工作区单跑同文件复现，不在本批改动集内）—— 归因见执行记录 §7.11
+
+## 8. QM-6 第三轮（评审跑起来了但结论被截断；现场可见的 1 条 Critical 已修）
+
+- [x] 8.1 两次驱动读数都如实记：不带 `CCG_ARL_DIR` ⇒ rc=2「找不到引擎」（一条都没跑）；
+      带上 ⇒ 跨家族校验通过、轮 1 调 claude 后 **JSON 被截断**（括号配平 12/12 但结尾不是 `}`），rc=2。
+      ⛔ 不得把 rc=2 读成"评审过了没问题"，也不得读成"评审没跑"
+- [x] 8.2 从被截断输出里可读的 `i1 / Critical / correctness` 当场核为**真**：
+      `offline:restored` 只赋值，既不 `++readEpoch` 也不 `reconcile()`，
+      而 `reconcile()` 内部 `const epoch = ++readEpoch` ⇒ "发起复核"就是"作废在途"这个动作本身
+- [x] 8.3 先写红用例（把那次复核做成慢响应，在 restored 之后释放）⇒ `1 failed | 16 passed`，
+      红的正是新加那条；修复＝在恢复回调末尾补 `reconcile()`（对称化，不新增第二份 epoch 写法）
+- [x] 8.4 复跑 `useOfflineStatus.live.test.js` + `tests/offline-manager.test.js`
+      ⇒ **2 files / 44 passed / 0 failed**
+- [x] 8.5 spec 补 Scenario「两个方向的推送都必须作废在途的旧读回」，
+      记录 §八 写明截断成因与下一步（分批 + 收窄提问，不是重跑同样输入）

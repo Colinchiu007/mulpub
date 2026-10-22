@@ -105,6 +105,11 @@ export function useOfflineStatus() {
         unsubscribeRestored = api.onOfflineRestored(function (data) {
           isOffline.value = false
           cachedTaskCount.value = (data && data.cachedCount) || 0
+          // QM-6 i1：恢复方向也必须作废在途的旧结论。此前只有 lost 那条走复核（它内部
+          // ++readEpoch），restored 只赋值 ⇒ 一次更早发出的 `offlineStatus()`（例如浏览器
+          // offline 事件触发的那次）可以在恢复推送**之后**才落地，把横幅从"已恢复"改回"离线"，
+          // 且日志里两条读都完全正常。`reconcile()` 自增 epoch，正是"作废在途"这个动作本身。
+          reconcile()
         })
       } catch (e) {
         console.warn('[offline] onOfflineRestored registration failed:', (e && e.message) || String(e))

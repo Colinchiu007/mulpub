@@ -227,6 +227,7 @@ describe('useOfflineStatus — 主进程 offline:lost 推送', () => {
   let offlineStatusMock
   let lostHandler
   let lostUnsubscribed
+  let restoredHandler
   let disposers
 
   beforeEach(() => {
@@ -234,10 +235,11 @@ describe('useOfflineStatus — 主进程 offline:lost 推送', () => {
     disposers = []
     lostHandler = null
     lostUnsubscribed = false
+    restoredHandler = null
     offlineStatusMock = vi.fn().mockResolvedValue({ code: 0, data: { offline: false, cachedCount: 0 } })
     window.electronAPI = {
       offlineStatus: offlineStatusMock,
-      onOfflineRestored: vi.fn(() => () => {}),
+      onOfflineRestored: vi.fn((cb) => { restoredHandler = cb; return () => {} }),
       onOfflineLost: vi.fn((cb) => { lostHandler = cb; return () => { lostUnsubscribed = true } }),
     }
   })
@@ -286,5 +288,26 @@ describe('useOfflineStatus — 主进程 offline:lost 推送', () => {
     expect(cachedTaskCount.value).toBe(0)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(cachedTaskCount.value).toBe(3)
+  })
+
+  it('恢复方向也必须作废在途的旧结论（QM-6 i1：lost 走复核而 restored 不走 ⇒ 迟到的旧快照把横幅改回离线）', async () => {
+    const { isOffline, init } = create()
+    init()
+    expect(typeof restoredHandler).toBe('function')
+
+    // 把「浏览器 offline 事件」触发的那一次复核做成慢响应：它在 restored 推送之后才落地
+    let releaseSlow
+    offlineStatusMock.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseSlow = () => resolve({ code: 0, data: { offline: true, cachedCount: 9 } })
+    }))
+    window.dispatchEvent(new Event('offline'))
+    expect(isOffline.value).toBe(true)
+
+    restoredHandler({ isOffline: false, cachedCount: 0 })
+    expect(isOffline.value, '主进程已宣布恢复').toBe(false)
+
+    releaseSlow()
+    await flush()
+    expect(isOffline.value, '迟到的旧结论不得把已恢复的横幅改回离线').toBe(false)
   })
 })
