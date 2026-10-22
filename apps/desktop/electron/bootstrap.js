@@ -110,12 +110,15 @@ taskQueue.setExecutor(async (task, context = {}) => {
     }
     // publish-progress-ux：任务开始边界事件（对齐账号批量检测 start/done 双边界先例）
     require('./services/logger').warn('RpaView', '[exec] enter task=' + task.id + ' platform=' + platform)
+    require('./services/logger').info('RpaView', '[exec] step=register task=') + task.id
     taskProgressRouter.register(platform, task.id)
     require('./services/logger').info('RpaView', '[exec] registered task=' + task.id)
+    require('./services/logger').info('RpaView', '[exec] step=emit task=') + task.id
     progressEmitter.emit(task.id, platform, 'start', {
       stage: '准备发布...', percent: 0, batchId: task.batchId || null,
     })
     require('./services/logger').info('RpaView', '[exec] creating publisher task=' + task.id)
+    require('./services/logger').info('RpaView', '[exec] step=publisher task=') + task.id
     const publisher = publisherRouter.createPublisher(platform, {
       rpaViewManager, store, pythonBridge, accountManager: AccountManager,
     })
