@@ -1,0 +1,65 @@
+{
+  "sha": "04f8cbc7ea15f916c76222190ec871a6aa154150",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 478 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 478,
+    "fileCount": 10,
+    "codeFileCount": 6,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/logto-runtime.js",
+      "packages/api-publish-engine/src/auth/payment-providers/wechat-native-factory.js",
+      "packages/api-publish-engine/src/auth/production-config.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 8,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "| `test/payment-provider-factory.test.js`（新增） | 工厂单测 + **真密钥对验签** + **组装根测试** |",
+      "| 仍未完成的实质待办 | `0.3` / `8.8`（真机凭据）；**`9.8`（provider 未接线，见下）** |",
+      "| 仍未完成的实质待办 | **只剩 `0.3` / `8.8`（真机凭据与 E2E）**；`9.8`（provider 接线）已于同日修复 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0409190210fad16e48cdab721d08c3f830a57bdd0675e4ffd46dfca816d5cc5e",
+  "decidedAt": "2026-10-22T16:09:24.873Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -41,6 +41,8 @@ const WECHAT_ENV = Object.freeze({
   WECHAT_PAY_API_V3_KEY: '0123456789abcdef0123456789abcdef',
   WECHAT_PAY_CERT_SERIAL_NO: 'SERIAL0001',
   WECHAT_PAY_CERT_PATH: '/etc/secrets/apiclient_cert.pem',
+  // 平台公钥与商户私钥同等必需：缺它时下单能出码，但所有 webhook 都会 401 ⇒ 用户付了钱拿不到权益。
+  WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH: '/etc/secrets/wechatpay_pub_key.pem',
   WECHAT_PAY_NOTIFY_URL: 'https://api.example.com/api/v1/webhooks/payment',
 })
 
