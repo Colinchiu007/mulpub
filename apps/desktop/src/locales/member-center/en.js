@@ -149,7 +149,16 @@ export default {
     markingRead: 'Marking...',
     untitledMessage: '(untitled)',
     ordersTitle: 'Orders & Billing',
-    ordersEmptyHint: 'Order history is coming soon.',
+    ordersEmptyHint: 'No orders yet. Buy a plan or redeem a code to get started.',
+    ordersLoading: 'Loading orders…',
+    ordersRetry: 'Retry',
+    ordersError: 'Failed to load orders. Please try again.',
+    ordersColTime: 'Time',
+    ordersColPlan: 'Plan',
+    ordersColAmount: 'Amount',
+    ordersColStatus: 'Status',
+    ordersContinuePay: 'Continue payment',
+    ordersPendingHint: 'You have an unfinished order. Use the Continue payment button to complete it.',
     helpTitle: 'Help & Support',
     helpHint: 'Need help? Contact support or browse the docs.'
   }

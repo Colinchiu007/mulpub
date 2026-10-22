@@ -19,6 +19,7 @@ const crypto = require('crypto')
 const {
   WebhookSignatureError,
   PaymentProviderError,
+  OUT_TRADE_NO_PATTERN,
 } = require('./index')
 
 const WECHAT_API_BASE = 'https://api.mch.weixin.qq.com'
@@ -165,7 +166,7 @@ function decryptResource({ apiV3Key, resource }) {
 }
 
 /** 我方订单号格式：`wp` + base36 时间戳 + base36 随机。服务端生成，这里只校验形状。 */
-const OUT_TRADE_NO_PATTERN = /^wp[a-z0-9]{8,64}$/
+// 订单号形状由抽象层单一真源提供（payment-providers/index.js），此处不再重复定义。
 
 class WeChatNativeProvider {
   /**

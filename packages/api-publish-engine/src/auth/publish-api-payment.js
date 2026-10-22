@@ -14,7 +14,9 @@
  * 体例同 publish-api-redeem-code-admin.js。
  */
 
-const OUT_TRADE_NO_PATTERN = /^wp[a-z0-9]{8,64}$/
+// 订单号形状由抽象层单一真源提供（payment-providers/index.js），本文件不再重复定义 ——
+// 此前服务端三处各写一份正则，改一处就漂移（本仓已有先例）。
+const { OUT_TRADE_NO_PATTERN } = require('./payment-providers/index')
 
 class PublishApiPaymentHelpers {
   /**
@@ -102,11 +104,17 @@ class PublishApiPaymentHelpers {
     }
     const body = await this._parseBody(req)
     try {
-      const result = await this._subscriptionService.createCheckout({
+      // 白名单：只取这三个字符串。`orderId` **有才传**（不传 undefined），
+      // 这样「新建订单」的调用形状与加入本功能之前逐字一致，
+      // 既有断言（深比较 {userId,plan,period}）不需要放宽 —— 放宽断言会掩盖真的多传键。
+      const checkoutArgs = {
         userId,
         plan: body && typeof body.plan === "string" ? body.plan : "",
         period: body && typeof body.period === "string" ? body.period : "",
-      })
+      }
+      // 「继续支付」才带 orderId；形状由 service 侧再校验一次（双层）
+      if (body && typeof body.orderId === "string") checkoutArgs.orderId = body.orderId
+      const result = await this._subscriptionService.createCheckout(checkoutArgs)
       this._json(res, 200, { success: true, ...result })
     } catch (error) {
       this._commerceFailure(req, res, error)

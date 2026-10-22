@@ -348,3 +348,86 @@ test('settlePaymentWebhook', async (t) => {
     assert.strictEqual(repo.orders.get(orderId).status, 'pending', '支付失败不得把订单转 paid')
   })
 })
+
+/**
+ * 「继续支付」——复用同一 orderId 重取 codeUrl（spec MODIFIED Requirement
+ * 「会员中心订单页展示真实订单」：pending 订单给「继续支付」按钮，用同一 orderId 重新取 codeUrl）。
+ *
+ * 为什么不能靠「再调一次 createCheckout」：那会**新建一条订单**，旧 pending 永远留在表里，
+ * 一个用户点三次「继续支付」就有三条 pending —— 对账和用户账单都会脏。
+ *
+ * 复用必须同时满足六个条件，缺一即拒（任何一条放松都是资损或信息泄露入口）：
+ *   ① 订单存在 ② 属于当前用户 ③ 仍是 pending ④ channel=payment
+ *   ⑤ plan/period 与订单登记值一致 ⑥ orderId 形状合法
+ */
+test('createCheckout 复用 pending 订单（继续支付）', async (t) => {
+  /** 先下一单，返回 { repo, svc, orderId } */
+  async function seedPendingOrder(overrides = {}) {
+    const repo = makeRepository()
+    const svc = makeService(repo, { paymentProvider: fakeProvider })
+    const created = await svc.createCheckout({ userId: 'u-1', plan: 'standard', period: 'month' })
+    if (overrides.mutate) overrides.mutate(repo.orders.get(created.orderId))
+    return { repo, svc, orderId: created.orderId }
+  }
+
+  await t.test('① 正常复用：不新建订单，返回同一 orderId 与新 codeUrl', async () => {
+    const { repo, svc, orderId } = await seedPendingOrder()
+    const before = repo.orders.size
+    const out = await svc.createCheckout({ userId: 'u-1', plan: 'standard', period: 'month', orderId })
+    assert.strictEqual(repo.orders.size, before, '复用不得新增订单行')
+    assert.strictEqual(out.orderId, orderId, '必须返回同一 orderId')
+    assert.match(out.codeUrl, new RegExp(orderId), 'codeUrl 必须绑定该订单号')
+  })
+
+  await t.test('② 订单不存在 → 409 PAYMENT_ORDER_NOT_FOUND', async () => {
+    const { svc } = await seedPendingOrder()
+    await assert.rejects(
+      svc.createCheckout({ userId: 'u-1', plan: 'standard', period: 'month', orderId: 'wpzzzz9999' }),
+      (e) => e.code === 'PAYMENT_ORDER_NOT_FOUND',
+    )
+  })
+
+  await t.test('③ 别人的订单 → 同码拒绝（不泄露「该订单号存在」）', async () => {
+    const { svc, orderId } = await seedPendingOrder()
+    await assert.rejects(
+      svc.createCheckout({ userId: 'u-2', plan: 'standard', period: 'month', orderId }),
+      (e) => e.code === 'PAYMENT_ORDER_NOT_FOUND',
+    )
+  })
+
+  await t.test('④ 已支付订单 → 409 PAYMENT_ORDER_NOT_REUSABLE', async () => {
+    const { svc, orderId } = await seedPendingOrder({ mutate: (o) => { o.status = 'paid' } })
+    await assert.rejects(
+      svc.createCheckout({ userId: 'u-1', plan: 'standard', period: 'month', orderId }),
+      (e) => e.code === 'PAYMENT_ORDER_NOT_REUSABLE',
+    )
+  })
+
+  await t.test('⑤ plan/period 与订单不一致 → 400 CHECKOUT_ORDER_MISMATCH（防用旧低价单刷新码）', async () => {
+    const { svc, orderId } = await seedPendingOrder()
+    // 同一 pending 单（standard/月）改用 pro/年 复用 → 金额与档位都会对不上
+    await assert.rejects(
+      svc.createCheckout({ userId: 'u-1', plan: 'pro', period: 'year', orderId }),
+      (e) => e.code === 'CHECKOUT_ORDER_MISMATCH',
+    )
+  })
+
+  await t.test('⑥ channel 非 payment → 409（串道防护）', async () => {
+    const { svc, orderId } = await seedPendingOrder({ mutate: (o) => { o.channel = 'redeem' } })
+    await assert.rejects(
+      svc.createCheckout({ userId: 'u-1', plan: 'standard', period: 'month', orderId }),
+      (e) => e.code === 'CHECKOUT_ORDER_CHANNEL_MISMATCH',
+    )
+  })
+
+  await t.test('⑦ orderId 形状非法 → 400 CHECKOUT_ORDER_ID_INVALID（不把任意串送进查询）', async () => {
+    const { svc } = await seedPendingOrder()
+    for (const bad of ['not-an-order', '../../admin', 'wp', 'WPABC12345', 'wpabc12345/extra']) {
+      await assert.rejects(
+        svc.createCheckout({ userId: 'u-1', plan: 'standard', period: 'month', orderId: bad }),
+        (e) => e.code === 'CHECKOUT_ORDER_ID_INVALID',
+        `orderId=${bad} 必须被拒`,
+      )
+    }
+  })
+})
