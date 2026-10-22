@@ -77,3 +77,39 @@ date: 2026-10-21
 新提交（`59c800a55` 与其后）判定降为 `SKIP`，deep-review 按当前 staged diff 内容寻址命中的是 SKIP 那份，
 它不会替 `24792dc6` 收口。⇒ 本 PR 在 `--mode=enforce` 下仍会被 `evaluateDeepReviewDebt` 判「CCG 深度审查欠账」，
 CI 侧（advisory）不拦。**「QG Changes 绿」不等于「QM-6 已闭合」**，收口需按 `24792dc6` 那份 diff 重放一次深审。
+
+**该段的两处过期陈述，由后续动作改写（2026-10-22 现取读数）**：
+① `24792dc6` 已按判据给出的**出口②**收口（`status=self_play_resolved` + `closureNote` 含轮次标记与逐条处置），
+`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 现返回 **OK**，不再报深度审查欠账。
+② 「全仓无生产方写 `tier`」这句已过期——`qm6-closure-writeback` 已落主干（2026-10-22），
+`sh scripts/deep-review.sh` 会在驱动返回后调 `scripts/ccg-review-writeback.js`，五条合取成立才写
+`tier=external` + `evidence=delivery@<sha256(findings)>`。⇒ 本 PR 的**正解是重跑深审让工具写**；
+在我手写之后重跑若拿到工具产物，以工具产物为准，手写那层在 `closureNote` 里已明写为代用。
+
+## CI 两条新增红的根因与修法（同一根因，现取读数）
+
+`check-main-red.js --pr 4200` 报 `NEW_RED`：`Gate Result` / `QG Changes` / `债务熔断检查`——**三条同源**：
+`ipc-handlers/podcast.js` 被我加了 15 行（488 → **503**），正好成为第 96 个超 500 行的文件
+⇒ `check-debt-budget.js` 的 `FILES_OVER_500: 96 > baseline 95` 红；而 `QG Changes` step 3 里那条
+`⑩ 消费者套件必须"整份真的跑了"` 是把 `scripts/check-debt-budget.test.js` 当消费者套件**真跑一遍**，
+被同一个数拖红；`Gate Result` 只是聚合器。对照组：main 共享根 `filesOver500: 95 == baseline`。
+同套件的 `⑫`（`--show-prefix` 那条）在 **main 上同样红**，症状是 expected/actual 逐字相同
+（读本机 `%TEMP%` 目录名大小写），与本 PR 无关，**不认领也不顺手修**。
+
+**修法不走「调大基线」**（那是给这个文件再送免涨额度，与点名还账的立项目的冲突）：
+把音色装配整段拆成 `apps/desktop/electron/services/podcast-voice-deps.js`（77 行，WeakMap 按 deps 记忆化），
+`ipc-handlers/podcast.js` 回到 **460 行** ⇒ `filesOver500: 95 ✅`，⑩ 一并转绿。
+这一拆同时补完 QM6 i3 采纳项剩下的那半——**「预览与宿主拿到同一个对象引用」第一次成为可断言的事实**：
+新增 `podcast-voice-deps.test.js` 五条（① 引用同一性 + 不同 deps 必须不同实例；② 缺 store ⇒ 返回 null 且 warn 恰一次；
+③ 缺 modelProviderManager ⇒ 定位键 null 且 warn 恰一次；④ 偏好键字面量仍出自 `createVoiceReaders` 一处、
+owner subject 被带上；⑤ 接线锁——`podcast.js` 内 `createVoiceDepsFactory` 恰两处（require + 调用）、
+宿主与预览共用同一 getter、且该文件不得再自带 `createVoiceReaders(` 或第二份 `tts-voice-preference:` 键）。
+读数：`vitest run` 三文件（新锁 + host + plan-preview-ipc）**81 passed / 0 failed**。
+
+## 本记录写下时仍未做的三件事（不得读成已完成）
+
+1. **拆分后的 QM-1 未重跑**：新模块必须进 asar。拆分前那份「LIVE stderr 0 字节 / DEP0180 0」的 PASS
+   不构成拆分后的证据，`build:dir` + 启动三层判定要重取。
+2. **五条新锁的变异反证未实跑**：摘掉 WeakMap 记忆化 / 摘掉 `warnOnce` 去重 / 把装配搬回 `podcast.js`
+   三形变各应指名红。按本仓口径，「锁存在且用例绿」不证明「锁会红」。
+3. **4.5b④ 判据③ 的真机试听未做**（本 PR 会让已配默认 provider 的账号当场换发声者）。

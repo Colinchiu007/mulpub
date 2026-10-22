@@ -315,54 +315,11 @@ function registerHandlers (ipcMain, deps) {
   }
 
   // 出期宿主同样惰性构造：注册动作本身不得解析 media tool 路径（打包前它们可能不存在）。
-  // tasks 4.5b④：音色解析的**接线只有一处**。预览（浮层显示「谁说话」）与出期宿主（真的决定
-  // 谁说话）必须读同一份偏好与同一份 capability——抄两份的结局是「界面承诺 A、成片里是 B」，
-  // 而这正是本刀要消除的断链。回退顺序本身不在这里写：唯一实现是 `podcast-tts-voice.js`。
-  let previewDepWarned = false
-  // 记忆化（QM6 i3 采纳项）：预览与宿主必须拿到**同一个对象引用**，不是「同一段代码的两份实例」。
-  // 现在这两份闭包都是无状态的，所以现网不漂；但「同一份接线」这条不变量若只靠源码形状维持，
-  // 下一个往里加缓存/加状态的人就会把两边拆成两份事实，而那时没有任何东西会红。
-  let voiceDepsInstance = null
-  function voiceResolveDeps () {
-    if (voiceDepsInstance) return voiceDepsInstance
-    const { createVoiceReaders } = require('../services/podcast-episode-tts-adapters')
-    const catalog = require('../services/tts-voice-catalog')
-    const { resolveProviderDefaultModel } = require('../services/model-provider-manager')
-    const readers = createVoiceReaders({
-      // 偏好键的字面量只在 adapters 那一处，本层不再抄一份（抄了就有两份键格式，改一处即漂移）
-      readSetting: (key) => {
-        const s = deps && deps.store
-        if (!s || typeof s.getUserSetting !== 'function') {
-          if (!previewDepWarned) {
-            previewDepWarned = true
-            log.warn('[ipc:podcast] 音色解析缺 store 注入：偏好按未配置处理（不猜默认音色，只报一次）')
-          }
-          return null
-        }
-        return s.getUserSetting(key, null, resolveIpcOwnerSubject(deps && deps.identityService))
-      },
-      getVoiceCapability: (providerId, model) => catalog.getVoiceCapability(providerId, model),
-    })
-    return {
-      defaultProviderOf: () => {
-        const m = deps && deps.modelProviderManager
-        if (!m || typeof m.getDefault !== 'function') {
-          if (!previewDepWarned) {
-            previewDepWarned = true
-            log.warn('[ipc:podcast] 音色解析缺 modelProviderManager 注入：② ③ 两层没有定位键，将如实拒绝')
-          }
-          return null
-        }
-        const row = m.getDefault('tts')
-        if (!row || !row.id) return null
-        // 默认模型取法只有 model-provider-manager 一份实现，本层不自己挑 models[0]
-        return { providerId: String(row.id), model: resolveProviderDefaultModel(row, 'tts') }
-      },
-      readPreference: readers.readPreference,
-      getCapability: readers.getCapability,
-      warn: (msg) => log.warn(String(msg || ''))
-    }
-  }
+  // tasks 4.5b④（QM6 i3 采纳）：音色接线的**装配点与实例都只有一处**——拆进 `podcast-voice-deps.js`
+  // 后由 WeakMap 记忆化，预览（浮层显示「谁说话」）与出期宿主（真的决定谁说话）拿到同一个对象引用，
+  // 那条不变量现由 `podcast-voice-deps.test.js` 断言，不再只剩源码形状。回退顺序不在这里写。
+  const { createVoiceDepsFactory } = require('../services/podcast-voice-deps')
+  const voiceResolveDeps = createVoiceDepsFactory({ deps, log, ownerSubjectOf: resolveIpcOwnerSubject })
 
   let episodeHost = deps && deps.podcastEpisodeHost ? deps.podcastEpisodeHost : null
   function getEpisodeHost () {
