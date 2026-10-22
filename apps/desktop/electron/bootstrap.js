@@ -99,6 +99,7 @@ function createAppContext() {
   })
 
   require('./services/logger').info('RpaView', '[exec] instrumentation ready')
+taskQueue.setDebugLogger((msg) => { try { require('./services/logger').warn('TaskQueue', msg) } catch (_e) {} })
 taskQueue.setExecutor(async (task, context = {}) => {
     if (context.signal?.aborted) throw new Error('任务已取消')
     const platform = task.platform

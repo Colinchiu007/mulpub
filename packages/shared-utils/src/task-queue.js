@@ -100,6 +100,9 @@ class TaskQueue extends EventEmitter {
    * 注入登录用户解析器。身份模式下任务只能由当前用户创建、查看和执行；
    * 未注入时保留旧版单用户行为。
    */
+  /** 注入调试日志回调（库内不直接依赖宿主 logger，保持解耦） */
+  setDebugLogger (fn) { this._debug = typeof fn === 'function' ? fn : null }
+
   setOwnerSubjectProvider (provider) {
     if (provider !== null && provider !== undefined && typeof provider !== 'function') {
       throw new TypeError('owner subject provider must be a function or null')
@@ -491,6 +494,7 @@ class TaskQueue extends EventEmitter {
   }
 
   _processNext () {
+    if (this._debug) this._debug('[queue] enter paused=' + this._paused + ' queue=' + this._queue.length + ' running=' + this._running.size + ' delayed=' + this._delayed.size)
     if (this._paused) { console.warn('[queue] paused=true 跳过驱动 queue=' + this._queue.length + ' running=' + this._running.size); return }
     if (this._queue.length > 0 && this._running.size === 0) console.warn('[queue] drive queue=' + this._queue.length + ' running=0 delayed=' + this._delayed.size)
     // 自愈（2026-10-23）：若当前没有任何任务在跑，但通道计数仍有残留，说明上一个任务
@@ -503,7 +507,7 @@ class TaskQueue extends EventEmitter {
     while (this._running.size < this.maxConcurrent && this._queue.length > 0 && inspected > 0) {
       const task = this._queue.shift()
       inspected -= 1
-      if (!this._isTaskOwnedByCurrentUser(task)) {
+      if (!this._isTaskOwnedByCurrentUser(task)) { if (this._debug) this._debug('[queue] skip owner task=' + task.id + ' owner=' + String(task && task.owner_subject) + ' current=' + String(this._getCurrentOwnerSubject()));
         this._queue.push(task)
         continue
       }
