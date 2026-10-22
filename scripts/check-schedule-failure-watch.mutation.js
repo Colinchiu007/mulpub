@@ -38,7 +38,7 @@ const MUTS = [
   { id: 'm8', name: 'schedule 检测去掉锚定（散文里的字样变成一次声明）', file: JUDGE, expectMiss: true,
     missWhy: '重叠防呆：注释已被 m2 那条剥离掉，所以 T3b 的形状不再依赖锚定。锚定真正守的是更窄的一格——"某行以两个空格 + schedule: 出现在非注释位置"（例如 run 块里 echo 一段 YAML 示例），本仓当前没有这种输入，因此这条变异抓不到。证 T3b 那条性质的是 m2，不是 m8；把 m8 记成 CAUGHT 就是谎。',
     from: 'scheduled: /^\\s{2}schedule:[ \\t]*$/m.test(body)',
-    to: 'scheduled: /schedule:/.test(body)', exp: ['T3b'] },
+    to: 'scheduled: /schedule[:]/.test(body)', exp: ['T3b'] },
   { id: 'm3', name: '不做行尾归一（本仓 workflows 是 i/lf w/crlf）', file: JUDGE, expectMiss: true,
     missWhy: 'MISSED 是**实测结论不是失败**：JS 多行 `$` 在 `\\r` 之前就能成立，所以归一在当前判据里是冗余防呆，没有任何一条性质靠它。留着它但把它标成"预期不被任何测试抓住"，比假装它被反证过诚实。',
     from: ".replace(/\\r\\n/g, '\\n')", to: '', exp: ['T4'] },

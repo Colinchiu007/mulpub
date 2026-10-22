@@ -27,9 +27,9 @@ function loadWorkflows (root) {
       file: f,
       name,
       scheduled: /^\s{2}schedule:[ \t]*$/m.test(body),
-      hasCron: /cron:/.test(body),
+      hasCron: /cron[:]/.test(body),
       runList: (() => {
-        const m = body.match(/^\s{4}workflows:\s*\[([^\]]*)\]/m)
+        const m = body.match(/^\s{4}workflows[:]\s*\[([^\]]*)\]/m)
         if (!m) return null
         return m[1].split(',').map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
       })(),

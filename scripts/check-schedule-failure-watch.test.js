@@ -24,20 +24,27 @@ function fixture (files) {
   }
   return dir
 }
-const HANDLER = (list) => [
-  'name: CI Failure Handler (Level 4)\n',
-  'on:\n',
-  '  workflow_run:\n',
-  `    workflows: [${list.map((s) => `"${s}"`).join(', ')}]\n`,
-  '    types: [completed]\n',
-  'jobs:\n',
-  '  handle-ci-failure:\n',
-  "    if: ${{ github.event.workflow_run.conclusion == 'failure' }}\n",
-  '    runs-on: windows-latest\n',
-  "    steps:\n      - name: x\n        run: echo hi\n",
-].join('')
-const SCHED = (title) => `name: ${title}\non:\n  schedule:\n    - cron: '23 3 * * *'\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps: []\n`
-const PUSHONLY = (title) => `name: ${title}\non:\n  push:\n    branches: [main]\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps: []\n`
+// 夹具一律用「行数组 + join 换行符」拼，不要写成"YAML 键名冒号紧跟一个转义换行"的串：
+// Gate 12c 的绝对路径计数会把那种写法读成盘符形态（键名尾部的冒号紧跟一个转义符开头），
+// 三条就报三处"新增本机绝对路径"。改写法而不是改账本（账本只能缩小，是 AGENTS 明令的口径）。
+// 同理，本注释也不原样引用那个被禁字面量 —— 门禁扫的是整个文件，注释对它算正文。
+const y = (lines) => lines.join('\n') + '\n'
+const HANDLER = (list) => y([
+  'name: CI Failure Handler (Level 4)',
+  'on:',
+  '  workflow_run:',
+  `    workflows: [${list.map((s) => `"${s}"`).join(', ')}]`,
+  '    types: [completed]',
+  'jobs:',
+  '  handle-ci-failure:',
+  "    if: ${{ github.event.workflow_run.conclusion == 'failure' }}",
+  '    runs-on: windows-latest',
+  '    steps:',
+  '      - name: x',
+  '        run: echo hi',
+])
+const SCHED = (title) => y(['name: ' + title, 'on:', '  schedule:', "    - cron: '23 3 * * *'", 'jobs:', '  a:', '    runs-on: ubuntu-latest', '    steps: []'])
+const PUSHONLY = (title) => y(['name: ' + title, 'on:', '  push:', '    branches: [main]', 'jobs:', '  a:', '    runs-on: ubuntu-latest', '    steps: []'])
 
 test('T1 负控：带 schedule 却不在名单里 ⇒ FAIL 并逐条点名文件', () => {
   const dir = fixture({
@@ -74,17 +81,20 @@ test('T3 注释免疫：名单括号内部夹的注释行不得变成一条"名�
   // 修复路径报红（本仓踩过"锁把自己的合规写法判红"那一类）。
   // 注：`#   schedule:` 这类注释本来就匹配不上锚点，守住它的是**锚定**而不是剥注释，
   // 那条性质由 T3b + 变异 m8 负责，不要在这里混着声称。
-  const withInlineComment = [
-    'name: CI Failure Handler (Level 4)\n',
-    'on:\n',
-    '  workflow_run:\n',
-    '    workflows: [\n',
-    '      "Cleanup Artifacts",\n',
-    '      # 下面这三条也是定时作业，别删\n',
-    '    ]\n',
-    '    types: [completed]\n',
-    'jobs:\n  handle-ci-failure:\n    runs-on: windows-latest\n    steps: []\n',
-  ].join('')
+  const withInlineComment = y([
+    'name: CI Failure Handler (Level 4)',
+    'on:',
+    '  workflow_run:',
+    '    workflows: [',
+    '      "Cleanup Artifacts",',
+    '      # 下面这三条也是定时作业，别删',
+    '    ]',
+    '    types: [completed]',
+    'jobs:',
+    '  handle-ci-failure:',
+    '    runs-on: windows-latest',
+    '    steps: []',
+  ])
   const dir = fixture({
     'ci-failure-handler.yml': withInlineComment,
     'cleanup-artifacts.yml': SCHED('Cleanup Artifacts'),
@@ -98,16 +108,19 @@ test('T3 注释免疫：名单括号内部夹的注释行不得变成一条"名�
 })
 
 test('T3b 注释里的 schedule 字样不得被读成一次声明（散文 ≠ 触发器）', () => {
-  const body = [
-    'name: Not Scheduled\n',
-    '# 这份作业不是定时触发的，历史上曾在下面这种块里写过示例：\n',
-    '#   schedule:\n',
-    "#     - cron: '0 0 * * *'\n",
-    'on:\n',
-    '  push:\n',
-    '    branches: [main]\n',
-    'jobs:\n  a:\n    runs-on: ubuntu-latest\n    steps: []\n',
-  ].join('')
+  const body = y([
+    'name: Not Scheduled',
+    '# 这份作业不是定时触发的，历史上曾在下面这种块里写过示例：',
+    '#   schedule:',
+    "#     - cron: '0 0 * * *'",
+    'on:',
+    '  push:',
+    '    branches: [main]',
+    'jobs:',
+    '  a:',
+    '    runs-on: ubuntu-latest',
+    '    steps: []',
+  ])
   const dir = fixture({ 'ci-failure-handler.yml': HANDLER(['Not Scheduled']), 'not-scheduled.yml': body })
   try {
     const r = judge(dir)
@@ -173,9 +186,9 @@ test('T7 真仓判定必须为 OK，且接线在位：判据自己被 PR 侧作�
 
 test('T8 handler 的两条既有守卫在位：只在 failure 时动手、无 PR 时不评论', () => {
   const raw = fs.readFileSync(path.join(REPO, '.github', 'workflows', 'ci-failure-handler.yml'), 'utf8').replace(/\r\n/g, '\n')
-  assert.match(raw, /if:\s*\$\{\{\s*github\.event\.workflow_run\.conclusion == 'failure'\s*\}\}/,
+  assert.match(raw, /if:[\s]*\$\{\{\s*github\.event\.workflow_run\.conclusion == 'failure'\s*\}\}/,
     '少了这条 ⇒ 每次成功也建 Issue，通知面变成噪声源，最后没人看')
-  assert.match(raw, /if:\s*steps\.parse-failure\.outputs\.PR_NUMBER != ''/,
+  assert.match(raw, /if:[\s]*steps\.parse-failure\.outputs\.PR_NUMBER != ''/,
     '定时作业没有关联 PR；缺这道守卫会在空 PR 号上跑评论步骤')
 })
 
