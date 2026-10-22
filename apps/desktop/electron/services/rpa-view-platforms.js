@@ -836,6 +836,11 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // 头条：发布后页面不跳转也无成功文案（url/api/dom 三模式皆不可用），改查作品列表（端点取自逆向成果）
   if (platform === 'toutiao') {
     try {
+      // 视频号：发布后页面重置为壳页，url/dom 判据必 timeout ⇒ 改查作品列表（真机 2026-10-23）
+      if (platform === 'tencent_video') {
+        const ta = await require('./tencent-artifact').confirmPublished(win, (context && context.title) || '', { log, host: this })
+        if (ta.ok) return { ok: true, mode: 'artifact', evidence: ta.evidence }
+      }
       const art = await require('./toutiao-artifact').confirmPublished(win, (context && context.title) || '', { log })
       if (art.ok) return { ok: true, mode: 'artifact', evidence: art.evidence }
     } catch (_e) { log.warn('RpaView', '[toutiao] artifact 判据异常，回落到 success_mode') }
@@ -1380,12 +1385,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
 
   // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：
   // 此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，
-  // 而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到
-  // （实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`
-  //  + `publish btn not found`，三次重试后 `publish failed ... url=`）。
-  // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
-  // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
-  // 2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
+  // 而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
   async _publish_toutiao (win, article) {
     return require('@multi-publish/rpa-engine/src/toutiao-direct-bridge')
       .publishToutiao({
