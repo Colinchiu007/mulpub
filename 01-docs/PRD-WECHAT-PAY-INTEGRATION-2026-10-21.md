@@ -689,6 +689,74 @@ claim(同一事务) → markOrderPaid → applySubscription → createNotificati
 | 结果不带 `eventRecorded` | **8 pass / 4 fail** |
 
 均逐字节还原 True。全量 `packages/api-publish-engine` rc=0（Vitest 47 文件 / 504 例）。
+## 15.10 灰度期对账：`payment-reconcile`
+
+### 15.10.1 为什么需要
+
+支付链路有四张表各记一半事实，任何一环错位，用户看到的现象都一样：**「我付了钱但没会员」**。
+日志只会告诉你「这个请求返回了什么」，**不会告诉你「有多少单处在不一致状态」**。
+
+灰度期每天要看的不是日志，是这个数。
+
+### 15.10.2 五项判据
+
+| # | 判据 | 等级 | 含义 |
+|---|---|---|---|
+| 1 | `paid-without-entitlement` | **阻塞** | 已支付但没发权益 —— 最严重，用户已损失 |
+| 2 | `entitlement-without-paid-order` | **阻塞** | 发了权益但订单不是已支付（反向孤儿） |
+| 3 | `event-processed-order-pending` | **阻塞** | 回调已处理但订单仍非 paid —— 事务边界被改坏的信号 |
+| 4 | `paid-order-without-event` | 提示 | 已支付但无事件行。**历史单必然如此**（事件表 2026-10-23 才上线）；新单出现才是问题 |
+| 5 | `stuck-processing` | 提示 | 事件卡 `processing` > 10 分钟。**权益已发**，仅留痕没闭环 |
+
+**只有「阻塞」项会让命令以 1 退出**；提示项不影响退出码 —— 否则历史单会把对账永久钉红。
+
+### 15.10.3 用法
+
+```bash
+# 容器内（推荐：读的就是容器真实环境）
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/payment-reconcile.js
+
+# 指定窗口与条数
+docker compose ... exec publish-api node packages/api-publish-engine/scripts/payment-reconcile.js \
+  --since-days 7 --limit 500
+
+# 机器读
+... --json
+```
+
+退出码：`0` 无阻塞差异 / `1` 有阻塞差异 / `2` 用法错误或连不上库。
+**`2` 不得读成「对账通过」** —— 工具失明与「没有问题」是两件事。
+
+### 15.10.4 ⛔ 只读硬约束
+
+本脚本**只允许 SELECT**，且有一条结构性测试锁住（`test/payment-reconcile.test.js` 的「只读硬锁」：
+五条判据都必须以 `SELECT` 开头且不含 `INSERT/UPDATE/DELETE/ALTER/DROP/TRUNCATE/CREATE`）。
+
+理由：对账工具一旦能写库，就会有人用它「顺手修一下」，而**自动修复资金不一致是资金路径上最危险的动作** ——
+改错了没人知道。修正一律人工核对 + 单独脚本 + 评审。
+
+### 15.10.5 发现差异后怎么处理
+
+| 判据 | 第一步 | 不要做 |
+|---|---|---|
+| 1 已付无权益 | 先查该单在 `identity_webhook_events` 有没有 `processed` 行；没有 ⇒ 回调没到/验签失败；有 ⇒ 结算抛错（查 `ORDER_REFERENCE_CONFLICT` / `PAYMENT_ORDER_NOT_FOUND`） | 不要直接点「补发」了事 —— 先确认微信侧真的收到钱 |
+| 2 权益无已付单 | 核对微信商户平台该单是否真收到钱；可能是人工改过订单状态 | **不要自动降级用户** |
+| 3 事件已处理但订单非 paid | 这是**代码缺陷信号**，先 `PAYMENT_PROVIDER=none` 回滚入口再查 | 不要继续放量 |
+| 4 已付无事件（新单） | 查日志有无 `PAYMENT_EVENT_NOT_RECORDED` | 不要据此补发（权益可能已发） |
+| 5 卡 processing | 人工清账 | 不要据此重新发放 |
+
+### 15.10.6 判据
+
+新增 **16 例**（`test/payment-reconcile.test.js`）。变异反证三条，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 判据里夹带 `UPDATE` | **14 pass / 2 fail**，只读锁精确变红 |
+| `blocking` 恒 0 | **11 pass / 5 fail** |
+| 忽略真实命中（`count > 0` → `> 99`） | **11 pass / 5 fail** |
+
+均逐字节还原 True。
 ## 16. ✅ 已修复：provider 从未被构造（2026-10-22 发现并当日修复）
 
 > 本节记录的是一条**会让第 15 节全部白做**的缺口。它不属于"配置没做好"，是**代码没接上**。
