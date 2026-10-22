@@ -611,7 +611,7 @@ PAYMENT_PROVIDER=none   # 然后重启服务
 效果：`/me/checkout` 恢复 503 `PAYMENT_PROVIDER_UNAVAILABLE`，前端回到「支付通道暂未开放」；
 已产生的 `pending` 订单不会被清理（它们永远不会 `paid`，无副作用）；已生效的订阅不受影响。
 
-## 15.9 ⚠️ 已知限制：支付回调不落 `identity_webhook_events`（2026-10-23 核对）
+## 15.9 ✅ 支付回调留痕 `identity_webhook_events`（2026-10-23 发现缺口，当日修复）
 
 §5.3 写的是「`identity_webhook_events` 复用为支付 outbox」，但实现里**没有写这张表**：
 
@@ -631,6 +631,64 @@ PAYMENT_PROVIDER=none   # 然后重启服务
 
 > 记这一条的理由：PRD 说了「复用」，代码没做 —— **文档与实现各说一套**。
 > 这类不一致比"没做"更危险，因为读文档的人会以为有。
+### 15.9.1 修复实现（2026-10-23）
+
+新增 `src/auth/payment-event-outbox.js`：
+
+| 函数 | 作用 |
+|---|---|
+| `paymentEventId(orderId)` | 事件行 id = `wechat_pay:<orderId>`。**一单一值**：重复投递落同一行 |
+| `claimPaymentEvent(client, record)` | `INSERT … ON CONFLICT (provider, id) DO NOTHING RETURNING id`；返回 `{id, claimed}` |
+| `completePaymentEvent(client, eventId, result)` | 结算后置 `status='processed'`、写 `result`、`processed_at=NOW()` |
+
+接入点在 `settlePaymentWebhook` 的**同一事务内**（`commerceTransaction`）：
+
+```
+claim(同一事务) → markOrderPaid → applySubscription → createNotification → complete(同一事务)
+```
+
+三条纪律：
+
+1. **重复投递短路**：`claimed=false` 时直接 `return {ignored:true, duplicate:true}`，
+   连 `markOrderPaid` / `applySubscription` 都不执行 —— 比"靠 UNIQUE 冲突收敛成 409"更早拦住。
+2. **事件表写失败不阻断结算**：用户已经付了钱，权益优先于可观测性。失败时结果带
+   `eventRecorded=false`，由 `_handlePaymentWebhook` 落 `PAYMENT_EVENT_NOT_RECORDED` 日志。
+   —— 不静默，但也不阻断。
+3. **收口失败同样不回滚**：权益已经发了，`eventRecorded` 降级为 false。
+
+### 15.9.1.1 `eventRecorded` 的三值契约
+
+结算结果里的 `eventRecorded` **键永远存在**（缺键会被调用方读成"成功"）：
+
+| 值 | 含义 | 调用方动作 |
+|---|---|---|
+| `true` | 事件已落库并收口为 `processed` | 无 |
+| `false` | 回调已结算，但事件写失败 | `_handlePaymentWebhook` 落 `PAYMENT_EVENT_NOT_RECORDED` 日志；响应仍 200 |
+| `null` | **不适用**（事务里没有 DB client，只出现在测试替身） | 无 |
+
+`null` 与 `false` 不能合并：前者是"没有可写的事件表"，后者是"有表但写失败了"。
+把两者混成一个值，会让"写失败"在测试环境里被习惯性忽略，进而漏到生产。
+### 15.9.2 幂等键的选择理由
+
+微信重投同一笔支付时 `Wechatpay-Nonce` **每次都会变**，`transaction_id` 才稳定；
+但本模块拿到的是 `orderId`（= 我们自己的 `out_trade_no`），它天然一单一值，比 `transaction_id`
+更适合当幂等键：**一单只会有一条支付事件**。
+
+**已知边界**：将来若同一订单出现第二类事件（退款/撤销通知），会与这条撞键。
+届时把键从 `wechat_pay:<orderId>` 扩成 `wechat_pay:<orderId>:<event>` ——
+`paymentEventId()` 是唯一改动点。
+
+### 15.9.3 判据
+
+新增 **12 例**（`test/payment-event-outbox.test.js`）。变异反证三条，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 去掉重复短路（`if (!claim.claimed)` → `if (false)`） | **10 pass / 2 fail**，重复投递用例精确变红 |
+| 失败也报"已留痕"（`eventRecorded = false` → `true`） | **9 pass / 3 fail**，两条降级用例精确变红 |
+| 结果不带 `eventRecorded` | **8 pass / 4 fail** |
+
+均逐字节还原 True。全量 `packages/api-publish-engine` rc=0（Vitest 47 文件 / 504 例）。
 ## 16. ✅ 已修复：provider 从未被构造（2026-10-22 发现并当日修复）
 
 > 本节记录的是一条**会让第 15 节全部白做**的缺口。它不属于"配置没做好"，是**代码没接上**。

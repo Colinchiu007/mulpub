@@ -73,6 +73,15 @@ class PublishApiPaymentHelpers {
         occurredAt: event.occurredAt,
         type: event.type,
       })
+      // 结算成功但事件没落库：不改变响应（钱已到账、权益已发），但必须出声 ——
+      // 否则「回调到达有持久化记录」这条承诺会在无人知晓的情况下失效。
+      if (result && result.eventRecorded === false) {
+        this._logError(
+          'PAYMENT_EVENT_NOT_RECORDED',
+          new Error('支付回调已结算，但事件未写入 identity_webhook_events'),
+          this._ctx(req, { hook: 'payment-webhook', orderId: event.orderId }),
+        )
+      }
       this._json(res, 200, { success: true, ...result })
     } catch (error) {
       // 内部错误仍 2xx（纪律③）：错误落日志，微信不重投；对账靠订单表 + 事件表。
