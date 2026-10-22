@@ -331,6 +331,7 @@ function registerHandlers(ipcMain, deps) {
       const status = taskQueue.getStatus()
       const running = Array.isArray(status?.running) ? status.running.length : (Array.isArray(status?.tasks) ? status.tasks.filter((t) => t.status === 'running').length : '?')
       const queued = Array.isArray(status?.queue) ? status.queue.length : '?'
+      ipcLog('info', 'queue:status', 'raw', JSON.stringify({ paused: status && status.paused, size: status && status.size, queueLen: status && status.queue && status.queue.length, runningLen: status && status.running && status.running.length, keys: Object.keys(status || {}) })) // 2026-10-23：诊断队列卡住（此前 running=? queued=? 读不出）
       ipcLog('info', 'queue:status', 'ok', `running=${running} queued=${queued}`)
       return { code: 0, data: status }
     } catch (e) { ipcLog('error', 'queue:status', 'error', `message=${e.message}`); return { code: EC.REQUEST_ERROR, message: e.message } }
