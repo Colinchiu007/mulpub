@@ -475,12 +475,16 @@ body { margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
 #app { height: 100%; }
 .app-root { height: 100%; display: flex; flex-direction: column; }
-.mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: var(--color-bg-inset); }
+/* 壳层容器改为透明，让 body 上的环境画布（过渡色）透到整个应用窗口。
+ * 旧：这里铺的是 --color-bg-inset(#faf6f8，泛粉)，把画布整个盖住，
+ * 于是「每一页都是一块泛粉的平板」——这正是巡检里"粗糙/不统一"的主观来源。
+ * 层次改由卡片自身的描边 + 投影承担（premium-design-system.css）。 */
+.mp-shell { min-height: 0; flex: 1; display: flex; min-width: 0; overflow: hidden; background: transparent; }
 .mp-shell-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 /* 壳态收敛 6a 修订：首页标签现渲染只读 NavBar（40px），不再需要空白占位行；
    TabBar(36px) + NavBar(40px) = 主进程 WebContentsView TOP=76px 契约不变。 */
 /* 内嵌主页壳态根容器：无外层 chrome，模块导航 + 内容区纵向铺满 */
-.mp-home-shell-root { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--color-bg-inset); }
-.mp-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
-.fullscreen-main { min-height: 0; flex: 1; overflow: auto; }
+.mp-home-shell-root { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; background: transparent; }
+.mp-workspace { min-width: 0; min-height: 0; flex: 1; overflow: auto; background: transparent; }
+.fullscreen-main { min-height: 0; flex: 1; overflow: auto; background: transparent; }
 </style>

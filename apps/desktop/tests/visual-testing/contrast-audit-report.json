@@ -2,19 +2,19 @@
   {
     "view": "home",
     "route": "/",
-    "sampled": 55,
+    "sampled": 61,
     "lowContrast": []
   },
   {
     "view": "accounts",
     "route": "/accounts",
-    "sampled": 48,
+    "sampled": 51,
     "lowContrast": []
   },
   {
     "view": "publish",
     "route": "/publish",
-    "sampled": 71,
+    "sampled": 74,
     "lowContrast": []
   },
   {
@@ -26,13 +26,13 @@
   {
     "view": "create",
     "route": "/create",
-    "sampled": 36,
+    "sampled": 34,
     "lowContrast": []
   },
   {
     "view": "model-providers",
     "route": "/model-providers",
-    "sampled": 57,
+    "sampled": 58,
     "lowContrast": []
   },
   {
@@ -44,67 +44,67 @@
   {
     "view": "dashboard",
     "route": "/dashboard",
-    "sampled": 39,
+    "sampled": 48,
     "lowContrast": []
   },
   {
     "view": "calendar",
     "route": "/calendar",
-    "sampled": 84,
+    "sampled": 85,
     "lowContrast": []
   },
   {
     "view": "cloud-publish",
     "route": "/cloud-publish",
-    "sampled": 41,
+    "sampled": 42,
     "lowContrast": []
   },
   {
     "view": "viral-analysis",
     "route": "/viral-analysis",
-    "sampled": 50,
+    "sampled": 51,
     "lowContrast": []
   },
   {
     "view": "intelligence",
     "route": "/intelligence",
-    "sampled": 43,
+    "sampled": 44,
     "lowContrast": []
   },
   {
     "view": "collection",
     "route": "/collection",
-    "sampled": 63,
+    "sampled": 71,
     "lowContrast": []
   },
   {
     "view": "hot-topics",
     "route": "/hot-topics",
-    "sampled": 73,
+    "sampled": 78,
     "lowContrast": []
   },
   {
     "view": "copy-library",
     "route": "/copy-library",
-    "sampled": 37,
+    "sampled": 38,
     "lowContrast": []
   },
   {
     "view": "keywords",
     "route": "/keywords",
-    "sampled": 35,
+    "sampled": 36,
     "lowContrast": []
   },
   {
     "view": "comments",
     "route": "/comments",
-    "sampled": 32,
+    "sampled": 33,
     "lowContrast": []
   },
   {
     "view": "member-center",
     "route": "/member-center",
-    "sampled": 31,
+    "sampled": 32,
     "lowContrast": []
   }
 ]

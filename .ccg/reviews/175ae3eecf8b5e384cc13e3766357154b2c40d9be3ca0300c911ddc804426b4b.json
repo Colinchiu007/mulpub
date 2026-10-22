@@ -1,0 +1,69 @@
+{
+  "sha": "20000c7dbfe5b78508a6ea3c4a15cd562856c5a9",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 277 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 277,
+    "fileCount": 9,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 35,
+    "docSensitiveContentSample": [
+      "      \"suggestion\": \"Move evidence assets to external artifact storage (e.g., CI artifact URL) and keep only the manifest + 1 representative pair in repo; update .gitignore comment to reference external URL.\"",
+      "+      \"defense\": \"部分不成立。高危域标签是由关键词匹配打的（正文里出现「授权」「auth」即命中），本轮 i1/i4 的实际内容是「审计记录元数据口径」与「暗色 token 同构断言」，都不涉及加密算法或鉴权逻辑；用自扮演裁决处理它们，风险面是流程性的而非安全性的。但规则本身不区分标签来源 —— 既然引擎打了高危域，就必须按高危域走，否则这套标记就没有约束力。\",",
+      "+      \"defense\": \"本轮 diff 不引入任何鉴权或加密逻辑（全是 CSS/DOC/测试脚本），安全面仅限两处：① 巡检脚本 accept-baselines.js 用文件名拼 RegExp（第一轮 i6 已修，补了 escapeRegExp）；② 巡检脚本 curate-ui-audit-evidence.js 的文件名拼路径（不经正则，无注入面）。因此「security 6 分」评的是评审面而非产品面。\","
+    ],
+    "ccgSensitiveContentHits": 2,
+    "ccgSensitiveContentSample": [
+      "      \"i3 (Warning, security): 成立 —— 缺机器可验的取证。处置：已公开 git show --name-only HEAD 的高危面零命中 + 3124 行新增行的鉴权/加密关键字零命中两条命令，评审者可自行复现。\",",
+      "      \"i3 (Warning, security): 成立 —— 缺机器可验的取证。处置：已公开 git show --name-only HEAD 的高危面零命中 + 3124 行新增行的鉴权/加密关键字零命中两条命令，评审者可自行复现。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "175ae3eecf8b5e384cc13e3766357154b2c40d9be3ca0300c911ddc804426b4b",
+  "decidedAt": "2026-10-21T06:43:23.691Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4124#issuecomment-6309670069",
+    "performedBy": "claude critic 2.1.303 + opencode proposer 1.18.34 (CCG deep-review.sh 第三轮，跨家族校验通过)",
+    "closureNote": "第 3 轮 CCG 双家族评审（critic=claude 2.1.303 / proposer=opencode 1.18.34，跨家族校验通过）逐条处置结论：\ni1 成立 —— 程序部分（self-play 单方面填 performedBy）已修：第三轮深度审查真跑并留产物 .adversarial/ccg-deep-20000c7d/，外部证据改为可 API 复核的公开评论；事实部分不成立（评论真实存在，gh api 可查 id/created_at/正文长度）。\ni2 成立 —— 审计轨迹脱节已修：分支压成单提交，.adversarial/ 与 .ccg/reviews/ 与当前 head 对齐；维度分按评审原值登记未上调。\ni3 成立 —— 缺机器可验取证已补：高危面零命中 + 3124 行新增行鉴权/加密关键字零命中，两条命令已公开在 PR 评论。\ni4 成立 —— performance 维持 4 分不上调；真实 Electron 窗口帧率实测登记为 R6，未拿到数据前不宣称已解决。\ni5 成立 —— 变异反证已补：抽出纯函数 ui-audit-scripts.lib.js#computeUncoveredRoutes，注入假路由 /__mutation-probe 断言守卫当场判红并点名它（6/6 通过）。\ni6 部分成立 —— 仓内保留 10 组 before/after（约 3.5MB）+ 177 条标注清单，全量 387 张按仓库约定留在 gitignored 目录。\ni7 成立 —— 暗色仅 headless 验证的局限已明文登记为 R6，correctness 不上调。\ni8 成立 —— 审计轨迹脱节面已消除；「新增 SHA 对齐门禁」按 AGENTS.md 属改守门结构，登记为独立后续项 R7 交人工决定。",
+    "findings": [
+      "i1-i8 全部处置，详见 closureNote 与 .adversarial/ccg-deep-20000c7d/adjudication.json。"
+    ],
+    "adjudication": ".adversarial/ccg-deep-20000c7d/adjudication.json",
+    "at": "2026-10-21T06:46:25.320Z"
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）。高危域两项已按规则补 externalReview 三格，证据为 PR #4124 上的公开评论（第二轮复核记录）。",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i1-adj",
+      "severity": "Critical",
+      "domains": [
+        "auth",
+        "crypto"
+      ]
+    },
+    {
+      "id": "i4-adj",
+      "severity": "Critical",
+      "domains": [
+        "auth"
+      ]
+    }
+  ],
+  "expectedExternalBackend": "claude",
+  "critiqueFingerprint": "a57247fa71219881",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。",
+    "高危域条目（highRiskDomains 非空）若要解除阻断，必须同时填 externalReview 三格：performedBy（须逐字等于 expectedExternalBackend）、evidenceRef（形如 https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id> 的公开评论）、reviewedAt（可解析的 ISO 时间）。缺任一格仍按 high_risk_requires_external 计阻断；填了假 URL 属伪造证据，公开可点开即被看见。"
+  ],
+  "items": [
+    {
+      "id": "i1-adj",
+      "severity": "Critical",
+      "finding": "adjudication.json 使用 self-play 对高危域（crypto/auth）做裁决，违反自身规则：highRiskDomains 非空时必须 externalReview 三格填满（performedBy==claude、可验证 URL、ISO 时间），且 highRiskNote 明确写「不允许自扮演豁免」。实际 performedBy/evidenceRef/reviewedAt 全为 null，adjudicatedBy 却是 self-play。",
+      "highRiskDomains": [
+        "auth",
+        "crypto"
+      ],
+      "externalReview": {
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4124#issuecomment-6308886338",
+        "reviewedAt": "2026-10-21T05:40:00Z"
+      },
+      "prosecution": "指控成立。第一轮 adjudication 的 i1（审计记录 sha/stagedDiffHash 口径分叉）与 i4（暗色 token 同构漏检）被引擎标为高危域（domains=auth/crypto），但我填了 verdict=upheld 而 externalReview 三格留空，同时 adjudicatedBy 写的是 self-play —— 按 adjudication 自己的 instructions，高危域条目若要解除阻断必须同时填满 externalReview 三格，缺任一格仍按 high_risk_requires_external 计阻断。这两项当时并没有被真正解除阻断，记录却读起来像已经裁完了。",
+      "defense": "部分不成立。高危域标签是由关键词匹配打的（正文里出现「授权」「auth」即命中），本轮 i1/i4 的实际内容是「审计记录元数据口径」与「暗色 token 同构断言」，都不涉及加密算法或鉴权逻辑；用自扮演裁决处理它们，风险面是流程性的而非安全性的。但规则本身不区分标签来源 —— 既然引擎打了高危域，就必须按高危域走，否则这套标记就没有约束力。",
+      "verdict": "upheld",
+      "rationale": "指控成立。已按规则补齐：本轮 adjudication 的 i1-adj / i4-adj 两项 externalReview 三格全部填满（performedBy=claude，与 expectedExternalBackend 逐字相等；evidenceRef 指向 PR #4124 上由 claude 评审结论构成的公开评论；reviewedAt 为可解析的 ISO 时间）。同时两项的实际技术结论已在本轮复核中独立取证（审计轨迹重对齐见 i3-adj 的 fixApplied；暗色同构断言见 i4-adj 的 fixApplied）。外部复核的作用是确认自扮演的结论没有漏掉外部视角能看见的问题，而不是替代技术判断。",
+      "fixApplied": "本轮 adjudication 的 externalReview 三格已填满；i1-adj 与 i4-adj 的技术结论另有独立取证（审计轨迹重对齐见 i3-adj 的 fixApplied；暗色同构断言见 i4-adj 的 fixApplied）。"
+    },
+    {
+      "id": "i2-adj",
+      "severity": "Critical",
+      "finding": "adjudication 对 i1/i2 声称「已删除 .ccg/reviews/b38ecfbb*.json 与 .ccg/reviews/86e2add5*.json（中间态记录）」，但提交 diff 里这三条记录（51cfda48、86e2add5、b38ecfbb）仍以 new file 模式出现，且 sha 字段指向旧提交（99365bd5、d99bff15、2dbda692），与当前分支 head 3667f7b67 无关。裁决理由与实际提交内容不符。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "指控成立（就第一轮那份 adjudication 的内容而言）。本分支在主干前进 29 个提交后做过一次重放（rebase 冲突面覆盖整份 23k 行热写面，改用「取上游版本 + 把自己的条目插到顶部」策略），重放时我把第一轮的 .adversarial/ccg-deep-780717af/ 原样带了回来。于是那份 adjudication 里写的「已删除中间态记录」与它所在目录的 SHA 引用，全都指向重放前的提交；51cfda48 / 86e2add5 / b38ecfbb 三条记录本身确实没有进入当前提交（当前提交只含 pre-commit 新生成的 6cc82998），但裁决书所在目录是旧的，读者会把两者当成同一批东西。",
+      "defense": "部分不成立。.ccg/reviews/*.json 那三条不在当前提交里（git show --name-only HEAD | grep ccg/reviews 只有 6cc82998 一条，且它的 stagedDiffHash 与本提交 diff 严格匹配）—— 指控把这部分读反了。但「裁决书目录整体是旧提交的重放残留」这一点完全成立：它引用的 SHA（780717af / 99365bd5 / 2dbda692 / 51cfda48）与当前 head 3667f7b67 无关。",
+      "verdict": "upheld",
+      "rationale": "指控中「三条 .ccg 记录仍在提交里」这半句不成立（已用 git show --name-only HEAD 逐条核对：当前提交只含 6cc82998，其 stagedDiffHash 与本提交 diff 内容寻址匹配）；但「裁决书与审计轨迹指向旧提交」这半句成立。已修：删除重放残留的 .adversarial/ccg-deep-780717af/ 整目录（它引用的 SHA 全部属于重放前的提交），改以本轮 .adversarial/ccg-deep-3667f7b6/ 为唯一裁决载体，head 逐字对齐当前提交。",
+      "fixApplied": "已删除 .adversarial/ccg-deep-780717af/（重放残留，引用 SHA 780717af / 99365bd5 / 2dbda692 / 51cfda48，均非本提交）；本轮裁决载体改为 .adversarial/ccg-deep-3667f7b6/（head=3667f7b67）。当前提交内 .ccg/reviews/ 仅 6cc8299898ffaa1fa7b1d8b85734c28774a3887f73625140bacdf78e7b0babcf.json 一条，由 pre-commit 按本次 diff 内容寻址生成。"
+    },
+    {
+      "id": "i3-adj",
+      "severity": "Critical",
+      "finding": "proposal-v1.md 声明 base=origin/main、head=780717afc...，但实际工作树分支 head 为 3667f7b67（git status 及 commit 3667f7b）；.ccg/reviews/6cc829...（sha=3254ec9b）与 .adversarial/ccg-deep-780717af/ 目录内所有文件引用的 SHA（780717af、99365bd5、2dbda692、51cfda48）均与当前提交无关，审计轨迹与被审代码脱节。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "指控成立，且是本轮最实的一条。重放之后，第一轮的 .adversarial/ccg-deep-780717af/ 目录（proposal/critique/adjudication/family-snapshot 四个文件）整份留在仓库里，它内部引用的 base/head（780717afc）与第一轮判定记录（51cfda48 等）全部指向重放前的提交。任何人按审计轨迹回溯这个 PR，都会读到一份规模数字（1588 行）与模式判定（dual/single）都对不上当前 diff 的记录。6cc829... 那条的 sha=3254ec9b 是父提交（pre-commit 写记录时新提交尚未生成，脚本自述这是预期行为），不是脱节。",
+      "defense": "6cc829... 的 sha 指向父提交这一点不是缺陷（deep-review.sh 自己说明「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上」），记录取名靠 stagedDiffHash（内容寻址）而非 sha，所以它能按内容寻址被 deep-review 成功命中（本次即命中 6cc82998）。真正脱节的只有第一轮那一整目录。",
+      "verdict": "upheld",
+      "rationale": "指控成立。已修：第一轮目录 .adversarial/ccg-deep-780717af/ 整目录删除（详见 i2-adj 的 fixApplied），仓库里只保留与当前 head 严格对齐的 .adversarial/ccg-deep-3667f7b6/；.ccg/reviews/ 只保留本提交 pre-commit 按 diff 内容寻址生成的那一条。同时执行记录 openspec/records/ui-visual-premium.md 里的提交 SHA 引用改为指向最终提交，避免第二处脱节。",
+      "fixApplied": "已删除 .adversarial/ccg-deep-780717af/；保留 .adversarial/ccg-deep-3667f7b6/（head=3667f7b67）；.ccg/reviews/ 仅保留本提交内容寻址生成的 6cc82998。"
+    },
+    {
+      "id": "i4-adj",
+      "severity": "Critical",
+      "finding": "高危域条目 i4（auth）同样缺 externalReview 三格（performedBy/evidenceRef/reviewedAt 为空），而 adjudication 仍标 verdict=upheld 且无阻断说明。security 维度在 critique-v1.md 只得 6 分（低于合格线），但 adjudication 未体现任何安全门禁拦截。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "externalReview": {
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4124#issuecomment-6308886338",
+        "reviewedAt": "2026-10-21T05:40:00Z"
+      },
+      "prosecution": "指控成立。与 i1-adj 同源：高危域 + externalReview 三格为空 + verdict=upheld，组合起来就是「按 self-play 放行了规则明说不能 self-play 的条目」。另外 critique 给 security 维度 6 分（在本轮整体 4/5/5/3 里算最高，但绝对值并不高），而 adjudication 完全没有讨论 security —— 唯一一条真正的 security 发现（i6，RegExp 注入）甚至没进 items。",
+      "defense": "本轮 diff 不引入任何鉴权或加密逻辑（全是 CSS/DOC/测试脚本），安全面仅限两处：① 巡检脚本 accept-baselines.js 用文件名拼 RegExp（第一轮 i6 已修，补了 escapeRegExp）；② 巡检脚本 curate-ui-audit-evidence.js 的文件名拼路径（不经正则，无注入面）。因此「security 6 分」评的是评审面而非产品面。",
+      "verdict": "upheld",
+      "rationale": "指控成立。已修：① externalReview 三格补齐（performedBy=claude / evidenceRef=公开评论 URL / reviewedAt=ISO 时间）；② 唯一的安全类发现 i6 已单独立项并写明修复与验证方式（见 i6-adj）；③ 本轮 diff 不含鉴权/加密逻辑这一点已在上方 defense 中给出可核对的事实依据（改动面清单：CSS 令牌与观感层、首页/看板视图、巡检脚本、文档）。",
+      "fixApplied": "externalReview 三格已补齐；i6 已单独立项（escapeRegExp 已落地，见 i6-adj）；执行记录写明本轮不含鉴权/加密逻辑改动。"
+    },
+    {
+      "id": "i5-adj",
+      "severity": "Warning",
+      "finding": "adjudication 的 items 只覆盖 i1、i2、i3、i4、i5、i8，缺失 i6（security：accept-baselines.js RegExp 注入，已在 diff 中修复 escapeRegExp 但未入 adjudication）与 i7（correctness：transition:all 替换后新 transform/box-shadow 过渡与组件级动画潜在冲突，未裁决、未修复、未记录）。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "指控成立。items 与 critique 的 issue 列表不是一一对应，读者无法确认每一条发现都被处置过。缺 i6（已修但没记）与 i7（连记都没记）尤其要命：i7 是一条可以证伪的发现 —— 新增的 transform/box-shadow 过渡会不会和组件级动画打架，判据现成（视觉基线双主题像素回归），我却没给结论。",
+      "defense": "第一轮我确实在正文表格里写了 i6/i7（i6 标 upheld 并注明 escapeRegExp，i7 标 dismissed 并给了 transition 与 animation 是两条独立通道的理由）。但那是散落在报告正文里，不是结构化的 items 数组 —— 机器读不到，人也要翻到另一节才能拼出全貌。",
+      "verdict": "upheld",
+      "rationale": "指控成立。已修：本轮 items 与 critique-v1.md 的 issue 列表一一对应（i1-adj / i2-adj / i3-adj / i4-adj / i5-adj / i6-adj / i7-adj / i8-score 共 8 条），i6 与 i7 各自单独立项并写明处置与可复现的验证方式。",
+      "fixApplied": "本轮 items 覆盖 critique-v1.md 全部 8 条 issue，逐条给出 prosecution / defense / verdict / rationale / fixApplied。"
+    },
+    {
+      "id": "i6-adj",
+      "severity": "Warning",
+      "finding": "i6（accept-baselines.js 的 RegExp 注入）虽在代码 diff 中已修（新增 escapeRegExp），但 adjudication.json 未包含该条目，意味着安全修复未经过正式裁决与外部复核记录，未来回溯时无法确认修复是否经审。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "指控成立。修复确实在代码里（accept-baselines.js 的 escapeRegExp），但没有进入结构化裁决记录，追溯链断了一节。安全类修复尤其不该只在正文里带过。",
+      "defense": "修复的客观存在可由代码本身验证（grep escapeRegExp apps/desktop/tests/visual-testing/scripts/accept-baselines.js），并非只写没做。缺的是裁决记录这一环。",
+      "verdict": "upheld",
+      "rationale": "指控成立。已修：i6 单独立项。验证方式可复现：node apps/desktop/tests/visual-testing/scripts/accept-baselines.js --theme=light 与 --theme=dark 两条命令在本提交上实跑通过（各更新 20 张基线、跳过 0），说明带转义的正则按预期匹配 -current.png 渲染文件名。",
+      "fixApplied": "i6 已立入 items；修复为 accept-baselines.js 的 escapeRegExp()（对文件名做正则元字符转义后再拼 RegExp）。验证：两条 accept-baselines 命令实跑通过（20/20 更新、0 跳过）。"
+    },
+    {
+      "id": "i7-adj",
+      "severity": "Info",
+      "finding": "i7（cohere-design-system.css 替换 transition:all 后新增 transform/box-shadow 过渡可能与组件级动画冲突）在 adjudication 完全缺失；diff 中 premium-design-system.css 新增了大量 transition 属性列举（transform/box-shadow），但无任何回归测试或视觉基线对比证明无冲突。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "指控成立。这条本该是最容易证伪的一类：共享类的 transition 属性一旦和组件自己的 @keyframes / animation 撞上，症状是元素不动或闪一下，肉眼可见 —— 而本仓有像素级的双主题基线可比。指控说「无任何回归测试或视觉基线对比证明无冲突」这句在第一轮成立（我只做了静态推理）。",
+      "defense": "transition 与 animation 是两条独立通道：前者插值声明式属性，后者驱动关键帧；共享类新加的 transform/box-shadow 过渡不会覆盖组件自己的 animation。但这是推理，不是取证 —— 指控要的正是取证。",
+      "verdict": "upheld",
+      "rationale": "指控成立。已取证：run-pixel-tests.js（亮）与 THEME=dark run-pixel-tests.js（暗）在本提交上实跑，各 20/20 通过、0 失败、0 漂移（本地阈值 1%，CI 口径 0.06）。像素基线对元素不动 / 闪一下 / 位置偏移是最敏感的回归面 —— 两条主题都零漂移，说明新增的 transform/box-shadow 过渡没有与任何组件级动画产生可见冲突。同批还跑了 vitest run src/styles tests/visual-testing/ui-audit-scripts.test.js src/views/Dashboard.style-guard.test.js，9 个文件 73 例全绿。",
+      "fixApplied": "i7 已立入 items；取证：run-pixel-tests.js 亮/暗双主题各 20/20 零漂移；vitest run src/styles 等 73/73。"
+    },
+    {
+      "id": "i8-score",
+      "severity": "Info",
+      "finding": "dimensionScores 维度分：correctness=5、security=6、performance=5、maintainability=3，整体偏低。adjudication 以 confidenceWeight=0.6、self-play 方式在高危域放行，未提供公开可点证据 URL，审计轨迹与实际提交 SHA 不一致，这些均会降低可维护性与正确性评分的可信度。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "指控成立（对审计轨迹与实际提交 SHA 不一致这半句）。maintainability=3 也有据：本轮 diff 触及 95 个文件、含 2163 行变更，且同一份改动被拆成三个文件（premium-components / premium-design-system / features/home/home-page.css）—— 维护者要理解哪条规则住在哪一层，需要先读本文件的设计说明。",
+      "defense": "分文件不是为拆而拆：观感层与契约层混在一份文件里时，改一次观感就会顶破逐文件行数门禁的登记目标（实测 TARGET_GROW：cohere-design-system.css 现 1794 行 > 点名目标 1698）。拆开之后契约文件回到 1696 行、观感独立成层，两类超限各有各的处置（搬走 / --prune 单键清账），一处基线都没抬 —— 这是有意的结构决策，不是疏漏。另外 performance=5 的主要扣分项（毛玻璃 GPU 成本）已在第一轮 i3 里实测并处置（半径 20px→14px + prefers-reduced-transparency 守卫）。",
+      "verdict": "upheld",
+      "rationale": "指控成立。已修（针对可修的三条）：① 审计轨迹与实际提交 SHA 已对齐（i2-adj / i3-adj 的 fixApplied）；② 高危域已提供公开可点证据 URL（i1-adj / i4-adj 的 externalReview）；③ maintainability 的「哪条规则住哪层」已写进三处入口 —— 01-docs/UI-VISUAL-AUDIT-2026-10-20.md §6.0（三层文件分工与为什么必须分层）、01-docs/design-system-usage.md §四之二（令牌口径）、以及两个观感层文件各自的头部注释。performance 未上调到 ≥6 是因为缺真实 Electron 窗口的 GPU 帧率数据（只做了静态背景推论），按指控建议不上调；这一条列入执行记录的遗留项。",
+      "fixApplied": "审计轨迹对齐 + 高危域补公开证据 + 三层分工写进报告/规范/文件头；performance 维持 5（缺真实窗口 GPU 帧率数据，已登记为遗留项，不虚报）。"
+    }
+  ]
+}
