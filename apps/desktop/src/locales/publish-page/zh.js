@@ -167,6 +167,12 @@ export default {
       recoveredTitle: '恢复跟踪的发布任务',
       sessionRunning: '进行中',
       sessionDone: '已完成',
+      // UX 审计 1.8（ux-audit-stale-watchdog）：lastEventAt 的读者。
+      // 措辞刻意是陈述句而不是警示句 —— 「没有新事件」不是失败的证据，
+      // 文案不得让用户读成「已经失败」（spec 的只读派生口径）。
+      stallBadge: (ctx) => ctx.named('minutes') + ' 分钟无更新',
+      stallSuffix: (ctx) => '（' + ctx.named('minutes') + ' 分钟无更新）',
+      closeStalledHint: (ctx) => '任务已 ' + ctx.named('minutes') + ' 分钟无更新，可关闭面板（不会取消任务）',
       statusQueued: '排队中',
       statusRunning: '进行中',
       statusRetry: '重试中',

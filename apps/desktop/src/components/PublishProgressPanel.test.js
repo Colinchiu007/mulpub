@@ -16,6 +16,13 @@ const storeStateRaw = vi.hoisted(() => ({
   retrying: false,
   cancelling: false,
   hasRunning: false,
+  // 1.8 无更新派生（store 是真源，这里只当夹具）：taskStallMinutes 必须是函数，
+  // 否则 PublishProgressSession 里的 store.taskStallMinutes(taskId) 在挂载时当场抛错。
+  hasStalledRunning: false,
+  maxStallMinutes: 0,
+  stalledTaskIds: [],
+  taskStallMinutes: vi.fn(() => 0),
+  isTaskStalled: vi.fn(() => false),
   aggregate: { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 },
   init: vi.fn(),
   minimizePanel: vi.fn(),
@@ -100,6 +107,13 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     storeStateRaw.panelVisible = false
     storeStateRaw.panelMinimized = false
     storeStateRaw.hasRunning = false
+    // 1.8 新增夹具必须每轮复位：否则上一条用例设的 hasStalledRunning / taskStallMinutes
+    // 会渗进后续用例（本仓「跨用例泄漏」的同一种落法）
+    storeStateRaw.hasStalledRunning = false
+    storeStateRaw.maxStallMinutes = 0
+    storeStateRaw.stalledTaskIds = []
+    storeStateRaw.taskStallMinutes = vi.fn(() => 0)
+    storeStateRaw.isTaskStalled = vi.fn(() => false)
     storeStateRaw.cancelling = false
     storeStateRaw.aggregate = { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 }
     storeStateRaw.consumeFirstHideToast.mockReset().mockReturnValue(false)
@@ -560,6 +574,91 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     closeBtn.click()
     await nextTick()
     expect(storeStateRaw.clearFinished).toHaveBeenCalledTimes(1)
+  })
+
+  // ─── 1.8 无更新（ux-audit-stale-watchdog）───────────────────────
+  // 修前的真实死锁：`:disabled="store.hasRunning"` 只能被终态事件解除，
+  // RPA 挂死时终态事件永不到来 ⇒ 转圈 + 按钮永久灰；而且 handleClose 只在
+  // `sessions.length===0` 时收起，running 会话清不掉 ⇒ 光解禁按钮仍是"点了没反应"。
+  it('1.8 部分陈旧仍禁用关闭；全部无更新才解禁', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.hasStalledRunning = false
+    storeStateRaw.maxStallMinutes = 0
+    storeStateRaw.sessions = [makeSession({
+      tasks: { 't-1': makeTask({ taskId: 't-1' }), 't-2': makeTask({ taskId: 't-2' }) },
+      taskOrder: ['t-1', 't-2'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+
+    let closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
+    expect(closeBtn.hasAttribute('disabled'), '还有在动的任务就不得解禁').toBe(true)
+
+    store.hasStalledRunning = true
+    store.maxStallMinutes = 4
+    await nextTick()
+    closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
+    expect(closeBtn.hasAttribute('disabled'), '全部无更新时必须可点').toBe(false)
+    expect(closeBtn.getAttribute('title'), 'title 必须说清"关掉不取消任务"').toContain('不会取消')
+  })
+
+  it('1.8 全部无更新时头部徽标转中性文案并停掉转圈', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.hasStalledRunning = true
+    storeStateRaw.maxStallMinutes = 7
+    storeStateRaw.taskStallMinutes = vi.fn(() => 7)
+    storeStateRaw.sessions = [makeSession({ tasks: { 't-1': makeTask() }, taskOrder: ['t-1'] })]
+    wrapper = mountPanel()
+    await nextTick()
+
+    const badge = body().querySelector('[data-testid="publish-progress-stall-badge"]')
+    expect(badge, '徽标必须存在').toBeTruthy()
+    expect(badge.textContent).toContain('7 分钟无更新')
+    expect(badge.classList.contains('ppp__badge--stalled')).toBe(true)
+    expect(badge.classList.contains('ppp__badge--running')).toBe(false)
+    // 转圈是"还在动"的唯一视觉信号；无更新时它必须停 —— 留着就是继续对用户说谎
+    expect(badge.querySelector('.ppp__spin')).toBeNull()
+  })
+
+  it('1.8 任务行按 store 的分钟数追加后缀，未陈旧的行不得追加', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.taskStallMinutes = vi.fn((id) => (id === 't-1' ? 3 : 0))
+    storeStateRaw.sessions = [makeSession({
+      tasks: { 't-1': makeTask({ taskId: 't-1' }), 't-2': makeTask({ taskId: 't-2' }) },
+      taskOrder: ['t-1', 't-2'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+
+    const rows = body().querySelectorAll('[data-testid="publish-progress-task"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].textContent).toContain('（3 分钟无更新）')
+    expect(rows[1].textContent, '未陈旧的任务不得被贴上无更新').not.toContain('分钟无更新')
+  })
+
+  it('1.8 关闭 ≠ 取消：只隐藏可见性，不动 sessions、不碰取消/重试入口', async () => {
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.hasStalledRunning = true
+    storeStateRaw.maxStallMinutes = 5
+    storeStateRaw.taskStallMinutes = vi.fn(() => 5)
+    // running 会话（status 不是 done）：真实 clearFinished 不会清掉它，mock 也刻意什么都不做
+    storeStateRaw.sessions = [makeSession({ tasks: { 't-1': makeTask() }, taskOrder: ['t-1'] })]
+    wrapper = mountPanel()
+    await nextTick()
+
+    const closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
+    expect(closeBtn.hasAttribute('disabled')).toBe(false)
+    closeBtn.click()
+    await nextTick()
+
+    expect(storeStateRaw.panelVisible, '解禁必须兑现成"真的关得掉"').toBe(false)
+    expect(storeStateRaw.sessions, '关闭不得丢弃任务态（再展开仍是原状态）').toHaveLength(1)
+    expect(storeStateRaw.cancelRunning, '关闭不等于取消').not.toHaveBeenCalled()
+    expect(storeStateRaw.retryFailed).not.toHaveBeenCalled()
   })
 
   it('展开态无会话：显示空态文案', async () => {

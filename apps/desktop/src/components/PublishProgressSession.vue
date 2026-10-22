@@ -14,6 +14,7 @@
       v-for="taskId in session.taskOrder"
       :key="taskId"
       :task="session.tasks[taskId]"
+      :stall-minutes="store.taskStallMinutes(taskId)"
       @retry="emit('retry', session, taskId)"
       @copy-error="emit('copy-error', $event)"
     />

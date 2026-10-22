@@ -13,9 +13,19 @@
       <div class="ppp__header">
         <span class="ppp__title">
           {{ t('publishPage.publishProgressPanel.title') }}
-          <span v-if="store.hasRunning" class="ppp__badge ppp__badge--running">
-            <el-icon class="ppp__spin"><Loading /></el-icon>
-            {{ t('publishPage.publishProgressPanel.sessionRunning') }}
+          <!-- 1.8 陈旧态：徽标从"转圈 + 进行中"换成中性" N 分钟无更新"。
+               刻意不转圈（转圈是唯一在传达「还在动」的信号，而此刻它已经不成立），
+               也刻意不用失败红（spec：只读派生，无事件 ≠ 失败）-->
+          <span
+            v-if="store.hasRunning"
+            class="ppp__badge"
+            :class="store.hasStalledRunning ? 'ppp__badge--stalled' : 'ppp__badge--running'"
+            data-testid="publish-progress-stall-badge"
+          >
+            <el-icon v-if="!store.hasStalledRunning" class="ppp__spin"><Loading /></el-icon>
+            {{ store.hasStalledRunning
+              ? t('publishPage.publishProgressPanel.stallBadge', { minutes: store.maxStallMinutes })
+              : t('publishPage.publishProgressPanel.sessionRunning') }}
           </span>
         </span>
         <span class="ppp__actions">
@@ -33,10 +43,8 @@
             type="button"
             class="ppp__icon-btn"
             data-testid="publish-progress-close"
-            :disabled="store.hasRunning"
-            :title="store.hasRunning
-              ? t('publishPage.publishProgressPanel.closeDisabledHint')
-              : t('publishPage.publishProgressPanel.close')"
+            :disabled="store.hasRunning && !store.hasStalledRunning"
+            :title="closeTitle"
             :aria-label="t('publishPage.publishProgressPanel.close')"
             @click="handleClose"
           >
@@ -139,6 +147,29 @@ const progressWidth = computed(() => {
 
 const isSingleSession = computed(() => store.sessions.length === 1)
 
+/**
+ * 关闭按钮的 title 三档（1.8）：
+ * - 还有在动的任务 ⇒ 保持「可先最小化」的禁用理由；
+ * - 全部无更新 ⇒ 明确「可以关，且不会取消任务」——用户此刻最需要知道的是
+ *   "关掉这个面板不等于放弃这次发布"，否则没人敢点。
+ */
+const closeTitle = computed(() => {
+  if (store.hasRunning && store.hasStalledRunning) {
+    return t('publishPage.publishProgressPanel.closeStalledHint', { minutes: store.maxStallMinutes })
+  }
+  if (store.hasRunning) return t('publishPage.publishProgressPanel.closeDisabledHint')
+  return t('publishPage.publishProgressPanel.close')
+})
+
+function handleClose() {
+  store.clearFinished()
+  // 1.8：解禁必须真的能退出。原实现只在 `sessions.length === 0` 时隐藏面板，
+  // 而无更新的会话仍是 running、`clearFinished()` 只清 done 会话 ⇒ 清不掉 ⇒
+  // 「按钮能点了，但点了没反应」——把本批要修的不可退出换了个位置重演一遍。
+  // 所以这里只改**可见性**：不动 `sessions`（再展开仍是原状态）、不发任何取消 IPC。
+  if (store.sessions.length === 0 || store.hasStalledRunning) store.panelVisible = false
+}
+
 function handleMinimize() {
   store.minimizePanel()
   if (store.consumeFirstHideToast()) {
@@ -149,11 +180,6 @@ function handleMinimize() {
       showClose: true,
     })
   }
-}
-
-function handleClose() {
-  store.clearFinished()
-  if (store.sessions.length === 0) store.panelVisible = false
 }
 
 async function handleRetry(session) {
@@ -252,6 +278,13 @@ const { cancelAutoCollapse } = usePublishProgressAutoCollapse({
 .ppp__badge--running {
   color: var(--color-primary);
   background: var(--color-primary-light, rgba(80, 72, 229, 0.1));
+}
+
+/* 1.8 无更新：中性档。刻意不用 --color-danger-*（读起来像失败），
+   也不用 primary（读起来像还在动）；停的是转圈图标，不是颜色警告。 */
+.ppp__badge--stalled {
+  color: var(--color-text-muted, #6b7280);
+  background: var(--color-bg-inset, rgba(0, 0, 0, 0.04));
 }
 
 .ppp__actions {

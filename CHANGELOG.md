@@ -1,3 +1,16 @@
+# [未发布] fix(发布进度): 「无更新」看门狗 —— lastEventAt 第一次有了读者，卡住的面板终于关得掉（ux-audit-stale-watchdog）
+
+- **问题**：`stores/publishProgress.js` 在四处写 `task.lastEventAt`（`:104/:166/:173/:213`），**全仓零读取**（当场 `git grep` 复核，其余命中全是测试夹具）。而 `PublishProgressPanel.vue` 的关闭按钮是 `:disabled="store.hasRunning"`，`hasRunning` 只能被**终态事件**解除 ⇒ RPA 窗口挂死、主进程任务没发出终态时：徽标永远转圈「进行中」、底部「请勿关闭应用」常驻、**关闭按钮永久灰**，用户唯一能点的「取消全部」走的还是同一条可能已挂死的链路，只剩重启应用排障。
+- **落地的三条口径**：① **只读派生** —— 陈旧不改 `phase`、不写持久化、不触发取消/重试。「没有新事件」不是失败的证据；映射成 `failed` 会让一次 IPC 投递抖动变成用户可见红态并污染发布历史（与本仓「状态只被正/负证据改写」同源）。② **锚点回落链** `lastEventAt ?? startedAt ?? session.createdAt` —— 「登记了但一个事件都没来」正是需要看门狗的那一种，因"没有锚"而永不陈旧即失灵。③ **阈值单点 + 时钟同域 + 惰性单实例 tick**：`STALL_AFTER_MS=180000` / `STALL_TICK_MS=15000` 由 store 一处导出（组件不再各算时间差），两侧都取渲染端 `Date.now()`（刻意不读事件里带来的主进程 `timestamp`），tick 只在有非终态任务期间存活。
+- **用户侧变化**：全部任务 3 分钟无事件 ⇒ 徽标**停掉转圈**并显示「N 分钟无更新」（`--color-text-muted` 中性档，不用失败红）；任务行追加「（N 分钟无更新）」；关闭按钮在「全部无更新」时解禁、`title` 改为「任务已 N 分钟无更新，可关闭面板（不会取消任务）」；**部分陈旧仍禁用**（还有在动的任务，收起面板等于丢可见性）。文案 3 键 zh/en 成对进 `locales/publish-page`。
+- **本批最有价值的一条：两处"看起来已实现"的装饰性接线，都是新写的行为锁当场抓出来的**（不是读代码读出来的）。① tick 启停最初挂在 `watch(() => 有没有非终态任务, …)` 上——看着是"所有出口自动覆盖"的最省写法，但本 store 的会话对象是 `push` 进 `ref([])` 后按**原始引用**继续改的（`_createSession` 返回 raw session，`_ensureTask`/事件处理直接改 raw），Vue 追踪看不见这些写入 ⇒ 回调**一次都没执行**；若只测"陈旧集合对不对"（computed 被读时照样算得出来），这条死接线就带着"看起来已实现"进主干了。现改为显式挂在必经出口 `_recomputeSessionStatus` 上，并对三条不经该出口的路径（新建会话分支 / `dismissSession` / `clearFinished`）各补一次调用——"单一入口"在这里不成立，成立的是"单一判据 + 全部出口都调它"。② 改 `handleClose` 时文件里已有一个同名函数声明，**函数声明后者覆盖前者** ⇒ 新写的那份是死代码，症状恰好就是本批要修的"按钮能点了但点了没反应"；由 §验收 V8 那条用例抓出后删旧留新。
+- **附带一条断言顺序教训**：`stalledTaskIds` 是 computed，副作用只在求值时发生。用例原先「先断 `phase` 未变 → 再读派生值」让反证 S2（把 `task.phase='failed'` 写进派生路径）首跑只拿到 **PARTIAL_RED（探针 0/1）**——锁抓不到自己声称的东西。正解是按**生产的读取顺序**排队（先算派生、再断 `phase`；面板渲染就是这个次序），不是放宽断言。
+- **验证**：新增 `src/stores/publishProgress.stale.test.js` 9 条（首跑 **9 failed** 的先红证据）+ 面板 4 条；消费者并集 12 个测试文件 **298 passed / 0 failed、无 `Errors` 段**；反证 `scripts/stale-watchdog-contract-mutate.js` 8 道（S1 阈值 Infinity / S2 陈旧写进 phase / S3 摘 `clearInterval` / S4 摘单实例守卫 / S5 `>=`改`>` / S6 关闭按钮退回 / S7 `handleClose` 退回只清空 / S8 不传分钟数）末跑 `CAUGHT=8/8`、8/8 `RESTORE_OK`、基线 `collected=45 passed=45`。`check-locale-sync --pair-base` 与 `--cjk` 均 PASS（CJK 基线 1330 → 1124）；聚合 eslint 改动文件 rc=0。QM-1 本批**未触发**（只动 `apps/desktop/src/`，未触 `electron/` 与 `packages/rpa-engine/`）；像素回归交 `QG Visual` 判，不用 `--update-baseline` 消化。
+- **刻意不做**（写明）：无更新 ⇒ 自动取消/自动判失败（需主进程任务存活判据，单方面判定会造出「用户以为失败但平台已发布」的假结论）；audit-14 的 `aggregate` 进度口径；22 个未接 `useBatchPollGuard` 的轮询点；阈值不做用户配置（配置面即第二份真源）。阶段 5.4「死观测字段」门禁的上线条件由本批补齐——审计文档原写「5.4 不得早于 1.8」，顺序已按此执行。
+- 文档：`01-docs/PRD-STALE-WATCHDOG-2026-10-22.md`（显示项/交互逻辑/数据校验/验收逐项）、`01-docs/UX-AUDIT-2026-10-17.md` §11、`openspec/records/ux-audit-stale-watchdog.md`。
+
+***
+
 # [未发布] feat(ci): electron-ci 桌面全量收回单一实现 —— 同一步两片并行 + 共享预算 2700s + 剥 ANSI/时间戳的现场计数
 
 - **动因（2026-10-21 现取读数）**：`electron-ci.yml` 的 `Unit tests (Vitest…)` 步骤在 main push 最近 12 趟里 **8 趟非绿**，逐趟下作业日志核对后 **8/8 都是预算墙**（`rc=124`×1、`TIMEOUT_BUDGET_EXCEEDED`×2、**断言红=0**）；红趟作业墙钟 2177–2215s，成功趟 1511/1542/1820/1934s ⇒ 贴脸逼近 2100s 步骤预算。

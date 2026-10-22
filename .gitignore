@@ -463,6 +463,10 @@ shared-user-data.backups/
 # 静默忽略：而它的自测由第 244 行 !scripts/*.test.js 通用例外进了仓 ⇒ 漏这条 negation 的后果是
 # "测试在盘、判据不在盘"，CI 上以 Cannot find module 的形式红，本地全绿（同 #3011 家族）。
 !scripts/check-debt-recheck.js
+# 「无更新」看门狗反证驱动本体（2026-10-22，ux-audit-stale-watchdog）：第 106 行 scripts/*.js
+# 会把它静默忽略。同族第 N 次（#3011 / Gate 2c3 / precommit-spawn-budget / same-type-risk-locks），
+# 症状一律是「本地全绿、按路径点名它的作业 Cannot find module」。
+!scripts/stale-watchdog-contract-mutate.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）

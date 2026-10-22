@@ -170,6 +170,11 @@ export default {
       recoveredTitle: 'Recovered publish tasks',
       sessionRunning: 'Running',
       sessionDone: 'Finished',
+      // UX audit 1.8 (ux-audit-stale-watchdog): the reader of lastEventAt.
+      // Deliberately declarative, not alarming — "no new event" is not evidence of failure.
+      stallBadge: (ctx) => ctx.named('minutes') + ' min without updates',
+      stallSuffix: (ctx) => ' (' + ctx.named('minutes') + ' min without updates)',
+      closeStalledHint: (ctx) => 'No updates for ' + ctx.named('minutes') + ' min — you can close this panel (tasks are not cancelled)',
       statusQueued: 'Queued',
       statusRunning: 'In progress',
       statusRetry: 'Retrying',

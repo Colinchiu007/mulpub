@@ -25,6 +25,12 @@ import { findAdoptableSessions, mergeSessionInto } from './publishProgressSessio
 
 /** 会话列表上限：超出裁剪最旧已完成会话；全 running 不裁剪（宁多勿丢） */
 export const MAX_SESSIONS = 5
+/**
+ * 无更新阈值与心跳周期（UX 审计 1.8）。
+ * 阈值放在模块级并由 store 导出：判据与文案共用一个数，测试也从这里取（不得各写一份 180000）。
+ */
+export const STALL_AFTER_MS = 3 * 60 * 1000
+export const STALL_TICK_MS = 15 * 1000
 /** 首次隐藏教育 toast 的 localStorage 键 */
 export const FIRST_HIDE_TOAST_STORAGE_KEY = 'mp-publish-first-hide-toast-shown'
 
@@ -114,6 +120,11 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
   }
 
   function _recomputeSessionStatus(session) {
+    // 陈旧 tick 的启停挂在**每一个**状态收敛入口上（而不是各调用点各写一遍判据）：
+    // 本函数是 phase 变更后必经的那一个出口，所以这里扫全量会话、一处定夺。
+    // 必须排在 `taskIds.length === 0` 的提前 return **之前**：那个 return 只说明"这个会话没任务"，
+    // 不代表别的会话没有非终态任务 —— 挂在 return 之后会漏掉"最后一个任务被移除"这一类收口。
+    _syncStallTicker()
     const taskIds = Object.keys(session.tasks)
     if (taskIds.length === 0) return
     const allTerminal = taskIds.every((id) => TERMINAL_PHASES.has(session.tasks[id].phase))
@@ -272,15 +283,20 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     panelVisible.value = true
     panelMinimized.value = false
     _pruneSessions()
+    // 新建分支不走 `_recomputeSessionStatus`（adopt 分支才走），所以这里必须自己同步一次；
+    // 少了它，"点了发布但一个事件都还没来"的那段时间里没有 tick，看门狗恰好对它失灵。
+    _syncStallTicker()
     return session
   }
 
   function dismissSession(sessionId) {
     sessions.value = sessions.value.filter((s) => s.id !== sessionId)
+    _syncStallTicker()
   }
 
   function clearFinished() {
     sessions.value = sessions.value.filter((s) => s.status !== 'done')
+    _syncStallTicker()
   }
 
   // ─── 重试失败项 ──────────────────────────────────────────────
@@ -470,6 +486,138 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     return Object.keys(session.tasks).filter((id) => session.tasks[id].phase === 'failed').length
   }
 
+  // ─── 无更新（陈旧）派生层（UX 审计 1.8 / audit-15）─────────────────
+  //
+  // 为什么这一层必须存在：`lastEventAt` 早就是写好的（本文件四处赋值），但**全仓零读取**，
+  // 于是面板唯一的时间锚没人用；关闭按钮 `:disabled="hasRunning"` 只能被终态事件解除，
+  // RPA 窗口挂死时事件永不到来 ⇒ 转圈 + 「勿关应用」+ 按钮永久灰，用户只剩「取消全部」
+  // 这条同样可能挂死的路。
+  //
+  // 三条口径（spec 已钉）：
+  //  1. **只读派生**：不改 `phase`、不写持久化、不触发取消/重试。
+  //     「没有新事件」不是失败的证据 —— 把它映射成 failed 会让一次 IPC 抖动变成用户可见的
+  //     红态并污染发布历史（与本仓「状态只被正/负证据改写」同一条口径）。
+  //  2. **时钟同域**：两条边都取 `Date.now()`（`lastEventAt` 本来就是 Date.now() 写的），
+  //     不得掺事件里带来的主进程 timestamp —— 跨域比较是本仓抓过的引信形态。
+  //  3. **惰性单实例 tick**：陈旧要靠墙钟推进，而事件不会替它推进，所以必须有定时器；
+  //     但它只在「还有非终态任务」期间活着，且重复 init() 不得叠加第二个
+  //     （同 `autoUpdater` 那条「全局单例监听器」教训）。
+
+  /** 阈值与周期取模块级常量（`STALL_AFTER_MS` / `STALL_TICK_MS`），此处不再各写一份 */
+
+  /**
+   * 阈值取模块级常量 `STALL_AFTER_MS` / `STALL_TICK_MS`（判据与文案共用一个数）。
+   *
+   * ⚠️ tick 句柄与 `nowTs` **刻意放在 setup 内**（每个 store 实例各一份），不是模块级单例：
+   * 模块级 `let stallTimer` 在测试里跨用例存活 —— 第一个用例留下的句柄会让第二个用例的
+   * `_ensureStallTicker()` 看见"已经有 timer"而永不新建，症状是「一个没跑起来的 timer
+   * 伪装成已接线的单例」。生产侧一个渲染进程只有一个 pinia store 实例（多窗口 = 多进程），
+   * 所以"实例内单例"既是对的也不会漏 timer；重复 init() 不叠加是因为 tick 由 watch 的
+   * 状态变化驱动，与 init() 无关。
+   */
+  const nowTs = ref(Date.now())
+  let stallTimer = null
+
+  function _stallAnchor(task, session) {
+    // 非终态任务没有 lastEventAt 的唯一来源是「登记了但从没收到事件」——那正是需要看门狗的那一种，
+    // 所以回落链必须一路铺到会话创建时刻，不得因为"没有锚"而永不陈旧。
+    if (typeof task.lastEventAt === 'number') return task.lastEventAt
+    if (typeof task.startedAt === 'number') return task.startedAt
+    return session.createdAt
+  }
+
+  /** 遍历所有非终态任务：[taskId, 锚点时刻, session] */
+  function _eachLiveTask(visit) {
+    for (const session of sessions.value) {
+      for (const taskId of Object.keys(session.tasks)) {
+        const task = session.tasks[taskId]
+        if (TERMINAL_PHASES.has(task.phase)) continue
+        visit(taskId, _stallAnchor(task, session), task)
+      }
+    }
+  }
+
+  const stalledTaskIds = computed(() => {
+    const out = []
+    _eachLiveTask((taskId, anchor) => {
+      if (nowTs.value - anchor >= STALL_AFTER_MS) out.push(taskId)
+    })
+    return out
+  })
+
+  /** 存在非终态任务，且**全部**非终态任务都已无更新 ⇒ 允许用户关掉面板 */
+  const hasStalledRunning = computed(() => {
+    let live = 0
+    let stalled = 0
+    _eachLiveTask((taskId, anchor) => {
+      live += 1
+      if (nowTs.value - anchor >= STALL_AFTER_MS) stalled += 1
+    })
+    return live > 0 && stalled === live
+  })
+
+  /** 无更新任务里最长的分钟数（供文案与 title） */
+  const maxStallMinutes = computed(() => {
+    let worst = 0
+    _eachLiveTask((taskId, anchor) => {
+      const idle = nowTs.value - anchor
+      if (idle >= STALL_AFTER_MS) worst = Math.max(worst, Math.floor(idle / 60000))
+    })
+    return worst
+  })
+
+  function taskStallMinutes(taskId) {
+    if (!taskId) return 0
+    for (const session of sessions.value) {
+      const task = session.tasks[taskId]
+      if (!task || TERMINAL_PHASES.has(task.phase)) return 0
+      const idle = nowTs.value - _stallAnchor(task, session)
+      return idle >= STALL_AFTER_MS ? Math.floor(idle / 60000) : 0
+    }
+    return 0
+  }
+
+  function isTaskStalled(taskId) {
+    return stalledTaskIds.value.includes(taskId)
+  }
+
+  function _ensureStallTicker() {
+    if (stallTimer !== null) return
+    stallTimer = setInterval(() => {
+      // 同域推进：判据与锚点都是 Date.now()
+      nowTs.value = Date.now()
+    }, STALL_TICK_MS)
+  }
+
+  function _stopStallTicker() {
+    if (stallTimer === null) return
+    clearInterval(stallTimer)
+    stallTimer = null
+  }
+
+  /**
+   * 按「是否还有非终态任务」决定 tick 的启停 —— 唯一的一处判据。
+   *
+   * 为什么不用 `watch`：本 store 的会话对象是 **push 进 `ref([])` 后按原始引用继续改的**
+   * （`_createSession` 返回 raw session，`_ensureTask`/`handleProgressEvent` 都直接改 raw），
+   * 于是 Vue 的响应式追踪看不见这些写入，watch 的 getter 不会触发。
+   * 实测形态：`{ immediate:true, flush:'sync' }` 的 watch 全程一次都没回调，
+   * 「有 running 时恰好 1 个 tick」的用例读出 0 个 —— 一条**看起来接了、实际恒不执行**的门禁，
+   * 正是本仓反复记录的「装饰性接线」。所以显式挂在必经出口 `_recomputeSessionStatus` 上，
+   * 并在三条"不经该出口"的路径（新建会话 / dismissSession / clearFinished）各补一次调用。
+   */
+  function _syncStallTicker() {
+    let hasLive = false
+    for (const session of sessions.value) {
+      for (const taskId of Object.keys(session.tasks)) {
+        if (!TERMINAL_PHASES.has(session.tasks[taskId].phase)) { hasLive = true; break }
+      }
+      if (hasLive) break
+    }
+    if (hasLive) _ensureStallTicker()
+    else _stopStallTicker()
+  }
+
   return {
     sessions,
     panelVisible,
@@ -492,5 +640,10 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     sessionFailedCount,
     hasRunning,
     aggregate,
+    stalledTaskIds,
+    hasStalledRunning,
+    maxStallMinutes,
+    taskStallMinutes,
+    isTaskStalled,
   }
 })

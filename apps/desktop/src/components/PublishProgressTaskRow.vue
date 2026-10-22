@@ -126,6 +126,12 @@ import {
 const props = defineProps({
   /** TaskState（store publishProgress 会话内单任务） */
   task: { type: Object, required: true },
+  /**
+   * 「无更新」分钟数（UX 审计 1.8）。0 = 不陈旧。
+   * 由 store 的单一判据算出后作 prop 传入：本组件是纯展示件（不 import store），
+   * 让它自己比时间就等于把阈值抄成第二份真源。
+   */
+  stallMinutes: { type: Number, default: 0 },
 })
 
 defineEmits(['retry', 'copy-error'])
@@ -194,12 +200,19 @@ const gateHelpLabel = computed(() => {
  */
 const statusText = computed(() => {
   const phase = props.task.phase
+  let text
   if (phase === 'start' || phase === 'progress') {
-    if (STEP_CHAIN.includes(props.task.stageKey)) return stageLabel(props.task.stageKey)
-    if (props.task.stageKey === 'detail' && props.task.stage) return truncateStage(props.task.stage)
-    return statusLabel(phase)
+    if (STEP_CHAIN.includes(props.task.stageKey)) text = stageLabel(props.task.stageKey)
+    else if (props.task.stageKey === 'detail' && props.task.stage) text = truncateStage(props.task.stage)
+    else text = statusLabel(phase)
+  } else {
+    text = statusLabel(phase)
   }
-  return statusLabel(phase)
+  // 1.8 无更新后缀：只追加展示，不改 phase、不改颜色语义类（spec 的只读派生口径）。
+  // stallMinutes 由 store 的单处判据算出（Session 传下来），本组件不再自己比时间——
+  // 那样会把"多久算无更新"抄成第二份真源。
+  if (props.stallMinutes > 0) text += t('publishPage.publishProgressPanel.stallSuffix', { minutes: props.stallMinutes })
+  return text
 })
 
 const showStepChain = computed(() =>
