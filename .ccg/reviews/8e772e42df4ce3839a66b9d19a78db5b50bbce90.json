@@ -55,10 +55,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4274#issuecomment-6352428866",
+    "reviewedAt": "2026-10-22T22:05:00Z",
+    "findings": 9,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对 payment-reconcile 及其测试 diff 独立审阅，原始输出逐字公开于 evidence。给出 2 Critical + 3 High + 3 Medium + 1 Low，逐条核验后大部分成立并全部落地：①LIMIT 截断（部分成立——它说会报\"干净\"是错的，截断时 count>0 ⇒ ok=false，但\"200 条\"确实骗人）→ 加 truncated/truncatedBlocking；②substring 长度守卫成立 → 加 length>7；③INNER JOIN 丢孤儿事件成立 → LEFT JOIN + (o.id IS NULL OR status<>paid)；④默认窗口藏差异成立 → 加 inspectionWindow；⑤连错库全 0 行报\"一致\"成立且最危险 → 加 schema 预检 to_regclass，缺表 rc=2；⑥只读锁补 FOR UPDATE/INTO；⑦补逐条 SQL 执行断言；⑨auth_subject 语义注释。自查另抓到一条评审没提的：schema.rows[0] || {} 在零行时会被当成\"什么都不缺\"，正是预检要防的失明形态，改为零行也算失败。判据 27 例（含 3 条 SQL 形状锁），变异反证五条均双向，全量 rc=0。"
   }
 }
