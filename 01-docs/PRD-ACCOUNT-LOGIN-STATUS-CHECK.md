@@ -1,7 +1,7 @@
 # PRD: 账号登录状态自动检测与主页提醒
 
-> 版本: 2.3 | 日期: 2026-09-22 | 状态: 已实现
-> 关联 PR: #1558（v1）、#1804（session cookie 路径修复）、#1805（v2.0：检测反馈 + 失效标识 + 结果持久化 + 公众号 HTTP 检测）、v2.1（2026-09-16 三态判定修复：HTTP 检测黑名单语义，修复抖音假阳性，详见 BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md 与本文 §14）、v2.2（2026-09-22 登录态检测口径统一：四平台黑名单语义收口 + 保存凭证回写 active + 首页横幅检测回写，详见 BUGFIX-LOGIN-STATE-CONSISTENCY-2026-09-22.md 与本文 §15）、v2.3（2026-09-22 一键检测进度可见性与并发加速：start/done 双边界广播 + 并发池 3 + 单账号 60s 超时计入失效，详见 BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md 与本文 §16）、v2.4（2026-09-23 登录态真源与三态统一：双库伪回写修复 + 单一写者 + unverified 第三态，详见 PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md 与本文 §17
+> 版本: 2.5 | 日期: 2026-10-22 | 状态: 已实现
+> 关联 PR: #1558（v1）、#1804（session cookie 路径修复）、#1805（v2.0：检测反馈 + 失效标识 + 结果持久化 + 公众号 HTTP 检测）、v2.1（2026-09-16 三态判定修复：HTTP 检测黑名单语义，修复抖音假阳性，详见 BUGFIX-LOGIN-CHECK-FALSE-EXPIRED-2026-09-16.md 与本文 §14）、v2.2（2026-09-22 登录态检测口径统一：四平台黑名单语义收口 + 保存凭证回写 active + 首页横幅检测回写，详见 BUGFIX-LOGIN-STATE-CONSISTENCY-2026-09-22.md 与本文 §15）、v2.3（2026-09-22 一键检测进度可见性与并发加速：start/done 双边界广播 + 并发池 3 + 单账号 60s 超时计入失效，详见 BUGFIX-BATCH-CHECK-PROGRESS-STALL-2026-09-22.md 与本文 §16）、v2.4（2026-09-23 登录态真源与三态统一：双库伪回写修复 + 单一写者 + unverified 第三态，详见 PRD-ACCOUNT-LOGIN-STATE-PERSISTENCE-2026-09-23.md 与本文 §17）、**v2.5（2026-10-22 一键检测提示统一为一条汇总 + 卡片登录态刷新兜底：4 条 toast 收敛为 1 条、下一步与固化失败并入汇总句、`loginStatus` 缺失时按三态结论兜底刷新卡片，详见本文 §20）**
 
 ## 1. 需求背景
 
@@ -804,3 +804,212 @@ statusChanged / last_validated / persisted` + 可选的 `hint` / `capabilities` 
    生产上允许集为空，这条路径今天走不到。
 4. 文案里"可能正在风控或改版"是**推测性说明**，不是平台确认的原因；我们无法从一次失败区分两者。
 > 同时如实记录其**与我们不同**的选择：参考产品B 保留了「后台自动重登窗口」（`backgroundautoreloginwnd`），并把用户账号密码注入平台登录页模拟点击。我们**不采用**这两条（安全 / 合规 / 风控三重风险），维持"默认关闭 + 用户手动重新登录"的口径。
+
+---
+
+## 20. 2026-10-22 变更：一键检测提示统一为一条汇总 + 卡片登录态刷新兜底
+
+> 对应执行记录：`openspec/records/fix-batch-check-toast-unify.md`。
+> 用户报告：账号页点「一键检测」后**先后弹出约 4 条文字提示，且几条内容互相矛盾**；
+> 同时**账号卡片的登录状态没有任何刷新和变化**，还是老的、不准确的状态。
+> 本章写全数据校验、流程、功能逻辑、交互逻辑、显示项、提示文字与边界。
+
+### 20.1 背景与第一性原因
+
+**两个现象，同一个根：检测结论有了，但"怎么告诉用户"和"怎么让用户看见"两条链路都断在最后一米。**
+
+**现象 A —— 4 条提示互相矛盾。** `Accounts.vue` 的 `batchCheckAllLogins()` 在一次点击后依次弹出四条 toast：
+
+| # | 原代码位置 | 级别 | 文案 | 问题 |
+|---|---|---|---|---|
+| ① | `notifyInfo('accountsPage.batchCheckAllStarted')` | info | 开始检测 N 个账号的登录状态… | **纯进度噪音**：进度已由同一 `v-if` 条件的全屏遮罩 `batch-check-overlay`（45% 深色 + `backdrop-filter: blur(2px)`，z-index 300）承载，这条 toast 出现在遮罩**底层被盖住，根本不可读** |
+| ② | `notifyWarning('accountsPage.batchCheckAllDone')` | warning | 检测完成：4 个正常，0 个失效，6 个未取取到定论（保持原状态） | **只报数，不说该做什么** |
+| ③ | `notifyInfo('accountsPage.checkHintsSummary')` | info | 后续操作建议：5 个账号需要重新登录；1 个账号请稍后重试 | 与 ② **同源数据**（都来自 `item.hint.action` 聚合），却分成两条；且文案读不出它与 ② 的关系 |
+| ④ | `notifyError('accountsPage.batchCheckAllPersistFailed')` | **error** | 检测完成，但有 1 个账号的登录状态未能保存到服务端… | 红色 error 级把「**部分**账号的结论没落库」渲染成「**整个**检测失败」，用户以为一键检测功能坏了 |
+
+用户读到的"矛盾"精确地来自这里：**② 说"0 个失效"，③ 说"5 个账号需要重新登录"**。这两句其实在说**同一批账号**——6 个"未取到定论"里有 5 个的 `reason` 是 `no-cookie` / `credential-file-only` / `no-positive-evidence` 这类**负向倾向证据**，被 `login-status-hints.js` 映射成 `action: 'relogin'`。但两句各自独立成 toast，用户无法看出这个指代关系，只能读成"检测说没问题，又让我去重登 5 个"。
+
+**现象 B —— 卡片登录态不刷新。** 原实现 `Accounts.vue:1090`：
+
+```js
+if (item.loginStatus) account.status = item.loginStatus
+```
+
+`loginStatus` 由主进程 `account.js:722` 的 `outcome.status || outcome.keptStatus` 给出。当主进程的 `readAccountSnapshot()`（`GET /api/accounts/{id}` 单条读取）**读不到真源现状**时（后端瞬时不可达 / 该账号刚被另一写者改动导致读取竞态），`keptStatus` 为 `null` ⇒ `loginStatus` 为 `null` ⇒ 上面这行**整段跳过** ⇒ 卡片徽章一动不动。用户侧的表现就是"检测跑完了，卡片还是老状态"。
+
+而**本轮检测自己的三态结论**（`item.valid === true/false`）此刻是**唯一可得的证据**，却被丢掉了。
+
+### 20.2 需求契约（四条，逐条可验证）
+
+| # | 契约 | 判据 |
+|---|---|---|
+| C1 | **一次操作一条结果提示**：一键检测的结果侧只弹 **1 条** toast，不论同时存在多少种异常 | `AccountsBatchCheck.test.js`「最坏形态也只弹 1 条结果 toast」 |
+| C2 | **汇总句自带下一步**：把"该重新登录 / 该稍后重试"并入汇总句，并用「其中 …」前缀写明它指代前面那几个未取到定论的账号 | `accounts-batch-check-copy.test.js` 逐字面量锁定「其中 5 个建议重新登录」 |
+| C3 | **局部失败降级为汇总尾段**：固化失败不再单独弹红色 error，拼在汇总句最尾部，级别跟着它所在那句走 | `batch-check-summary.test.js`「固化失败不把 success 抬成 warning」「本模块永远不产出 error 级」 |
+| C4 | **卡片刷新有兜底**：`loginStatus` 缺失但检测有明确结论时，按三态结论刷新卡片；仍无定论则保持原状 | `AccountsBatchCheck.test.js`「卡片登录态刷新兜底」3 例 |
+
+### 20.3 数据校验
+
+**渲染层 → 装配器（`buildBatchCheckSummary`）的入参，六项计数全部由 `results[]` 派生，缺省按 0：**
+
+| 字段 | 来源 | 校验 |
+|---|---|---|
+| `validCount` | `item.valid === true` 计数 | 累加前必须已判定为严格 `true`（不用 truthy） |
+| `invalidCount` | `item.valid === false` 计数 | 严格 `false`；`undefined` 不得落入此支 |
+| `unconfirmedCount` | `item.valid === undefined` 计数 | 第三态；既不计入失效，也不加入 `checkedExpiredIds` |
+| `reloginCount` | `item.hint.action === 'relogin'` | `hint` 可能缺席；缺席时不计 |
+| `retryCount` | `item.hint.action === 'retry'` | 同上 |
+| `persistFailedCount` | `item.persisted.ok === false` | `persisted` 可能缺席；`ok !== false` 不计 |
+
+**三条校验不变量：**
+
+1. `validCount + invalidCount + unconfirmedCount === results.length`（去掉无 `accountId` 的项）。
+2. `results` 非数组 ⇒ 抛 `invalid batch-check response`，走 catch 分支弹 error 级提示并复位 busy。
+3. 全零 + 无固化失败 ⇒ 装配器返回 `null`，调用方**不弹 toast**（不弹一句空洞的「检测完成」）。
+
+### 20.4 流程
+
+```
+用户点击【一键检测】
+   │
+   ├─ busy 置 true；遮罩出现（标题 + 检测中 X/N + 正在检测哪些平台 + 已耗时秒数）
+   ├─ 订阅 accounts:batch-check-progress（start / done 双边界）
+   │      ⚠️ 2026-10-22 起**不再**弹「开始检测 N 个账号…」toast（C1：进度由遮罩承载）
+   │
+   ├─ await accountBatchCheckLogin(全部账号 id)
+   │      主进程：有限并发(≤3) + 单账号硬超时(60s) + per-account 串行锁
+   │      每个账号：读凭证 → 检测 → persistCheckOutcome（单向证据规则）→ 装配 item
+   │
+   ├─ 逐 item 处理：
+   │      ├─ 三态分派计数 + checkedExpiredIds 增删
+   │      ├─ hint.action 聚合 → reloginIds / retryIds
+   │      ├─ 卡片乐观刷新（见 20.5 优先级）
+   │      └─ persisted.ok === false → persistFailedIds
+   │
+   └─ buildBatchCheckSummary(六项计数) → { level, message } | null
+          ├─ null   → 不弹
+          ├─ success → notifySuccess（1 条）
+          └─ warning → notifyWarning（1 条）
+   │
+   └─ finally：退订、停秒表、清进度、清 verifying、busy 复位
+```
+
+**与主进程的口径分界（不变）**：渲染层只做**本次会话的乐观展示**，持久化仍由主进程 `AccountManager.persistLoginState` 单点写回后端 `accounts.json`。渲染层**绝不**再调 `accountUpdate` 写 Electron 本地 SQLite（那是「一键检测后重进又显示已登录」的根因）。
+
+### 20.5 功能逻辑
+
+#### 20.5.1 卡片登录态刷新优先级（本次新增中间一级）
+
+```
+主进程回传的 loginStatus（真源现状，!= null 且 != ''）  →  最高优先
+        │ 缺失时降级
+        ▼
+检测自己的三态结论（item.valid）  —— 仅当 statusChanged === true  →  中间级（本次新增）
+        │ statusChanged 为 false 或 valid 为 undefined 时
+        ▼
+什么都不做（保持原状）               →  最低优先
+```
+
+- 第一级保留：主进程 `readAccountSnapshot` 读到现状时，展示层**跟随真源**，不从 `valid` 反推。
+  这锁住「检测有效、但另一写者刚把真源改成 `unverified`」时展示层不得反超真源。
+- 第二级是本次修复，**门控条件是 `statusChanged === true`，不是"`loginStatus` 缺失"**：
+  `statusChanged` 来自主进程 `persistCheckOutcome` 的 `changed`，表示**本轮真源已被改写**。
+  只有"真源确实被改成某结论、而回传的 `loginStatus` 却缺失"时，用 `valid` 兜底才是等价的
+  （展示的值 == 刚落盘的值）。若 `statusChanged` 为 false（无定论 / 结论未变 / 读不到现状），
+  **一律不碰卡片**——那正是"用可能过期的 `valid` 覆盖真源"的风险路径
+  （CCG 深度评审 i1 指出的 Critical，见 `openspec/records/fix-batch-check-toast-unify.md` §9）。
+- 第三级不变：`item.valid === undefined` ⇒ 卡片保持原徽章，且**不得**伪造 `last_validated`
+  （否则「最近检查」会指向一次没有结论的检测）。
+
+`last_validated` 的更新条件不变：`item.statusChanged !== false` 时才写 `checkedAt`。
+
+> **契约澄清（为什么 `loginStatus` 为 null 不等于"没有现状"）**：主进程
+> `readAccountSnapshot()` 读不到真源时返回 `null`，`keptStatus` 也随之是 `null`。
+> 这里的 null 有两种可能含义——「真的没有现状」与「读取失败」——而渲染层无法区分。
+> 因此**不能**把 null 当作"可以用 `valid` 兜底"的信号；`statusChanged` 才是"真源被动过"的可靠信号。
+
+#### 20.5.2 提示装配器（`apps/desktop/src/views/batch-check-summary.js`）
+
+**为什么下沉成独立模块**（三条理由，写进模块头）：
+
+1. `Accounts.vue` 在 `check-max-lines` 点名还账清单上（登记值 1578 行、**零增长容差**），就地写必然超限；
+2. 这段逻辑是**纯字符串装配**，抽成纯函数后可在 node 环境直接单测，不必 mount 整个 Vue 视图；
+3. 段序、分隔符、空段处理是本模块唯一的正确性所在，集中一处才说得清。
+
+**段序恒定为：计数 → 下一步 → 固化失败**，段间分隔符 `；`（全角分号，与汇总句内部的「，」分层，让用户看出这是补充段而非又一个计数）。
+
+**分支：**
+
+| 条件 | level | 句首 | 附带段 |
+|---|---|---|---|
+| `invalidCount === 0 && unconfirmedCount === 0` | **success** | `batchCheckAllAllValid`（短句，不带计数细节） | 仅固化失败段（若有） |
+| 有失效或有未定论 | **warning** | `batchCheckAllDone`（计数句） | 下一步段 + 固化失败段（按序，空则不出） |
+| 全零且无固化失败 | — | 返回 `null`，不弹 | — |
+| IPC 整体 reject / `results` 非数组 | **error** | `batchCheckAllFailed` | 不经装配器（`Accounts.vue` catch 分支） |
+
+**三条不可破（模块头 + 单测双重锁定）：**
+
+1. 只返回单个 `{ level, message }` 对象，**不得返回数组**让调用方循环弹；
+2. 空段必须从数组中消失（`filter(Boolean)`），**绝不出现**「；；」或句首/句尾孤立分隔符；
+3. **级别只由三态结论决定，固化失败不参与定级**——它是尾段，跟着所在那句走。
+
+### 20.6 交互逻辑与显示项
+
+| 显示项 | 变更 |
+|---|---|
+| 一键检测遮罩 `batch-check-overlay` | **不变**（标题 + 进度 + 明细 + 进度条 + 秒表） |
+| 按钮文案 | **不变**（检测中固定短标签「检测中…」，不随进度增长） |
+| 账号卡片登录徽章 | 刷新兜底（20.5.1）；徽章配色与文案**不变** |
+| 「去登录」按钮显隐 | **不变**（仍由 `checkedExpiredIds` 驱动；未取到定论不进入该集合） |
+| 结果 toast | **4 条 → 1 条**；级别：全定论 success / 有异常 warning / 整体失败 error |
+| 进度 toast | **删除**（`batchCheckAllStarted` 键保留但不再由一键检测调用，见 20.7） |
+
+### 20.7 提示文案（zh/en 成对）
+
+**汇总句主体（既有键，未改）：**
+
+| 键 | zh | en |
+|---|---|---|
+| `batchCheckAllAllValid` | 检测完成：{count} 个账号登录状态全部正常 | Check complete: all {count} accounts are valid |
+| `batchCheckAllDone` | 检测完成：{valid} 个正常，{invalid} 个失效[，{unconfirmed} 个未取到定论（保持原状态）] | Check complete: {valid} valid, {invalid} expired[, {unconfirmed} unresolved (status kept)] |
+
+**新增两个尾段键（2026-10-22）：**
+
+| 键 | zh | en | 用途 |
+|---|---|---|---|
+| `checkHintsSummaryInline` | 其中 {relogin} 个建议重新登录[；{retry} 个建议稍后重试] | of which {relogin} should log in again[; {retry} should be retried later] | 下一步段；两者都为 0 时**返回空串** |
+| `checkHintsPersistFailedInline` | 另有 {count} 个账号的检测结论未能保存到服务端，请重试或检查后端服务 | login status of {count} account(s) could not be saved to the server. Retry or check the backend service | 固化失败段 |
+
+**完整示例（用户截图场景，10 个账号：4 正常 / 0 失效 / 6 未定论，其中 5 个建议重登、1 个建议重试，1 个固化失败）：**
+
+> 检测完成：4 个正常，0 个失效，6 个未取到定论（保持原状态）；其中 5 个建议重新登录；1 个建议稍后重试；另有 1 个账号的检测结论未能保存到服务端，请重试或检查后端服务
+
+**关键措辞决策：「其中」而不是「N 个账号需要重新登录」。** 原独立 toast 的文案读不出它与汇总句的关系，正是用户报「0 个失效」与「5 个要重登」矛盾的直接原因。「其中」把指代关系写明。
+
+**保留但不用的键（如实登记）：** `batchCheckAllStarted`、`checkHintsSummary`、`checkHintsSummaryRelogin`、`checkHintsSummaryRetry`、`batchCheckAllPersistFailed` 五个键**仍在 locales 中**，但一键检测链路不再调用它们：
+
+- `batchCheckAllPersistFailed` 仍被**首页失效横幅**的 `reportError` 标题读取（`useExpiredAccountsBanner.js`），删键会打破 CI Gate 7 `--keys` 与横幅告警；
+- 其余四个已无调用方，保留是为了避免本次 PR 夹带「删 key」这类与主题无关的改动（删键需单独评估 `--keys` 基线与 `--cjk` 基线双重影响）。已在 locales 源码内逐条标注「一键检测不再使用」。
+
+### 20.8 回归保护与验证证据
+
+| 层 | 锁 |
+|---|---|
+| 装配器单测（新文件 `batch-check-summary.test.js`，17 例） | 单对象不数组 / 段序不可交换 / 空段不泄漏分隔符（含 5 种组合穷举）/ 定级只由三态决定 / 固化失败不抬级 / 永不产出 error 级 / 结果集为空返 null / 缺 t 不抛 / 负数不产空句 |
+| 文案结构断言（`accounts-batch-check-copy.test.js`，4 → 14 例） | 三个新键的 zh/en 逐字面量、三段条件形态、空串契约、「其中」前缀存在性、不复用红色错误措辞 |
+| 组件合同（`AccountsBatchCheck.test.js`，21 例） | 最坏形态只 1 条 toast / 开始检测不再弹 info / 全正常 1 条 success 且无附加段 / IPC 整体失败仍独立 error / 卡片兜底 5 例（`statusChanged=true` 才兜底、`statusChanged=false` 两个方向都不得兜底、空串 `loginStatus` 不被误送进兜底、无定论保持、真源优先不被反超） |
+| 测试文件拆分 | 一键检测 19 例整体迁出 `Accounts.test.js` → `AccountsBatchCheck.test.js`（`Accounts.test.js` 2374 → 1848 行，回到登记值 2029 以下） |
+| 变异反证 | 三个探针均当场红：摘掉卡片兜底 → 1 failed；从汇总里删下一步段 → 1 failed；把固化失败恢复成独立红色 error → 1 failed。全部还原后 164/164 绿 |
+| CCG 深度评审（QM-6） | claude 评审 × opencode 出方案，8 条问题（最低两项 `correctness 5` / `maintainability 4`）。**i1（Critical / auth）upheld 且已收窄修复**——兜底门控从「`loginStatus` 缺失」改为 `statusChanged === true`，并补 2 条回归锁；i4 upheld 已修（严格判定 `!= null && !== ''`）；i2 / i6 / i8 upheld 已补登记与可核证据；i3 / i5 / i7 dismissed（i3 有反证、i5 / i7 属独立 change 范围）。逐条处置见 `openspec/records/fix-batch-check-toast-unify.md` §8 |
+| 既有回归 | 账号域 5 文件 235 例全绿（Accounts / AccountsBatchCheck / useExpiredAccountsBanner / accounts store / 文案结构） |
+| 静态门禁 | `check-locale-sync.js --keys` PASS（2207 key）/ `--cjk` PASS（基线 1330、当前 1124，无新增硬编码）/ `check-max-lines.js` PASS（`Accounts.vue` 1577 ≤ 1578）/ `check-no-brand-residue.js` PASS / ESLint error 级 0 / 行尾两口径 numstat 一致且无裸 CR |
+
+### 20.9 边界（不假装闭合）
+
+1. **`hasCred=false` 覆盖后端 `active` 的规则本轮未动**（`toPublicAccount` 的「本地无凭证一律降 expired」）。它是多年存在的安全兜底，改动会影响**所有**账号列表显示而不只是一键检测，需要独立的证据链（凭证文件损坏 vs session 分区 Cookie 的判定边界），已登记为后续 change。
+2. **`loginStatus` 为 null 的根因未消**：主进程 `readAccountSnapshot` 读不到真源时依然返回 null，本次只是在展示层加了兜底。更彻底的做法是让 `persistCheckOutcome` 在读不到现状时返回明确的 `keptStatus: null` 语义标记，让渲染层能区分"真的没有现状"与"读取失败"。
+3. **`unconfirmed` 计数与 `hint.action` 不是同一维度**：一个账号可以既"未取到定论"又带 `retry` 提示（如 `http-check-inconclusive`），也可以"未取到定论"却没有任何 hint（未知 reason）。文案用「其中」弱耦合两者，不做"每个账号一行"的明细——那会变成第 5 条 toast。
+4. **本文档 §19 存在三份逐字重复副本**（第 502-601、602-706、707-806 行，均以 `## 19. 2026-10-17 变更：登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离` 开头）。这是**本次修复之前就存在的结构性债务**（历史 PR 重复追加所致），本次不改——删副本会与"只做本主题改动"冲突，且需确认哪一份是权威版。已登记为后续 change（见 `openspec/records/fix-batch-check-toast-unify.md` §8.4）。
+5. **卡片兜底契约经 CCG 深度评审（i1，Critical / auth 域）收窄**：门控是 `statusChanged === true`，**不是**"`loginStatus` 缺失"。原因是 `loginStatus` 为 null 有「真的没有现状」与「读取失败」两种含义，渲染层无法区分；只有真源确被改写时，用 `valid` 兜底才等价（展示值 == 刚落盘的值）。该条评审的外部复核（claude）尚未完成，如实留空、不冒充闭环。
+6. **5 个失效 locales 键无机械判据**：仅靠源码注释标注「一键检测不再使用」+ 保留理由；删键 / 误引用的闸门属后续 change（§8.4 第 1 条）。
+7. **`Accounts.test.js` 与 `AccountsBatchCheck.test.js` 的 mock 头部重复**：迁移时原样复制以保行为一致，抽取共享夹具属独立重构（§8.4 第 3 条）。
