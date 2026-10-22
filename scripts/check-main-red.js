@@ -26,6 +26,17 @@
  * 已知局限（必须写在现场读数旁边，否则会被读成比实际更强的判据）：
  *   差集按**检查名**对齐。同名红只证明「这条检查在主干上也红过」，不证明「红的是同一条用例」。
  *   所以 STOP_MAIN_RED 的唯一出口是有人去修 main —— 不能因为"我这也是同名红"就把它读成已解释。
+ *
+ * 2026-10-22 起的两处口径变更（change: main-red-run-baseline，提案见
+ * `openspec/changes/main-red-run-baseline/proposal.md`）：
+ *   ① **主干基准改读「该 tip 的非 workflow_run run 集合」**（`mainRowsAt`），不再读该 commit
+ *      上的全部 check-runs。理由：GitHub 把 `workflow_run` 触发的工作流的 check run 一律挂在
+ *      **默认分支当前 tip** 上，实测主干 tip 上 102 条检查行里 **81 条**是同一个
+ *      `handle-ci-failure`（来自 30 个 handler run）——噪声规模随 tip 存续时间增长，
+ *      「主干全绿」这个读数在并发合并时几乎拿不到。PR 侧仍读 check-runs。
+ *   ② **稳定窗**：读数前后各取一次 tip，不一致即作废本次读数并有界重试
+ *      （`--attempts` 默认 3、`--retry-seconds` 默认 90）。「tip 移动」归入既有的
+ *      「未证实」档（3），**不新增退出码**，也**不得**把 tip 钉死在旧 sha 上继续判绿。
  */
 const path = require('node:path')
 const cp = require('node:child_process')
@@ -34,7 +45,7 @@ const { judge, readout, resolveRepoSlug } = require('./lib/main-red')
 const REPO_DEFAULT = 'Colinchiu007/mulpub'
 
 function parseArgs (argv) {
-  const out = { pr: null, allowMainRed: null, json: false, repo: null }
+  const out = { pr: null, allowMainRed: null, json: false, repo: null, attempts: 3, retrySeconds: 90 }
   const unclaimed = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -45,15 +56,54 @@ function parseArgs (argv) {
     if (a === '--json') { out.json = true; continue }
     if (a === '--repo') { out.repo = argv[++i]; continue }
     if (a.startsWith('--repo=')) { out.repo = a.slice(7); continue }
+    // 稳定窗参数：读数期间主干 tip 移动 ⇒ 读数作废 ⇒ 有界重试（2026-10-22）
+    if (a === '--attempts') { out.attempts = argv[++i]; continue }
+    if (a.startsWith('--attempts=')) { out.attempts = a.slice(11); continue }
+    if (a === '--retry-seconds') { out.retrySeconds = argv[++i]; continue }
+    if (a.startsWith('--retry-seconds=')) { out.retrySeconds = a.slice(16); continue }
     unclaimed.push(a)
   }
   // 未知旗标与非法取值一律出声并走"自身故障"档（AGENTS：参数不得静默忽略——一次 --limit 4 被丢弃
   // 就把 smoke 放大成整域，同一个错法在这里会让"我以为我豁免了"变成"其实没豁免"）
-  if (unclaimed.length) throw new Error('未知参数：' + unclaimed.join(' ') + '（本判据只接 --pr/--allow-main-red/--json/--repo）')
+  if (unclaimed.length) throw new Error('未知参数：' + unclaimed.join(' ') + '（本判据只接 --pr/--allow-main-red/--json/--repo/--attempts/--retry-seconds）')
   if (!out.pr) throw new Error('缺 --pr <编号>')
   if (!/^\d+$/.test(String(out.pr))) throw new Error('--pr 必须是数字 PR 编号，实到 ' + out.pr)
   if (out.allowMainRed !== null && out.allowMainRed === '') throw new Error('--allow-main-red 必须带归因文本（空串等于没豁免，别用它静默放行）')
+  // 数值旗标同样不得静默：attempts=0 会让稳定窗一次都不试（等于把「读数作废」读成「读数有效」），
+  // retrySeconds 传 NaN 会让重试间隔变成 0 或 Infinity，两种都不是人想要的那一格。
+  const attempts = Number(out.attempts)
+  if (!Number.isInteger(attempts) || attempts < 1) throw new Error('--attempts 必须是 ≥1 的整数，实到 ' + out.attempts)
+  const retrySeconds = Number(out.retrySeconds)
+  if (!Number.isInteger(retrySeconds) || retrySeconds < 0) throw new Error('--retry-seconds 必须是 ≥0 的整数，实到 ' + out.retrySeconds)
+  out.attempts = attempts
+  out.retrySeconds = retrySeconds
   return out
+}
+
+/**
+ * 逐行 JSON 解析（2026-10-22 抽出共用形态）。
+ * `gh api --paginate … --jq '<投影>'` 的真实输出是**每行一个 JSON 对象**，单页与多页同形：
+ * 多页时 gh 逐页各打一批再首尾相接，**不**会有外层方括号（原先用数组形 jq 才会出现
+ * `[…][…]` 那种非法 JSON）。空文本是**合法终态**（rc=0 而零行 = 该端点这次没有数据）。
+ * @param {string} raw @param {string} what 出错时点名用的来源名
+ * @returns {object[]}
+ */
+function parseJsonLines (raw, what) {
+  const text = String(raw == null ? '' : raw)
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length === 0) return []
+  const rows = []
+  for (const [i, line] of lines.entries()) {
+    let item
+    try { item = JSON.parse(line) } catch (e) {
+      throw new Error(what + ' 第 ' + (i + 1) + ' 行不是 JSON 对象（形状变了，不得按「无红」处理）：' + line.slice(0, 80))
+    }
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(what + ' 第 ' + (i + 1) + ' 行不是对象（数组与标量都不接受）')
+    }
+    rows.push(item)
+  }
+  return rows
 }
 
 /**
@@ -68,23 +118,53 @@ function parseArgs (argv) {
  * @returns {{name:string,status?:string,conclusion?:string|null}[]}
  */
 function parseCheckRunLines (raw) {
-  const text = String(raw == null ? '' : raw)
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
   // 上一版在这里抛错，于是 judge() 的「零检查 ⇒ INCOMPLETE(3)」档在生产里**永不可达**：写了档位
   // 却永远不会走到，那是一条装饰性分支。宿主真失败另有去路——gh 非零 rc 由 execSync 抛出 ⇒ 4 档。
-  if (lines.length === 0) return []
-  const rows = []
-  for (const [i, line] of lines.entries()) {
-    let item
-    try { item = JSON.parse(line) } catch (e) {
-      throw new Error('check-runs 第 ' + (i + 1) + ' 行不是 JSON 对象（形状变了，不得按「无红」处理）：' + line.slice(0, 80))
-    }
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new Error('check-runs 第 ' + (i + 1) + ' 行不是对象（数组与标量都不接受）')
-    }
-    rows.push(item)
+  return parseJsonLines(raw, 'check-runs')
+}
+
+/**
+ * 同一个 workflow 的两次 run，哪一次更新？先比 `run_number`（第几次推送触发），再比
+ * `run_attempt`（第几次重跑）。**必须两维都比**：重跑不增加 `run_number`，只加 `run_attempt`；
+ * 只比一维会把「重跑已修复」的那次读成旧的失败（= 主干假红），或把旧的一次读成最新（= 漏红）。
+ */
+function isLaterRun (a, b) {
+  const an = Number(a && a.run_number)
+  const bn = Number(b && b.run_number)
+  if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an > bn
+  const aa = Number(a && a.run_attempt)
+  const ba = Number(b && b.run_attempt)
+  if (Number.isFinite(aa) && Number.isFinite(ba) && aa !== ba) return aa > ba
+  return false
+}
+
+/**
+ * 从「该 tip 的全部 run」里挑出**参与主干基准**的那些：**排除 `workflow_run` 触发**，
+ * 同一 workflow 只留**最新**一次（`run_number` 与 `run_attempt` 同时最大）。
+ *
+ * 纯函数（不碰网络、不碰 git），可单测——排除 `workflow_run` 这一步是本片的核心，
+ * 它的判据必须能被测到，而不能只活在一次真实 API 调用里。
+ * @param {object[]} runs 该 tip 上的全部 run（每条至少含 event/name/run_number/run_attempt）
+ * @returns {object[]} 参与基准的 run
+ */
+function selectMainRuns (runs) {
+  const latest = new Map()
+  for (const r of runs || []) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) continue
+    const event = String(r.event == null ? '' : r.event)
+    // ⛔ 形状不认识 = 探针失明，不得静默通过（AGENTS 同型）：event 字段缺失时**抛错**，
+    //    而不是「当作不是 workflow_run 放行」——那等于把"没读到事件类型"读成"它是主干自己的验证"。
+    if (!event) throw new Error('actions/runs 的行缺 event 字段（形状变了，不得按「无检查」处理）：' + JSON.stringify(r).slice(0, 120))
+    // ⛔ `workflow_run` 触发的 run 一律不参与：GitHub 把它们的 check run 挂在**默认分支当前 tip**
+    //    上（不管触发它的是哪个 PR 的 CI），实测主干 tip 上 102 条检查行里 81 条是同一个
+    //    `handle-ci-failure`。它们是「对别的 CI 的反应」，不是「主干自己的验证」。
+    if (event === 'workflow_run') continue
+    const key = String(r.name == null ? '' : r.name).trim()
+    if (!key) continue
+    const prev = latest.get(key)
+    if (!prev || isLaterRun(r, prev)) latest.set(key, r)
   }
-  return rows
+  return [...latest.values()]
 }
 
 /** 默认取数：全部走 gh，失败即抛（由 main 转成退出码 4，不静默返回空数组） */
@@ -130,43 +210,124 @@ function createGhCollector (repo) {
       return String(runGit(['rev-parse', 'origin/main']).trim())
     },
     prHeadSha: (pr) => String(run(['pr', 'view', String(pr), '--json', 'headRefOid', '--jq', '.headRefOid']).trim()),
-    /** 取某个 commit 上的全部检查（PR 侧与 main 侧**同一个 API、同一种形状**，避免两侧口径天然不等） */
+    /** 取某个 commit 上的全部检查（**仅用于 PR 侧**；主干侧改走 mainRowsAt，见下） */
     checksAt: (sha) => {
       const raw = run(['api', '--paginate', `repos/${slug}/commits/${sha}/check-runs`, '--jq',
         '.check_runs[]? | {name, status, conclusion}'])
-      // PR 侧与主干侧走同一个解析函数，两侧口径不可能天然不等。
       return parseCheckRunLines(raw)
+    },
+    /**
+     * 主干侧读数：**只取该 tip 的非 `workflow_run` run**，再取其**作业级**终态。
+     *
+     * 为什么不用 check-runs（2026-10-22 实测，这是本片的核心）：GitHub 把 `workflow_run`
+     * 触发的工作流的 check run 一律挂在**默认分支当前 tip** 上，不管触发它的是哪个 PR 的 CI。
+     * 实测主干 tip `8da92948` 上 102 条检查行里 **81 条**是同一个 `handle-ci-failure`
+     * （来自 30 个 handler run），真实信号只有 21 行；闸门实测 `mainPending=4` 而真实未完成
+     * 只有 2 条 —— 另外 2 条是噪声。噪声规模与 tip 存续时间成正比，于是「主干全绿」这个读数
+     * 在多会话并发合并时**几乎拿不到**。
+     *
+     * 按 `event` 过滤是按语义过滤：今后任何新增的 `workflow_run` 触发的工作流都自动被排除，
+     * 不需要人维护名字黑名单。行的形状仍是 `{name, status, conclusion}`，与 PR 侧同形，
+     * 且都落在**作业名**这一层（check-run 名 == 作业名）⇒ 两侧的**行粒度**一致，差集按名字对齐。
+     * ⛔ 但**不是「同一个 API」**（评审 i2 指出的自相矛盾处）：主干侧读 `actions/runs`，
+     *    PR 侧读 `commits/<sha>/check-runs`。一致的是**粒度与名字集合**，不是取数端点。
+     */
+    mainRowsAt: (sha) => {
+      const runsRaw = run(['api', '--paginate', `repos/${slug}/actions/runs?head_sha=${sha}&per_page=100`, '--jq',
+        '.workflow_runs[]? | {id, name, event, run_number, run_attempt}'])
+      const runs = parseJsonLines(runsRaw, 'actions/runs')
+      // 排除 workflow_run 触发 + 同一 workflow 取最新一次（纯函数，可单测）
+      const chosen = selectMainRuns(runs)
+      const rows = []
+      for (const r of chosen) {
+        const id = String((r && r.id) || '').trim()
+        if (!id) throw new Error('actions/runs 的行缺 id（形状变了，不得按「无检查」处理）')
+        const jobRaw = run(['api', `repos/${slug}/actions/runs/${id}/jobs?per_page=100`, '--jq',
+          '.jobs[]? | {name, status, conclusion}'])
+        for (const j of parseJsonLines(jobRaw, 'actions/runs/' + id + '/jobs')) rows.push(j)
+      }
+      return rows
     },
   }
 }
 
+/** 可等待的休眠（稳定窗重试用；测试里传 0 秒） */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * 取一次**稳定**的主干读数，再交给判据。
+ *
+ * 为什么要「稳定窗」（2026-10-22 实测）：闸门读的是「此刻的 origin/main tip」，而主干 tip
+ * 在多会话并发合并下每 15–30 分钟前进一次。实测一次读数期间 tip 从 `2f5c0a32f` 移到
+ * `8da92948` —— 那次读数整个作废（主干基准与 PR 读数不在同一棵树上，差集不可归因）。
+ * 旧实现只读一次判一次，合并入口拿不到读数就 FAIL，让��从头重跑脚本。
+ *
+ * 纪律：**不得**把 tip 钉死在旧 sha 上继续判绿——旧 tip 的绿不代表现在的主干绿。
+ */
 async function main (argv, collector) {
   const opts = parseArgs(argv)
   const c = collector || createGhCollector(opts.repo)
-  let gathered
-  try {
-    const mainSha = c.mainSha()
-    const prSha = c.prHeadSha(opts.pr)
-    gathered = {
-      mainSha,
-      prSha,
-      mainRows: c.checksAt(mainSha),
-      prRows: c.checksAt(prSha),
-      allowMainRed: opts.allowMainRed,
-    }
-  } catch (e) {
-    console.log('MAIN-RED verdict=SELF_FAULT exit=4 reason=' + ((e && e.message) || String(e)))
+  // ⛔ 采集层必须提供 mainRowsAt：主干基准来自「该 tip 的非 workflow_run run 集合」。
+  //    **不得**静默回落到 checksAt（那是噪声源：实测 102 条检查行里 81 条是 handle-ci-failure）。
+  if (typeof c.mainRowsAt !== 'function') {
+    console.log('MAIN-RED verdict=SELF_FAULT exit=4 reason=采集层没有 mainRowsAt 接口：主干基准必须读该 tip 的非 workflow_run run 集合，不得回落到 check-runs')
     return 4
   }
-  const v = judge({ prRows: gathered.prRows, mainRows: gathered.mainRows, allowMainRed: gathered.allowMainRed })
-  console.log(readout(v, { mainSha: gathered.mainSha, prSha: gathered.prSha, allowMainRed: gathered.allowMainRed }))
+  let last = null
+  let moved = null
+  const moves = []
+  let stable = false
+  for (let attempt = 1; attempt <= opts.attempts; attempt++) {
+    let shaBefore
+    let mainRows
+    let prSha
+    let prRows
+    let shaAfter
+    try {
+      shaBefore = c.mainSha()
+      mainRows = c.mainRowsAt(shaBefore)
+      prSha = c.prHeadSha(opts.pr)
+      prRows = c.checksAt(prSha)
+      shaAfter = c.mainSha()
+    } catch (e) {
+      console.log('MAIN-RED verdict=SELF_FAULT exit=4 reason=' + ((e && e.message) || String(e)))
+      return 4
+    }
+    last = { mainSha: shaBefore, prSha, mainRows, prRows }
+    if (shaBefore === shaAfter) { stable = true; break }
+    // 读数期间主干 tip 移动 ⇒ 本次读数作废
+    moved = { from: shaBefore, to: shaAfter }
+    moves.push(moved)
+    console.log('MAIN-RED STALE attempt=' + attempt + '/' + opts.attempts
+      + ' main=' + String(shaBefore).slice(0, 9) + '→' + String(shaAfter).slice(0, 9)
+      + ' 读数作废：主干在读数期间移动' + (attempt < opts.attempts ? '，重试…' : '，重试已用尽'))
+    if (attempt < opts.attempts) await sleep(opts.retrySeconds * 1000)
+  }
+  const v = judge({
+    prRows: last.prRows,
+    mainRows: last.mainRows,
+    allowMainRed: opts.allowMainRed,
+    mainMoved: stable ? null : moved,
+  })
+  console.log(readout(v, { mainSha: last.mainSha, prSha: last.prSha, allowMainRed: opts.allowMainRed }))
+  if (moves.length) {
+    console.log('  稳定窗：读数期间主干移动 ' + moves.length + ' 次（'
+      + moves.map((m) => String(m.from).slice(0, 9) + '→' + String(m.to).slice(0, 9)).join('，')
+      + '）' + (stable ? '；最终取到稳定读数（本次判定基于最后一次读数）' : '；重试耗尽，本次读数按未证实处理'))
+  }
   if (v.reason) console.log('  理由：' + v.reason)
   if (v.verdict === 'NEW_RED') console.log('  新增红（差集）：' + v.newRed.join(', '))
   // 只要主干有红就把名单念出来（第五轮 C3 的可见面）：原先只在 STOP_MAIN_RED 那档打印，
   // 于是「按归因放行」那条路径上，其余没人点名的红连名字都不出现在 stdout 里——豁免现场仍然缺失。
-  if (v.mainFail && v.mainFail.length > 0) console.log('  主干失败格子：' + v.mainFail.join(', ') + ' ｜ 本次点名豁免 ' + ((v.allowed || []).length) + ' 条 ｜ 主干 sha ' + gathered.mainSha)
+  if (v.mainFail && v.mainFail.length > 0) console.log('  主干失败格子：' + v.mainFail.join(', ') + ' ｜ 本次点名豁免 ' + ((v.allowed || []).length) + ' 条 ｜ 主干 sha ' + last.mainSha)
   console.log('  局限：差集按检查名对齐，同名红只证明"主干上也红过"，不证明是同一条用例；STOP_MAIN_RED 的出口只能是有人修 main。')
-  if (opts.json) console.log(JSON.stringify({ verdict: v.verdict, exit: v.code, newRed: v.newRed || [], inherited: v.inherited || [], mainFail: v.mainFail || [], counts: v.counts, mainSha: gathered.mainSha, prSha: gathered.prSha }))
+  if (opts.json) {
+    console.log(JSON.stringify({
+      verdict: v.verdict, exit: v.code, newRed: v.newRed || [], inherited: v.inherited || [],
+      mainFail: v.mainFail || [], counts: v.counts, mainSha: last.mainSha, prSha: last.prSha,
+      stable, moves: moves.map((m) => ({ from: m.from, to: m.to })),
+    }))
+  }
   return v.code
 }
 
@@ -186,4 +347,4 @@ if (require.main === module) {
 
 // parseCheckRunLines 必须可单独被测：它是「宿主输出 → 判据输入」那一层的唯一入口，
 // 藏在一个需要真 gh 的闭包里就只能靠集成跑，而那类跑一次要几十秒、还依赖模型额度。
-module.exports = { main, run, parseArgs, createGhCollector, parseCheckRunLines }
+module.exports = { main, run, parseArgs, createGhCollector, parseCheckRunLines, parseJsonLines, isLaterRun, selectMainRuns }

@@ -771,6 +771,30 @@ test('Quality Gate Gate 12 品牌残留门禁接线（naming-normalization）', 
   assert.doesNotMatch(script, new RegExp('(?<![A-Za-z])' + brandAbbr, 'i'));
 });
 
+test('CI Failure Handler 必须让出 Windows 并发额度（2026-10-22，change: main-red-run-baseline）', () => {
+  const wfDir = path.join(__dirname, '..', 'workflows');
+  const wf = yaml.load(fs.readFileSync(path.join(wfDir, 'ci-failure-handler.yml'), 'utf8'));
+  const job = wf.jobs && wf.jobs['handle-ci-failure'];
+  assert.ok(job, 'ci-failure-handler.yml 必须有 handle-ci-failure 作业');
+  // ⛔ 这条锁的实测依据：electron-tests / GUI Tests / 本 handler 三家全在 windows-latest 抢同一个
+  //    托管池时，主干 push 的 electron-tests 作业实测排队 46.6 分 / 51.5 分才起跑；而同批次的纯
+  //    ubuntu 作业（quality-gate）**零排队**。本作业只跑 gh CLI + node + setup-python，
+  //    占着 Windows 额度等于把并发从 Electron/GUI 那里抢走。
+  assert.equal(
+    job['runs-on'],
+    'ubuntu-latest',
+    'CI Failure Handler 必须跑 ubuntu-latest：它只依赖 gh CLI + node + setup-python，'
+      + '占着 windows-latest 会把并发额度从 Electron/GUI 那里抢走（实测排队 46–51 分钟）',
+  );
+  // 反失明：runner 迁到 ubuntu 后，步骤里不得藏着 Windows 专属 shell（否则在 ubuntu 上直接失败）。
+  const pwshSteps = (job.steps || []).filter((s) => /pwsh|powershell/i.test(String(s.shell || '')));
+  assert.deepStrictEqual(
+    pwshSteps.map((s) => String(s.name)),
+    [],
+    'handler 的步骤不得显式声明 pwsh/powershell：ubuntu runner 上没有 PowerShell',
+  );
+});
+
 test('CI 提速契约：并发控制、quality-gate 显示名与重复流水线去重', () => {
   const wfDir = path.join(__dirname, '..', 'workflows');
   const readWf = (n) => yaml.load(fs.readFileSync(path.join(wfDir, n), 'utf8'));

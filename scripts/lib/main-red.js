@@ -84,8 +84,9 @@ function namesBy (rows, bucket) {
 }
 
 /**
- * @param {{prRows:object[], mainRows:object[], mainSha?:string, prSha?:string, allowMainRed?:string|null}} input
- *        prRows/mainRows 形态由采集层负责，本层只认 name + state|conclusion
+ * @param {{prRows:object[], mainRows:object[], mainSha?:string, prSha?:string, allowMainRed?:string|null, mainMoved?:{from:string,to:string}|null}} input
+ *        prRows/mainRows 形态由采集层负责，本层只认 name + state|conclusion。
+ *        mainMoved：读数期间主干 tip 移动（{from,to}）⇒ 基准作废，按未证实处理（2026-10-22）。
  */
 function judge (input = {}) {
   const prRows = Array.isArray(input.prRows) ? input.prRows : null
@@ -101,6 +102,8 @@ function judge (input = {}) {
   const mainFail = namesBy(mainRows, 'fail')
   const mainPending = namesBy(mainRows, 'pending')
   const mainUnknown = namesBy(mainRows, 'unknown')
+  /** 读数期间主干 tip 移动（{from,to}）⇒ 基准作废，见下面 mainMoved 档 */
+  const mainMoved = input.mainMoved || null
   // 计数在**每一个非顶层 SELF_FAULT 出口**都必须是实数：读数行里出现 `=?` 就等于「这次跑没算出来」，
   // 而它长得和「算出来是 0」几乎一样（本仓把后者读成通过过不止一次）。
   // 第六轮 i4：counts 里必须带 uncertain（被主干同名 pending 摘掉的那几条红）。此前它只活在
@@ -174,6 +177,23 @@ function judge (input = {}) {
       reason: '主干一条检查都没有（主干新 tip 的检查尚未生成，或该 commit 上没有 check-runs）——'
         + '主干态未证实：既不得读成「主干绿」，也不得在没有基准时判「本 PR 新增红」。',
       counts: counts(0),
+    }
+  }
+  // ⛔ 基准作废（读数期间主干 tip 移动）：差集不可归因 ⇒ 按未证实处理，且**不得**报新增红。
+  //   位置纪律：这条 MUST 排在「新增红」判定**之前**——主干基准作废时，主干侧读数与 PR 侧读数
+  //   不在同一棵树上，"这条红在主干上也有"这句话就失去了依据；把它读成「本 PR 新增红」= 把
+  //   不可归因读成证据（2026-10-22 实测：主干 tip 在一次读数期间从 2f5c0a32f 移到 8da92948，
+  //   闸门那次读数整个作废）。PR 侧已证实的红仍要点名，但不得据此判新增红。
+  if (mainMoved && mainMoved.from && mainMoved.to && mainMoved.from !== mainMoved.to) {
+    return {
+      verdict: VERDICTS.INCOMPLETE, code: 3,
+      reason: '主干在读数期间移动（' + String(mainMoved.from).slice(0, 9) + ' → ' + String(mainMoved.to).slice(0, 9)
+        + '），本次主干基准作废：主干侧读数与 PR 侧读数不在同一棵树上，差集不可归因'
+        + (prFail.size ? '；PR 侧已失败 ' + prFail.size + ' 条（' + [...prFail].sort().join(', ') + '）——**未判新增红**：基准已作废' : '')
+        + (mainFail.size ? '；主干失败格子：' + [...mainFail].sort().join(', ') : '')
+        + '。按未证实处理：重试耗尽仍不稳定时不得据此判绿。',
+      newRed: [], inherited: [], uncertain: [], mainFail: [...mainFail].sort(),
+      counts: counts(0, 0),
     }
   }
   // 差集要把主干侧 pending 按**名字**算进「不可归因」集（第四轮 i5）。两个方向都不能整批降级：
