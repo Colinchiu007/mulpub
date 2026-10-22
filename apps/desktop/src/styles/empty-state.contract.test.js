@@ -64,21 +64,60 @@ function stripCssComments (text) {
     .replace(/^\s*\/\/.*$/gm, '')
 }
 
+/** 只取样式源码：.vue 取 <style> 块，.css 取全文（模板里的 { } 会污染规则抽取） */
+function styleSourceOf (file, text) {
+  if (!file.endsWith('.vue')) return text
+  return [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n')
+}
+
+/**
+ * 抽取「最内层」规则（选择器 + 声明体）。
+ *
+ * 用 `([^{}]+)\{([^{}]*)\}` —— 体里不允许出现花括号，
+ * 于是**嵌套块（@media / @supports）里的规则会各自被单独抽出来**。
+ * 第一版用 `[^}]*` 贪婪匹配，@media 内的整段规则被一次吞掉，
+ * 于是「@media 里的虚线空态」会被静默漏掉 —— 漏报比误报危险。
+ */
+function extractRules (css) {
+  const out = []
+  for (const m of String(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    out.push({ selector: m[1].trim(), body: m[2] })
+  }
+  return out
+}
+
+/** 语义上算「空态」的类名特征 */
+const EMPTYISH = /(?:empty|zero|none|no-?data|placeholder)/i
+
 /** 空态块里点名的类名（先剥掉注释：注释里出现的类名不是「点名」） */
 function namedClasses (section) {
   const stripped = stripCssComments(section)
   return [...new Set([...stripped.matchAll(/\.([a-z][a-z0-9-]+)/g)].map((m) => m[1]))]
 }
 
-/** 找出所有「选择器里带 empty/zero 且声明了 dashed」的规则，返回类名 */
+/** 找出所有「选择器里带 empty/zero 类且声明了 dashed」的规则，返回类名 */
 function dashedEmptyStateClasses () {
   const hits = new Set()
-  for (const { text } of styleTexts) {
-    for (const m of text.matchAll(/\.[a-z][a-z0-9-]*(?:empty|zero)[a-z0-9-]*[^{}]*\{[^{}]*dashed[^{}]*\}/gi)) {
-      for (const c of m[0].matchAll(/\.([a-z][a-z0-9-]+)/g)) hits.add(c[1])
+  for (const { file, text } of styleTexts) {
+    const css = stripCssComments(styleSourceOf(file, text))
+    for (const rule of extractRules(css)) {
+      if (!/\bdashed\b/.test(rule.body)) continue
+      for (const c of rule.selector.matchAll(/\.([a-z][a-z0-9-]+)/g)) {
+        if (EMPTYISH.test(c[1])) hits.add(c[1])
+      }
     }
   }
   return [...hits].sort()
+}
+
+/** 某个类名当前是否仍在用虚线（只读**样式源码**，不读模板；排除指定文件） */
+function classStillDashed (cls, exceptFile) {
+  const re = new RegExp('\\.' + cls + '(?![a-z0-9-])[^\\{]*\\{[^\\}]*dashed', 'i')
+  for (const { file, text } of styleTexts) {
+    if (file === exceptFile) continue
+    if (re.test(stripCssComments(styleSourceOf(file, text)))) return true
+  }
+  return false
 }
 
 /**
@@ -95,7 +134,9 @@ const DASHED_REGISTRY = [
   { cls: 'upload-zone', kind: 'keep', why: '拖放区：虚线是「可拖入」的业界惯例，不是「未完成」' },
   { cls: 'stage-time-guidance', kind: 'keep', why: '时间说明提示块：虚线是提示语气，不是空态' },
   { cls: 's2v-subgroup-title', kind: 'keep', why: '分组标题的分隔虚线：语义是分隔线，不是空态' },
-  { cls: 's2v-estimate-note', kind: 'keep', why: '估算占位的左侧虚线标记：语义是「这一行还没填」，不是空态' }
+  { cls: 's2v-estimate-note', kind: 'keep', why: '估算占位的左侧虚线标记：语义是「这一行还没填」，不是空态' },
+  { cls: 'is-placeholder', kind: 'keep', why: '估算占位的左侧虚线标记（与 s2v-estimate-note 同型）' },
+  { cls: 'video-preview-placeholder', kind: 'keep', why: '视频预览位：虚线是「预览位待生成」的槽位惯例，同拖放区' }
 ]
 
 /** 本轮已覆盖的空态容器（P0-6 点名的四类） */
@@ -139,12 +180,13 @@ describe('空态容器样式契约（P0-6）', () => {
     // ② 清单里标 defer 的每一项，代码里确实还在用虚线（清单必须是活的）
     const stale = DASHED_REGISTRY
       .filter((r) => r.kind === 'defer')
-      .filter((r) => {
-        const re = new RegExp('\\.' + r.cls + '(?![a-z0-9-])[^\\{]*\\{[^\\}]*dashed', 'i')
-        return !styleTexts.some(({ file, text }) => file !== 'styles/premium-design-system.css' && re.test(text))
-      })
+      .filter((r) => !classStillDashed(r.cls, 'styles/premium-design-system.css'))
       .map((r) => r.cls)
-    expect(stale).toEqual([])
+    expect(
+      stale,
+      '这些 defer 项在代码里已经不再虚线 ⇒ 清单陈旧。处置：从 DASHED_REGISTRY 删除该行，' +
+      '并同步更新报告 §3 P0-6「落地状态」的两张表（defer 表与保留虚线表）。',
+    ).toEqual([])
   })
 
   it('例外清单每一项都写明了保留或延后的理由', () => {

@@ -34,7 +34,7 @@ status: executed
 | 测试 | `apps/desktop/src/views/Dashboard.style-guard.test.js` | hero 卡断言改为「已定义渐变 token」+ 暗色同构断言 |
 | 测试（新增） | `apps/desktop/tests/visual-testing/ui-audit-scripts.test.js` | 巡检脚本冒烟 + 路由覆盖守卫 + 变异反证 |
 | 巡检脚本（新增） | `apps/desktop/tests/visual-testing/scripts/ui-audit-{recon,capture,preview,scenes,probes}.js`、`ui-audit-scripts.lib.js`、`accept-baselines.js`、`curate-ui-audit-evidence.js` | 界面面枚举 / 全量截图 / 单页预览 / 场景数据 / 浏览器探针 / 纯函数库 / 基线接受 / 证据挑选 |
-| 视觉基线 | `apps/desktop/tests/visual-testing/base-screenshots/*.png` | 目录内 **43 个 PNG** = 40 张像素基线（20 视图 × 亮/暗）+ 3 张 autonomous-loop 专属基线（CI 无渲染）；像素基线随本次**有意视觉变更**更新，**来源是 CI artifact 的渲染**，不是本机产物（见「基线来源」小节） |
+| 视觉基线 | `apps/desktop/tests/visual-testing/base-screenshots/*.png` | 该目录**现有 43 个 PNG** = 40 张像素基线（20 视图 × 亮/暗）+ 3 张 autonomous-loop 专属基线（CI 无渲染）。其中 40 张像素基线随本次**有意视觉变更**更新，**来源是 CI artifact 的渲染**，不是本机产物（见「基线来源」小节）；**后续 PR（#4242）未改动任何像素基线**，只改了 `01-docs/assets/` 里的 1 张证据图 |
 | 文档 | `01-docs/UI-VISUAL-AUDIT-2026-10-20.md`、`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md`、`01-docs/design-system-usage.md` | 巡检报告（含改造后复测 §2.6）/ PRD / 令牌口径 |
 | 证据资产（新增） | `01-docs/assets/ui-visual-audit-2026-10-20/*.png` | 10 组 before/after（约 3.5MB） |
 | 配置 | `.gitignore` | 为证据资产加 `!` 例外（根规则有全局 `*.png`） |

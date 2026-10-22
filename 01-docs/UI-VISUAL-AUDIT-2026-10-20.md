@@ -304,23 +304,35 @@ SVG 声明了 `font-family` 但**不渲染文字**，因此对观感零影响；
 
 **落地状态（2026-10-22 复盘，逐条核对代码）**：
 
+已改（虚线 → 实线发丝）：
+
 | 对象 | 选择器 | 状态 |
 |---|---|---|
-| 看板付费占位 | `DashboardLockedPanel.vue` 组件内 | ✅ 已改：柔面 + 3px 品牌色左边条 |
-| 首页零数据 / 最近为空 | `.mp-home-zero-cta` / `.mp-home-recent-empty` | ✅ 已改：实线发丝 + 柔面 |
-| 效能洞察全空态 / 维度空态 | `.pi-empty-state` / `.pi-dim-empty` | ✅ 已改：实线发丝（圆角与底色沿用组件自身口径） |
-| 播客频道空态 | `.podcast-empty` | ⏳ 仍是虚线：podcast-channel 是**像素基线视图**，改样式会让基线漂移，须先按 CI artifact 流程重建基线 |
-| 结果段筛选空态 | `.segment-empty-filter` | ⏳ 同上 |
-| 流水线空态 | `.pipeline-progress-empty` | ⏳ 同上 |
-| 历史缩略图空位 | `.history-thumbnail.is-empty` | ⏳ 同上 |
+| 看板付费占位 | `DashboardLockedPanel.vue` 组件内 | ✅ 柔面 + 3px 品牌色左边条 |
+| 首页零数据 / 最近为空 | `.mp-home-zero-cta` / `.mp-home-recent-empty` | ✅ 实线发丝 + 柔面 |
+| 效能洞察全空态 / 维度空态 | `.pi-empty-state` / `.pi-dim-empty` | ✅ 实线发丝（圆角与底色沿用组件自身口径） |
 
-**保留虚线的三处（语义正确，不改）**：`.upload-zone`（拖放区，虚线是"可拖入"的业界惯例）、
-`.stage-time-guidance`（提示块，虚线是提示语气）、`.s2v-subgroup-title`（分组标题分隔线）。
+仍是虚线、**本轮不改**的语义空态（4 项）：它们落在 20 张**像素基线视图**里，
+改样式会让基线漂移 ⇒ 须先按「CI artifact 渲染重建基线」的流程重建基线，再改样式：
 
-> **回归锁**：`apps/desktop/src/styles/empty-state.contract.test.js` 三条断言
-> ——① 空态块点名的类名必须在 src 里**真实存在**（上一版点名了 6 个不存在的类名，规则全部空转，
-> 而文档却写成"已改"）；② 被覆盖的类必须真有 `border-style: solid` 覆盖；
-> ③ 仍用虚线的容器必须在例外清单里登记，清单外的虚线空态 ⇒ 判红。
+| 选择器 | 所在 | 为什么与基线耦合 |
+|---|---|---|
+| `.podcast-empty` | `views/PodcastChannelView.vue` | podcast-channel 是基线视图 |
+| `.segment-empty-filter` | `views/video-creation/ResultSegmentEditor.vue` | 落在发布/创作基线视图 |
+| `.pipeline-progress-empty` | `styles/create-view.css` | create-pipeline 是基线视图 |
+| `.is-empty`（历史缩略图空位） | `styles/history-panel.css` | create-history 是基线视图 |
+
+**有意保留虚线的 6 项**（语义正确，不是「未完成」）：`.upload-zone`（拖放区：虚线是"可拖入"的业界惯例）、
+`.video-preview-placeholder`（视频预览位：虚线是"预览位待生成"的槽位惯例）、
+`.stage-time-guidance`（提示块：虚线是提示语气）、`.s2v-subgroup-title`（分组标题分隔线）、
+`.s2v-estimate-note` 与 `.is-placeholder`（估算占位的左侧虚线标记：语义是"这一行还没填"）。
+
+> 这 10 项不是随手列的：`apps/desktop/src/styles/empty-state.contract.test.js` 用**嵌套感知的规则扫描**
+> （`@media` 内的规则会被各自抽出——第一版用贪婪匹配，@media 里的虚线空态会被静默漏掉）
+> 把仓内**所有**「选择器带空态类名且声明了 dashed」的类名扫出来，与这份清单对账：
+> 清单外多一项 ⇒ 判红；清单里标 `defer` 的若已不虚线 ⇒ 清单陈旧 ⇒ 判红。
+> 另两条断言：空态块点名的类名必须在 src **真实存在**（上一版点名了 6 个不存在的类名，规则全部空转，
+> 而文档却写成"已改"）；被覆盖的类必须真有 `border-style: solid` 覆盖。
 > 锁的有效性用**变异反证**验过：注入一个不存在的类名，当场判红并点名。
 
 ---

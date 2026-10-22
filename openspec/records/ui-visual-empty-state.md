@@ -39,8 +39,8 @@ status: executed
 | 巡检脚本 | `apps/desktop/tests/visual-testing/scripts/ui-audit-probes.js` | 补回拆分时漏带的 `READY_TIMEOUT` |
 | 巡检脚本 | `apps/desktop/tests/visual-testing/scripts/curate-ui-audit-evidence.js` | 注释里的旧张数更正 |
 | lint 配置 | `apps/desktop/eslint.config.mjs` + `apps/desktop/package.json` | 把 `tests/visual-testing/scripts/` 纳入 lint（此前**完全不在** lint 范围），只开 `no-undef` |
-| 证据资产 | `01-docs/assets/ui-visual-audit-2026-10-20/06-performance-insights-after.png` | 刷新为「实线发丝」后的渲染 |
-| 文档 | `01-docs/UI-VISUAL-AUDIT-2026-10-20.md`、`01-docs/assets/ui-visual-audit-2026-10-20/README.md`、`CHANGELOG.md` | 数字与口径改准 |
+| 证据资产 | `01-docs/assets/ui-visual-audit-2026-10-20/06-performance-insights-after.png` | 刷新为「实线发丝」后的渲染（**本轮只改这 1 张图**；40 张像素基线未动） |
+| 文档 | `01-docs/UI-VISUAL-AUDIT-2026-10-20.md`、`01-docs/assets/ui-visual-audit-2026-10-20/README.md`、`CHANGELOG.md` | 数字与口径改准。**`apps/desktop/tests/visual-testing/reports/ui-audit-manifest.md`（210 行清单）已在 #4124 入库，本轮未改动它**（本轮跑过一次采集只为取证 after 图，跑完已 `git checkout --` 还原） |
 | 执行记录 | `openspec/records/ui-visual-premium.md`（更正）+ 本文件（新增） | 前者数字更正；本文件为本分支记录 |
 
 ## 执行内容
@@ -76,8 +76,24 @@ status: executed
 
 ## 四、CCG 外部双家族评审与处置
 
-（本轮评审与逐条处置见本文件 §四，由 `sh scripts/deep-review.sh` 真跑产出；
-产物落在 `.adversarial/ccg-deep-<sha>/`，可复核命令写在 PR 评论里。）
+**后端**：critic=`claude`（评审）· proposer=`opencode`（跨家族校验）· 判定 **SINGLE**（变更 197 行 ≤ 200 且无敏感命中）
+· 产物 `.adversarial/ccg-deep-04005ae3/`（`critique-v1.md` / `proposal-v1.md` / `adjudication.json`）
+· 评审给出 **7 条**意见（correctness 4 / security 7 / performance 6 / maintainability 3，最低 3），
+其中 6 条进入自扮演裁决并**逐条填完**（6/6 有 verdict）。
+
+| # | 严重度 | 评审意见 | 裁决 | 处置 |
+|---|---|---|---|---|
+| i1 | Critical | 判定记录写在父 sha 上（`sha: 71a61e540` vs head `04005ae35`）⇒ 评审对象错位 | **dismissed** | 仓库**既定设计**：pre-commit 时新提交尚未生成，记录只能先写到父 sha（脚本自述「这是预期行为」）；记录与被审对象靠 **diff 内容寻址**（stagedDiffHash）绑定 —— deep-review 输出「判定记录按 diff 内容寻址命中: dd8ec146」；`check-pr-exec-record.js` 的 `AUDIT_ARTIFACT_RE` 同时接受 40/64 位两种命名。唯一成立的部分是「易误读」，已写进上一轮记录的「审计轨迹与 SHA 对齐现状」 |
+| i2 | Critical | `DASHED_REGISTRY` 与活扫描绑定，改完 defer 项会红且无自动更新机制 | **upheld** | 成立的是「失败信息没告诉维护者该改哪」，不是绑定机制本身。已改：断言失败信息直接给出处置动作（删清单行 + 同步报告 §3 P0-6 两张表）。绑定机制保留 —— 它是「清单陈旧要出声」的唯一保证 |
+| i3 | Warning | `dashedEmptyStateClasses()` 的贪婪匹配漏掉 @media 嵌套块里的虚线空态（漏报方向） | **upheld** | 已修并**实测验证**：改成嵌套感知的规则抽取 + 只读样式源码（.vue 只取 `<style>`）+ 语义特征放宽到 `empty｜zero｜none｜no-data｜placeholder`。修完立刻多扫出 **2 个之前漏掉的**（`.is-placeholder`、`.video-preview-placeholder`）——直接证实了指控 |
+| i4 | Warning | 注册表 8 项、文档只列 3 个 keep，漏了 `s2v-estimate-note` | **upheld** | 已修：报告 §3 P0-6 改成**两张完整表**（4 项 defer + 6 项 keep），与注册表 10 项逐条对应（keep 表含 i3 新发现的 2 项） |
+| i5 | Warning | diff 只改了 1 个二进制，文档却写「43 个 PNG」 | **dismissed** | 前提不成立：43 是**目录现状**（40 像素基线 + 3 autonomous-loop 专属）的陈述，本轮**未改动任何像素基线**（`git diff --name-status` 里二进制只有 1 条）。属措辞误读，已补明确措辞 |
+| i6 | Warning | 只修了 probes 的常量，其余拆分脚本未做常量/导入审计，也没有逐脚本真跑 | **upheld** | 成立。已用**通用机制**补：整个 `tests/visual-testing/scripts/` 纳入 eslint 并只开 `no-undef`（此前该目录完全不在 lint 范围），6 个脚本一次性覆盖；变异反证（删 `READY_TIMEOUT` 定义 ⇒ eslint 判红点名）证明它真能抓同型缺陷。需要浏览器的 capture 已真跑（33 张），其余三个是无浏览器依赖的纯数据/纯函数/纯文件脚本，require 级冒烟已覆盖 |
+| i7 | Info | 文档引用的 210 行清单不在 diff 里 | **dismissed** | 清单已在 #4124 入库，本轮**未改动它**（跑采集只为取证 after 图，跑完已 `git checkout --` 还原）；已在执行记录里写明 |
+
+**本轮据评审而改的东西**：契约锁的扫描器（i3）、注册表补全到 10 项（i3/i4）、断言失败信息给出处置动作（i2）、
+报告与记录的措辞澄清（i5/i7）、eslint 覆盖（i6）。
+**变异反证**：注入不存在的类名 ⇒ 契约锁判红点名；删掉 `READY_TIMEOUT` 定义 ⇒ eslint `no-undef` 判红点名。
 
 ## 五、远程同步
 
