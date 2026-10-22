@@ -7,12 +7,12 @@ date: 2026-10-21
 ## 本次执行记录：登录视图按平台复用分区 + 头条号登录期网络观测（login-partition-reuse，2026-10-21）
 
 > 变更 ID: `login-slot-reuse-and-toutiao-diagnostics` | 分支: `login-partition-reuse`
-> Worktree: `D:/Data/projects/mulpub/mp-worktrees/mp-login-partition-reuse`
+> Worktree: `<worktree>/mp-login-partition-reuse`
 > 关联: `01-docs/PRD-LOGIN-SLOT-REUSE-2026-10-21.md`、`01-docs/TROUBLESHOOT-TOUTIAO-LOGIN-SLOW-2026-10-21.md`
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/electron/services/`）：隔离 worktree `D:/Data/projects/mulpub/mp-worktrees/mp-login-partition-reuse` + 裸分支 `login-partition-reuse`（`scripts/start-mp-task.ps1 -TaskName login-partition-reuse` 建，依赖已就绪）；经 PR 落地，不直推 main |
+| 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/electron/services/`）：隔离 worktree `<worktree>/mp-login-partition-reuse` + 裸分支 `login-partition-reuse`（`scripts/start-mp-task.ps1 -TaskName login-partition-reuse` 建，依赖已就绪）；经 PR 落地，不直推 main |
 | 第一性原因（QM-5 ①） | PASS | 登录视图与扫码登录每次用 `Date.now()` 新建**空分区** ⇒ 第三方登录页的 HTTP 缓存每次从零开始（头条号登录页实测带 1.3MB 风控 SDK + 1.8MB bundle + 43MB 背景视频）；同时头条登录请求**一条不记**（诊断过滤面只有微信/腾讯域）。取证链见 `design.md` §D1（含「无关浏览器 23.8s」与「外部网络同样 504」两条对照） |
 | 逃逸分析（QM-5 ②） | PASS | 既有测试全在**微信**语义下（每次新分区 ⇒ 缓存天然是冷的 ⇒ 没有任何用例断言「缓存要留存」）；头条平台压根没进诊断过滤面 ⇒ 两条都是「无测试/断言不存在」，不是 Mock 过度 |
 | 修复 + 回归保护（QM-5 ④） | PASS | 槽位 `auth-auth-<platform>-slot`（落在兜底读取端既有前缀下 ⇒ 读取端零改动）+ 导航前开局清（保留 HTTP 缓存、带 1200ms 硬上限、失败不阻断）+ 「本轮是否取到凭证」按轮次判；新增用例见下表，8 个相关测试文件 **255 passed** |
