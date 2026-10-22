@@ -621,7 +621,7 @@ jobs:
             scripts/ccg-closure-writeback-chain.test.js \
             scripts/deep-review-entry-rc.test.js
       # --- Gate 2b13：定时作业的失败报警覆盖面 ---
-      # 动因（2026-10-22 现场，PR #4199 那一刀的上游）：Cleanup Artifacts 连红 8 天无人发现。
+      # 动因（2026-10-22 现场，PR #4199 那一刀的上游）：Cleanup Artifacts 的定时 run 连红 9 次无人发现（run 38385152658…39570873661，最后一次成功是 run 38239617921）。
       # 根因不在作业本身，在"没有任何东西在看它"—— 仓库其实早有 ci-failure-handler.yml
       # （workflow_run 失败 ⇒ 自动开 Issue + 在 PR 留言），但它的 workflows 名单是手抄的 5 个名字，
       # 四条带 `on.schedule:` 的作业一条都不在里面；定时作业没有 PR、不 participate 合并判定，
@@ -639,7 +639,7 @@ jobs:
       # --- Gate 2b12：artifact 清理作业的行为锁 ---
       # 被测对象是 .github/workflows/cleanup-artifacts.yml 里那段清理逻辑（已搬进 scripts/cleanup-artifacts.js）。
       # 必须接在 changes 作业：cleanup 那条 workflow 只由 schedule 触发，接在那儿等于"红在 PR 侧不可见"，
-      # 那正是它连续 8 天全红而无人发现的成因（2026-10-21 实测：schedule 日日失败、非 required、无监控）。
+      # 那正是它的定时 run 连红 9 次而无人发现的成因（2026-10-21/22 实测：schedule 日日失败、非 required check、无监控；取证链见 openspec/records/schedule-failure-watch.md 与 PR #4234）。
       # 本步骤刻意**不**执行清理脚本本体（它会真删 CI 产物），只跑它的行为锁 —— 注入式测试，零真实出站。
       - name: "Gate 2b12 - Artifact cleanup logic (changes job)"
         shell: bash

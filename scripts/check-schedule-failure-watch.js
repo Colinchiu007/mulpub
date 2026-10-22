@@ -3,7 +3,7 @@
  *
  * 断言两件事，方向相反、缺一不可：
  *  A. 凡带 `on.schedule:` 的工作流，其 `name:` 必须在 ci-failure-handler 的
- *     `on.workflow_run.workflows` 名单里 —— 漏一个就是"挂了没人知道"那一类（cleanup 连红 8 天的真因）。
+ *     `on.workflow_run.workflows` 名单里 —— 漏一个就是"挂了没人知道"那一类（cleanup 的定时 run 连红 9 次的真因）。
  *  B. 名单里的每个名字必须还能在某个 .github/workflows/*.yml 的 `name:` 上找到 ——
  *     有人改名/删工作流而名单留着，读起来像"已覆盖"，实际那条永远不会触发。
  *
