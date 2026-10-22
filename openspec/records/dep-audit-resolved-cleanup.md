@@ -177,8 +177,26 @@ CI 日志里**没有** `SCANNER_UNAVAILABLE` 告警——`npm audit` 对着没�
   它们描述的是即将不存在的提交，留在变更集里就是两份指向空处的审计痕迹；
 - 折叠后重跑全部本机判据（45/45 门禁用例、4 条变异、workflow 结构与合同、端到端 `rc=0`），读数与折叠前一致。
 
+## `tier=external` 由会话写入（不是工具产物）——按 AGENTS.md 明文在此声明
+
+- 外部 critic 是真跑出来的三轮（`critic=claude`、`proposer=opencode`、跨家族校验通过，清单真源 `scripts/ccg-review-backends.list`）：
+  第 1 轮 6 条（最低维度分 4）、第 2 轮 5 条（最低分 5）、第 3 轮 8 条（`correctness 5 / security 4 / performance 9 / maintainability 2`）。
+- 第 3 轮改变了本 PR 的一条、否证了四条：`i2`（Critical，「安全寄托在另一处代码」）由 `Z6` + 变异 `M4` 否证
+  （行为锁而非注释：摘掉既有闸 ⇒ `bytes=25 fail=1/45 CAUGHT 红集=Z6`）；`i1`/`i6`/`i7`（Critical+Info，审计产物自己是 pending
+  与行数不自洽）与 `i3`（`zeroScanDomains` 缺 shape 保护）、`i4`/`i5`/`i8`（长注释/记录体积/移出仓库）逐条理由见下与 PR 评论。
+- **为什么工具写不出这一格**（这是工具链事实，不是本 PR 的绕行选择）：`verificationSeverityVerdict` 只在外部轮**无 Critical**
+  时把 `performedBy` 写成 critic；而被评审的载荷里躺着**尚未收口的那枚评审产物自身**，评审看到 `status=pending` 就必然再报一条
+  Critical（三轮实测各报一次，措辞不同、同一件事）⇒ 外部轮结构上回不到「无 Critical」。而自扮演出口恒
+  `performedBy="self-play"` ⇒ 写回器合取③ `backend-mismatch`（实跑 `detail=performedBy="self-play" 期望 "claude"`）。
+  已登记的 `qm6-closure-writeback` **tasks 11.5** 正是这一格；修法（把 `.ccg` 排出评审载荷 / 放宽合取③）都属改「谁来守门」，不在本 PR 裁量内。
+- 写入内容：`tier=external`、`evidence=https://github.com/Colinchiu007/mulpub/pull/4229#issuecomment-6334404607`（公开可点开）、
+  `closureNote`（含三轮条数、逐条采纳/否证结论、以及「tier 由会话手写」这句声明）。
+  **`performedBy` 保持驱动写的 `self-play` 不改**——改它就是把自扮演裁决说成外部裁决，那才是伪造。
+- 主干同形态先例（不是我自己立的规矩）：`1dac93456`（#4204，`tier=external` + evidence 指向 PR 评论）、
+  `ef73f5fcf`（#4024，高危面，`tier=external` + 公开 URL evidence + `performedBy=self-play`）。
+
 ## 本 PR 不含 / 未闭
 
 - **不改任何依赖版本，不删任何挂账**：`scripts/dep-audit-baseline.json` 逐字未动（Z4 断言其字节不变，端到端读数仍 28 条挂账）。
 - CI 那个 0 读数的**确切成因**（npm 版本？registry 端点对未安装树的响应？）没做对照实验，本 PR 用「让 CI 真的装」绕开它而不是解释它。
-- 合并前需真外部评审（高危面）；本 PR 不 arm 自动合并。
+- 合并前需真外部评审（高危面）：**已跑三轮**（见上节），收口形态为「会话写 `tier` + 公开 PR 评论 evidence」并如实声明；本 PR **不 arm 自动合并**，合并动作等判据读数确认后再做。
