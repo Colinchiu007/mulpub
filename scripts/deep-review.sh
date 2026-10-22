@@ -10,7 +10,7 @@
 #
 # 用法：
 #   sh scripts/deep-review.sh              # 读 HEAD 的判定记录，按 mode 决定跑不跑
-#   sh scripts/deep-review.sh --force      # 忽略 mode=skip，强制跑
+#   sh scripts/deep-review.sh --force      # 想强制审查：验证层**不会强制**（mode 由驱动从判定记录自己读）
 #   sh scripts/deep-review.sh --dry-run    # 只打印将要做什么
 #   sh scripts/deep-review.sh --check-deps # 只体检评审后端依赖（不需要 node / git 记录）
 #   sh scripts/deep-review.sh --critic codex    # 临时换评审主力后端（不改清单）
@@ -27,7 +27,7 @@
 #   dry-run 不回写（预览不改产物）；记录不存在也不新建（新建判定产物等于伪造）。
 #   决策层 plan-review.sh 那条路径今天就能生效。
 #
-# 退出码：0 无阻断 / 1 有阻断 / 2 环境或配置问题
+# 退出码：0 无阻断 / 1 有阻断 / 2 环境或配置问题（含 --force 在 skip 档做不到这一格）
 
 set -u
 
@@ -796,8 +796,26 @@ fi
 say "判定: $(echo "$MODE" | tr '[:lower:]' '[:upper:]')"
 
 if [ "$MODE" = "skip" ] && [ "$FORCE" -eq 0 ]; then
-  say "→ S 复杂度低风险，按决策矩阵跳过深度审查（--force 可强制）"
+  say "→ S 复杂度低风险，按决策矩阵跳过深度审查"
   exit 0
+fi
+
+if [ "$MODE" = "skip" ]; then
+  # ★ --force 在验证层做不到：mode 由驱动（ccg-deep-review.js，住在仓外技能目录）自己从判定
+  #   记录读，转发任何旗标它都不认识。继续走到下面 exec 的**唯一**后果是驱动把这条记录的
+  #   deepReview 整块覆写成 skipped_by_mode —— 2026-10-22 临时仓实测：前值
+  #   cleared / tier=external / evidence=PR #4204 issuecomment-6323452201 / findings=7
+  #   → 后值 skipped_by_mode / performedBy=null / findings=null，rc=0，wipe=true。
+  #   所以拒绝点必须排在「4. 依赖体检」之前：体检在零后端时同样 exit 2，会把"旗标做不到"
+  #   伪装成"环境问题"，那是归因错位而不是严格性。锁见 scripts/deep-review-deps.test.js。
+  #   两入口的 --force 语义不同不可"顺手统一"：决策层连这一档都没有（判定器对 --input 恒不产出
+  #   该档），所以它的旗标已随切片一并删除；把这里的拒绝抄过去等于拆掉一条真在跑的路径。
+  say "✗ --force 在验证层不会强制：mode 由驱动自己从判定记录读，本入口改不了它的判。"
+  say "  再往下走只会让驱动把 $REC 的 deepReview 覆写成 skipped_by_mode —— 审查一次没跑，出处先没。"
+  say "  出路 ①：方案层面直接 sh scripts/plan-review.sh <方案文件>（决策层对方案恒不跳过）。"
+  say "  出路 ②：本笔 diff 要真审 ⇒ 按 AGENTS.md QM-6 的原始命令形态直接起两路后端，或走只读"
+  say "           fresh-context 派发，并把出处写进 PR 评论；**不得**事后改写记录的 mode 造一条 dual。"
+  exit 2
 fi
 
 # ---------- 4. 依赖体检 ----------
