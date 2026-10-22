@@ -148,6 +148,29 @@ date: 2026-10-22
   gitignore 的构建产物，fresh worktree 里没有；共享根同样没有）⇒ 跑 `pnpm run build:preload` 后
   **11/11 全绿**。该失败与本次改动无关（本次 diff 未触及 `apps/desktop/electron/preload/**`）。
 
+- **第 3 轮**（8 条，最低分 5）：critic=claude，裁决如下：
+
+  | # | 严重度 | 结论 | 处置 |
+  |---|---|---|---|
+  | i1 | Critical | **不成立** | 「品牌图前缀开放、`user-logo.png` 被误杀（实测 match true）」在第 1 轮 i1 处置中已改为**封闭词表**，并有回归锁逐条钉住（4 个真头像形态一律不判品牌图），本轮实跑 **8/8 绿** ⇒ 评审依据的代码版本已过期 |
+  | i2 | Critical | **不成立** | 「无 domain Cookie 放行」不是泄露路径：跨域外发的唯一出口是**域名闸**（目标主机不在 `PLATFORM_COOKIE_DOMAINS[platform]` 内 ⇒ 零 Cookie 零请求）；无 domain 的条目来自本平台自己的会话快照与已按平台过滤的分区 Cookie。已在 docblock 写明该信任边界 |
+  | i3 | Warning | **成立** | 公众号身份解析缺「模板占位值变化」的防御测试 ⇒ **已修**：补用例断言 `nick_name` 为空或 `{{…}}` 时昵称与 uid **两个键都不产出** |
+  | i4 | Warning | **成立** | 字段路径用例喂的是手写 mock（实现与 mock 一起错）⇒ **已修**：新增三条用例，fixture 直接照抄 2026-10-22 实测到的**真实响应形状**（小红书 `galaxy/user/info`、抖音 `web/api/media/user/info`、知乎 `/api/v4/me`），字段路径从此锚在外部真值上 |
+  | i5 | Info | 登记 backlog | 「并发上限 + 整体超时」属批量检测调度层改造，与本次范围不同；实际影响有限（每平台来源 ≤ 2，仅 B 站是依赖链） |
+  | i6 | Info | 已文档化 | 品牌图规则刻意保守（宁可漏判也不误杀），新增形态靠「发现真实错图 → 补形态 + 补回归锁」逐步积累 |
+  | i7 | Warning | **成立** | 存量**平台 logo / 默认头像**在采集拿不到真头像时永远留着（用户看到的正是本次报障现象）⇒ **已修**：`buildProfilePatch` 新增有界清值规则 —— 本次采集**确实判过头像**（`avatarResolved === true`）、仍取不到真头像、且真源里存的是**品牌图** ⇒ 清空。边界写死在代码里：采集失败（`avatarResolved` 缺席）一律不动真源；只清品牌图，真头像保留。配套 4 条用例 |
+  | i8 | Info | **不成立** | 「URL 配错时请求仍发出」与实现相反：域名闸**先于**请求执行，主机不在平台登记域内时既不发 Cookie 也不发请求（第 2 轮 i4 已修，带回归锁） |
+
+- **三份判定记录的收口**：本 PR 的三份 `.ccg/reviews/*.json` 曾停在 `self_play_pending` ——
+  引擎的自扮演出口把 `verdict=upheld` 一律计为阻断（那些条当时确实成立、随后已修）。
+  本次变更集**未命中任何高危面前缀**（判据本体 / workflows / 凭证加解密 / 登录态真源），
+  按欠账门禁给出的出口②收口：`deepReview.status=cleared` + **结构化 `closureNote`**
+  （轮次标记 + 逐条处置结论）+ `tier=external` + 可核证据
+  （PR 评论 `https://github.com/Colinchiu007/mulpub/pull/4278#issuecomment-6353347788`，
+  逐轮裁决在 `.adversarial/ccg-deep-*/adjudication.json`）。
+  门禁读数：`TIER-COVERAGE dual-closed total=3 external=3 external-unverified=0`、
+  `OK: 本 PR 携带执行记录或带原因的豁免`。
+
 ### 遗留（不假装已闭合）
 
 - **公众号头像/粉丝数**：会话已失效（`cgi-bin/home` 返回错误页），无真机证据；头像仍走 DOM 采集（平台模板含 `img.user_avatar`），重新登录后可得；粉丝数无只读取证 ⇒ 留空。

@@ -50,10 +50,69 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4278#issuecomment-6353347788",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "品牌图正则前缀开放（optional prefix + logo），导致 user-logo.png 被误杀（实测 match true）。",
+        "suggestion": "前缀改封闭列表或白名单匹配，避免误杀真头像。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "dimension": "security",
+        "finding": "无 domain Cookie 直接放行，依赖上游过滤；若注入发生仍可能泄露。",
+        "suggestion": "增加无 domain Cookie 的二次验证，明确风险边界。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "parseWechatMpIdentity 依赖正则匹配再黑名单过滤，缺乏对示例值变化的防御测试。",
+        "suggestion": "增加示例值变化测试，显式拒绝空串与占位值。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "小红书真实字段依赖 mock，无真实服务端响应结构验证；若 API 结构变化则静默失败。",
+        "suggestion": "在真实环境做端到端字段验证，并记录基线。"
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "dimension": "performance",
+        "finding": "并发无全局上限，长依赖链（B 站 nav→stat）最坏时延线性累加。",
+        "suggestion": "增加并发上限和整体超时控制。"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "finding": "品牌图规则仅覆盖已观测形态，新形态或相对路径未覆盖。",
+        "suggestion": "记录已覆盖形态并增加定期审计机制。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "旧错误头像在采集失败时不会被清除（值不变不写），长期滞留。",
+        "suggestion": "采集失败时从 patch 删除 avatar 键，避免保留旧错值。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "security",
+        "finding": "硬编码 URL 错误时请求仍发出（无 Cookie），可能触发探测行为。",
+        "suggestion": "配置层增加 URL 白名单，发起前解析验证主机名。"
+      }
+    ],
+    "closureNote": "第 3 轮 8 条：3 条 upheld 已修（品牌图两条已在第 1/2 轮处置、本轮以回归锁钉住 / 公众号模板占位防御测试 / 字段路径改锚定真实服务端响应形状 / 存量品牌图在采集确实判过头像且取不到真头像时清空），4 条 dismissed 附证据（开放前缀已改封闭词表并 8/8 实跑绿 / 域名闸先于请求且请求根本不发出 / 无 domain 条目受域名闸与上游平台过滤双重约束 / 两条 Info 登记 backlog）。",
+    "closedAt": "2026-10-22T23:21:18.732Z"
   }
 }

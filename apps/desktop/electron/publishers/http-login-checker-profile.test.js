@@ -260,6 +260,17 @@ describe('http-login-checker 账号资料来源', () => {
     expect(await checker.fetchAccountInfoViaHttpApi('wechat_mp', cookies)).toEqual({ supported: true })
   })
 
+  // 防御测试（CCG 评审 i3）：模板占位值变化时不得把占位当昵称落库。
+  it('wechat_mp 模板占位（nick_name 为空或 {{…}}）不得被当成昵称', async () => {
+    mockRoutes({
+      'https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome':
+        '<html><body><script>var pageData = { uin: "", nick_name: "{{nickname}}" };</script></body></html>',
+    })
+    const info = await checker.fetchAccountInfoViaHttpApi('wechat_mp', cookies)
+    expect('nickname' in info).toBe(false)
+    expect('platformAccountId' in info).toBe(false)
+  })
+
   // ─── 快手：cookie 型来源，不发网络请求 ──
   it('kuaishou 只从登录后身份 Cookie 派生平台ID（纯本地，零请求）', async () => {
     const f = vi.fn()
@@ -307,6 +318,83 @@ describe('http-login-checker 账号资料来源', () => {
     })
     const result = await checker.checkLoginViaHttpApi('douyin', cookies)
     expect(result).toEqual({ supported: true, valid: false, code: 'CHECK_LOGIN_COOKIE_EXPIRED' })
+  })
+
+  // ─── 字段路径锚定到**真实服务端响应**（CCG 评审 i4）──
+  // 上一轮这些用例喂的是手写 mock，字段名一旦写错 mock 与实现会一起错。
+  // 下面三份 fixture 是 2026-10-22 用本机已登录账号的 Cookie 实测到的**真实响应形状**
+  // （只保留字段结构，值已脱敏；取证记录见 openspec/records/fix-account-profile-avatar.md）。
+  it('xiaohongshu：真实响应形状（galaxy/user/info）⇒ 字段路径与实测一致', async () => {
+    const REAL_XHS_USER_INFO = {
+      result: 1,
+      success: true,
+      code: 0,
+      data: {
+        userId: '5f1a2b3c00000000002a1b3c',
+        userName: '真实昵称',
+        userAvatar: 'https://sns-avatar-qc.xhscdn.com/avatar/1040g2jo31f4g7li6me605pm5tehncbt224i4ono?imageView2/2/w/60/format/webp',
+        redId: 'zhiaxga1hz',
+        role: 1,
+        permissions: ['note'],
+        realNameVerified: false,
+      },
+    }
+    mockRoutes({
+      'https://creator.xiaohongshu.com/api/galaxy/user/info': REAL_XHS_USER_INFO,
+      'https://creator.xiaohongshu.com/api/galaxy/creator/home/personal_info': { success: true, data: { name: '真实昵称', fans_count: 457, follow_count: 102, faved_count: 5454 } },
+    })
+    const info = await checker.fetchAccountInfoViaHttpApi('xiaohongshu', cookies)
+    expect(info.nickname).toBe('真实昵称')
+    expect(info.avatar).toBe(REAL_XHS_USER_INFO.data.userAvatar)
+    expect(info.followers).toBe(457)
+    expect(info.platformAccountId).toBe('5f1a2b3c00000000002a1b3c')
+  })
+
+  it('douyin：真实响应形状（web/api/media/user/info）⇒ 顶层 user + avatar_larger.url_list', async () => {
+    const REAL_DOUYIN_USER_INFO = {
+      country_code: 'CN',
+      status_code: 0,
+      login_app: 'aweme',
+      user: {
+        uid: '2232445177172442',
+        nickname: '真实昵称',
+        follower_count: 266,
+        following_count: 358,
+        aweme_count: 137,
+        sec_uid: 'MS4wLjABAAAAwjEtmZ7OxkNFM-e62997efIa0Lo2iIcaPyfnzHQaILc2_M-m-7s4HoaL8qq0huya',
+        unique_id: 'rio007007',
+        avatar_larger: {
+          uri: '1080x1080/aweme-avatar/tos-cn-i-0813c000-ce_oYIGPrAt3Bl8BEf4bJpJgxAAID8TXeAEbgeL75',
+          url_list: ['https://p3.douyinpic.com/aweme/1080x1080/aweme-avatar/tos-cn-i-0813c000-ce_oYIGPrAt3Bl8BEf4bJpJgxAAID8TXeAEbgeL75.jpeg?from'],
+        },
+        avatar_medium: { uri: '720x720/aweme-avatar/x', url_list: ['https://p3.douyinpic.com/aweme/720x720/aweme-avatar/x.jpeg'] },
+        avatar_thumb: { uri: '100x100/aweme-avatar/x', url_list: ['https://p3.douyinpic.com/aweme/100x100/aweme-avatar/x.jpeg'] },
+      },
+    }
+    mockRoutes({ 'https://creator.douyin.com/web/api/media/user/info/': REAL_DOUYIN_USER_INFO })
+    const info = await checker.fetchAccountInfoViaHttpApi('douyin', cookies)
+    expect(info.nickname).toBe('真实昵称')
+    expect(info.avatar).toBe(REAL_DOUYIN_USER_INFO.user.avatar_larger.url_list[0])
+    expect(info.followers).toBe(266)
+    expect(info.platformAccountId).toBe('2232445177172442')
+  })
+
+  it('zhihu：真实响应形状（/api/v4/me）⇒ name + avatar_url', async () => {
+    const REAL_ZHIHU_ME = {
+      id: '013a4b7c9d2e4f6a8b0c1d2e3f4a5b6c',
+      url_token: 'zhiaxga1hz',
+      name: '真实昵称',
+      avatar_url: 'https://picx.zhimg.com/v2-22dfe7094375e34e38695123acd219db_xl.jpg',
+      avatar_url_template: 'https://picx.zhimg.com/v2-22dfe7094375e34e38695123acd219db_l.jpg',
+      use_default_avatar: false,
+      is_org: false,
+      type: 'people',
+    }
+    mockRoutes({ 'https://www.zhihu.com/api/v4/me': REAL_ZHIHU_ME })
+    const info = await checker.fetchAccountInfoViaHttpApi('zhihu', cookies)
+    expect(info.nickname).toBe('真实昵称')
+    expect(info.avatar).toBe(REAL_ZHIHU_ME.avatar_url)
+    expect(info.platformAccountId).toBe(REAL_ZHIHU_ME.id)
   })
 
   // ─── 凭据出口（CCG 评审 i4，security）──

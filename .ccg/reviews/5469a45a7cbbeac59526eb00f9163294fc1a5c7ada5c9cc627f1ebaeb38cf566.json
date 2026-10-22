@@ -50,13 +50,60 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "cleared",
+    "performedBy": "claude",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
-    "findings": null,
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "toCount 引用未定义变量 n（应为参数 v）；在 'use strict' 下每次调用 followers 提取都会抛 ReferenceError，粉丝数全部失效。",
+        "suggestion": "修正为 const n = Number(v); return isFinite(n) && n>=0 ? Math.round(n) : undefined；并过滤 NaN。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "BRAND_ASSET_FILE_RE 允许 logo/brand/favicon 后接任意后缀（如 brand-new-avatar.jpg、logo-portrait.png），会误杀真实用户头像。",
+        "suggestion": "将后缀限制为已知站点品牌形态（如 -toutiao / -official 等），或增加反向白名单排除常见用户头像文件名。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "parseWechatMpIdentity 与 isBrandImageUrl 全靠正则解析 HTML/URL，无结构化验证；模板微调即失效，且无第二道兜底。",
+        "suggestion": "增加结构化 JSON 解析优先（如 pageData 对象直接提取），正则仅作降级兜底，并记录失效日志。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "Promise.all 并发时同一 cookieHeader（完整 Cookie 字符串）被发往所有端点；若 url 配置错误可导致会话 Cookie 跨域泄露。",
+        "suggestion": "为每个平台端点增加域名白名单校验（cookies 仅发送到匹配域名），拒绝未登记主机。"
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "dimension": "performance",
+        "finding": "并发取资料（Promise.all + 独立 AbortController）实现正确，互不依赖来源并行、依赖链串行，时延最优。",
+        "suggestion": "保持现状；后续可为批量检测增加整体超时和并发数限制。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "shapeInfoResult 仅检查 typeof number，未过滤 NaN；若输入非法（修复 n 后仍可能）NaN 会被写回后端。",
+        "suggestion": "增加 Number.isFinite(value) && value >= 0 校验，拒绝 NaN 与负数。"
+      }
+    ],
     "template": ".adversarial\\ccg-deep-fb5c1995\\adjudication.json",
     "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i7）",
-    "at": "2026-10-22T22:34:45.737Z"
+    "at": "2026-10-22T22:34:45.737Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4278#issuecomment-6353347788",
+    "closureNote": "第 2 轮 6 条：3 条 upheld 已修（品牌图后缀封闭化 / 凭据按目标主机过滤 + 平台域名闸 / 粉丝数 NaN 收口校验），1 条 dismissed 附实跑证据（toCount 的 n 由上一行 const 声明，5 条 followers 断言实跑通过），1 条 upheld 已修（公众号身份解析失效可观测），1 条 Info 认可。",
+    "closedAt": "2026-10-22T23:21:18.728Z"
   }
 }

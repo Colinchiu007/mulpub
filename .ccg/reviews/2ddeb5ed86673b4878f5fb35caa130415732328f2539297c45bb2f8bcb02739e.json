@@ -48,13 +48,74 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "cleared",
+    "performedBy": "claude",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
-    "findings": null,
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "BRAND_ASSET_FILE_RE allows arbitrary [a-z0-9]+[-_]? prefixes (e.g. user-logo.png), contradicting documented '封闭词表' (site/web/app/default/placeholder/official). False positives filter legitimate avatars.",
+        "suggestion": "Remove unrestricted second prefix; restrict regex to optional first group or empty, aligning with documented vocabulary."
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "dimension": "maintainability",
+        "finding": ".ccg/reviews JSON references sha 9adf66fd... but proposal head is 6a6e95a...; line counts differ (1361 vs 2177). Review artifact is stale/inconsistent with target.",
+        "suggestion": "Regenerate .ccg/reviews from actual head commit; reconcile changedLines/fileCount with diff --numstat."
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "parseWechatMpIdentity relies on regex over HTML. Fragile to whitespace/template changes; no format validation of extracted uid/nickname before return.",
+        "suggestion": "Add strict format checks (uid numeric, nickname non-empty) and return empty object on mismatch; document HTML dependency."
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "New 247-line PRD file (01-docs/...) added to diff but untracked by build/tests. Increases repo size without linkage; risk of doc drift.",
+        "suggestion": "Move PRD to docs/review or verify build tracking; delete if redundant with record file."
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "finalizeCollectedInfo deletes avatarCandidates in-place via mutation. Calling twice on same raw object yields different results (empty candidates on second pass).",
+        "suggestion": "Create shallow copy before delete: const out = { ...raw }; delete out.avatarCandidates."
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "finding": "Structure lock depends on parseItBlocks parser. A parser syntax change could make it return zero blocks, causing assertions to pass silently with no coverage.",
+        "suggestion": "Add parser sanity assertion before loop: expect(parseItBlocks(...).length).toBeGreaterThan(...)."
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "performance",
+        "finding": "fetchAccountInfoViaHttpApi runs per-source URLs sequentially with 8s individual timeouts. Multi-source platforms (toutiao, xiaohongshu, bilibili) accumulate latency linearly.",
+        "suggestion": "Run independent source fetches concurrently with Promise.all; merge results, keeping overall timeout."
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "finding": "isBrandImageUrl catches new URL() errors silently; relative URLs (e.g. /logo.png) never filtered (false negative). Documentation and regex behavior diverge.",
+        "suggestion": "Document absolute-URL-only evaluation; resolve relative paths against Referer if brand paths are relative."
+      }
+    ],
     "template": ".adversarial\\ccg-deep-6a6e95a9\\adjudication.json",
     "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
-    "at": "2026-10-22T21:06:48.407Z"
+    "at": "2026-10-22T21:06:48.407Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4278#issuecomment-6353347788",
+    "closureNote": "第 1 轮 8 条：3 条 upheld 已修（品牌图前缀封闭化 / 昵称模板占位 / 资料来源并发），4 条 dismissed 附源码与实跑证据（判定记录 sha 为父提交属工具既定行为 / 文档层由门禁认定 / 浅拷贝不修改入参 / 锁里已有解析退化断言），1 条 Info 已文档化。详见 PR 评论与本轮裁决文件。",
+    "closedAt": "2026-10-22T23:21:18.713Z"
   }
 }

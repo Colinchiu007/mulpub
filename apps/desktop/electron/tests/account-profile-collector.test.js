@@ -198,6 +198,30 @@ describe('buildProfilePatch — 「字段缺席 = 不修改」契约（T6）', (
     expect(ap.buildProfilePatch('垃圾', {})).toEqual({})
   })
 
+  // 存量坏值治理（CCG 评审 i7）：真源里已落的**站点品牌图**不是该账号的头像。
+  it('真源里存着平台 logo 且本次确实判过头像、仍取不到真头像 → 清掉它', () => {
+    const current = { avatar: 'https://sf3-cdn-tos.toutiaostatic.com/obj/mp/logo-toutiao.png' }
+    // avatarResolved=true 且无 avatar ⇒ 页面上只有品牌图 ⇒ 清空
+    expect(ap.buildProfilePatch({ avatarResolved: true }, current)).toEqual({ avatar: '' })
+  })
+
+  it('真源里存的是真头像而本次没采到 → 保留（键缺席 = 不修改）', () => {
+    const current = { avatar: 'https://i0.hdslb.com/bfs/face/member/noface.jpg' }
+    expect(ap.buildProfilePatch({ avatarResolved: true }, current)).toEqual({})
+  })
+
+  it('采集失败（avatarResolved 缺席）时一律不动真源，即使真源存着品牌图', () => {
+    const current = { avatar: 'https://sf3-cdn-tos.toutiaostatic.com/obj/mp/logo-toutiao.png' }
+    expect(ap.buildProfilePatch({}, current)).toEqual({})
+    expect(ap.buildProfilePatch({ nickName: '新昵称' }, current)).toEqual({ account_name: '新昵称' })
+  })
+
+  it('采到真头像时正常覆盖品牌图', () => {
+    const current = { avatar: 'https://sf3-cdn-tos.toutiaostatic.com/obj/mp/logo-toutiao.png' }
+    expect(ap.buildProfilePatch({ avatarResolved: true, avatar: 'https://p6.toutiaoimg.com/img/user-avatar/x~300x300.image' }, current))
+      .toEqual({ avatar: 'https://p6.toutiaoimg.com/img/user-avatar/x~300x300.image' })
+  })
+
   it('只产出命中字段，且与真源相同的字段跳过（不制造无意义写盘）', () => {
     expect(ap.buildProfilePatch({ nickName: '新昵称', avatar: 'https://x/a.png' }))
       .toEqual({ account_name: '新昵称', avatar: 'https://x/a.png' })

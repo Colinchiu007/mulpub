@@ -18,7 +18,7 @@
 
 const { PLATFORM_ACCOUNT_INFO_SELECTORS } = require('./platform-definitions')
 const { isNoiseAccountName } = require('./account-name-guard')
-const { filterBrandImageUrls } = require('./account-avatar-guard')
+const { filterBrandImageUrls, isBrandImageUrl } = require('./account-avatar-guard')
 
 /**
  * 页面内采集账号资料。参数为 { platformSelectors }，返回命中字段；未命中不产出键。
@@ -178,9 +178,13 @@ function pickUserAvatar (candidates) {
 function finalizeCollectedInfo (raw) {
   if (!isPlainObject(raw)) return {}
   const out = { ...raw }
-  const candidates = Array.isArray(out.avatarCandidates) ? out.avatarCandidates : []
+  const hasCandidates = Array.isArray(out.avatarCandidates)
+  const candidates = hasCandidates ? out.avatarCandidates : []
   delete out.avatarCandidates
-  if (candidates.length) {
+  if (hasCandidates) {
+    // 「本次确实看过页面并判过头像」这一事实要带出去：采集**失败**时不该动真源，
+    // 而「页面上只有品牌图 ⇒ 该账号没有用户头像」是一个**结论**，需要能被下游区分。
+    out.avatarResolved = true
     const avatar = pickUserAvatar(candidates)
     if (avatar) out.avatar = avatar
     else delete out.avatar
@@ -253,6 +257,19 @@ function buildProfilePatch (accountInfo, current) {
     if (value === null || value === undefined || value === '') continue
     if (cur && cur[key] === value) continue
     patch[key] = value
+  }
+  // 存量坏值治理（CCG 评审 i7，2026-10-22）：真源里已落的**站点品牌图**
+  // （实测：头条号 `obj/mp/logo-toutiao.png`、百家号默认肖像、小红书默认头像）
+  // 根本不是该账号的头像。若本次采集**确实看过页面**（avatarResolved）却仍拿不到
+  // 真头像，说明页面上只有品牌图 ⇒ 该账号没有用户头像 ⇒ 把品牌图清掉。
+  // 留着一张错图比显示灰色通用头像更糟（用户看到的正是本次报障的现象）。
+  //
+  // 边界（不得放宽）：
+  // - 只在 `avatarResolved === true`（采集真的跑过并判过头像）时才清；
+  //   采集失败（`avatarResolved` 缺席）一律不动真源。
+  // - 只清**品牌图**；真源里若是真头像而本次没采到，保留它（键缺席 = 不修改）。
+  if (src.avatarResolved === true && !patch.avatar && cur && isBrandImageUrl(cur.avatar)) {
+    patch.avatar = ''
   }
   return patch
 }
