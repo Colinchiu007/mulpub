@@ -50,10 +50,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4249#issuecomment-6343966888",
+    "reviewedAt": "2026-10-22T15:05:00Z",
+    "findings": 5,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对本 PR 的 compose + .env.example + 接线锁 diff（6,594 字符）独立审阅，原始输出逐字公开于 evidence。给出 2 High + 2 Medium + 1 Low。逐条核验：①High「CERT_PATH/CERT_CONTENT 优先级未定义」成立且根因更深——CERT_CONTENT 在任何生产代码里都无消费方，写进 .env.example 等于宣传不存在的路径，已从 .env.example 与 compose 移除；②High「CERT_CONTENT 走 env 会被 docker inspect 看到」成立，移除即消除，另核实 .gitignore:330 已忽略 .env；③Medium「锁只验声明不验值」采纳为文件头作用域说明并禁止放宽成匹配不到就跳过；④Medium「测试可能孤儿」不成立，run-tests.js:82 用 readdirSync 枚举本目录，已在文件头留证。另顺带查出阻断级问题：WeChatNativeProvider 在生产代码里从未被构造（logto-runtime.js:127 未传 paymentProvider → subscription-service.js:120 默认 null → subscription-payment.js:56 恒 503），已钉进 tasks.md §9.8 与 PRD §16，本轮不修（签名+平台公钥须一次接全，半接会把付不了款变成钱收了没给货）。"
   }
 }
