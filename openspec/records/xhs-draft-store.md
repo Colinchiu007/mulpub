@@ -9,7 +9,7 @@ delivered_by_pr: 4235
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码，worktree `D:\Data\projects\mp-worktrees\mp-signer-reuse`，裸分支 `xhs-draft-store` |
+| 变更类型与隔离 | ✅ | 运行时代码，隔离 worktree + 裸分支 `xhs-draft-store` |
 | 第一性原因（QM-5 ①） | ✅ | 原判据依赖「草稿箱计数增量」与「保存接口响应」，但真机取证证明小红书草稿存于**浏览器本地 IndexedDB**（`draft-database-v1`），本地写入**不产生任何网络请求**（200s 全窗口监听零保存请求），因此两条通道本质上都读不到真实结果 |
 | 逃逸分析（QM-5 ②） | ✅ | 单元层缺 IndexedDB 判据测试；集成层 `draft-only-confirm` 无针对「本地草稿」的用例；E2E 层此前无真机草稿箱条目比对；审查层把「零网络请求」当作「未保存」 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `electron/services/xhs-draft-store.js`（readDrafts / findDraftByTitle / waitForDraft，含 minTimeStamp 防同名旧草稿假阳性），接进 `recheckDraftBox`；回归 `apps/desktop/tests/xhs-draft-store.test.js` **11 例**，全仓相关 88 例通过 |
