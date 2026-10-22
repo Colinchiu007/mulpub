@@ -787,6 +787,76 @@ docker compose ... exec publish-api node packages/api-publish-engine/scripts/pay
 | 去掉 `length(...) > 7` 守卫 | 25 pass / 2 fail |
 
 均逐字节还原 True。
+## 15.11 本地 mock 预演：证明「微信会认我们的请求」
+
+### 15.11.1 之前所有支付测试都缺的那一环
+
+先前 100+ 条支付测试**全都注入 `fetcher`**。它们证明的是「provider 拿到某个响应后怎么处理」，
+**证明不了**「provider 发出去的请求，微信会不会认」。
+
+而线上第一种失败恰恰是后者 —— `SIGN_ERROR`：签名原文 / 报文 / 时间戳任一处不对，**全部下单失败**。
+这类错误在注入式测试里永远暴露不出来，因为不存在的网络层不会拒绝你。
+
+### 15.11.2 mock 微信服务器做什么
+
+`test/payment-mock-wechat-e2e.test.js` 起一个本地 HTTP 服务器（`127.0.0.1` 临时端口，不出网），
+它**做和微信一样的事**：
+
+| 检查 | 判据 |
+|---|---|
+| 路径与方法 | `POST /v3/pay/transactions/native` |
+| 签名类型 | `WECHATPAY2-SHA256-RSA2048` |
+| `mchid` / `serial_no` | 与配置逐字一致 |
+| 时间戳 | **必须是 10 位秒级**且在 ±300s 内（毫秒会被当场挡下） |
+| **签名** | 用商户公钥对 `POST\n路径\n时间戳\n随机串\n原文报文\n` 做 `RSA-SHA256` verify |
+| 报文 | `appid` / `mchid` / `out_trade_no` / `notify_url` / `amount.total` / `attach` |
+
+签名不过就返回 `{code:'SIGN_ERROR'}` —— 与微信的错误体同形。**签名算错这个测试就红**，
+不是断言字符串前缀那种假绿。
+
+关键细节：测试里用的签名器是**生产签名器** `buildAuthorizationHeader`（与工厂同一份实现）。
+如果测试自带一套签名逻辑，那它就只是在验证自己。
+
+### 15.11.3 它抓到的真 bug（2026-10-23）
+
+`createCheckout` 原本在 `response.ok !== true` 时**先**抛 `PAYMENT_PROVIDER_UPSTREAM_FAILED`，
+**从不解析微信的错误体**。而微信把业务错误放在**非 2xx 的 JSON body 里**（`SIGN_ERROR` 是 401）。
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 签名错（微信 401 `SIGN_ERROR`） | `PAYMENT_PROVIDER_UPSTREAM_FAILED`「微信下单请求失败」 | `PAYMENT_PROVIDER_UPSTREAM_REJECTED`「微信下单被拒：SIGN_ERROR 签名错误」 |
+| 网关返回 HTML 401（无 code） | `UPSTREAM_FAILED`「返回异常」 | `UPSTREAM_FAILED`「返回 HTTP 401」（带状态码） |
+| 网络断开 | `UPSTREAM_FAILED` | `UPSTREAM_FAILED`（不变） |
+
+**修复前，运维看到 SIGN_ERROR 会以为是网络问题，实际是密钥/签名不对 —— 排查方向完全相反。**
+
+### 15.11.4 `apiBase` 为什么只能从代码传，不能从环境变量读
+
+新增 `options.apiBase`（默认 `https://api.mch.weixin.qq.com`，末尾斜杠会被规范化）。
+它**刻意不读环境变量**：线上某人把它设成 `http://…` 会把签名与报文暴露在明文链路上，
+而这类"配置能改安全属性"的口子一旦存在，迟早会被用来"临时绕过"。
+需要 mock/沙箱时，由测试或显式代码传，不经过 env。
+
+### 15.11.5 用法
+
+```bash
+cd packages/api-publish-engine
+node --test test/payment-mock-wechat-e2e.test.js
+```
+
+不需要任何真凭据。它验证的是**服务端半程**（下单 → 微信认签名 → 拿到 code_url）；
+真机扫码那半程仍然只有 E2E-1 能证明。
+
+### 15.11.6 判据
+
+新增 **5 例**。变异反证两条，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 恢复「先判 `ok` 再读报文」 | **3 pass / 2 fail**，SIGN_ERROR 用例精确变红 |
+| 忽略 `apiBase` 走生产域名 | **3 pass / 2 fail**，happy path 精确变红 |
+
+均逐字节还原 True。
 ## 16. ✅ 已修复：provider 从未被构造（2026-10-22 发现并当日修复）
 
 > 本节记录的是一条**会让第 15 节全部白做**的缺口。它不属于"配置没做好"，是**代码没接上**。
