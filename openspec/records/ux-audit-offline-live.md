@@ -15,7 +15,7 @@ date: 2026-10-21
 | 防止再次发生（QM-5 ⑤） | ✅ | `scripts/offline-live-contract-mutate.js` 13 道变异全部 CAUGHT；显示面加了三条结构锁（禁 hex 字面量、禁内联 style、token 必须在 tokens.css 有定义） |
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径相等（提交后取数，见 PR 正文） |
 | 接线棘环 | ✅ | 两个新增测试都在 `apps/desktop`（vitest workspace 自动收集）；反证驱动 `scripts/offline-live-contract-mutate.js` **未接进 CI**，与同族驱动一并挂在任务 #23 |
-| QM-1 打包 / QM-4 视觉 | N/A / 未触 | 本批 **不动 `apps/desktop/electron/`**（刻意拆出，见「遗留」），因此不触发打包判据；未改写任何已登记视觉视图的 DOM —— 注意这是**推理不是像素证据**：横幅只在离线时渲染，采集态不出现，故没有可对比的像素变化，也没有被门禁验证过 |
+| QM-1 打包 / QM-4 视觉 | ⏳ / 未触 | **口径变更（2026-10-22 §七）**：主进程半边已并入本条 PR，`apps/desktop/electron/` 已被改动 ⇒ QM-1 从 N/A 变成**必跑**，读数待回填；未改写任何已登记视觉视图的 DOM —— 注意这是**推理不是像素证据**：横幅只在离线时渲染，采集态不出现，故没有可对比的像素变化，也没有被门禁验证过 |
 | QM-6 CCG 双模型外部评审 | PENDING | 见 tasks.md 4.4 |
 | 远程同步 | 由门禁推导 | 本行不需要事后改写：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属 |
 
@@ -83,7 +83,8 @@ ALL_CAUGHT（15 条）；两个被改文件 md5 还原一致
 
 ## 遗留（不假装已闭合）
 
-- **主进程 `offline:lost` 推送没做**（本批刻意不动 `electron/`）：要改 `offline-manager.js::onNetworkChange`、
+- ~~主进程 `offline:lost` 推送没做~~ —— **已于 2026-10-22 并入本条 PR 闭合**（见 §七）。当年拆开的理由是"不动 electron 就不触发 QM-1"，
+  而那个理由本身就写在这条遗留里：拆出去的代价是一条**没人订阅的方向性静默**继续存在于 main。
   `electron/preload/system.js` 暴露面、`preload/access-control.js` 与 `preload.test.js:112` 的**等值** API 名单，
   并按 QM-1 做打包 + 8 秒 stderr 三层判据。当前实现里浏览器事件是唯一的实时源。
 - 反证驱动未接进 CI（任务 #23）。
@@ -185,3 +186,162 @@ mock 的 `once` 队列是**全局计数**，它对"哪个实例拿到了第几�
 **第二轮反证总数**：`node scripts/offline-live-contract-mutate.js` 现 **18 条 ALL_CAUGHT**
 （M1–M15 既有 + M16 播报锚点退回 / M17 卸载不清定时器 / M18 跃迁判据写反），
 两个套件基线各 `red=0`，`[RESTORE-CHECK]` 两文件逐字节还原。
+
+## 七、主进程半边并入本条 PR（2026-10-22，闭合 §遗留 第 1 条）
+
+### 7.1 为什么改主意
+
+原拆分理由（"不动 `electron/` ⇒ 不触发 QM-1"）省的是本批的打包成本，留的是产品缺口。
+拆开还会带来两个更坏的形状：① 消费方（`useOfflineStatus` 订阅 `offline:lost`）在另一条 PR 里，
+新开分支只能基于 main，而 main 上没有那个形状 —— 属「我引用了 main 还没有的东西」；
+② 若只把主进程半边先合，世界上就多了一条**没人订阅的 IPC 通道**（注册≠注入≠生效的同形）。
+并回同一条 PR 后，"发出 / 白名单 / preload / 订阅 / 断言"五段在同一批里闭合，且不开第 95 个工作区。
+
+### 7.2 现场取证（读 main 同源文件，非推演）
+
+`offline-manager.js::onNetworkChange` 原先只有一个分支：
+
+```js
+if (wasOffline && !isOffline) { log.info(...); processCachedTasks(); notifyFrontend() }
+// 没有 else —— 进入离线方向既不写日志也不通知任何人
+```
+
+而 `startMonitoring` 是**对称注册**的：`net.on("online", …false)` 与 `net.on("offline", …true)`。
+⇒ 状态机两侧都跑，通知只有一侧有；这就是"断网横幅只能靠浏览器事件"的根因。
+
+还挖到一条同批的事实：**既有测试从来没测过推送**。
+`tests/offline-manager.test.js` 里那条用例名字写着 `onNetworkChange sends offline:restored event`，
+断言体里一次 `send` 都没查（只查 `isOffline()`）；而该文件顶部的 `var mockSend = vi.fn()` **全文件零引用**（死夹具）。
+根因之一在宿主 mock：`test-setup.js` 的 `webContents.send` 是**空函数而不是 vi.fn**，
+所以"有没有发"在这个夹具里根本不可表示。本轮改为在用例里把实例的 `send` 换成探针。
+
+### 7.3 改动清单（五段）
+
+1. `electron/services/offline-manager.js`：新增 `!wasOffline && isOffline` 分支 →
+   `log.info("offline", "Network lost, new tasks will be cached")` + `notifyFrontendOffline()`，
+   推 `offline:lost`，载荷 `{isOffline: true, cachedCount: loadCache().length}`。
+   **判据是状态迁移不是事件计数**：已在离线态时重复的 offline 事件不得重发。恢复侧一字未动。
+2. `electron/preload/system.js`：新增 `onOfflineLost(cb)`（与 `onOfflineRestored` 同形，返回取消函数）。
+3. `electron/preload/access-control.js`：导出清单登记 `onOfflineLost`；
+   `electron/preload.test.js` 两处计数随之 141→142、339→340，并把日期与原因写进用例名。
+4. `src/api/publisher.js`：`onOfflineLost(callback) => bridgeOn("OfflineLost", callback)`。
+5. `src/composables/useOfflineStatus.js`：订阅 `offline:lost` ⇒ 立即 `isOffline=true` 并采纳载荷里的
+   `cachedCount`（真源带的值），随后仍 `reconcile()` 一次（**载荷字段缺席时由复核补正**，第 4 条用例专门锁这个）；
+   注册失败只 warn；`dispose()` 改成按 `[通道名, 取消函数]` 成对解绑，**红文案点名是哪条通道没解绑**。
+
+**刻意不改的一处**：`license-access-control.js` 的 `PUBLIC_CHANNELS` 不加 `offline:lost`。
+核对方式不是想当然 —— 该表是「请求型通道」（`ipcMain.handle`）的授权面，而推送型通道
+`offline:restored` 从来不在表内。往里加一条 send 通道等于写一条永不命中的死条目。
+
+### 7.9 QM-1 现场读数（打包产物 + 真机端到端，不是"能启动就算过"）
+
+- `node scripts/verify-worktree-deps.js` → OK；`pnpm run build:dir` → 成功，
+  `dist-electron/win-unpacked/Multi-Publish.exe`（239,075,328 B）。
+- 不带调试端口启动：窗口期存活 true、`stderr_chars=0`、红线命中 0；
+  进程数 before=0 → during=4 → after=0（只杀自己那个 PID，不按进程名批量 kill）。
+
+再把这条通道**真的跑穿一次**：同一个打包实例同时开
+`--remote-debugging-port`（渲染进程）与 `--inspect`（主进程），
+顺序是「先在渲染层装一个自己的订阅 → 再从主进程调 `onNetworkChange(true)` → 回渲染层读数组」：
+
+```
+[onsite] 渲染层 onOfflineLost 类型="function" 取消函数类型="function"
+[onsite] 主进程触发结果={"isOffline":true,"status":{"offline":true,"cachedCount":0,"cachedTasks":[]}}
+[onsite] 渲染层收到的 offline:lost 载荷=[{"isOffline":true,"cachedCount":0}]
+[onsite] 重复触发后累计条数=1（状态迁移判据：应仍为 1）
+[onsite] VERDICT PASS
+```
+
+四条各管一件事，缺一条就不能宣称"通道通"：桥存在且能取消（preload/白名单/access-control 三处配对）、
+主进程真的进入离线态、渲染层**收到一次**带 `isOffline:true` 的载荷、重复触发**不再收到第二次**
+（后者是"判据是状态迁移不是事件计数"这条口径的真实现场，不只是单测里的断言）。
+
+两条取证坑（都是本批实际踩过的，写给下一个跑同类验证的人）：
+
+1. **顺序**：订阅必须在触发**之前**装好，否则"载荷数组为空"会被读成"通道坏了"——
+   而那次跑其实什么都没测。所以脚本里先 `window.__lostSeen = []` 并拿到取消函数，再进主进程。
+2. **主进程 realm 里没有裸 `require`**：`process.mainModule.require` 可用，
+   但在 `Runtime.evaluate` 的表达式里写 `require('path')` 会 `require is not defined`。
+   同理 `Runtime.evaluate` 是把表达式塞进 `await ( ... )` 的**表达式位**，
+   所以多语句必须包成 IIFE —— 直接写 `a = 1; typeof a` 会得到 SyntaxError。
+
+另外：带 `--remote-debugging-port` / `--inspect` 的那几趟 stderr 共 264 字符，全是
+`DevTools listening …` / Inspector 提示 —— **是验证参数造的噪声，不是应用的问题**；
+三层 stderr 判据的 PASS 读数取不带调试端口的那趟。
+
+### 7.10 还没做/做不到的一条
+
+**没有**在真机上拔网线验证 OS 级链路：主进程的 `net.on('offline')` 由 Chromium 网络栈驱动，
+本批是在**同一打包实例内**直接调用状态机入口 `onNetworkChange(true)` 来触发，
+证明的是"状态迁移 → 推送 → 渲染层收到"这一段，没有覆盖"OS 断网 → Chromium 发 offline 事件"这一段。
+后者要 OS/网络栈级注入（禁用网卡或容器级 netem），属人工取证项，登记不假装已验。
+
+### 7.11 全域复跑读数（2026-10-22，本批动过 `electron/` 后的三域复跑）
+
+因为本批动了 `electron/`（`offline-manager.js` + 两个 preload）与渲染层 composable，
+复跑取的是**含 `tests/**` 的三域**（不是 `vitest run src electron` 那两域）：
+
+```
+cd apps/desktop && pnpm.cmd exec vitest run src electron tests
+ Test Files  1 failed | 1082 passed | 1 skipped (1084)
+      Tests  1 failed | 19062 passed | 5 skipped (19068)
+   Duration  1577.95s
+```
+
+**唯一那条红的归因（不认领，也不顺手改）**：
+`electron/services/feedback.test.js > collects only regular app log files and redacts historical content`
+报 `EPERM: operation not permitted, symlink '…\feedback-test-XXXX\app-2026-08-17.log' -> '…'`，
+落在 `feedback.test.js:32` 的夹具 `fs.symlinkSync`。判据两条：① 该文件不在本批改动集内；
+② 同一条红在**未改动的 main 工作区**单跑同一文件同样复现（本会话前一轮已实测），
+成因是本机无创建符号链接的权限（Windows 需开发者模式或提权）。属既有环境项，
+与「测试里禁止真实出站」同族的是**它必须如实打印在哪一档**，所以这里连命令、计数、失败签名一起记。
+
+**没有**把 `Errors` 行当作可省的一行来看：本次输出**无 `Errors` 段**（未出现未处理 rejection / 未捕获错误）。
+取证命令与读数：`grep -c -a "Errors " /d/tmp/off-full.log` → **0**（带 `-a`，按 AGENTS「全仓关键词复扫必须带 -a」，
+否则这类长日志会被当二进制静默跳过而读出假 0）。这是 §自测 那条教训的落地检查——
+只数 `Tests passed` 会把 4 条 Errors 读成"全绿"。
+
+**本轮一处自错，按实况记**：写这节前我先把 §7.10 的末句改写成「上一句有笔误，正确写法是 netem」的
+"更正"，而原文**本来就是 `netem`** —— 那是一句没核对过的自我虚构，且已经驱动了一次真实编辑。
+发现后同次把该句与 §7.10 原文一并还原（现文本见上），并在此留下痕迹：
+"更正"这类句式必须先回读原文再写，否则改文档这个动作本身就成了错误源。
+
+### 7.4 判据（先红后绿，红集可归因）
+
+| 用例 | 首跑（实现前） | 末跑（实现后） |
+| --- | --- | --- |
+| 断网必须推 `offline:lost` 且载荷可归因 | **红** | 绿 |
+| 重复 offline 事件不得重发（状态迁移判据） | **红** | 绿 |
+| 恢复仍必须推 `offline:restored`（不得改坏已工作半边） | 绿（证明夹具能观测 send，不是恒红） | 绿 |
+| `startMonitoring` 必须同时挂 online 与 offline 两个监听 | 绿（同上，正控） | 绿 |
+| 渲染层：收到 lost 立即置离线并采纳队列深度 | **红**（见下取证） | 绿 |
+| 渲染层：`dispose` 成对解绑两个通道 | **红**（同上） | 绿 |
+| 渲染层：宿主无 `onOfflineLost` 时不抛、浏览器事件仍生效 | 绿——这条测的是降级路径，摘掉订阅反而照绿，故**不计入红侧证据** | 绿 |
+| 渲染层：载荷缺 `cachedCount` 时复核必须补回真值 | **红**（见下取证） | 绿 |
+
+
+红侧取证（渲染层那四条不能"写完就算锁过"）：把 `useOfflineStatus.js:117` 的订阅门改成
+`if (false && api.onOfflineLost)`，单跑 `useOfflineStatus.live.test.js` ⇒ `Tests 3 failed | 13 passed (16)`，
+红的正是「立即置离线并采纳队列深度」「dispose 成对解绑两个通道」「载荷缺 cachedCount 由复核补回」三条。
+第四条（宿主不支持订阅时不抛）在摘掉订阅后**仍然绿**——它测的是降级路径，本来就不该由这个变异打红，
+所以它不计入红侧证据，只作为「不抛」的形状锁留着。把订阅门改回原样后独立 md5 回读 == 变异前值
+（`286d8c560aac1277be28243a45257b23`），文件里 `if (false &&` 计数为 0。
+
+⚠ 记一条我自己的操作坑（有产物为证，不是 hypothetical）：第一次还原脚本写在 `cd apps/desktop` 之后，
+用 `cd ..` 想回仓库根，**实际落在 `apps/`**，于是相对路径打开 `apps/apps/desktop/...` 直接 ENOENT——
+那一刻文件停在变异态，而"脚本报错了"这件事本身差点被读成"什么都没发生"。
+口径两条：① 变异还原一律用**绝对路径**；② 还原判据是「md5 等于变异前读数」+ 被禁形态计数为 0，
+**不是**「脚本没抛错」。与「反证不得执行被保护动作」同族（那条纪律记在内置记忆里）。
+
+定向三文件末跑读数：`Test Files 3 passed (3) / Tests 50 passed (50)`，无 `Errors` 行，rc=0。
+（"两条正控先绿"是刻意的：如果夹具观测不到 `send`，那四条红就只是探针失明，不是缺陷。）
+
+### 7.5 门禁与预算
+
+- QM-1 现在**必跑**：`pnpm run build:dir` + 隔离 profile 启动 8 秒存活 + 三层 stderr 判据；
+  并现场验一次"断网横幅即时出现、恢复后消失"（`MP_RPA_*` 之类无关，靠真实拔网线不可自动化 ⇒ 用 devtools
+  离线档或 `net` 状态注入替代，替代口径与局限必须写进读数，不得留空）。
+- 与本批前几轮的 `preload.test.js` 计数（1.4 那条 PR 也是 +1/+1）构成**同文件同行竞争**：
+  两条 PR 并行时后合并者必须把期望值改成"各加各的"（142/340 → 143/341），
+  这条冲突是**真语义冲突不是文本冲突**，`git merge-tree` 探不出来，必须以"计数断言 + 成员断言"复核。
+

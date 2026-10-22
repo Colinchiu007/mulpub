@@ -213,7 +213,7 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r)).toContain('accountGetProxy')
   })
 
-  it('system 模块应导出 141 个方法（2026-10-20：+aiRewriteCancel 改写取消；2026-10-17：146 + aiGenerateGenVideoTitle）', () => {
+  it('system 模块应导出 142 个方法（2026-10-22：+onOfflineLost 断网推送；2026-10-20：+aiRewriteCancel 改写取消）', () => {
     const { createSystemApi } = require('./preload/system')
     const r = createSystemApi(ipcRenderer)
     // 136 + opsCenterSyncRuntime/PipelineOptions/AppMenu（运营中心运行时策略，活通道）
@@ -232,11 +232,11 @@ describe('preload 子模块方法数', () => {
     //      协作式，段边界生效，未带 runId 的旧调用方零影响）
     // + 1（2026-10-17：aiGenerateGenVideoTitle → ai:generate-gen-video-title，
     //      热门选题「生成视频 → 去发布」的爆款标题生成；无模型/失败时降级原始选题）
-    expect(Object.keys(r).length).toBe(141)
+    expect(Object.keys(r).length).toBe(142)
   })
 
-  it('合并后 api 总键数应为 339（2026-10-20：+aiRewriteCancel 改写取消；338 = 2026-10-17 337 + aiGenerateGenVideoTitle）', () => {
-    expect(Object.keys(api).length).toBe(339)
+  it('合并后 api 总键数应为 340（2026-10-22：+onOfflineLost；339 = 2026-10-20 338 + aiRewriteCancel）', () => {
+    expect(Object.keys(api).length).toBe(340)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
     expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')

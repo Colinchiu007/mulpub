@@ -38,3 +38,25 @@
   **等值** API 名单（本轮 grep 现场读数），并按 QM-1 做打包 + 8 秒 stderr 三层判据。本批不动 electron/，
   因此浏览器事件是当前唯一的实时源——这也意味着：**若某台机器的 Chromium 网络栈与
   electron `net` 结论不同，横幅会先显示再由复核纠正**，而不是永不出现。
+
+## 7. 第二半：主进程 `offline:lost`（2026-10-22 并入本条 PR）
+
+- [x] 7.1 `offline-manager.js::onNetworkChange` 补 `!wasOffline && isOffline` 分支 ⇒ 日志 + 推 `offline:lost`
+      （载荷 `{isOffline:true, cachedCount}`）；恢复侧一字未动
+- [x] 7.2 判据是**状态迁移**而非事件计数：重复 offline 事件不得重发（独立用例锁住）
+- [x] 7.3 `preload/system.js` 暴露 `onOfflineLost`，`preload/access-control.js` 登记，
+      `preload.test.js` 两处计数 141→142、339→340 并把日期与原因写进用例名
+- [x] 7.4 `src/api/publisher.js` 新增 `onOfflineLost`（走 `bridgeOn("OfflineLost")`，桥缺失时 no-op）
+- [x] 7.5 `useOfflineStatus`：立即采纳载荷 + 随后复核；注册失败只 warn；`dispose` 成对解绑并点名通道
+- [x] 7.6 **核对后决定不做**：不给 `PUBLIC_CHANNELS` 加 send 通道（该表只管请求型通道，
+      `offline:restored` 从来不在表内 ⇒ 加了就是死条目）
+- [x] 7.7 修既有装饰用例：那条名字写着 sends offline:restored 的用例从来没断言 send，
+      且文件顶部 `mockSend` 全文件零引用（死夹具）；本轮改为按实例换探针后再断言
+- [x] 7.8 红侧取证：主进程两条 + 渲染层三条先红后绿；另有两条是**正控**（摘掉订阅仍绿，
+      证明夹具能观测到 send，不是恒红）；变异「订阅门改 if(false)」实测 `3 failed | 13 passed`，
+      还原后 md5 对账 == 变异前值
+- [x] 7.9 QM-1 打包 + 隔离 profile 9 秒存活 + 三层 stderr 判据 + 通道级端到端真机取证（读数见执行记录 §7.9）
+- [x] 7.10 全域 `vitest run src electron tests` 复跑读数（含 `tests/**`，此前只跑 src+electron 是范围窄了）
+      ⇒ `1084 files: 1 failed / 1082 passed / 1 skipped`，`19068 tests: 1 failed / 19062 passed / 5 skipped`，
+      `Errors` 段经 `grep -c -a` 读回为 **0**；唯一那条红是 `feedback.test.js` 的 `fs.symlinkSync` EPERM
+      （本机无符号链接权限，main 工作区单跑同文件复现，不在本批改动集内）—— 归因见执行记录 §7.11

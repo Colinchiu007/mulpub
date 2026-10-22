@@ -213,3 +213,78 @@ describe('useOfflineStatus — 实时检测（浏览器 online/offline）', () =
     expect(() => dispose()).not.toThrow()
   })
 })
+
+/**
+ * 主进程断网推送（UX 审计 1.7 主进程半边）
+ *
+ * 上面那组锁的是"浏览器事件这条边"。本组锁的是新加的第二条边：主进程 `offline:lost`。
+ * 两条边的可信度不同 —— 浏览器只知连通性，主进程同时握着缓存队列真源，
+ * 所以载荷里的 cachedCount 要立刻采纳、随后仍复核一次（载荷字段缺席时由复核补正）。
+ * 第 4 条用例就是为了证明那次复核不是多余的装饰。
+ */
+describe('useOfflineStatus — 主进程 offline:lost 推送', () => {
+  let originalElectronAPI
+  let offlineStatusMock
+  let lostHandler
+  let lostUnsubscribed
+  let disposers
+
+  beforeEach(() => {
+    originalElectronAPI = window.electronAPI
+    disposers = []
+    lostHandler = null
+    lostUnsubscribed = false
+    offlineStatusMock = vi.fn().mockResolvedValue({ code: 0, data: { offline: false, cachedCount: 0 } })
+    window.electronAPI = {
+      offlineStatus: offlineStatusMock,
+      onOfflineRestored: vi.fn(() => () => {}),
+      onOfflineLost: vi.fn((cb) => { lostHandler = cb; return () => { lostUnsubscribed = true } }),
+    }
+  })
+
+  afterEach(() => {
+    while (disposers.length > 0) disposers.pop()()
+    window.electronAPI = originalElectronAPI
+  })
+
+  function create () {
+    const api = useOfflineStatus()
+    disposers.push(api.dispose)
+    return api
+  }
+
+  it('收到 offline:lost 必须立刻置离线并采纳载荷里的队列深度', () => {
+    const { isOffline, cachedTaskCount, init } = create()
+    init()
+    expect(typeof lostHandler).toBe('function')
+    offlineStatusMock.mockResolvedValueOnce({ code: 0, data: { offline: true, cachedCount: 7 } })
+    lostHandler({ isOffline: true, cachedCount: 7 })
+    expect(isOffline.value).toBe(true)
+    expect(cachedTaskCount.value).toBe(7)
+  })
+
+  it('dispose 必须成对解绑 restored 与 lost 两个通道（本仓多处 SPA 实例共存）', () => {
+    const { init, dispose } = create()
+    init()
+    dispose()
+    expect(lostUnsubscribed).toBe(true)
+  })
+
+  it('宿主没有 onOfflineLost（旧 preload / 浏览器直开）时不得抛错，浏览器事件仍生效', () => {
+    delete window.electronAPI.onOfflineLost
+    const { isOffline, init } = create()
+    expect(() => init()).not.toThrow()
+    window.dispatchEvent(new Event('offline'))
+    expect(isOffline.value).toBe(true)
+  })
+
+  it('载荷缺 cachedCount 时不得把真源计数写成 0 就收口——复核必须把它补回来', async () => {
+    const { cachedTaskCount, init } = create()
+    init()
+    offlineStatusMock.mockResolvedValueOnce({ code: 0, data: { offline: true, cachedCount: 3 } })
+    lostHandler({ isOffline: true })
+    expect(cachedTaskCount.value).toBe(0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(cachedTaskCount.value).toBe(3)
+  })
+})
