@@ -33,6 +33,7 @@ const {
   sha256, buildShotFingerprint, buildPayloadHash, buildPlanId, buildRefsFingerprint,
 } = require('./auto-plan-fingerprint')
 const { resolveShotDurationMs, DEFAULT_TIERS: DEFAULT_DURATION_TIERS } = require('./shot-duration')
+const { buildPlanPromptContext, buildShotTaskVars, computePromptRenderHash } = require('./shot-prompt-task')
 
 const MAX_AUTO_SHOTS = 120
 const MAX_AUTO_SCRIPT_LENGTH = 10000
@@ -238,9 +239,24 @@ function planAutoShots (input) {
     : DEFAULT_DURATION_TIERS
   const durationMaxSec = Math.max(...durationTiers)
 
+  // 影视工程 v2 · F-I：规划期接方法论资产（零 provider 调用）。
+  // kit 上下文缺省时**不产出**任何方法论字段 ⇒ 既有字段逐字不变（纯增量）。
+  const kitCtx = o.kit && typeof o.kit === 'object' ? o.kit : null
+  const locale = o.locale === 'en' ? 'en' : 'zh'
+  const planPrompt = kitCtx ? buildPlanPromptContext({ kit: kitCtx, locale }) : { promptContext: null, warnings: [] }
+
   const shots = beats.map((beat, i) => {
     const template = templates[i % templates.length]
     const prompt = buildTemplatePrompt({ template, beatText: beat.text, characterMap })
+    // 逐镜：任务模板的变量与缺失清单（长文本不落逐镜 —— design D21.1）
+    const taskVars = kitCtx
+      ? buildShotTaskVars({
+        shot: { index: i, shotId: 'auto-' + String(i).padStart(3, '0'), title: beat.title || '', beatIndex: beat.index, characterNames: Object.values(characterMap).filter((name) => String(beat.text || '').includes(name)), model: template.model },
+        kit: kitCtx,
+        locale,
+        durationSec: Number(o.seconds),
+      })
+      : null
     const refPaths = bound[i] ? bound[i].refPaths : []
     // v7 批次一 F2 + F34：给每镜补 durationMs（来源优先级链）。
     // 自动模式下还没有 TTS 实测，故走 formula（按本镜文案推算）→ tier（o.seconds 兜底）。
@@ -275,6 +291,18 @@ function planAutoShots (input) {
       imagePrompt: prompt,
       videoPrompt: buildMotionPrompt({ template, beatText: beat.text, characterMap }),
       endFramePrompt: '',
+      // 影视工程 v2 · F-I：逐镜只存**变量与缺失清单**，不存方法论长文本（plan 级存一次）
+      ...(taskVars
+        ? {
+            promptVars: taskVars.vars,
+            promptMissing: taskVars.missing,
+            // 清单被闸门截断了吗（第 17 轮 i7）⇒ 供 plan 级 `missingTruncated` 汇总
+            promptTruncated: taskVars.truncated === true,
+            // 逐镜渲染哈希（design D22）：同一镜 + 同一资产 ⇒ 渲染逐字相同
+            // ⚠ 缺失清单**也要参与**（第 14 轮 i2）：否则「变量超限」与「变量没有」同哈希。
+            promptRenderHash: computePromptRenderHash({ vars: taskVars.vars, missing: taskVars.missing, locale }),
+          }
+        : {}),
       characterNames: Object.values(characterMap).filter((name) => String(beat.text || '').includes(name)),
       refPaths,
       seconds: Number(o.seconds),
@@ -372,11 +400,20 @@ function planAutoShots (input) {
         }]
       : []),
     ...durationWarnings,
+    ...planPrompt.warnings,
   ]
 
   return {
     ok: true,
     shots,
+    promptContext: planPrompt.promptContext
+      ? {
+        ...planPrompt.promptContext,
+        // ⚠ 任一镜的清单被**闸门截断**（第 17 轮 i7）⇒ 面板要说一句「还有未显示的」，
+        //   否则用户看到的 blockedVars 少于真实数量（缺口被**静默丢弃**）。
+        missingTruncated: shots.some(s => s && s.promptTruncated === true),
+      }
+      : null,
     characterMap,
     warnings,
     plannedDurationSec,

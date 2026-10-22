@@ -29,18 +29,47 @@
 - [ ] 2.15 PR-1 推送 → CI 全绿 → 自动合并 → **回读 main push 的 workflow 读数**
 ---
 
-## PR-3 · F-I / F-H / F-J 资产接线与 UI
+## PR-3 · F-I 任务级提示词接入规划 + F-H 方法论分区补全
 
-- [ ] 3.1 **TDD-RED**：`auto-plan.test.js` 新增「规划期走 prompt-library `generate_shot_prompt` 任务模板」用例
-- [ ] 3.2 实现：`auto-plan.js` 接入 `prompt-library`（新增 doctrine blocks/rules 消费）
-- [ ] 3.3 **TDD-RED**：方法论分区渲染用例（11 blocks + failureLedger + recipes + glossary）
-- [ ] 3.4 实现：`FilmEngineeringView.vue` 方法论分区（**只读**，不改既有四标签结构）
-- [ ] 3.5 实现：导入 IPC 传 `requireAssets: true`（资产缺失在导入时暴露）
-- [ ] 3.6 i18n：`locales/film-engineering/{zh,en}.js` 新增文案成对
-- [ ] 3.7 QM-4 视觉：真机截图留证（方法论分区渲染）
-- [ ] 3.8 文档同步 + 执行记录 + 门禁 + PR-3
+> 决策定稿见 `design.md` D18 / D20 / D21 与 `review-brief-pr3.md`（决策层 **19 轮共 146 条**意见已逐条处置）。
+> 判据分两类：**合成夹具**（固定数据 + 固定阈值）与**真实 kit 巡检**（只断言一致性 + 打印读数）—— 资产更新不会让任何一类变红。
+>
+> ⚠ **本段的字段名与计数是 19 轮评审收敛后的现行口径**（旧名 `sourceHash` / `blockedExport` 已被
+> `promptAssetHash` + `promptRenderHash` 与 `assetsIncomplete` 取代；缺失分级是**五类**不是四类；
+> i18n 是 **27** 个 key 不是 12 个）—— 陈旧字段名回归锁只扫**实现代码**，
+> 本段是**活文档**（照着它写会写回旧名），故已随口径同步。
 
----
+### 3.1 契约层（判据先行）
+
+- [x] 3.1.1 **TDD-RED · 合成夹具**：`shot-prompt-task.test.js`（新建）—— ① 7 变量齐备 ⇒ 渲染无 `{{}}` 残留 + `missing` 为空 + `deliverable===true`；② byDesign ⇒ 保留 `{{style_prefix}}` + `deliverable=false`；③ assetMissing ⇒ 渲染空串 + 进清单；④ 模板多出的变量与非法变量名都计入 `missing`；⑤ 尾帧约束取自 `frame_constraint` 块 / 超 50000 截断且出声 / 缺 `en` 回落 `zh` 并记 `fallbackLocales`；⑥ 同输入两次渲染**逐字相等** + `promptAssetHash`（plan 级）随 locale 与回退变化、`promptRenderHash`（逐镜）随色盘行与角色描述变化、且同输入稳定
+- [x] 3.1.2 **TDD-RED · 合成夹具**：`auto-plan.test.js` —— ⑦ 缺 doctrine ⇒ W10 + `assetsIncomplete===true`（**plan 级、持久化**）；⑧ 缺 promptLibrary ⇒ W11 + `assetsIncomplete===true`；⑨ 不传 kit ⇒ `prompt` 与三分字段**逐字不变**（F-A 零回归锁延续）
+- [x] 3.1.3 **TDD-RED · 合成夹具**：`auto-project.test.js` —— ⑩ 项目文件里**不出现**方法论长文本的逐镜副本（`frameConstraint` 与 `system`/`user` 原文只出现一次）
+- [x] 3.1.4 **TDD-RED · 真实 kit 巡检（非阻断）**：`auto-plan.test.js` —— ⑪ 抽样 20 镜 ⇒ **命中数与 `missing` 清单与实测一致**（断言一致性、**不设阈值**）并打印读数
+- [x] 3.1.5 **TDD-RED · 合成夹具**：`FilmEngineeringView` 渲染测试 —— ⑫ 方法论分区渲染 `recipes` 与 `failureLedger`，且**只读**（无写操作入口）
+- [x] 3.1.6 **TDD-RED · 合成夹具**：`FilmAutoPanel.test.js` —— ⑬ 接入状态面板显示 `N/7` 命中、阻断变量与原因、`deliverable=false` 的提示、导出已阻断
+
+### 3.2 实现
+
+- [x] 3.2.1 `shot-prompt-task.js`（新建）—— 变量装配（7 变量 + **五类缺失分级**：`byDesign` / `assetMissing` / `templateVar` / `badVarName` / `oversizeVar`）+ 模板渲染（`getTaskPrompts` + `renderTemplate`）+ **统一 locale 回退**（`pickLocaleText`）+ **两级哈希**（`promptAssetHash` = 提示词资产面 / `promptRenderHash` = 逐镜渲染面，**含缺失清单**）+ 尾帧约束派生（plan 级，design D21.1/D21.2/D21.3）
+- [x] 3.2.2 `auto-plan.js` 接 kit 上下文（`kit` 入参，**纯增量**）+ 派生 `endFramePrompt`（仍为空）/ `promptVars` / `promptMissing` + W10/W11（含 plan 级 `assetsIncomplete`）
+- [x] 3.2.3 IPC `film-engineering:auto-plan` 传 kit 上下文；规划结果额外返回 `renderText` / `deliverable` / `blockedVars`（**不落盘**）
+- [x] 3.2.4 `auto-project.js` 落 plan 级 `promptContext`（含 `frameConstraint` 一次 + `promptAssetHash` + `fallbackLocales` + `assetsIncomplete`）与逐镜 `promptVars` / `promptMissing` / `promptRenderHash`
+- [x] 3.2.5 `FilmEngineeringView.vue` 补两个只读分区（**可丢弃的独立提交**）：`recipes`（含 `blockKeys`）、`failureLedger`（symptom/cause/fix/tags）
+- [x] 3.2.6 `FilmAutoPanel.vue` 补**只读「方法论接入状态」**面板（plan 级：N/7 命中 + 阻断变量与原因 + 可否直送 + 尾帧约束状态 + 导出已阻断 + `promptAssetHash` 前 8 位）
+- [x] 3.2.7 i18n `locales/film-engineering/{zh,en}.js` 新增 **27 个 key 成对**（清单见 `review-brief-pr3.md` §四末；分解 `doctrine` 7 + `auto.methodology*` 13 + `auto.methodologyReason*` 5 + 聚合第二态 2）
+
+### 3.3 收尾
+
+- [x] 3.3.1 QM-4 视觉：**N/A（未触发）** —— 本 PR 只加**只读**分区与只读面板、未改既有版式 ⇒ 不触视觉基线
+- [x] 3.3.2 文档同步（PRD / SCHEMA / spec / design / tasks）+ 执行记录（两形态）+ 门禁 + PR-3
+
+## PR-3b · F-J 资产导入（严格模式；写路径，单独过安全评审）
+
+- [ ] 3b.1 **设计**：导入面设计（选目录 → `requireAssets: true` 校验 → 原子落盘 → 失效缓存）+ 写路径安全清单（只拷白名单文件 / 不跟随符号链接 / 半份 kit 不留 / 失败回滚）
+- [ ] 3b.2 **决策层评审**：写路径单独一轮对抗性审查（不与只读接线混批）
+- [ ] 3b.3 **TDD-RED**：`kit-import.test.js` —— 严格模式校验失败 ⇒ 不落盘；成功 ⇒ userData/film-kit 齐备且 service 缓存已失效；符号链接 ⇒ 拒绝；中途失败 ⇒ 无半份 kit
+- [ ] 3b.4 实现：`kit-import.js`（新建）+ IPC `film-engineering:import-kit` + service 缓存失效
+- [ ] 3b.5 i18n + UI 入口 + 文档同步 + 执行记录 + 门禁 + PR-3b
 
 ## PR-4 · F-E 锁镜 / F-G 乐观锁 / G-8 时长落盘
 

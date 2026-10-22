@@ -1,6 +1,11 @@
 # design — film-pipeline-prompt-triple-and-guards
 
 > 决策记录。每条给出：决策 / 备选与否决理由 / 代价。
+>
+> ⚠ **本文件的 D20 / D21 / D22 是「逐轮收敛层」** —— 每一层写的是**那一轮当时的写法**，
+> 后面的轮次（决策层对抗评审第 5-19 轮）又改掉了其中若干条。
+> ⇒ **D20/D21/D22 的正文保留历史留痕，不当作现行口径**；**现行口径见 [D23](#d23-收敛到第-19-轮后的最终口径--旧名--新名对照)**。
+> 照着 D20/D21 的旧写法实施会写回旧字段名（这正是「陈旧字段名回归锁」要防的事）。
 
 ## D1 分镜提示词拆三份，存量数据零迁移
 
@@ -276,3 +281,263 @@ costCheck: {
 **存量治理列为后续项**（不阻塞本批次）：用提示词优化引擎做**一次性批量重算 + 人工审核**（153 次调用），产出新的 \`videoPrompt\` 落库。这是一次性资产生成，范围独立。
 
 **代价**：本批次**不解决**存量分镜的视频提示词过长问题（proposal §六 D-14 列入不做项），收益面收窄到"新规划/新套用的分镜"。**明确不假装已解决。**
+
+
+## D18 PR-3：三项接线的**真实缺口**（实施期实测修正方案原文的三处口径）
+
+背景：PR-1 的方案把 F-H/F-I/F-J 描述为「方法论标签页仍按 7 块渲染」「导入 IPC 未启用」。
+实施期逐条核对现状后，三处口径都需要修正 —— **方案原文写的是"引用 PRD 的说法"，不是实测**。
+
+### D18.1 F-H 的真实缺口不是「7 块 → 11 块」，而是「配方 + 失败台账两个分区没渲染」
+
+- **实测**（`apps/desktop/src/views/FilmEngineeringView.vue:179-202`）：方法论标签页已经是 `v-for="b in doctrine.blocks"`
+  ⇒ **11 块全渲**；另有 `doctrine.rules`（14 条）与 `doctrine.glossary`（10 条）。
+- **实测**（`apps/desktop/electron/film-kit/prompt-doctrine.json` 顶层键）：`blocks` 11 / `rules` 14 /
+  `recipes` 2 / `failureLedger` 8 / `glossary` 10 —— 数据**全都在**。
+- **真实缺口**：`doctrine.recipes`（2 条配方，含 `blockKeys`）与 `doctrine.failureLedger`
+  （8 条失败台账，含 `symptom` / `cause` / `fix` / `tags`）**在数据里但视图不渲染**。
+
+⇒ **F-H 收窄为**：补这两个**只读**分区 + i18n zh/en 成对。**不改**既有四标签结构
+（D13 口径：写操作一律走「自动」标签）。PRD 批次一那句"仍按 7 块渲染"已过期，**以本条为准**。
+
+### D18.2 F-I 必须在「零 provider 调用」内落地 —— `generate_shot_prompt` 是 LLM 任务模板
+
+- **实测**：`planAutoShots` 的契约是「**零 provider 调用、零落盘**」（`auto-plan.js:190`）；
+  而 `prompts/tasks/generate_shot_prompt/{zh,en}/system.md` 是一份 **LLM 任务**：它规定 7 块结构，
+  并要求模型输出 JSON（`image_prompt` / `video_prompt` / `end_frame_prompt` / `negative_prompt` / `warnings`）。
+- **实测**：`getTaskPrompts` / `renderTemplate`（`prompt-library.js`）**只有测试、没有生产消费方**。
+- ⇒ 「在规划期调用 LLM」与 `planAutoShots` 的契约冲突；且成本闸（F-B 就绪度）在 **PR-5** 才落地
+  ⇒ 本 PR 调 LLM 就是「**没有闸的花钱**」。
+
+**落地形态（两件事，都零 provider）**：
+
+1. **补上 F-A 留空的 `endFramePrompt`**：来源是 `prompt-doctrine.json` 的 `frame_constraint` 块
+   （**外置文本**，随 kit 更新，不硬编码进 `.js`）。这正是 F-A 规格里写的
+   「尾帧约束文本来自任务级提示词库 / doctrine 的 `frame_constraint`」。
+2. **每镜附带「任务级提示词包」**：用 `prompt-library` 的 `generate_shot_prompt` 任务模板 ——
+   `system` 原文（7 块结构契约）+ `user` 模板按 **7 个变量**渲染
+   （`shot_json` / `palette_line` / `style_prefix` / `geo_block` / `character_descriptors` /
+   `duration_sec` / `model`，值来自 kit 资产与本镜信息）+ **未提供的变量名清单**
+   （`renderTemplate` 的 `missing` —— 便于发现漏填，不静默填空串）。
+   这就是「库与渲染器已就绪、规划流程未接」的最小闭环：接上之后 `getTaskPrompts` / `renderTemplate`
+   有了生产消费方，**后续接 LLM 时零改造**。
+
+**纯增量 + 缺失可见**：kit 缺 doctrine / promptLibrary / palette 时，
+既有三分字段与 `prompt` **逐字不变**（`endFramePrompt` 仍为 ''、无 `promptTask`），
+并在 `warnings` 里出声（W10 / W11）—— 资产缺失**可见**，不静默。
+
+### D18.3 F-J 的前提不成立：产品里没有「导入」入口
+
+- **实测**：`userData/film-kit` 只被**读**（`container.setup.js:463` 设 `userDataKitDir` →
+  `loadFilmKitChain` 回退链首级），**没有任何代码写它**。
+  ⇒ 两级回退链的首级至今是死代码；方案里「导入 IPC 未启用」的真实情况是**导入入口不存在**。
+- ⇒ F-J 不是「加一个开关」，而是**新增一条写路径**（选目录 → 严格校验 → 落盘 → 失效缓存），
+  它有**自己的安全面**：只拷白名单文件 / 不跟随符号链接 / 原子换目录。
+  这与 F-I/F-H 的「只读接线」不是同一类风险。
+
+⇒ **拆成独立 PR（PR-3b）**：本 PR 只做 F-I + F-H（只读 / 纯计算），F-J 单独走一轮写路径安全评审（见 D19）。
+
+## D19 F-J 独立成 PR-3b：写路径要单独过安全评审，不与只读接线混在一笔
+
+**理由**（三条，各自独立成立）：
+
+1. **风险面不同**：F-I/F-H 是只读 / 纯计算（F-H 甚至只改渲染层）；F-J 会**写 userData**
+   （用户可见的文件系统副作用），两类风险混在一笔时，评审注意力会被稀释。
+2. **原子性要求不同**：落盘必须「写临时目录 → 严格校验 → 换名」，中途失败**不能留下半份 kit**
+   （半份 kit 比没有更危险 —— 与 `prompt-library.js` 既有口径同型：半个库比没有危险）。
+3. **评审粒度**：写路径的对抗性审查要逐条盯「符号链接逃逸 / 半份 kit / 覆盖既有导入 / 失败回滚」，
+   与只读接线混在一笔会让评审载荷超长、两个风险面互相遮蔽（本仓「拆 PR 原则：体积小 →
+   对抗性审查不被截断」）。
+
+**依赖**：PR-3b 依赖 PR-3 —— 导入的严格校验要认 doctrine / promptLibrary / palette 这些增强资产，
+⇒ 资产面先在只读路径上跑通，导入面再谈落盘。
+
+
+## D20 PR-3 的字段契约与缺失分级（决策层第 1/2 轮收敛后的定稿）
+
+D18 定了「做什么」，D20 定「做成什么样」—— 字段级契约，供实现与判据直接照抄。
+
+### D20.1 `endFramePrompt`：只用 doctrine 的 `frame_constraint` 块
+
+| 项 | 契约 |
+|----|------|
+| 类型 | `string`（`shot.endFramePrompt`） |
+| 上限 | `FILM_PROMPT_MAX_LEN = 50000` 字符（与既有单字段上限同值，**不放宽**） |
+| locale | doctrine 的 `zh` / `en`；**缺 en 回退 zh**（回落记进 `promptContext.fallbackLocales`） |
+| 内容 | `frame_constraint` 块的 zh/en 文本（**外置**，随 kit 更新，不硬编码进 `.js`） |
+| 与另两字段的关系 | **独立字段，不拼接**（F-A 规格：尾帧只产出不消费，消费侧不发送） |
+| 缺 doctrine | `""`（**纯增量**：`prompt` 与三分字段逐字不变，F-A 零回归锁继续成立） |
+
+**为什么不用 `generate_shot_prompt` 那条路径**：它的尾帧铁律要 **LLM 才产出**，
+而本 PR 零 provider ⇒ 那条路径**不可达**；两条都写会得到「一个来源、两个真相」。
+
+### D20.2 两类缺失必须**行为可区分**（不是同一种「空」）
+
+| 类别 | 含义 | 渲染文本 | 清单 | 机器可判字段 |
+|------|------|---------|------|-------------|
+| `byDesign` | **设计上不填**（`style_prefix`） | 保留 `{{var}}` **原样** + 标注 `[不可直送LLM]` | 进 `missing` | `deliverable = false`，`blockedVars` 含该项 |
+| `assetMissing` | **资产缺口**（`geo_block`） | 渲染为**空串**（不把占位符喂给下游） | 进 `missing` | `deliverable = false`，`blockedVars` 含该项 |
+
+⇒ 未来的 LLM 消费方**必须**先校验 `deliverable === true` 才可直送；
+「文档里写着别直送」不算机制 ⇒ 本 PR 用**测试锁死该字段**。
+
+### D20.3 持久化口径统一（一条链，一种口径）
+
+| 内容 | 落点 | 理由 |
+|------|------|------|
+| `promptContext` = `{ taskId, locale, sourceHash }` | **项目文件（plan 级）** | `system`/`user` 原文按 `taskId` 引用，不逐镜复制 |
+| `promptVars` + `promptMissing` | **项目文件（逐镜）** | 每镜 ≤ 1KB；续跑/重生成据此**重渲染** |
+| `renderText` + `deliverable` + `blockedVars` | **仅规划结果**（IPC 返回值，不落盘） | 可由 `vars` + 同版本库重渲染，存它是重复 |
+| `system` / `user` 原文 | **不落** | 按 `taskId` 引用库；`sourceHash` 变了就是资产变了 |
+
+### D20.4 确定性：`sourceHash` 与「同 kit ⇒ 重渲染逐字相同」
+
+- `sourceHash` = sha256(doctrine 文本 + 该任务的 system/user 文本) —— 便宜且**正好覆盖**影响渲染的输入。
+- 续跑时用**同一 kit**（`sourceHash` 相同）⇒ 重渲染结果**逐字相同**。
+- `sourceHash` 变了 ⇒ 资产变了 ⇒ 续跑必须重渲染并**显式记录**，**不静默沿用**旧渲染结果。
+
+### D20.5 W10/W11：规划不 fail-closed，但带机器可判的 `blockedExport`
+
+- W10（缺 doctrine）/ W11（缺 promptLibrary）⇒ 规划**仍出结果**（拒绝会让老 kit 整个不可用），
+  但警告携带 **`blockedExport = true`**（机器可判，测试直接断言该字段）。
+- **导出执行留后续 PR**（本 PR 不开导出入口）—— 理由见 D19 的同类口径：提示词资产的导出面需单独权限评审。
+
+### D20.6 F-I-2 在本 PR 内的真实消费方：只读「方法论接入状态」面板
+
+自动模式**确认卡**新增一个 plan 级只读分区（不逐镜铺开）：
+
+- 任务模板：`generate_shot_prompt`（+ locale）
+- 变量命中：`5/7`（列出 `missing` 的分类与具体项）
+- 可否直送 LLM：`deliverable`（false 时显示原因）
+- 资产版本戳：`sourceHash` 前 8 位
+- 资产缺失警告：W10 / W11
+
+⇒ `promptTask` 从「只有测试碰到」变成**用户路径上可见**的一等信息。
+它回答的是「我的自动分镜到底接上了多少方法论」—— 不是装饰面板。
+
+
+## D21 第 3 轮收敛：长文本不逐镜复制 + 渲染确定性 + 缺失四分类
+
+D20 定了字段契约；D21 是第 3 轮 critic（2 条 Critical）指出的**同一条原则的三处落地**：
+「**同一段长文本不逐镜复制**」+「**渲染结果必须可归因**」。
+
+### D21.1 尾帧约束落 **plan 级**，逐镜 `endFramePrompt` 仍为 `''`
+
+`frame_constraint` 是**逐镜相同**的方法论原文（实测 505 字符）。逐镜各存一份 ⇒
+同一段文本复制 N 份、项目文件随镜数线性膨胀 ⇒ 与 `system`/`user` 已有的处理自相矛盾。
+
+| 内容 | 落点 | 说明 |
+|------|------|------|
+| `promptContext.frameConstraint` = `{ text, locale, fallback, truncated }` | plan 级项目文件 | 方法论原文，**存一次** |
+| `shot.endFramePrompt` | 逐镜 | **仍为 `''`**（F-A 口径不变）—— 本批次**无法逐镜派生**尾帧文本（要 LLM），留空即「不发送」，不会把规则原文当正文喂给模型 |
+| `promptContext.frameConstraintPending = true` | plan 级 | **如实标注**「尾帧规则已接入，逐镜派生待 LLM」 |
+
+**字段契约**：`text` 为 string；上限 `FILM_PROMPT_MAX_LEN = 50000`（**不放宽**，超长截断并 `truncated=true`）；
+locale 取 doctrine 的 `zh`/`en`，**缺该语种回退 zh**（回退记进 `promptContext.fallbackLocales`）；
+与 `imagePrompt`/`videoPrompt` **不拼接**（F-A：尾帧只产出不消费）。
+
+### D21.2 `sourceHash` 必须覆盖**所有**影响渲染结果的量
+
+```
+sourceHash = sha256( "v1" + locale + resolvedFallbacks + doctrine 文本 + system 原文 + user 原文 )
+```
+
+- `locale` 纳入：不同语种渲染结果不同。
+- **locale 回退**纳入：`en` 缺 → 回落 `zh` 时渲染出来的是 `zh` 的文本 ⇒ 回退事实必须进哈希。
+- `shot_json` **固定键序**（`index` / `shotId` / `title` / `beatIndex` / `characterNames` / `model`）⇒ 同一镜序列化稳定。
+- `v1` 是**序列化版本号**：将来改键序/增字段时 +1 ⇒ 旧哈希不会与新哈希混淆。
+
+⇒ 续跑时用**同一 kit + 同一 locale**（`sourceHash` 相同）⇒ 重渲染**逐字相同**；
+哈希变了 ⇒ 资产或语种变了 ⇒ 必须重渲染并**显式记录**，不静默沿用旧结果。
+
+### D21.3 缺失分**四类**（行为各不相同）
+
+| 类别 | 触发 | 渲染文本 | 清单 | 机器可判 |
+|------|------|---------|------|---------|
+| `byDesign` | 设计上不填（`style_prefix`） | 保留 `{{var}}` **原样**（不提供该变量） | 进 `missing` | `deliverable=false` + `blockedVars` |
+| `assetMissing` | 资产缺口（`geo_block`） | 渲染为**空串**（提供空值 ⇒ 不留占位符） | 进 `missing` | 同上 |
+| `templateVar` | 模板要但我们没给（`renderTemplate.missing`） | 保留 `{{var}}` 原样 | 进 `missing` | 同上 |
+| `badVarName` | 我们给的变量名不合规（`renderTemplate.unknownVars`） | —— | 进 `missing` | 同上（并视为实现缺陷） |
+
+**locale 回退规则提为统一函数**（`pickLocaleText`），覆盖 doctrine（`frame_constraint`）、
+palette（`paletteLine`）、任务模板（`getTaskPrompts` 的 en 缺失 → 回落 zh）三处；
+回退事实统一记进 `promptContext.fallbackLocales`。
+
+### D21.4 `blockedExport` 落 plan 级，并被面板消费
+
+- 落点：`promptContext.blockedExport`（**plan 级、持久化**）—— W10/W11 触发时为 `true`。
+- 消费方：接入状态面板显示「**导出已阻断**」。
+- **本 PR 不开导出入口** ⇒ 该字段此刻只是**机器可判标记**；导出执行留后续 PR。
+
+### D21.5 判据分两类：**合成夹具**（有阈值）与**真实 kit 巡检**（无阈值）
+
+| 类别 | 断言什么 | 阈值 | 资产更新会不会变红 |
+|------|---------|------|------------------|
+| 合成夹具 | 行为（渲染 / 分级 / 体积 / 确定性） | **有**（固定数值） | **不会**（数据固定） |
+| 真实 kit 巡检 | **一致性**（命中数与 `missing` 清单与实测一致）+ **打印读数** | **无** | **不会**（只断言一致性） |
+
+⇒ 资产更新不会让这两类用例变红；「N/7」这个读数由巡检打印、由面板显示，**不写成阈值**。
+
+## D22 第 4 轮收敛：哈希分两级 + 方法论原文不落盘 + 命名与计数对账
+
+D21 定了「不逐镜复制长文本」；D22 补上它的三个漏洞：**同资产不同镜的渲染不同**（哈希要分两级）、
+**方法论原文落进用户项目文件多一条外发面**（只留哈希）、**清单与计数对不上**（自检断言）。
+
+### D22.1 确定性分两级：`promptAssetHash`（资产面）+ `promptRenderHash`（渲染面）
+
+| 哈希 | 覆盖 | 回答什么 | 落点 |
+|------|------|---------|------|
+| `promptAssetHash` | doctrine + 任务 system/user 原文 + locale + 回退事实 | 「**资产**变没变」 | plan 级 |
+| `promptRenderHash` | 固定键序的逐镜 vars + locale | 「**这一镜**的渲染变没变」 | 逐镜 |
+
+- **两者不能合并**：同一资产的**不同镜**渲染本就不同（逐镜 vars 不同）⇒
+  「资产哈希相同 ⇒ 渲染逐字相同」是**假命题**；逐镜相等只能靠 `promptRenderHash`。
+- 拼接一律**长度前缀**（`len:key=len:value`）⇒ 杜绝 `a=bc` 与 `ab=c` 的碰撞。
+- `shot_json` **固定键序**；`v1` 是**序列化版本号**（改键序/字段时 +1）。
+
+### D22.2 方法论原文**不落**用户项目文件
+
+`system` 原文已被判定「属提示词资产，导出面需单独权限评审」；同理，
+`frame_constraint` 原文落进**用户项目文件**也多出一条外发/日志面（项目文件会随分享、日志、备份流出去）。
+⇒ **只留哈希与长度**：`promptContext.frameConstraint` = `{ hash, length, locale, fallback, truncated, source }`。
+原文本来就在用户**本地的 kit** 里，需要时按 kit 读 ⇒ 用户项目文件里**不含任何方法论原文**。
+逐镜 `endFramePrompt` 仍为 `''`（本批次无法逐镜派生，要 LLM；留空即「不发送」）。
+
+### D22.3 命名与计数必须对账
+
+- `blockedExport` ⇒ 改名 **`assetsIncomplete`**：本 PR **没有导出入口**，
+  叫「导出被阻断」会让人以为导出功能已存在。面板文案相应改为「资产不完整，请重新导入」。
+- `fallbackLocales` ⇒ **按来源分组**（`{ doctrine: {}, palette: {}, task: {} }`）⇒ 消费方分得清是哪一处回退。
+- i18n key 清单**逐条编号**列出，并在测试里**数一遍 locale 文件的 key 数**、断言等于清单条数 ⇒
+  「清单写了几个」与「文件里实际有几个」对不上就是欠账。
+- F-H 的「可单独回退这一笔」在 **squash 合并**下**无执行体** ⇒ 回退口径统一改为「**revert 整个 PR**」。
+
+## D23 收敛到第 19 轮后的最终口径（旧名 → 新名对照）
+
+> **本节是 D20/D21/D22 的「现行口径入口」**，不是又一份口径表。
+> 口径的**完整表述**只有一处：`review-brief-pr3.md` §四末（判据与清单）与
+> `ccg-plan-review-record-pr3.md` §三之二十（最终口径汇总）。
+> 本节只做一件事：**把「D20/D21/D22 正文里的旧写法」与「现行写法」的对应关系列出来** ——
+> 读者从 D20/D21 进来时，一眼能知道哪几处已经被后面几轮改掉了。
+>
+> **不重述口径本身**：同一事实写多处必然漂移（本 change 前 19 轮里已经因此漂了三次，见评审记录 §三之十九之补）。
+
+| D20/D21/D22 正文里的旧写法 | 现行写法 | 何时改的 | 依据 |
+|------|----------|----------|------|
+| `sourceHash`（D20.3 / D20.4 / D20.6 / D21.2） | `promptAssetHash`（plan 级·资产面）**+** `promptRenderHash`（逐镜·渲染面） | 第 8 轮 i1 | 旧名只覆盖 doctrine+任务模板，却叫「资产哈希」⇒ 改色盘不改它、却改逐镜哈希 ⇒ 是**假命题** |
+| `promptContext = { taskId, locale, sourceHash }` | `promptContext = { taskId, taskAvailable, locale, promptAssetHash, frameConstraint, frameConstraintPending, fallbackLocales, assetsIncomplete }` | 第 8-19 轮陆续 | 逐镜渲染哈希**必须含缺失清单**（否则「超限」与「没有」同哈希） |
+| `blockedExport`（D20.5 / D21.4） | `assetsIncomplete` | 第 8 轮（记在 D22.3） | 本 PR **没有导出入口**，叫「导出被阻断」会让人以为导出功能已存在 |
+| 缺失分**四类**（D21.3） | 缺失分**五类**：`byDesign` / `assetMissing` / `templateVar` / `badVarName` / **`oversizeVar`** | 第 10 轮 i1（第 17 轮把 `geo_block` 改判 `byDesign`） | 超长是**独立一类**，不能与「没有」混同 |
+| `geo_block` = `assetMissing`（D21.3） | `geo_block` = **`byDesign`** | 第 17 轮 | 跨模板取块的选取规则未定义 ⇒ 缺的不是资产，是「我们决定不取」；连带把 `assetMissing` 语义补全为「有资产形态、当前取不到」 |
+| `frameConstraint = { text, locale, fallback, truncated }`（D21.1） | `frameConstraint = { hash, length, locale, fallback, truncated, source, originalHash, originalLength }`（**不存原文**） | 第 4 轮 i8 / 第 8 轮 i2 | 方法论原文属提示词资产，落用户项目文件多一条外发面；哈希分**截断前/后**两态 |
+| 每镜 ≤ 1KB（D20.3）/ 单镜清单 ≤ 1,024 字节 | **清单** `promptMissing` ≤ **8 KiB**（8,192 字节，UTF-8）**且** `promptVars`+`promptMissing` **合计** ≤ **256 KiB** | 第 12 / 16 / 17 轮 | **两个对象、两个上限**，别混用；上限在**实现里**强制（`MAX_MISSING_BYTES` / `MAX_MISSING_ENTRIES`），不是断言 |
+| i18n 清单 12 个 key | **27 个**（`doctrine` 7 + `auto.methodology*` 15 + `auto.methodologyReason*` 5） | 第 13 / 19 轮 | 三处计数同源，由机器断言（清单条数 == 27、zh/en 成对、分组数对得上） |
+| F-H「可单独回退这一笔」 | **revert 整个 PR** | 第 4 轮（记在 D22.3） | 本仓一律 **squash 合并** ⇒ 单笔提交可独立回退是**假承诺** |
+
+**实现真值的位置**（要看常量与真值，以代码为准，不以本文档为准）：
+`apps/desktop/electron/services/film-engineering/shot-prompt-contract.js` 导出的常量
+（`MAX_KIT_VAR_LEN` / `MAX_SHOT_FIELD_LEN` / `MAX_MISSING_NAME_LEN` / `MAX_MISSING_ENTRIES` / `MAX_MISSING_BYTES`
+与五类缺失原因）。该模块由 2026-10-22 的**职责拆分**产生（原为 `shot-prompt-task.js` 内的常量段，
+而那个文件超了 500 行门禁 ⇒ 按职责拆成 `shot-prompt-{contract,locale,hash,sanitize,render,context}.js` 六个模块，
+**主文件继续导出全部对外符号** ⇒ 消费方 import 不变）。
+
