@@ -48,8 +48,10 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "self_play_resolved",
+    "performedBy": "self-play(proposer=opencode, critic=claude) + external-review(i3)",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4221#issuecomment-6335241418",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -60,9 +62,76 @@
         ]
       }
     ],
-    "findings": null,
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [],
+        "finding": "run2 测试包装器把 mock.mainBaseline 固定为 {kind:'green', staleness:0, rows: mock.mainRowsAt()}，完全屏蔽了真实 pickBaseline 的链遍历行为；集成测试无法验证 '零 run 跳过'、'顺序承重先判红'、'too-stale' 三条不可让口径，真实缺陷将静默通过。",
+        "verdict": "upheld",
+        "disposition": "已采纳并修复；修复点与变异反证见 rationale 与 PR 评论",
+        "rationale": "防御能解释「为什么 run2 存在」，但解释不了「为什么没有任何测试证明 main() 消费了 baseline.rows」—— 这是指控的合理内核，且是真实缺口。已采纳并加 4 条接线锁：baseline=red⇒rc=2（夹具 tip 故意全绿）、baseline=unknown⇒rc=3、断言 opts.tip 被传入、缺 mainBaseline⇒rc=4。变异反证：把 mainRows 改回 c.mainRowsAt(shaBefore)，前两条当场红（# pass 15 / # fail 2），还原后 17/17。",
+        "externalReview": null
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [],
+        "finding": "main() 的重试循环（attempts 默认 3，max 99）每轮重新调用 c.mainBaseline({tip})，而 mainBaseline 沿链回溯 maxBack=12 条提交，每条执行 actions/runs 列表 + 逐 run 的 jobs 取数（N+1 请求）；3 轮即放大至数十次 gh api 调用，无请求预算计数、无速率限制熔断，长期 429 会把闸门钉在 rc=4 但无自愈。",
+        "verdict": "upheld",
+        "disposition": "已采纳并修复；修复点与变异反证见 rationale 与 PR 评论",
+        "rationale": "实际轮次有限不改变放大倍数：最坏 3 轮 × 12 条 × (1+N) 可达成百次调用，而 429 会让闸门恒判 rc=4（自身故障）却无自愈。已采纳两处修复：① mainRowsAt 按 sha 缓存（const rowsCache = new Map()），3 轮重试不再重复取同一批 sha；② maxBack 12→5，依据真机实测只需往回 1–2 步（tip 3621894d4 pending ⇒ 跳过零 run 的 85dc44ddc ⇒ 5fe06ef1a 命中 green，staleness=2）。窗口内无绿时行为不变（fail-closed rc=3）。",
+        "externalReview": null
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ],
+        "finding": "proposal 明确 actions/runs 需 actions:read、check-runs 需 checks:read（scope 不同）；但 .github/workflows/ci-failure-handler.yml 迁到 ubuntu-latest 后，工作流级 permissions 未改，若 GITHUB_TOKEN 默认仅含 checks:read，mainRowsAt 会触发 403（已处理为 fail-closed），但 handler 自身也需 actions:read 才能正常解析失败原因，权限不足会导致 handler 也故障（级联失明）。",
+        "verdict": "dismissed",
+        "disposition": "指控不成立（前提与实现不符 / 对本 PR 无因果关系），依据见 rationale",
+        "rationale": "对本 PR 不成立：本 PR 未改 permissions，判据不在 CI 里跑，handler 有 fallback。但指控观察到的现象是真的 —— permissions 块确实缺 actions: read，而 classify-ci-failure.js 要读 jobs。这是存量缺陷（本 PR 改动前后一致），登记为遗留项，不在本 PR 扩大范围（改 permissions 属改这条 workflow 的权限面，应与分类器改造一起单独评审）。裁决依据见 PR 评论中的三点核实原文与命令输出。",
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4221#issuecomment-6335241418",
+          "reviewedAt": "2026-10-22T07:26:00Z"
+        }
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [],
+        "finding": "judge 的 mainMoved 档新增 newRedComputed:false、prFailNames、counts(0,0)，但 readout() 未输出这些字段；下游解析 readout 字符串的代码（如 check-pr-exec-record.js）无法识别 '未计算' 与 '零新增红'，会把不可归因读成无问题。",
+        "verdict": "upheld",
+        "disposition": "已采纳并修复；修复点与变异反证见 rationale 与 PR 评论",
+        "rationale": "「机器可读的那一份在返回值里」不构成理由：本仓的现场读数就是靠这一行传递的，而 newRed=0 与「未计算」在字符串上完全同形 —— 正是本文件开头写明要防的「把工具的失明读成结论」。已修：readout 改为 v.newRedComputed === false ? \"na\" : <真实值>，并加两条测试（false ⇒ 必须 newRed=na 且不得出现 newRed=0；缺省 ⇒ 仍打印算出来的 0）。",
+        "externalReview": null
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [],
+        "finding": "judge 的 mainMoved 处理在所有差集判定之前执行（正确），但返回的 counts 使用 counts(0,0) 硬编码，掩盖了闭包中 prFail/mainFail 的真实值；同时 mainFail 仍取自输入的 mainRows（未作废前的基准），这在文档中未说明，阅读者易误以为 mainFail 是作废后的主干状态。",
+        "verdict": "dismissed",
+        "disposition": "指控不成立（前提与实现不符 / 对本 PR 无因果关系），依据见 rationale",
+        "rationale": "指控的前提与实现不符：读 counts 的定义即可证伪「硬编码掩盖真实值」。关于「mainFail 取自未作废前基准、文档未说明」：mainMoved 分支的返回值里 mainFail: [...mainFail].sort() 与 reason 散文同时点名了它来自哪一次读数（「主干失败格子：...」），可核；且基准作废的语义是「这一版不可归因」，保留原读数供人判断是刻意的，不是遗漏。",
+        "externalReview": null
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "domains": [],
+        "finding": "pickBaseline 对 rowsAt 抛错未做任何包装，直接向上抛出至 main()；main() 仅在取数阶段捕获（COLLECT-FAIL），但若 pickBaseline 内部调用 rowsAt 时出错（如 gh api 429），错误信息缺少 'pickBaseline' 上下文，下游难以区分是 '取数失败' 还是 '基准选择逻辑错误'。",
+        "verdict": "upheld",
+        "disposition": "已采纳并修复；修复点与变异反证见 rationale 与 PR 评论",
+        "rationale": "安全不等于可归因。不包装时上层只看到一句 gh api rc=1，而「取数失败」（应重试）与「基准选择逻辑出错」（应改代码）的处置完全不同。已加包装：pickBaseline: rowsAt(<sha9>) 取数失败（第 i 条回溯）：<原消息>。既有测试 assert.throws(..., /gh rc=1/) 仍匹配（新消息包含原消息）。",
+        "externalReview": null
+      }
+    ],
     "template": ".adversarial\\ccg-deep-fff11929\\adjudication.json",
-    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
-    "at": "2026-10-22T07:03:28.944Z"
+    "note": "第 1 轮 critic=claude 出 8 条，其中 6 条进入争议集：4 条 upheld（已修：i1 接线锁 4 条 + 变异反证 2 例红；i2 rowsCache + maxBack 12→5；i4 readout newRed=na + 2 测试；i6 错误上下文包装），2 条 dismissed（i5：counts() 从闭包取 prFail/mainFail 本就是真值，指控前提与实现不符；i3：本 PR 未改 ci-failure-handler 的 permissions（diff 仅 runs-on 一行）、判据是本地工具不在 CI 跑、handler 有 classifier-unavailable fallback ⇒ 对「级联失明」无因果）。i3 是唯一高危域（auth），已外部复核并留公开证据；其观察到的「permissions 缺 actions:read」是存量缺陷，登记为遗留项，不在本 PR 扩大范围。",
+    "at": "2026-10-22T07:29:34.472Z"
   }
 }
