@@ -714,6 +714,16 @@ def test_length_ranges_max_aligned_with_engine_output_cap():
     读法与仓库既有结构锁同构（见 rewrite-engine-limits.test.js 的同名正则用法），
     属「跨语言常量对齐」而非「复制字面量」。
 
+    ⚠️ **判据性质（外部后端复核结论：upheld / Warning，但维持现状）**：
+    「读 JS 源码 + 正则 + 词边界计数」是**文本级代理**，不是编译值验证——
+    它挡不住同名影子变量这类更极端的伪装。作为补偿有三道：
+      ① 本用例自身的 fail-closed + 剔注释 + 词边界 + **只认生产代码消费点**；
+      ② JS 侧既有结构锁 `rewrite-engine-limits.test.js` 作为**第二道闸**（它跑在 Node 侧，
+         能真正 import 那个模块，验证的是「值本身」而非文本）；
+      ③ 反证逐条实测（改值 / 删消费点 / 乱单调 ⇒ 均变红）。
+    复核同时评估过「把上限下沉成一份 JSON 让两边各读」：**收益低于成本**
+    （要改两边的读取路径并新增同步点，仍解决不了「谁读谁」的活源问题），故不引入。
+
     若上限将来再变（例如提到 100000），本用例会因「某一方没跟上」而红，
     且报错直接点名是哪一处脱钩——这正是要防的「放宽一处、另一处成暗上限」。
     """
@@ -760,6 +770,10 @@ def test_length_ranges_max_aligned_with_engine_output_cap():
             for p in (repo_root / consumer_root).rglob("*.js"):
                 if p == src:
                     continue
+                # 只认**生产代码**的消费点：测试文件自己引用该常量不算
+                # （否则「活的权威源」的证明会退化成「有个测试在用它」）。
+                if p.name.endswith((".test.js", ".spec.js")):
+                    continue
                 body = p.read_text(encoding="utf-8", errors="ignore")
                 code_only = "\n".join(
                     line for line in body.splitlines() if not line.strip().startswith("//")
@@ -767,8 +781,8 @@ def test_length_ranges_max_aligned_with_engine_output_cap():
                 if re.search(r"\b" + re.escape(const_name) + r"\b", code_only):
                     consumed.append(p)
             assert consumed, (
-                f"{label}里的 {const_name} 在 {consumer_root} 下没有任何**代码行**消费点"
-                "——它可能不是当前真正生效的那份"
+                f"{label}里的 {const_name} 在 {consumer_root} 下没有任何**生产代码**消费点"
+                "（测试文件不算）——它可能不是当前真正生效的那份"
             )
         return int(m.group(1))
 
