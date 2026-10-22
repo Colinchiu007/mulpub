@@ -11,7 +11,7 @@ date: 2026-10-21
 | 变更类型与隔离 | ✅ | **运行时代码**（`apps/desktop/electron/**` + `apps/desktop/src/**`）⇒ 走**隔离 worktree**：`D:\Data\projects\mp-worktrees\mp-film-prompt-triple-impl3`，**裸分支** `film-prompt-triple-impl3`（`scripts/gwm-task.sh` 自 2026-09-15 起默认不加斜杠前缀）。共享根 `D:\Data\projects\mulpub` 全程停在 main、**零改动**（PRD 改动直接做在 worktree 里 —— 共享根的未提交改动会被**别的会话 `reset: moving to origin/main` 冲掉**，本次实测踩到过） |
 | 第一性原因（QM-5 ①） | ✅ | 影视工程「自动」标签的规划期**从不消费**方法论资产：`prompt-doctrine.json` 的 7 块/14 铁律/2 配方/8 失败台账与 `prompts/tasks/**` 的任务模板**在规划期完全没被读**；`FilmEngineeringView.vue` 只渲染 blocks/rules/glossary，**recipes(2) 与 failureLedger(8) 从未渲染** ⇒ 「方法论接上了多少」对用户**不可见**，也无法在接 LLM 之前被机器判定 |
 | 逃逸分析（QM-5 ②） | ✅ | 既有门禁查不出这类缺口：① 既有测试断言的是**字段存在**，不断言**资产有没有被真正装配**；② 覆盖率门禁（55%）量的是 `electron/services/**` 与 `src/**/*.vue`，本 PR 新增的装配链路在覆盖范围内但**没有任何用例**；③ 提示词优化阶段（`optimizeVideoScenePrompts`）走的是**另一条**链路（`story2video-stages.js`），与影视工程规划期不共用代码 ⇒ 两边的缺口互不暴露 |
-| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `shot-prompt-task.js`（任务级变量装配 + 缺失**五**分类 + 两级哈希 + 不可信输入净化与长度上限 + **清单条目/字节双闸门**（闸门在**产出源**，落盘的那份也被管到）+ 截断名哈希后缀保唯一）；`auto-plan.js` 接 kit 上下文；`film-engineering-service.js` 提供 `getKitContext`；`auto-project.js` 落 plan 级 `promptContext` + 逐镜 `promptVars`/`promptMissing`/`promptRenderHash`；`film-engineering-auto.js` 汇总方法论状态（**主进程唯一一份实现**，重开项目也复用它，并**重算哈希检出「资产已变」**）；`FilmAutoPanel.vue` 接只读「方法论接入状态」面板（两种状态都可见 + 「资产已变」「清单已截断」两处**区块级**警告）；`FilmEngineeringView.vue` 补 recipes/failureLedger 两个只读分区。**判据 43 条**（PRD §9.b 的 `M-1` ~ `M-43`，编号连续无重号），**8 个测试文件**（新增 2 + 既有追加 6），均命中 vitest include 白名单 ⇒ 无接线棘轮。简报 §四 另有一张**实现映射表**（38 行，圈号 ①…㊲ + 子项 ①b，编号闭集）—— 两表条数不同是刻意的：PRD 侧把若干条拆得更细、并多收了后加的判据，**PRD §9.b 是完整清单** |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `shot-prompt-task.js`（任务级变量装配 + 缺失**五**分类 + 两级哈希 + 不可信输入净化与长度上限 + **清单条目/字节双闸门**（闸门在**产出源**，落盘的那份也被管到）+ 截断名哈希后缀保唯一）—— ⚠ **2026-10-22 按职责拆成 6 个模块**（见下文「CI 判红后的拆分」）：`shot-prompt-{task,contract,locale,hash,sanitize,render,context}.js`，**主文件继续导出全部对外符号**（导出面 26 项逐项相等，消费方 import 不变）；`auto-plan.js` 接 kit 上下文；`film-engineering-service.js` 提供 `getKitContext`；`auto-project.js` 落 plan 级 `promptContext` + 逐镜 `promptVars`/`promptMissing`/`promptRenderHash`；`film-engineering-auto.js` 汇总方法论状态（**主进程唯一一份实现**，重开项目也复用它，并**重算哈希检出「资产已变」**）—— ⚠ 该汇总已抽到 `film-engineering-auto-projection.js`（只读投影，同一函数，**唯一实现不变**）；`FilmAutoPanel.vue` 接只读「方法论接入状态」面板（两种状态都可见 + 「资产已变」「清单已截断」两处**区块级**警告）—— ⚠ 该区块已抽到 `MethodologyStatusPanel.vue`（**数据源 `methodology` 计算属性仍留在父组件**，因为「重开项目也可见」那条契约的实现处不能搬）；`FilmEngineeringView.vue` 补 recipes/failureLedger 两个只读分区。**判据 43 条**（PRD §9.b 的 `M-1` ~ `M-43`，编号连续无重号），**8 个测试文件**（新增 2 + 既有追加 6），均命中 vitest include 白名单 ⇒ 无接线棘轮。简报 §四 另有一张**实现映射表**（38 行，圈号 ①…㊲ + 子项 ①b，编号闭集）—— 两表条数不同是刻意的：PRD 侧把若干条拆得更细、并多收了后加的判据，**PRD §9.b 是完整清单** |
 | 防止再次发生（QM-5 ⑤） | ✅ | ① **i18n 清单与计数对账**（逐条字面量断言 + 清单条数 + zh/en 命中数一致）；② **三处计数同源**（简报 / PRD / 测试清单里的每一个 N 都必须相等，**且**两份文档的清单逐条编号是 1..N、**分组数**也对得上）—— 计数从 16 一路涨到 26，三轮评审都抓到同一族的计数欠账 ⇒ 已把它变成**机器断言**；③ **陈旧字段名回归锁**（`sourceHash`/`blockedExport`/`assetHash` 零出现，且现行名**确实在用**）；④ **防空集断言**（被扫描文件数 > 0）；⑤ **哈希域锁定**（正向 + **负向**断言：改色盘/角色描述**不改** `promptAssetHash`、改的是逐镜哈希）；⑥ **kit 不可信的长度上限**（色盘行 / 角色描述 / 逐镜字段 / 变量名，四个上限常量）；⑦ **面板行标签互不相同**（「key 存不存在」查不出「标签被复用」） |
 | 行尾与 diff 对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致（差异 0 行） |
 | 接线棘轮 | ✅ | 两个新增测试文件分别命中 vitest include 的 `electron/services/**/*.test.js` 与 `src/**/*.test.js` ⇒ **自动收集**，无需改 workflow；`scripts/check-unwired-tests.js` 的域是 `scripts/` 与 `.github/scripts/`，本 PR 不涉及 |
@@ -98,6 +98,44 @@ D23 **不重述口径本身**（同一事实写多处必然漂移），只给「
 体量一大（PRD 758 行 + 简报 440 行 + 评审记录 500 行 + design 500 行），
 **文档抄实现、文档抄文档**这两条漂移路径就都需要**独立**的对账手段，不能指望评审顺带发现。
 ⇒ 已把「对外声明必须逐个回算」列为推送前的固定动作（不是评审轮次的附属品）。
+
+## CI 判红后的**按职责拆分**（2026-10-22 · PR #4226 第一次 CI）
+
+**现象**：PR #4226 第一次 CI 红 3 条 —— `债务熔断检测` / `QG Changes` / `Gate Result`（后者只是传导）。
+本仓的 `scripts/check-main-red.js` 判为 `NEW_RED exit=1`（本 PR 新增红，主干 0 红）⇒ **拒绝合并**（闸门正常工作）。
+
+**根因（不是判据的问题，是我写的实现超出了本仓的体量约定）**：
+`check-max-lines.js` 的 `NEW_OVER_LIMIT`（单文件 ≤ 500 行）判红 3 个文件：
+
+| 文件 | 拆分前 | 处置 |
+|------|--------|------|
+| `apps/desktop/electron/services/film-engineering/shot-prompt-task.js` | 656 | 拆成 **6 个模块**（契约与闭集 / 语种回退 / 两级哈希 / 不可信输入净化与清单闸门 / 任务模板渲染 / plan 级上下文） |
+| `apps/desktop/electron/ipc-handlers/film-engineering-auto.js` | 538 | 抽出 `film-engineering-auto-projection.js`（只读投影：方法论摘要 + 分镜预览） |
+| `apps/desktop/src/views/film-auto/FilmAutoPanel.vue` | 513 | 抽出 `MethodologyStatusPanel.vue`（方法论接入状态区块） |
+
+同时 `scripts/check-debt-budget.js` 的全仓聚合棘轮（`filesOver500` 98 > baseline 95）也因此变红 ⇒ 拆分后回到 **95 == baseline**。
+
+**为什么选「拆分」而不是「改基线」**：门禁自己的文案就是「**新代码不得引入超大文件（按既有 mixin/composable 范式拆分）**」；
+且 `scripts/debt-baseline.json` / `.github/scripts/max-lines-baseline.json` 是**存量欠账挂账表**（95 条），
+把新文件挂进去 = **把欠账永久化** = 放宽判据 ⇒ 本仓明令禁止（「不要为了赶工放宽任何门禁判据」）。
+
+**拆分时的三个坑（都踩到了）**：
+1. **scoped CSS 跨组件失效**：`film-auto-panel.css` 是 `<style scoped>` ⇒ 父组件的 `.fa-methodology` 规则**管不到**子组件的元素
+   ⇒ 那 2 条规则必须**搬到**子组件自己的 css 文件。
+2. **测试按源码文本断言**：`film-engineering-methodology.test.js` 扫面板源码里的 `data-testid` / `<dt>` 行标签
+   ⇒ 标记搬走后，断言要改成扫**子组件**的源码（**断言的含义不变，只换了被扫的文件**）；
+   而「数据源在父组件」那几条断言（`const methodology = computed(` / `plan.value && plan.value.methodology`）**仍扫父组件**。
+3. **拆分会开出旧名回归锁的漏洞**：「陈旧字段名回归锁」原先扫的是**写死的 7 个文件名**
+   ⇒ 新拆出来的模块**不在覆盖内** ⇒ 旧名可以躲进去而锁照样绿 ⇒ 已把扫描域改成**按目录 glob**，
+   并加一条断言「扫描域必须包含本 PR 拆出来的 7 个模块」。
+
+**另一处必须守住的不变量**：主文件**继续导出全部对外符号**（re-export，**26 项逐项相等**）
+⇒ 消费方（`auto-plan` / `auto-project` / `film-engineering-service` / ipc-handler / 测试）的 import **一行都不用改**；
+re-export 刻意**不用** `...module` 展开（展开会把内部实现也暴露成公开 API ⇒ 公开面悄悄变大）。
+
+**教训**：本仓的体量门禁（500 行/文件）**不是「提交前提醒」而是「PR 级门禁」**；
+本地跑 `node .github/scripts/check-max-lines.js` 与 `node scripts/check-debt-budget.js` 就能提前发现 ——
+这两个门禁**不在** `check-pr-exec-record` 的覆盖里 ⇒ 只跑「文档类」门禁是查不出它们的。
 
 ## 明确不做（不假装闭合）
 

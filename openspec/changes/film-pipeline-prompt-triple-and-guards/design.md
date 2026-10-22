@@ -535,6 +535,9 @@ D21 定了「不逐镜复制长文本」；D22 补上它的三个漏洞：**同�
 | F-H「可单独回退这一笔」 | **revert 整个 PR** | 第 4 轮（记在 D22.3） | 本仓一律 **squash 合并** ⇒ 单笔提交可独立回退是**假承诺** |
 
 **实现真值的位置**（要看常量与真值，以代码为准，不以本文档为准）：
-`apps/desktop/electron/services/film-engineering/shot-prompt-task.js` 末尾导出的常量
-（`MAX_KIT_VAR_LEN` / `MAX_SHOT_FIELD_LEN` / `MAX_MISSING_NAME_LEN` / `MAX_MISSING_ENTRIES` / `MAX_MISSING_BYTES`）。
+`apps/desktop/electron/services/film-engineering/shot-prompt-contract.js` 导出的常量
+（`MAX_KIT_VAR_LEN` / `MAX_SHOT_FIELD_LEN` / `MAX_MISSING_NAME_LEN` / `MAX_MISSING_ENTRIES` / `MAX_MISSING_BYTES`
+与五类缺失原因）。该模块由 2026-10-22 的**职责拆分**产生（原为 `shot-prompt-task.js` 内的常量段，
+而那个文件超了 500 行门禁 ⇒ 按职责拆成 `shot-prompt-{contract,locale,hash,sanitize,render,context}.js` 六个模块，
+**主文件继续导出全部对外符号** ⇒ 消费方 import 不变）。
 

@@ -40,13 +40,25 @@ date: 2026-10-21
 **范围**：只动影视工程「自动」标签这条链上的**只读 / 纯计算**接线（F-I）+ 「项目案例」标签的**只读**展示补全（F-H）。
 **依赖**：PR-2（#4127，已合并 `05e83ddf1`）—— 三分字段存在后，F-I 才能把方法论接到每镜上。
 **不在本 PR**：F-J 资产导入（**写路径**，拆到 PR-3b，理由见 design D19）。
-**改动量（**实测**，不含 F-J 写路径）**：运行时源码 ≈ 480 行（新模块 `shot-prompt-task.js` + `auto-plan.js` + `film-engineering-auto.js` + `film-engineering-service.js` + `auto-project.js`）、前端 ≈ 200 行（`FilmEngineeringView.vue` 两个只读分区 + `FilmAutoPanel.vue` 一个只读面板 + 样式）、i18n **27 个 key**（zh/en 各 27，**逐条列在 §四末并带自检断言**）、测试 ≈ 700 行（**8 个测试文件**：新增 `shot-prompt-task.test.js`、`film-engineering-methodology.test.js`；既有追加 `auto-plan.test.js`、`auto-project.test.js`、`film-engineering-auto.test.js`、`FilmAutoPanel.test.js`；渲染侧 `FilmEngineeringView` 渲染测试 —— 共 **38 条**验收断言）、文档 ≈ 900 行（简报 + 评审记录 + PRD 七节）。
+**改动量（**实测**，不含 F-J 写路径）**：运行时源码 ≈ **1,010 行**（`shot-prompt-*` **六个模块** + `auto-plan.js` + `film-engineering-auto.js` + `film-engineering-auto-projection.js` + `film-engineering-service.js` + `auto-project.js`）、前端 ≈ **130 行**（`FilmEngineeringView.vue` 两个只读分区 + `FilmAutoPanel.vue` + `MethodologyStatusPanel.vue` + 两个样式文件）、i18n **27 个 key**（zh/en 各 27，**逐条列在 §四末并带自检断言**）、测试 ≈ **2,730 行**（**8 个测试文件**：新增 `shot-prompt-task.test.js`、`film-engineering-methodology.test.js`；既有追加 `auto-plan.test.js`、`auto-project.test.js`、`film-engineering-auto.test.js`、`FilmAutoPanel.test.js`；渲染侧 `FilmEngineeringView` 渲染测试 —— 共 **43 条**验收断言）、文档 ≈ **1,600 行**（简报 + 评审记录 + PRD 七节 + design D23）。
 
-**本次改动的完整文件清单**（决策层范围声明 —— 与下面的实测改动量逐条对应）：
+> ⚠ **2026-10-22 的模块拆分**（决策层范围声明随之更新）：本 PR 的实现最初是
+> `shot-prompt-task.js` 一个文件（656 行）+ `film-engineering-auto.js`（538 行）+ `FilmAutoPanel.vue`（513 行），
+> 三者都**超过本仓 500 行/文件的门禁**（`check-max-lines.js` 的 `NEW_OVER_LIMIT`）⇒ **按职责拆分**：
+> `shot-prompt-task.js` → `shot-prompt-{contract,locale,hash,sanitize,render,context}.js`（六个模块，
+> **主文件继续导出全部对外符号** ⇒ 消费方 import 不变）；
+> `film-engineering-auto.js` → 抽出 `film-engineering-auto-projection.js`（只读投影）；
+> `FilmAutoPanel.vue` → 抽出 `MethodologyStatusPanel.vue`（方法论接入状态区块）。
+> 拆分**不改变任何行为**（对外导出面逐项相等、导出面 26 项未变），且顺手堵上一个漏洞：
+> 「陈旧字段名回归锁」原先扫的是**写死的 7 个文件名** ⇒ 拆出来的新文件不在覆盖内 ⇒ 已改成**按目录 glob**。
+
+**本次改动的完整文件清单**（决策层范围声明 —— 与上面的实测改动量逐条对应）：
 
 | 类别 | 文件 |
 |------|------|
-| 新增（运行时） | `apps/desktop/electron/services/film-engineering/shot-prompt-task.js` |
+| 新增（运行时·提示词装配） | `apps/desktop/electron/services/film-engineering/shot-prompt-task.js`、`shot-prompt-contract.js`、`shot-prompt-locale.js`、`shot-prompt-hash.js`、`shot-prompt-sanitize.js`、`shot-prompt-render.js`、`shot-prompt-context.js` |
+| 新增（运行时·只读投影） | `apps/desktop/electron/ipc-handlers/film-engineering-auto-projection.js` |
+| 新增（前端） | `apps/desktop/src/views/film-auto/MethodologyStatusPanel.vue`、`apps/desktop/src/views/film-auto/methodology-status-panel.css` |
 | 新增（测试） | `apps/desktop/electron/services/film-engineering/shot-prompt-task.test.js`、`apps/desktop/src/views/film-engineering-methodology.test.js` |
 | 改动（运行时） | `apps/desktop/electron/services/film-engineering/auto-plan.js`、`apps/desktop/electron/services/film-engineering/auto-project.js`、`apps/desktop/electron/services/film-engineering/film-engineering-service.js`、`apps/desktop/electron/ipc-handlers/film-engineering-auto.js` |
 | 改动（测试） | `apps/desktop/electron/services/film-engineering/auto-plan.test.js`、`apps/desktop/electron/services/film-engineering/auto-project.test.js`、`apps/desktop/electron/ipc-handlers/film-engineering-auto.test.js`、`apps/desktop/src/views/film-auto/FilmAutoPanel.test.js` |

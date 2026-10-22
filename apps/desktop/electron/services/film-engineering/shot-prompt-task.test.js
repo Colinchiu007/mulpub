@@ -623,46 +623,82 @@ describe('F-I · shot-prompt-task / 真实 kit 巡检（非阻断：与人工读
  *
  * 文档侧的口径在评审记录里（那是历史快照，不改）；**代码侧必须零残留** ——
  * 这条判据把「实施会不会照旧名写」变成机器可查的事实，而不是靠人记得。
+ *
+ * ⚠ **2026-10-22：扫描域从「硬编码文件清单」改成「按目录 glob」**。
+ * 动因：本 PR 把 `shot-prompt-task.js` 按职责拆成了 6 个模块（`shot-prompt-*.js`），
+ * 而原清单是**写死的 7 个文件名** ⇒ 新拆出来的文件**不在锁的覆盖内** ⇒
+ * 旧名可以躲进新文件里，锁却照样绿（**结构性漏洞**）。
+ * ⇒ 改成扫**整个目录**（`film-engineering/**` + 相关 ipc-handler + 两个 Vue），
+ * 以后再拆文件、新增文件都**自动进锁**，不需要人记得改清单。
  */
 describe('F-I · 陈旧字段名回归锁（第 7 轮 i4）', () => {
-  const IMPL_FILES = [
-    'shot-prompt-task.js',
-    'auto-plan.js',
-    'auto-project.js',
-    'film-engineering-service.js',
-    '../../ipc-handlers/film-engineering-auto.js',
-    '../../../src/views/film-auto/FilmAutoPanel.vue',
-    '../../../src/views/FilmEngineeringView.vue',
-  ]
+  const fs = require('fs')
+  const path = require('path')
+  /** 扫描域：影视工程相关的**全部**实现文件（按目录 glob，不写死文件名） */
+  function collectImplFiles () {
+    const roots = [
+      path.join(__dirname),                                  // electron/services/film-engineering/
+      path.join(__dirname, '..', '..', 'ipc-handlers'),      // electron/ipc-handlers/
+      path.join(__dirname, '..', '..', '..', 'src', 'views', 'film-auto'),
+      path.join(__dirname, '..', '..', '..', 'src', 'views'),
+    ]
+    const out = []
+    const walk = (dir, depth) => {
+      if (depth > 1) return
+      let entries
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+      for (const e of entries) {
+        if (!e.isFile()) continue
+        const name = e.name
+        if (/\.test\.js$/.test(name)) continue
+        if (/\.js$/.test(name) && /^(film-engineering|shot-prompt|auto-plan|auto-project|auto-runner)/.test(name)) {
+          out.push(path.join(dir, name))
+        } else if (/\.vue$/.test(name) && /^(FilmAutoPanel|FilmEngineeringView)\.vue$/.test(name)) {
+          out.push(path.join(dir, name))
+        }
+      }
+    }
+    for (const r of roots) walk(r, 0)
+    return out
+  }
   const OBSOLETE = ['sourceHash', 'blockedExport']
 
   it('实现代码里不得再出现 sourceHash / blockedExport（旧名，第 4 轮已改名）', () => {
+    const files = collectImplFiles()
     const hits = []
-    let scanned = 0
-    for (const rel of IMPL_FILES) {
-      const abs = require('path').join(__dirname, rel)
-      const src = require('fs').readFileSync(abs, 'utf8')
-      scanned++
+    for (const abs of files) {
+      const src = fs.readFileSync(abs, 'utf8')
       for (const name of OBSOLETE) {
-        if (src.includes(name)) hits.push(rel + ' → ' + name)
+        if (src.includes(name)) hits.push(path.basename(abs) + ' → ' + name)
       }
     }
     expect(hits).toEqual([])
     // 第 8 轮 i4：防空集通过 —— 扫描列表为空/路径写错时，这条判据会**恒真**。
-    expect(scanned).toBe(IMPL_FILES.length)
-    expect(scanned).toBeGreaterThan(0)
+    expect(files.length).toBeGreaterThan(0)
+    // 2026-10-22：锁的覆盖域必须**包含本 PR 新拆出来的模块**（否则旧名可以躲进新文件）。
+    // 这条断言把「扫描域漏了新文件」变成机器可查的事实。
+    const names = files.map((f) => path.basename(f))
+    for (const must of [
+      'shot-prompt-task.js',
+      'shot-prompt-contract.js',
+      'shot-prompt-hash.js',
+      'shot-prompt-render.js',
+      'shot-prompt-context.js',
+      'shot-prompt-sanitize.js',
+      'shot-prompt-locale.js',
+    ]) {
+      expect(names, '扫描域漏了 ' + must + ' ⇒ 旧名可以躲进它而锁照样绿').toContain(must)
+    }
   })
 
   it('现行字段名确实在用（防止把新名也一起删掉，锁成「零命中」）', () => {
-    const fs = require('fs')
-    const path = require('path')
-    const taskSrc = fs.readFileSync(path.join(__dirname, 'shot-prompt-task.js'), 'utf8')
-    const planSrc = fs.readFileSync(path.join(__dirname, 'auto-plan.js'), 'utf8')
-    // 资产面哈希 + 资产不完整标记在服务层
-    expect(taskSrc).toContain('promptAssetHash')
-    expect(taskSrc).toContain('assetsIncomplete')
+    const files = collectImplFiles()
+    const all = files.map((f) => fs.readFileSync(f, 'utf8')).join('\n')
+    // 资产面哈希 + 资产不完整标记（plan 级上下文）
+    expect(all).toContain('promptAssetHash')
+    expect(all).toContain('assetsIncomplete')
     // 逐镜渲染哈希：服务层导出 `computePromptRenderHash`，**落盘字段名**是 `promptRenderHash`（在 auto-plan 层写）
-    expect(taskSrc).toContain('computePromptRenderHash')
-    expect(planSrc).toContain('promptRenderHash')
+    expect(all).toContain('computePromptRenderHash')
+    expect(all).toContain('promptRenderHash')
   })
 })

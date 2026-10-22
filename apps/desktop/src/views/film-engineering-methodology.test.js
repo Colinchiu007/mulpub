@@ -20,11 +20,15 @@ import path from 'node:path'
 const SRC = path.resolve(process.cwd(), 'src')
 const VIEW = path.join(SRC, 'views/FilmEngineeringView.vue')
 const PANEL = path.join(SRC, 'views/film-auto/FilmAutoPanel.vue')
+// 方法论接入状态的**标记与文案**在子组件里（2026-10-22 拆分：FilmAutoPanel.vue 超 500 行门禁）
+// ⇒ 扫「标记」的断言改扫它；扫「数据源」的断言仍扫 FilmAutoPanel.vue（methodology 计算属性留在父组件）。
+const METHOD_PANEL = path.join(SRC, 'views/film-auto/MethodologyStatusPanel.vue')
 const ZH = path.join(SRC, 'locales/film-engineering/zh.js')
 const EN = path.join(SRC, 'locales/film-engineering/en.js')
 
 const viewSrc = fs.readFileSync(VIEW, 'utf8')
 const panelSrc = fs.readFileSync(PANEL, 'utf8')
+const methodPanelSrc = fs.readFileSync(METHOD_PANEL, 'utf8')
 const zhSrc = fs.readFileSync(ZH, 'utf8')
 const enSrc = fs.readFileSync(EN, 'utf8')
 
@@ -111,9 +115,11 @@ describe('F-H · 方法论分区补全（只读）', () => {
 
 describe('F-I · 接入状态面板（只读，plan 级）', () => {
   it('面板渲染方法论接入状态分区', () => {
-    expect(panelSrc).toContain('data-testid="fa-methodology"')
-    expect(panelSrc).toContain('methodology.hitVars')
-    expect(panelSrc).toContain('methodology.totalVars')
+    expect(methodPanelSrc).toContain('data-testid="fa-methodology"')
+    expect(methodPanelSrc).toContain('methodology.hitVars')
+    expect(methodPanelSrc).toContain('methodology.totalVars')
+    // 外层卡片留在父组件（它用的是父组件的 scoped .fa-card 样式）
+    expect(panelSrc).toContain('data-testid="fa-methodology-card"')
   })
 
   /**
@@ -141,12 +147,12 @@ describe('F-I · 接入状态面板（只读，plan 级）', () => {
       'fa-methodology-assets-incomplete',
       'fa-methodology-frame-pending',
     ]) {
-      expect(panelSrc).toContain('data-testid="' + id + '"')
+      expect(methodPanelSrc).toContain('data-testid="' + id + '"')
     }
   })
 
   it('面板**只读**：不得含写操作（@click / v-model）', () => {
-    const block = panelSrc.slice(panelSrc.indexOf('data-testid="fa-methodology"'), panelSrc.indexOf('fa-shot-preview'))
+    const block = methodPanelSrc.slice(methodPanelSrc.indexOf('data-testid="fa-methodology"'))
     expect(block).not.toContain('@click')
     expect(block).not.toContain('v-model')
   })
@@ -349,9 +355,9 @@ describe('F-I · 三处计数同源（第 10 轮 i1）', () => {
    * 这条判据锁住「优先级是确定的」—— 否则同一份阻断清单可能渲染出两种文案。
    */
   it('聚合文案的**混合态**有确定结果：存在 assetMissing ⇒ 用第二态（含「或补齐对应资产」）', () => {
-    expect(panelSrc).toContain("b.reason === 'assetMissing'")
-    expect(panelSrc).toContain('filmEngineering.auto.methodologyNotDeliverableAssets')
-    expect(panelSrc).toContain('filmEngineering.auto.methodologyNotDeliverable')
+    expect(methodPanelSrc).toContain("b.reason === 'assetMissing'")
+    expect(methodPanelSrc).toContain('filmEngineering.auto.methodologyNotDeliverableAssets')
+    expect(methodPanelSrc).toContain('filmEngineering.auto.methodologyNotDeliverable')
     // 第二态的文案必须真的提到「补齐对应资产」
     const v = readValue(zhSrc, 'methodologyNotDeliverableAssets')
     expect(v).toContain('补齐对应资产')
@@ -379,19 +385,19 @@ describe('F-I · 三处计数同源（第 10 轮 i1）', () => {
  */
 describe('F-I · 面板行标签互不相同（第 9 轮 i6）', () => {
   it('「资产已变」是**区块级**警告（不含 <dt>）—— 否则它会复用别行的行标签', () => {
-    expect(panelSrc).toContain('data-testid="fa-methodology-stale"')
-    const start = panelSrc.indexOf('data-testid="fa-methodology-stale"')
-    const line = panelSrc.slice(panelSrc.lastIndexOf('\n', start) + 1, panelSrc.indexOf('\n', start))
+    expect(methodPanelSrc).toContain('data-testid="fa-methodology-stale"')
+    const start = methodPanelSrc.indexOf('data-testid="fa-methodology-stale"')
+    const line = methodPanelSrc.slice(methodPanelSrc.lastIndexOf('\n', start) + 1, methodPanelSrc.indexOf('\n', start))
     expect(line).not.toContain('<dt>')
   })
 
   it('方法论分区内每一行的 <dt> 都是不同的 key', () => {
-    // 分区在独立的 `fa-methodology-card` 段里（规划结果与重开项目都渲染这一段）
-    const start = panelSrc.indexOf('data-testid="fa-methodology-card"')
-    const end = panelSrc.indexOf('</section>', start)
+    // 分区在独立的 `fa-methodology-card` 段里（规划结果与重开项目都渲染这一段）；
+    // 行的 `<dt>` 在子组件 MethodologyStatusPanel.vue 里（2026-10-22 拆分）。
+    expect(panelSrc).toContain('data-testid="fa-methodology-card"')
+    const start = methodPanelSrc.indexOf('data-testid="fa-methodology"')
     expect(start).toBeGreaterThan(-1)
-    expect(end).toBeGreaterThan(start)
-    const block = panelSrc.slice(start, end)
+    const block = methodPanelSrc.slice(start)
     const labels = []
     const re = /<dt>\{\{ t\('([^']+)'\) \}\}<\/dt>/g
     let m

@@ -31,17 +31,10 @@ import { getApi } from '@/api/electron-bridge'
 import { ElMessage } from 'element-plus'
 import StageProgress from '@/views/video-creation/StageProgress.vue'
 import FilmAutoSegmentEditor from './FilmAutoSegmentEditor.vue'
+import MethodologyStatusPanel from './MethodologyStatusPanel.vue'
 import { MAX_AUTO_SCRIPT_LENGTH, MAX_AUTO_REFS, MIN_AUTO_DURATION_SEC, MAX_AUTO_DURATION_SEC, AUTO_ASPECTS, AUTO_SHOT_SECONDS, AUTO_DEFAULT_ASPECT, AUTO_DEFAULT_SHOT_SECONDS, AUTO_DEFAULT_TARGET_DURATION_SEC, planShotCount } from './auto-constants'
 
 const DURATION_PRESETS = Object.freeze([30, 60, 90, 120])
-// 阻断原因的 i18n 映射（key 必须是字面量，locale 扫描才认）
-const METHODOLOGY_REASON_KEY = Object.freeze({
-  byDesign: 'filmEngineering.auto.methodologyReasonByDesign',
-  assetMissing: 'filmEngineering.auto.methodologyReasonAssetMissing',
-  templateVar: 'filmEngineering.auto.methodologyReasonTemplateVar',
-  badVarName: 'filmEngineering.auto.methodologyReasonBadVarName',
-  oversizeVar: 'filmEngineering.auto.methodologyReasonOversizeVar',
-})
 const props = defineProps({
   /** 注入 window.electronAPI.filmEngineering（测试用；生产为 null 时自动取全局） */
   api: { type: Object, default: null },
@@ -103,23 +96,6 @@ const methodology = computed(() => {
   if (fromPlan) return fromPlan
   const fromProject = project.value && project.value.methodology
   return fromProject || null
-})
-/**
- * 「不可直送」的聚合提示**按阻断原因分流**（第 9 轮 i7）。
- *
- * - 只要还有 **assetMissing**（真·资产缺口）⇒ 该提示**必须**说「或补齐对应资产」
- *   （第 7 轮 i7 把它整句删掉，是**矫枉过正** —— 对 assetMissing 的用户，
- *   「补资产」正是正解，删掉反而误导）；
- * - 只剩 **byDesign**（该变量本就没有资产源）⇒ 只说「人工补齐」，
- *   提「补资产」会把用户引到一个**不存在的修复动作**上。
- */
-const notDeliverableKey = computed(() => {
-  const m = methodology.value
-  const blocked = (m && Array.isArray(m.blockedVars)) ? m.blockedVars : []
-  const hasAssetGap = blocked.some(b => b && b.reason === 'assetMissing')
-  return hasAssetGap
-    ? 'filmEngineering.auto.methodologyNotDeliverableAssets'
-    : 'filmEngineering.auto.methodologyNotDeliverable'
 })
 const canPlan = computed(() => !busy.value && scriptLength.value > 0 && !scriptTooLong.value && durationValid.value)
 function fail (message, code) {
@@ -403,38 +379,11 @@ defineExpose({
 
     <!-- 影视工程 v2 · F-I：方法论接入状态（只读；回答「我的自动分镜接上了多少方法论」）
          独立成块（第 9 轮 i4）：刚规划完与**重开一个已规划的项目**两种状态下都要可见 ——
-         数据源分别是 plan.methodology 与 project.methodology（**同一份**主进程汇总实现）。 -->
+         数据源分别是 plan.methodology 与 project.methodology（**同一份**主进程汇总实现）。
+         标记与文案在子组件 MethodologyStatusPanel.vue（拆分动因：CI 行数门禁 500 行；
+         外层卡片留在本组件，因为它用的是本组件的 scoped .fa-card 样式）。 -->
     <section v-if="methodology" class="fa-card" data-testid="fa-methodology-card">
-      <div class="fa-methodology" data-testid="fa-methodology">
-        <div class="fa-label">{{ t('filmEngineering.auto.methodology') }}</div>
-        <div><dt>{{ t('filmEngineering.auto.methodologyTask') }}</dt><dd data-testid="fa-methodology-task">{{ methodology.taskAvailable === false ? t('filmEngineering.auto.methodologyNoLibrary') : methodology.taskId }}</dd></div>
-        <div><dt>{{ t('filmEngineering.auto.methodologyHit') }}</dt><dd data-testid="fa-methodology-hit">{{ methodology.hitVars }}/{{ methodology.totalVars }}</dd></div>
-        <div v-if="methodology.blockedVars && methodology.blockedVars.length">
-          <dt>{{ t('filmEngineering.auto.methodologyBlocked') }}</dt>
-          <dd data-testid="fa-methodology-blocked"><span v-for="b in methodology.blockedVars" :key="b.name" class="fa-methodology-blocked-item">{{ b.name }}（{{ t(METHODOLOGY_REASON_KEY[b.reason] || METHODOLOGY_REASON_KEY.assetMissing) }}）</span></dd>
-        </div>
-        <div v-if="methodology.deliverable === false">
-          <dt>{{ t('filmEngineering.auto.methodologyDeliverable') }}</dt>
-          <dd data-testid="fa-methodology-not-deliverable">{{ t(notDeliverableKey) }}</dd>
-        </div>
-        <div v-if="methodology.assetsIncomplete && !methodology.stale">
-          <dt>{{ t('filmEngineering.auto.methodologyAssets') }}</dt>
-          <dd data-testid="fa-methodology-assets-incomplete">{{ t('filmEngineering.auto.methodologyAssetsIncomplete') }}</dd>
-        </div>
-        <div v-if="methodology.frameConstraintPending">
-          <dt>{{ t('filmEngineering.auto.methodologyFrame') }}</dt>
-          <dd data-testid="fa-methodology-frame-pending">{{ t('filmEngineering.auto.methodologyFramePending') }}</dd>
-        </div>
-        <!-- 区块级警告（不是一行字段）：kit 已被替换 ⇒ 整块状态已过期（第 12 轮 i6） -->
-        <div v-if="methodology.stale" class="fa-methodology-stale" data-testid="fa-methodology-stale">
-          {{ t('filmEngineering.auto.methodologyStale') }}
-        </div>
-        <!-- 区块级警告：清单被闸门截断 ⇒ 还有未显示的未接入变量（第 17 轮 i7） -->
-        <div v-if="methodology.truncated" class="fa-methodology-stale" data-testid="fa-methodology-truncated">
-          {{ t('filmEngineering.auto.methodologyTruncated') }}
-        </div>
-        <div><dt>{{ t('filmEngineering.auto.methodologyAssetHash') }}</dt><dd>{{ String(methodology.promptAssetHash || '').slice(0, 8) }}</dd></div>
-      </div>
+      <MethodologyStatusPanel :methodology="methodology" />
     </section>
 
     <!-- ③ 运行 / ④ 收口 / ⑤ 片段编辑 -->

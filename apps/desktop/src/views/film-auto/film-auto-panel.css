@@ -24,8 +24,6 @@
 .fa-kv dd { margin: 0; }
 .fa-warnings ul { margin: 0; padding-left: 18px; font-size: var(--font-size-xs, 12px); line-height: 1.7; color: var(--el-color-warning, #e6a23c); }
 .fa-charmap { margin: 8px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.fa-methodology { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; }
-.fa-methodology .fa-label { font-weight: 600; margin-bottom: 6px; }
 .fa-shot-preview { list-style: none; margin: 8px 0; padding: 0; max-height: 200px; overflow: auto; font-size: var(--font-size-xs, 12px); }
 .fa-shot-preview li { display: flex; gap: 10px; padding: 2px 0; }
 .fa-shot-id { min-width: 72px; color: var(--el-text-color-secondary, #909399); }
