@@ -147,13 +147,13 @@
       "id": "GHSA-6j4f-fj2g-mc7p",
       "module": "brace-expansion",
       "severity": "high",
-      "patched": ">=1.1.19",
-      "targetVersion": "1.1.19",
+      "patched": ">=5.0.10",
+      "targetVersion": "5.0.10",
       "roots": [
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.19。此处登记以区分「新增债务」与「上游公告更新」。"
+      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.19。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.10，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
     },
     {
       "source": "npm",
@@ -228,39 +228,39 @@
       "id": "GHSA-mh99-v99m-4gvg",
       "module": "brace-expansion",
       "severity": "high",
-      "patched": ">=1.1.17",
-      "targetVersion": "1.1.17",
+      "patched": ">=5.0.8",
+      "targetVersion": "5.0.8",
       "roots": [
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
-      "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。"
+      "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.8，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
     },
     {
       "source": "npm",
       "id": "GHSA-q2hr-2g5m-vwhr",
       "module": "brace-expansion",
       "severity": "moderate",
-      "patched": ">=1.1.21",
-      "targetVersion": "1.1.21",
+      "patched": ">=5.0.12",
+      "targetVersion": "5.0.12",
       "roots": [
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.21。此处登记以区分「新增债务」与「上游公告更新」。"
+      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.21。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.12，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
     },
     {
       "source": "npm",
       "id": "GHSA-qhr7-859c-m2p7",
       "module": "brace-expansion",
       "severity": "high",
-      "patched": ">=1.1.20",
-      "targetVersion": "1.1.20",
+      "patched": ">=5.0.11",
+      "targetVersion": "5.0.11",
       "roots": [
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.20。此处登记以区分「新增债务」与「上游公告更新」。"
+      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.20。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.11，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
     },
     {
       "source": "npm",

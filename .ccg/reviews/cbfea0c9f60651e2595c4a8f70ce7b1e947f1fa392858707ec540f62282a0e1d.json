@@ -1,0 +1,60 @@
+{
+  "sha": "c43e47e32d4b84d5cbb49753544f51d759bee861",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 24 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 24,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 第一性原因（QM-5 ①） | ✅ | 门禁报 `RESOLVED_STILL_BASELINED: npm/GHSA-hp3w-g68c-fv3c 已不再命中，请 --update 清账` 与 4 条 `DECISION_CONTRADICTS_PATCHED`（目标版本 1.1.x 低于当前 patched 下界 5.0.x）⇒ 上游公告 `patched` 区间被改写，旧结论永远闭不了账 |",
+      "| 逃逸分析（QM-5 ②） | ✅ | 基线更新只由人工执行；`--update` 会原样写入矛盾条目（实测产物自身不通过），说明缺少「与在线公告比对」的校验 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "cbfea0c9f60651e2595c4a8f70ce7b1e947f1fa392858707ec540f62282a0e1d",
+  "decidedAt": "2026-10-22T22:03:33.108Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
