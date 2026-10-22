@@ -228,6 +228,8 @@ function createGhCollector (repo) {
     console.log('MAIN-RED INFO 仓库 slug 取自代码内兜底常量 ' + resolved.slug + '（既无 --repo/GH_REPO 也解析不出 git remote）')
   }
   const slug = resolved.slug
+  /** 按 sha 缓存 mainRowsAt 的结果（见 mainRowsAt 内的说明，CCG i2） */
+  const rowsCache = new Map()
   return {
     repo: slug,
     slugVia: resolved.via,
@@ -262,6 +264,12 @@ function createGhCollector (repo) {
      *    PR 侧读 `commits/<sha>/check-runs`。一致的是**粒度与名字集合**，不是取数端点。
      */
     mainRowsAt: (sha) => {
+      // ⛔ 按 sha 缓存（CCG 深度评审 i2，Critical）：稳定窗最多尝试 3 轮，每轮都会重算
+      //    mainBaseline（沿链最多 maxBack 条），而每条 mainRowsAt 是 1 次 actions/runs +
+      //    N 次 actions/runs/{id}/jobs 的 N+1 请求。不缓存时 3 轮 × 5 条 × (1+N) 很容易
+      //    把 gh 的速率配额打穿，而 429 会让闸门恒判 rc=4（自身故障）却无自愈路径。
+      //    同一 sha 的 run/job 终态在同一分钟内不会变，缓存是安全的；跨进程不共享（无持久化）。
+      if (rowsCache.has(sha)) return rowsCache.get(sha)
       const runsRaw = run(['api', '--paginate', `repos/${slug}/actions/runs?head_sha=${sha}&per_page=100`, '--jq',
         '.workflow_runs[]? | {id, name, event, run_number, run_attempt, updated_at, created_at}'])
       const runs = parseJsonLines(runsRaw, 'actions/runs')
@@ -275,6 +283,7 @@ function createGhCollector (repo) {
           '.jobs[]? | {name, status, conclusion}'])
         for (const j of parseJsonLines(jobRaw, 'actions/runs/' + id + '/jobs')) rows.push(j)
       }
+      rowsCache.set(sha, rows)
       return rows
     },
     /**
@@ -288,7 +297,11 @@ function createGhCollector (repo) {
      * @returns {{kind:'green'|'red'|'too-stale'|'unknown', sha:(string|null), staleness:number, rows:object[]}}
      */
     mainBaseline (opts = {}) {
-      const maxBack = opts.maxBack == null ? 12 : opts.maxBack
+      // maxBack=5：真机实测只需往回 **1–2 步**即可命中绿基线（2026-10-22：
+      // tip 3621894d4 pending ⇒ 跳过零 run 的 85dc44ddc ⇒ 5fe06ef1a 命中 green，staleness=2）。
+      // 取 5 而不是 12 是请求预算考量（CCG i2）：最坏（全程 pending）时少查 7 条链，
+      // 每条是 1 次 actions/runs + N 次 jobs 的 N+1 请求。窗口内无绿时行为不变（fail-closed rc=3）。
+      const maxBack = opts.maxBack == null ? 5 : opts.maxBack
       const maxStale = opts.maxStale == null ? 3 : opts.maxStale
       // 第一父链：只看主干自己的提交序列，不跟进 merge 进来的旁支
       const raw = runGit(['rev-list', '--first-parent', 'origin/main', '-n', String(maxBack)])

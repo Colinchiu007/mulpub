@@ -155,11 +155,78 @@ test('空链 ⇒ unknown（不得抛，也不得当绿）', () => {
   assert.equal(r.kind, 'unknown')
 })
 
-// ─── 6. 返回值形状契约（readout 依赖它） ────────────────────────────────
-test('返回值必须带 {kind, sha, staleness, rows}，且 rows 就是该 sha 的行', () => {
-  const chain = ['A', 'B']
-  const rows = [passRow('electron-tests')]
-  const r = pickBaseline(makeInput(chain, [rows, []]))
-  assert.deepEqual(Object.keys(r).sort(), ['kind', 'rows', 'sha', 'staleness'])
-  assert.equal(r.rows, rows, 'rows 必须原样返回该 sha 的行，供 judge() 直接消费')
+// ─── 7. 接线锁（CCG i1）：main() 必须真的消费 baseline.rows ─────────────
+// 为什么需要这几条：本文件第 1–6 节测的是**纯函数** pickBaseline；而
+// `check-main-red.test.js` 里的历史夹具被 `run2` 包装成 `kind:'green', staleness:0`，
+// 于是「main() 到底有没有把 baseline.rows 用起来」在那一侧不可见——
+// 若 main() 误用 `mainRowsAt(tip)`，那批用例仍会全绿（它们的主干行恰好就是 tip 的行）。
+// 这三条用**非绿基线**把接线钉住：基线说有红就必须 rc=2，说不知道就必须 rc=3。
+
+const { run } = require('./check-main-red')
+
+function baseMock (baseline, prRows) {
+  return {
+    repo: 'o/r',
+    mainSha: () => 'tips',
+    prHeadSha: () => 'p1',
+    // 故意让 tip 的行「全绿」：若 main() 绕过 baseline 去读 tip，下面两条会给出 0 而不是 2/3
+    mainRowsAt: () => [passRow('A')],
+    checksAt: () => prRows,
+    mainBaseline: () => baseline,
+  }
+}
+
+test('接线锁：baseline=red（主干有 fail）⇒ main() 必须判 rc=2，不得因为它去读 tip 的全绿而放行', async () => {
+  const code = await run(['--pr', '7', '--retry-seconds', '0'], baseMock(
+    { kind: 'red', sha: 'baselineSha', staleness: 1, rows: [failRow('electron-tests')] },
+    [passRow('A')]
+  ))
+  assert.strictEqual(code, 2, 'baseline 报红就必须 rc=2；实到 ' + code + '（说明 main() 没消费 baseline.rows）')
 })
+
+test('接线锁：baseline=unknown（主干侧全 pending）⇒ main() 必须判 rc=3，不得读成绿', async () => {
+  const code = await run(['--pr', '7', '--retry-seconds', '0'], baseMock(
+    { kind: 'unknown', sha: 'tips', staleness: 0, rows: [pendingRow('QG Coverage')] },
+    [passRow('A')]
+  ))
+  assert.strictEqual(code, 3, 'baseline 报未知就必须 rc=3；实到 ' + code)
+})
+
+test('接线锁：main() 必须把 tip 传给 mainBaseline（否则回溯起点不对）', async () => {
+  let gotTip = null
+  const m = baseMock({ kind: 'green', sha: 'tips', staleness: 0, rows: [passRow('A')] }, [passRow('A')])
+  m.mainBaseline = (opts) => {
+    gotTip = opts && opts.tip
+    return { kind: 'green', sha: 'tips', staleness: 0, rows: [passRow('A')] }
+  }
+  await run(['--pr', '7', '--retry-seconds', '0'], m)
+  assert.strictEqual(gotTip, 'tips', 'main() 必须把已取好的 tip 传下去（避免 mainBaseline 再 fetch 一次）')
+})
+
+test('接线锁：采集层缺 mainBaseline ⇒ rc=4 硬失败（不得静默回落到读 tip）', async () => {
+  const m = baseMock({ kind: 'green', sha: 'tips', staleness: 0, rows: [passRow('A')] }, [passRow('A')])
+  delete m.mainBaseline
+  const code = await run(['--pr', '7', '--retry-seconds', '0'], m)
+  assert.strictEqual(code, 4, '缺 mainBaseline 必须 rc=4；实到 ' + code)
+})
+
+// ─── 8. 读数行：newRed 的「未计算」不得涂成 0（CCG i4） ──────────────────
+const { readout } = require('./lib/main-red')
+
+test('readout：newRedComputed=false 时必须打印 newRed=na，不得打印 0', () => {
+  const s = readout(
+    { verdict: 'INCOMPLETE', code: 3, counts: { prFail: 0, mainFail: 0, newRed: 0, uncertain: 0 }, newRedComputed: false },
+    { mainSha: 'm', prSha: 'p' }
+  )
+  assert.match(s, /newRed=na/, '「未计算」必须与「零」可区分；实到：' + s)
+  assert.ok(!/newRed=0/.test(s), '不得把未计算涂成 0；实到：' + s)
+})
+
+test('readout：newRedComputed 缺省（正常算出）时仍打印真实数字', () => {
+  const s = readout(
+    { verdict: 'OK', code: 0, counts: { prFail: 0, mainFail: 0, newRed: 0, uncertain: 0 } },
+    { mainSha: 'm', prSha: 'p' }
+  )
+  assert.match(s, /newRed=0/, '算出来的 0 必须照常打印；实到：' + s)
+})
+

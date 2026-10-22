@@ -376,7 +376,16 @@ function pickBaseline (input = {}) {
 
   for (let i = 0; i < chain.length; i++) {
     const sha = chain[i]
-    const rows = rowsAt(sha)
+    // 口径 0（CCG i6）：rowsAt 抛错时补上「是谁在取哪一版」的上下文。
+    //   不包装的话，上层只能看到一句 "gh api rc=1"，无法区分「取数失败」与
+    //   「基准选择逻辑出错」——两者的处置完全不同（前者重试，后者改代码）。
+    let rows
+    try {
+      rows = rowsAt(sha)
+    } catch (e) {
+      throw new Error('pickBaseline: rowsAt(' + String(sha).slice(0, 9) + ') 取数失败（第 ' + i + ' 条回溯）：'
+        + ((e && e.message) || String(e)))
+    }
     // 口径 2：零 run ≠ 全绿 ⇒ 跳过，继续往回找
     if (!Array.isArray(rows) || rows.length === 0) continue
     // 口径 1：先判 fail —— 真红优先于「再往前找绿」
@@ -402,7 +411,11 @@ function readout (v, meta) {
     + ' pr=' + ((meta && meta.prSha) || '<none>')
     + ' prFail=' + (c.prFail == null ? '?' : c.prFail)
     + ' mainFail=' + (c.mainFail == null ? '?' : c.mainFail)
-    + ' newRed=' + (c.newRed == null ? '?' : c.newRed) + ' uncertain=' + (c.uncertain == null ? '?' : c.uncertain)
+    // ⛔ `newRed=na` 与 `newRed=0` 语义不同（CCG i4）：前者是「差集**未计算**」
+    //    （基准作废、不可归因），后者是「算了，是零」。读数行若把前者打成 0，
+    //    下游解析者会把「不可归因」读成「没有新增红」——正是本文件开头要防的同型。
+    //    判据侧由 `newRedComputed === false` 显式标记，这里只负责别把它涂成 0。
+    + ' newRed=' + (v.newRedComputed === false ? 'na' : (c.newRed == null ? '?' : c.newRed)) + ' uncertain=' + (c.uncertain == null ? '?' : c.uncertain)
     + ' unknown=' + (c.prUnknown == null ? '?' : c.prUnknown) + '/' + (c.mainUnknown == null ? '?' : c.mainUnknown) + ' prPending=' + (c.prPending == null ? '?' : c.prPending)
     // 本判据的「判的是哪棵树」唯一可见面：dist 缺省时打印 `<none>`，绝不静默省略
     // （AGENTS：判据的读数行不得让读者「测了什么都不知道」）。
