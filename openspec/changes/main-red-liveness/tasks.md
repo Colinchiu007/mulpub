@@ -29,11 +29,45 @@
 - [ ] 1.1.6 同文件：`checksAt` 抛错 → `SELF_FAULT/rc=4`
 - [ ] 1.1.7 **变异反证**：把 `mainBaseline()` 的「先判 fail」改序成「先判 pending」，1.1.3 必须当场红并留证
 
-### 1.2 实现
-- [ ] 1.2.1 `scripts/check-main-red.js`：新增 `mainBaseline({maxBack, maxStale})`（替换 `mainSha()` 的直接消费点，`mainSha()` 保留给读数）
-- [ ] 1.2.2 `scripts/lib/main-red.js`：`judge()` 接收 `mainBaseline.staleness` 并渲染进读数行；**verdict 计算逻辑不动**
-- [ ] 1.2.3 读数行新增 `baseline=<sha> staleness=<n>`（不得只打印 tip）
-- [ ] 1.2.4 `scripts/merge-when-green.{sh,ps1}`：**不改**（保持单一真源，二者已调用 `check-main-red`）
+### 1.2 实现（**定稿：接在 #4221 之后，判据本体一行不改**）
+
+> 2026-10-22 对齐 #4221 新接口后定稿：#4221 已把主干取数抽成 `mainRowsAt(sha)`
+> （**支持任意 sha**，且已滤掉 `workflow_run` 噪声、取作业级终态）。
+> 因此本阶段**不需要新写取数层**，也**不需要改 `judge()` 的 verdict 计算**——
+> 只把 `mainRows` 的来源从「tip」换成「基线那一版」。
+
+- [ ] 1.2.1 `scripts/check-main-red.js` 采集层新增 `mainBaseline({maxBack=12, maxStale=3})`，
+      **复用 `mainRowsAt(sha)`** 沿 `git rev-list --first-parent origin/main -n <maxBack>` 回溯：
+
+      ```js
+      mainBaseline: ({ maxBack = 12, maxStale = 3 } = {}) => {
+        const tip = mainSha()
+        const chain = runGit(['rev-list', '--first-parent', 'origin/main', '-n', String(maxBack)])
+          .trim().split('\n').filter(Boolean)
+        for (const [i, sha] of chain.entries()) {
+          const rows = mainRowsAt(sha)
+          if (rows.length === 0) continue                       // 该提交零 run ⇒ 不是基线
+          // ⚠ 顺序承重：先判 fail 再判 pending。
+          if (rows.some((r) => bucketOf(r) === 'fail')) return { sha, rows, staleness: i, kind: 'red' }
+          if (!rows.some((r) => bucketOf(r) === 'pending')) {
+            return i > maxStale
+              ? { sha, rows, staleness: i, kind: 'too-stale' }
+              : { sha, rows, staleness: i, kind: 'green' }
+          }
+        }
+        return { sha: tip, rows: mainRowsAt(tip), staleness: 0, kind: 'unknown' }
+      }
+      ```
+
+- [ ] 1.2.2 `main()` 改为：`const base = c.mainBaseline(); gathered.mainRows = base.rows`，
+      并把 `base` 透传给 `readout()` —— **`judge()` 的入参键不变**（仍是 `{prRows, mainRows, allowMainRed}`），
+      `main-red.js` 里 `judge()` 的 verdict 分支**一行不改**
+      （`kind:'red'` 的 rows 自带 fail ⇒ 自然 rc=2；`too-stale`/`unknown` 的 rows 自带 pending ⇒ 自然 rc=3）
+- [ ] 1.2.3 `readout()` 增 `baseline=<sha前9位> staleness=<n> kind=<green|red|too-stale|unknown>`
+      （**不得只打印 tip**；这是「判的是哪棵树」的唯一可见面）
+- [ ] 1.2.4 `scripts/merge-when-green.{sh,ps1}`：**不改**（保持单一真源）
+- [ ] 1.2.5 ⛔ **不得修改 #4221 引入的任何既有行为**：去 `workflow_run` 噪声、稳定窗重试、
+      五档退出码、`mainRowsAt` 的 run 实例取最严格一格 —— 本阶段只**新增**，不改写
 
 ### 1.3 验证
 - [ ] 1.3.1 单测全绿 + 变异反证留证
