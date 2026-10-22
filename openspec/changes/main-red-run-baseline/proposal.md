@@ -1,8 +1,8 @@
 # Proposal: main-red-run-baseline（主干红闸门改读「该 tip 的 run 集合」+ 读数稳定窗重试 + CI Failure Handler 挪出 Windows 池）
 
 > 现场读数见 `openspec/changes/main-red-run-baseline/evidence.md`（E1–E5）。
-> 拆附件的原因：CCG 决策层要把「方案正文 + 评审意见」喂给出方案后端，该后端单次输入上限 7800 字节
-> （实测边界 8125–8145），超限即被**同步拒绝**（exit 1、无错误信息）⇒ 评审停在「挑完刺没人回应」那一格。
+> 拆附件的原因：CCG 决策层要把「方案正文 + 评审意见」喂给出方案后端，该后端单次输入上限
+> 7800 字节（实测边界 8125–8145），超限即被**同步拒绝**（exit 1、无错误信息）。
 
 ## Why
 
@@ -15,17 +15,17 @@
    实测一次读数期间 tip 从 `2f5c0a32f` 移到 `8da92948`，那次读数整个作废。
 3. **Windows 池排队**：实测 `electron-tests` 排队 46.6/51.5 分才起跑，同批次 ubuntu 作业**零排队**（E3）。
 
-> `electron-tests` 长期红的**根因**已由 PR #4192 修复并合入主干（`1dc7417ed`），其后连续 3 次 push 全绿。本片不碰 `electron-ci.yml`（E4）。
+> `electron-tests` 长期红的**根因**已由 PR #4192 修复并合入主干（`1dc7417ed`），其后连续 3 次 push 全绿。
 
 ## What changes
 
-| # | 变更 | 判据 |
+| # | 变更 | 判据（行为锁落点） |
 |---|------|------|
-| C1 | **主干基准改读「该 tip 的 run 集合」**：采集层新增 `mainRowsAt(sha)`，读 `actions/runs?head_sha=<sha>`（`--paginate` + `per_page=100`），**只取 `event != 'workflow_run'` 的 run**，同一 workflow 取**最新**一次（`run_number` + `run_attempt` 双重最大），再从 `actions/runs/{run_id}/jobs` 取**作业级**终态；**PR 侧仍读 check-runs** | 结构锁：入口必须调 `c.mainRowsAt(`，`c.checksAt(` 只出现一次；行为锁：`workflow_run` 不得进基准；`event` 缺失/空 ⇒ 抛错；**API 失败（429/5xx/token/分页中断）⇒ 抛错 ⇒ 判自身故障(4)**；**同名多行取最严格的一格**（fail > unknown > pending > skipped > pass） |
-| C2 | **读数稳定窗**：每次尝试都重新取当前 tip（`origin/main` 的 rev-parse），取数**前后各取一次**；**比较对象是 tip SHA**（相同即稳定、继续判读、不重试），不同 ⇒ 本次读数作废 ⇒ **有界重试**（`--attempts` 3 / `--retry-seconds` 90 / `--max-wait-seconds` 300）；耗尽 ⇒ 判「未证实」并点名**最后一次尝试**的两个 sha | 行为锁：重试后拿到稳定读数即判绿；耗尽 rc=3 且 reason 含两个 sha；触及总等待上限即停手 |
-| C3 | **档位契约不变**：`0` 可合 / `1` 本 PR 新增红 / `2` 主干红 / `3` 未证实 / `4` 判据自身故障（**五档**）。「tip 移动」归入既有「未证实」档（3），**不新增退出码** | 结构锁：`lib/main-red.js` 的退出码集合仍恰好覆盖 0–4（既有锁已钉） |
-| C4 | **CI Failure Handler 挪到 `ubuntu-latest`**（不占 Windows 池额度） | 契约锁（`workflow-contract.test.js`，由 quality-gate Gate 2b 接入 CI）：必须 `runs-on: ubuntu-latest`；步骤不得显式声明 pwsh、不得含 Windows 盘符路径 / `.ps1` / cmd 专有命令 |
-| C5 | 合并入口透传稳定窗参数（`MAIN_RED_ATTEMPTS` / `MAIN_RED_RETRY_SECONDS`） | 接线锁：两个入口仍只调 `scripts/check-main-red.js`，且都排在 REST 合并之前 |
+| C1 | **主干基准改读「该 tip 的 run 集合」**：采集层新增 `mainRowsAt(sha)`，读 `actions/runs?head_sha=<sha>`（`--paginate` + `per_page=100`），**只取 `event != 'workflow_run'` 的 run**，同一 workflow 取**最新**一次（`run_number` → `run_attempt`（缺失按 1）→ 时间戳兜底），再从 `actions/runs/{run_id}/jobs` 取**作业级**终态；**PR 侧仍读 check-runs** | `scripts/check-main-red.test.js`：`workflow_run` 不得进基准；`event` 缺失/空 ⇒ 抛错；**同名多行取最严格的一格**（fail > unknown > pending > skipped > pass）；API 失败（429/5xx/token/分页中断）⇒ 抛错 ⇒ 判自身故障(4)，**不合并部分页** |
+| C2 | **读数稳定窗**：每次尝试都重新取当前 tip（`origin/main` 的 rev-parse），取数**前后各取一次**；**比较对象是 tip SHA**（相同即稳定、继续判读），不同 ⇒ 本次读数作废 ⇒ **有界重试**（`--attempts` 3 / `--retry-seconds` 90 / `--max-wait-seconds` 300）；耗尽 ⇒ 判「未证实」并点名**最后一次尝试**的两个 sha | 重试的**唯一触发条件是 tip SHA 变化**；同一 SHA 上的未完成 job **不**触发重试（由判据的「未证实」档 rc=3 处理） |
+| C3 | **档位契约不变**：`0` 可合 / `1` 本 PR 新增红 / `2` 主干红 / `3` 未证实 / `4` 判据自身故障（**五档**）。「tip 移动」归入既有「未证实」档（3），**不新增退出码** | `lib/main-red.js` 的退出码集合仍恰好覆盖 0–4（既有锁已钉） |
+| C4 | **CI Failure Handler 挪到 `ubuntu-latest`**（不占 Windows 池额度） | 契约锁：`.github/scripts/workflow-contract.test.js` 的用例「CI Failure Handler 必须让出 Windows 并发额度（2026-10-22，change: main-red-run-baseline）」（由 quality-gate Gate 2b 接入 CI）：必须 `runs-on: ubuntu-latest`；步骤不得显式声明 pwsh、不得含 Windows 盘符路径 / `.ps1` / cmd 专有命令 |
+| C5 | 合并入口透传稳定窗参数：入口**读环境变量** `MAIN_RED_ATTEMPTS` / `MAIN_RED_RETRY_SECONDS`，**转成 CLI 参数** `--attempts` / `--retry-seconds` 传给 `check-main-red.js`（判定层只认参数，不读环境变量） | 两个入口仍只调 `scripts/check-main-red.js`，且都排在 REST 合并之前（既有接线锁已钉） |
 
 **基准的事件范围**（i6）：= 该 tip 上的**全部非 `workflow_run` run**（含 `push` / `schedule` / `workflow_dispatch`）；
 `pull_request` 事件的 run 只有在其 `head_sha` **恰好等于 tip 时**才落进集合（罕见，计入安全）。
@@ -36,8 +36,9 @@ C1 解决「读数被噪声污染」，C4 解决「Windows 池被占」；迁移
 但**「handler 占了 electron-tests 的位置」未被证实**（托管池实时占用不可观测）。
 故 C4 的收益写成**预期释放**，并留观测点：迁移后看 `electron-tests` 排队时长是否回落（E3 同口径）。
 
-**权限**（i4）：两端点 scope **不同**——`actions/runs` 需 `actions:read`，`check-runs` 需 `checks:read`；
-只授 `checks:read` 的 PAT 读 `actions/runs` 会得 **403** ⇒ gh 非零 rc ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**。
+**权限**（i4）：两端点 scope **不同**——`actions/runs` 需 `actions:read`，`check-runs` 需 `checks:read`。
+CI 侧用默认 `GITHUB_TOKEN`（默认权限已含 `actions:read`），**本片不新增任何仓库 secret**；
+本地 PAT 实测已具备（不具备则 403 ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**）。
 
 **两端口径**（i2）：一致的只是**行粒度**（都落在作业名这一层），**不是「同一个 API」**。
 **已知局限**：跨 workflow 同名作业（如 `Changes` 三处各一份）按同名合并——消歧到 workflow 级要两侧都改取数方式。
@@ -50,13 +51,12 @@ C1 解决「读数被噪声污染」，C4 解决「Windows 池被占」；迁移
 
 ## Impact
 
-> 这是**声明范围**（CCG 决策层据此判「范围漂移」），必须与实际落地文件一致；实施中途新增的文件**也要点名**。
-> 路径写**仓库相对完整路径**（逐字比对 + basename 兜底）。
+> **声明范围**（CCG 决策层据此判「范围漂移」），必须与实际落地文件一致；路径写**仓库相对完整路径**。
 
+**已验证的影响**（本片改了什么）：
 - 判据本体与入口：`scripts/lib/main-red.js`、`scripts/check-main-red.js`、
   `scripts/check-main-red.test.js`（**行为锁主体**）、`scripts/merge-when-green.ps1`、`scripts/merge-when-green.sh`
 - CI 配置与契约锁：`.github/workflows/ci-failure-handler.yml`、`.github/scripts/workflow-contract.test.js`
-  （**契约锁**，由 quality-gate Gate 2b 接入 CI，不是只在本地跑）
 - 本 change 文档（只声明判据，**不装判据**）：`openspec/changes/main-red-run-baseline/proposal.md`、
   `openspec/changes/main-red-run-baseline/evidence.md`、
   `openspec/changes/main-red-run-baseline/ccg-review-record.md`、
@@ -66,11 +66,15 @@ C1 解决「读数被噪声污染」，C4 解决「Windows 池被占」；迁移
   `openspec/changes/main-red-run-baseline/.openspec.yaml`
 - 执行记录：`openspec/records/main-red-run-baseline.md`
 
+**预期的影响**（**因果未证实**，只写到这里）：
+- Windows 作业的排队时长**预期**缩短（`electron-tests` 的 46.6/51.5 分基线见 E3，可复跑对照）。
+- 主干读数的**排队**部分**预期**缩短。
+
 > 另有 `.ccg/reviews/<sha>.json` 由 pre-commit 自动生成（产物）。
 
 ## 影响面
 
 **不触 `apps/`、`packages/`**（QM-1 N/A）；改的是 `scripts/` 下的**门禁运行时**（合并入口与判据本体，PR 侧必跑）
 与 `.github/workflows/` 的 CI 配置。退出码集合不变；主干基准来源从「commit 上的全部 check-runs」
-换成「该 tip 的非 workflow_run run 集合」。CI 墙钟：读数的**排队**部分**预期**缩短（因果未证实），`quality-gate` 的 44 分钟真实执行时间**不变**。
+换成「该 tip 的非 workflow_run run 集合」。`quality-gate` 的 44 分钟真实执行时间**不变**。
 风险：只经 `workflow_run` 途径产生的检查不再进基准（实测三条真实 workflow 全是 push 触发）。

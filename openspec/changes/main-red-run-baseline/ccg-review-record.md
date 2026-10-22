@@ -181,6 +181,31 @@ GitHub 将来新增任何事件类型（`merge_group` 等）都会**自动进基
 | i5 | Warning | C2 耗尽时「点名两个 sha」未指是首尝/末尝的 before/after | **成立（已改）**：措辞改为「最后一次尝试：读数时的 tip X → 读数后的 tip Y」 |
 | i6 | Info | `event` 缺失抛错未覆盖 null / 空字符串 | **成立（已补）**：实现上 `null` / `''` / `undefined` 都走「缺 event 字段 ⇒ 抛错」；补了回归锁一例逐个验证三种空值 |
 
+## 决策层第四轮（2026-10-22，方案补完 i1–i8 澄清后，critic=claude）
+
+> 轮 1：7 条 / **Critical 2**，最低维度分 **7**（四轮轨迹：4 → 6 → 5 → **7**）。
+> proposer 侧再次撞上 7800 字节上限（8885 字符 = 方案 7470 + 7 条意见 + 提示词），
+> **critic 侧正常产出**——又是同一个机械瓶颈，不是评审没发生。
+
+| # | 严重度 | 意见（摘要） | 裁决与处置 |
+|---|--------|--------------|------------|
+| i1 | Critical | C1 选最新 run 用 `run_attempt` 但**没有缺失兜底**，选错 run 会污染基准 | **成立（已修）**：`isLaterRun` 判定序改为 `run_number` → `run_attempt`（**缺失按 1 计**）→ **时间戳兜底**（`updated_at` 优先、其次 `created_at`），不再依赖 API 返回顺序的隐含假设；回归锁 1 例（覆盖 attempt 缺失/同级/重跑/新推送四种形态） |
+| i2 | Critical | C4 的影响里把「已改」与「因果只是预期」混在一起 | **成立（已改）**：Impact 段拆成**已验证的影响**（本片改了什么）与**预期的影响**（因果未证实）；C4 的收益一律写「预期释放」 |
+| i3 | Warning | 换端点引入 `actions:read`，但没提 token 轮换 / scope 审计 | **成立（已改）**：写明「CI 侧用默认 `GITHUB_TOKEN`（默认权限已含 `actions:read`），**本片不新增任何仓库 secret**；本地 PAT 实测已具备，不具备则 403 ⇒ 判自身故障(4)」 |
+| i4 | Warning | 引用契约锁但没点名断言，验证路径不清 | **成立（已改）**：spec 与提案都点名用例名「CI Failure Handler 必须让出 Windows 并发额度（2026-10-22，change: main-red-run-baseline）」 |
+| i5 | Warning | C2 的重试条件没说「同一 SHA 下 pending 的 job 会不会再触发重试」 | **成立（已改）**：写明「重试的**唯一触发条件是 tip SHA 变化**；同一 SHA 上的未完成 job **不**触发重试（由判据的「未证实」档 rc=3 处理）」 |
+| i6 | Info | 分页中断时「已读到的部分页」怎么处理未定义 | **成立（已改）**：写明「分页中断 ⇒ gh 非零 rc ⇒ 抛错 ⇒ **整次读数作废**，MUST NOT 合并部分页」 |
+| i7 | Info | C5 的环境变量如何变成参数未说明 | **成立（已改）**：写明「入口读环境变量 → **转成 CLI 参数** `--attempts` / `--retry-seconds` 传给 `check-main-red.js`（判定层只认参数，不读环境变量）」 |
+
+### 第四轮之后：为什么改用 codex/claude 做真跨家族收敛
+
+`opencode` 后端的**单次输入上限 7800 字节**让「proposer 逐条回应 critic 意见」这一环
+在方案 + 意见总量超过限额时**必然**停摆——四轮里出现三次。本仓已有先例：
+`.ccg/reviews/be84f449a192c39709178963be6cee9a848654d8.json` 的 `closureNote` 写着
+「第 1 轮 proposer（opencode）因该后端 7800 字符单次输入上限同步拒绝……**随后改用无长度上限的
+codex/claude 组合重跑 4 轮，全部正常产出**」。本片照该先例，在最终方案上用
+`--critic codex --proposer claude` 重跑，让跨家族回路真的跑起来。
+
 ## 遗留（不假装已闭合）
 
 1. **CCG 引擎的输入长度协议**（i2）：opencode 后端单次输入上限 7800 字节，

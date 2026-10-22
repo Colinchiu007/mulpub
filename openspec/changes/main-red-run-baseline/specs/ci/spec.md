@@ -22,7 +22,7 @@ CI Failure Handler（`.github/workflows/ci-failure-handler.yml`）的作业 MUST
 #### Scenario: 契约锁钉住 runner 标签
 
 - **WHEN** 检查 `.github/scripts/workflow-contract.test.js`
-- **THEN** MUST 存在一条断言：CI Failure Handler 的作业 `runs-on` 等于 `ubuntu-latest`
+- **THEN** MUST 存在一条断言（用例名：**「CI Failure Handler 必须让出 Windows 并发额度（2026-10-22，change: main-red-run-baseline）」**）：CI Failure Handler 的作业 `runs-on` 等于 `ubuntu-latest`
 - **AND** 该断言 MUST 在把 runner 改回 `windows-latest` 时当场变红（不得是装饰性锁）
 
 #### Scenario: 契约锁的执行机制不得只在本地

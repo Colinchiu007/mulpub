@@ -765,3 +765,25 @@ test('event 为 null / 空字符串 ⇒ 一律抛错（评审 i6：空值不得�
     )
   }
 })
+
+test('选最新 run 必须有兜底：run_attempt 缺失按 1 计，两维都不可用时按时间戳定序（评审 i1）', () => {
+  // run_attempt 缺失 ⇒ 视为第 1 次；与显式 attempt=1 同级
+  const missingAttempt = selectMainRuns([
+    { id: 1, name: 'quality-gate', event: 'push', run_number: 7, updated_at: '2026-10-22T01:00:00Z' },
+    { id: 2, name: 'quality-gate', event: 'push', run_number: 7, run_attempt: 1, updated_at: '2026-10-22T02:00:00Z' },
+  ])
+  assert.deepStrictEqual(missingAttempt.map((r) => r.id), [2],
+    'attempt 缺失按 1 计后，两条同级 ⇒ 落回时间戳定序（更新的那条胜）')
+  // run_number 更大 ⇒ 直接胜出，不看 attempt
+  const newerPush = selectMainRuns([
+    { id: 3, name: 'quality-gate', event: 'push', run_number: 6, run_attempt: 3 },
+    { id: 4, name: 'quality-gate', event: 'push', run_number: 7, run_attempt: 1 },
+  ])
+  assert.deepStrictEqual(newerPush.map((r) => r.id), [4], 'run_number 更大者胜')
+  // attempt 更大 ⇒ 胜出（重跑不增加 run_number）
+  const rerun = selectMainRuns([
+    { id: 5, name: 'quality-gate', event: 'push', run_number: 8, run_attempt: 1 },
+    { id: 6, name: 'quality-gate', event: 'push', run_number: 8, run_attempt: 2 },
+  ])
+  assert.deepStrictEqual(rerun.map((r) => r.id), [6], '重跑那次（attempt 更大）必须胜出')
+})

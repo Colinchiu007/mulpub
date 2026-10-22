@@ -131,17 +131,31 @@ function parseCheckRunLines (raw) {
 }
 
 /**
- * 同一个 workflow 的两次 run，哪一次更新？先比 `run_number`（第几次推送触发），再比
- * `run_attempt`（第几次重跑）。**必须两维都比**：重跑不增加 `run_number`，只加 `run_attempt`；
+ * 同一个 workflow 的两次 run，哪一次更新？判定序：
+ * ① `run_number`（第几次推送触发）—— 两边都有限且不等时，大的胜；
+ * ② `run_attempt`（第几次重跑）—— **缺失时按 1 计**（GitHub 的默认 attempt 号）；
+ *    缺这一层兜底的话，选中的 run 可能不是最新那次 ⇒ 基准被污染（深度评审 i1）；
+ * ③ 时间戳兜底（`updated_at` 优先，其次 `created_at`；ISO 8601 字符串按字典序即时间序）——
+ *    前两维都不可用时用它定序，不靠 API 返回顺序的隐含假设。
+ *
+ * **必须两维都比**：重跑不增加 `run_number`，只加 `run_attempt`；
  * 只比一维会把「重跑已修复」的那次读成旧的失败（= 主干假红），或把旧的一次读成最新（= 漏红）。
  */
 function isLaterRun (a, b) {
   const an = Number(a && a.run_number)
   const bn = Number(b && b.run_number)
   if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an > bn
-  const aa = Number(a && a.run_attempt)
-  const ba = Number(b && b.run_attempt)
-  if (Number.isFinite(aa) && Number.isFinite(ba) && aa !== ba) return aa > ba
+  const attemptOf = (r) => {
+    if (!r || r.run_attempt == null) return 1 // 缺失 ⇒ 视为第 1 次（GitHub 默认值）
+    const n = Number(r.run_attempt)
+    return Number.isFinite(n) ? n : 1
+  }
+  const aa = attemptOf(a)
+  const ba = attemptOf(b)
+  if (aa !== ba) return aa > ba
+  const at = String((a && (a.updated_at || a.created_at)) || '')
+  const bt = String((b && (b.updated_at || b.created_at)) || '')
+  if (at && bt && at !== bt) return at > bt
   return false
 }
 
@@ -244,7 +258,7 @@ function createGhCollector (repo) {
      */
     mainRowsAt: (sha) => {
       const runsRaw = run(['api', '--paginate', `repos/${slug}/actions/runs?head_sha=${sha}&per_page=100`, '--jq',
-        '.workflow_runs[]? | {id, name, event, run_number, run_attempt}'])
+        '.workflow_runs[]? | {id, name, event, run_number, run_attempt, updated_at, created_at}'])
       const runs = parseJsonLines(runsRaw, 'actions/runs')
       // 排除 workflow_run 触发 + 同一 workflow 取最新一次（纯函数，可单测）
       const chosen = selectMainRuns(runs)
