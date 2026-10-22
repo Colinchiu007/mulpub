@@ -17,7 +17,7 @@ date: 2026-10-21
 | 夹具自己的一课（不写成实现缺陷） | ✅ | 首版 7 条红的根因是夹具取页码用了 `/page=(\d+)/` —— 它先匹配到同一 URL 里的 **`per_page=3`** ⇒ 每页都读成第 3 页 ⇒ 全体"空页"。判据：`[?&]page=`。写进注释当永久提醒 |
 | 行尾与 diff 对账 | ✅ | 三处 CRLF 面改动（`.gitignore`、`quality-gate.yml`、`cleanup-artifacts.yml`）均用"按当场 eol 逐行写回"的脚本插入，未统一回写；两口径 numstat 对账由提交前检查留证 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | 两轮已跑并逐条处置（见上两节）；补齐后的第三轮 + 裁决填写 + 高危面出处仍在前头 | `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过，判定 DUAL）。`.github/workflows/` 命中**高危面**前缀 ⇒ 闭合只认 `deepReview.tier=external` + 可核 `evidence`，`closureNote` 在那一侧不够格。`evidence` 取本轮 critique 与逐条裁决的**公开 PR 评论 URL**；`tier` 字段此刻全仓无生产方写入（tasks 8.1b 未落），所以那一格由会话写、并在本节如实标注为手写，不得说成工具产物 |
+| QM-6 CCG 双模型外部评审 | 三轮已跑、逐条处置完毕，高危面按 `tier=external` + 可核 `evidence` 收口 | `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过，判定 DUAL）。`.github/workflows/` 命中**高危面**前缀 ⇒ 闭合只认 `deepReview.tier=external` + 可核 `evidence`，`closureNote` 在那一侧不够格。**分工如实写**：`status`/`blocking`/`externallyReviewed` 由驱动回填，`tier`+`evidence` 由会话手写（tasks 8.1b 未落，全仓无生产方写 `tier`），产物里以 `tierOrigin` 字段留痕。enforce 现读 `dual-closed total=1 external=1 unrecognized=0` 且欠账段不出现。逐轮处置见下面三节 |
 | 远程同步 | 由门禁推导 | 不手写状态词、不为收口另开 PR |
 
 - 判定：混合 PR（含 workflow 与 `scripts/` 判据本体），不走 docs-only 快速通道
@@ -63,11 +63,33 @@ date: 2026-10-21
 1. 「拒绝处理」必须进**结论档位**，不能只进读数：`rejected>0 ⇒ REJECTED_PRESENT ⇒ 非零退出`。
 2. 「某文件已入仓」这类声明必须由一条锁在数（A15），且传 git 前要剥掉会压过 `cwd` 的 `GIT_DIR` 系变量。
 
+## QM-6 第三轮深审（critic=claude，8 条）逐条处置 + 高危面闭合
+
+产物 `.ccg/reviews/29832280…json`，存档 `.adversarial/ccg-deep-a06c0efa/`。8 条 = Critical 3 / Warning 3 / Info 2；维度分 correctness 3、security 5、performance 6、maintainability 4，最低分 **3**；收敛落 `self_play`，待裁决 6 条，**其中高危域必须外部复核 2 条**（`i3 domains=[auth]`、`i5 domains=[crypto]`）。
+
+| 条目 | 指控 | 处置 | 证据 |
+| --- | --- | --- | --- |
+| i1 | 产物带 `status=pending/tier=unknown/performedBy=null` 却"作为已定稿证据入库"；`sha` 指父提交；`changedLines=100` 与 713 行差量矛盾；`layer=diff` 与 `mode=dual` 冲突 | **不成立** | 产物是**判定**记录不是**结论**记录，拦的方向正是"pending 不许合"——本 PR 从第一笔起到补齐前每次 enforce 都点名它并拒绝合并。`sha`=父提交由入口逐字打印为预期行为；100 是本笔暂存差量、713 是深审相对 `origin/main` 的载荷差量，各有出处；`layer` 说明判定来自哪一层（钩子原文 `[CCG] 审查模式判定 [验证层(动手后·diff)]: DUAL`），与 `mode` 正交。建议里的 `status=completed` 不在闭环词表内，照做永远关不掉 |
+| i2 | 记录自相矛盾：一处说 QM-6 未跑，另一处写"行为锁 12 条 + 变异 7 条全指名" | **不成立**（指错了面） | 现读记录 `grep -na "12 条"` 零命中；"7 条"只在历史语境（第一轮 critique 条数、首版夹具那 7 条红）与演进句（"变异从 7 条扩到 9 条"）里。QM-5 表与 CHANGELOG 段现读数 15/11。被指的其实是**第一笔 commit message 与 PR 正文**里当时为真的数——message 是历史事实不改写，正文随本轮更新并在此记动作 |
+| i3 (域 `auth`) | workflow token + `--write` 可批量 DELETE；权限未收到 `actions:write`；`--repo` 未编码可跨仓 | **不成立**（三个前提逐个核） | ① `cleanup-artifacts.yml` 第 21-23 行 `permissions: {actions: write, contents: read}`，删 artifact 恰落在 `actions` 这一格，无更宽 scope 可退；② `--repo` 是 runner 注入的仓库变量、本作业只在 schedule/dispatch 上跑，不在 fork PR 路径；③ 链上唯一外部可控值是 artifact id，已按形状收口并计入 `rejected`/`REJECTED_PRESENT`，A13 样本含路径穿越形态 `../9` 且断言"一条都不发删除"，n8/n10 各指名反证。"改用 fine-grained PAT"与本仓"不把长期凭据塞进 CI"相反，内置 token 已被 permissions 收窄 |
+| i4 | `.gitignore` 例外绑精确文件名，改名即被 `scripts/*.js` 静默吞掉；建议加一条"tracked 脚本必须有镜像 negation"的 CI 检查 | **前半已修 / 后半属另一刀** | 前半：A15 用 `git ls-files -- <驱动路径>` 逐字回显做锁，改名即红；n11 是对锁本身的变异（实测指名 A15 变红）；传 git 前剥掉 `GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE/GIT_COMMON_DIR`，否则钩子窗口里它静默压过 `cwd`。后半是实现 `.gitignore` 语义并区分刻意忽略项的新常驻判据，属"改谁来守门"，须人工过目落点与预算 |
+| i5 (域 `crypto`) | 驱动就地改被测源，崩溃会留下变异后的字节；且没有锁覆盖驱动自身 | **不成立**（后果是响的且可精确恢复） | 被测源受 git 跟踪，`git checkout -- scripts/cleanup-artifacts.js` 单文件还原（守 R2，不碰宽目录）；下次运行前有 dirty 前置，实测脏态直接 `REFUSE …` 并 exit 2，污染态不会被固化成还原基线。"改临时副本"在这条链上不成立：被测锁按真实路径加载被测模块，副本目录无 git 索引 ⇒ A15 必红，等于测不到东西。"覆盖驱动自身"已由多靶子 + n11 兑现，还原阶段对两个文件分别比 md5。域标签由"md5/还原"字样触发，本 PR 差量不含加解密代码 |
+| i6 | A12 那条 `REPO` 负向断言只认一种拼写，且只断"键不存在"不断"无未消费 env 键" | **不成立**（承重的是正向那半） | 同段还断言 `--repo=${{ github.repository }}` 必须在命令行上——坐标若退回"只在 env 里声明"，正向断言当场红，无须穷举坏键名。"缩进会漏"不成立：断言带 `^` 且开 `m`，前缀 `\s*`。"全 workflow 无未消费 env 键"是通用判据，需解析 YAML 并按 shell/action 两类消费者归因，本仓现网大量步骤合法使用 env 而不被脚本读，直接做第一批就是假阳 |
+| i7/i8 | Info：驱动 11 次串行跑测的耗时；记录中英混排与长行 | 无需改动 | i7 自己就写"no change required"，驱动刻意不入 CI（要改被测源），时长已记在文件头。i8：本仓执行记录按 AGENTS 语言约定以中文维护，长行是既有条目形状 |
+
+**高危面闭合的两格分别是谁写的**（不粉饰）：
+
+- `status=self_play_resolved`、`blocking=[]`、`externallyReviewed=[i3,i5]` 由**驱动回填**（填完裁决重跑 `sh scripts/deep-review.sh`，走 `♻ 复用存档 critique（8 条）+ 已填完的裁决 —— 跳过模型调用` 那一档，零模型成本）。
+- `tier=external` + `evidence=<本 PR 评论>` 由**会话手写**：全仓目前没有任何生产方写 `tier`（tasks 8.1b 未落），产物里另留 `tierOrigin` 字段说明这一层，不得把它说成工具产物。`evidence` 取公开可点开的第三轮 critique + 逐条裁决评论 `https://github.com/Colinchiu007/mulpub/pull/4199#issuecomment-6331569984`，形状命中判据的 `url` 档。
+- 两条高危域（`auth` / `crypto`）的 `externalReview` 三格（`performedBy` 逐字等于 `expectedExternalBackend=claude`、`evidenceRef` 同上、`reviewedAt=2026-10-22T02:50:55Z`＝本轮 critique 落盘时刻，实测自文件 mtime 与产物 `at`）由会话按引擎模板填写。
+- 收口后 enforce 读数：`TIER-COVERAGE dual-closed total=1 external=1 external-unverified=0 … unrecognized=0`、`CCG … 欠账` 那一段不再出现。
+
 ## 遗留（不假装已闭合）
 
-1. **QM-6 高危面闭合仍未落**：两轮共 15 条已逐条处置（成立并已修的：第一轮 i3/i4/i5 + 第二轮 i3(半)/i6；否证带证据的：其余各条），补齐后的第三轮评审、`self_play_resolved` 与 `tier=external` + `evidence` 那一格都还在前头。**未闭合前不合并**。
-2. **schedule 作业的健康度仍无人监控**：本片让 `cleanup` 自己"红得有信息量"（`ARTIFACT-CLEAN … verdict=` 首行 + 非零退出），但仍然没有任何东西在**看**它 —— 连续 8 天全红就是这条缺口的现场。正解是一刀独立的"定时作业健康巡检"（读 `gh run list --event schedule` 的近 N 天结论并出声），属新增常驻判据、须人工过目落点与预算。
-3. **500 是上游的，重试只是把可恢复故障挡掉**：若 GitHub 的列举接口退化到重试也救不动，本脚本会判 `UNPROVEN`/`DEGRADED` 并非零退出（不会静默），但**清理仍会停摆**。artifact 存量现读 5350；GitHub 自身 90 天过期是兜底，所以停摆的后果是额度压力而非数据丢失。
+1. **QM-6 已闭合，但闭合里有两格是人写的**：`tier`/`evidence` 由会话手写（判据文案自己就要求"必须同次在记录里写明 tier 由会话手写"，已在上一节照做）。真正的机械化出口是 tasks 8.1b（由驱动写 `tier`），那片不落，每一笔高危面 PR 都要重复这次"手写 + 声明"。
+2. **「加密类词面」会把非安全工具判成安全改动**（本笔实测，且我第一版把因果写错了，留此纠正）：第三笔 100 行、`sensitivePathHits=[]`，却因 `sensitiveContentHits=3` 判 DUAL。我原以为是上一笔判定产物里那句 `reason` 被再读一次 —— **不对**：`ccgSensitiveContentHits=1` 才是那句，而判据明文不消费它（手工跑判定器时它自己打印 `⚠ 自身产物命中敏感词 4 处（不计入模式判定，判定器不消费自己写下的散文）`）。真正进判定的是**代码侧词面**：用 decider 导出的同一份 `RULES.sensitiveContents` 复算该笔新增行，重现出的一处是 `scripts/cleanup-artifacts.mutation.js` 里那句 `if (md5(...) !== md5(...))` —— 驱动用 md5 只做"字节回原位"的自证，与加解密无关，却命中 `md5|sha1|sha256\(` 这条正则。**两条如实的余地**：① 复算只重现 1 处、产物记 3 处，这 2 处差额我没有解释，所以这里只报能复现的那一处，不照抄 3；② 同一族还有第三条落点（`docSensitiveContentHits` 只报告不判定）。留作独立一刀的是：敏感内容判据要不要区分"实现密码学"与"用摘要做自证"，以及那 2 处差额从哪来。
+3. **schedule 作业的健康度仍无人监控**：本片让 `cleanup` 自己"红得有信息量"（`ARTIFACT-CLEAN … verdict=` 首行 + 非零退出），但仍然没有任何东西在**看**它 —— 连续 8 天全红就是这条缺口的现场。正解是一刀独立的"定时作业健康巡检"（读 `gh run list --event schedule` 的近 N 天结论并出声），属新增常驻判据、须人工过目落点与预算。
+4. **500 是上游的，重试只是把可恢复故障挡掉**：若 GitHub 的列举接口退化到重试也救不动，本脚本会判 `UNPROVEN`/`DEGRADED` 并非零退出（不会静默），但**清理仍会停摆**。artifact 存量现读 5350；GitHub 自身 90 天过期是兜底，所以停摆的后果是额度压力而非数据丢失。
 
 ## CHANGELOG 条目
 
