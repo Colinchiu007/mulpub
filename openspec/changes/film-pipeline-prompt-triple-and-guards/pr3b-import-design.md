@@ -1,8 +1,9 @@
 # PR-3b · F-J 资产导入（写路径）· 方案
 
 > 决策层对抗评审 **18 轮**（累计 **143 条**意见，**已逐条落地**；逐条原文与处置见同目录 `pr3b-import-critiques.md`，逐轮叙述见 `pr3b-import-review-record.md`）⇒ 本文件是**决策清单**：每条 = 一个**可断言的决定**；**理由、例外与诚实边界**一律在证据文件里，本文件只留决定本身。
-> **图例**：`§` 小节 ｜ `⓪`–`⑦` 换入顺序 ｜ `S0`–`S20` 安全清单 ｜ `A`/`B` 组 验收判据 ｜ `reason` 失败原因枚举。
-> 契约正文（白名单/枚举/审计/恢复/取舍）写进 `film-kit/SCHEMA.md`（**本批待写入**，非既有契约；与代码**同 PR 同提交** ⇒ 测试运行时该文件必然存在）。
+> **图例**：`§` 小节 ｜ `⓪`–`⑦` 换入顺序 ｜ `S0`–`S20` 安全清单 ｜ `A`/`B`/`C` 组 验收判据 ｜ `reason` 失败原因枚举。
+> **术语对照**：`⓪`=pre-check（预检）｜ `换入`=swap-in（整体替换目标 kit）｜ `落盘`=persist（写入磁盘）｜ `判据`=assertion（可执行断言）｜ `祖父条款`=limits-apply-to-source-only（限额只管源目录）｜ `残留`=residue（崩溃/失败留下的中间态）。
+> 契约正文（白名单/枚举/审计/恢复/取舍）写进 **`film-kit/SCHEMA.md` 这份已存在的文件里新增的「导入契约」小节** —— 文件已存在，**小节**才是本批交付物（实施时写入，与代码**同 PR 同提交** ⇒ 测试运行时该小节必然存在）。
 > worktree `film-kit-import`（非 C 盘）。依据：`tasks.md` PR-3b 段 + `design.md` D19（写路径单独一批）。
 
 ## 零、目标与现状
@@ -59,7 +60,7 @@
 |---|------|
 | S0 | **总则（fail-closed）**：凡**白名单内条目**的输入（形状/内容/大小/路径/类型）+ 目标父目录的权限/状态，不满足本清单任一条 ⇒ **一律拒绝**并映射到 `reason` 枚举 —— **不逐项开特例**；后续新增边界情况默认走这条，**不新增规则**。⚠ **白名单外的条目不适用本总则**（它们**不拷入**，不是「不合格」） |
 | S1 | **只拷白名单列出的路径**：扫描时枚举源目录，**白名单外的条目一律不拷入、也不递归进入其子目录**（如 `extra/`、`.git/` 整目录跳过）⇒ **不因多余文件拒绝整次导入**；**白名单内**条目不合格 ⇒ 一律拒绝 |
-| S2 | **链与越界（判据分级）**：软链（`lstat().isSymbolicLink()`）⇒ 拒；断链（`isSymbolicLink()` 真但 `stat` 失败）⇒ 拒；`fs.realpath` 取真实路径须**仍在源目录内**（ENOENT/EPERM ⇒ **必须 try/catch** ⇒ 映射 `SYMLINK_REJECTED`/`VALIDATION_ERROR`）。**硬链**：**同目录**内非软链 `(dev, ino)` 相同 ⇒ 拒（**可靠**，任何文件系统都成立）；**跨目录**硬链只靠 `nlink > 1` ⇒ **最佳努力**（FAT/exFAT/网络盘 `nlink` 恒 1 ⇒ 漏判方向是「接纳」）⇒ `SCHEMA.md` 明写「**非防篡改边界**」⇒ **不列入 fail-closed 断言**；⇒ **可观测**：审计行固定带 `hardlink_check` 字段，值恒为 `best-effort` ⇒ 事后可查该次导入**知道自己没做跨目录硬链防护**（不做假检测、不虚报已防护）。⚠ 上述 `stat`/`realpath` **全部在第一遍扫描内完成**（拷贝之前） |
+| S2 | **链与越界（判据分级）**：软链（`lstat().isSymbolicLink()`）⇒ 拒；断链（`isSymbolicLink()` 真但 `stat` 失败）⇒ 拒；`fs.realpath` 取真实路径须**仍在源目录内**（ENOENT/EPERM ⇒ **必须 try/catch** ⇒ 映射 `SYMLINK_REJECTED`/`VALIDATION_ERROR`）。**硬链**：**同目录**内非软链 `(dev, ino)` 相同 ⇒ 拒（**可靠**，任何文件系统都成立）；**跨目录**硬链只靠 `nlink > 1` ⇒ **最佳努力**（FAT/exFAT/网络盘 `nlink` 恒 1 ⇒ 漏判方向是「接纳」）⇒ `SCHEMA.md` 明写「**非防篡改边界**」+「建议在**本机可信卷（NTFS）**上选取导入目录；FAT/exFAT/网络盘上跨目录硬链检测为最佳努力」⇒ **不列入 fail-closed 断言**；⇒ **可观测**：审计行固定带 `hardlink_check` 字段，值恒为 `best-effort` ⇒ 事后可查该次导入**知道自己没做跨目录硬链防护**（不做假检测、不虚报已防护）。⚠ 上述 `stat`/`realpath` **全部在第一遍扫描内完成**（拷贝之前） |
 | S3 | 半份 kit 不留：失败 ⇒ staging 不存在、旧 kit 逐字未变 |
 | S4 | 失败回滚；**回滚也失败 ⇒ `.bak` 保留不删** + 报错带出恢复路径（旧资产不丢） |
 | S5 | 只写 `userData/film-kit` 及其同父的 staging/.bak/.import-lock（断言没有对这四者之外的路径写入） |
@@ -67,22 +68,22 @@
 | S7 | 不写 kit 之外的用户数据（同 S5） |
 | S8 | 严格模式失败 ⇒ 一律不落盘（`userData/film-kit` 不存在，原存在的也不变） |
 | S9 | 相对路径越界（**两步互补**）：① `path.isAbsolute(rel)` ⇒ 拒（绝对路径**不进入**第二步）；② 对**非绝对**的 `rel` 用 `core/ipc-security.js` 已有的 `isPathInside(stagingRoot, path.resolve(stagingRoot, rel))` 判（`path.relative` 口径天然处理分隔符归一化） |
-| S10 | 固定深度 + 隐藏名 + 扩展名（**只作用于白名单内条目**）：`prompts/tasks` 的深度**基准 = `prompts/tasks`**（导出常量 `BASE_PROMPT_TASK`，代码与 `SCHEMA.md` 同值、镜像检查按同一基准解析）⇒ 恰 **3 层**（`prompts/tasks/<task>/<lang>/<file>`，少一层即拒）；**候选路径的任何组件（目录或文件）以 `.` 开头 ⇒ 拒**；扩展名 ∈ `{json, md}` |
+| S10 | 固定深度 + 隐藏名 + 扩展名（**只作用于白名单内条目**）：`prompts/tasks` 的深度**基准 = `prompts/tasks`**（导出常量 **`BASE_PROMPT_TASK = "prompts/tasks"`**（字面值写死），代码与 `SCHEMA.md` 同值、镜像检查按同一基准解析）⇒ 恰 **3 层**（`prompts/tasks/<task>/<lang>/<file>`，少一层即拒）；**候选路径的任何组件（目录或文件）以 `.` 开头 ⇒ 拒**；扩展名 ∈ `{json, md}` |
 | S11 | 导入中 ⇒ service 不从磁盘重读 kit：标记 = 内存标志 **+ `userData/.import-lock` 落盘文件**（**真源 = 锁文件**；内存标志只是加速判据，**进程重启时按锁重建内存标志**）；`_ensureKit()` 见标记 ⇒ **抛可识别错误、不读盘** ⇒ 绝不静默回落到随包 kit |
 | S12 | 缓存失效在 rename 之前；标记**先置后删**、与 `.import-lock` 同生命周期；**锁最后删** |
 | S13 | 文件头魔数：`*.json` 头须 `{`/`[`（去 BOM/空白）⇒ 不匹配即拒、**不写盘** |
 | S14 | 上限与重试常量**单一定义**：`kit-import.js` 顶部导出 `MAX_KIT_FILE_BYTES` / `MAX_KIT_TOTAL_BYTES` / `RETRY_MAX` / `RETRY_MS`（数值只在代码里存在一次；`SCHEMA.md` 与测试**同名导入断言**） |
-| S15 | **崩溃/失败残留三档**（**全部走显式手动恢复，无自动清理**）：① `film-kit` **缺失** + `.bak` = 旧 kit（崩在 ④ 后⑤ 前）⇒ **手动 rename 恢复**；② `film-kit` = 新的 + `.bak` = 旧 kit（崩在 ⑤ 后⑥ 前，**或 ⑥ 删 `.bak` 自身失败**）⇒ 可安全删 `.bak`；③ `film-kit` = 新的 + 无 `.bak` + 只剩锁（崩在 ⑥ 后⑦ 前，**或 ⑦ 删锁自身失败**）⇒ 只需删锁。⇒ 三档**覆盖全部失败点** |
+| S15 | **崩溃/失败残留三档**：① `film-kit` **缺失** + `.bak` = 旧 kit（崩在 ④ 后⑤ 前）⇒ **必须手动 rename 恢复**（锁**不自动清**）；② `film-kit` = 新的 + `.bak` = 旧 kit（崩在 ⑤ 后⑥ 前，**或 ⑥ 删 `.bak` 自身失败**）⇒ 锁可自动清（S18）+ **提示可安全删 `.bak`**；③ `film-kit` = 新的 + 无 `.bak` + 只剩锁（崩在 ⑥ 后⑦ 前，**或 ⑦ 删锁自身失败**）⇒ 锁可自动清（S18），资产已就位。⇒ 三档**覆盖全部失败点** |
 | S16 | 第 0 步预检与校验（**全程只读源目录**，= §二 ⓪a-⓪d）：① 严格校验源目录 → ② 审计文件可创建/可写（判**父目录**可写）→ ③ 审计落「开始」行 → ④ 预创建锁文件；任一步失败 ⇒ 立即退出、**绝不动旧 kit** |
-| S17 | **审计契约**进 `SCHEMA.md`：文件 `userData/film-kit-import.log`；字段（时间 / sender URL / **sender 路由** / **触发组件**〔renderer 传入 ⇒ **可伪造**，仅事后线索、**不作判据**〕 / 所选目录 / 结果 / reason / **`post_check`**（PASS / FAIL_WITH_RECOVERY）/ **`recovery_state`**（仅 `post_check=FAIL_WITH_RECOVERY` 时有值 ∈ {`MISSING_KIT`, `BAK_LEFT`, `LOCK_LEFT`}，对应 S15 三档）/ `.bak` 保留时**必带恢复路径**；**`reason` × `post_check` × `recovery_state` 的对应表写进 `SCHEMA.md` 审计小节**（测试逐行断言）；**行格式**（UTC ISO8601 + 制表符分隔 + UTF-8 + `\n` ⇒ `SCHEMA.md` 给一行**示例行**供测试断言）；**写入时机**（每次 IPC 调用后，成功与失败都写）；**保留**（单文件追加；**> 10,000 行或 > 10 MB ⇒ 拒绝新的导入**（不再追加，防静默超限）+ i18n `filmKitImportAuditFull`；**不自动截断**——截断会丢审计）；**写入失败 ⇒ 拒绝导入**；权限（可追加、不可改写）；追加 `fs.open({flags:'a'})`，**互斥由 `.import-lock` 的独占创建（`wx`）实现** ⇒ 第二个导入进程建锁失败即拒（`LOCK_CREATE_FAILED`）⇒ 不会行间交错；同一时刻只允许一个导入。⚠ **诚实边界**：审计防「**静默**」，**不防恶意篡改** |
-| S18 | **锁与审计的落盘顺序闭合**（= §二 ⓪b-⓪d 的同一条顺序，不另起一套）：① 审计文件预检可创建/可写（⚠ `fs.access` 对**不存在**的文件返 ENOENT ⇒ 判**父目录**可写；**首次导入时审计文件不存在是合法的**）→ ② 审计落「开始」行 → ③ 预创建锁 → ④ **审计写失败 ⇒ 立即退出、不创建锁、不碰旧 kit**。**锁不做自动清理**：`.import-lock` 存在（**不论新旧**）⇒ service 抛**可识别错误**、导入也**拒绝** ⇒ 恢复靠用户按 i18n 步骤**手动删锁**（错误信息带锁路径与年龄）；⚠ **年龄提示**：service 初始化读到锁时**一律带出 mtime 推导的年龄**，**> 30 分钟**的锁额外记一条审计警告（提示「可安全删除的前提：确认没有导入在进行」）⇒ **仍然不自动清**（S15 的取舍不变）；⚠ 删锁前须确认**没有导入在进行**（否则可能读到半换入的 kit） |
+| S17 | **审计契约**进 `SCHEMA.md`：文件 `userData/film-kit-import.log`；字段（时间 / sender URL / **sender 路由** / **触发组件**〔renderer 传入 ⇒ **可伪造**，仅事后线索、**不作判据**〕 / 所选目录 / 结果 / reason / **`post_check`**（PASS / FAIL_WITH_RECOVERY）/ **`recovery_state`**（仅 `post_check=FAIL_WITH_RECOVERY` 时有值 ∈ {`MISSING_KIT`, `BAK_LEFT`, `LOCK_LEFT`}，对应 S15 三档）/ `.bak` 保留时**必带恢复路径**；**`reason` × `post_check` × `recovery_state` 的对应表写进 `SCHEMA.md` 审计小节**（测试逐行断言）—— 表的**生成规则**（表本体是机械展开）：`post_check=PASS` ⇔ 导入成功且 staging 严格校验通过；`post_check=FAIL_WITH_RECOVERY` ⇔ 发生回滚或留有残留 ⇒ `recovery_state` 按 S15 三档填（`MISSING_KIT`/`BAK_LEFT`/`LOCK_LEFT`）；`post_check` 不出现 ⇒ 导入在换入前被拒（`reason` 直接给出原因，无恢复动作）；**行格式**（UTC ISO8601 + 制表符分隔 + UTF-8 + `\n` ⇒ `SCHEMA.md` 给一行**示例行**供测试断言）；**写入时机**（每次 IPC 调用后，成功与失败都写）；**保留**（单文件追加；**> 10,000 行或 > 10 MB ⇒ 拒绝新的导入**（不再追加，防静默超限）+ i18n `filmKitImportAuditFull`；**不自动截断**——截断会丢审计）；**写入失败 ⇒ 拒绝导入**；权限（可追加、不可改写）；追加 `fs.open({flags:'a'})`，**互斥由 `.import-lock` 的独占创建（`wx`）实现** ⇒ 第二个导入进程建锁失败即拒（`LOCK_CREATE_FAILED`）⇒ 不会行间交错；同一时刻只允许一个导入。⚠ **诚实边界**：审计防「**静默**」，**不防恶意篡改** |
+| S18 | **锁与审计的落盘顺序闭合**（= §二 ⓪b-⓪d 的同一条顺序，不另起一套）：① 审计文件预检可创建/可写（⚠ `fs.access` 对**不存在**的文件返 ENOENT ⇒ 判**父目录**可写；**首次导入时审计文件不存在是合法的**）→ ② 审计落「开始」行 → ③ 预创建锁（**内容 = 一行 JSON**：`{ "pid": <创建者 PID>, "startedAt": <ISO8601>, "senderUrl": "<url>" }`）→ ④ **审计写失败 ⇒ 立即退出、不创建锁、不碰旧 kit**。**锁的自动清理按「进程存活」判定，不按时间猜**：读锁 ⇒ `process.kill(pid, 0)` 判**创建者进程是否还在** ⇒ **还在** ⇒ 有导入在跑 ⇒ 正常拒绝（错误信息带锁路径与年龄）；**已不在** ⇒ 崩溃残留 ⇒ 按 S15 判档：档位②③（`film-kit` 存在）⇒ **自动清锁 + 强制写审计**；档位①（`film-kit` 缺失）⇒ **不清锁**（资产可能只在 `.bak` 里）⇒ 走手动恢复（i18n `filmKitImportRecoverMissing`）。⚠ PID 复用 ⇒ 最坏是「误判仍在跑」⇒ 用户可按 i18n 手动删锁；⚠ **年龄提示**：锁年龄（mtime 推导）随错误信息带出，**> 30 分钟**额外记一条审计警告（提示「可安全删除的前提：确认没有导入在进行」） |
 | S19 | `ERROR_ACCESS_DENIED` 的重试分级：`RETRY_MAX`=3、`RETRY_MS`=500（**基数**），退避 `RETRY_MS * 2^(n-1)`（500ms/1s/2s ⇒ 总等待 ≤ 3.5s）。**A 类（可重试）** = 文件 `copyFile`（套退避循环）；**B 类（目录 `rename`）** 在 NTFS 上常因占用**不可重试** ⇒ 仅在 `ERROR_ACCESS_DENIED` 时做**一次立即重试**，**不套退避循环**；**审计追加不重试**（失败即拒）。`SCHEMA.md` 写同一组值 |
-| S20 | **写路径的 sender 路由断言（硬）**：`film-engineering:import-kit` 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，`pathname` 恒为 `/`）⇒ 路由**前缀**须为 `/film-engineering`（**三个标签页都在这条路由下** ⇒ **不会误伤合法调用**）⇒ 不命中 ⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：该断言只能判到「调用方**当前在**影视工程路由」，**判不到组件**（SPA 同一文档承载三标签页）⇒ **组件级授权仍不做**；⚠ URL 里解析不出路由（某些打包形态无 hash）⇒ **放行 + 审计警告**（fail-open，避免误伤）；⚠ **另一道不依赖 URL 的屏障**：handler **入参为空**、路径只能来自原生对话框 ⇒ 任意可信渲染进程**无法指定替换内容** |
+| S20 | **写路径的 sender 路由断言（硬）**：`film-engineering:import-kit` 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，**`pathname` 恒为 `/` ⇒ 不参与判断**）—— **解析口径写死**：`new URL(url).hash` ⇒ 去前导 `#` ⇒ 取 `?` 之前的部分 ⇒ 去尾斜杠 ⇒ 与前缀 `/film-engineering` 比较；**`hash` 缺失/为空 ⇒ 判为「解析不出」** ⇒ 放行 + 审计警告（fail-open）；测试必须覆盖「`pathname=/` + `hash` 有路由」「`hash` 缺失」两种形态⇒ 路由**前缀**须为 `/film-engineering`（**三个标签页都在这条路由下** ⇒ **不会误伤合法调用**）⇒ 不命中 ⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：该断言只能判到「调用方**当前在**影视工程路由」，**判不到组件**（SPA 同一文档承载三标签页）⇒ **组件级授权仍不做**；⚠ URL 里解析不出路由（某些打包形态无 hash）⇒ **放行 + 审计警告**（fail-open，避免误伤）；⚠ **另一道不依赖 URL 的屏障**：handler **入参为空**、路径只能来自原生对话框 ⇒ 任意可信渲染进程**无法指定替换内容** |
 
 ## 四、白名单与资产事实
 
 **唯一真源 = 代码里的机器可读白名单**（`kit-import.js` 导出）；`film-kit/SCHEMA.md` 的「文件清单」表**新增一列「导入白名单」** ⇒ 它是白名单的**人读镜像**（镜像只比对标 ✅ 的行），两者**排序后逐行 `===` 相等由测试断言**，并加**断言脚本** `kit-mirror-check.js`（导出 `verifyKitMirror()`）+ `kit-mirror-check.test.js`（同目录、同 vitest 框架 ⇒ 随桌面端测试套件在 CI 自动执行）。⚠ `SCHEMA.md` **首段明写「本文件不用于运行时解析」** —— 该约束只管**运行时代码**；`kit-mirror-check.js` / `kit-schema-contract.test.js` 是**构建期/测试期工具**，不在运行路径上 ⇒ **不违反**该声明；`SCHEMA.md` 是**提交进仓的普通文件**（不是生成物）⇒ CI「检出 ⇒ 跑测试」顺序天然成立。
-**若 `SCHEMA.md` 缺失 ⇒ 镜像/契约测试直接失败（fail-closed），不是跳过**：两个测试的**第一步**就是断言 `SCHEMA.md` 存在，不存在 ⇒ 直接失败并打印**自解释信息**「契约文件未写入：<绝对路径>；本批要求 `SCHEMA.md` 与代码同 PR 同提交」⇒ 失败不依赖 CI 顺序假设，也不产生「谜之红」。
+**若 `SCHEMA.md` 的「导入契约」小节缺失 ⇒ 镜像/契约测试直接失败（fail-closed），不是跳过**：两个测试的**第一步**就是断言该小节存在，不存在 ⇒ 直接失败并打印**自解释信息**「导入契约小节未写入：<绝对路径>；本批要求它与代码同 PR 同提交」⇒ 失败不依赖 CI 顺序假设，也不产生「谜之红」。
 
 | 类别 | 文件 | 必填 | 形状/内容 |
 |------|------|------|----------|
@@ -113,7 +114,7 @@ i18n 键（`filmEngineering.auto.*`，zh/en 成对，**共 11 键**）：`filmKi
 
 **A 组（原 `tasks.md` 4 条）**：① 严格模式校验失败 ⇒ 不落盘；② 成功 ⇒ `userData/film-kit` 齐备 + service 缓存已失效；③ 含符号链接 ⇒ 拒；④ 换入中途失败 ⇒ 无半份 kit、旧 kit 逐字未变。
 
-**B 组（新增 17 条）**：⑤ 白名单外文件不被拷入（且**不递归进入**其子目录）；⑥ 超限 ⇒ 拒且未开始拷；⑦ 没写到 staging/.bak/.import-lock 之外；⑧ 换入失败后旧 kit 逐字未变；⑨ 相对路径越界或绝对路径 ⇒ 拒、没写到 staging 之外；⑩ 硬链接 ⇒ 拒（同目录 `(dev,ino)` 相同 ⇒ 拒；跨目录靠 `nlink>1` ⇒ **最佳努力**，不构成防篡改保证）；⑪ 隐藏名（含**目录名**）或 `prompts/tasks/` 深度不符 ⇒ 拒；⑫ 回滚本身失败 ⇒ `.bak` 仍在 + 报错带出恢复路径；⑬ 导入中 `_ensureKit()` 抛可识别错误、不读盘，标记先置后删且 `.import-lock` 同生命周期；⑭ 代码白名单集合 == `SCHEMA.md` 文件清单表**标 ✅ 的行**解析集合（排序后逐行 `===`）；⑮ `.json` 魔数不匹配 ⇒ 拒且不写盘；⑯ 父目录不可写或锁文件建不出来 ⇒ 立即退出、旧 kit 逐字未动；⑰ **存在 `.import-lock` ⇒ service 抛可识别错误、导入也拒绝**（**不自动清锁**）⇒ 恢复靠手动删锁；⑱ **`images/` 不在导入白名单** ⇒ 目标目录里**没有** `images/`（镜像表里也没有 `images/*` 行）；⑲ **可选资产缺失（`prompt-doctrine.zh.md` 不存在）⇒ 导入照常成功**；⑳ **sender URL 与其 hash 路由段写入审计行**（S20；**不作为拒绝依据**）；㉑ **第二遍拷出的副本哈希 == 第一遍源哈希** ⇒ 不一致即拒（**TOCTOU 反证用例**：拷贝前把源文件**原地改成同尺寸内容** ⇒ 必须被拒）。
+**B 组（新增 17 条）**：⑤ 白名单外文件不被拷入（且**不递归进入**其子目录）；⑥ 超限 ⇒ 拒且未开始拷；⑦ 没写到 staging/.bak/.import-lock 之外；⑧ 换入失败后旧 kit 逐字未变；⑨ 相对路径越界或绝对路径 ⇒ 拒、没写到 staging 之外；⑩ 硬链接 ⇒ 拒（同目录 `(dev,ino)` 相同 ⇒ 拒；跨目录靠 `nlink>1` ⇒ **最佳努力**，不构成防篡改保证）；⑪ 隐藏名（含**目录名**）或 `prompts/tasks/` 深度不符 ⇒ 拒；⑫ 回滚本身失败 ⇒ `.bak` 仍在 + 报错带出恢复路径；⑬ 导入中 `_ensureKit()` 抛可识别错误、不读盘，标记先置后删且 `.import-lock` 同生命周期；⑭ 代码白名单集合 == `SCHEMA.md` 文件清单表**标 ✅ 的行**解析集合（排序后逐行 `===`）；⑮ `.json` 魔数不匹配 ⇒ 拒且不写盘；⑯ 父目录不可写或锁文件建不出来 ⇒ 立即退出、旧 kit 逐字未动；⑰ **锁的存活判定**：锁文件写创建者 **PID** ⇒ **进程还在 ⇒ service 抛可识别错误、不读盘，导入也拒绝**；**进程已死 ⇒ 按 S15 判档**：档位②③（`film-kit` 存在）**自动清锁 + 强制审计**，档位①（`film-kit` 缺失）**不清锁** ⇒ 手动恢复；⑱ **`images/` 不在导入白名单** ⇒ 目标目录里**没有** `images/`（镜像表里也没有 `images/*` 行）；⑲ **可选资产缺失（`prompt-doctrine.zh.md` 不存在）⇒ 导入照常成功**；⑳ **sender URL 与其 hash 路由段写入审计行**，且**路由前缀不在 `/film-engineering` ⇒ 拒绝**（S20 硬断言，`reason=UNAUTHORIZED_SENDER`；`hash` 解析不出 ⇒ 放行 + 审计警告）；㉑ **第二遍拷出的副本哈希 == 第一遍源哈希** ⇒ 不一致即拒（**TOCTOU 反证用例**：拷贝前把源文件**原地改成同尺寸内容** ⇒ 必须被拒）。
 
 **C 组（契约与镜像断言，2 条，独立用例文件）**：㉒ `kit-mirror-check.test.js`：代码白名单集合 == `SCHEMA.md` 标 ✅ 行解析集合（**排序后逐行 `===`**；与 B 组 ⑭ **两处都断言**，互为冗余防漏）；㉓ `kit-schema-contract.test.js`：`SCHEMA.md` 的**审计字段 / `reason` 枚举 / 恢复路径小节存在且非空**，且 `SCHEMA.md` **缺失时失败**并打印「契约文件未写入」。
 
@@ -128,11 +129,11 @@ i18n 键（`filmEngineering.auto.*`，zh/en 成对，**共 11 键**）：`filmKi
 | 服务（改） | `film-engineering-service.js`（缓存失效方法 + 读 `.import-lock` + **有锁时抛可识别错误**；⚠ 失效必须**同时重置 `_kit`/`_loadError`/`_shotLibrary`/`_scriptAdapter` 四个字段** —— `_loadError` 是**失败缓存**，漏重置会让旧失败永久存活） |
 | IPC（**新建**） | `ipc-handlers/film-engineering-import.js`（注册 `film-engineering:import-kit`：`withSenderCheck` + **入参为空** + `isDirectory` + 审计 + dialog 在这一层；⚠ **不塞进 `film-engineering-auto.js`** —— 该文件已 **446 行**、`check-max-lines` 硬限 **500**；写路径与只读分文件也与 D19 同向）+ `ipc-handlers/index.js`（多一行 `require` 接线） |
 | preload / 渲染端 | `preload/access-control.js`（`PUBLIC_METHODS` 加 `filmEngineering.importKit`）+ `preload/film-engineering.js`（通道 + API）/ `src/api/electron-bridge.js` + **`src/views/FilmEngineeringView.vue`（「**项目案例**」标签顶部入口 —— ⚠ **不是** `film-auto/FilmAutoPanel.vue`：那是「自动」标签的**只读规划区**，写操作不入只读区） |
-| i18n / 测试 / 文档 | `locales/film-engineering/{zh,en}.js`（§五 11 键）/ `kit-import.test.js`（§六 A/B 组 21 条 + C 组 2 条 + win32 专项 3 条）/ `film-kit/SCHEMA.md`（**本批待写入**：导入契约 —— 白名单/形状/魔数/枚举/审计/恢复/取舍/祖父条款）+ `PRD-FILM-PIPELINE-V2`（§9.c）+ 本文件 + `pr3b-import-critiques.md` + `pr3b-import-review-record.md` + `tasks.md` + 执行记录 |
+| i18n / 测试 / 文档 | `locales/film-engineering/{zh,en}.js`（§五 11 键）/ `kit-import.test.js`（§六 A/B 组 21 条 + C 组 2 条 + win32 专项 3 条）/ `film-kit/SCHEMA.md`（**新增「导入契约」小节**：白名单/形状/魔数/枚举/审计/恢复/取舍/祖父条款）+ `PRD-FILM-PIPELINE-V2`（§9.c）+ 本文件 + `pr3b-import-critiques.md` + `pr3b-import-review-record.md` + `tasks.md` + 执行记录 |
 
 ## 八、明确不做
 
-❌ 增量/合并/差分（**整体替换**）· ❌ 导入历史/多版本 · ❌ 导出 · ❌ **压缩包/网络来源/扫盘**（来源只有本机目录）· ❌ 写 kit 之外的路径 · ❌ 把 `images/` 变成消费方 · ❌ **`images-manifest.json` 契约**（无消费方）· ❌ **自动清理陈旧锁**（全部走显式手动恢复）· ❌ **窗口级/组件级授权**（本批只做审计）
+❌ 增量/合并/差分（**整体替换**）· ❌ 导入历史/多版本 · ❌ 导出 · ❌ **压缩包/网络来源/扫盘**（来源只有本机目录）· ❌ 写 kit 之外的路径 · ❌ 把 `images/` 变成消费方 · ❌ **`images-manifest.json` 契约**（无消费方）· ❌ **按时间猜的锁清理**（自动清理**只按进程存活**判定，见 S18）· ❌ **窗口级/组件级授权**（本批只做审计）
 
 ## 九、决策点（全部已拍板，无开放项）
 
