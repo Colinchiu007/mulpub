@@ -98,7 +98,8 @@ function createAppContext() {
     })
   })
 
-  taskQueue.setExecutor(async (task, context = {}) => {
+  require('./services/logger').info('RpaView', '[exec] instrumentation ready')
+taskQueue.setExecutor(async (task, context = {}) => {
     if (context.signal?.aborted) throw new Error('任务已取消')
     const platform = task.platform
     // §5 风控挂起 enforcement：命中挂起的平台/账号在派发前拦截（RiskSuspendedError.noRetry → 不重试）
@@ -107,13 +108,13 @@ function createAppContext() {
       throw new RiskSuspendedError(platform, taskAccountId)
     }
     // publish-progress-ux：任务开始边界事件（对齐账号批量检测 start/done 双边界先例）
-    console.warn('[exec] enter task=' + task.id + ' platform=' + platform)
+    require('./services/logger').warn('RpaView', '[exec] enter task=' + task.id + ' platform=' + platform)
     taskProgressRouter.register(platform, task.id)
-    console.warn('[exec] registered task=' + task.id)
+    require('./services/logger').info('RpaView', '[exec] registered task=' + task.id)
     progressEmitter.emit(task.id, platform, 'start', {
       stage: '准备发布...', percent: 0, batchId: task.batchId || null,
     })
-    console.warn('[exec] creating publisher task=' + task.id)
+    require('./services/logger').info('RpaView', '[exec] creating publisher task=' + task.id)
     const publisher = publisherRouter.createPublisher(platform, {
       rpaViewManager, store, pythonBridge, accountManager: AccountManager,
     })
