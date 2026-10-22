@@ -490,7 +490,14 @@ const platformsMixin = {
           // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
           // 第二次点击才 `_e.resolve()` 唤醒 `case 1` 执行 `doPublish` ⇒ 必须连点两次（间隔留给 state 写入）。
           await (platform === 'toutiao' && typeof this._clickStable === 'function' ? this._clickStable(win, publishSelector) : this._click(win, publishSelector))
-          if (platform === 'toutiao') { await this._sleep(1500); await this._clickViaCdp(win, publishSelector) }
+          if (platform === 'toutiao') {
+      await this._sleep(1500); await this._clickViaCdp(win, publishSelector)
+      // 2026-10-23 真机：两次点击后仍拿不到作品 ID ⇒ dump 页面可见提示，看平台为何拒收
+      try {
+        const tip = await win.webContents.executeJavaScript('(function(){var es=[].slice.call(document.querySelectorAll("[class*=error],[class*=toast],[class*=tip],[class*=warn],[class*=message]"));return es.filter(function(e){return e.getClientRects().length}).map(function(e){return (e.innerText||"").trim()}).filter(Boolean).slice(0,6).join(" | ")})()', true)
+        log.warn('RpaView', '[toutiao] publish 后可见提示: ' + (tip || '(无)'))
+      } catch (_e) { /* 诊断失败不影响主流程 */ }
+    }
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
             await this._sleep(800)
@@ -1356,10 +1363,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个
     // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、
     // 图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，
-    // 首个 input[type=file] 恒为视频通道——图片传进去必失败）
-    // 2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被
-    // 清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件
-    // （参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
+    // 首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
@@ -1367,11 +1371,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         selectors: {
           ...config.selectors,
           file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
-          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」
-          // 后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的
-          // `article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后
-          // **再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，
-          // 封面通道在此为空是正确表达，不是省略。
+          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」；后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的；`article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后；**再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，；封面通道在此为空是正确表达，不是省略。
           cover_input: [],
           drag_area: '#rc-tabs-0-panel-2 div[class^="_dragger-content_"], div[class*="dragger-content"]',
         },
