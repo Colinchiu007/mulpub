@@ -58,7 +58,7 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
 
   // 3) 等「下一步」可用（解析完成前是 disabled）
   let nextClicked = false
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 180; i++) { // 2026-10-22: 原 40×500ms=20s 太短，真机「下一步」在设图后仍 cannot-click；放宽到 180×500ms=90s 让图片上传/处理有足够时间
     // 2026-10-22 真机二次修正：上轮 dump 的 `btns` 里**没有「下一步」**（只有 添加视频/发布）
     // ⇒ 它不是 <button>，而是 div/span 样式按钮 ⇒ 只查 button 永远查不到（表现为"解析超时"）。
     // 现在查 button/div/span/a，取**最内层最后匹配**；禁用态按 class 含 disabled 或 aria-disabled 判。
@@ -182,7 +182,7 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
 
   // 4) 等「下一步」可点（cannot-click 也要认出来）
   let nextClicked = false
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 180; i++) { // 本地上传路径同理：90s 上限
     nextClicked = await win.webContents.executeJavaScript('(function(){'
       + 'var all=[].slice.call(document.querySelectorAll("button,div,span,a"));'
       + 'var c=all.filter(function(e){return (e.innerText||"").trim()==="下一步"&&e.getClientRects().length>0});'
