@@ -392,6 +392,9 @@ import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
 import { FEATURE_FLAG_ACCOUNT_CLOUD_SYNC, useFeatureFlag } from '@/composables/useFeatureFlag'
 import { contentCategoriesRef, loadContentCategories, watchContentCategories } from '@/composables/useContentCategories'
+// 一键检测结果提示装配器（2026-10-22 fix-batch-check-toast-unify）：把「一次点击只弹一条」的
+// 段序/空段/定级逻辑下沉 —— 本文件零增长容差，纯字符串装配值得在 node 环境下单独上锁。
+import { buildBatchCheckSummary } from './batch-check-summary'
 
 const filterOptions = computed(() => [
   { value: 'all', label: t('accountsPage.filterAll') },
@@ -959,9 +962,8 @@ async function checkLogin (account) {
     if (verdict === true) {
       notifySuccess('accountsPage.loginValid', { message: t('accountsPage.loginValid', { platform: platformName }) })
     } else if (verdict === undefined) {
-      // 三态契约：既非有效也非失效 = 本轮未取到定论。不得冒充「已失效」弹出去登录引导，
-      // 也不得反向清除既有的会话失效标记 —— 与批量侧同一口径，证据缺席时什么都不改。
-      // 2026-10-17：把主进程给的 hint（为什么 + 下一步）拼进提示，用户才知道该重试还是该重新登录。
+      // 三态契约：既非有效也非失效 = 本轮未取到定论 —— 不得冒充「已失效」弹出去登录引导，
+      // 也不得反向清除既有失效标记（证据缺席时什么都不改）。2026-10-17 起把主进程 hint 拼进提示。
       const hintKey = result?.data?.hint?.key
       const detail = (hintKey && te(hintKey)) ? t(hintKey) : ''
       notifyInfo('accountsPage.loginUnconfirmed', {
@@ -1023,9 +1025,9 @@ async function batchCheckAllLogins () {
     batchCheckElapsedSec.value = Math.max(0, Math.floor((Date.now() - batchCheckStartedAt) / 1000))
   }, 1000)
   verifyingIds.value = new Set(accounts.map(a => a.id))
-  notifyInfo('accountsPage.batchCheckAllStarted', { params: { count: accounts.length } })
-  // 订阅主进程进度事件（accounts:batch-check-progress）：主进程在每个账号
-  // 开始检测前推 start、完成后推 done，渲染层据此维护「正在检测哪些平台」。
+  // 2026-10-22：删「开始检测 N 个账号…」这条 info toast —— 进度已由同一 v-if 的全屏遮罩承载，
+  // 它在遮罩底层不可读，且是 4 条 toast 的第 1 条；删掉后用户只需读终态那一条。
+  // 订阅主进程进度事件：主进程在每个账号开始前推 start、完成后推 done，据此维护「正在检测哪些平台」。
   const api = getApi()
   let offProgress = null
   try {
@@ -1054,17 +1056,15 @@ async function batchCheckAllLogins () {
     const invalidIds = []
     let unconfirmedCount = 0
     const persistFailedIds = []
-    // 2026-10-17：未确认/失败账号的「下一步动作」聚合。参考产品B 把平台错误码翻译成
-    // 可执行提示（2190008→重新授权），我们这里把 reason 翻译成"重试 or 重新登录"，
-    // 让汇总行不只是报数，而是告诉用户接下来该做什么。
+    // 2026-10-17：未确认/失败账号的「下一步动作」聚合（reason → 重试 or 重新登录）；
+    // 2026-10-22 起这两组 id 并进汇总句（不再单独弹 toast）。
     const reloginIds = []
     const retryIds = []
     const checkedAt = result.data?.checkedAt || new Date().toISOString()
     for (const item of results) {
       if (!item?.accountId) continue
-      // 三态口径：valid === true 正常 / valid === false 失效 / valid === undefined 本轮未取到定论。
-      // 未取到定论既不计入失效数量、也不加入失效集合 —— 不冒充任何一侧结论；
-      // 且主进程此时不会改写真源，loginStatus 回传的是**保持后的原状态**（单向证据规则）。
+      // 三态口径：valid===true 正常 / false 失效 / undefined 本轮未取到定论。未取到定论既不计入
+      // 失效数量、也不加入失效集合 —— 不冒充任何一侧结论；此时主进程不改写真源（单向证据规则）。
       if (item.valid === true) {
         validCount++
         checkedExpiredIds.value.delete(item.accountId)
@@ -1075,40 +1075,44 @@ async function batchCheckAllLogins () {
         unconfirmedCount++
         checkedExpiredIds.value.delete(item.accountId)
       }
-      // hint.action：relogin=要重新登录 / retry=稍后重试；两者处置不同，不能混在一句里
       if (item.hint && item.hint.action === 'relogin') reloginIds.push(item.accountId)
       else if (item.hint && item.hint.action === 'retry') retryIds.push(item.accountId)
       const account = accounts.find(a => a.id === item.accountId)
       if (account) {
-        // 这里只做本次会话的乐观展示。持久化由主进程在 accounts:batch-check-login
-        // 内部通过 AccountManager.persistLoginState 单点写回后端 accounts.json。
-        // 渲染层不得再自行写 status —— 历史实现写的是 Electron 本地 SQLite
-        // （store:update-account），而读取端是后端 accounts.json，两边 id 都不互通，
-        // 这正是「一键检测后重进账号页又显示已登录」的根因。
-        // 状态只跟随主进程真源结论：loginStatus 缺席（现状读不到）时保持原样，
-        // 渲染层不再从 valid 三元推导，否则单向证据规则在展示层又被绕开一次。
-        if (item.loginStatus) account.status = item.loginStatus
+        // 这里只做本次会话的乐观展示。持久化由主进程 accounts:batch-check-login 内部
+        // AccountManager.persistLoginState 单点写回后端 accounts.json；渲染层不得再自行写 status
+        // —— 历史实现写 Electron SQLite 而读端是后端 JSON，正是「一键检测后重进又显示已登录」的根因。
+        // 优先级：主进程 loginStatus（真源现状）> 检测三态结论 > 不动。原实现只有第一级，
+        // 主进程 readAccountSnapshot 读不到现状时 loginStatus 为 null ⇒ 整段跳过 ⇒ 徽章一动不动。
+        // ⚠️ 中间级的门控是 `statusChanged === true`（主进程本轮确已改写真源），不是"loginStatus 缺失"：
+        // null 有「真没有现状」与「读取失败」两种含义、渲染层无法区分，只有真源确被改写成某结论而
+        // 回传 loginStatus 却缺失时，用 valid 兜底才等价（展示值 == 刚落盘的值）；statusChanged 为
+        // false 一律不碰卡片（"用过期 valid 覆盖真源"的风险路径）。依据 CCG 评审 i1/i4，契约见 PRD §20.5.1。
+        if (item.loginStatus != null && item.loginStatus !== '') {
+          account.status = item.loginStatus
+        } else if (item.statusChanged === true && item.valid === true) {
+          account.status = 'active'
+        } else if (item.statusChanged === true && item.valid === false) {
+          account.status = 'expired'
+        }
         // 未改写真源时不得本地伪造一个新的定论时间，否则「最近检查」会指向一次没有结论的检测
         if (item.statusChanged !== false) account.last_validated = checkedAt
       }
       if (item.persisted && item.persisted.ok === false) persistFailedIds.push(item.accountId)
     }
-    if (invalidIds.length === 0 && unconfirmedCount === 0) {
-      notifySuccess('accountsPage.batchCheckAllAllValid', { params: { count: validCount } })
-    } else {
-      notifyWarning('accountsPage.batchCheckAllDone', { params: { valid: validCount, invalid: invalidIds.length, unconfirmed: unconfirmedCount } })
-    }
-    // 未确认/失败的「下一步」单独一条：把"该重新登录"与"该稍后重试"分开说，
-    // 否则用户只看到数字、不知道哪些账号要自己动手。
-    if (reloginIds.length > 0 || retryIds.length > 0) {
-      const parts = []
-      if (reloginIds.length > 0) parts.push(t('accountsPage.checkHintsSummaryRelogin', { count: reloginIds.length }))
-      if (retryIds.length > 0) parts.push(t('accountsPage.checkHintsSummaryRetry', { count: retryIds.length }))
-      notifyInfo('accountsPage.checkHintsSummary', { message: parts.join('；') })
-    }
-    if (persistFailedIds.length > 0) {
-      // 固化失败必须可见，否则用户会再次遇到「检测过了但重进又变回去」。
-      notifyError('accountsPage.batchCheckAllPersistFailed', { params: { count: persistFailedIds.length } })
+    // ── 结果提示：一次点击只弹一条（2026-10-22 fix-batch-check-toast-unify）──
+    // 原实现弹 4 条：汇总只报数不说下一步，「0 个失效」与「5 个账号需要重新登录」同屏被读成矛盾，
+    // 固化失败的红色 error 又被读成「整个检测失败」。开始检测那条已删（进度由遮罩承载）；
+    // 装配逻辑（段序/空段/定级）下沉到 ./batch-check-summary.js（本文件零增长容差）。
+    const summary = buildBatchCheckSummary({
+      validCount, invalidCount: invalidIds.length, unconfirmedCount,
+      reloginCount: reloginIds.length, retryCount: retryIds.length,
+      persistFailedCount: persistFailedIds.length,
+      t,
+    })
+    if (summary) {
+      if (summary.level === 'success') notifySuccess('accountsPage.batchCheckAllAllValid', { message: summary.message })
+      else notifyWarning('accountsPage.batchCheckAllDone', { message: summary.message })
     }
   } catch (error) {
     notifyError('accountsPage.batchCheckAllFailed', { message: formatUserError(error, { fallback: t('accountsPage.batchCheckAllFailed') }).message })

@@ -1,0 +1,95 @@
+{
+  "sha": "85dc44ddc097f4421cc609606d79d2ed683f43a6",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1639 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1639,
+    "fileCount": 10,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "> 同时如实记录其**与我们不同**的选择：参考产品B 保留了「后台自动重登窗口」（`backgroundautoreloginwnd`），并把用户账号密码注入平台登录页模拟点击。我们**不采用**这两条（安全 / 合规 / 风控三重风险），维持\"默认关闭 + 用户手动重新登录\"的口径。",
+      "> 同时如实记录其**与我们不同**的选择：参考产品B 保留了「后台自动重登窗口」（`backgroundautoreloginwnd`），并把用户账号密码注入平台登录页模拟点击。我们**不采用**这两条（安全 / 合规 / 风控三重风险），维持\"默认关闭 + 用户手动重新登录\"的口径。",
+      "4. **本文档 §19 存在三份逐字重复副本**（第 502-601、602-706、707-806 行，均以 `## 19. 2026-10-17 变更：登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离` 开头）。这是**本次修复之前就存在的结构性债务**（历史 PR 重复追加所致），本次不改——删副本会与\"只做本主题改动\"冲突，且需确认哪一份是权威版。已登记为后续 change。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bef9b956d7f126e10316f05fa60f7c5c46df5e333fa2ba4b4857ba67e5c87677",
+  "decidedAt": "2026-10-22T06:55:25.370Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-497ffb45\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
+    "at": "2026-10-22T07:03:58.052Z",
+    "tier": "self-play",
+    "closureNote": "round=1（自扮演第三档出口，confidenceWeight=0.6）。8 条评审意见全部给出 verdict：i1(Critical/auth) upheld 已收窄修复（兜底门控由「loginStatus 缺失」改为 statusChanged===true，补 2 条回归锁，修复前该用例红、修复后 135/135 绿）；i4(auth) upheld 已修（item.loginStatus 改 != null && !== 空串，补空串回归锁）；i2(auth) upheld 已补登记（5 个失效 locales 键逐条标注保留理由 + PRD §20.7 与 records §8.4 登记；不采纳本 PR 内删除——删 batchCheckAllPersistFailed 会实时破坏首页横幅 useExpiredAccountsBanner.js:63）；i6/i8(Info) upheld 已补可复跑命令与关键读数（records §6 门禁表 + §5 探针表逐条补用例名）；i3(datamigration) dismissed 有反证（vitest include 首条 src/**/*.test.{js,ts} 是新文件自动纳入的 glob，且显式指定路径实跑 19/19 非 skipped，三条被点名断言逐条核对均在）；i5(PRD §19 三份重复副本) dismissed 属独立 change 范围（已精确定位行号区间并登记两处，维持一个 PR 一个主题）；i7(共享 mock 头部重复) dismissed 属独立重构（抽 fixtures 要同时改两文件 vi.mock/vi.hoisted 提升结构，已登记 records §8.4 第 3 条）。⚠️ i1 属 auth 高危域，按 adjudication.json 要求仍需 claude 外部复核并填 externalReview 三格，本记录如实留空不冒充闭环——PR 评论已说明这一点。产物：.adversarial/ccg-deep-497ffb45/{critique-v1.md,adjudication.json}。"
+  }
+}
