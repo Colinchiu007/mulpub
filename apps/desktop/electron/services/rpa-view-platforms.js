@@ -365,7 +365,7 @@ const platformsMixin = {
           }
         } else {
           log.warn('RpaView', '[' + platform + '] content editor not found among ' + cs.length + ' candidates')
-          fillReport.content = { ok: false, error: 'content editor not found among ' + cs.length + ' candidates' }
+          if (!(fillReport.content && fillReport.content.ok)) fillReport.content = { ok: false, error: 'content editor not found among ' + cs.length + ' candidates' }
         }
       }
     }
@@ -391,7 +391,8 @@ const platformsMixin = {
         // closes; prefer the configured selector, then fall back to the
         // platform selector without requiring the trigger to succeed.
         try {
-          await this._setFileInput(win, article.cover_path, coverSel)
+          // 视频号：必须走纯 CDP（_setFileInput 的 JS fallback 对 file input 必抛）
+          await (platform === 'tencent_video' ? require('./toutiao-cover').setFileViaCdp(win, article.cover_path, coverSel) : this._setFileInput(win, article.cover_path, coverSel))
         } catch (coverError) {
           if (platform !== 'baijiahao' || !sel.cover_input || sel.cover_input.length === 0) throw coverError
           await require('./toutiao-cover').setFileViaCdp(win, article.cover_path, sel.cover_input[0]) // 纯 CDP：_setFileInput 的 JS fallback 对 file input 必抛（FileList 只读），视频号封面曾因此 Script failed to execute
@@ -1401,9 +1402,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
 
   async _publish_zhihu(win, article) {
     this._emitProgress('zhihu','navigating to write page...',5)
-    // 2026-09-29 图文发布修复（实测取证）：www.zhihu.com/creator/write 落地页与
-    // .WriteIndex-titleInput 等选择器失配（15s 超时全灭）；zhuanlan.zhihu.com/write
-    // 实测选择器全命中（LABEL.WriteIndex-titleInput 包 TEXTAREA.Input +；.public-DraftEditor-content[contenteditable] + 发布 button）。
+    // 2026-09-29 图文发布修复（实测取证）：www.zhihu.com/creator/write 落地页与；.WriteIndex-titleInput 等选择器失配（15s 超时全灭）；zhuanlan.zhihu.com/write；实测选择器全命中（LABEL.WriteIndex-titleInput 包 TEXTAREA.Input +；.public-DraftEditor-content[contenteditable] + 发布 button）。
     await this._navigateAndWait(win,'https://zhuanlan.zhihu.com/write')
     if (win.webContents.getURL().includes('signin')||win.webContents.getURL().includes('login'))
       { log.warn('RpaView', '[zhihu] not logged in url=' + win.webContents.getURL()); return {success:false,error:'zhihu not logged in',platform:'zhihu'} }
