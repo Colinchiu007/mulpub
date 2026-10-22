@@ -1,5 +1,5 @@
 {
-  "sha": "1fe0ec06aed156f55a443fc5246c514a232d900b",
+  "sha": "07989a47a6ba20bd47657e3b938fdd756c4989b8",
   "layer": "diff",
   "mode": "skip",
   "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
@@ -19,7 +19,7 @@
     "lineReadGaps": []
   },
   "stagedDiffHash": "3efee9c1cee8793df01fbd0022e1800be0632fffb1a2cccb93a029f0ee0d0bd6",
-  "decidedAt": "2026-10-22T23:02:07.999Z",
+  "decidedAt": "2026-10-22T23:24:15.541Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
     "proposer": "opencode",
