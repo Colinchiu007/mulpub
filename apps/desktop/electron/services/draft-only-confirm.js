@@ -75,8 +75,7 @@ const CONFIRM_TIMEOUT_MS = 20000
 // （①跑完再 await 它，若窗口短于①就会在自己还在等的时候就超时收摊）。
 const SAVE_RESPONSE_TIMEOUT_MS = 30000
 // ③ 兜底复核：整页 goto 贵，窗口短、只跑一次。
-// 强判据的时间窗：只认本次流程开始后创建的草稿（30 分钟），避免同名旧草稿造成假阳性
-const IDB_WINDOW_MS = 30 * 60 * 1000
+const IDB_WINDOW_MS = 30 * 60 * 1000 // 只认本次流程 30 分钟内创建的草稿，防同名旧草稿假阳性
 const RECHECK_TIMEOUT_MS = 8000
 const RECHECK_INTERVAL_MS = 1500
 const POLL_INTERVAL_MS = 1500
@@ -144,22 +143,6 @@ async function waitForDraftBoxIncrement (host, win, counterSel, baseline, timeou
     await host._sleep(intervalMs || POLL_INTERVAL_MS)
     let read = null
     try { read = await readDraftBoxCounter(win, counterSel) } catch (_) { /* 保持 null：读数坏掉不等于没增长 */ }
-    // 强判据（真机 2026-10-22）：小红书草稿落在**本地 IndexedDB**（draft-database-v1），
-    // 不在服务端、也无网络请求，所以「计数增量」与「保存响应」都可能读不到。
-    // 这里优先看草稿列表是否出现含本次标题且时间戳在本次流程内的条目。
-    if (!out.increment && title) {
-      try {
-        const idb = await require('./xhs-draft-store').findDraftByTitle(win, title, { minTimeStamp: Date.now() - IDB_WINDOW_MS })
-        if (idb.ok) {
-          out.increment = true
-          out.titleSeen = true
-          out.evidence = 'idb-title-match'
-          log.info('RpaView', '[xiaohongshu] 草稿强判据命中 title=' + String(title).slice(0, 30) + ' draftId=' + String(idb.draftId) + ' total=' + idb.total)
-        }
-      } catch (e) {
-        log.warn('RpaView', '[xiaohongshu] IndexedDB 判据异常（按未确认继续轮询）: ' + ((e && e.message) || e))
-      }
-    }
     if (read !== null && read !== undefined) {
       now = read
       if (now > baseline) return true
@@ -210,6 +193,10 @@ async function recheckDraftBox (host, win, title, baseline, counterSel, boxUrl, 
     if (read !== null && read !== undefined) {
       counterReadable = true
       if (!out.increment && baseline !== null && baseline !== undefined && read > baseline) out.increment = true
+    }
+    // 强判据：小红书草稿在本地 IndexedDB（无网络请求），直接查草稿列表
+    if (!out.increment && title) {
+      try { const idb = await require('./xhs-draft-store').findDraftByTitle(win, title, { minTimeStamp: Date.now() - IDB_WINDOW_MS }); if (idb.ok) { out.increment = true; out.titleSeen = true; out.evidence = 'idb-title-match' } } catch (_e) { /* IndexedDB 不可读按未确认，继续轮询 */ }
     }
     // 辅助证据：列表里的同名条目（**不给确认权**，且需存在性前提）
     if (!out.titleSeen && title && counterReadable) {
