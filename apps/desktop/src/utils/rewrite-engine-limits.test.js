@@ -172,13 +172,18 @@ describe('buildRewriteLengthOptions — 长度下拉文案带目标字数（fix-
     expect(options[2].label).toContain('2500')
   })
 
-  it('真实 resolveNotifyText 会插值：文案里不得残留 {count} 占位符', () => {
-    // 若真实插值函数不支持 params，这条会红（UI 上就会露出 "{count}"）
-    const raw = resolveNotifyText('collection.rewriteLengthCompress', { count: 800 }).text
-    expect(raw).not.toContain('{count}')
-    expect(raw).toContain('800')
+  it('真实 resolveNotifyText 会插值：三档都验，文案里不得残留 {count} 占位符', () => {
+    // 若真实插值函数不支持 params，这条会红（UI 上就会露出 "{count}"）。
+    // 必须**三档都验**：只验 compress 会漏掉「只有某档的 key 不支持插值」的情况。
+    for (const value of ['keep', 'compress', 'expand']) {
+      const key = `collection.rewriteLength${value[0].toUpperCase()}${value.slice(1)}`
+      const raw = resolveNotifyText(key, { count: LENGTH_TARGET_CHARS[value] }).text
+      expect(raw, `${key} 的真实文案未取到`).toBeTruthy()
+      expect(raw, `${key} 的文案残留 {count} 占位符`).not.toContain('{count}')
+      expect(raw, `${key} 的文案未含目标字数`).toContain(String(LENGTH_TARGET_CHARS[value]))
+    }
     for (const o of buildRewriteLengthOptions(resolve)) {
-      expect(o.label).not.toContain('{count}')
+      expect(o.label, `${o.value} 档标签残留 {count}`).not.toContain('{count}')
     }
   })
 
