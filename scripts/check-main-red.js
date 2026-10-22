@@ -213,6 +213,13 @@ function createGhCollector (repo) {
    * 单次重试 2 次、间隔 1.2s：成功率从 ~80% 提到 ~99.2%，整体 10 次串行从 ~10% 提到 ~92%。
    */
   const TRANSIENT_RE = /wsarecv|ECONNRESET|ETIMEDOUT|socket hang up|\bEOF\b|\btimeout\b|\b50[234]\b/i
+  /**
+   * 「确定性错误」标记（外部评审 #2/#4）。命中即**立刻抛、不重试**。
+   * 动因：`TRANSIENT_RE` 是子串匹配，而 gh 的 stderr 里可能把瞬时词带进确定性错误
+   * （实测形态：404 的说明里含 "timeout"）。不先判这一类，就会把「路径写错」当成
+   * 「网络抖动」，白等 3 轮 × 1.2s 才抛出 —— 把确定性失败拖成慢失败。
+   */
+  const DEFINITE_RE = /\b(401|403|404)\b|Not Found|Bad credentials|Resource not accessible|Could not resolve to a/i
   const run = (args, opts = {}) => {
     const retries = opts.retries == null ? 2 : opts.retries
     let lastErr = null
@@ -220,10 +227,22 @@ function createGhCollector (repo) {
       const r = cp.spawnSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
       if (r.error) throw new Error('gh 无法启动：' + r.error.message)
       if (r.status === 0) return r.stdout
-      lastErr = new Error('gh ' + args.slice(0, 2).join(' ') + ' rc=' + r.status + ' err=' + String(r.stderr || '').slice(0, 300))
-      if (attempt >= retries || !TRANSIENT_RE.test(String(r.stderr || ''))) throw lastErr
-      // 同步睡：本函数在 spawnSync 的同步上下文里被调用，用 Atomics.wait 比忙等省 CPU
-      try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200) } catch (_) { /* 环境不支持则直接重试 */ }
+      const stderr = String(r.stderr || '')
+      lastErr = new Error('gh ' + args.slice(0, 2).join(' ') + ' rc=' + r.status + ' err=' + stderr.slice(0, 300))
+      // ⛔ 先判「确定性错误」（外部评审 #2/#4）：`TRANSIENT_RE` 是**子串**匹配，而 gh 的错误文本
+      //    可能把瞬时词带进确定性错误里 —— 实测形态：404 的 documentation_url / 说明里含 "timeout"，
+      //    于是「路径写错」被当成「网络抖动」重试，白等 3 轮 × 1.2s 才抛出，把确定性失败拖成慢失败。
+      //    凭据/权限/找不到三类一律立刻抛，不重试。
+      if (attempt >= retries || DEFINITE_RE.test(stderr) || !TRANSIENT_RE.test(stderr)) throw lastErr
+      // 同步睡：本函数在 spawnSync 的同步上下文里被调用，Atomics.wait 不占 CPU。
+      // ⛔ 不得「不支持就不睡直接重试」（外部评审 #3）：那会让 3 次调用背靠背发出，
+      //    在本来就 429/限流的场景下**加速**触发限流。退化路径必须是**带截止时间的忙等**。
+      const until = Date.now() + 1200
+      try {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200)
+      } catch (_) {
+        while (Date.now() < until) { /* 忙等兜底，保证间隔仍在 */ }
+      }
     }
     throw lastErr
   }
