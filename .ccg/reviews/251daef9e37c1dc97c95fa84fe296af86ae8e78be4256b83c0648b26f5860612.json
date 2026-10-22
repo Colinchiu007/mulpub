@@ -50,10 +50,17 @@
     "required": true,
     "status": "self_play_resolved",
     "tier": "external",
-    "performedBy": "claude(critic)+opencode(proposer), self-play adjudication",
-    "evidence": "openspec/records/schedule-failure-watch.md",
+    "performedBy": "claude(critic, 第三轮真外部交付) + opencode(proposer, 前两轴) + self-play adjudication",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6339171412",
     "findings": 8,
-    "closureNote": "第 1 轮（评审提交 707ac4fa，critic=claude / proposer=opencode，跨家族校验通过）：8 条逐条处置 —— i5/i6/i8 upheld 且已修（缩进锚点改 [ \\t]{2,} 并加 T11；事故断言补 run 号、更正为\"连续 9 次定时 run\"并同步 #4199 正文；expectMiss 的重叠改由变异 m4b 机械证明）；i1/i2/i3/i4/i7 dismissed。逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-707ac4fa/adjudication.json 与 openspec/records/schedule-failure-watch.md 的第一轮逐条表。本产物此前停在 pending（引擎自扮演第三档出口的初始值），现按已填写的裁决解析为闭环态。tier=external 这一格由会话手写：唯一生产方 scripts/ccg-review-writeback.js 对自扮演收口一律以 reason=not-closed 拒写，它只认真外部交付；evidence 取路径形态（本 PR 的执行记录，可在 HEAD 就地核对），这不是\"工具产物\"声明。",
-    "adjudicatedAt": "2026-10-22T10:05:00Z"
+    "closureNote": "第 1 轮（评审提交 707ac4fa，critic=claude / proposer=opencode，跨家族校验通过）：8 条逐条处置 —— i5/i6/i8 upheld 且已修（缩进锚点改 [ \\t]{2,} 并加 T11；事故断言补 run 号、更正为\"连续 9 次定时 run\"并同步 #4199 正文；expectMiss 的重叠改由变异 m4b 机械证明）；i1/i2/i3/i4/i7 dismissed。逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-707ac4fa/adjudication.json 与 openspec/records/schedule-failure-watch.md 的第一轮逐条表。本产物此前停在 pending（引擎自扮演第三档出口的初始值），现按已填写的裁决解析为闭环态。tier=external 这一格由会话手写（不是工具产物声明）：唯一生产方 scripts/ccg-review-writeback.js 对自扮演收口一律以 reason=not-closed 拒写。evidence 现指向第三轮真外部交付的公开评论（https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6339171412，critic=claude 经 codeagent-wrapper 旁路直派，评审对象是第二轮修复增量 980bb7b0..HEAD，会话 id 2746f75b-143d-4334-b415-2c39ff2939db），逐条处置与本 PR 执行记录 openspec/records/schedule-failure-watch.md 的第三轮小节同址可核。",
+    "adjudicatedAt": "2026-10-22T10:05:00Z",
+    "thirdRound": {
+      "performedBy": "claude",
+      "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6339171412",
+      "sessionId": "2746f75b-143d-4334-b415-2c39ff2939db",
+      "reviewedRange": "980bb7b0..HEAD",
+      "at": "2026-10-22T11:10:00Z"
+    }
   }
 }

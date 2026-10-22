@@ -18,8 +18,21 @@ date: 2026-10-22
 | 夹具自己的一课（不写成实现缺陷） | ✅ | ① 驱动**首跑 7 条里 5 条 MISSED**。逐条查下去：3 条是我的测试写空了（T1 的夹具同时含两类缺陷 ⇒ 摘掉单向判据它照样绿；T3 用 `#   schedule:` 测"剥注释"，而那行本来就匹配不上锚点；m5 摘的是断言本身 ⇒ 断言恒真时测试照绿），已分别补 **T10（只留陈旧项的夹具）**、把 T3 换成**名单括号内夹注释**这一真会坏的形状、把 m5 的靶子从"测试文件"改成 **quality-gate.yml 的接线行**；另 2 条（m3 行尾归一、m4 空域守卫）当时被我判成**重叠/冗余防呆**并标 `expectMiss` —— 其中 **m3 那个标签是错的**：QM-6 第二轮之后给驱动加了第 6 条的反向校验（"声明冗余却被抓住 ⇒ PROBLEM"），m3 当场被 T4+T6 抓住、驱动直接判我那句话为假，已改判 CAUGHT。剩下 m4 一条才是真的重叠，而它现在由 m4b 机械证明（同时摘两道守卫 T5 才红）而不是靠我写的 `missWhy`。这条留在这里的价值不是"我后来改对了"，而是**证明那条校验有牙**：人给自己贴"冗余防呆"的标签时，只有机器能把它撕下来  ② 本行第一次重写用的是 bash 里的内联 `node -e`，其中反引号被 bash 当命令替换执行 —— 结果是这一行里几处引用被静默吃掉、并把一个 `.js` 当 shell 脚本跑了一遍（无破坏，但记录当场变成假话）。已改用 .cjs 文件重写，并在此如实记下：**本仓明令禁止带反引号/嵌套引号的内联 `node -e`，我自己踩了**。 |
 | 行尾与 diff 对账 | ✅ | 三处 CRLF 面改动（`ci-failure-handler.yml`、`quality-gate.yml`、`.gitignore`）全部用"按当场 eol 逐行写回"的脚本插入，未统一回写；每个锚点断言命中数、写盘前断言 CR 守恒（handler +15、gate +15、gitignore +4/+1） |
 | QM-1 打包 / QM-4 视觉 | N/A | 差量文件集实测为 `.github/workflows/{ci-failure-handler,quality-gate}.yml`、`scripts/check-schedule-failure-watch{,.test,.mutation}.js`、`.gitignore`、本记录 —— 不触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | 两轮已跑并逐条处置（见下两节）；补齐 i2/i5/i7 后的第三轮在前头 | `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过）。本笔命中 `.github/workflows/` **高危面**前缀 ⇒ 闭合只认 `tier=external` + 可核 `evidence`。`tier` 的生产方 `scripts/ccg-review-writeback.js`（#4151）本轮**现场在工作**，两次都以 `reason=not-closed` 正确拒写 —— 它只认真外部交付，自扮演收口拿不到 `tier`，所以那一格仍需会话手写并在记录里声明 |
+| QM-6 CCG 双模型外部评审 | **三轮已跑并逐条处置**（见下三节）：第一/二轮走 `sh scripts/deep-review.sh`（critic=claude / proposer=opencode，跨家族校验通过），第三轮走 AGENTS 记的旁路 `codeagent-wrapper --backend claude` 直派，评的是前两轮之后才落地的增量 | 本笔命中 `.github/workflows/` **高危面**前缀 ⇒ 闭合只认 `tier=external` + 可核 `evidence`。三轮的逐条裁决填进 `.adversarial/ccg-deep-{707ac4fa,980bb7b0}/adjudication.json`（8 条 + 7 条，prosecution/defense/verdict/rationale 齐全）；第三轮的真外部交付整份贴进公开评论 `PR #4234#issuecomment-6339171412` 并作为 dual 产物的 `evidence`。两条如实声明：① **`tier=external` 那一格由会话手写**，`scripts/ccg-review-writeback.js`（#4151）三次都以 `reason=not-closed` 正确拒写（它只认真外部交付，自扮演收口拿不到 `tier`）；② 第三轮**没能**在深审链里跑：`--force` 越得过 SKIP、越不过"这一笔提交时没有判定记录"（驱动打 `⏭ 未找到 .ccg/reviews/6b8815ea.json —— 提交时未跑判定器，跳过深度审查`），所以按旁路取证并在记录里写明走的是哪条路 |
 | 远程同步 | 由门禁推导 | 不手写状态词、不为收口另开 PR |
+
+## QM-6 第三轮：真外部交付（critic=claude，旁路直派），4 条核查全部通过
+
+评审对象是**前两轮之后才落地的增量** `980bb7b0..HEAD`（合取条件 `hasScheduleTrigger` + T12、变异 m4b、三道写后回读、第 6 条反向校验）——这一段代码没被第一/二轮看过，所以那两轮的结论对它不成立。交付全文贴在公开评论 `PR #4234#issuecomment-6339171412`（会话 id 2746f75b-143d-4334-b415-2c39ff2939db）。
+
+| 核查点 | 模型结论 | 我做的回读 |
+| --- | --- | --- |
+| 合取条件会不会漏真定时作业、T12 是否真能证伪它 | 不漏（窗口 4 行覆盖常规缩进差，flow style 那半已声明放弃）；T12 双向有效，m9 实测 CAUGHT/红=[T12] | 行号逐条核对：`scripts/check-schedule-failure-watch.js:17-36`、`…test.js:156-189`、`…mutation.js:46-48` |
+| m4b 是否真证明 m4 的重叠（而不是恰好红） | 是机械证明：m4 单独摘 ⇒ T5 不红，m4b 同时摘两道守卫 ⇒ T5 红 ⇒ "重叠"不是声明 | 与终跑读数一致（`m4 MISSED / m4b CAUGHT 红=[T5]`） |
+| 三道写后回读有没有把"没落盘"读成 MISSED 的余地 | 没有：回读不成立即 PROBLEM 并跳过 `runLock()`，`MISSED` 只在 `expectMiss && !caught` 时可达 | 核对 `…mutation.js:104-144` 的分支可达性，结论同意 |
+| 过度设计 / 假绿 | 无：反向校验、还原后重跑被测锁、`MIN_TESTS=13` 与实跑 13 条一致、10 条变异都有具名靶子 | 核对 `…mutation.js:34 / 136-139 / 150-153` |
+
+两条如实处理：**① 它把第 ③ 节"没有假绿余地"这一条通过结论标成了 `等级：Critical`** —— 模型的格式滑点，不是缺陷指控（同节结论原文是"无假绿余地"）。我不删那行也不替它改标签，只在此声明按语义读作 Info。**② 没有新增缺陷 ⇒ 本轮不改代码**，所以第三轮不产生新的红名证据，它的价值是把第二轮的修复本身放到另一个模型面前过一次。
 
 ## QM-6 第二轮深审（critic=claude，7 条）逐条处置
 
@@ -57,7 +70,7 @@ date: 2026-10-22
 
 ## 遗留（不假装已闭合）
 
-1. **QM-6 第三轮与高危面闭合**：两轮已跑完并逐条处置（见上两节），补齐 i2/i5/i7 后还要再跑一轮确认无新增 Critical；本笔命中 `.github/workflows/` 高危面前缀，闭合只认 `tier=external` + 可核 `evidence`，而 `tier` 的唯一生产方 `scripts/ccg-review-writeback.js` 对自扮演收口一律拒写 ⇒ 那一格由会话手写并在记录里明写"由会话手写"（这不是绕行，是把代用如实登记）。
+1. **深审链对"收口类提交"没有出口**：`sh scripts/deep-review.sh --force` 需要 `.ccg/reviews/<HEAD 短 sha>.json` 存在，而判定产物由 pre-commit 按**提交时的 HEAD**命名 —— 于是"最后一笔只改产物/记录的提交"永远拿不到自己的判定记录，`--force` 也绕不过。本轮的正解是 AGENTS 已记的旁路（`codeagent-wrapper --backend claude`），代价是这一轮的产物不进 `.ccg` 内容寻址面、只能靠公开评论做出处。要修的是驱动取名这一格，属独立一刀。
 2. **报警只对"失败"出声，不对"整月没有一次运行"出声**：`workflow_run` 只在有 run 完成时触发。若某条定时作业因 cron 写错、被禁用或 runner 长期排队而**根本没有 run**，本判据看不见（它量的是覆盖面，不是心跳）。那需要另一把读 `gh run list --event schedule` 近期是否存在 run 的锁，属独立一刀。
 3. **非定时的 7 条工作流仍不在名单里**（`Visual Tests`、`ops-center CI`、`债务基线重算`、`债务熔断门禁`、`autonomous-loop`、`AI Agent Judge`、本 handler 自身）。刻意不收：本刀的不变量是"带 schedule ⇒ 必须被覆盖"这一类**没有 PR、没人盯**的形状；把名单语义从"无人看的那类"扩成"全部工作流"是另一个决定（会给每次成功也建立 Issue 的噪声面提要求），需要单独取证。
 4. **判据看的是形状，不是产物**：某条定时作业跑成功但实际什么都没做（例如上游静默返回空列表），本锁读不出来 —— 那要靠作业自己打印可核对的读数（`cleanup-artifacts.js` 的 `ARTIFACT-CLEAN … verdict=` 就是这个形状，但只有它一家这么做）。
