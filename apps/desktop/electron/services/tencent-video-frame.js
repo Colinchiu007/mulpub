@@ -64,7 +64,7 @@ async function fillTencentVideo (win, data, opts) {
     + 'else{el.focus();el.textContent=v;el.dispatchEvent(new InputEvent("input",{bubbles:true}))}'
     + 'return String(el.value!==undefined?el.value:el.textContent).length'
     + '})()'
-  let descLen = -1
+  let descLen
   try { descLen = await frame.executeJavaScript(descCode) } catch (e) {
     if (log) log.warn('RpaView', '[' + platform + '] desc fill failed: ' + String(e && e.message).slice(0, 80))
     return { ok: false, step: 'desc-fill-failed' }
