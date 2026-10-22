@@ -57,10 +57,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4286#issuecomment-6353611201",
+    "reviewedAt": "2026-10-22T23:25:00Z",
+    "findings": 7,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对 wechat-native.js 改动与 mock E2E 测试独立审阅，原始输出逐字公开于 evidence。1 Critical + 4 High + 1 Medium + 2 Low，处置：①Critical「payload.code 在非对象上会崩」不成立（payload && payload.code 对字符串/数组只得到 undefined），但 200 带 truthy 非字符串 code 会误判 → 加固为对象+string+非空；②High「SIGN_ERROR 改 401」驳回——401 语义是终端用户未认证，这里是服务端没向微信认证，改 401 会让客户端误判会话过期触发重登，比 502 更糟；③High apiBase 无 scheme 校验采纳（只许 https，http 仅回环）；④High mock 里 assert 抛在回调会崩、客户端悬等采纳（try/catch 转 500 + seen.errors）；⑤High 缺 signature 时 verify(undefined) 抛 OpenSSL 采纳；⑥Medium keep-alive 导致 close 挂起采纳（closeAllConnections）。另记一条自省：第一版变异没红因为测试数据用了 code:0（falsy），换 truthy 的 code:42 才区分开——变异反证本身也会假绿。11 例，变异四条均双向，全量 rc=0。"
   }
 }
