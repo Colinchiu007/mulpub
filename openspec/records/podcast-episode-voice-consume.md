@@ -12,7 +12,7 @@ date: 2026-10-21
 | 隔离 | worktree `<仓库父目录>/mp-worktrees/mp-podcast-episode-voice-consume`（本机落点由 `git worktree list` 现取），分支 `podcast-episode-voice-consume`，`verify-worktree-deps.js` OK |
 | 单测 | 4 个文件（host / episode-ipc / script-ipc / plan-preview-ipc）：**89 passed / 0 failed**。首跑曾报 87/2，那 2 条见下方「归因更正」——属跑法顺序，非仓库缺陷 |
 | QM-1 打包 | **PASS（第③层）**：`pnpm run build:dir` rc=0 → 以隔离 userData（`%TEMP%\mp-qm1-4200`）启动 `dist-electron/win-unpacked/Multi-Publish.exe`，子 env 经 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()` 剔除 `ELECTRON_RUN_AS_NODE`；12 秒 `alive=true`、**stderr 0 字节**、红线命中 0、配置/插件路径指向 asar=no、**DEP0180 命中 0**、stdout 22,696 字节（业务日志走 stdout，与 stderr 分道）；收尾按 PID 收口 `CLEANED pid=3604`，未按名字批量 kill |
-| QM-6 双模型 | 见下方「逐条处置」：8 条已裁决（3 upheld / 3 dismissed），i3 的记忆化已落、i2/i6 拆成 `tasks 4.5b⑤`；**但 `24792dc6` 那份 DUAL 产物的 status 仍是 `self_play_pending`，未收口** |
+| QM-6 双模型 | **已闭合（出口②）**：critic=claude 外部评审真跑（8 条 findings，最低维度分 3）⇒ 引擎进自扮演裁决档（权重 0.6），6 条逐条裁决 **3 upheld（i2/i3/i6）/ 3 dismissed（i1/i4/i5）**；upheld 的 i3 当场记忆化修复，i2/i6 拆成 `tasks 4.5b⑤` 并附三条验收判据。产物 `24792dc6…json` 的 `deepReview.status` 由 `self_play_pending` 收为 `self_play_resolved`，`closureNote` 含轮次标记与逐条处置；`node scripts/check-pr-exec-record.js --mode=enforce` 现返回 **OK**。⛔ 如实标注：`tier=external` 仍是手写代用（全仓无生产方写该字段），且裁决那一半是自扮演而非跨家族复核，不得读成「双模型已交叉收敛」 |
 | 远程同步 | 由门禁推导 |
 
 - 保留门禁：行尾对账 PENDING | 品牌残留 N/A（无新增文档文案） | 文档同步 PENDING | 远程同步 PR #NNNN
