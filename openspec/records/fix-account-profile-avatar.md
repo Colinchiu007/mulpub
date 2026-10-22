@@ -8,7 +8,7 @@ date: 2026-10-22
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | 运行时代码 | 隔离 worktree `D:\Data\projects\mp-worktrees\mp-fix-account-profile-avatar`，裸分支 `fix-account-profile-avatar`；共享根保持 main + clean，未在其运行时路径落盘 |
+| 变更类型与隔离 | 运行时代码 | 隔离 worktree `<仓库父目录>/mp-worktrees/mp-fix-account-profile-avatar`（裸分支 `fix-account-profile-avatar`，非系统盘）；共享根保持 main + clean，未在其运行时路径落盘 |
 | 第一性原因（QM-5 ①） | 4 条架构性缺口 | ①**资料契约里没有头像这一格**（`extract` 只声明 nickname/followers/platformAccountId，`shapeInfoResult` 只搬这三个键）⇒ 走 HTTP 快路径的账号头像**无处可落**；②**登录判定端点被反向绑死成资料端点**（抖音判定端点真实响应是顶层 `{status_code,uid}`、无 user 对象 ⇒ 判定恒不确定 ⇒ 快路径恒不成立 ⇒ 提取恒空 ⇒ 昵称恒回落平台名；小红书从 SSR HTML 取 `data-account-id` 实测取不到且无 `check`）；③**DOM 头像兜底链末端抓 `og:image` = 站点品牌图**（头条号 og:image = `obj/mp/logo-toutiao.png`），落盘后因「值不变就不写」永不覆盖；④**粉丝数与昵称常在不同端点**，旧结构只允许「一端点一 extract」 |
 | 逃逸分析（QM-5 ②） | 6 环 | ①采集能力已存在但形状缺头像 → ②HTTP 快路径成主路径（无 DOM） → ③契约无 avatar 位置（补采也无处落） → ④昵称取数绑定判定端点（端点选错/缺判定） → ⑤og:image 兜底抓到品牌图 → ⑥存量账号无「重新采集资料」入口。**每环都有「看起来对」的实现**（有 extract、有 check、有兜底、有落盘），故不报错、不变红 |
 | 修复 + 回归保护（QM-5 ④） | 见下 | 新增品牌图判据模块 + 资料来源表；移除 og:image 兜底；头像改候选列表 + Node 侧择优；资料契约纳入 avatar；抖音判定补顶层 uid 口径；小红书登记 JSON 判定端点；渲染层加「原因 + 下一步」提示 |
@@ -70,6 +70,14 @@ date: 2026-10-22
    支持 `responseType:'html'` 与 `uidSource:'cookie'`）；`shapeInfoResult` 纳入 `avatar`；
    抖音 `check` 补顶层 uid 口径；小红书登记 JSON 判定端点（uid 改由 `data.userId` 产出，**保持既有 uid 语义**）；
    新增 `parseWechatMpIdentity`（公众号昵称与 uin 的唯一解析实现，两表共用）。
+   **配套拆分（CI 门禁强制）**：本轮把该文件从 480 行推到 871 行，触发逐文件行数门禁
+   `NEW_OVER_LIMIT`（≥500 行阻断新代码引入超大文件）⇒ 资料来源表与抓取入口拆到新模块
+   `apps/desktop/electron/publishers/http-profile-api.js`（480 行），本文件回到 419 行。
+   依赖方向**单一**：http-login-checker → http-profile-api（反向 require 会成环）；
+   `toCount` / `parseWechatMpIdentity` / `cookiesToHeader` / `HTTP_TIMEOUT_MS` 随之搬到新模块
+   （各一份实现，不复制），http-login-checker 再导出 `HTTP_PROFILE_APIS` 与
+   `fetchAccountInfoViaHttpApi`，**既有调用面不变**（account-profile-refresh / 测试 / 结构锁
+   照旧从 http-login-checker 取）。
 4. **改** `apps/desktop/electron/publishers/account-profile-refresh.js` — `refreshProfileFromHttpApi`
    把 `avatar` 一并交给 `buildProfilePatch`。
 5. **改** 渲染层 `AccountManagementCard.vue` + `locales/accounts-page/{zh,en}.js` —
