@@ -38,6 +38,8 @@ const {
 const {
   runAutoBatch, regenerateOneShot, collectMissingShots, autoRunIdFor, shotFileName,
 } = require('../services/film-engineering/auto-runner')
+// 第 12 轮 i6：重开项目时用**当前** kit 重算提示词资产哈希 ⇒ 检出「资产已变」
+const { buildPlanPromptContext } = require('../services/film-engineering/shot-prompt-task')
 const {
   runProduction, loadLedger, resolveResumePlan, buildRenderManifest, PRODUCTION_BATCH_SIZE: DRIVER_BATCH_SIZE,
 } = require('../services/film-engineering/production-driver')
@@ -66,6 +68,52 @@ function defaultProbe (runId, count) {
     if (!fs.existsSync(path.join(dir, shotFileName(i)))) missing.push(i)
   }
   return { missing }
+}
+
+/**
+ * 方法论接入状态摘要（plan 级，只读面板用）。
+ *
+ * 命中数与阻断变量从**逐镜**的 promptMissing 汇总（填不填得上与资产有关，逐镜一致）；
+ * 缺资产时命中数会变少 —— 面板要如实显示，不能只报「7 个变量」的名目。
+ * @param {{shots: Array<object>, promptContext: object|null, stale?: boolean}} planned
+ * @returns {object|null}
+ */
+function buildMethodologySummary (planned) {
+  const ctx = planned && planned.promptContext
+  if (!ctx) return null
+  const shots = Array.isArray(planned.shots) ? planned.shots : []
+  const blocked = new Map()
+  let hit = null
+  for (const s of shots) {
+    const miss = Array.isArray(s.promptMissing) ? s.promptMissing : []
+    for (const m of miss) {
+      if (!blocked.has(m.name)) blocked.set(m.name, m.reason)
+    }
+    if (hit === null) {
+      const vars = s.promptVars && typeof s.promptVars === 'object' ? s.promptVars : {}
+      const filled = Object.keys(vars).filter(k => typeof vars[k] === 'string' && vars[k] !== '').length
+      hit = filled
+    }
+  }
+  return {
+    taskId: ctx.taskId,
+    locale: ctx.locale,
+    promptAssetHash: ctx.promptAssetHash,
+    totalVars: 7,
+    hitVars: hit === null ? 0 : hit,
+    deliverable: blocked.size === 0,
+    blockedVars: [...blocked.entries()].map(([name, reason]) => ({ name, reason })),
+    assetsIncomplete: ctx.assetsIncomplete === true,
+    frameConstraintPending: ctx.frameConstraintPending === true,
+    frameConstraintHash: ctx.frameConstraint ? ctx.frameConstraint.hash : '',
+    // 第 12 轮 i6：kit 已被替换（当前哈希与落盘值不一致）⇒ 面板必须**说出来**，
+    // 否则「从落盘清单重算出来的结论」会**看起来仍然成立**。
+    // ⚠ `stale` 是**三态**（第 13 轮 i6）：`true` = 资产被换了；`false` = 没变；
+    //   `null` = **判不了**（当前 kit 缺失/不完整）⇒ 不显示这条提示，改走「资产不完整」。
+    stale: planned.stale === true,
+    // 清单被闸门截断（第 17 轮 i7）⇒ 面板要说「还有未显示的」
+    truncated: ctx.missingTruncated === true,
+  }
 }
 
 function shotPreview (shot) {
@@ -119,6 +167,29 @@ function registerAutoHandlers (ipcMain, deps) {
     const shots = Array.isArray(project.shots) ? project.shots : []
     const done = shots.filter((s) => s.status === 'done').length
     const rec = reconcileCounters(project, { doneCount: done, totalCount: shots.length })
+    // 影视工程 v2 · F-I（第 12 轮 i6）：**重开项目时也要校验资产没被换过** ——
+    // 面板的命中/阻断是从落盘的 `promptMissing` 重算的，但那份清单是**当时**的资产算出来的；
+    // 若 kit 已被替换，重算出来的结论会**看起来仍然成立** ⇒ 与「篡改必须可检测」契约冲突。
+    // ⇒ 用**当前** kit 重算 `promptAssetHash`，与落盘值不一致 ⇒ 标 `stale`（面板提示「资产已变」）。
+    let stale = null
+    const persistedCtx = project.promptContext
+    if (persistedCtx && typeof persistedCtx.promptAssetHash === 'string' && persistedCtx.promptAssetHash) {
+      try {
+        const kitNow = typeof service.getKitContext === 'function' ? service.getKitContext() : null
+        if (kitNow) {
+          const now = buildPlanPromptContext({ kit: kitNow, locale: persistedCtx.locale })
+          // ⚠ 只有**当前 kit 结构完整**（无 W10/W11）时才算 stale（第 13 轮 i6）：
+          // kit/doctrine **缺失**时重算出来的哈希必然不同 ⇒ 会误报「资产已变」，
+          // 而事实是「资产不完整」⇒ 那是**另一条**提示（`assetsIncomplete`）。
+          const structurallyComplete = now.warnings.length === 0
+          if (structurallyComplete && now.promptContext && now.promptContext.promptAssetHash) {
+            stale = now.promptContext.promptAssetHash !== persistedCtx.promptAssetHash
+          }
+        }
+      } catch (e) {
+        // 取不到当前 kit ⇒ **不判 stale**（不误报）；宁可不提示，也不谎称资产已变
+      }
+    }
     return {
       taskId: project.taskId,
       runSeq: project.runSeq || 1,
@@ -132,6 +203,11 @@ function registerAutoHandlers (ipcMain, deps) {
       editedAt: project.editedAt,
       lastConfirmedAt: (latestConfirmation(project) || {}).at || null,
       shots,
+      // 影视工程 v2 · F-I（第 9 轮 i4）：方法论接入状态在**重开项目**时也要可见。
+      // 数据源是**落盘**的 plan 级 `promptContext` + 逐镜 `promptMissing`（不是规划结果 ——
+      // 规划结果不落盘，重开时不在内存里）⇒ 复用**同一个** `buildMethodologySummary`，
+      // 渲染端不另写一份实现（两份实现必然漂移，漂移会让面板显示的接上量与落盘清单对不上）。
+      methodology: buildMethodologySummary({ shots, promptContext: project.promptContext, stale }),
       warnings: Array.isArray(project.warnings) ? project.warnings : [],
       counters: rec,
       doneCount: done,
@@ -162,6 +238,14 @@ function registerAutoHandlers (ipcMain, deps) {
         : fail(EC.REQUEST_ERROR, 'AUTO_TEMPLATE_UNAVAILABLE', message)
     }
 
+    // 影视工程 v2 · F-I：把方法论资产（doctrine / palette / promptLibrary / 角色）接进规划。
+    // 拿不到 kit 上下文时**不产出**任何方法论字段 ⇒ 既有字段逐字不变（纯增量）。
+    let kitCtx = null
+    try {
+      kitCtx = typeof service.getKitContext === 'function' ? service.getKitContext() : null
+    } catch (e) {
+      kitCtx = null
+    }
     const planned = planAutoShots({
       script: params.script,
       characterRefs: params.characterRefs || [],
@@ -172,6 +256,8 @@ function registerAutoHandlers (ipcMain, deps) {
       templateShots: templates,
       providerId: pre.provider.providerId,
       mediaRoot,
+      kit: kitCtx,
+      locale: params.locale === 'en' ? 'en' : 'zh',
     })
     if (!planned.ok) return validationFail(planned.errorCode, planned.message)
 
@@ -201,6 +287,8 @@ function registerAutoHandlers (ipcMain, deps) {
       sceneRefs: (params.sceneRefs || []).slice(),
       shots: planned.shots,
       warnings: planned.warnings,
+      // 影视工程 v2 · F-I：plan 级方法论上下文（落计划文件 + 项目文件）
+      ...(planned.promptContext ? { promptContext: planned.promptContext } : {}),
     }
     const written = writePlan({ home, plan, taskId })
     if (!written.ok) return fail(EC.REQUEST_ERROR, written.errorCode, written.message)
@@ -224,6 +312,8 @@ function registerAutoHandlers (ipcMain, deps) {
         characterMap: plan.characterMap,
         warnings: plan.warnings,
         estimates: planned.estimates,
+        // 影视工程 v2 · F-I：方法论接入状态（只读面板的数据源；plan 级摘要）
+        methodology: buildMethodologySummary(planned),
         provider: { id: plan.providerId, model: plan.providerModel },
         shots: plan.shots.map(shotPreview),
       },

@@ -218,6 +218,10 @@ function createProject (opts) {
     imagePrompt: String(s.imagePrompt === undefined || s.imagePrompt === null ? (s.prompt || '') : s.imagePrompt),
     videoPrompt: String(s.videoPrompt || ''),
     endFramePrompt: String(s.endFramePrompt || ''),
+    // 影视工程 v2 · F-I：逐镜只存**变量与缺失清单**（方法论长文本在 plan 级存一次）
+    ...(s.promptVars && typeof s.promptVars === 'object' ? { promptVars: s.promptVars } : {}),
+    ...(Array.isArray(s.promptMissing) ? { promptMissing: s.promptMissing.slice() } : {}),
+    ...(typeof s.promptRenderHash === 'string' && s.promptRenderHash ? { promptRenderHash: s.promptRenderHash } : {}),
     characterNames: Array.isArray(s.characterNames) ? s.characterNames.slice() : [],
     refPaths: Array.isArray(s.refPaths) ? s.refPaths.slice() : [],
     seconds: Number(s.seconds) || Number(plan.seconds) || 5,
@@ -231,6 +235,8 @@ function createProject (opts) {
     runSeq,
     supersededFrom,
     planId: String(plan.planId || ''),
+    // 影视工程 v2 · F-I：plan 级方法论上下文（含尾帧约束原文与资产版本戳）
+    ...(plan.promptContext && typeof plan.promptContext === 'object' ? { promptContext: plan.promptContext } : {}),
     createdAt: nowIso,
     editedAt: null,
     aspect: String(plan.aspect || '16x9'),

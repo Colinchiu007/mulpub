@@ -1,0 +1,65 @@
+{
+  "sha": "3cf429a345c8371b8c3778f6d4792a7893080e06",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2485 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2485,
+    "fileCount": 26,
+    "codeFileCount": 15,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 5,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "  │    │    ├─ promptAssetHash = sha256(v1 + locale + 回退事实 + doctrine + system + user)",
+      "  │         └─ promptRenderHash = sha256(v1 + locale + 固定键序的 vars)",
+      "| i2 | Critical / feasibility | 资产版本戳未含 locale / 键序未定义 / locale 回退会改文本 ⇒ 续跑可能静默得到不同文本 | **采纳**：资产面版本戳 = sha256(`v1` + locale + 回退事实 + doctrine + system + user)；`shot_json` 固定键序；补「两次渲染逐字相等」回归 ⑥ |"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"  │    │    ├─ promptAssetHash = sha256(v1 + locale + 回退事实 + doctrine + system + user)\",",
+      "      \"  │         └─ promptRenderHash = sha256(v1 + locale + 固定键序的 vars)\",",
+      "      \"| i2 | Critical / feasibility | 资产版本戳未含 locale / 键序未定义 / locale 回退会改文本 ⇒ 续跑可能静默得到不同文本 | **采纳**：资产面版本戳 = sha256(`v1` + locale + 回退事实 + doctrine + system + user)；`shot_json` 固定键序；补「两次渲染逐字相等」回归 ⑥ |\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0e3c2b79913af492921abff7409729eeca5c5bcd2bb7345d7aa1ed09a0f1609e",
+  "decidedAt": "2026-10-22T02:46:40.151Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

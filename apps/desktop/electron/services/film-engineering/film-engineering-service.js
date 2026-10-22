@@ -117,6 +117,23 @@ class FilmEngineeringService {
     return this._ensure().listAllShots(limit)
   }
 
+  /**
+   * 规划期需要的 kit 上下文（影视工程 v2 · F-I）。
+   *
+   * 只给**方法论接线**要用的四样（doctrine / palette / promptLibrary / manifest 的角色），
+   * 不把整个 kit 递下去（shots/references 很大，规划期用不到）。
+   * @returns {{doctrine: any, palette: any, promptLibrary: any, manifest: any}}
+   */
+  getKitContext () {
+    const kit = this._ensureKit()
+    return {
+      doctrine: kit.doctrine || null,
+      palette: kit.palette || null,
+      promptLibrary: kit.promptLibrary || null,
+      manifest: kit.manifest || null,
+    }
+  }
+
   /** kit 登记的下载来源域清单（D7）：shot-downloader 只信该清单，精确匹配不通配 */
   getAllowedHosts () {
     const kit = this._ensureKit()

@@ -119,9 +119,9 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 | **F-E** 单镜锁定 | 报告 §4.2 第二梯队 #9 | 差距标「**中**」；`ai-art-engine` GPL-3.0 → 报告已标「仅思路」 | G-5 真实；消费方明确（自动模式重跑时跳过锁镜），不会变成死代码 | 🟡 **只能抄思路**（GPL 传染，**禁止复制代码**）。字段与跳过逻辑自研 |
 | **F-F** 身份锚点 + 参考图优先级 | 报告 §4.2 第二梯队 #19、§3.21 武器 2 | 报告 §3.21：mulpub 已握武器 1（实体强引用 ★★★★★），但**武器 2–5、7 全缺**；武器 2 成本最低（★★★★） | G-7 真实；报告 §3.22.1 已把 F15 **提级到批次一**（"最低成本换最强档"），批次一未做，本次补上。**边界**：story2video 主管线**当前不传参考图**（实测），故「参考图优先级声明」**按「无图则不生成」条件渲染**（回应评审 i2）——无参考图时不产出该声明，只产出角色身份锚点 | 🟡 **只能抄思路 + 提示词可抄**——来源 `moyin-creator` AGPL-3.0。**报告明确：提示词不受版权保护**，角色身份锚点/参考图优先级/防串脸三类**提示词**可重写后使用 |
 | **F-G** 乐观锁（expectedRevision） | 报告 §4.2 第一梯队 #5 | 来源 `Toonflow-app` **MIT**；报告列入第一梯队"立即可落地" | G-6 真实；MIT 可抄 | 🟢 **可抄代码**（MIT，保留版权声明）。本仓按自身 project.json 结构实现 |
-| **F-H** 方法论 UI 分区 | 报告 §5.2 批次一 F1 收尾项 | 批次一已把 doctrine 扩到 11 块 + 台账 + 配方，但 PRD §九 明确"新增 4 个方法论块未接入 UI，方法论标签页目前仍按 7 块渲染" | 数据已就绪、UI 未接线，是**批次一留下的确定性缺口**，且不引入新运行时风险 | 🟢 纯本仓资产，无外部代码 |
-| **F-I** 任务级提示词接入规划流程 | 报告 §5.2 批次一 F30 收尾项 | PRD §十 明确"库与渲染器已就绪，规划流程未接"；`auto-plan.js:243` 仍走 `buildTemplatePrompt`，**不读 doctrine、不读 promptLibrary** | 同上，批次一遗留；接上后 `generate_shot_prompt` 任务模板才真正被用 | 🟢 纯本仓资产 |
-| **F-J** 导入 IPC 接 `requireAssets: true` | PRD §十 第 3 项 | `kit-loader.js` 已提供 `requireAssets` 严格模式，导入 IPC 未启用 | 严格模式能让"资产缺失"在**导入时**暴露，而不是出片时 | 🟢 纯本仓资产 |
+| **F-H** 方法论 UI 分区 | 报告 §5.2 批次一 F1 收尾 | 批次一已把 doctrine 扩到 11 块 + 规则 + 配方 + 失败台账 + 词汇表；**实施期实测**：方法论标签页**已渲染 11 块 + rules + glossary**（`FilmEngineeringView.vue:179-202`），真实缺口是 **`doctrine.recipes`（2 条配方）与 `doctrine.failureLedger`（8 条失败台账）两个分区未渲染** | 数据已就绪、UI 未接线，*批次一留下的确定性缺口*，且不引入新运行时风险 | 🟢 纯本仓资产，无外部代码 |
+| **F-I** 任务级提示词接入规划流程 | 报告 §5.2 批次一 F30 收尾 | PRD §六明确"库与渲染器已就绪，规划流程未接"；`auto-plan.js:243` 仍走 `buildTemplatePrompt`，*不读 doctrine、不读 promptLibrary*。**实施期实测补一条约束**：`planAutoShots` 的契约是「零 provider 调用、零落盘」，而 `generate_shot_prompt` 是**LLM 任务模板**（system 规定 7 块结构、要求模型输出 JSON）⇒ 本项**不得在规划期调 LLM** | 落地形态（零 provider）：① 补上 F-A 留空的 `endFramePrompt`（来源 = doctrine 的 `frame_constraint` 块，外置）；② 每镜附带**任务级提示词包**（`generate_shot_prompt` 的 system 原文 + user 按 7 变量渲染 + 未填变量清单） | 🟢 纯本仓资产 |
+| **F-J** 资产导入（严格模式校验） | PRD §六第 3 条 | `kit-loader.js` 已提供 `requireAssets` 严格模式。**实施期实测**：产品里**没有导入入口** —— `userData/film-kit` 只被读（`container.setup.js:463` → `loadFilmKitChain` 回退链首级），**没有任何代码写它** ⇒ 两级回退链的首级至今是死代码 | 严格模式能让"资产缺失"在**导入时**暴露，而不是出片时；但落地是**新增写路径**（选目录 → 严格校验 → 落盘 → 失效缓存），有独立安全面 ⇒ 拆 PR-3b（见 design D19） | 🟢 纯本仓资产 |
 
 ### 3.2 未选中的条目与理由
 
@@ -167,10 +167,10 @@ shot-library.json 共 153 条；shot[0].prompt 长 13,922 字符，
 | F-F | `apps/desktop/electron/services/story2video-stages.js` | optimize 阶段把锚点与优先级声明注入 prompt-engine context | +50 / 0 |
 | F-F | `apps/desktop/electron/film-kit/prompts/tasks/generate_shot_prompt/{zh,en}/` | 增补身份锚点/参考图优先级/防串脸三类提示词（**外置，不内联进代码**） | ±30 / 0 |
 | F-G | `apps/desktop/electron/services/film-engineering/auto-project.js` | `project.json` 加 `revision`；写前比对，冲突 fail-closed。**并发正确性靠独占锁文件**（`fs.open(lock, 'wx')` 串行化「读 revision → 比对 → 自增 → 写」），**rename 只负责落盘原子性**（tmp → fsync → rename）——rename 本身**不提供 compare-and-swap 语义**（两进程可各自读到同一 revision 再先后 rename，后写仍覆盖先写） | +70 / 0 |
-| F-H | `apps/desktop/src/views/FilmEngineeringView.vue` | 方法论分区（11 块 + 台账 + 配方 + glossary） | +60 / 0 |
+| F-H | `apps/desktop/src/views/FilmEngineeringView.vue` | 方法论分区补 **`recipes`（配方）+ `failureLedger`（失败台账）** 两个只读分区（11 块/rules/glossary 已渲染，不动） | +70 / 0 |
 | F-G/H | `apps/desktop/src/locales/film-engineering/{zh,en}.js` | 新增用户可见文案成对 | +40 / +40 |
-| F-I | `apps/desktop/electron/services/film-engineering/auto-plan.js` | 规划期用 `prompt-library` 的 `generate_shot_prompt` 任务模板 | +35 / -5 |
-| F-J | `apps/desktop/electron/services/film-engineering/film-engineering-service.js` | 导入 IPC 传 `requireAssets: true` | +10 / 0 |
+| F-I | `apps/desktop/electron/services/film-engineering/auto-plan.js`（+ 新模块 `shot-prompt-task.js`） | 规划期读 doctrine + promptLibrary：① `endFramePrompt` 由 doctrine `frame_constraint` 块派生；② 每镜附 `promptTask`（`generate_shot_prompt` 任务模板渲染包，含未填变量清单）。**零 provider 调用** | +150 / -10 |
+| F-J | `apps/desktop/electron/services/film-engineering/film-engineering-service.js` + 新模块 `kit-import.js` + IPC | **拆到 PR-3b**：导入（选目录 → `requireAssets:true` 校验 → 原子落盘到 `userData/film-kit` → 失效缓存） | +10 / 0 |
 | — | 测试 | 新增 `shot-readiness.test.js` / `egress-guard.test.js` / `tool-doctor.test.js`；扩充 `auto-plan.test.js` / `auto-project.test.js` / `auto-runner.test.js` / `kit-loader.test.js` / `video-gen.test.js` / `story-context-engine` 相关测试 | +900 / 0 |
 | — | 文档 | `01-docs/PRD-FILM-PIPELINE-V2-2026-10-21.md`（本批详细规格）、既有 PRD/ARCH 同步 | +600 / 0 |
 
@@ -263,7 +263,8 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD   # commit 之
 |----|------|------|---------|
 | **PR-1** | **方案**（docs-only；openspec 五件套 + PRD + 评审记录） | 无（本 change 根） | `classify-docs-only` 判 `docs-only=true`；4 项门禁判据 rc=0 |
 | **PR-2** | **F-A 提示词三分**（kit 归一化 + 自动模式派生 + 消费侧分流 + 项目文件落盘） | PR-1 | 主进程改动 → QM-1 打包；`kit-loader` fail-closed 回归；存量 153 条零迁移断言；首帧图提示词**逐字不变**锁 |
-| **PR-3** | **F-I + F-H + F-J 资产接线与 UI** | PR-2（三分字段存在后，F-I 才能按任务模板派生三份） | UI 改动 → QM-4 视觉；i18n zh/en 成对；方法论分区只读渲染 |
+| **PR-3** | **F-I（任务级提示词接入规划）+ F-H（方法论分区补全）** | PR-2（三分字段存在后，F-I 才能补上 `endFramePrompt`） | UI 改动 → QM-4 视觉；i18n zh/en 成对；方法论分区**只读**渲染；**零 provider 调用** |
+| **PR-3b** | **F-J 资产导入（严格模式）** | PR-3（资产面先在只读路径跑通；导入的严格校验要认 doctrine / promptLibrary / palette） | 写路径安全评审：只拷白名单文件 / 不跟随符号链接 / 原子换目录（半份 kit 比没有更危险） |
 | **PR-4** | **F-E 锁镜 + F-G 乐观锁 + G-8 时长落项目文件** | PR-2（项目文件结构变更） | 并发冲突 fail-closed 用例；锁镜不覆盖断言 |
 | **PR-5** | **F-B 就绪度闸门**（只改 `video-gen.js` 的 `costCheck`） | **PR-4**（就绪度要识别 `SHOT_LOCKED`，需要 PR-4 引入的 `locked` 字段） | 成本闸**未新增第二道闸**断言（既有 `film-video-checkpoint-integration.test.js` 必须仍绿） |
 | **PR-6** | **纯重构**：把 `video-gen.js` 里的 `downloadToFile` 抽成独立模块 `film-video-downloader.js`（**行为逐字不变**，仍是现有裸实现） | PR-2 | 纯重构无行为变化：既有 `video-gen.test.js` 19+7 例全绿；新模块有等价性用例 |
