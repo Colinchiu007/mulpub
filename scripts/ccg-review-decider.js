@@ -113,6 +113,58 @@ function git(args, opts = {}) {
 }
 
 /**
+ * 合并态探测（遗留 10 的前置判据）。
+ *
+ * ★ 为什么不用 `path.join(repoRoot, ".git", "MERGE_HEAD")`：
+ *   linked worktree 的 `.git` 是**文件**（内容 `gitdir: <path>`），硬编码路径在 worktree
+ *   里必然读不到 ⇒ 探测恒 false ⇒「在 worktree 里已经修好」与「根本没修」在终端上长得
+ *   一模一样。`git rev-parse --verify MERGE_HEAD` 由 git 自己解析 gitdir/worktree 布局，
+ *   同一份代码覆盖两条路径（回归锁：`ccg-review-decider.test.js` 的「遗留10-T4」）。
+ *
+ * ★ 失败方向刻意选 **fail-open**（读不到就报 `merging:false`）：
+ *   读不到 git 时回落到历史口径（按暂存区判），代价是「可能多判一次 dual」；
+ *   反向（失败报 merging:true）会让**每一次提交**都走合并分支，交集恒为空 ⇒ 全判 skip
+ *   ⇒ QM-6 被整体关掉且没有任何红灯。两种错法的量级不同，故不对称处理。
+ *
+ * ★ QM-6 自扮演裁决 i1（2026-10-21）：fail-open 只对**「git 明确回答没有 MERGE_HEAD」**成立。
+ *   原来这一格复用 `git()` 的「catch → null」，于是两种完全不同的事实同形：
+ *     ① `rev-parse --verify MERGE_HEAD` 以 128/1 退出 —— 该 ref 不存在，即**真的不在合并中**；
+ *     ② spawn 失败（ENOENT / EACCES）或 git 自身崩溃 —— **探测失明**，我们什么都不知道。
+ *   ② 被静默读成「不在合并中」，正是遗留 10 的**反面同型**：把工具的失明当成结论。
+ *   现在 ② 单独挂到 `probeError` 上，由 CLI 出声告警后**仍**走非合并口径 ——
+ *   判定方向保持不变（不因为读不到就关掉或全开 QM-6），但「我不知道」变成可见状态。
+ *
+ * @returns {{merging: boolean, mergeHead: string|null, probeError: string|null}}
+ */
+function detectMergeState() {
+  let out;
+  try {
+    // 刻意不复用 git()：它的 catch 会把「ref 不存在」与「进程没起来」压成同一个 null，
+    // 而这一格必须区分二者（见上面的 i1）。失败路径的语义见下方 catch 内的分档。
+    out = execFileSync("git", ["rev-parse", "--verify", "MERGE_HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 32 * 1024 * 1024,
+    });
+  } catch (err) {
+    const status = err && typeof err.status === "number" ? err.status : null;
+    if (status === 128 || status === 1) {
+      // ① ref 不存在 ⇒ 确实不在合并中，这是**正常返回**，不是故障。
+      return { merging: false, mergeHead: null, probeError: null };
+    }
+    // ② 拿不到退出码（spawn 失败）或退出码是别的值（崩溃 / 仓库损坏）⇒ 探测失明。
+    const detail =
+      err && err.code
+        ? String(err.code)
+        : `exit=${status === null ? "unknown" : status}`;
+    return { merging: false, mergeHead: null, probeError: detail };
+  }
+  const mergeHead = out ? String(out).trim() : "";
+  if (!mergeHead) return { merging: false, mergeHead: null, probeError: null };
+  return { merging: true, mergeHead, probeError: null };
+}
+
+/**
  * 采集"已落地的改动"：从 git 暂存区读（验证层用）
  */
 /**
@@ -263,6 +315,122 @@ function collectStaged() {
 }
 
 /**
+ * 验证层·合并态暂存区：`git merge` 的 pre-commit 时用（遗留 10）。
+ *
+ * ── 要解决的问题（现场证据） ───────────────────────────────────────────
+ * 一次 `git merge origin/main` 的 pre-commit 记录被写成
+ *   `mode=dual / changedLines=1880 / files=606 / status=pending`
+ * 而那次合并**没有引入任何新内容** —— 606 个文件全是主干那侧带进来的。
+ *
+ * 根因：合并态下 `git diff --cached` 等于「ours tip → 合并结果」，也就是
+ * **对方那一侧**的改动集。于是「合并主干」这件零语义动作必然判 dual（主干前进越多，
+ * 对方那侧规模越大），每合一次主干就要付 23–40 分钟 QM-6，而审的东西早就被别人
+ * 自己的 PR 审过了。
+ *
+ * ── 修法口径：ours ∩ theirs ────────────────────────────────────────────
+ * 只看**两侧自 merge-base 起都动过**的文件。语义：只有这类文件才可能是「真冲突、
+ * 真需要人判」；单侧导入的文件属于「把别人的东西搬进来」，它们在原来的 PR 里已经
+ * 审过。交集为空 ⇒ 这次合并零语义 ⇒ 由 `judge()` 判 skip（且 CLI 不落盘）。
+ *
+ * 为什么**不**用另外三种口径：
+ *   - `ours ∪ theirs`：= 旧行为（对方整侧全进），没修任何东西；
+ *   - 单侧 `diff(base..HEAD)`：等于「只看我这边」，而合并提交并不引入我这侧的改动
+ *     （它们已经在 HEAD 里了），结果恒为空 ⇒ 把**真冲突**也判成零语义；
+ *   - 「仅冲突文件（index 里 unmerged 的条目）」：冲突一旦被解决，冲突标记就从 index
+ *     消失，pre-commit 时（冲突已解、尚未 commit）读到的是**空集** ⇒ 每次真冲突
+ *     都被判 skip，方向刚好反了。
+ *
+ * ── 三条实现约束 ───────────────────────────────────────────────────────
+ * ① 路径必须走 `:(literal)` pathspec：文件名里的 `[`、`*`、`?` 是 glob 元字符，
+ *    不加 magic 时 `scripts/a[1].js` 会连 `scripts/a1.js` 一起命中 ⇒ 判定读到
+ *    **另一个文件**（回归锁：遗留10-T7）。
+ * ② 非合并态**返回 null**，不是空对象：调用方必须显式回落到 `collectStaged()`。
+ *    返回空对象会被 `judge` 读成「交集为空 ⇒ skip」，把每一次普通提交都跳掉。
+ * ③ 交集为空时**不派生 git 子进程**（三份 diff 都省掉）：这是合并的**常态**
+ *    （两侧各改各的），而 pre-commit 是每个提交都走的热路径。
+ *
+ * @param {{merging: boolean, mergeHead: string|null}} [state] 省一次探测用；默认自行探测
+ * @returns {null | object} null = 不在合并态（或读不到合并元数据，交由调用方「未判定」）
+ */
+function collectMergeStaged(state) {
+  const st = state || detectMergeState();
+  if (!st || !st.merging) return null;
+
+  const baseRaw = git(["merge-base", "HEAD", st.mergeHead]);
+  // 刻意写成「先判 null 再 String」，而不是把 git() 的返回值直接喂给 String()：
+  // git() 失败返回 **null**，而 String(null) 是字符串 "null"（非空！）—— 同
+  // saveRecord 里那条 QM-6 四轮教训。即使加个 `|| ""` 兜住 null，形态也与那条禁令
+  // 只差一个后缀，读的人（和结构锁）都不该依赖这个细微差别。
+  const base =
+    baseRaw === null || baseRaw === undefined ? "" : String(baseRaw).trim();
+  // 无共同祖先（如 `--allow-unrelated-histories`）⇒ 交集语义不成立。
+  // 这里返回 null 而不是「当成空交集」：空交集会输出 skip 并把这次合并判成零语义，
+  // 而两份无关历史的合并**恰恰**是最需要人看一眼的形态。
+  if (!base) return null;
+
+  // ★ 2026-10-20（口径对齐 `ccg-decider-exclude-self-artifacts`，合并前 rebase 时补）：
+  //   这里原本与 `collectStaged` 的历史写法一样在 git 层排除 `.ccg`，而主干刚把那条
+  //   排除动作收敛到 `isSelfArtifact` 单点持有，理由写得很清楚 —— 在 git 层排除会让
+  //   JS 层**收不到那些行**，于是本档的 `ccgChangedLines` 结构性恒为 0，观测面凭空少一档。
+  //   合并态是同一类判定，同一口径必须同样适用：让 `.ccg` 进交集、进采集，再由
+  //   `judge` 的 `!isSelfArtifact` 把它的**消费**排除掉（判定结论不变，观测变完整）。
+  //   注意本函数**只服务于判定域**；记录命名（`stagedDiffHash`）的 pathspec 仍带排除，
+  //   见 main() 里 `mergeDiffPaths` 那段 —— 那是"判定器自己的输出不该改名记录"的另一件事。
+  const sideFiles = (rev) => {
+    const out = git([
+      "diff",
+      "--name-only",
+      "--no-renames",
+      `${base}..${rev}`,
+      "--",
+      ".",
+    ]);
+    if (out === null) return null;
+    return out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+  const ours = sideFiles("HEAD");
+  const theirs = sideFiles(st.mergeHead);
+  if (ours === null || theirs === null) return null;
+
+  const theirsSet = new Set(theirs);
+  const intersection = ours.filter((f) => theirsSet.has(f));
+
+  const mergeScope = {
+    mergeHead: st.mergeHead,
+    base,
+    oursFileCount: ours.length,
+    theirsFileCount: theirs.length,
+    intersectionFileCount: intersection.length,
+  };
+
+  if (intersection.length === 0) {
+    // 零语义合并的常态分支：形态与 collectFromDiff 的返回值一致（judge 直接可用），
+    // 但不派生任何 git 子进程。
+    return {
+      files: [],
+      changedLines: [],
+      codeChangedLines: [],
+      docChangedLines: [],
+      lineReadGaps: [],
+      codeFiles: [],
+      mergeScope,
+    };
+  }
+
+  const pathspecs = ["--", ...intersection.map((f) => `:(literal)${f}`)];
+  const collected = collectFromDiff(
+    ["diff", "--cached", "--numstat", ...pathspecs],
+    ["diff", "--cached", "-U0", ...pathspecs]
+  );
+  if (!collected) return null;
+  collected.mergeScope = mergeScope;
+  return collected;
+}
+
+/**
  * 验证层·已提交区间：事后补跑时用（那时改动已进 commit，index 通常是空的）。
  *
  * ★ 2026-10-15 增（残余 2 / 补完缺陷 C 的另一半）：
@@ -401,8 +569,49 @@ function judge(staged) {
   const sensitive =
     pathHits.length > 0 || plannedPathHits.length > 0 || contentHits.length > 0;
 
+  // ★ QM-6 自扮演裁决 i6（2026-10-21）：`changedLines` 的正确性**完全依赖**
+  //   「`files` 恰是 merge-base 交集」这条不变量 —— 交集之外的文件一旦漏进来，
+  //   行数就是高估的，而记录里 `mergeScope` 与 `changedLines` 各自自洽，
+  //   高估在产物上**不可见**（读记录的人无法发现判定域被撑大）。
+  //
+  //   判据刻意取**上界**而不是相等：交集里的文件在合并结果里可能**没有差异**
+  //   （两侧做了同一处修改 ⇒ 合并结果 == ours ⇒ 该文件不进 numstat），
+  //   所以 `files` 比交集**少**是合法形态；**多**则一定是漏进来了。
+  //   破坏时不抛错、也不静默继续：抛错会让判定器的内部 bug 直接卡死提交，
+  //   静默则让高估看起来像正常判定 —— 折中是**出声 + 按最保守方向判 dual**。
+  const mergeScopeLeak =
+    !!staged.mergeScope &&
+    staged.files.length > staged.mergeScope.intersectionFileCount;
+  if (mergeScopeLeak) {
+    console.log(
+      `   [CCG] ⚠ 合并态判定域不变量被破坏：交集声明 ` +
+        `${staged.mergeScope.intersectionFileCount} 个文件，判定域里却有 ` +
+        `${staged.files.length} 个 ⇒ 有非交集文件漏进判定域，` +
+        `changedLines 可能高估。本次按最保守方向判 dual（请修 collectMergeStaged）。`
+    );
+  }
+
   let mode, reason;
-  if (changedLines > RULES.dualLineThreshold) {
+  // ★ 遗留 10（2026-10-20）：合并态的**零语义**短路必须排在阈值链之前。
+  //   口径来源见 collectMergeStaged()：合并态下 `git diff --cached` 是「对方那一侧」，
+  //   于是 `changedLines` 量的是「主干前进了多少」，与本次合并引入的内容无关。
+  //   交集为空 = 两侧各改各的、没有任何共同文件 = 这次合并不引入需要人判的内容。
+  //   放在阈值之后会让它永远命中不到（对方整侧的行数必然超过阈值 ⇒ 先判 dual）。
+  if (mergeScopeLeak) {
+    mode = "dual";
+    reason =
+      `合并态判定域不变量被破坏：交集 ${staged.mergeScope.intersectionFileCount} 个文件 / ` +
+      `判定域 ${staged.files.length} 个（有非交集文件漏进来）⇒ 判定域不可信，` +
+      `按最保守方向判 dual`;
+  } else if (staged.mergeScope && staged.mergeScope.intersectionFileCount === 0) {
+    const ms = staged.mergeScope;
+    const short = (s) => String(s || "").slice(0, 8);
+    mode = "skip";
+    reason =
+      `合并提交：ours ∩ theirs 自 merge-base ${short(ms.base)} 起无共同改动文件（交集为空）` +
+      `——ours ${ms.oursFileCount} 个 / theirs ${ms.theirsFileCount} 个文件全是单侧导入` +
+      ` ⇒ 本次合并零语义，不调外部模型`;
+  } else if (changedLines > RULES.dualLineThreshold) {
     mode = "dual";
     reason = `变更 ${changedLines} 行 > ${RULES.dualLineThreshold} 行阈值（对齐 §12.6 Red Team）`;
   } else if (sensitive) {
@@ -451,6 +660,12 @@ function judge(staged) {
       ccgSensitiveContentHits: ccgContentHits.length,
       ccgSensitiveContentSample: ccgContentHits.slice(0, 3),
       lineReadGaps,
+      // 合并态才有的判定域元数据（非合并态为 undefined ⇒ JSON 里不出现）。
+      // 它必须进 stats 而不是只活在内存里：事后审计要能回答「这次 dual 是按交集判的，
+      // 还是按对方整侧判的」—— 否则遗留 10 的形态在记录里不可见。
+      mergeScope: staged.mergeScope,
+      // i6 的取证栏：不变量被破坏时记 true，正常时 undefined（不进 JSON）。
+      mergeScopeLeak: mergeScopeLeak || undefined,
     },
   };
 }
@@ -543,7 +758,53 @@ function recordFileName(stagedDiffHash, sha) {
   return `${sha}.json`;
 }
 
-function saveRecord(result, sha, layer, plannedFiles, backends) {
+/**
+ * 判定记录的文件内容（含**尾换行**）。
+ *
+ * ★ 遗留 7（2026-10-20）：历史记录**没有**尾换行。实测主干 1109 份 `.ccg/reviews/*.json`
+ *   里 969 份（87.4%）末字节是 `}`，只有少数被编辑器补过的是 `\n`。两个后果：
+ *   ① 任何「按行读」的工具（`wc -l`、`git diff --stat`、部分 JSONL 风格的批处理）
+ *      会少算一行，同一份内容在两种读数下差 1；
+ *   ② 追加/拼接这类文件时，新内容会贴在 `}` 后面形成 `}{`，在**语法上已是坏 JSON**，
+ *      而在 diff 里只表现为「一行被改」，读的人看不出是拼接事故。
+ *
+ * ★ 为什么抽成函数而不是在两处各写一次 `+ "\n"`：写入点有两个（主路径 / alt 路径），
+ *   写成两处就是「两次忘记的机会」。抽成一处后，回归锁仍**分别**断言两条路径
+ *   （`遗留10-T5`），因为「共用实现」证明不了「两个调用点都用了它」。
+ *
+ * ★ 不回溯清理历史 969 份：它们是既有评审证据，改动会污染 `git blame` 与
+ *   「记录是否被篡改」的判据面；尾换行只对**新写**的记录生效。
+ */
+function recordBody(record) {
+  return JSON.stringify(record, null, 2) + "\n";
+}
+
+/**
+ * 写一份判定记录。
+ *
+ * @param {object} result        judge() 的产物（mode/reason/stats）
+ * @param {string} sha           pre-commit 时的 HEAD（即新提交的父提交）
+ * @param {string} [layer]       plan | diff
+ * @param {string[]} [plannedFiles]
+ * @param {object} [backends]    detectBackends() 的产物；省略则自行探测
+ * @param {object} [opts]        见下（★ 遗留 10 新增，第 6 参）
+ * @param {string[]} [opts.diffPaths]
+ *   「本次判定所依据的那批文件」的 pathspec（追加在 `git diff --cached` 之后）。
+ *   缺省即历史配方 `["--", ".", ":(exclude).ccg"]` ⇒ **非合并态逐字节不变**。
+ *
+ *   ★ 为什么必须能把 pathspec 换掉（遗留 10 的第二半，实测现场）：
+ *     `stagedDiffHash` 是记录文件名（内容寻址）与「事后按 parent..HEAD 找记录」的共同键。
+ *     合并态下本次判定只看 `ours ∩ theirs`（见 collectMergeStaged），而这里若仍按全域算哈希，
+ *     得到的是**另一批文件**的指纹 ⇒ 记录名与判定依据不同源。
+ *     后果不是「名字难看」，而是门禁的 `evaluateDeepReviewDebt` 按 HEAD 侧 diff 找不到那条记录
+ *     ⇒ 判「缺记录」；而这条记录的内容又是按交集算的。两个域不一致时**两边都对不上**。
+ *     回归锁：`遗留10-T6`（两档 pathspec 必须算出不同哈希）。
+ */
+function saveRecord(result, sha, layer, plannedFiles, backends, opts) {
+  const diffPaths =
+    opts && Array.isArray(opts.diffPaths) && opts.diffPaths.length
+      ? opts.diffPaths
+      : ["--", ".", ":(exclude).ccg"];
   const dir = path.join(process.cwd(), ".ccg", "reviews");
   fs.mkdirSync(dir, { recursive: true });
   // 内容寻址键：暂存区 diff 的哈希，且排除 .ccg 自身。
@@ -574,7 +835,7 @@ function saveRecord(result, sha, layer, plannedFiles, backends) {
     try {
       d = git([
         "diff", "--cached", "--no-textconv", "--no-ext-diff", "--no-renames",
-        "--", ".", ":(exclude).ccg",
+        ...diffPaths,
       ]);
     } catch (e) {
       return { hash: undefined, empty: false, error: String(e && e.message ? e.message : e) };
@@ -665,11 +926,11 @@ function saveRecord(result, sha, layer, plannedFiles, backends) {
         /\.json$/,
         `-again-${sha}-${new Date().toISOString().replace(/[:.]/g, "")}.json`
       );
-      fs.writeFileSync(alt, JSON.stringify(record, null, 2), "utf8");
+      fs.writeFileSync(alt, recordBody(record), "utf8");
       return alt;
     }
   }
-  fs.writeFileSync(file, JSON.stringify(record, null, 2), "utf8");
+  fs.writeFileSync(file, recordBody(record), "utf8");
   return file;
 }
 
@@ -811,6 +1072,10 @@ function main() {
   //   并给出补救命令。仍然 return 0（不阻断提交）—— pre-commit 阶段暂存区为空是常态，
   //   把它变成红会误伤所有提交。
   let staged;
+  // 合并态探测只对「暂存区」这条路径有意义（--input / --base 都是显式给定的域）。
+  // 提到外层是因为保存记录时要拿 staged.mergeScope / staged.files 组 pathspec，
+  // 而且必须能区分「合并态的空交集」与「普通空暂存区」两种空。
+  let mergeState = { merging: false, mergeHead: null, probeError: null };
   if (inputIdx >= 0 && argv[inputIdx + 1]) {
     const file = path.resolve(argv[inputIdx + 1]);
     staged = collectProposal(file);
@@ -845,13 +1110,40 @@ function main() {
       return 0;
     }
   } else {
-    staged = collectStaged();
+    // ★ 遗留 10（2026-10-20）：合并态走**独立采集**，不复用暂存区口径。
+    //   合并态下 `git diff --cached` = 「ours tip → 合并结果」= **对方那一侧**的改动集，
+    //   于是「合并主干」这个零语义动作会按主干前进量判出 dual（现场：606 文件 / 1880 行）。
+    //   口径与三条备选被否的理由见 collectMergeStaged() 的注释。
+    mergeState = detectMergeState();
+    // ★ QM-6 自扮演裁决 i1（2026-10-21）：探测失明必须出声。
+    //   没有这一行时，「git 起不来」与「真的不在合并中」在终端上完全同形 ——
+    //   用户看到的是「未判定 / dual」或「skip」，无从知道探测本身没跑起来。
+    //   只告警不改变判定（fail-open 方向不变，理由见 detectMergeState 的注释）。
+    if (mergeState.probeError) {
+      console.log(
+        `   [CCG] ⚠ 合并态探测失败（${mergeState.probeError}）⇒ 回落非合并口径（按暂存区判定）`
+      );
+      console.log(
+        "         这**不等于**「当前不在合并中」：请确认 git 可执行、仓库可读；若你确实在合并，"
+      );
+      console.log("         本次判定可能把「对方整侧」当成本次改动（见遗留 10）。");
+    }
+    staged = mergeState.merging
+      ? collectMergeStaged(mergeState)
+      : collectStaged();
     if (!staged) {
-      console.log("   [CCG] ⚠ 未判定：读不到 git 暂存区（不影响提交）");
+      console.log(
+        mergeState.merging
+          ? "   [CCG] ⚠ 未判定：在合并中（MERGE_HEAD 存在），但读不到 merge-base / 任一侧文件集（不影响提交）"
+          : "   [CCG] ⚠ 未判定：读不到 git 暂存区（不影响提交）"
+      );
       console.log("         这**不等于**「无需审查」。补跑请带 --base <rev>。");
       return 0;
     }
-    if (staged.files.length === 0) {
+    // ★ 合并态的 `files` 是**交集**，为空是常态（两侧各改各的）⇒ 不能套用下面那条
+    //   「暂存区无变更 ⇒ 未判定」。把零语义合并报成「没判」会让每个合并提交都要求人
+    //   手工补一次判定，而正确答案是 skip（judge 会在 mergeScope 分支给出）。
+    if (!mergeState.merging && staged.files.length === 0) {
       console.log("   [CCG] ⚠ 未判定：暂存区无变更，且未给 --base");
       console.log("         这不是「无需审查」，是「没判」。补跑：--base origin/main");
       return 0;
@@ -913,13 +1205,46 @@ function main() {
   }
 
   if (!printOnly) {
+    // ★ 遗留 10 的第二半：零语义合并**不落盘**。三条理由（都不是审美）：
+    //   ① 合并提交不引入新内容 ⇒ 没有「新的审查结论」可记，落盘只会产生一份
+    //      与某次已经审过的 PR 内容无关的记录；
+    //   ② `skip` 记录没有任何门禁消费者 —— `check-pr-exec-record.js::evaluateDeepReviewDebt`
+    //      只认 `mode=dual`，`single` 还会 `continue`，所以 skip 记录既不闭合也不阻断，
+    //      纯占位；同一份 `skip` 落盘反而会成为「本次变更已被判定过」的假证据；
+    //   ③ pre-commit 的 `.git/hooks/pre-commit` 在 decider 之后**无条件**
+    //      `git add .ccg/reviews/*.json` ⇒ 每次 `git merge` 都在 commit 里多带一个文件，
+    //      而合并提交本应是「零新增文件」的形态（事后看 diff 会把大量 .ccg 噪声当成改动）。
+    if (result.mode === "skip" && staged.mergeScope) {
+      console.log(
+        "          判定**不落盘**：零语义合并（交集为空）不产生审查结论，skip 记录也没有门禁消费者；" +
+          "落盘会让每次 merge 都在提交里多带一个 .ccg 文件"
+      );
+      return 0;
+    }
+    // 合并态必须把「本次判定实际依据的文件集」作为 pathspec 传下去 —— 否则
+    // stagedDiffHash 算的是全域 diff（含对方整侧），与判定域不同源 ⇒ 记录名对不上。
+    // 非合并态不传 ⇒ 落回 saveRecord 里的历史配方，行为逐字节不变。
+    const mergeDiffPaths = staged.mergeScope
+      ? [
+          "--",
+          ...staged.files.map((f) => `:(literal)${f.file}`),
+          ":(exclude).ccg",
+        ]
+      : undefined;
     const f = saveRecord(
       result,
       sha,
       staged.proposal ? "plan" : "diff",
       staged.plannedFiles,
-      backends
+      backends,
+      mergeDiffPaths ? { diffPaths: mergeDiffPaths } : undefined
     );
+    if (!f) {
+      // saveRecord 在「哈希算不出来」时返回 null（它自己已经打过 warn）。这里不得
+      // 打印「判定已落盘: null」—— 那会把「没写」读成「写到了名为 null 的文件」。
+      console.log("          判定**未落盘**（见上方告警）");
+      return 0;
+    }
     console.log(`          判定已落盘: ${path.relative(process.cwd(), f)}`);
     if (staged.proposal && staged.plannedFiles && staged.plannedFiles.length) {
       console.log(`          方案点名待改文件 ${staged.plannedFiles.length} 个（供事后范围比对）`);
@@ -948,6 +1273,11 @@ module.exports = {
   summarizeBackendAvailability,
   judge,
   collectStaged,
+  // 遗留 10 的两个新成员。导出理由与 collectStaged 相同：merge 态的采集与探测
+  // 是**可独立驱动**的纯 IO 函数，行为锁（遗留10-T1~T4/T7）直接调它们；
+  // 不导出就只能靠「真造一次 git merge 再跑 CLI」取证，而那测的是 CLI 文本。
+  detectMergeState,
+  collectMergeStaged,
   collectFromDiff,
   collectRange,
   collectProposal,
