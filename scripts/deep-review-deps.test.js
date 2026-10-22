@@ -1176,6 +1176,12 @@ descB("验证层 skip + --force 的产物面：桩驱动一次都没起来、判
     const before = fsB.readFileSync(fx.recPath, "utf8");
     const r = runReviewRealB(fx.dir, ["--force"]);
     assert.ok(!fsB.existsSync(fx.out), "桩驱动一次都不能起来 —— 覆写判定产物正是发生在把控制权交给驱动之后那一步");
+    // 外部评审 i2 采纳：字节相等仍是硬判据（对新增字段免疫），但红的时候必须先能说出
+    // 是"被写成 skipped_by_mode"还是"只是格式化漂移"—— 语义断言负责这一句归因。
+    const after = JSON.parse(fsB.readFileSync(fx.recPath, "utf8"));
+    assert.equal(after.deepReview && after.deepReview.status, "cleared",
+      "被抹掉的必须是评审出处本身（真被覆写时这里先红并点名状态）：实得 "
+      + JSON.stringify(after.deepReview && after.deepReview.status));
     assert.equal(fsB.readFileSync(fx.recPath, "utf8"), before,
       "判定产物必须逐字节不变（断言字节相等，不是断言某个字段没变 —— 后者对新增字段免疫）");
   } finally {
