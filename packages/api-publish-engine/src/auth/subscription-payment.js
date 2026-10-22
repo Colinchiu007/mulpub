@@ -19,6 +19,7 @@
 const crypto = require('crypto')
 const { PLAN_IDS, getPlanCatalog } = require('./plan-matrix')
 const { OUT_TRADE_NO_PATTERN } = require('./payment-providers/index')
+const { claimPaymentEvent, completePaymentEvent } = require('./payment-event-outbox')
 
 const PAYMENT_CHANNEL = 'payment'
 const PERIODS = Object.freeze(['month', 'year'])
@@ -180,6 +181,31 @@ class SubscriptionPaymentOps {
     const reference = providerReference || `wechat:${orderId}`
     void amountCents
     return this.repository.commerceTransaction(async (tx) => {
+      // 回调留痕（PRD §15.9）：回调到达必须有持久化痕迹，事后追查不能只靠日志。
+      // 幂等键是订单号 —— 同一单的重复投递落到同一行、`claimed=false` 时**直接短路**，
+      // 连 markOrderPaid/applySubscription 都不再执行（比只靠 UNIQUE 冲突更早拦住）。
+      //
+      // ⚠️ 事件表写失败**不得**阻断结算：用户已经付了钱，权益优先于可观测性。
+      //    失败时用 `eventRecorded=false` 让调用方落日志，不静默。
+      let eventId = null
+      let eventRecorded = null
+      if (tx && tx.client && typeof tx.client.query === 'function') {
+        try {
+          const claim = await claimPaymentEvent(tx.client, {
+            orderId,
+            event: type,
+            occurredAt: occurredAt ? new Date(occurredAt) : null,
+            receivedAt: this.now(),
+          })
+          if (!claim.claimed) {
+            return { ignored: true, duplicate: true, orderId, eventId: claim.id }
+          }
+          eventId = claim.id
+          eventRecorded = true
+        } catch (error) {
+          eventRecorded = false
+        }
+      }
       // 条件更新 pending → paid：重复回调在这里拿到 null；随后的 applySubscription 会撞
       // provider_reference UNIQUE 收敛成 409（既有语义），因此不会重复授权。
       if (typeof this.repository.markOrderPaid === 'function') {
@@ -214,12 +240,25 @@ class SubscriptionPaymentOps {
           : `已开通 ${appliedPlan}，有效期 ${durationDays} 天`,
         level: 'info',
       })
+      if (eventId) {
+        // 收口失败同样不该让已完成的结算回滚：权益已经发了。
+        try {
+          await completePaymentEvent(tx.client, eventId, {
+            plan: appliedPlan,
+            requestedPlan: order.plan,
+            downgradeSuppressed: applied.downgradeSuppressed === true,
+          })
+        } catch (error) {
+          eventRecorded = false
+        }
+      }
       return {
         plan: appliedPlan,
         requestedPlan: order.plan,
         downgradeSuppressed: applied.downgradeSuppressed === true,
         orderId: orderId,
         periodEnd: applied.periodEnd ?? null,
+        ...(eventRecorded === null ? {} : { eventRecorded }),
       }
     })
   }

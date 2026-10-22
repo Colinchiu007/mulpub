@@ -174,8 +174,12 @@ SELECT user_id, plan, status, provider_reference, current_period_end
  ORDER BY current_period_end DESC LIMIT 3;
 -- 期望：plan 与购买档位一致、provider_reference = 'wechat:<订单 id>'
 
--- ⚠️ 支付回调目前**不写** identity_webhook_events（见文末「已知限制」）。
---    确认回调到达请看服务端日志里 hook="payment-webhook" 的行。
+-- 回调事件已落库（provider='wechat_pay'，id = 'wechat_pay:<订单号>'）
+SELECT id, event, auth_subject, status, processed_at, result
+  FROM identity_webhook_events
+ WHERE provider = 'wechat_pay'
+ ORDER BY received_at DESC LIMIT 5;
+-- 期望：该订单一条 status='processed'，auth_subject = 订单号，result 里有 plan
 ```
 
 **前端期望**：不刷新页面，档位与到期时间就地更新（`paid` 事件触发 `identityStore.load()`）。
@@ -187,7 +191,7 @@ SELECT user_id, plan, status, provider_reference, current_period_end
 | 弹窗「支付通道暂未开放」 | 预检 4.1 没 PASS；`/me/checkout` 是 503 |
 | 弹窗「支付未完成，未扣款，可重试」 | 微信返回错误码。看服务端日志的 `PAYMENT_PROVIDER_UPSTREAM_REJECTED` 后面的 code |
 | 手机付了钱，桌面端不动 | 回调没到。查 ① 公网能否 `curl -X POST https://<域名>/api/v1/webhooks/payment`（应 401 而不是超时）② 商户平台回调 URL 是否逐字一致 ③ 网关是否放行该路径 |
-| 回调到了但订单没 paid | 看服务端日志 `hook="payment-webhook"` 那几行：验签失败常见 `PAYMENT_WEBHOOK_CERT_NOT_FOUND`（公钥 ID 配错）、`PAYMENT_WEBHOOK_CERT_MISSING`（平台公钥没配）；结算失败看 `PAYMENT_ORDER_NOT_FOUND` / `ORDER_REFERENCE_CONFLICT` |
+| 回调到了但订单没 paid | 先查 `identity_webhook_events WHERE provider='wechat_pay' AND auth_subject='<订单号>'`：<br>· **没有行** ⇒ 回调没到服务端（查公网可达性 / 商户平台回调 URL / 网关放行）<br>· **有行且 `status='processing'`** ⇒ 验签过了但结算中途失败，看日志 `hook="payment-webhook"` 的 `PAYMENT_ORDER_NOT_FOUND` / `ORDER_REFERENCE_CONFLICT`<br>· **完全没日志** ⇒ 验签就失败了，常见 `PAYMENT_WEBHOOK_CERT_NOT_FOUND`（公钥 ID 配错）/ `PAYMENT_WEBHOOK_CERT_MISSING`（平台公钥没配） |
 
 ---
 
@@ -242,13 +246,20 @@ SELECT count(*) FROM identity_orders WHERE channel='payment' AND user_id='<你�
 | 3 | 观察响应与 DB |
 
 **期望**：
-- HTTP 200（幂等成功，不报错）
+- HTTP 200（幂等成功，不报错），响应体带 `duplicate: true`
 - `identity_subscriptions` **没有**第二条针对该订单的记录
+- `identity_webhook_events` 里该订单**只有一行**（重复投递落同一行，`ON CONFLICT DO NOTHING`）
 - 到期时间**没有**再加一次
 
 ```sql
+-- 判据①：权益只发一次
 SELECT count(*) FROM identity_subscriptions WHERE provider_reference = 'wechat:<订单 id>';
 -- 期望：1（provider_reference 上有 UNIQUE 约束，重复授权会被数据库拒绝）
+
+-- 判据②：事件只落一行（这是 2026-10-23 新增的留痕，重复投递不会新增行）
+SELECT count(*) FROM identity_webhook_events
+ WHERE provider = 'wechat_pay' AND auth_subject = '<订单 id>';
+-- 期望：1
 ```
 
 > 实现口径：幂等键是**我们自己的 `out_trade_no`**（即订单 id），不是微信的 `transaction_id`。
@@ -323,8 +334,12 @@ SELECT status, count(*) AS n
  WHERE channel='payment' AND created_at > now() - interval '24 hours'
  GROUP BY status;
 
--- ⚠️ 支付回调不落 identity_webhook_events（见「已知限制」），
---    回调到达率只能从服务端日志统计：grep 'payment-webhook' 并按小时聚合。
+-- webhook 到达与处理情况（近 24h）
+SELECT event, status, count(*) AS n
+  FROM identity_webhook_events
+ WHERE provider='wechat_pay' AND received_at > now() - interval '24 hours'
+ GROUP BY event, status;
+-- 正常：绝大多数 status='processed'。出现 processing 积压 ⇒ 结算链路在报错
 
 -- 未落账的订单（有支付但没 paid）—— 这是要盯的那条线
 SELECT id, user_id, amount, created_at
@@ -355,14 +370,17 @@ PAYMENT_PROVIDER=none   # 然后重启服务
 
 | # | 限制 | 后果 | 现状 |
 |---|---|---|---|
-| 1 | **支付回调不落 `identity_webhook_events`** | 回调到达/处理没有持久化记录，只能翻服务端日志。PRD §5.3 写的是「复用为支付 outbox」，实现里 `_handlePaymentWebhook` 与 `settlePaymentWebhook` **都没有写这张表** | 已知缺口，待补 |
-| 2 | 未支付订单**永远停在 `pending`** | `identity_orders.status` 的 CHECK 只有 `pending / paid / refunded / canceled`，**没有 `failed`**。前端弹窗里的 `failed` 态只对应「本次轮询失败」，不是库里的状态 | 设计如此（PRD §4.2 非目标） |
-| 3 | 没有自助退款 | 退款走商户平台后台人工操作；退款后 `identity_orders.status` 不会自动变 `refunded` | 设计如此（PRD §4.2 非目标） |
-| 4 | 没有自动续费 | 到期即失效，续期 = 重新下一单 | 设计如此（未申请委托代扣资质） |
+| 1 | 未支付订单**永远停在 `pending`** | `identity_orders.status` 的 CHECK 只有 `pending / paid / refunded / canceled`，**没有 `failed`**。前端弹窗里的 `failed` 态只对应「本次轮询失败」，不是库里的状态 | 设计如此（PRD §4.2 非目标） |
+| 2 | 没有自助退款 | 退款走商户平台后台人工操作；退款后 `identity_orders.status` 不会自动变 `refunded` | 设计如此（PRD §4.2 非目标） |
+| 3 | 没有自动续费 | 到期即失效，续期 = 重新下一单 | 设计如此（未申请委托代扣资质） |
 
-> 限制 #1 的实际影响：E2E-4（重复回调幂等）与 E2E-5（伪造签名 401）**仍然可验**，
-> 因为幂等靠 `provider_reference` UNIQUE、验签失败靠 HTTP 401 —— 都不依赖事件表。
-> 受影响的是「事后追查某条回调到底有没有来过」。
+> 2026-10-23 修复：支付回调现在会落 `identity_webhook_events`
+> （`provider='wechat_pay'`，幂等键 `wechat_pay:<订单号>`）。原「回调不留痕」那条限制已消除，
+> 见 PRD §15.9。E2E-4（重复回调幂等）现在可以**两道判据**同时验：
+> 事件表只有一行 + `identity_subscriptions.provider_reference` 只有一条。
+>
+> 已知边界：同一订单将来若出现第二类事件（退款/撤销通知），会与 `wechat_pay:<订单号>` 撞键，
+> 届时改 `paymentEventId()` 扩成 `wechat_pay:<orderId>:<event>`。
 ## 验收记录表（跑完填这张）
 
 | # | 场景 | 结果 | 时间 | 执行人 | 备注（失败时的错误码/截图路径） |
