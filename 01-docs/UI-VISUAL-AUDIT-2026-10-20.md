@@ -493,7 +493,7 @@ SVG 声明了 `font-family` 但**不渲染文字**，因此对观感零影响；
 | **B2 观感层** | 卡片 / 按钮族 / 输入族 / 徽章 / 统计卡 / 图标底座 / 页签 / 模态 / 滚动条 / 焦点环 / 画布 / 空态 | `styles/premium-components.css` + `styles/premium-design-system.css` | `cohere-design-system.test.js` 的既有断言（nav flex / rewrite 宽度）不回归；主按钮白字对比度 ≥ 4.5:1 |
 | **B3 应用外壳** | 画布过渡色 + 侧栏毛玻璃 + 顶栏玻璃带 + 壳层透明化 | `styles/sidebar.css`、`App.vue` | 侧栏文字档对比度 ≥ 4.5:1；横向溢出 0px |
 | **B4 展示页** | 首页主任务卡 / 快捷入口 / KPI 卡；数据看板 hero 卡 / 数字 / 锁定面板 | `features/home/home-page.css`、`views/Dashboard.vue`、`features/dashboard/DashboardLockedPanel.vue` | 首页与看板的视觉语言一致（同一渐变、同一圆角、同一字族） |
-| **B5 文档与基线** | 本报告 + PRD + 设计规范 + CHANGELOG + 视觉基线重生成 | `01-docs/`、`CHANGELOG.md`、`openspec/records/`、`base-screenshots/` | `check-baseline-freshness.js` 零漂移；`classify-docs-only.js` 判定与实际改动一致 |
+| **B5 文档与基线** | 本报告 + PRD + 设计规范 + CHANGELOG + 视觉基线（由 CI artifact 渲染重建） | `01-docs/`、`CHANGELOG.md`、`openspec/records/`、`base-screenshots/` | `check-baseline-freshness.js` 零违规（40/40 逐像素等于 CI 渲染）；`classify-docs-only.js` 判定与实际改动一致 |
 | **B6 机器守卫** | 巡检脚本 + 路由覆盖守卫 + 债务/行数门禁自检 | `tests/visual-testing/scripts/ui-audit-*.js`、`tests/visual-testing/ui-audit-scripts.test.js` | 新增路由漏进巡检清单即红；`debt-budget` / `max-lines` 全部在基线内（**不抬基线**） |
 
 ### 6.1 不做什么（明确边界）
@@ -514,8 +514,8 @@ SVG 声明了 `font-family` 但**不渲染文字**，因此对观感零影响；
 
 | 门禁 | 作用 | 本轮如何满足 |
 |---|---|---|
-| `scripts/check-baseline-freshness.js` | 视觉基线与 CI 同源渲染零漂移 | 改造属**有意视觉变更**，基线随本次提交重生成并提交 |
-| `pnpm test:visual:pixel`（阈值 0.06） | 19 个基准视图 × 亮/暗 双主题像素回归 | 同上，重生成后双主题全绿 |
+| `scripts/check-baseline-freshness.js` | 视觉基线与 CI 同源渲染**逐像素相等**（阈值 0 px） | 改造属**有意视觉变更**；基线**由 CI artifact 的渲染重建**后提交（本机 `test:visual:update-baseline` 的产物不得提交——本机与 CI runner 字体/渲染环境不同，实测同一份代码两边差 12~20384 px） |
+| `pnpm test:visual:pixel`（阈值 0.06） | 19 个基准视图 × 亮/暗 双主题像素回归 | 基线换成 CI 渲染后，CI 侧双主题零漂移；本机复跑仍在 6% 容差内（漂移源于环境差异，不是行为差异） |
 | `tokens.slots.test.js` / `tokens.aliases.test.js` | 令牌槽位存在性、字体栈取值、WCAG 对比度 | 新增 token 全部有定义；既有断言值未改 |
 | `sidebar.tokens.test.js` | 侧栏亮暗槽位一一对应、暗色文字对比度 ≥ 4.5:1 | 未新增/删除侧栏槽位；仅调整亮色取值 |
 | `focus-ring.test.js` | 焦点环不得被移除 | B2 统一焦点环为「描边 + 偏移」，未删除任何 outline |

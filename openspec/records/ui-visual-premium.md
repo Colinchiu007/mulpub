@@ -34,7 +34,7 @@ status: executed
 | 测试 | `apps/desktop/src/views/Dashboard.style-guard.test.js` | hero 卡断言改为「已定义渐变 token」+ 暗色同构断言 |
 | 测试（新增） | `apps/desktop/tests/visual-testing/ui-audit-scripts.test.js` | 巡检脚本冒烟 + 路由覆盖守卫 + 变异反证 |
 | 巡检脚本（新增） | `apps/desktop/tests/visual-testing/scripts/ui-audit-{recon,capture,preview,scenes,probes}.js`、`ui-audit-scripts.lib.js`、`accept-baselines.js`、`curate-ui-audit-evidence.js` | 界面面枚举 / 全量截图 / 单页预览 / 场景数据 / 浏览器探针 / 纯函数库 / 基线接受 / 证据挑选 |
-| 视觉基线 | `apps/desktop/tests/visual-testing/base-screenshots/*.png` | 40 张（20 视图 × 亮/暗）随本次**有意视觉变更**重生成 |
+| 视觉基线 | `apps/desktop/tests/visual-testing/base-screenshots/*.png` | 40 张（20 视图 × 亮/暗）随本次**有意视觉变更**更新；**来源是 CI artifact 的渲染**，不是本机产物（见「基线来源」小节） |
 | 文档 | `01-docs/UI-VISUAL-AUDIT-2026-10-20.md`、`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md`、`01-docs/design-system-usage.md` | 巡检报告（含改造后复测 §2.6）/ PRD / 令牌口径 |
 | 证据资产（新增） | `01-docs/assets/ui-visual-audit-2026-10-20/*.png` | 10 组 before/after（约 3.5MB） |
 | 配置 | `.gitignore` | 为证据资产加 `!` 例外（根规则有全局 `*.png`） |
@@ -72,8 +72,46 @@ status: executed
 - 品牌渐变两端白字对比度 ≥ 4.5:1（实测 `#5B5EE8` 4.91:1、`#8B3FD9` 5.51:1）。
 - 侧栏文字档亮/暗两套对比度 ≥ 4.5:1（亮色档因侧栏改玻璃底而加深到 `#5f6280`）。
 - 焦点环不得移除（WCAG 2.4.7），`focus-ring.test.js` 保持通过。
-- 视觉基线属**有意变更**，随本次提交重生成；CI 按「同一次 CI 渲染」口径核对漂移。
+- 视觉基线属**有意变更**，随本次提交更新；CI 按「同一次 CI 渲染」口径核对漂移。
 - 对比度审计（CI Gate 7c）：18 视图 **0 处**低对比度。
+
+### 基线来源：必须由 CI artifact 的渲染重建（本轮踩过的坑）
+
+**现象**：第一版基线是**本机**跑 `run-pixel-tests.js` 重新生成的产物，本机自测 20/20 零漂移，
+但 CI 的 **QG Visual** 一直红。判据原文写着「基线必须由 CI artifact 的渲染重建
+（QM-4 第 7 条），本机 `test:visual:update-baseline` 的产物不得提交」。
+
+**根因**：`scripts/check-baseline-freshness.js` 的漂移阈值是 **0 px**（不是像素套件的 6%），
+本机与 CI runner 的字体/渲染环境不同 ⇒ 同一份代码两边渲染不一致（实测 12 ~ 20384 px 不等），
+本机产物在 CI 侧逐张判「BASELINE_STALE」。
+
+**更隐蔽的一格**：判据在亮色像素套件产出的基线上会「**单轮红 + 另一轮没采到**」。
+CI 的两轮甄别里第二轮只重跑「views 两套 + 暗档」，**不重跑亮色像素套件**，
+于是只由亮色像素套件产出的 `home-baseline.png` 在第二轮没有渲染 ⇒
+「只有单轮红证据且另一轮没采到（无证据，不得当 flake 放行）」⇒ 判红。
+**只有当第一轮零违规时，判据才会在第一轮直接放行**（工作流 `if` 短路），根本不会进第二轮。
+
+**修法**：从该次 CI 的 artifact `quality-gate-visual-reports` 里取
+`tests/visual-testing/screenshots-round1/`（= Gate 7 那轮的渲染），按 `findRender` 的同源规则
+（先 `<name>.png`，后 `<name>-current.png`）把 40 张基线重建；3 张 autonomous-loop 专属基线
+（`settings-general` / `login-form` / `analytics-overview`）在 CI 里本就无渲染，保持原样。
+
+**修完的读数**（用判据本体复跑，renders 指向同一份 CI artifact）：
+
+```
+基线新鲜度[partial]：检查 43 张 / 违规 0 张 / 登记内动态漂移 0 张 / CI 无渲染 3 张 / 本次跳过 3 张
+✅ 全部 40 张有渲染的基线逐像素等于本次 CI 渲染
+```
+
+**可复核命令**：
+
+```bash
+gh run download <run-id> -n quality-gate-visual-reports -D <dir>
+node scripts/check-baseline-freshness.js \
+  --renders=<dir>/tests/visual-testing/screenshots-round1 \
+  --baselines=apps/desktop/tests/visual-testing/base-screenshots --partial
+```
+
 
 ## 遗留
 
@@ -177,7 +215,8 @@ git log --all --oneline | grep -E '^(3667f7b6|20000c7d|780717af)'
 
 - 巡检脚本冒烟 + 路由覆盖守卫 + 变异反证：**6/6**
 - 样式契约 / 骨架契约 / 令牌 / 看板守卫：**81/81**
-- 视觉基线（亮/暗双主题）：各 **20/20 零漂移**
+- 视觉基线新鲜度（判据本体复跑，renders 指向同一份 CI artifact）：**40/40 逐像素相等，违规 0 张**
+- 视觉基线像素回归（阈值 0.06）：**亮/暗双主题各 20/20 通过**
 - 对比度审计：18 视图 **0 处**低对比度
 - 改造后量化复测：报告 §2.6（同脚本同口径）
 
