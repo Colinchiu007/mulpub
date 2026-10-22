@@ -184,6 +184,35 @@ Level 3: AI 看图 (预留)
 **产品规格**：`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md` ·
 **令牌口径**：`01-docs/design-system-usage.md` §四之二
 
+### 3.6 视觉基线必须由 CI artifact 的渲染重建，本机产物不得提交（2026-10-21，ui-visual-premium）
+
+**规则**：`scripts/check-baseline-freshness.js` 的漂移阈值是 **0 px**（不是像素套件的 6%），
+且判据原文写着「基线必须由 CI artifact 的渲染重建（QM-4 第 7 条），
+本机 `test:visual:update-baseline` 的产物不得提交」。
+
+**踩过的坑**：本机跑 `run-pixel-tests.js` 重新生成基线，本机自测 20/20 零漂移，
+但 CI 的 QG Visual 一直红——**同一份代码，本机与 CI runner 的字体/渲染环境不同**，
+两边渲染实测差 12 ~ 20384 px 不等，本机产物在 CI 侧逐张判 `BASELINE_STALE`。
+
+**更隐蔽的一格**：只由**亮色像素套件**产出的基线（如 `home-baseline.png`），
+在 CI 的两轮甄别里第二轮**没有渲染**（第二轮只重跑 views 两套 + 暗档）⇒
+「只有单轮红证据且另一轮没采到（无证据，不得当 flake 放行）」⇒ 判红。
+**只有第一轮零违规，判据才会在第一轮直接放行**（工作流 `if` 短路），根本不会进第二轮。
+
+**正确做法**：
+
+```bash
+gh run download <run-id> -n quality-gate-visual-reports -D <dir>
+# <dir>/tests/visual-testing/screenshots-round1/ = Gate 7 那轮的渲染
+# 按 findRender 的同源规则（先 <name>.png，后 <name>-current.png）重建 base-screenshots/
+node scripts/check-baseline-freshness.js \
+  --renders=<dir>/tests/visual-testing/screenshots-round1 \
+  --baselines=apps/desktop/tests/visual-testing/base-screenshots --partial
+```
+
+**判据**：凡是要动视觉基线的 PR，**先看 CI 的 artifact，不要先在本机重生成**。
+本机像素回归通过（≤6%）**不代表** CI 侧零漂移（要求 0 px），这两条判据不是同一条。
+
 ---
 
 ## 四、竞品分析

@@ -1,3 +1,36 @@
+## 视觉基线必须由 CI artifact 的渲染重建——本机重生成会在 CI 侧逐张判「过期」（ui-visual-premium，2026-10-21）
+
+### lesson: visual-baselines-must-come-from-ci-artifact
+
+**现场**：本 PR 大改视觉，本机跑 `run-pixel-tests.js` 重新生成了 40 张基线，
+本机自测**亮/暗各 20/20 零漂移**，但 CI 的 **QG Visual** 一直红。
+
+**根因**：仓库里有**两条不同的判据**，本机通过的那条不代表 CI 通过的那条：
+
+| 判据 | 阈值 | 谁在跑 |
+|---|---|---|
+| `pnpm test:visual:pixel` | 6% 容差 | 像素套件（CI 与本机都跑） |
+| `scripts/check-baseline-freshness.js` | **0 px**（逐像素相等） | QG Visual 的 Gate 7b（只判 CI 同一次渲染） |
+
+本机与 CI runner 的**字体/渲染环境不同**，同一份代码两边渲染实测差 12 ~ 20384 px 不等 ⇒
+本机产物在 CI 侧逐张判 `BASELINE_STALE`。判据原文早就写着「基线必须由 CI artifact 的渲染重建
+（QM-4 第 7 条），本机 `test:visual:update-baseline` 的产物不得提交」。
+
+**更隐蔽的一格**：只由**亮色像素套件**产出的基线（如 `home-baseline.png`），
+在 CI 的两轮甄别里**第二轮没有渲染**（第二轮只重跑 views 两套 + 暗档）⇒
+「只有单轮红证据且另一轮没采到（无证据，不得当 flake 放行）」⇒ 判红。
+**只有第一轮零违规，判据才会在第一轮直接放行**（工作流 `if` 短路），根本不会进第二轮——
+所以「本机全绿 + CI 红」时，第一反应应该是去 CI 的 artifact 里取渲染，而不是再修一次本机产物。
+
+**修法**：从该次 CI 的 artifact `quality-gate-visual-reports` 取
+`tests/visual-testing/screenshots-round1/`（= Gate 7 那轮的渲染），
+按 `findRender` 的同源规则（先 `<name>.png`，后 `<name>-current.png`）重建基线；
+用判据本体复跑确认「违规 0 张」再提交。
+
+**判据**：**凡是本机全绿而 CI 红的视觉 PR，先去 CI artifact 取渲染重建基线**。
+两条阈值不同的判据（本机 6% vs CI 0 px）不能互相代替——
+「本机像素回归通过」这句话在基线这件事上**不构成证据**。
+
 ## 测试 flaky 时，先问「上一个用例的组件卸载了吗」——两种想当然的修法都无效（fix-rewrite-warning-severity，2026-10-21）
 
 ### lesson: flaky-first-check-unmount
