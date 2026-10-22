@@ -1,8 +1,68 @@
 ---
 record: main-red-required-scope
-task: check-main-red 主干侧收窄到 required 检查
+task: check-main-red 主干侧收窄到 required 检查（**已否决，不合并**）
 date: 2026-10-22
+verdict: REJECTED
 ---
+
+# ❌ 否决：这条改动把「真红」读成了「绿」
+
+## 0. 先说结论
+
+**本 PR 不合并。** 新版实测把一次真实的 `STOP_MAIN_RED` 判成了 `exit=0`。
+决定性证据在同一天的活数据上：
+
+| 版本 | 对 PR #4240 的判定 |
+|---|---|
+| 主干旧版 | `MAIN-RED verdict=STOP_MAIN_RED exit=2 mainFail=1 baseline=29322e5a0 staleness=2 baseKind=red` |
+| 本分支新版 | `MAIN-RED verdict=OK exit=0 mainFail=0 baseline=01a7e9451 staleness=3 baseKind=green` |
+
+## 1. 差在哪：`QG Desktop Shards (1/2)` 是真失败，但它不是 required
+
+`29322e5a0`（20:15 推送）的作业终态：
+
+```
+success  QG Changes / QG Visual / QG Unit Tests / QG Browser E2E / QG Autonomous
+success  QG Desktop Shards (2/2) / QG Static / QG Coverage / QG Business API Postgres
+failure  QG Desktop Shards (1/2)          ← 这一条
+queued   Gate Result                      ← 因而会红
+```
+
+而 required 清单（两套机制并集，10 条）里**没有** `QG Desktop Shards`：
+
+```
+GUI Gate Result, Gate Result, QG Coverage, QG Static, QG Unit Tests,
+build, electron-tests, 债务熔断检查, 单元测试 + Lint, 文档同步检查
+```
+
+于是新版按 required 过滤时把这条失败**滤掉了** ⇒ 那个版本看起来"完整且绿" ⇒ `exit=0`。
+
+## 2. 为什么旧版的"严"是**故意的**
+
+AGENTS 的判据说明里写着：
+
+> 实测代价：一条**非 required** 的分片红（`QG Desktop Shards` 不在 ruleset 也不在 required 清单里）
+> **反过来把之后每一个 PR 的 required `Gate Result` 判红** —— 两个 PR 被这条冻了约 40 分钟
+
+也就是说：**非 required 的红照样会把全仓的 `Gate Result` 判红**。
+旧判据"看全部作业"不是疏忽，是为了提前接住这种红；按 required 收窄等于把这层保护拆掉。
+
+我写 PR 时把这一点列成了"风险"，但我当时只有推演、没有反例。现在有了反例，且是**当场**撞上的。
+
+## 3. 那我当初遇到的 rc=3 是怎么回事
+
+初稿写"几乎不可满足"，**过强**，已在本文件 §1.5 更正：旧版对 PR #4240 实测 `exit=0`、
+回溯 **2 步**就命中绿基线（`maxBack=5`）。退回 rc=3 的条件是
+「主干连续被推 + 回溯窗口内每一步都有作业没跑完」，我遇到的 3 小时属于密集期，不是常态。
+
+**正确的处置是等**，不是放松判据。这 3 小时的代价，比"把红读成绿"便宜得多。
+
+## 4. 保留下来仍然有价值的东西
+
+- `pickRequiredContexts()`（两套机制并集）—— 这个函数本身是对的，将来若要**加严**（例如把
+  "required 之外还必须有 Gate Result 绿"写进判据）可以直接复用
+- 两条**形态锁**的方法论：`this` 绑定这类缺陷 `require()` 查不出、单测碰不到，只有源码形态锁能拦
+- 一条负结果：**不要**按 required 收窄主干侧，理由如上
 
 # 主干侧只统计 required 检查
 
