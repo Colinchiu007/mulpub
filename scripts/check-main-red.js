@@ -198,11 +198,34 @@ function selectMainRuns (runs) {
 
 /** 默认取数：全部走 gh，失败即抛（由 main 转成退出码 4，不静默返回空数组） */
 function createGhCollector (repo) {
-  const run = (args) => {
-    const r = cp.spawnSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-    if (r.error) throw new Error('gh 无法启动：' + r.error.message)
-    if (r.status !== 0) throw new Error('gh ' + args.slice(0, 2).join(' ') + ' rc=' + r.status + ' err=' + String(r.stderr || '').slice(0, 300))
-    return r.stdout
+  /**
+   * gh 调用。**网络类瞬时故障要在这一层重试**（2026-10-22 实测）。
+   *
+   * 动因：本机到 api.github.com 的连接不稳（实测 `actions/runs?head_sha=` 同一端点连试 5 次有 1 次
+   * `EOF`／`wsarecv`）。而一次 `mainBaseline()` 要连续成功 **10+ 次**调用（1 次 rev-list 不看网络，
+   * 但每条链是 1 次 `actions/runs` + N 次 `actions/runs/{id}/jobs`，N = workflow 数 6~8）；
+   * 按 20% 单次失败率算，连续全成功概率只有 0.8^10 ≈ 10% ⇒ **判据在弱网下几乎必然判 rc=4**。
+   * 实测现场：同一分钟连跑 2 次，一次 rc=4（attempt=3/3 全失败）、一次正常。
+   *
+   * 只对「看起来是瞬时」的错误重试：`EOF` / `wsarecv` / `ECONNRESET` / `timeout` / 502-504。
+   * **不重试** 401/403/404（凭据或路径错，重试只会把「配置错」拖成「慢失败」），
+   * 也不重试 `Not Found` —— 那多半是 id 拼错，重试是浪费配额。
+   * 单次重试 2 次、间隔 1.2s：成功率从 ~80% 提到 ~99.2%，整体 10 次串行从 ~10% 提到 ~92%。
+   */
+  const TRANSIENT_RE = /wsarecv|ECONNRESET|ETIMEDOUT|socket hang up|\bEOF\b|\btimeout\b|\b50[234]\b/i
+  const run = (args, opts = {}) => {
+    const retries = opts.retries == null ? 2 : opts.retries
+    let lastErr = null
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const r = cp.spawnSync('gh', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+      if (r.error) throw new Error('gh 无法启动：' + r.error.message)
+      if (r.status === 0) return r.stdout
+      lastErr = new Error('gh ' + args.slice(0, 2).join(' ') + ' rc=' + r.status + ' err=' + String(r.stderr || '').slice(0, 300))
+      if (attempt >= retries || !TRANSIENT_RE.test(String(r.stderr || ''))) throw lastErr
+      // 同步睡：本函数在 spawnSync 的同步上下文里被调用，用 Atomics.wait 比忙等省 CPU
+      try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200) } catch (_) { /* 环境不支持则直接重试 */ }
+    }
+    throw lastErr
   }
   // git 与 gh 是两个程序，不能共用同一个 run()：第一版把 `rev-parse origin/main` 发给了 gh
   // ⇒ `unknown command "rev-parse" for "gh"` ⇒ 整道闸门恒 SELF_FAULT（同样是自己的 PR 上撞出来的）。
@@ -412,6 +435,10 @@ async function main (argv, collector) {
     mainRows: last.mainRows,
     allowMainRed: opts.allowMainRed,
     mainMoved: stable ? null : moved,
+    // ⛔ 必须把基线档位一起交下去（2026-10-22 真机暴露）：too-stale 的 rows 是全绿，
+    //    只交 rows 会让 judge 判 OK，maxStale 就成装饰。judge 侧据此单独拦一档 rc=3。
+    mainBaselineKind: baseline && baseline.kind,
+    mainBaselineStaleness: baseline && baseline.staleness,
   })
   console.log(readout(v, { mainSha: last.mainSha, prSha: last.prSha, allowMainRed: opts.allowMainRed, baseline }))
   if (moves.length) {

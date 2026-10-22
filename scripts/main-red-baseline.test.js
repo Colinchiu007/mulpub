@@ -210,6 +210,37 @@ test('接线锁：采集层缺 mainBaseline ⇒ rc=4 硬失败（不得静默回
   assert.strictEqual(code, 4, '缺 mainBaseline 必须 rc=4；实到 ' + code)
 })
 
+// ─── 7b. too-stale 必须在 main() 侧拦成 rc=3（2026-10-22 真机暴露的 Critical） ───
+// 现场形态：`baseline=98e94bc3b staleness=4 baseKind=too-stale` 却给了 `verdict=OK exit=0`。
+// 根因：too-stale 的 rows 是**全绿**的（确实找到了绿基线，只是太旧），judge 只看 rows ⇒ 判绿
+// ⇒ `maxStale` 成了装饰。它不是「绿得远」而是「基准不可用」，必须 fail-closed。
+test('接线锁：baseline=too-stale ⇒ main() 必须判 rc=3，即使 rows 全绿', async () => {
+  const code = await run(['--pr', '7', '--retry-seconds', '0'], baseMock(
+    { kind: 'too-stale', sha: 'oldgreen', staleness: 4, rows: [passRow('A'), passRow('B')] },
+    [passRow('A')]
+  ))
+  assert.strictEqual(code, 3, 'too-stale 必须 rc=3（fail-closed），实到 ' + code + '（说明 maxStale 是装饰）')
+})
+
+test('接线锁：baseline=too-stale 时读数为 newRed=na（未计算），不得涂成 0', async () => {
+  const m = baseMock(
+    { kind: 'too-stale', sha: 'oldgreen', staleness: 9, rows: [passRow('A')] },
+    [passRow('A')]
+  )
+  const lines = []
+  const orig = console.log
+  console.log = (...a) => lines.push(a.map(String).join(' '))
+  try {
+    await run(['--pr', '7', '--retry-seconds', '0'], m)
+  } finally {
+    console.log = orig
+  }
+  const out = lines.join('\n')
+  assert.match(out, /newRed=na/, 'too-stale 必须打印 newRed=na；实到：' + out)
+  assert.match(out, /staleness=9/, '必须点名落后的提交数')
+})
+
+
 // ─── 8. 读数行：newRed 的「未计算」不得涂成 0（CCG i4） ──────────────────
 const { readout } = require('./lib/main-red')
 
