@@ -296,7 +296,12 @@ const platformsMixin = {
       // 该页 file input 只在点「添加视频」后才出现，故先点它再走通用上传。
       if (platform === 'toutiao') {
         try {
-          const clicked = await win.webContents.executeJavaScript('(function(){var es=[].slice.call(document.querySelectorAll("button,div,span,a")).filter(function(e){return /添加视频|上传视频/.test((e.innerText||""))&&e.getClientRects().length});if(es.length){es[0].click();return "CLICKED"}return "NO_BTN"})()', true)
+          // 2026-10-23 真机：首次调用返回 NO_BTN —— 页面尚未渲染出该按钮，必须轮询等待
+          let clicked = 'NO_BTN'
+          for (let t = 0; t < 10 && clicked !== 'CLICKED'; t += 1) {
+          clicked = await win.webContents.executeJavaScript('(function(){var es=[].slice.call(document.querySelectorAll("button,div,span,a")).filter(function(e){return /添加视频|上传视频/.test((e.innerText||""))&&e.getClientRects().length});if(es.length){es[0].click();return "CLICKED"}return "NO_BTN"})()', true)
+            if (clicked !== 'CLICKED') await this._sleep(1500)
+          }
           log.info('RpaView', '[toutiao] add-video ' + clicked)
           if (clicked === 'CLICKED') await this._sleep(1500)
         } catch (_e) { /* 无按钮时不阻塞主流程 */ }
@@ -1348,22 +1353,17 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       ...config,
       publish_url: publishUrl || config.publish_url,
       ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
-      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。
-      // 2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。
-      // 小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），
-      // 填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
+      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。；2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。；小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），；填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
       draftOnly: true,
     })
   },
 
-  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，
-  // getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
+  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，；getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
   async _publish_kuaishou(win, article) {
     const config = this._getPlatformConfig('kuaishou')
     const contentType = article.video_path ? 'video' : 'image'
     const publishUrl = getPublishUrl('kuaishou', contentType)
-    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个
-    // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、；图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，；首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
+    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个；（2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、；图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，；首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
