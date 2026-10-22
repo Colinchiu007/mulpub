@@ -40,7 +40,13 @@ function parseArgs (argv = process.argv.slice(2)) {
     const arg = argv[i];
     if (arg === '--json') result.json = true;
     else if (arg === '--skip-db') result.skipDb = true;
-    else if (arg === '--database-url' && argv[i + 1]) result.databaseUrl = argv[++i];
+    else if (arg === '--database-url') {
+      // 值不能是另一个 flag：--database-url --json 若照收，会把 '--json' 当连接串，
+      // 后续建连接失败 ⇒ 退出码 2，而操作者以为自己在要 JSON 输出。
+      const next = argv[i + 1];
+      if (!next || String(next).startsWith('-')) result.error = 'PAYMENT_PREFLIGHT_ARGUMENT_INVALID: --database-url 缺少取值';
+      else result.databaseUrl = argv[++i];
+    }
     else if (arg === '--help' || arg === '-h') result.help = true;
     else result.error = 'PAYMENT_PREFLIGHT_ARGUMENT_INVALID: ' + arg;
   }
@@ -68,6 +74,9 @@ async function runPreflight (options = {}) {
   if (kind === 'none') {
     add('provider-kind', SKIP, 'PAYMENT_PROVIDER=none —— 支付入口处于关闭状态（fail-closed）。' +
       '要启用请设 wechat_native 后重跑本命令');
+    // 即使支付关闭也要显式留一行：否则结果里完全没有 database 项，
+    // 操作者会以为「查过了」，而实际上是根本没走到。
+    add('database', SKIP, '支付未启用，未检查迁移');
     return { ok: true, checks };
   }
   if (kind !== 'wechat_native') {
@@ -96,7 +105,10 @@ async function runPreflight (options = {}) {
     add('provider', PASS, 'provider 已成功构造（/me/checkout 不会再因 provider=null 返回 503）');
   } catch (error) {
     const code = (error && error.code) || 'UNKNOWN';
-    if (/CERT/.test(code)) {
+    // code 未必带 CERT（Node crypto 的原生错误通常没有 code）：再用 message 兜一层，
+    // 否则「PEM 粘错」会被报成 provider 装配失败，把人引去查装配而不是查密钥。
+    const looksLikeCert = /CERT/.test(code) || /key|cert|crypto|pem|asn1|decoder|der routines|unsupported|wrong tag|no start line/i.test(String((error && error.message) || ''));
+    if (looksLikeCert) {
       add('credentials', FAIL, `${code}: ${(error && error.message) || error}`);
       add('provider', SKIP, '凭据不合法，未继续构造');
     } else {
@@ -123,7 +135,11 @@ async function runPreflight (options = {}) {
         add('database', FAIL, `${(error && error.code) || 'DB_NOT_READY'}: ${(error && error.message) || error}` +
           ' —— 先跑 scripts/migrate-postgres.js（见 PRD §15.1）');
       } finally {
-        if (typeof repo.close === 'function') await repo.close().catch(() => {});
+        // ⛔ 必须 try/catch 而不是 .catch()：close() 若**同步**抛错，.catch 还没挂上就炸了，
+        //    异常会顶掉刚算出来的 database 结论 ⇒ 操作者看到退出码 2、看不到「迁移有没有过」。
+        if (typeof repo.close === 'function') {
+          try { await repo.close(); } catch (_) { /* 关闭失败不该改写检查结论 */ }
+        }
       }
     }
   }

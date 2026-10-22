@@ -1,0 +1,61 @@
+{
+  "sha": "c5989071d5161aae7b833bd463ad3fee8cd96851",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 67 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 67,
+    "fileCount": 4,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 6,
+    "ccgSensitiveContentSample": [
+      "      \"| `env` | 7 个支付变量的**存在性与形状**（复用 `validateProductionConfig`） | 少变量 / APIv3 密钥不是 32 字符 / notify_url 不是 https |\",",
+      "      \"task: 支付上线预检命令（配置 / 凭据 / 装配 / 迁移 四合一）\",",
+      "      \"| 好凭据 | credentials PASS + **provider PASS** |\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "568692c54db799d5e84a7dcd343cc0ecd93cd431dc96f48190682c953bbf9b2b",
+  "decidedAt": "2026-10-22T18:11:59.042Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

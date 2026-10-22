@@ -81,6 +81,22 @@ quarantine\20261023-015209547-packages_api-publish-engine_scripts_payment-prefli
 这个文件会静静躺在共享根的 main 工作区里，下一轮任何人 `git add -A` 就把它带进一个不属于它的 PR。
 这类污染不会报错，只会让 review 看到莫名其妙的文件。
 
+## 4.5 外部评审处置（1 Critical + 1 High + 2 Medium + 1 Low，**全部成立并已修**）
+
+| # | 评审意见 | 处置 |
+|---|---|---|
+| 1 | **Critical**：`await repo.close().catch(...)` 兜不住**同步**抛错；异常会顶掉刚算出的 database 结论，操作者看到退出码 2、看不到「迁移过没过」 | **已修**：改 `try { await repo.close() } catch (_) {}` |
+| 2 | **High**：`--database-url --json` 会把 `--json` 当连接串 | **已修**：下一个参数以 `-` 开头即判 `PAYMENT_PREFLIGHT_ARGUMENT_INVALID` |
+| 3 | Medium：错误分类只看 `error.code` 里的 `CERT`，Node crypto 原生错误没有 code ⇒ 「PEM 粘错」被报成「装配失败」 | **已修**：加 message 兜底（`key|cert|crypto|pem|asn1|decoder|der routines|unsupported|wrong tag|no start line`） |
+| 4 | Medium：没有覆盖「close 同步抛」的测试 | **已修**：新增 4 例（含同步抛、无 code 的 crypto 错误） |
+| 5 | Low：`PAYMENT_PROVIDER=none` 时提前 return，结果里**完全没有** database 项 ⇒ 操作者以为查过了 | **已修**：补一条 `database: SKIP「支付未启用，未检查迁移」` |
+
+评审这次的质量明显高于上一次（上次那条 High「签名要带域名」是错的）：**五条全部指向"会不会谎报"，而不是风格**。
+尤其 #1 是我自己没想到的资源处理细节 —— `close()` 同步抛是真实存在的情形（构造已失败的对象尤其容易）。
+
+### 判据
+
+新增 4 例（总计 **20 例**）。变异反证：把 `try/catch` 改回 `.catch()` → **18 pass / 2 fail**，Critical 用例精确变红；逐字节还原 True。
 ## 5. 文档
 
 PRD §15.3 重写：把预检命令放在第一位，给出五项检查的**失败原因对照表**与退出码语义，

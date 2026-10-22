@@ -144,3 +144,48 @@ test('payment-preflight：CLI 形态', async (t) => {
     assert.equal(await P.main(['--skip-db'], { env: { PAYMENT_PROVIDER: 'alipay' } }), 1);
   });
 });
+
+// ——— 外部评审（2026-10-23）抓到的 5 条，全部成立并已修 ———
+test('预检不得谎报：评审五条的回归锁', async (t) => {
+  await t.test('close() 同步抛错时，database 结论不得被吞掉（Critical）', async () => {
+    const r = await P.runPreflight({
+      env: goodEnv(),
+      databaseUrl: 'postgres://x',
+      deps: {
+        createRepository: () => ({
+          assertReady: async () => {},
+          // 同步抛：旧实现 `repo.close().catch(...)` 会在这里直接炸，异常顶掉刚算出的结论
+          close: () => { throw new Error('boom'); },
+        }),
+      },
+    });
+    assert.equal(byId(r, 'database').status, P.PASS, '关闭失败不得改写「迁移已就绪」这条结论');
+    assert.equal(r.ok, true);
+  });
+
+  await t.test('`--database-url --json` 不得把 flag 当连接串（High）', async () => {
+    assert.equal(await P.main(['--database-url', '--json'], { env: goodEnv() }), 2);
+    assert.equal(await P.main(['--database-url'], { env: goodEnv() }), 2);
+  });
+
+  await t.test('无 code 的 crypto 错误也要归到 credentials（Medium）', async () => {
+    const r = await P.runPreflight({
+      env: goodEnv(),
+      skipDb: true,
+      deps: {
+        // 模拟 Node crypto 原生错误：没有 code，只有 message
+        createProvider: () => { throw new Error('error:1E08010C:DECODER routines::unsupported'); },
+      },
+    });
+    assert.equal(byId(r, 'credentials').status, P.FAIL, 'PEM 粘错应指向 credentials，而不是装配');
+    assert.equal(byId(r, 'provider').status, P.SKIP);
+  });
+
+  await t.test('PAYMENT_PROVIDER=none 也要显式留一条 database SKIP（Low）', async () => {
+    const r = await P.runPreflight({ env: {} });
+    const db = byId(r, 'database');
+    assert.ok(db, '结果里必须有 database 项，否则操作者会以为「查过了」');
+    assert.equal(db.status, P.SKIP);
+    assert.match(db.detail, /支付未启用/);
+  });
+});
