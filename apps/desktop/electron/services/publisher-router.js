@@ -800,6 +800,11 @@ class PublisherRouter {
    */
   createPublisher (platform, deps) {
     const route = this.getRoute(platform)
+    // 2026-10-23：头条视频走 API 轨（toutiao-video-publish.js 为实网抓包实现），
+    // 图文仍保留 RPA。mode 是平台级开关，故按内容类型在调用处覆盖。
+    if (platform === 'toutiao' && deps && deps.contentType === 'video' && route.mode === 'rpa_vm') {
+      route.mode = 'api'
+    }
     logger.notify('PublisherRouter', 'route-selected', { params: { platform, mode: route.mode } })
 
     switch (route.mode) {

@@ -112,7 +112,7 @@ function createAppContext() {
       stage: '准备发布...', percent: 0, batchId: task.batchId || null,
     })
     const publisher = publisherRouter.createPublisher(platform, {
-      rpaViewManager, store, pythonBridge, accountManager: AccountManager,
+      rpaViewManager, store, pythonBridge, accountManager: AccountManager, contentType: (task.article && task.article.video_path) ? 'video' : 'image',
     })
     // API 直连轨（ApiPublisher）经 options.onProgress 补发进度（此前该轨完全静默）；
     // RPA 轨进度走 rpaViewManager 全局回调链，不消费本参数。
