@@ -82,19 +82,9 @@ MUST NOT 在别处再抄一份比较逻辑。
 - **WHEN** 摘要规范化逻辑被复制到第二处实现
 - **THEN** 接线锁 MUST 变红，并点名第二处的文件与行
 
-### Requirement: 跨仓形状判据的两份实现必须逐字对账
-
-引擎（位于本仓之外，CI runner 上不存在）已持有 `EXTERNAL_EVIDENCE_RE` 与 `externalReviewSatisfied()`。
-本仓 SHALL 自持一份「外部复核成立」的形状判据（因为无法 require 一个不存在的文件），
-且两份实现 MUST 由一把**逐字对账**的行为锁钉住：同一批输入在两侧的布尔结论 MUST 逐项相同。
-
-该锁 MUST 在引擎不可读时**出声**（打印 `parity=skipped(engine-absent)` 并以非零或显式读数表态），
-MUST NOT 静默 `skip` —— 把"没比对"读成"比对通过"是本仓已定性的装饰性门禁形态。
-
-#### Scenario: 同一输入两侧同结论
-- **WHEN** 用一批固定样本（含合法 PR 评论 URL、self-play 冒充、缺 `reviewedAt`、后端名不符）分别喂两份实现
-- **THEN** 两侧的布尔数组 MUST `toEqual`
-- **AND** 锁 MUST 打印命中样本条数，条数为 0 时 MUST 判为探针失明而非通过
+<!-- 原 Requirement「跨仓形状判据的两份实现必须逐字对账」（D5 / tasks §5）已于 2026-10-22 从本 delta 移出，
+     随 tasks §5 那片一起进规格。理由与前提见 tasks.md §5 段首三条（对账对象只活在引擎那份未提交补丁里，
+     本仓此刻无法让它真跑）。规格不写没实现的要求。 -->
 
 ### Requirement: 跑完真评审不得让记录在结构上退化
 
@@ -104,13 +94,16 @@ MUST NOT 让"跑过评审"的记录比"什么都没做"的记录更差（后者�
 
 `deep-review.sh` 由 `exec` 改为调用后，其退出码 MUST 与被调用方的退出码逐字一致；
 `--dry-run` 出口与引擎缺失（`DRY_NO_DRIVER`）出口的行为 MUST 与改动前一致。
-信号终止 MUST 显式映射（跨家族评审 codex i2）：`code !== null` 取 `code`；仅有 `signal` 时取 `128 + signo`；
-两者皆 `null` 一律取 `1`。写回器整体 MUST 包在 `try/catch` 内，失败 MUST 只在 stderr 出声，
-MUST NOT 改变已确定的退出码，也 MUST NOT 以裸栈收尾。
+信号终止的映射（跨家族评审 codex i2）**由 shell 的 `$?` 原生提供**（`128+signo`），因此对本仓的要求不是"再抄一份映射表"，
+而是 **入口 MUST NOT 对 rc 做任何加工**：MUST 在被调方返回后立刻 `_wb_rc=$?`，其后任何命令（含写回器）都不得改写它。
+`137` 这个期望值 MUST 由**同机同 shell 的实测探针**给出，而不是把常数写死进断言——Windows Git Bash 与 Linux 对信号终止
+给出的读数不同形，写死常数的锁会在一侧恒红或恒绿。
+写回器 CLI MUST 整体包在 `try/catch` 内：抛错只打印一行原因（含 `reason=`），MUST NOT 以裸栈收尾，MUST NOT 改变已确定的退出码。
 
 #### Scenario: 子进程被信号终止时不得洗成 0
 - **WHEN** 引擎进程被 `SIGKILL`（`code` 为 `null`、`signal` 为 `SIGKILL`）
-- **THEN** 入口 MUST 以 `137`（`128+9`）退出，MUST NOT 因写回器未抛错而返回 0
+- **THEN** 入口 MUST 以「同一 shell 里探针实测到的同种死法的退出码」退出（POSIX 下即 `137`），MUST NOT 因写回器未抛错而返回 0
+- **AND** 该期望值 MUST 由锁在同一次运行里现测得到并打印出来，不得写成常数
 
 #### Scenario: 写回器抛错不改退出码
 - **WHEN** 引擎以 rc=0 正常收敛，而写回器内部抛异常

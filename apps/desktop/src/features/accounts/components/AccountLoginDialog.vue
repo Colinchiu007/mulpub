@@ -1,12 +1,17 @@
 <template>
   <UiModal :visible="props.visible" :title="t('accountsPage.addAccount')" size="sm" @close="$emit('close')">
     <div class="login-form">
-      <label class="field-label">{{ t('accountsPage.platform') }}</label>
-      <UiSelect
+      <AccountPlatformPicker
         :model-value="props.modelValue"
-        :label="t('accountsPage.selectPlatformLabel')"
+        :platforms="props.platforms"
+        :label="t('accountsPage.platform')"
         :placeholder="t('accountsPage.selectPlatform')"
-        :options="props.platforms.map(item => ({ value: item.id, label: item.label }))"
+        :search-placeholder="t('accountsPage.platformPicker.searchPlaceholder')"
+        :empty-text="t('accountsPage.platformPicker.emptyResult')"
+        :no-platforms-text="t('accountsPage.platformPicker.emptyPlatforms')"
+        :hint="t('accountsPage.platformPicker.hint')"
+        :group-labels="groupLabels"
+        :aria-labels="ariaLabels"
         @update:model-value="$emit('update:modelValue', $event)"
       />
 
@@ -49,9 +54,9 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Cellphone, Monitor } from '@element-plus/icons-vue'
+import AccountPlatformPicker from './AccountPlatformPicker.vue'
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
-import UiSelect from '@/components/UiSelect.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -64,6 +69,21 @@ const props = defineProps({
 
 const { t } = useI18n()
 const qrLoginEnabled = computed(() => Boolean(props.qrAvailable || props.modelValue === 'kuaishou'))
+
+// 分组名与无障碍文案走 locale：分组键（domestic / international）是结构键，
+// 显示名必须是可翻译的，不能把分类值直接当标签用。
+const groupLabels = computed(() => ({
+  domestic: t('accountsPage.platformPicker.groupDomestic'),
+  international: t('accountsPage.platformPicker.groupInternational'),
+}))
+
+const ariaLabels = computed(() => ({
+  trigger: t('accountsPage.platformPicker.triggerAria'),
+  search: t('accountsPage.platformPicker.searchAria'),
+  clearSearch: t('accountsPage.platformPicker.clearSearchAria'),
+  list: t('accountsPage.platformPicker.listAria'),
+  option: (platform) => t('accountsPage.platformPicker.optionAria', { platform }),
+}))
 
 defineEmits(['update:modelValue', 'update:mode', 'submit', 'close'])
 </script>

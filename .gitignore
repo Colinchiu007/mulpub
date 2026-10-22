@@ -144,6 +144,10 @@ scripts/*.js
 !scripts/ccg-gate.js
 !scripts/ccg-deep-review.js
 !scripts/ccg-review-decider.js
+# 驱动侧写回器本体（change: qm6-closure-writeback）。同 #3011 同族：第 106 行 `scripts/*.js`
+# 会把入口唯一调用的这个文件静默忽略 —— 漏 negation 的症状是本地全绿、真跑 deep-review.sh
+# 时 node 报 Cannot find module，而它被 `|| say` 兜成一句告警，评审照样"成功"。
+!scripts/ccg-review-writeback.js
 !scripts/plan-review.sh
 !scripts/deep-review.sh
 !scripts/openspec-sync-check.js

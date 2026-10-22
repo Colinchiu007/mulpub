@@ -1,0 +1,64 @@
+{
+  "sha": "9c7e7afd647abc551d26ee725eef3481dbb127ef",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 497 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 497,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "85d3b17856b8e3bc7549390ff0dca9458698b6a8c57db79f84efe0c08afb0f27",
+  "decidedAt": "2026-10-21T13:38:41.742Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "claude+opencode",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      "i3"
+    ],
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4186#issuecomment-6317674772",
+    "template": ".adversarial\\ccg-deep-4a6649e6\\adjudication.json（本地产物，未入库：.adversarial/ 在 .gitignore:460）",
+    "findings": "第 1 轮跨家族评审（proposer=opencode / critic=claude，跨家族校验通过）给出 8 条问题、维度分 correctness 6 / security 8 / performance 5 / maintainability 6，最低分 5；收敛判定 self_play 后自扮演裁决 5 条（i1/i2/i3/i6/i8），其中 i3 命中 auth 高危域。逐条处置：i1 采纳——两条 pending 记录确为流程未闭环，85d3b178 本次闭环、faafe7f1 按 check-pr-exec-record.js:1037/1099「single 不在拦截面」的既定口径保持 pending 并说明理由；i2 否决——.ccg/reviews/*.json 是 check-pr-exec-record（required check）的读取源，加 .gitignore 会使门禁在干净检出上读不到记录、所有 PR 恒红，属「改谁来守门」须人工过目；i3 采纳风险认知——机制属实，但 only-on-miss（DOM 成功零请求，有 expect(fetch).not.toHaveBeenCalled() 锁定）；8s 上界来自 http-login-checker.js:269 且 AbortController 真中断；任何失败只 warn 不阻断账号创建（有专用测试）；改异步 PATCH 会把「首屏即平台名」延续下去、与修复目标冲突；依据已入 docstring 与 PRD 8.2；i6 否决——实测 grep 两个新增文档在 PRD 与新增章节零命中，记录唯一命中是 <仓库父目录>/... 占位符形态（Gate 12c 要求写法，本地 rc=0）；i8 采纳为契约约束——不改深拷贝，改为在 docstring 纪律 4 写明「入参必须扁平、字段必须原始类型、不承诺处理嵌套」。",
+    "closureNote": "第 1 轮 self_play 裁决 5 条 + Info 3 条逐条处置完毕：i1 已闭环（本条记录 status 置 self_play_resolved 并补齐 findings/evidence；faafe7f1 按判据既定口径不拦，理由已写明）、i2 已否决（加 .gitignore 会废掉 required check，属须人工过目的门禁变更）、i3 已采纳并以「显式风险 + 量化上界 + 失败不阻断」处置且按 auth 高危域追加外部复核三格（performedBy=claude / evidenceRef=PR #4186 公开评论 / reviewedAt）、i4 无需动作（假阳性已被专用用例锁定）、i5 已否决（account-manager.js:312 即过滤本体，评审的「未可见」是 diff 片段裁剪）、i6 已否决（实测零命中，评审看到的是修复前旧版）、i7 部分采纳（.adversarial/ 在 .gitignore:460 属实，改为保留路径 + 标注本地产物 + 结论内联）、i8 采纳为 docstring 契约约束。可核读数：check-pr-exec-record --mode=enforce rc=0；两测试文件合跑 96/96；eslint rc=0。",
+    "at": "2026-10-21T13:41:42.309Z"
+  }
+}

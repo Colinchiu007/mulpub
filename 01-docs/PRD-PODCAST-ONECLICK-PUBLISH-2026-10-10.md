@@ -478,6 +478,35 @@ git grep -n voiceRef -- apps/desktop/electron apps/desktop/src packages   # 逐�
 
 
 **为什么形状层的 `voiceRefIssues` 不跟着一起删（QM6 i3 的处置）**：撤档的理由是「档位不可达 ⇒ 误导读者」，不能套到入参形状层——那层校验的是**调用方发来的载荷**，是系统边界上的输入验证，与「回退链里有没有这一档」是两个问题。具体说：`publishFromScript` 的 `voiceRef` 今天恒为空是 4.5b④ 那个 bug 的**症状**，不是「这条判据无用」的证据；把边界验证删掉，等于在修那个 bug 时把唯一还盯着它的眼睛也摘了。两者区别的判据一句话：**回退档回答「系统替谁选」，形状校验回答「你传的东西合不合法」**。
+##### 7.4.1.3 出期主路径消费音色解析链——已落地（2026-10-21，tasks 4.5b④，PR #4200）
+
+**这一节补的是本节此前唯一没有实现体的一句话**：§7.4.3 的合同句「三段同缺合法，由主进程按两层取」在代码里没有对应实现——`resolveEpisodeVoice` 的生产调用方**只有只读预览一个**。真出期 `podcast-episode-host.js` 取的是请求载荷 `p.voiceRef`，而渲染层**从不发送**该字段。
+
+**失效链（修前，全程无异常）**：`p.voiceRef` 缺席 ⇒ 合成层拿到 `voiceRef=null` ⇒ provider 适配层的 opts 里没有 `voice_provider` ⇒ `asset-generator.js:1027` 的 `getConfiguredProvider` 得 `null` ⇒ `_tryProviderTTS` 返回 `null` ⇒ 落 edge-tts 兜底 ⇒ 再落 `anullsrc` 静音（`degraded:true`）。每一跳都返回**成功码**，日志零异常；用户侧表现为「浮层明明写着某个音色，成片里却是另一个人在念」，最坏形态是一段静音。⛔ 这正是 §7.4.1 第 1 条要防的形态，只是它发生在**下发侧**而不是**解析侧**。
+
+**落地口径（四条不可让）**：
+
+| 项 | 口径 | 为什么必须是这一条 |
+|---|---|---|
+| 唯一实现 | 宿主调用 `podcast-tts-voice.js` 的 `resolveEpisodeVoice`，**不在宿主重写回退顺序**，也不引入第二个「取默认音色」的分支 | 两处回退顺序必然漂移，漂移的表现是「界面算一个、成片算另一个」——就是本条 bug 的形状 |
+| 接线面 | `ipc-handlers/podcast.js` 的 `voiceResolveDeps()` 是**唯一**装配点，且**记忆化为单实例**：预览与出期宿主拿到同一个对象引用（`defaultProviderOf` / `readPreference` / `getCapability`） | 此前只有预览接得到，宿主一条都没接；两份实例则「同一份接线」只剩源码形状在守（QM6 i3，采纳） |
+| 不采纳渲染层 `voiceRef` | 出期宿主**一律不读** `p.voiceRef`，即便渲染层将来发送它也不采纳；但入参形状层 `voiceRefIssues` 仍照常拒「三段不同存」 | 回退档回答「系统替谁选」，形状校验回答「你传的东西合不合法」——两个问题，不能因为不再采纳就把边界验证也删掉（§7.4.1.2 末段那条区分在此仍然成立） |
+| 缺一即拒 | 三个读取实现缺任一 ⇒ `PODCAST_EPISODE_INVALID` 当场拒；两层都解析不出 ⇒ `PODCAST_TTS_VOICE_UNRESOLVED` 拒。两者都发生在**取锁与任何磁盘写之前** | 退回「没有 voiceRef」就是退回本节的静音老路；排在取锁之前是为了失败不留半截频道忙标记与临时目录 |
+
+**闸门顺序（与 §7.10.3 的计费闸门共存，顺序不得互换）**：`billingConfirmed` → compose 入参形状（正文/标题/runId/voiceRef 三段） → 三个合成实现是否注入 → **音色解析** → `runChain`（取锁、建目录、逐块 TTS…）。音色解析排在计费之后是刻意的：解析要读两次存储（偏好 + capability），未同意就拒时一次都不该读。锁：`podcast-episode-host.test.js` 的 `§4.5b④` 六条，其中「未确认计费 ⇒ 三个读取器各被调用 0 次」按**调用计数**断言，不是按返回码。
+
+**显示项与一致性判据（判据②，按值断言）**：同一份读取实现同时喂预览与宿主时，预览返回的 `voice` 五段（`providerId` / `model` / `voiceId` / `origin` / `resolvedBy`）中与合成层相关的**三段**必须与出期实际下发给 `generateTTS` 的 `voiceRef` **逐字段相等**；把偏好清空后两边必须**同时**改口到 `capability` 那一档（`origin=providerDefault`）。这条是行为锁，⛔ 不得退化成「宿主调用过某个解析方法」的记录性断言——后者对「调了但下发的是另一份值」完全免疫。§7.9.7 的音色来源标注（两态 `preference` / `providerDefault`）消费的是**预览那一侧**，本刀之后它才第一次与成片同源。
+
+**用户可感知的行为变更（必须知道）**：接上之后，**配了默认 provider 的账号，其文本出期成片里的发声者会当场改变**——从「edge-tts 或静音」变成「浮层承诺的那个音色」。这也是本刀不并入 §7.4.1.2 撤档那一刀、且要求独立 QM-1 与真机试听的原因（tasks 4.5b④ 判据③）。
+
+**回归锁清单**：`apps/desktop/electron/services/podcast-episode-host.test.js` 的 `§4.5b④`（6 条：命中偏好逐字段下发 / 渲染层 voiceRef 不采纳 / 两层全空拒发且零 TTS 零 mkdir 零 PUT / 计费闸门早于解析 / 三个读取实现缺一即拒 / 判据②跨两端同源）。红→绿为实测：实现前 **6 failed**，实现后该文件加 `episode-ipc` / `script-ipc` / `plan-preview-ipc` 四文件 **89 passed / 0 failed**。
+
+**⛔ 本刀没有闭合的一条（不得被读成「文本出期已可用」）**：`podcast-episode-tts-adapters.js` 的 `createGenerateTTS` / `createConcatBlocks` / `createProbeImpl` 在**非测试代码里零消费点**，而 `createEpisodeHost` 全仓唯一构造点没注入这三个实现 ⇒ 打包产物里点任一枚文本入口都会在「缺三个注入实现」那条被拒。测试全绿的原因是夹具直接注入替身，使「生产构造点是否接上」在测试里结构性不可表示（QM6 i2/i6 双双成立）。落点：`tasks 4.5b⑤`，其判据①要求一条**不注入 `podcastEpisodeHost`**、走真实 IPC 构造点的行为锁。
+
+**与 §8.2.9 的关系**：§8.2.9 规划的读面仍由 `podcast:episode:planPreview` 承载（本节不新增 IPC、不新增 locale 键、不在渲染层算块数或音色）；变化的只有**下发侧**开始真正消费同一实现。
+
+
+
 #### 7.4.2 流程（相位与手柄）
 
 手柄仍是 `podcast-episode-publish.js` 的闭集 `PHASES`（:29-32）与 `CANCELABLE_UNTIL='uploadAudio'`。刀 4 **只在 `extractMix` 这一站换一个实现**（`synthesizeEpisodeAudio` 取代 `extractEpisodeAudio`），`probe` 及其之后逐字复用。结构锁（PRD §8 ⑪）的口径是：**改相位枚举必须与逐格结果态测试同 PR**；刀 4 不改枚举，改的是注入实现。

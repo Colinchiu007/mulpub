@@ -1,0 +1,64 @@
+{
+  "sha": "b149359519aeeb96479e41e4290c25c23b993a9e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 220 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 220,
+    "fileCount": 6,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 逃逸分析（QM-5 ②） | ✅ | ①单测层：`saveCapturedAccount` 的既有用例只断言「POST 请求体等于 DOM 采集结果」，**没有任何一条问「DOM 采不到时怎么办」**——测试验证了实现的自洽性，未验证前提；②集成层：`auth-view-manager.test.js` 用同步 `advanceTimersByTime` 驱动 3 秒定时器，断言的是「凭据已保存」，不断言资料字段；③真实链路：登录保存的成功判据是「有 Cookie」，与「采到昵称」正交，所以功能一直「成功」着 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "09f27c200276c99e2c6d5dea87fa7d5dd04f1231b2099b8df741801b1f77b925",
+  "decidedAt": "2026-10-21T11:42:46.483Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "claude+opencode",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "evidence": ".adversarial/ccg-deep-b0b43cd1/adjudication.json",
+    "findings": "第 1 轮跨家族评审（proposer=opencode 出方案 / critic=claude 评审）给出 6 条问题、维度分 4 个、最低分 6、高危域 0 条；收敛判定 self_play 后进入自扮演裁决。5 条逐条处置：i1（判据跨模块归一化依赖）采纳——逐行核实 trimText(v)===v.trim()（account-profile.js:139-141）与 resolveCapturedDisplayName 的 .trim() 是同一操作、且都不改大小写/标点 ⇒ 假阴性不可能，恒等推导写进 docstring，新增 2 例测试锁定（含唯一的无害假阳性：真昵称与平台名同字时只多发一个请求）；i2（就地修改入参 profile）采纳——改纯函数，所有返回路径（含三个提前返回）都返回新对象，新增引用不变测试；i3（HTTP 请求在创建关键路径）否决——8s 上界可控（http-login-checker.js:269），且改成先入库后异步 PATCH 会把「新账号首屏即平台名」延续下去，与修复目标冲突，量化依据写进 docstring；i4（70 行注释）部分采纳——压缩约 30%，保留⛔禁项与两次自我否证记录；i5（.ccg/openspec 混入代码 diff）否决——openspec/records 是 check-pr-exec-record 这个 required check 的强制载体、.ccg/reviews 由 pre-commit 按 stagedDiffHash 自动生成，剥离即卡 PR。本次变更集未命中 HIGH_RISK_SURFACES 任前缀，故按非高危面出口以 closureNote 收口。",
+    "closureNote": "第 1 轮 self_play 裁决 5 条逐条处置完毕：i1 已采纳（归一化恒等性推导入 docstring + 2 例新测试锁定，证假阴性不可能、假阳性无害）、i2 已采纳（改纯函数返回新对象 + 1 例引用不变测试）、i3 已否决（8s 上界可控，异步化与修复目标冲突，依据入 docstring）、i4 部分采纳（注释压缩约 30%，保留禁项与自我否证记录）、i5 已否决（两类文件均为本仓流程强制，剥离即卡 required check）。5 条 verdict 与 rationale 全部填入 .adversarial/ccg-deep-b0b43cd1/adjudication.json。复跑 account-manager.test.js 96/96 全绿、ESLint rc=0。 【第二轮 CCG i7 处置】本记录 evidence/template 指向的 .adversarial/ 路径为自扮演裁决的过程产物，按设计不入库（.adversarial/ 在 .gitignore:460），已显式标注「本地产物」并把裁决结论内联在 findings/closureNote，读者不依赖该文件也能读懂。",
+    "template": ".adversarial\\ccg-deep-b0b43cd1\\adjudication.json（本地产物，未入库：.adversarial/ 在 .gitignore:460；结论已内联在本记录 findings/closureNote）",
+    "at": "2026-10-21T11:49:48.354Z"
+  }
+}

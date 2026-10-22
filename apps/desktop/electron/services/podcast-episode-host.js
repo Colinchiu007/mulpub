@@ -35,6 +35,7 @@ const { extractEpisodeAudio, assertUploadSizeMatches } = require('./podcast-epis
 const { episodeCancelRegistry, CANCEL_ERRORS, RUN_ID_RE } = require('./podcast-episode-cancel')
 const { synthesizeEpisodeAudio } = require('./podcast-episode-synth')
 const { validateComposeInput } = require('./podcast-tts-compose')
+const { resolveEpisodeVoice } = require('./podcast-tts-voice')
 
 const HOST_ERRORS = {
   VIDEO_MISSING: 'PODCAST_VIDEO_NOT_FOUND',
@@ -90,6 +91,12 @@ function createEpisodeHost (deps = {}) {
     })
   }
   const spawnImpl = deps.spawnImpl || defaultSpawn
+
+  // tasks 4.5b④：音色解析的三个读取实现与预览**同一份接线**（生产侧由 `ipc-handlers/podcast.js`
+  // 的同一个工厂同时喂给 `getPlanPreview` 与本宿主）。回退顺序本身不在这里重写——
+  // 唯一实现是 `podcast-tts-voice.js` 的 `resolveEpisodeVoice`，本宿主只搬运结果。
+  const voiceDeps = deps.voice || {}
+  const resolveVoice = typeof deps.resolveVoice === 'function' ? deps.resolveVoice : resolveEpisodeVoice
 
   /**
    * 出期链的**唯一**执行体：持锁凭证、取消登记、忙标记、临时目录、相位观察者、终态边界、
@@ -290,7 +297,30 @@ function createEpisodeHost (deps = {}) {
       throw hostErr(HOST_ERRORS.INVALID, '文本出期必须注入 generateTTS / concatBlocks / probeImpl 三个实现（宿主不代替接线点猜默认）')
     }
     const meta = pickMeta(p.meta, 'publishFromScript')
-    const voiceRef = p.voiceRef && typeof p.voiceRef === 'object' ? p.voiceRef : null
+    // ⛔ 音色由**主进程解析**，不采纳渲染层传来的 `p.voiceRef`（tasks 4.5b④，PRD §7.4.1.2）。
+    // 曾经这里是 `const voiceRef = p.voiceRef || null`，而渲染层从不发送该字段 ⇒ 三段恒为 null ⇒
+    // provider 适配层拿不到 `voice_provider` ⇒ `_tryProviderTTS` 返回 null ⇒ 落 edge-tts ⇒ 落
+    // `anullsrc` 静音。整条链每一步都返回成功码，用户听到的却是另一个人（或一段静音）在念稿。
+    // 入参形状层（`validateComposeInput`）仍会拒「三段不同存」的 voiceRef，那是契约完整性，
+    // 不代表它会被采纳。
+    for (const key of ['defaultProviderOf', 'readPreference', 'getCapability']) {
+      if (typeof voiceDeps[key] !== 'function') {
+        throw hostErr(HOST_ERRORS.INVALID, '文本出期必须注入音色解析的 ' + key + '（缺一即拒，不得退回「没有 voiceRef」这条静音老路）')
+      }
+    }
+    const voiceRes = await resolveVoice({
+      defaultProvider: voiceDeps.defaultProviderOf(),
+      readPreference: voiceDeps.readPreference,
+      getCapability: voiceDeps.getCapability,
+      warn: (msg) => log.warn(String(msg || '')),
+    })
+    if (!voiceRes || voiceRes.ok !== true) {
+      const code = (voiceRes && voiceRes.code) || 'PODCAST_TTS_VOICE_UNRESOLVED'
+      throw hostErr(code, (voiceRes && voiceRes.issues && voiceRes.issues[0] && voiceRes.issues[0].message) || '音色没有解析出来，本期不出', {
+        issues: (voiceRes && voiceRes.issues) || [],
+      })
+    }
+    const voiceRef = { providerId: voiceRes.providerId, model: voiceRes.model, voiceId: voiceRes.voiceId }
     const gapSec = p.gapSec == null ? undefined : p.gapSec
 
     return runChain({

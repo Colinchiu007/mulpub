@@ -134,6 +134,14 @@ function makeHost (overrides = {}) {
   }
   const runId = nextRun()
   const tmpRoot = '/tmp/podcast-test'
+  // 音色接线给一份默认可解析的替身：文本出期那站的 fail-closed 判据（§4.5b④）对**所有**
+  // publishFromScript 用例都成立，缺它会让与本刀无关的用例一起变红、把归因冲掉。
+  // 专门测这条判据的用例在各自用例里覆写 voice。
+  const defaultVoice = {
+    defaultProviderOf: () => ({ providerId: 'p0', model: 'm0' }),
+    readPreference: () => ({ voiceId: 'v_pref' }),
+    getCapability: () => ({ defaultVoiceId: 'v_cap' }),
+  }
   const host = createEpisodeHost(Object.assign({
     registry,
     channelServiceOf: () => svc,
@@ -142,6 +150,7 @@ function makeHost (overrides = {}) {
     fsImpl: fs,
     spawnImpl: spawn.impl,
     tmpRoot,
+    voice: defaultVoice,
     findFfmpeg: () => '/bin/ffmpeg',
     findFfprobe: () => '/bin/ffprobe',
   }, overrides.hostDeps || {}))
@@ -824,6 +833,152 @@ describe('同频道两期不得写进同一个对象键', () => {
     // 拿它当身份会让「改标题再发一期」凭空新开一个对象，而真正该分开的两期反而可能撞上。
     expect(a.stem).toContain(a.runId)
     expect(b.stem).toContain(b.runId)
+  })
+})
+
+/**
+ * tasks 4.5b④：出期主路径必须消费音色解析链（PRD §7.4.1.2）。
+ *
+ * 这条链原先的断链形态是**两层都不报错**：渲染层从不发送 `voiceRef`，宿主把缺席的 `p.voiceRef`
+ * 原样交给合成层，合成层再交给 provider 适配层 —— 于是 `getConfiguredProvider` 拿不到
+ * `voice_provider`，`_tryProviderTTS` 返回 null，落 edge-tts，最后落 `anullsrc` 静音。
+ * 用户侧「浮层承诺的音色」与成片里的发声者由**两条不同的链**算出，日志零异常。
+ * 所以这里的断言一律按**值**：下发给 generateTTS 的三段必须逐字段等于 `resolveEpisodeVoice` 的产出，
+ * 不得用「调用过某个方法」这种记录性断言代替（记忆 self-lock-implementation-and-mutation-proof 同型）。
+ */
+describe('§4.5b④ 出期主路径消费音色解析链（预览与出期同一实现）', () => {
+  const SCRIPT = '第一段口播正文，长度要足够一期节目使用，这里先补足到 compose 判据的下限之上。'
+    + '第二段继续写：文本出期不依赖成片，音轨来源就是这段稿子逐块合成出来的。'
+    + '第三段收尾，把内容推到一次真实节目该有的长度，避免触发内容过短的拒绝。'
+
+  function synthOf (over = {}) {
+    const calls = { tts: [], concat: 0 }
+    const impls = {
+      generateTTS: async ({ text, index, voiceRef }) => {
+        calls.tts.push({ text, index, voiceRef })
+        const p = '/tts/block-' + index + '.mp3'
+        impls.fs.files.set(p, 'x'.repeat(1200))
+        return { path: p, degraded: false }
+      },
+      concatBlocks: async (req) => { calls.concat++; impls.fs.files.set(req.outPath, 'y'.repeat(2400)); return { path: req.outPath, mime: 'audio/mpeg', gapInserted: false } },
+      probeImpl: async () => ({ durationSec: 12.5, sizeBytes: 2400, mime: 'audio/mpeg' }),
+      calls, fs: null,
+    }
+    return Object.assign(impls, over.impls || {})
+  }
+
+  function makeVoice (over = {}) {
+    const seen = { resolve: 0 }
+    const voice = Object.assign({
+      defaultProviderOf: () => ({ providerId: 'prov_x', model: 'mod_y' }),
+      readPreference: () => ({ voiceId: 'voice_pref' }),
+      getCapability: () => ({ defaultVoiceId: 'voice_cap' }),
+    }, over.voice || {})
+    return { voice, seen, over }
+  }
+
+  function makeScriptHost (over = {}) {
+    const syn = synthOf(over)
+    const v = makeVoice(over)
+    const h = makeHost(Object.assign({}, over.hostOpts, {
+      hostDeps: Object.assign({
+        generateTTS: syn.generateTTS,
+        concatBlocks: syn.concatBlocks,
+        probeImpl: syn.probeImpl,
+        voice: v.voice,
+      }, over.hostDeps || {}),
+    }))
+    syn.fs = h.fs
+    const payload = Object.assign({
+      channelId: CHANNEL, runId: h.runId, title: '文字稿一期',
+      copy: { content: SCRIPT }, billingConfirmed: true,
+    }, over.payload || {})
+    return Object.assign(h, { syn, voice: v.voice, voiceSeen: v.seen, scriptPayload: payload })
+  }
+
+  it('解析命中用户偏好 ⇒ 下发给 generateTTS 的 voiceRef 三段逐字段等于解析结果', async () => {
+    const h = makeScriptHost()
+    await h.host.publishFromScript(h.scriptPayload)
+    expect(h.syn.calls.tts.length).toBeGreaterThan(0)
+    for (const c of h.syn.calls.tts) {
+      expect(c.voiceRef).toEqual({ providerId: 'prov_x', model: 'mod_y', voiceId: 'voice_pref' })
+    }
+  })
+
+  it('⛔ 渲染层传来的 p.voiceRef 一律不采纳（接上解析链后「两条链」必须只有一条）', async () => {
+    const h = makeScriptHost({ payload: { voiceRef: { providerId: 'fake', model: 'fake', voiceId: 'fake' } } })
+    await h.host.publishFromScript(h.scriptPayload)
+    expect(h.syn.calls.tts[0].voiceRef).not.toMatchObject({ providerId: 'fake' })
+    expect(h.syn.calls.tts[0].voiceRef).toEqual({ providerId: 'prov_x', model: 'mod_y', voiceId: 'voice_pref' })
+  })
+
+  it('两层都拿不到 ⇒ PODCAST_TTS_VOICE_UNRESOLVED，且一次 TTS、一次 mkdir、一次 PUT 都不发', async () => {
+    const h = makeScriptHost({
+      voice: { readPreference: () => null, getCapability: () => ({ defaultVoiceId: null }) },
+    })
+    const err = await h.host.publishFromScript(h.scriptPayload).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err.code).toBe('PODCAST_TTS_VOICE_UNRESOLVED')
+    expect(h.syn.calls.tts.length).toBe(0)
+    expect(h.fs.calls.mkdir.length).toBe(0)
+    expect(h.hosting.calls.length).toBe(0)
+  })
+
+  it('未确认计费 ⇒ 音色解析一次都不做（计费闸门必须排在解析之前，解析要读两次存储）', async () => {
+    const readCalls = { pref: 0, cap: 0, dp: 0 }
+    const h = makeScriptHost({
+      payload: { billingConfirmed: false },
+      voice: {
+        defaultProviderOf: () => { readCalls.dp++; return { providerId: 'prov_x', model: 'mod_y' } },
+        readPreference: () => { readCalls.pref++; return { voiceId: 'voice_pref' } },
+        getCapability: () => { readCalls.cap++; return { defaultVoiceId: 'voice_cap' } },
+      },
+    })
+    const err = await h.host.publishFromScript(h.scriptPayload).catch((e) => e)
+    expect(err.code).toBe('PODCAST_TTS_BILLING_UNCONFIRMED')
+    expect(readCalls).toEqual({ dp: 0, pref: 0, cap: 0 })
+  })
+
+  it('voice 三个读取实现缺任一 ⇒ 当场拒绝，不得退回「没有 voiceRef」这条静音老路', async () => {
+    for (const key of ['defaultProviderOf', 'readPreference', 'getCapability']) {
+      // 必须改**宿主实际持有的那份** voice（走 hostDeps 覆盖会造出第二份对象，删了也删不到判据读的键）
+      const h = makeScriptHost()
+      delete h.voice[key]
+      const err = await h.host.publishFromScript(h.scriptPayload).catch((e) => e)
+      expect(err.code, key + ' 缺席必须拒，不得按「未解析」出期').toBe('PODCAST_EPISODE_INVALID')
+      expect(h.syn.calls.tts.length).toBe(0)
+    }
+  })
+
+  it('判据②：同一入参下，预览返回的 voice 五段与出期下发给 generateTTS 的键逐字段相等（真解析实现，两边共用）', async () => {
+    const { createEpisodePlanPreview } = await import('./podcast-episode-plan-preview')
+    const store = { pref: { voiceId: 'voice_pref' }, cap: { defaultVoiceId: 'voice_cap' } }
+    const shared = {
+      defaultProviderOf: () => ({ providerId: 'prov_x', model: 'mod_y' }),
+      readPreference: () => store.pref,
+      getCapability: () => store.cap,
+    }
+    const preview = createEpisodePlanPreview(shared)
+    const pv = await preview.previewEpisodePlan({ channelId: CHANNEL, script: SCRIPT })
+    expect(pv.ok).toBe(true)
+    expect(pv.voice).not.toBeNull()
+
+    const h = makeScriptHost({ voice: shared })
+    await h.host.publishFromScript(h.scriptPayload)
+    const sent = h.syn.calls.tts[0].voiceRef
+    expect({
+      providerId: sent.providerId, model: sent.model, voiceId: sent.voiceId,
+    }).toEqual({
+      providerId: pv.voice.providerId, model: pv.voice.model, voiceId: pv.voice.voiceId,
+    })
+    // 偏好被清空 ⇒ 两边必须同时改口到 capability 那一档（同一实现的直接后果，也是「两条链」的反证）
+    store.pref = null
+    const pv2 = await preview.previewEpisodePlan({ channelId: CHANNEL, script: SCRIPT })
+    expect(pv2.voice.origin).toBe('providerDefault')
+    const h2 = makeScriptHost({ voice: shared })
+    await h2.host.publishFromScript(h2.scriptPayload)
+    expect(h2.syn.calls.tts[0].voiceRef).toEqual({ providerId: 'prov_x', model: 'mod_y', voiceId: 'voice_cap' })
+    expect(h2.syn.calls.tts[0].voiceRef.voiceId).toBe(pv2.voice.voiceId)
   })
 })
 
