@@ -22,7 +22,7 @@
 | # | 变更 | 判据（行为锁落点） |
 |---|------|------|
 | C1 | **主干基准改读「该 tip 的 run 集合」**：采集层新增 `mainRowsAt(sha)`，读 `actions/runs?head_sha=<sha>`（`--paginate` + `per_page=100`），**只取 `event != 'workflow_run'` 的 run**，同一 workflow 取**最新**一次（`run_number` → `run_attempt`（缺失按 1）→ 时间戳兜底），再从 `actions/runs/{run_id}/jobs` 取**作业级**终态；**PR 侧仍读 check-runs** | `scripts/check-main-red.test.js`：`workflow_run` 不得进基准；`event` 缺失/空 ⇒ 抛错；**同名多行取最严格的一格**（fail > unknown > pending > skipped > pass）；API 失败（429/5xx/token/分页中断）⇒ 抛错 ⇒ 判自身故障(4)，**不合并部分页** |
-| C2 | **读数稳定窗**：每次尝试都重新取当前 tip（`origin/main` 的 rev-parse），取数**前后各取一次**；**比较对象是 tip SHA**（相同即稳定、继续判读），不同 ⇒ 本次读数作废 ⇒ **有界重试**（`--attempts` 3 / `--retry-seconds` 90 / `--max-wait-seconds` 300）；耗尽 ⇒ 判「未证实」并点名**最后一次尝试**的两个 sha | 重试的**唯一触发条件是 tip SHA 变化**；同一 SHA 上的未完成 job **不**触发重试（由判据的「未证实」档 rc=3 处理） |
+| C2 | **读数稳定窗**：每次尝试**先 `git fetch origin main` 再 `rev-parse origin/main`**（fetch 失败 ⇒ rc=4），取数**前后各取一次**；**比较对象是 tip SHA**（相同即稳定、继续判读），不同 ⇒ 本次读数作废 ⇒ **有界重试**（`--attempts` 3 / `--retry-seconds` 90 / `--max-wait-seconds` 180）；耗尽 ⇒ 判「未证实」并点名**最后一次尝试**的两个 sha | 重试的**唯一触发条件是 tip SHA 变化**；同一 SHA 上的未完成 job **不**触发重试（由判据的「未证实」档 rc=3 处理）。**稳定窗解决的是「判的是哪棵树」，不是「读数会不会坏」**：读数按 sha 取，本身不会被 tip 移动污染；不重试就会拿旧 tip 的绿去放行。**时间预算**：3 次尝试 ⇒ 最多 2 次等待 ⇒ 2 × 90s = **180s**，与 `--max-wait-seconds` 默认值相等（上限在默认档刚好咬住） |
 | C3 | **档位契约不变**：`0` 可合 / `1` 本 PR 新增红 / `2` 主干红 / `3` 未证实 / `4` 判据自身故障（**五档**）。「tip 移动」归入既有「未证实」档（3），**不新增退出码** | `lib/main-red.js` 的退出码集合仍恰好覆盖 0–4（既有锁已钉） |
 | C4 | **CI Failure Handler 挪到 `ubuntu-latest`**（不占 Windows 池额度） | 契约锁：`.github/scripts/workflow-contract.test.js` 的用例「CI Failure Handler 必须让出 Windows 并发额度（2026-10-22，change: main-red-run-baseline）」（由 quality-gate Gate 2b 接入 CI）：必须 `runs-on: ubuntu-latest`；步骤不得显式声明 pwsh、不得含 Windows 盘符路径 / `.ps1` / cmd 专有命令 |
 | C5 | 合并入口透传稳定窗参数：入口**读环境变量** `MAIN_RED_ATTEMPTS` / `MAIN_RED_RETRY_SECONDS`，**转成 CLI 参数** `--attempts` / `--retry-seconds` 传给 `check-main-red.js`（判定层只认参数，不读环境变量） | 两个入口仍只调 `scripts/check-main-red.js`，且都排在 REST 合并之前（既有接线锁已钉） |
@@ -36,13 +36,19 @@ C1 解决「读数被噪声污染」，C4 解决「Windows 池被占」；迁移
 但**「handler 占了 electron-tests 的位置」未被证实**（托管池实时占用不可观测）。
 故 C4 的收益写成**预期释放**，并留观测点：迁移后看 `electron-tests` 排队时长是否回落（E3 同口径）。
 
-**权限**（i4）：两端点 scope **不同**——`actions/runs` 需 `actions:read`，`check-runs` 需 `checks:read`。
-CI 侧用默认 `GITHUB_TOKEN`（默认权限已含 `actions:read`），**本片不新增任何仓库 secret**；
-本地 PAT 实测已具备（不具备则 403 ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**）。
+**权限**（i4/i7）：两端点 scope **不同**——`actions/runs` 需 `actions:read`，`check-runs` 需 `checks:read`。
+**判据是本地工具**（由合并入口 `merge-when-green.{ps1,sh}` 调用，用 gh CLI 的本机凭据）；
+CI 只跑它的**测试**（`node --test scripts/check-main-red.test.js`，不联网）⇒ **没有任何 workflow 承载它**，
+也就不需要改任何 workflow 的 `permissions`，本片**不新增仓库 secret**。
+本机 PAT 实测已具备 `actions:read`；不具备则 403 ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**。
 
-**两端口径**（i2）：一致的只是**行粒度**（都落在作业名这一层），**不是「同一个 API」**。
+**两端口径**（i1）：两侧的名字集合都是**作业名**（check-run 名 == 作业名 == `jobs[].name`）⇒ 差集口径**未变**；
+**不是「同一个 API」**（主干 `actions/runs`、PR `check-runs`）。**缺格方向是保守的**：
+某条检查在主干侧缺席（没跑）时，PR 侧同名红仍判**新增红**（不漏判）；
+但「required check 在 tip 上没跑 ⇒ 主干绿」这一面本片不额外收紧（需引入 required 名单 = 改谁来守门，登记为遗留）。
+**两阶段顺序**（i6）：**先**按 workflow 取最新一次 run（`selectMainRuns`），**再**按作业名聚合（`aggregateRows`，取最严格的一格）。
 **已知局限**：跨 workflow 同名作业（如 `Changes` 三处各一份）按同名合并——消歧到 workflow 级要两侧都改取数方式。
-**重试追新 tip**（i4）：每次尝试重新 fetch 取当前 tip，**不得**钉死在旧 sha 上继续判绿。
+**空集合**（i2）：该 tip 上零 run / run 尚未创建 ⇒ 主干侧零行 ⇒ 既有判据的「未证实」档 **rc=3**（不判绿）。
 
 ## 不做什么（非目标）
 

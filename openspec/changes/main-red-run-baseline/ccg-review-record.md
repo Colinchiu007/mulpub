@@ -206,6 +206,26 @@ GitHub 将来新增任何事件类型（`merge_group` 等）都会**自动进基
 codex/claude 组合重跑 4 轮，全部正常产出**」。本片照该先例，在最终方案上用
 `--critic codex --proposer claude` 重跑，让跨家族回路真的跑起来。
 
+## 决策层第五轮（2026-10-22，critic=codex / proposer=claude —— 真跨家族回路跑通）
+
+> 按本仓先例（`.ccg/reviews/be84f449a192c39709178963be6cee9a848654d8.json` 的 closureNote）
+> 改用**无长度上限**的 codex/claude 组合：critic=codex 产出 **8 条 / Critical 2**（最低分 5）；
+> proposer=claude **逐条给出了决策**（accepted / partially_accepted + 修订建议）——
+> **跨家族回路第一次真的跑起来了**（前四轮 proposer 侧都被 opencode 的 7800 字节上限挡掉）。
+> 引擎的**自动改写应用**随后失败（`edits[0].before` 逐字匹配不上 ⇒ 方案原封不动），
+> 于是本片按引擎模板**人工逐条落**（同深度评审的裁决做法）。
+
+| # | 严重度 | 意见（摘要） | 处置 |
+|---|--------|--------------|------|
+| i1 | Critical | PR 侧读 check-runs、主干侧读 run/jobs，**两侧命名空间不同**；rc=1「新增红」靠差集对齐，口径一换差集即失真 | **成立（已改）**：写明「两侧的名字集合都是**作业名**（check-run 名 == 作业名 == `jobs[].name`）⇒ **差集口径未变**」；并补**缺格方向是保守的**这一条：某检查在主干侧缺席（没跑）时，PR 侧同名红**仍判新增红**（不漏判）。proposer 建议的「两侧统一映射到 workflow+job」本片不采纳——那要把 PR 侧也换成 run/jobs 取数，属另一件事（登记为遗留） |
+| i2 | Critical | 未规定「该 tip 上零 run / run 尚未创建」的行为；空集合等于零失败 ⇒ 判绿，是闸门最该拦的假绿 | **成立（实现上已闭合，文档补齐）**：既有判据的「主干零读数 ⇒ 未证实」档**已经**判 rc=3（不判绿），且本片有对应回归锁；文档补写该条并点名这条档位 |
+| i3 | Warning | 分支保护要的是 check-run 名，改读 run/jobs 后与 required checks 不再一一对应；jobs 全绿但 required check 缺失会被读成绿 | **成立（已改口径）**：写明「required check 在该 tip 上没跑 ⇒ 主干绿」这一面本片**不额外收紧**——那需要引入 required 名单（属「改谁来守门」，须人工过目），登记为遗留；缺格方向对差集是保守的（见 i1） |
+| i4 | Warning | C2 写「origin/main 的 rev-parse」**未写 fetch**；本地引用不 fetch 不会变，稳定窗永不触发 | **成立（已改）**：统一写「每次尝试**先 `git fetch origin main` 再 `rev-parse origin/main`**；fetch 失败 ⇒ 抛错 ⇒ rc=4」 |
+| i5 | Warning | 读数按 sha 取本身不受 tip 移动影响，稳定窗属冗余，却引入最多 300s 等待；3×90s 与 300s 算术未对齐 | **成立（已改）**：① 写明**稳定窗解决的是「判的是哪棵树」**（不重试就会拿旧 tip 的绿去放行），不是「读数会不会坏」；② 时间预算改成自洽：3 次尝试 ⇒ 最多 **2 次**等待 ⇒ 2 × 90s = **180s**，与 `--max-wait-seconds` 默认值**相等**（代码里默认值已从 300 改成 180） |
+| i6 | Warning | 「同一 workflow 取最新」与「同名多行取最严格」两条规则冲突，未定优先级 | **成立（已改）**：写明**两阶段顺序**——**先**按 workflow 取最新一次 run（`selectMainRuns`），**再**按作业名聚合（`aggregateRows` 取最严格的一格） |
+| i7 | Warning | 「默认 GITHUB_TOKEN 已含 actions:read」只在未声明 permissions 时成立；需改承载判据的 workflow，而 Impact 未列 | **前提不成立（已核）**：**没有任何 workflow 跑 `scripts/check-main-red.js`**（quality-gate.yml:449 只是注释提到它），判据是**本地工具**（合并入口调用，用 gh CLI 本机凭据），CI 只跑它的**测试**（不联网）⇒ 不需要改任何 workflow 的 `permissions`，Impact 也不必加文件。文档已改写为该形态 |
+| i8 | Info | runs 分页后逐 run 取 jobs 是 N+1 请求，还要乘 3 次尝试；限流预算未评估 | **成立（已写明）**：请求预算 = 1（runs 列表，分页）+ N（逐 run 取 jobs，N = 非 workflow_run 的 workflow 数，实测 6–8）⇒ 每次尝试 ≤ 9 次、整次判定 ≤ 27 次；长期 429 ⇒ rc=4（fail-closed，可重跑） |
+
 ## 遗留（不假装已闭合）
 
 1. **CCG 引擎的输入长度协议**（i2）：opencode 后端单次输入上限 7800 字节，

@@ -45,7 +45,7 @@ const { judge, readout, resolveRepoSlug } = require('./lib/main-red')
 const REPO_DEFAULT = 'Colinchiu007/mulpub'
 
 function parseArgs (argv) {
-  const out = { pr: null, allowMainRed: null, json: false, repo: null, attempts: 3, retrySeconds: 90, maxWaitSeconds: 300 }
+  const out = { pr: null, allowMainRed: null, json: false, repo: null, attempts: 3, retrySeconds: 90, maxWaitSeconds: 180 }
   const unclaimed = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -329,6 +329,8 @@ async function main (argv, collector) {
     if (attempt >= opts.attempts) break
     // ⛔ 总等待上限（评审 i4）：`attempts × retry-seconds` 是可传的，没有上限就等于
     //    「重试」可以无限睡。超过上限就停手，把这一档按未证实交出去（不静默延长）。
+    //    默认算术：3 次尝试 ⇒ **最多 2 次等待** ⇒ 2 × 90s = 180s，与 maxWaitSeconds 默认值相等
+    //    （上限在默认档**刚好**咬住，不再是「配了一个永远咬不到的数字」）。
     if (waited + opts.retrySeconds > opts.maxWaitSeconds) {
       console.log('MAIN-RED STABLE-WAIT-CAP 累计等待 ' + waited + 's + 本次 ' + opts.retrySeconds
         + 's 超过上限 ' + opts.maxWaitSeconds + 's ⇒ 停止重试，本次读数按未证实处理')

@@ -27,8 +27,15 @@ MUST NOT 把「行粒度一致」表述成「同一个 API」。
 跨 workflow 的同名作业（如 `Changes` 在多个 workflow 各有一份）、可重用工作流的
 `调用方 / 被调方` 聚合作业名、重跑行，都会让同一个名字出现多行。
 不聚合的话同名「一红一绿」会同时落进 fail 集与 pass 集，差集行为不确定。
+**两阶段顺序 MUST 明确**：**先**按 workflow 取最新一次 run，**再**按作业名聚合（取最严格的一格）。
 **已知局限**：消歧到 workflow 级需要两侧都改取数方式（PR 侧要从 check-run 反查所属 workflow），
 本片不做——差集仍按名字对齐。
+
+**两侧名字集合 MUST 同层**：PR 侧 check-run 名 == 主干侧 `jobs[].name` == **作业名** ⇒ 差集口径未变。
+**缺格方向 MUST 是保守的**：某条检查在主干侧缺席（该 tip 上没跑）时，
+PR 侧同名红 MUST 仍判「新增红」（MUST NOT 因主干缺格而被读成「既有红」）。
+**已知局限**：「required check 在该 tip 上没跑 ⇒ 主干绿」这一面本片不额外收紧——
+那需要引入一份 required 名单（属「改谁来守门」，须人工过目）。
 
 **基准的事件范围**：MUST 等于该 tip 上的**全部非 `workflow_run` run**（含 `push` / `schedule` /
 `workflow_dispatch`）。`pull_request` 事件的 run 的 `head_sha` 是 PR 分支提交，
@@ -38,9 +45,14 @@ MUST NOT 把「行粒度一致」表述成「同一个 API」。
 **失败处理**：任一 API 调用失败（429 / 5xx / token 失效 / 分页中断 / 403 权限不足）MUST 抛错
 ⇒ 闸门判自身故障（退出码 4），MUST NOT 读成「无检查」或「主干绿」；
 分页中断时 MUST **整次读数作废**（MUST NOT 合并已读到的部分页）。
-`actions/runs` 需 `actions:read`、`check-runs` 需 `checks:read`——两者 scope **不同**；
-CI 侧使用默认 `GITHUB_TOKEN`（默认权限已含 `actions:read`），MUST NOT 因此新增任何仓库 secret。
+`actions/runs` 需 `actions:read`、`check-runs` 需 `checks:read`——两者 scope **不同**。
+本判据是**本地工具**（由合并入口调用，用 gh CLI 的本机凭据），CI 只跑它的测试（不联网）⇒
+MUST NOT 因此修改任何 workflow 的 `permissions`，MUST NOT 新增仓库 secret。
 凭据不足导致 403 时 MUST 走上面的 fail-closed 路径，MUST NOT 静默返回空。
+
+**请求预算**（depth 评审 i8）：一次读数的请求数 = 1（runs 列表，分页）+ N（逐 run 取 jobs），
+N = 该 tip 的非 `workflow_run` workflow 数（实测 6–8）⇒ 每次尝试 ≤ 9 次；
+有界重试最多 3 次尝试 ⇒ 单次判定 ≤ 27 次请求。长期 429 会把闸门钉在 rc=4（fail-closed，可重跑）。
 
 理由（实测，2026-10-22）：GitHub 把 `workflow_run` 触发的工作流的 check run 一律挂在
 **默认分支当前 tip** 上，不管触发它的是哪个 PR 的 CI。实测主干 tip 上 102 条检查行里
@@ -77,13 +89,19 @@ CI 侧使用默认 `GITHUB_TOKEN`（默认权限已含 `actions:read`），MUST 
 
 系统 SHALL 在一次读数**前后各取一次** `origin/main` tip：两次不一致 ⇒ 本次读数**作废**
 （主干基准与 PR 读数不在同一棵树上，差集不可归因），MUST 以有界次数重试
-（`--attempts`，默认 3；`--retry-seconds`，默认 90）。重试耗尽 ⇒ MUST 判「未证实」
-（退出码 3）并点名两个 sha。**MUST NOT** 把 tip 钉死在旧 sha 上继续判绿。
+（`--attempts`，默认 3；`--retry-seconds`，默认 90；`--max-wait-seconds`，默认 180）。
+重试耗尽 ⇒ MUST 判「未证实」（退出码 3）并点名两个 sha。**MUST NOT** 把 tip 钉死在旧 sha 上继续判绿。
+
+**每次尝试 MUST 先 `git fetch origin main` 再 `rev-parse origin/main`**（不 fetch 的话本地
+remote-tracking ref 不会变，稳定窗永远不会触发）；fetch 失败 ⇒ 抛错 ⇒ 判自身故障（退出码 4）。
 
 **比较对象 MUST 是 tip SHA**（`origin/main` 的 rev-parse 结果），不是完整数据集：
 SHA 相同即视为稳定、继续判读、不重试；SHA 不同才作废本次读数。
 **重试的唯一触发条件 MUST 是 tip SHA 变化**：同一 SHA 上的未完成作业 MUST NOT 触发重试
-（那由判据既有的「未证实」档 rc=3 处理——重试解决的是「读的是哪棵树」，不是「作业跑完没有」）。
+（那由判据既有的「未证实」档 rc=3 处理——重试解决的是「判的是哪棵树」，不是「作业跑完没有」）。
+
+**时间预算 MUST 写清且自洽**：3 次尝试 ⇒ **最多 2 次等待** ⇒ 2 × 90s = **180s**，
+与 `--max-wait-seconds` 的默认值相等（上限在默认档刚好咬住）。
 
 **每次尝试 MUST 重新取当前 tip**（fetch + rev-parse），MUST NOT 复用上一次的 sha：
 下一次尝试从**新的当前 tip** 开始。这样「重试」既不是死等同一个 sha，也不是钉死在旧 sha。

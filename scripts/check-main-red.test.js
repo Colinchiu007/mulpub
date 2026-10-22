@@ -690,7 +690,7 @@ test('稳定窗参数必须校验：attempts < 1 / 非整数一律抛（参数�
 test('稳定窗总等待必须有上限（评审 i4：attempts × retry-seconds 可传 ⇒ 重试可以无限睡）', async () => {
   assert.throws(() => parseArgs(['--pr', '1', '--max-wait-seconds', '-1']), /max-wait-seconds/)
   assert.throws(() => parseArgs(['--pr', '1', '--max-wait-seconds', 'x']), /max-wait-seconds/)
-  assert.strictEqual(parseArgs(['--pr', '1']).maxWaitSeconds, 300, '默认值必须是有限的上限，不是无限')
+  assert.strictEqual(parseArgs(['--pr', '1']).maxWaitSeconds, 180, '默认值必须是有限的上限，且与「3 次尝试 ⇒ 最多 2 次等待 × 90s = 180s」自洽')
 
   // 每次 mainSha 都不同 ⇒ 永远不稳定；上限到了就必须停手（而不是睡满 attempts × retry）
   let k = 0

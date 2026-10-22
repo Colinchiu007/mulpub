@@ -16,7 +16,7 @@ date: 2026-10-22
 | 行尾与 diff 对账 | PASS | `git diff --numstat origin/main...HEAD` 与 `git diff --ignore-cr-at-eol --numstat origin/main...HEAD` **两口径各 14 行且逐行完全相同** ⇒ 无 CRLF/LF 造成的虚假增删；删除 43 行归因：`scripts/check-main-red.js` 的旧采集层（`checksAt` 兼作主干侧）+ 旧 `parseCheckRunLines` 实现 + 旧 `main()` 单次读数块，**无整文件删除** |
 | 接线棘轮 | PASS | **未新增** `*.test.js` 文件（新增用例落在**已接线**的 `scripts/check-main-red.test.js` 与 `.github/scripts/workflow-contract.test.js` 内，两者分别由 quality-gate 的 Gate 2b 系列作业执行）⇒ 棘轮无需新增接线 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/`、`packages/`、`apps/desktop/electron/**`、locale、视觉基线 ⇒ 打包与像素基线不适用（判定依据已写进 `openspec/changes/main-red-run-baseline/proposal.md` 的「影响面」） |
-| QM-6 CCG 双模型外部评审 | PASS | **验证层**（`sh scripts/deep-review.sh`，mode=dual / 变更 449 行）**已执行**：critic=claude 产出 **7 条**意见（correctness 5 / security 6 / performance 4 / maintainability 5），逐条裁决留档 `openspec/changes/main-red-run-baseline/ccg-review-record.md`。**3 条 upheld 已修并带回归锁**：i1（`mainMoved` 档新增 `prFailNames` + `newRedComputed=false`）、i3（裁决收口本身）、i4（新增 `--max-wait-seconds` 总等待上限）；**3 条 dismissed** 给出可验证理由与登记去向：i2（opencode 输入上限的静默拒绝属工具链遗留）、i5（「字段缺失抛错」符合失明纪律）、i6（`openspec validate --strict` + Gate 2b2 + Scenario↔行为锁逐条对应）。**决策层共三轮**：① 7 条 / Critical 2（档位表述、两端口径自相矛盾）→ 已改；② 方案压缩后重跑 8 条 / **Critical 0** / 最低分 6 → 收敛（cleared）；③ 补完 8 条澄清后 6 条 / **Critical 2**（新补文字引入的「名字对齐过度声称」与「C4 因果未证实」）→ 已改 + 补同名聚合与空 event 回归锁。逐条处置见 `ccg-review-record.md` 三节 |
+| QM-6 CCG 双模型外部评审 | PASS | **验证层**（`sh scripts/deep-review.sh`，mode=dual / 变更 449 行）**已执行**：critic=claude 产出 **7 条**意见（correctness 5 / security 6 / performance 4 / maintainability 5），逐条裁决留档 `openspec/changes/main-red-run-baseline/ccg-review-record.md`。**3 条 upheld 已修并带回归锁**：i1（`mainMoved` 档新增 `prFailNames` + `newRedComputed=false`）、i3（裁决收口本身）、i4（新增 `--max-wait-seconds` 总等待上限）；**3 条 dismissed** 给出可验证理由与登记去向：i2（opencode 输入上限的静默拒绝属工具链遗留）、i5（「字段缺失抛错」符合失明纪律）、i6（`openspec validate --strict` + Gate 2b2 + Scenario↔行为锁逐条对应）。**决策层共五轮**（逐条处置见 `ccg-review-record.md` 五节）：① 7 条 / Critical 2（档位表述、两端口径自相矛盾）→ 已改；② 压缩后重跑 8 条 / **Critical 0** / 最低分 6 → 收敛（cleared）；③ 补完澄清后 6 条 / **Critical 2**（新补文字引入的「名字对齐过度声称」与「C4 因果未证实」）→ 已改 + 补同名聚合与空 event 回归锁；④ 7 条 / **Critical 2**（选最新 run 缺兜底、影响面混了确定与推测）→ 已改 + 补时间预算自洽；⑤ 改用 **codex/claude**（无长度上限）跑通**真跨家族回路**：critic 8 条 / Critical 2（两侧命名空间、零 run 的假绿）→ 已改 + 补 fetch 前置、两阶段顺序、请求预算。proposer 侧前四轮被 opencode 的 7800 字节上限挡掉，第五轮按本仓既有先例换成 codex/claude 后**逐条决策正常产出** |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并后 main push 的回读证据写在 PR 评论里，不写回本文件 |
 
 ### 遗留（不假装已闭合）
@@ -25,6 +25,9 @@ date: 2026-10-22
   **同步拒绝**（~120ms、exit 1、无任何错误信息）⇒ 决策层的「逐条回应」环节停在"挑完刺但没人回应"。
   本片用「拆 `evidence.md` + 压缩正文」绕开（方案正文 7470 字节 < 7800），
   但引擎侧仍缺显式长度校验与分段重试协议。改它属「改谁来守门」的邻域，本片不动。
+- **required check 名单未纳入主干基准**（决策层 i3）：本片只保证「主干侧缺格时 PR 同名红仍判新增红」（保守方向），
+  但「required check 在该 tip 上没跑 ⇒ 主干绿」这一面没有收紧——那需要引入一份 required 名单
+  （属「改谁来守门」，须人工过目）。
 - **spec ↔ 实现的逐条自动同步**（评审 i6）：本片靠 `openspec validate --strict`（实测 valid）
   + quality-gate Gate 2b2（spec 镜像契约）+ 「Scenario ↔ 行为锁用例逐条对应」这三样，
   缺一条通用的「spec 与实现逐条比对」自动门禁。本片**不加**新的 CI 门禁（属「改谁来守门」，
