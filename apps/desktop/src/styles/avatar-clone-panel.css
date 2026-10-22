@@ -1,0 +1,49 @@
+/**
+ * 形象克隆面板样式（avatar-voice-clone，2026-10-22）。
+ *
+ * 为什么独立成文件：create-view.css 已 462 行，内联会把两者同时推过
+ * .github/scripts/check-max-lines.js 的 500 行门禁。
+ * 由 CreateView.vue 经 <style src> 或入口处 import 引入。
+ */
+/* 形象克隆面板（avatar-voice-clone）：数字人配置区内的「管理克隆形象」展开区 */
+.clone-notice {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #dcdfe6);
+  border-radius: 6px;
+  background: var(--fill-color-light, #f5f7fa);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+
+.clone-notice p { margin: 6px 0 8px; }
+
+.clone-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.clone-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-color-lighter, #e4e7ed);
+}
+
+.clone-name { flex: 1; font-size: var(--font-size-sm); }
+
+.clone-tag { font-size: var(--font-size-xs); color: var(--color-warning, #e6a23c); }
+
+.clone-tag--warn { color: var(--color-danger, #f56c6c); }
+
+.clone-create {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.clone-create .form-input { flex: 1; min-width: 160px; }

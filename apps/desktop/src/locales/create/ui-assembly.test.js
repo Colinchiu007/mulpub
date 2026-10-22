@@ -61,6 +61,18 @@ describe('locale 子模块装配契约', () => {
       'avatarGotoSettings', 'avatarNeedAvatar', 'avatarNeedVoice', 'avatarErrUnsupported',
       'avatarErrInvalidArgs', 'avatarErrApiUnavailable', 'avatarErrServiceUnavailable',
       'avatarErrAuthFailed', 'avatarErrUnknown',
+      // 形象克隆（avatar-voice-clone）
+      'avatarCloneSectionTitle', 'avatarCloneManage', 'avatarCloneCreate',
+      'avatarCloneTypePhoto', 'avatarCloneTypeVideo', 'avatarCloneNameLabel',
+      'avatarCloneNamePlaceholder', 'avatarCloneSourceSelf', 'avatarCloneSourceThirdParty',
+      'avatarCloneTraining', 'avatarCloneTrainingFailed', 'avatarCloneRemoteGone',
+      'avatarCloneSampleGone', 'avatarCloneDelete', 'avatarCloneRename',
+      'avatarCloneDeleteConfirm', 'avatarCloneEmpty', 'avatarCloneEmptyHint',
+      'avatarCloneCreating', 'avatarCloneChooseMedia', 'avatarCloneErrInvalidArgs',
+      'avatarCloneErrSelection', 'avatarCloneErrSampleInvalid', 'avatarCloneErrSampleUnreadable',
+      'avatarCloneErrDuplicate', 'avatarCloneErrNotFound', 'avatarCloneErrStore',
+      'avatarCloneErrProvider', 'avatarCloneErrUnknown', 'avatarCloneNoticeTitle',
+      'avatarCloneNoticeBody', 'avatarCloneNoticeAck',
     ]
     for (const k of keys) {
       const path = UI_PREFIX + k

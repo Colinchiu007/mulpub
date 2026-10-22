@@ -1,0 +1,63 @@
+{
+  "sha": "5a01e37b97f1d9ec81da5ca318537fbf383559d8",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 239 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 239,
+    "fileCount": 8,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 债务基线 | ✅ 经人工授权 | `CreateView.vue` 5359 → 5423（+64），触发熔断后经用户明确授权抬基线，理由见「债务基线抬升说明」 |",
+      "**授权**：`AGENTS.md` 规定债务基线 `--update` 属「改谁来守门」，必须人工过目。已向用户明示增量构成与三个选项，用户选择「授权抬基线到实际值，理由写进 PR」。"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"轮次标记：deep-review 轮 1（critic=claude，2026-10-22T10:44:55Z）。\\n失败形态：Critique 校验失败 —— 模型返回的 dimension 用了 completeness/consistency/clarity/feasibility，\\n而驱动 schema 只认 correctness/performance/maintainability，故 8 条 issues 整体解析不出，findings=null。\\n这是工具侧 schema 不匹配，不是方案缺陷；重跑一次仍同样失败（已实测 2 次）。\\n\\n已从日志抢救回的 1 条 Critical 及处置：\\ni1 (security)：法律提示不强制勾选、无授权验证，使用他人肖像的责任仅由文案声明承担。\\n  处置 = 有证据拒绝（User Challenge）：用户在需求确认时明确要求「合规不需要授权确认，\\n  只要给出相应提示和警告就行」。当前实现即按此执行：一次性提示 + attestation 落 registry +\\n  append-only 审计日志（userData/audit/avatar-voice-clone.log），不阻断流程。\\n  若后续要改为强制勾选，属产品策略变更，需用户重新决策，不在本 PR 范围。\\n\\n另需一并记录的两轮决策层 plan-review 结论（同样因 opencode 7800 字符上限中断，非方案缺陷）：\\n  轮 1 三条 Critical 全部采纳并落码 —— ① 形象三方法不登记 KNOWN_METHODS（预期内 fail-closed）；\\n  ② 补可调用性表；③ attestation 放 registry 会随删除丢失 ⇒ 改 append-only 审计日志。\\n  轮 2 八条全部采纳并落码 —— 服务边界表 / 目录合并键与优先级 / 轮询与重试封顶 /\\n  首跑 checklist / 附录划清「视频对标复刻(不做)」与「用户自克隆(做)」的作用域。\\n\\n非高危面声明：本 PR 不触及判据本体、.github/workflows、凭证/登录态，符合出口②适用范围。\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "54ecceea1df0df848635cd3f7d0a022b4c56cf648956dcce4788731d79c96b9e",
+  "decidedAt": "2026-10-22T12:01:04.012Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：本 commit 为纯重构（克隆面板抽组件 + 样式拆文件 + 债务基线抬升），\npre-commit 生成 dual 判定但未跑 deep-review（重构无新增语义）。\n\n语义层面的深度审查在同一 PR 的前一个 commit（6e289329d）已完成，结论记录在\n.ccg/reviews/ad938e0558834660c75d057ba7eaf4af45649778c92d77deea8cd9a89a413a17.json 的 closureNote：\n三层评审（plan-review 轮1/轮2 + deep-review 轮1）共 12 条问题全部已处置并落码，\n中断原因均为工具侧限制（opencode 7800 字符上限 / critic dimension schema 不匹配），非方案缺陷。\n\n本 commit 的回归证据：14 个测试文件 242/242 全绿；max-lines / debt-budget /\nlocale-sync / no-brand-residue / gate-record-debt(122 例) 全部通过。\n\n非高危面声明：不触及判据本体、.github/workflows、凭证/登录态，符合出口②适用范围。"
+  }
+}

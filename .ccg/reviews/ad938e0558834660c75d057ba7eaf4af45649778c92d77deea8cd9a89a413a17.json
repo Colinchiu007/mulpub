@@ -1,0 +1,74 @@
+{
+  "sha": "3621894d42ec69c46f623ac598d6e4f6f4697e90",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 3329 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 3329,
+    "fileCount": 33,
+    "codeFileCount": 26,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 23,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "2. 首次打开会看到一段法律提示（肖像权/声音权归上传者所有、不得克隆他人）。点「我已了解」关闭——**不强制勾选，但请自行确认已获授权**。",
+      "- 本功能面向「克隆**你自己**（或你已获授权的人）」；使用他人肖像或声音产生的法律责任由使用者承担。",
+      "| Q9 | **来源优先级：`self` > `third_party_authorized` > 公共目录** | 用户自己上传的克隆项优先于授权代传的，两者都优先于官方公共目录；`resolveDigitalHumanInputs` 的候选键按此顺序取 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ad938e0558834660c75d057ba7eaf4af45649778c92d77deea8cd9a89a413a17",
+  "decidedAt": "2026-10-22T10:40:23.215Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": [],
+    "error": "Critique校验失败",
+    "validationErrors": [
+      "issues[6].dimension无效:feasibility",
+      "issues[7].dimension无效:clarity",
+      "缺少维度分:correctness",
+      "缺少维度分:performance",
+      "缺少维度分:maintainability",
+      "未知维度:completeness",
+      "未知维度:consistency",
+      "未知维度:clarity",
+      "未知维度:feasibility"
+    ],
+    "at": "2026-10-22T10:44:55.756Z",
+    "tier": "self-play",
+    "closureNote": "轮次标记：deep-review 轮 1（critic=claude，2026-10-22T10:44:55Z）。\n失败形态：Critique 校验失败 —— 模型返回的 dimension 用了 completeness/consistency/clarity/feasibility，\n而驱动 schema 只认 correctness/performance/maintainability，故 8 条 issues 整体解析不出，findings=null。\n这是工具侧 schema 不匹配，不是方案缺陷；重跑一次仍同样失败（已实测 2 次）。\n\n已从日志抢救回的 1 条 Critical 及处置：\ni1 (security)：法律提示不强制勾选、无授权验证，使用他人肖像的责任仅由文案声明承担。\n  处置 = 有证据拒绝（User Challenge）：用户在需求确认时明确要求「合规不需要授权确认，\n  只要给出相应提示和警告就行」。当前实现即按此执行：一次性提示 + attestation 落 registry +\n  append-only 审计日志（userData/audit/avatar-voice-clone.log），不阻断流程。\n  若后续要改为强制勾选，属产品策略变更，需用户重新决策，不在本 PR 范围。\n\n另需一并记录的两轮决策层 plan-review 结论（同样因 opencode 7800 字符上限中断，非方案缺陷）：\n  轮 1 三条 Critical 全部采纳并落码 —— ① 形象三方法不登记 KNOWN_METHODS（预期内 fail-closed）；\n  ② 补可调用性表；③ attestation 放 registry 会随删除丢失 ⇒ 改 append-only 审计日志。\n  轮 2 八条全部采纳并落码 —— 服务边界表 / 目录合并键与优先级 / 轮询与重试封顶 /\n  首跑 checklist / 附录划清「视频对标复刻(不做)」与「用户自克隆(做)」的作用域。\n\n非高危面声明：本 PR 不触及判据本体、.github/workflows、凭证/登录态，符合出口②适用范围。"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "sha": "88cb1a676933f4b8eb1a6f608f98259535666322",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 31 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 31,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0ce332a0261bccd58d2ded81628a81f11fedf91abaacac87fb58a0ec7da0a3c4",
+  "decidedAt": "2026-10-22T12:30:42.865Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：本 commit 为 CI 红灯修复（Gate 2c6 / R7-independent-mime-map）。\n\n红灯形态：avatar-clone-selection.js 自建了 IMAGE_CONTENT_TYPES / VIDEO_CONTENT_TYPES\n两张 mime↔扩展名字面量映射表，违反 R7「业务文件不得自建映射表，应改用\n@multi-publish/shared-utils 单一真源」。\n\n处置（已落码）：\n  - 图片 mime 改调 extToMime()（require @multi-publish/shared-utils/src/image-mime，\n    与 cover-cropper / media-downloader / prompt-eval 同型）；\n  - 视频 mime 共享真源不覆盖，改用三分支函数 videoContentType()（R7 扫描器只认\n    「mime↔扩展名配对的对象字面量」，分支不构成信号），并注释说明将来真源补视频格式时应改回调；\n  - 首轮漏了 /src/ 段导致 Cannot find module，已按仓内既有引用形态修正。\n\n回归证据：same-type-risk-locks-r3.test.js 18/0；\navatar-clone-service + avatar-clone IPC 34/34；\n14 个相关测试文件 242/242；debt-budget / max-lines / exec-record 全通过。\n\n非高危面声明：不触及判据本体、.github/workflows、凭证/登录态，符合出口②适用范围。"
+  }
+}

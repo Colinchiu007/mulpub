@@ -58,6 +58,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./tts-voice-clone')(ipcMain, deps)
   // 数字人形象/音色目录（avatar-spokesperson 流水线接通 HeyGen）
   require('./avatar-catalog')(ipcMain, deps)
+  // 数字人形象克隆（avatar-voice-clone：上传照片/视频 → 长期可复用的形象）
+  require('./avatar-clone')(ipcMain, deps)
   require('./prompt-eval')(ipcMain, deps)
   require('./generation-feedback')(ipcMain, deps)
   // 影视工程（film-engineering）流水线
