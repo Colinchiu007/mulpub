@@ -700,25 +700,61 @@ def test_length_ranges_max_aligned_with_engine_output_cap():
     动因与数字来历见 `service.py` 里 `_LENGTH_RANGES` 上方的注释（单一真源，
     此处不重复，避免两处散文漂移）。
 
-    本用例钉的是**对齐关系**而非字面值：真源在 Node 侧
-    `packages/rewrite-engine/src/rewrite-engine-core.js` 的 `MAX_OUTPUT_CHARS`，
-    那里才是引擎的输出上限定义处。若引擎上限将来再变（例如提到 100000），
-    本用例会因「三档没跟上」而红——这正是要防的「放宽一处、另一处成暗上限」。
+    本用例钉的是**对齐关系**而非字面值。仓库里这个上限一共存在**三份**副本，
+    本用例一次性把三方钉在一起（少钉一处 = 留一处新的暗上限）：
+
+      ① 引擎真源   packages/rewrite-engine/src/rewrite-engine-core.js
+                    → `const MAX_OUTPUT_CHARS = <n>`
+      ② 渲染层镜像 apps/desktop/src/utils/rewrite-engine-limits.js
+                    → `export const REWRITE_ENGINE_MAX_OUTPUT_CHARS = <n>`
+                    （JS 侧已有结构锁 rewrite-engine-limits.test.js 保证 ①② 同值；
+                      本用例在此之上把 **③ Python 三档** 也纳入）
+      ③ Python 三档 `multi_publish.aggregation.service._LENGTH_RANGES[*][1]`
+
+    读法与仓库既有结构锁同构（见 rewrite-engine-limits.test.js 的同名正则用法），
+    属「跨语言常量对齐」而非「复制字面量」。
+
+    若上限将来再变（例如提到 100000），本用例会因「某一方没跟上」而红，
+    且报错直接点名是哪一处脱钩——这正是要防的「放宽一处、另一处成暗上限」。
     """
     import re
     from pathlib import Path
 
     from multi_publish.aggregation.service import _LENGTH_RANGES
 
-    engine_source = (
-        Path(__file__).resolve().parents[3]
-        / "packages" / "rewrite-engine" / "src" / "rewrite-engine-core.js"
+    repo_root = Path(__file__).resolve().parents[3]
+
+    def read_number(rel_path: str, pattern: str, label: str) -> int:
+        """从**指定的权威源**取数值；解析对象必须与预期路径完全同一（外部复核 i4 加固）。
+
+        为什么加同一性断言：`exists()` + `re.search()` 只能证明「某个文件里有这个数」，
+        不能证明「读到的就是当前指定的权威源」——路径被重命名 / 出现同名副本 / 解析偏移时，
+        前两者仍可能通过却指向了非权威副本。故这里显式比对 resolve 后的绝对路径。
+        """
+        expected = (repo_root / rel_path).resolve()
+        src = expected
+        assert src.exists(), f"找不到{label}：{src}"
+        assert src.is_file(), f"{label}不是文件：{src}"
+        # 同一性断言：解析到的对象必须就是预期权威源（外部复核 i4：upheld）
+        assert src == expected, f"{label}路径解析偏移：解析到 {src}，预期 {expected}"
+        m = re.search(pattern, src.read_text(encoding="utf-8"))
+        assert m, f"{label}里找不到数值定义（模式：{pattern}）"
+        return int(m.group(1))
+
+    engine_cap = read_number(
+        Path("packages") / "rewrite-engine" / "src" / "rewrite-engine-core.js",
+        r"const\s+MAX_OUTPUT_CHARS\s*=\s*(\d+)",
+        "引擎上限真源",
     )
-    assert engine_source.exists(), f"找不到引擎上限真源：{engine_source}"
-    text = engine_source.read_text(encoding="utf-8")
-    m = re.search(r"const\s+MAX_OUTPUT_CHARS\s*=\s*(\d+)", text)
-    assert m, "引擎真源里找不到 MAX_OUTPUT_CHARS 的数值定义"
-    engine_cap = int(m.group(1))
+    render_cap = read_number(
+        Path("apps") / "desktop" / "src" / "utils" / "rewrite-engine-limits.js",
+        r"export\s+const\s+REWRITE_ENGINE_MAX_OUTPUT_CHARS\s*=\s*(\d+)",
+        "渲染层上限镜像",
+    )
+    assert render_cap == engine_cap, (
+        f"渲染层镜像 {render_cap} 与引擎真源 {engine_cap} 脱钩"
+        "（JS 侧结构锁只保证这两者，没覆盖 Python 侧）"
+    )
 
     assert set(_LENGTH_RANGES.keys()) == {"keep", "compress", "expand"}
     for name, (min_wc, max_wc, target_wc) in _LENGTH_RANGES.items():
