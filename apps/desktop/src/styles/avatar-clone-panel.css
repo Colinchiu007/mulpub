@@ -12,7 +12,7 @@
   border: 1px solid var(--border-color, #dcdfe6);
   border-radius: 6px;
   background: var(--fill-color-light, #f5f7fa);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.6;
 }
 
@@ -32,9 +32,9 @@
   border-bottom: 1px solid var(--border-color-lighter, #e4e7ed);
 }
 
-.clone-name { flex: 1; font-size: 13px; }
+.clone-name { flex: 1; font-size: var(--font-size-sm); }
 
-.clone-tag { font-size: 12px; color: var(--color-warning, #e6a23c); }
+.clone-tag { font-size: var(--font-size-xs); color: var(--color-warning, #e6a23c); }
 
 .clone-tag--warn { color: var(--color-danger, #f56c6c); }
 
