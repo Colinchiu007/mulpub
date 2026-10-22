@@ -70,22 +70,66 @@ describe('accountInfoCollector — 昵称多层回退（T1）', () => {
   })
 })
 
-describe('accountInfoCollector — 头像三层回退（T2）', () => {
+describe('accountInfoCollector — 头像采集（T2）', () => {
   it('img src 优先；无 src 时取 data-src', () => {
-    expect(collect('<div class="avatar"><img src="https://cdn/a.png"></div>').avatar).toBe('https://cdn/a.png')
-    expect(collect('<div class="avatar"><img data-src="https://cdn/b.png"></div>').avatar).toBe('https://cdn/b.png')
+    expect(collect('<div class="avatar"><img src="https://cdn/a.png"></div>').avatarCandidates)
+      .toEqual(['https://cdn/a.png'])
+    expect(collect('<div class="avatar"><img data-src="https://cdn/b.png"></div>').avatarCandidates)
+      .toEqual(['https://cdn/b.png'])
   })
 
-  it('背景图 url() 与 og:image 回退', () => {
-    expect(collect('<div class="avatar-img" style="background-image:url(\'https://cdn/c.png\')"></div>').avatar)
-      .toBe('https://cdn/c.png')
+  it('背景图 url() 兜底', () => {
+    expect(collect('<div class="avatar-img" style="background-image:url(\'https://cdn/c.png\')"></div>').avatarCandidates)
+      .toEqual(['https://cdn/c.png'])
+  })
+
+  // 断言变更（2026-10-22，带证据）：og:image 是**站点级**品牌图，不是用户头像。
+  // 实测证据：今日头条创作后台的 og:image = `sf3-cdn-tos.toutiaostatic.com/obj/mp/logo-toutiao.png`，
+  // 该值曾被生产库落盘成账号头像（账号卡上显示的是头条号 logo 而非用户头像），
+  // 且因 buildProfilePatch「值不变就不写」的语义再也不会被正确值覆盖。
+  // 品牌图判定改由 Node 侧 account-avatar-guard 统一负责（页面内不得引用模块作用域标识符）。
+  it('og:image 一律不采纳（站点品牌图 ≠ 用户头像）', () => {
     const dom = new JSDOM('<!doctype html><html><head><meta property="og:image" content="https://cdn/d.png"></head><body></body></html>')
     const factory = new Function('document', 'return (' + ap.accountInfoCollector.toString() + ')')
-    expect(factory(dom.window.document)({}).avatar).toBe('https://cdn/d.png')
+    const info = factory(dom.window.document)({})
+    expect(info.avatarCandidates).toBeUndefined()
+    expect(info.avatar).toBeUndefined()
   })
 
   it('完全没有头像线索时不产出 avatar 键（不得用空串冒充）', () => {
     const info = collect('<div>只有文字</div>')
+    expect('avatar' in info).toBe(false)
+    expect('avatarCandidates' in info).toBe(false)
+  })
+
+  it('收集全部候选而非第一个（Node 侧据此剔除品牌图后择优）', () => {
+    const html = '<div class="avatar"><img src="https://cdn/logo.png"></div>' +
+      '<img class="profile-avatar" src="https://cdn/real.png">'
+    expect(collect(html).avatarCandidates).toEqual(['https://cdn/logo.png', 'https://cdn/real.png'])
+  })
+})
+
+describe('pickUserAvatar — 品牌图剔除（Node 侧唯一实现）', () => {
+  it('剔除站点品牌图后取第一个真头像', () => {
+    expect(ap.pickUserAvatar(['https://cdn/logo.png', 'https://cdn/real.png'])).toBe('https://cdn/real.png')
+  })
+
+  it('全部是品牌图时不产出头像（宁可空着，也不显示平台 logo）', () => {
+    expect(ap.pickUserAvatar(['https://cdn/logo.png'])).toBe('')
+    expect(ap.pickUserAvatar([])).toBe('')
+    expect(ap.pickUserAvatar(null)).toBe('')
+  })
+
+  it('collectWithWebContents 把页面候选收口成最终 avatar（品牌图被剔除）', async () => {
+    const ok = vi.fn(async () => ({ nickName: '甲', avatarCandidates: ['https://cdn/logo.png', 'https://cdn/real.png'] }))
+    const info = await ap.collectWithWebContents({ executeJavaScript: ok }, 'weibo')
+    expect(info.avatar).toBe('https://cdn/real.png')
+    expect('avatarCandidates' in info).toBe(false)
+  })
+
+  it('collectWithWebContents 候选全是品牌图时不产出 avatar 键', async () => {
+    const ok = vi.fn(async () => ({ nickName: '甲', avatarCandidates: ['https://cdn/logo.png'] }))
+    const info = await ap.collectWithWebContents({ executeJavaScript: ok }, 'weibo')
     expect('avatar' in info).toBe(false)
   })
 })

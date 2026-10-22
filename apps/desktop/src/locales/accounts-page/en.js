@@ -290,6 +290,11 @@ export default {
       publisherLabel: 'Publisher',
       notSet: 'Not set',
       noData: 'No data',
+      // 账号资料（昵称/头像/粉丝）缺失时的提示（2026-10-22）：
+      // 与中文文案逐字对应：按钮名取自同文件的 verify。
+      avatarMissing: 'Account avatar not fetched',
+      avatarMissingHint: 'Account avatar not fetched. Click "Verify" to fetch account info again',
+      followersMissingHint: 'Follower count not fetched. Click "Verify" to fetch account info again',
       unnamedAccount: 'Unnamed account',
       statusLoggedIn: 'Logged in',
       statusExpired: 'Invalid',

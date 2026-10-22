@@ -84,6 +84,32 @@ describe('AccountManagementCard', () => {
     expect(wrapper.find('[data-testid="select-account-1"]').exists()).toBe(false)
   })
 
+  // 2026-10-22：账号资料缺失时给出「为什么没有 + 下一步」的提示。
+  // 灰色通用头像本身不解释原因，用户分不清是「平台没设头像」还是「我们没取到」。
+  it('头像缺失时给出可操作提示（点「验证」重新获取），有头像时不打扰', () => {
+    const missing = mountCard()
+    const avatarBox = missing.get('.account-avatar')
+
+    expect(avatarBox.attributes('title')).toBe('未获取到账号头像，点「验证」可重新获取账号资料')
+    expect(avatarBox.attributes('aria-label')).toBe('未获取到账号头像，点「验证」可重新获取账号资料')
+    expect(missing.find('.account-avatar img').exists()).toBe(false)
+
+    const withAvatar = mountCard({ account: { ...account, avatar: 'https://cdn/a.png' } })
+    expect(withAvatar.get('.account-avatar').attributes('title')).toBeUndefined()
+    expect(withAvatar.find('.account-avatar img').exists()).toBe(true)
+  })
+
+  it('粉丝数缺失时给出提示，有粉丝数时不打扰', () => {
+    const missing = mountCard()
+    expect(missing.get('[data-testid="account-followers-account-1"]').attributes('title'))
+      .toBe('未获取到粉丝数，点「验证」可重新获取账号资料')
+    expect(missing.get('[data-testid="account-followers-account-1"]').text()).toContain('暂无数据')
+
+    const withFans = mountCard({ account: { ...account, followers: 457 } })
+    expect(withFans.get('[data-testid="account-followers-account-1"]').attributes('title')).toBeUndefined()
+    expect(withFans.get('[data-testid="account-followers-account-1"]').text()).toContain('457')
+  })
+
   it('失效账号（checkedExpiredIds 命中）展示「已失效」状态、登录按钮并上抛原始账号对象', async () => {
     const expiredAccount = { ...account, status: 'expired' }
     const checkedExpiredIds = new Set(['account-1'])

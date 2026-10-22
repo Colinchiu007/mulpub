@@ -132,7 +132,14 @@ async function refreshProfileFromHttpApi (platform, accountId, cookies, deps) {
     }
     const curData = current.data
     const patch = profileUtils.buildProfilePatch(
-      { nickName: info.nickname, followers: info.followers, platformAccountId: info.platformAccountId },
+      {
+        nickName: info.nickname,
+        // 头像：2026-10-22 起 HTTP 通道也产出头像（此前该字段在契约里根本没有位置，
+        // 于是所有走 HTTP 快速路径的平台头像恒为空 —— 账号卡上显示灰色通用头像）。
+        avatar: info.avatar,
+        followers: info.followers,
+        platformAccountId: info.platformAccountId,
+      },
       curData
     )
     accountNameWrite.guardProfilePatchBySource(patch, curData)
