@@ -1,0 +1,61 @@
+{
+  "sha": "4f52ea2b74e505e495a0ac2f44281cbf454899a1",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 986 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 986,
+    "fileCount": 14,
+    "codeFileCount": 10,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 16,
+    "docSensitiveContentHits": 14,
+    "docSensitiveContentSample": [
+      "账号管理页点「+ 添加账号」弹出「添加账号」弹窗（360px 宽），其中「平台」字段是一个**原生 `<select>`**。",
+      "`UiSelect.vue` 的实现是原生 `<select>` + `appearance: none`。`appearance: none` 只能去掉**收起态**的原生外观（箭头、边框），一旦展开，弹出列表由**操作系统/浏览器**绘制，**CSS 完全无法介入**——这是 Web 平台的能力边界，不是本项目的实现缺陷。",
+      "- 选中某平台 → `emit('update:modelValue', id)` → 浮层关闭 → 焦点回到触发器；"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2e46e486ff552fe27db53b7e1c2a89553a5a3bc62bdc332b82fda2699b349cb3",
+  "decidedAt": "2026-10-22T04:17:28.817Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

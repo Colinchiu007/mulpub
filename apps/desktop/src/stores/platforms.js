@@ -137,6 +137,22 @@ export const usePlatformStore = defineStore('platforms', () => {
     return categories.value[id] || DEFAULT_CATEGORIES[id] || ''
   }
 
+  /**
+   * 平台分组键：'domestic'（国内） | 'international'（海外）。
+   *
+   * 分类真源仍是 config/platforms.yaml 的 category 字段（中文 / 海外），
+   * 这里只把它翻成**非本地化的结构键**。为什么要多这一层：
+   * getCategory() 返回的是中文值，UI 层若直接拿它比字符串，就必须在渲染端
+   * 代码里写中文字面量 —— 本仓 locale-sync --cjk 门禁对新增硬编码中文零容忍
+   * （基线只降不升）。翻成 ASCII 结构键后，中文字面量只留在本 store 与 locale 两处。
+   *
+   * 口径与发布页 usePublishPlatformCatalog.js 一致（同一个判据：category === 海外），
+   * 避免同一个平台在两个页面被归到不同组。
+   */
+  function getCategoryGroup(id) {
+    return getCategory(id) === '海外' ? 'international' : 'domestic'
+  }
+
   function getDashboardUrl(id) {
     return dashboardUrls.value[id] || ''
   }
@@ -157,7 +173,7 @@ export const usePlatformStore = defineStore('platforms', () => {
 
   return {
     platforms, names, icons, contentCategories, categories, dashboardUrls, qrCodePlatforms,
-    loaded, loading, load, getLabel, getIcon, getCategory, getDashboardUrl, supportsQrCode,
+    loaded, loading, load, getLabel, getIcon, getCategory, getCategoryGroup, getDashboardUrl, supportsQrCode,
     getContentCategory, getPlatformsByContentCategory,
   }
 })
