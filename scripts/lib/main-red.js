@@ -192,7 +192,13 @@ function judge (input = {}) {
         + (prFail.size ? '；PR 侧已失败 ' + prFail.size + ' 条（' + [...prFail].sort().join(', ') + '）——**未判新增红**：基准已作废' : '')
         + (mainFail.size ? '；主干失败格子：' + [...mainFail].sort().join(', ') : '')
         + '。按未证实处理：重试耗尽仍不稳定时不得据此判绿。',
+      // ⛔ `newRed` 在这一档是**「未计算」而不是「没有」**：差集缺基准时不可归因，
+      //    把它写成空数组会让下游把「不可归因」读成「零新增红」（评审 i1）。
+      //    机器可读的那一份放在 `prFailNames`（PR 侧已证实的失败名）——
+      //    `counts.prFail` 一直是真的（`counts()` 从闭包取，不硬编码）。
       newRed: [], inherited: [], uncertain: [], mainFail: [...mainFail].sort(),
+      prFailNames: [...prFail].sort(),
+      newRedComputed: false,
       counts: counts(0, 0),
     }
   }

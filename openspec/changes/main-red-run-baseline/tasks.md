@@ -83,6 +83,24 @@
 | i6 | Info | `mainRowsAt` 未提分页 | **已改**：proposal 与 spec 均写明 `--paginate` + `per_page=100`（实测单页装不下 30+ run 的 tip） |
 | i7 | Info | 契约锁只在测试层生效 | **已改**：写明 `.github/scripts/workflow-contract.test.js` 由 `quality-gate.yml` 的 **Gate 2b** 接入 CI（PR 与 main push 都跑），并加进 `specs/ci/spec.md` 的 Scenario |
 
+## T10 · 验证层深度评审处置（2026-10-22 第一轮，critic=claude，7 条 / Critical 3）
+
+> 产物：`.adversarial/ccg-deep-25739c94/`（gitignored，不入库）；**可入库留档**：
+> `openspec/changes/main-red-run-baseline/ccg-review-record.md`。
+> 判定记录：`.ccg/reviews/b198c599d23619f2f81224d36fd84ac7bf12f7755a413f9983ed7d2355bb0c95.json`
+> （`deepReview.status` 已由 `self_play_pending` 收口为 `needs_revision`，`tier=external`，
+> `evidence` 指向可入库留档，`closureNote` 含轮次与逐条处置）。
+
+| # | 严重度 | 裁决 | 处置 |
+|---|--------|------|------|
+| i1 | Critical | **upheld（已修）** | `mainMoved` 档新增 `prFailNames`（PR 侧已证实的失败名，机器可读）+ `newRedComputed=false`（明示「未计算」而非零）；回归锁 1 例 |
+| i2 | Critical | **dismissed（登记遗留 1）** | 指控对象是 CCG 引擎的输入协议（opencode 7800 字节上限 + 静默拒绝），不在本片判据内；本片已用「拆 `evidence.md`」绕开。引擎侧缺失登记为遗留，本片不动（改谁来守门的邻域） |
+| i3 | Critical | **upheld（已修）** | 6 条争议项逐条填裁决 + `status` 收口为闭环值 + `tier=external` + 可核 `evidence` + `closureNote`；即本片自身的收口动作 |
+| i4 | Warning | **upheld（已修）** | 新增 `--max-wait-seconds`（默认 300）总等待上限：`--attempts 100 --retry-seconds 3600` 这类无界参数不再可能；超限即停手并判未证实(3)；参数校验 + 回归锁 + spec 新增 Requirement |
+| i5 | Warning | **dismissed（补注释）** | 指控建议的「默认跳过未知形状」违反本仓失明纪律（把「没读到事件类型」读成「它是主干自己的验证」）；「未知事件类型自动进基准」本已是安全侧。注释补足两类情形的区分 |
+| i6 | Warning | **dismissed（登记遗留 2）** | `openspec validate --strict` 实测 valid + quality-gate Gate 2b2 + 「Scenario ↔ 行为锁用例逐条对应」；缺通用自动门禁，登记为遗留，本片不加新 CI 门禁（属「改谁来守门」） |
+| i7 | Info | 已满足 | workflow 顶部已写「⛔ 必须 ubuntu-latest」及实测依据；契约锁已直接断言 `runs-on` |
+
 ## T8 · PR 与合并
 
 - [ ] T8.1 开 PR（squash 惯例），正文写清「改了什么」与证据

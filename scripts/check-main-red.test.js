@@ -686,3 +686,36 @@ test('稳定窗参数必须校验：attempts < 1 / 非整数一律抛（参数�
   assert.strictEqual(parseArgs(['--pr', '1']).retrySeconds, 90)
   assert.strictEqual(parseArgs(['--pr', '1', '--attempts=5', '--retry-seconds=0']).attempts, 5)
 })
+
+test('稳定窗总等待必须有上限（评审 i4：attempts × retry-seconds 可传 ⇒ 重试可以无限睡）', async () => {
+  assert.throws(() => parseArgs(['--pr', '1', '--max-wait-seconds', '-1']), /max-wait-seconds/)
+  assert.throws(() => parseArgs(['--pr', '1', '--max-wait-seconds', 'x']), /max-wait-seconds/)
+  assert.strictEqual(parseArgs(['--pr', '1']).maxWaitSeconds, 300, '默认值必须是有限的上限，不是无限')
+
+  // 每次 mainSha 都不同 ⇒ 永远不稳定；上限到了就必须停手（而不是睡满 attempts × retry）
+  let k = 0
+  const alwaysMoving = {
+    repo: 'o/r',
+    mainSha: () => 'm' + (k++),
+    prHeadSha: () => 'p1',
+    mainRowsAt: () => [apiRow('A', 'success')],
+    checksAt: () => [apiRow('A', 'success')],
+  }
+  const { code, out } = await captureStdout(() => run(
+    ['--pr', '7', '--attempts', '99', '--retry-seconds', '3600', '--max-wait-seconds', '0'], alwaysMoving))
+  assert.strictEqual(code, 3, '上限到 ⇒ 判未证实，实到 ' + code)
+  assert.match(out, /STABLE-WAIT-CAP/, '必须打印「因上限停手」的事实，否则下一次读者会以为它重试满了')
+  assert.ok(!/STALE attempt=2/.test(out), '上限为 0 时不得再进第二轮（否则上限形同虚设）')
+})
+
+test('基准作废档必须把 PR 侧已证实的失败名单交出来（评审 i1：不可归因 ≠ 没有）', () => {
+  const v = judge({
+    prRows: [prRow('QG Visual', 'FAILURE'), prRow('QG Unit Tests', 'FAILURE')],
+    mainRows: [apiRow('QG Coverage', 'success')],
+    mainMoved: { from: 'aaaa1111', to: 'bbbb2222' },
+  })
+  assert.deepStrictEqual(v.prFailNames, ['QG Unit Tests', 'QG Visual'], 'PR 侧已证实的失败名必须可机器读')
+  assert.strictEqual(v.newRedComputed, false, 'newRed 在这一档是「未计算」，不得被读成「没有」')
+  assert.strictEqual(v.counts.prFail, 2, 'counts.prFail 必须是真值（不是硬编码 0）')
+  assert.strictEqual(v.counts.mainFail, 0)
+})

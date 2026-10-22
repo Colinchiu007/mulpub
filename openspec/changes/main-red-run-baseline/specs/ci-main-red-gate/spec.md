@@ -80,6 +80,22 @@ MUST NOT 把「行粒度一致」表述成「同一个 API」。
 - **WHEN** tip 移动导致基准作废，且 PR 侧有一条已证实的红
 - **THEN** MUST 判「未证实」并把该红列在 reason 里
 - **AND** MUST NOT 判「新增红」——那会把「不可归因」读成「证据」
+- **AND** MUST 把 PR 侧已证实的失败名**机器可读地**交出（`prFailNames`），
+  并用 `newRedComputed=false` 明示「本档的新增红是**未计算**，不是零」——
+  下游 MUST NOT 把这一档的 `newRed` 读成「没有新增红」
+
+### Requirement: 稳定窗的总等待必须有上限
+
+系统 SHALL 给稳定窗的累计等待设一个有限上限（`--max-wait-seconds`，默认 300）：
+再睡一次就会超过上限时，MUST 停止重试并把这一档按「未证实」（退出码 3）交出，
+MUST 打印「因上限停手」的事实，MUST NOT 静默延长。
+理由：`attempts × retry-seconds` 是调用方可传的，没有上限就等于「重试」可以无限睡。
+
+#### Scenario: 上限为 0 时只尝试一次
+
+- **WHEN** `--max-wait-seconds 0` 且第一次读数就遇到 tip 移动
+- **THEN** MUST 只尝试一次就停手（不得进入第二轮）
+- **AND** MUST 判「未证实」（退出码 3）并打印上限停手的事实
 
 ### Requirement: 闸门的档位与退出码契约不因本片改变
 

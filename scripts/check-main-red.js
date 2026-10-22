@@ -45,7 +45,7 @@ const { judge, readout, resolveRepoSlug } = require('./lib/main-red')
 const REPO_DEFAULT = 'Colinchiu007/mulpub'
 
 function parseArgs (argv) {
-  const out = { pr: null, allowMainRed: null, json: false, repo: null, attempts: 3, retrySeconds: 90 }
+  const out = { pr: null, allowMainRed: null, json: false, repo: null, attempts: 3, retrySeconds: 90, maxWaitSeconds: 300 }
   const unclaimed = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -61,11 +61,15 @@ function parseArgs (argv) {
     if (a.startsWith('--attempts=')) { out.attempts = a.slice(11); continue }
     if (a === '--retry-seconds') { out.retrySeconds = argv[++i]; continue }
     if (a.startsWith('--retry-seconds=')) { out.retrySeconds = a.slice(16); continue }
+    // 稳定窗的总等待上限（评审 i4）：attempts × retry-seconds 是可传的，
+    // 没有上限就等于把「重试」变成「可以无限睡」（--attempts 100 --retry-seconds 3600 = 100 小时）。
+    if (a === '--max-wait-seconds') { out.maxWaitSeconds = argv[++i]; continue }
+    if (a.startsWith('--max-wait-seconds=')) { out.maxWaitSeconds = a.slice(18); continue }
     unclaimed.push(a)
   }
   // 未知旗标与非法取值一律出声并走"自身故障"档（AGENTS：参数不得静默忽略——一次 --limit 4 被丢弃
   // 就把 smoke 放大成整域，同一个错法在这里会让"我以为我豁免了"变成"其实没豁免"）
-  if (unclaimed.length) throw new Error('未知参数：' + unclaimed.join(' ') + '（本判据只接 --pr/--allow-main-red/--json/--repo/--attempts/--retry-seconds）')
+  if (unclaimed.length) throw new Error('未知参数：' + unclaimed.join(' ') + '（本判据只接 --pr/--allow-main-red/--json/--repo/--attempts/--retry-seconds/--max-wait-seconds）')
   if (!out.pr) throw new Error('缺 --pr <编号>')
   if (!/^\d+$/.test(String(out.pr))) throw new Error('--pr 必须是数字 PR 编号，实到 ' + out.pr)
   if (out.allowMainRed !== null && out.allowMainRed === '') throw new Error('--allow-main-red 必须带归因文本（空串等于没豁免，别用它静默放行）')
@@ -75,8 +79,11 @@ function parseArgs (argv) {
   if (!Number.isInteger(attempts) || attempts < 1) throw new Error('--attempts 必须是 ≥1 的整数，实到 ' + out.attempts)
   const retrySeconds = Number(out.retrySeconds)
   if (!Number.isInteger(retrySeconds) || retrySeconds < 0) throw new Error('--retry-seconds 必须是 ≥0 的整数，实到 ' + out.retrySeconds)
+  const maxWaitSeconds = Number(out.maxWaitSeconds)
+  if (!Number.isInteger(maxWaitSeconds) || maxWaitSeconds < 0) throw new Error('--max-wait-seconds 必须是 ≥0 的整数，实到 ' + out.maxWaitSeconds)
   out.attempts = attempts
   out.retrySeconds = retrySeconds
+  out.maxWaitSeconds = maxWaitSeconds
   return out
 }
 
@@ -154,6 +161,9 @@ function selectMainRuns (runs) {
     const event = String(r.event == null ? '' : r.event)
     // ⛔ 形状不认识 = 探针失明，不得静默通过（AGENTS 同型）：event 字段缺失时**抛错**，
     //    而不是「当作不是 workflow_run 放行」——那等于把"没读到事件类型"读成"它是主干自己的验证"。
+    //    （深度评审 i5 建议「默认跳过未知形状以免恒定 SELF_FAULT」——**驳回**：那正是把失明读成安全。）
+    //    另一类情形**不同**：「新事件类型」（非 workflow_run 的未知 event，如 GitHub 将来新增
+    //    merge_group）不在排除名单里 ⇒ **自动进基准**，是安全侧，不会被丢弃。
     if (!event) throw new Error('actions/runs 的行缺 event 字段（形状变了，不得按「无检查」处理）：' + JSON.stringify(r).slice(0, 120))
     // ⛔ `workflow_run` 触发的 run 一律不参与：GitHub 把它们的 check run 挂在**默认分支当前 tip**
     //    上（不管触发它的是哪个 PR 的 CI），实测主干 tip 上 102 条检查行里 81 条是同一个
@@ -277,6 +287,7 @@ async function main (argv, collector) {
   let moved = null
   const moves = []
   let stable = false
+  let waited = 0
   for (let attempt = 1; attempt <= opts.attempts; attempt++) {
     let shaBefore
     let mainRows
@@ -300,8 +311,17 @@ async function main (argv, collector) {
     moves.push(moved)
     console.log('MAIN-RED STALE attempt=' + attempt + '/' + opts.attempts
       + ' main=' + String(shaBefore).slice(0, 9) + '→' + String(shaAfter).slice(0, 9)
-      + ' 读数作废：主干在读数期间移动' + (attempt < opts.attempts ? '，重试…' : '，重试已用尽'))
-    if (attempt < opts.attempts) await sleep(opts.retrySeconds * 1000)
+      + ' 读数作废：主干在读数期间移动')
+    if (attempt >= opts.attempts) break
+    // ⛔ 总等待上限（评审 i4）：`attempts × retry-seconds` 是可传的，没有上限就等于
+    //    「重试」可以无限睡。超过上限就停手，把这一档按未证实交出去（不静默延长）。
+    if (waited + opts.retrySeconds > opts.maxWaitSeconds) {
+      console.log('MAIN-RED STABLE-WAIT-CAP 累计等待 ' + waited + 's + 本次 ' + opts.retrySeconds
+        + 's 超过上限 ' + opts.maxWaitSeconds + 's ⇒ 停止重试，本次读数按未证实处理')
+      break
+    }
+    await sleep(opts.retrySeconds * 1000)
+    waited += opts.retrySeconds
   }
   const v = judge({
     prRows: last.prRows,
