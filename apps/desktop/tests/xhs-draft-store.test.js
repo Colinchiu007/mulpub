@@ -80,3 +80,19 @@ describe('xhs-draft-store', () => {
     expect(r.reason).toBe('title-not-found')
   })
 })
+
+describe('xhs-draft-store minTimeStamp（防同名旧草稿假阳性）', () => {
+  it('时间戳早于窗口的同名草稿不算命中', async () => {
+    const win = fakeWin(async () => [{ draftId: 'old', title: 'T', timeStamp: 1000 }])
+    const r = await findDraftByTitle(win, 'T', { minTimeStamp: 5000 })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toBe('title-not-found')
+  })
+
+  it('时间戳在窗口内的同名草稿命中', async () => {
+    const win = fakeWin(async () => [{ draftId: 'new', title: 'T', timeStamp: 9000 }])
+    const r = await findDraftByTitle(win, 'T', { minTimeStamp: 5000 })
+    expect(r.ok).toBe(true)
+    expect(r.draftId).toBe('new')
+  })
+})

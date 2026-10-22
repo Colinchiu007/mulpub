@@ -71,15 +71,16 @@ async function findDraftByTitle (win, title, opts) {
     return { ok: false, total: 0, reason: 'idb-unreadable:' + String(list && list.__err).slice(0, 80) }
   }
   const want = String(title || '').trim()
+  const minTs = Number(o.minTimeStamp) > 0 ? Number(o.minTimeStamp) : 0
   if (want) {
-    const hit = list.find((d) => String(d.title || '').trim() === want)
+    const hit = list.find((d) => String(d.title || '').trim() === want && Number(d.timeStamp || 0) >= minTs)
     return hit
       ? { ok: true, draftId: hit.draftId, total: list.length }
       : { ok: false, total: list.length, reason: 'title-not-found' }
   }
   // 无标题场景：看是否有基线之外的新条目
   const base = new Set((o.baselineIds || []).map(String))
-  const fresh = list.find((d) => !base.has(String(d.draftId)))
+  const fresh = list.find((d) => !base.has(String(d.draftId)) && Number(d.timeStamp || 0) >= minTs)
   return fresh
     ? { ok: true, draftId: fresh.draftId, total: list.length }
     : { ok: false, total: list.length, reason: 'no-new-draft' }
