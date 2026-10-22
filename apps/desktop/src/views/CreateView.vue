@@ -211,10 +211,10 @@
                   v-model="avatarId"
                   class="form-select"
                   data-testid="avatar-id-select"
-                  :disabled="avatarLoading || avatarOptions.length === 0"
+                  :disabled="avatarLoading || mergedAvatarOptions().length === 0"
                 >
                   <option value="">{{ avatarText('avatarPlaceholder') }}</option>
-                  <option v-for="item in avatarOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
+                  <option v-for="item in mergedAvatarOptions()" :key="item.id" :value="item.id">{{ item.name }}</option>
                 </select>
                 <p v-if="avatarLoading" class="config-hint" data-testid="avatar-loading">{{ avatarText('avatarLoading') }}</p>
                 <span v-else-if="avatarError" class="inline-error" data-testid="avatar-error">{{ avatarLoadFailedText }}</span>
@@ -242,6 +242,79 @@
                   :disabled="avatarLoading"
                   @click="refreshAvatarCatalog"
                 >{{ avatarText('avatarRefresh') }}</button>
+                <button
+                  type="button"
+                  class="s2v-btn-secondary s2v-btn-sm"
+                  data-testid="avatar-clone-manage"
+                  @click="toggleAvatarClonePanel"
+                >{{ avatarText('avatarCloneManage') }}</button>
+              </div>
+            </template>
+
+            <!-- 克隆形象管理（avatar-voice-clone） -->
+            <template v-if="avatarClonePanelOpen">
+              <div class="config-item config-item--full" data-testid="avatar-clone-panel">
+                <h4>{{ avatarText('avatarCloneSectionTitle') }}</h4>
+
+                <!-- 一次性合规提示：不强制勾选，只提示 + 记录已阅 -->
+                <div v-if="!avatarCloneNoticeAcked" class="clone-notice" data-testid="avatar-clone-notice">
+                  <strong>{{ avatarText('avatarCloneNoticeTitle') }}</strong>
+                  <p>{{ avatarText('avatarCloneNoticeBody') }}</p>
+                  <button
+                    type="button"
+                    class="s2v-btn-secondary s2v-btn-sm"
+                    data-testid="avatar-clone-notice-ack"
+                    @click="avatarCloneNoticeAcked = true"
+                  >{{ avatarText('avatarCloneNoticeAck') }}</button>
+                </div>
+
+                <div v-if="avatarClones.length === 0" class="config-hint" data-testid="avatar-clone-empty">
+                  {{ avatarText('avatarCloneEmpty') }}：{{ avatarText('avatarCloneEmptyHint') }}
+                </div>
+                <ul v-else class="clone-list" data-testid="avatar-clone-list">
+                  <li v-for="item in avatarClones" :key="item.id">
+                    <span class="clone-name">{{ item.name }}</span>
+                    <span v-if="item.trainingState === 'training'" class="clone-tag">{{ avatarText('avatarCloneTraining') }}</span>
+                    <span v-else-if="avatarCloneInvalidKey(item)" class="clone-tag clone-tag--warn">
+                      {{ avatarText(avatarCloneInvalidKey(item)) }}
+                    </span>
+                    <button
+                      type="button"
+                      class="s2v-btn-secondary s2v-btn-sm"
+                      :data-testid="'avatar-clone-delete-' + item.id"
+                      @click="removeAvatarClone(item.id)"
+                    >{{ avatarText('avatarCloneDelete') }}</button>
+                  </li>
+                </ul>
+
+                <!-- 创建：名称 + 两种素材入口（照片 / 视频） -->
+                <div class="clone-create">
+                  <input
+                    v-model="avatarCloneNameDraft"
+                    type="text"
+                    class="form-input"
+                    data-testid="avatar-clone-name"
+                    :placeholder="avatarText('avatarCloneNamePlaceholder')"
+                    :disabled="avatarCloneCreating"
+                  />
+                  <button
+                    type="button"
+                    class="s2v-btn-secondary s2v-btn-sm"
+                    data-testid="avatar-clone-create-photo"
+                    :disabled="avatarCloneCreating"
+                    @click="createAvatarClone('photo')"
+                  >{{ avatarText('avatarCloneTypePhoto') }}</button>
+                  <button
+                    type="button"
+                    class="s2v-btn-secondary s2v-btn-sm"
+                    data-testid="avatar-clone-create-video"
+                    :disabled="avatarCloneCreating"
+                    @click="createAvatarClone('digital_twin')"
+                  >{{ avatarText('avatarCloneTypeVideo') }}</button>
+                </div>
+                <span v-if="avatarCloneCreateError" class="inline-error" data-testid="avatar-clone-create-error">
+                  {{ avatarText(avatarCloneCreateError) }}
+                </span>
               </div>
             </template>
           </div>
@@ -1001,6 +1074,8 @@ import { resolveCapabilityDefaultModel } from './video-creation/composables/tts-
 import { batchCreateRefs, batchCreateMethods, setupBatchCreateDeps } from './video-creation/composables/useBatchCreate'
 // 数字人（avatar-spokesperson）目录：形象/音色选择
 import { avatarCatalogRefs, avatarCatalogComputeds, avatarCatalogMethods } from './video-creation/composables/useAvatarCatalog'
+// 数字人形象克隆（avatar-voice-clone）：上传照片/视频 → 长期可复用形象
+import { avatarCloneRefs, avatarCloneComputeds, avatarCloneMethods } from './video-creation/composables/useAvatarClone'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
@@ -1137,6 +1212,11 @@ export default {
       // 数字人（avatar-spokesperson）：形象/音色选择。独立字段而非复用 s2vConfig.voiceId
       // —— 后者是 story2video 专属，靠 story2videoTextConfig 下发，本流水线根本不读。
       avatarId: '', avatarVoiceId: '',
+      // 形象克隆面板（avatar-voice-clone）：纯本地 UI 状态，不进 store
+      avatarClonePanelOpen: false,
+      avatarCloneNameDraft: '',
+      // 克隆列表是否已拉过一次（选中流水线时拉；打面板只兜底）
+      avatarClonesLoadedOnce: false,
       // 带文案进入（/create?draft=xxx 预填成功）：非文案型流水线在选择列表中灰显不可选
       textPrefilledFromDraft: false,
       // 配置
@@ -1322,6 +1402,12 @@ export default {
     s2vVoiceOptions: { get() { return ttsVoicesComputeds.s2vVoiceOptions.value } },
     avatarOptions: { get() { return avatarCatalogComputeds.avatarOptions.value } },
     avatarVoiceOptions: { get() { return avatarCatalogComputeds.avatarVoiceOptions.value } },
+    // 形象克隆（avatar-voice-clone）
+    avatarClones: { get() { return avatarCloneRefs.clones.value } },
+    avatarCloneUsable: { get() { return avatarCloneComputeds.usableClones.value } },
+    avatarCloneCreating: { get() { return avatarCloneRefs.creating.value } },
+    avatarCloneCreateError: { get() { return avatarCloneRefs.createError.value } },
+    avatarCloneNoticeAcked: { get() { return avatarCloneRefs.noticeAcknowledged.value }, set(v) { avatarCloneRefs.noticeAcknowledged.value = v } },
     isAvatarPipeline() { return this.selectedPipeline?.name === 'avatar-spokesperson' },
     /** 数字人 provider 未配置：整区替换为「前往配置」引导 */
     avatarProviderMissing() {
@@ -2037,6 +2123,45 @@ export default {
     avatarText(key) {
       return this.$t('create.story2video.ui.' + key)
     },
+    // 形象克隆（avatar-voice-clone）
+    loadAvatarClones(...args) { return avatarCloneMethods.loadAvatarClones(...args) },
+    toggleAvatarClonePanel() {
+      this.avatarClonePanelOpen = !this.avatarClonePanelOpen
+      // 列表已在选中流水线时加载；这里只在「从未加载过」时兜底拉一次
+      if (this.avatarClonePanelOpen && this.avatarClones.length === 0 && !this.avatarClonesLoadedOnce) {
+        this.avatarClonesLoadedOnce = true
+        avatarCloneMethods.loadAvatarClones()
+      }
+    },
+    async createAvatarClone(type) {
+      const name = String(this.avatarCloneNameDraft || '').trim()
+      if (!name) {
+        this.avatarCloneNameDraft = ''
+        return
+      }
+      const result = await avatarCloneMethods.createAvatarClone({ type, name })
+      if (result && result.success) {
+        this.avatarCloneNameDraft = ''
+        this.avatarClonePanelOpen = false
+      }
+    },
+    async removeAvatarClone(avatarId) {
+      await avatarCloneMethods.removeAvatarClone(avatarId)
+    },
+    avatarCloneInvalidKey(avatar) {
+      return avatarCloneMethods.invalidReasonKey(avatar)
+    },
+    /** 克隆形象 + 公共目录合并后的形象下拉（克隆项优先，提案 Q9） */
+    mergedAvatarOptions() {
+      const publicOptions = this.avatarOptions || []
+      const cloneOptions = (this.avatarCloneUsable || []).map((a) => ({
+        id: a.id,
+        name: `${a.name}（${this.avatarText('avatarCloneSourceSelf')}）`,
+        clone: true,
+        trainingState: a.trainingState,
+      }))
+      return [...cloneOptions, ...publicOptions]
+    },
     /**
      * 错误文案：composable 存的是「locale key 或原始错误码」，这里翻译成人话。
      * 不认识的字符串（如 provider 透出的英文错误）原样显示，不臆造中文翻译。
@@ -2265,6 +2390,14 @@ export default {
       if (this.isOrchestratedPipeline(p?.name) && this.inputMode !== 'text') this.inputMode = 'text'
       // 选中数字人流水线时加载形象/音色目录（带缓存，重复选中不会重复打接口）
       if (p?.name === 'avatar-spokesperson') this.loadAvatarCatalog()
+      // 形象克隆列表也要在这里加载：形象下拉合并了克隆项（提案 Q9），
+      // 只在「打开克隆面板」时才加载会让面板关闭时下拉永远看不到自己的克隆形象。
+      // 用 avatarClonesLoadedOnce 而非 length===0 判重：列表为空是合法状态，
+      // 用长度判会让「确实没有克隆形象」的用户每次切回流水线都打一次接口。
+      if (p?.name === 'avatar-spokesperson' && !this.avatarClonesLoadedOnce) {
+        this.avatarClonesLoadedOnce = true
+        this.loadAvatarClones()
+      }
       // 选中编排流水线时执行生效上限（默认 10000，可被运营中心 storyTextLimit 覆盖）码点截断
       // （含带文案预填场景：预填时不截断，选中时统一截断+提示）
       if (this.isOrchestratedPipeline(p?.name)) this.enforceStory2VideoTextLimit()

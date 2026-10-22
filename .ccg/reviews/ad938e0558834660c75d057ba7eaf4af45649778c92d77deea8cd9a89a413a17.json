@@ -1,0 +1,61 @@
+{
+  "sha": "3621894d42ec69c46f623ac598d6e4f6f4697e90",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 3329 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 3329,
+    "fileCount": 33,
+    "codeFileCount": 26,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 23,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "2. 首次打开会看到一段法律提示（肖像权/声音权归上传者所有、不得克隆他人）。点「我已了解」关闭——**不强制勾选，但请自行确认已获授权**。",
+      "- 本功能面向「克隆**你自己**（或你已获授权的人）」；使用他人肖像或声音产生的法律责任由使用者承担。",
+      "| Q9 | **来源优先级：`self` > `third_party_authorized` > 公共目录** | 用户自己上传的克隆项优先于授权代传的，两者都优先于官方公共目录；`resolveDigitalHumanInputs` 的候选键按此顺序取 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ad938e0558834660c75d057ba7eaf4af45649778c92d77deea8cd9a89a413a17",
+  "decidedAt": "2026-10-22T10:40:23.215Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

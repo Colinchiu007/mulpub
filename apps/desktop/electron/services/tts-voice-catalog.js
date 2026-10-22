@@ -110,6 +110,12 @@ const PROVIDER_MODEL_CAPABILITIES = Object.freeze({
     'speech-2.6-hd': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
     'speech-2.6-turbo': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
   }),
+  // HeyGen 官方支持音色克隆（POST /v3/voices/clone，mode: instant / professional）；
+  // 声音克隆与形象克隆是两条独立链路，与视频生成解耦——视频生成只传 voice_id 引用。
+  // 克隆能力由 heygen adapter 实现（cloneVoice/deleteVoice，见 openspec/changes/avatar-voice-clone）。
+  heygen: Object.freeze({
+    'heygen-video': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, clone: DESKTOP_UPLOAD_CLONE }),
+  }),
 })
 
 function safeString (value, maxLength) {

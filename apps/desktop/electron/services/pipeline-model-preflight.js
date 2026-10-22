@@ -32,6 +32,7 @@ const DIGITAL_HUMAN_PIPELINE = 'avatar-spokesperson'
 const DIGITAL_HUMAN_PROVIDER = 'heygen'
 const AVATAR_ID_REQUIRED = 'AVATAR_ID_REQUIRED'
 const AVATAR_VOICE_REQUIRED = 'AVATAR_VOICE_REQUIRED'
+const AVATAR_CLONE_UNAVAILABLE = 'AVATAR_CLONE_UNAVAILABLE'
 
 // 能力标识（同时是 model_providers.category，与 renderer 能力标签键一致）
 const CAPABILITIES = Object.freeze({
@@ -194,12 +195,59 @@ function isSafeAvatarId (value) {
  *
  * @returns {{success: boolean, errorCode?: string, error?: string}}
  */
+/**
+ * 读取指定 avatarId 的克隆产物状态（同步，只读本地 registry）。
+ *
+ * 设计取舍：
+ *  - 同步：启动路径 checkPipelineModelRequirements 是同步的，不为此改异步；
+ *  - 只读本地：生命周期设计是「本地 registry 为权威」，失效标记在列表时已写好
+ *    （buildPublicCloneEntries），无需启动前再查一次远端；
+ *  - fail-open：探子未注入、抛错、返回形状不符，一律视为「不是克隆产物」，
+ *    不因探子故障误拦用户（与 checkPipelineModelRequirements 的 fail-open 同调）。
+ *
+ * @returns {{unavailable: boolean, reason?: string}}
+ */
+function readCloneAvatarState (modelProviderManager, avatarId) {
+  if (typeof modelProviderManager.listAvatarClonesSync !== 'function') {
+    return { unavailable: false }
+  }
+  let result
+  try {
+    result = modelProviderManager.listAvatarClonesSync()
+  } catch (_) {
+    return { unavailable: false }
+  }
+  if (!result || result.code !== 0 || !result.data || !Array.isArray(result.data.avatars)) {
+    return { unavailable: false }
+  }
+  const clone = result.data.avatars.find((item) => item && item.id === avatarId)
+  if (!clone) return { unavailable: false }
+  if (clone.invalidReason) return { unavailable: true, reason: clone.invalidReason }
+  if (clone.trainingState === 'failed') return { unavailable: true, reason: 'training_failed' }
+  return { unavailable: false }
+}
+
 function checkDigitalHumanRequirements (modelProviderManager, params) {
   if (!isSafeAvatarId(params.avatarId)) {
     return { success: false, errorCode: AVATAR_ID_REQUIRED, error: '请先选择数字人形象后再启动流水线。' }
   }
   if (!isSafeAvatarId(params.voiceId)) {
     return { success: false, errorCode: AVATAR_VOICE_REQUIRED, error: '请先选择数字人音色后再启动流水线。' }
+  }
+  // 克隆产物失效（change: avatar-voice-clone）：克隆形象与公共目录同形同键，
+  // 但多了 training_failed / 远端已不存在两种失效态。若不在启动前拦下，
+  // 会一路跑到 generate 阶段才炸，用户看到的是「生成失败」而非「形象不可用」。
+  // 探子由 container 注入（listAvatarClonesSync）；未注入时 fail-open，
+  // 不影响未装克隆功能的构建与既有测试。
+  const cloneState = readCloneAvatarState(modelProviderManager, params.avatarId)
+  if (cloneState.unavailable) {
+    return {
+      success: false,
+      errorCode: AVATAR_CLONE_UNAVAILABLE,
+      error: cloneState.reason === 'training_failed'
+        ? '启动被拦截：该克隆数字人形象训练失败，请删除后重新创建，或改用其他形象。'
+        : '启动被拦截：该克隆数字人形象在 HeyGen 侧已不存在，请删除本地记录后重新创建。',
+    }
   }
   // provider 可用性：显式 videoProvider 优先，否则固定 HeyGen
   const explicit = nonEmptyString(params.videoProvider)

@@ -372,6 +372,199 @@ describe('HeyGenAdapter — HeyGen 数字人', () => {
     })
   })
 
+  describe('cloneVoice — 声音克隆（POST /v3/voices/clone）', () => {
+    // 官方契约锁：声音克隆是**独立端点**，不在视频生成时一起做。
+    // 证据：developers.heygen.com/reference/clone-a-voice —— "Returns a voice_clone_id
+    // that can be polled via GET /v3/voices/ until the status is 'complete'. The
+    // resulting voice can be used with POST /v3/voices/speech and POST /v3/videos."
+    // 注意版本段：克隆在 /v3，视频生成在 /v2（#4194），状态查询在 /v1。
+    it('单条样本 → mode=instant，返回 { id, name }', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({
+        data: { voice_clone_id: 'vc-123', name: '我的声音' },
+      })])
+      global.fetch = fetchMock
+
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const result = await adapter.cloneVoice({
+        name: '我的声音',
+        samples: [{
+          blob: new Blob(['audio'], { type: 'audio/wav' }),
+          fileName: 'me.wav',
+          contentType: 'audio/wav',
+        }],
+      })
+
+      expect(result).toEqual({ id: 'vc-123', name: '我的声音' })
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v3/voices/clone')
+      expect(fetchMock.calls[0].opts.method).toBe('POST')
+      expect(fetchMock.calls[0].opts.headers['X-Api-Key']).toBe('k')
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.mode).toBe('instant')
+      expect(body.name).toBe('我的声音')
+      // 素材以 base64 data URL 形式进 JSON 体（非 multipart）
+      expect(typeof body.audio).toBe('string')
+      expect(body.audio.startsWith('data:audio/wav;base64,')).toBe(true)
+    })
+
+    it('多条样本 → mode=professional', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({
+        data: { voice_clone_id: 'vc-9', name: '专业声音' },
+      })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await adapter.cloneVoice({
+        name: '专业声音',
+        samples: [
+          { blob: new Blob(['a'], { type: 'audio/wav' }), fileName: 'a.wav', contentType: 'audio/wav' },
+          { blob: new Blob(['b'], { type: 'audio/wav' }), fileName: 'b.wav', contentType: 'audio/wav' },
+        ],
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.mode).toBe('professional')
+    })
+
+    it('缺 name 或缺样本抛 INVALID_CONFIG，且不发起请求', async () => {
+      const fetchMock = vi.fn()
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const sample = { blob: new Blob(['a'], { type: 'audio/wav' }), fileName: 'a.wav', contentType: 'audio/wav' }
+      await expect(adapter.cloneVoice({ samples: [sample] })).rejects.toThrow(/name.*required/i)
+      await expect(adapter.cloneVoice({ name: 'x', samples: [] })).rejects.toThrow(/sample/i)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('响应缺 voice_clone_id → PROVIDER_ERROR', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ data: {} })])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      try {
+        await adapter.cloneVoice({ name: 'x', samples: [{ blob: new Blob(['a']), fileName: 'a.wav', contentType: 'audio/wav' }] })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+      }
+    })
+
+    it('401 → AUTH_FAILED', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ message: 'Bad key' }, 401)])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'bad' })
+      try {
+        await adapter.cloneVoice({ name: 'x', samples: [{ blob: new Blob(['a']), fileName: 'a.wav', contentType: 'audio/wav' }] })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.AUTH_FAILED)
+      }
+    })
+  })
+
+  describe('deleteVoice — 删除克隆声音（DELETE /v3/voices/{id}）', () => {
+    it('按官方路径删除并带 X-Api-Key', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ data: {} })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await adapter.deleteVoice('vc-123')
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v3/voices/vc-123')
+      expect(fetchMock.calls[0].opts.method).toBe('DELETE')
+      expect(fetchMock.calls[0].opts.headers['X-Api-Key']).toBe('k')
+    })
+
+    it('空 voiceId 抛 INVALID_CONFIG，且不发起请求', async () => {
+      const fetchMock = vi.fn()
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await expect(adapter.deleteVoice('')).rejects.toThrow(/voiceId.*required/i)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('createAvatar — 形象克隆（POST /v3/avatars）', () => {
+    // 端点族已由官方文档确认（"Supports photo, digital_twin, and prompt types"），
+    // 但**字段名未经真实响应核对** ⇒ 按提案的 KNOWN_METHODS 分期登记决策，
+    // 这两个方法本轮不登记进 callAdapter 闸门，测试只锁适配层自身契约。
+    it('照片形象 type=photo，返回 { id }', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({
+        data: { avatar_id: 'av-1', id: 'av-1' },
+      })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const result = await adapter.createAvatar({
+        name: '我的形象',
+        type: 'photo',
+        image: { blob: new Blob(['img'], { type: 'image/png' }), fileName: 'me.png', contentType: 'image/png' },
+      })
+      expect(result.id).toBe('av-1')
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v3/avatars')
+      expect(fetchMock.calls[0].opts.method).toBe('POST')
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.type).toBe('photo')
+      expect(body.name).toBe('我的形象')
+    })
+
+    it('视频形象 type=digital_twin', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({
+        data: { avatar_id: 'av-2', id: 'av-2' },
+      })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await adapter.createAvatar({
+        name: '视频形象',
+        type: 'digital_twin',
+        video: { blob: new Blob(['vid'], { type: 'video/mp4' }), fileName: 'me.mp4', contentType: 'video/mp4' },
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.type).toBe('digital_twin')
+    })
+
+    it('未知 type 抛 INVALID_CONFIG', async () => {
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await expect(adapter.createAvatar({ name: 'x', type: 'hologram' })).rejects.toThrow(/type must be/i)
+    })
+
+    it('photo 缺 image / digital_twin 缺 video 抛 INVALID_CONFIG', async () => {
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await expect(adapter.createAvatar({ name: 'x', type: 'photo' })).rejects.toThrow(/image.*required/i)
+      await expect(adapter.createAvatar({ name: 'x', type: 'digital_twin' })).rejects.toThrow(/video.*required/i)
+    })
+  })
+
+  describe('getAvatarStatus — 形象训练状态（GET /v3/avatars/looks/{id}）', () => {
+    it('解析 training status 与 videoUrl 缺失', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({
+        data: { id: 'av-1', status: 'training', training_status: 'training', progress: 40 },
+      })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const result = await adapter.getAvatarStatus('av-1')
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v3/avatars/looks/av-1')
+      expect(result.status).toBe('training')
+      expect(result.progress).toBe(40)
+    })
+
+    it('completed 归一', async () => {
+      global.fetch = createFetchMock([createFetchResponse({
+        data: { id: 'av-1', status: 'completed', training_status: 'ready' },
+      })])
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      const result = await adapter.getAvatarStatus('av-1')
+      expect(result.status).toBe('completed')
+    })
+
+    it('空 avatarId 抛 INVALID_CONFIG', async () => {
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await expect(adapter.getAvatarStatus('')).rejects.toThrow(/avatarId.*required/i)
+    })
+  })
+
+  describe('deleteAvatar — 删除克隆形象（DELETE /v3/avatars/looks/{id}）', () => {
+    it('按官方路径删除', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ data: {} })])
+      global.fetch = fetchMock
+      const adapter = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      await adapter.deleteAvatar('av-1')
+      expect(fetchMock.calls[0].url).toBe('https://api.heygen.com/v3/avatars/looks/av-1')
+      expect(fetchMock.calls[0].opts.method).toBe('DELETE')
+    })
+  })
+
   describe('网络错误分类', () => {
     it('ETIMEDOUT → TIMEOUT', async () => {
       global.fetch = vi.fn(async () => { throw new Error('ETIMEDOUT') })

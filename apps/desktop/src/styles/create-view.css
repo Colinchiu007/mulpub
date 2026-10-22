@@ -484,3 +484,45 @@
 .upload-zone:active { border-color: var(--upload-zone-active-border); background: var(--upload-zone-active-bg); }
 
 /* 骨架屏加载：统一改用 <UiSkeleton>（styles/skeleton.css 提供骨块外观） */
+/* 形象克隆面板（avatar-voice-clone）：数字人配置区内的「管理克隆形象」展开区 */
+.clone-notice {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #dcdfe6);
+  border-radius: 6px;
+  background: var(--fill-color-light, #f5f7fa);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.clone-notice p { margin: 6px 0 8px; }
+
+.clone-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.clone-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-color-lighter, #e4e7ed);
+}
+
+.clone-name { flex: 1; font-size: 13px; }
+
+.clone-tag { font-size: 12px; color: var(--color-warning, #e6a23c); }
+
+.clone-tag--warn { color: var(--color-danger, #f56c6c); }
+
+.clone-create {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.clone-create .form-input { flex: 1; min-width: 160px; }
