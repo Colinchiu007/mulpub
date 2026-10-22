@@ -48,10 +48,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4225#issuecomment-6333150957",
+    "reviewedAt": "2026-10-22T05:00:00Z",
+    "findings": 3,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对本 PR 的 scripts/ diff（10,018 字符）独立审阅，原始输出逐字公开于 evidence。给出 1 Critical + 2 Medium。逐条核验：① Critical「pip 域缺形状校验，错误信封被解析成空报告 → 假 RESOLVED」成立（实测 parsePipAudit 对错误信封与空报告都返回 []），已在 5d6696f0 修复并按域拆分 isAuditReport / isPipAuditReport，三个 runner 全带 expectReport；② Medium「{} 过严」采纳一半，把 auditReportVersion 认进合法形状；③ Medium「重试不该覆盖解析错误」不采纳，理由是 socket hang up 常表现为输出截断（解析失败），过滤掉它正好排除最该重试的一类，且代价有界。cwd / 重试循环 / 策略漂移 / 测试质量四面评审均 no finding。结论：1 条真 Critical 已修，2 条中 1 采纳 1 有据不采纳。"
   }
 }
