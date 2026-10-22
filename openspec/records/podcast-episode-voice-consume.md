@@ -1,0 +1,124 @@
+---
+branch: podcast-episode-voice-consume
+task: tasks 4.5b④ 出期主路径消费音色解析链（PRD §7.4.1.2）
+date: 2026-10-21
+---
+
+# 出期主路径接上音色解析链（podcast-episode-voice-consume，2026-10-21）
+
+| 项目 | 状态 |
+|---|---|
+| 变更类型 | 运行时代码（主进程服务 + IPC 接线）+ 验收锁 |
+| 隔离 | worktree `<仓库父目录>/mp-worktrees/mp-podcast-episode-voice-consume`（本机落点由 `git worktree list` 现取），分支 `podcast-episode-voice-consume`，`verify-worktree-deps.js` OK |
+| 单测 | 4 个文件（host / episode-ipc / script-ipc / plan-preview-ipc）：**89 passed / 0 failed**。首跑曾报 87/2，那 2 条见下方「归因更正」——属跑法顺序，非仓库缺陷 |
+| QM-1 打包 | **PASS（第③层，拆分后重跑为准）**：`pnpm run build:dir` rc=0 → 隔离 userData 启动 `dist-electron/win-unpacked/Multi-Publish.exe`，子 env 经 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()` 剔除 `ELECTRON_RUN_AS_NODE`；`alive=true`、**stderr 0 字节**、红线 0、`app.asar` 内部路径 0、**DEP0180 命中 0**、stdout 22,856 字节；新模块在产物内（`\electron\services\podcast-voice-deps.js`）；收尾按 PID `CLEANED`，未按名字批量 kill。拆分前那份（stdout 22,696 字节）由这份取代，不并列引用 |
+| QM-6 双模型 | **已闭合（出口②）**：critic=claude 外部评审真跑（8 条 findings，最低维度分 3）⇒ 引擎进自扮演裁决档（权重 0.6），6 条逐条裁决 **3 upheld（i2/i3/i6）/ 3 dismissed（i1/i4/i5）**；upheld 的 i3 当场记忆化修复，i2/i6 拆成 `tasks 4.5b⑤` 并附三条验收判据。产物 `24792dc6…json` 的 `deepReview.status` 由 `self_play_pending` 收为 `self_play_resolved`，`closureNote` 含轮次标记与逐条处置；`node scripts/check-pr-exec-record.js --mode=enforce` 现返回 **OK**。⛔ 如实标注：`tier=external` 仍是手写代用（全仓无生产方写该字段），且裁决那一半是自扮演而非跨家族复核，不得读成「双模型已交叉收敛」 |
+| 远程同步 | 由门禁推导 |
+
+- 保留门禁：行尾对账 PENDING | 品牌残留 N/A（无新增文档文案） | 文档同步 PENDING | 远程同步 PR #NNNN
+
+## 改了什么
+
+1. `apps/desktop/electron/services/podcast-episode-host.js`
+   `publishFromScript` 不再采纳渲染层传来的 `p.voiceRef`（渲染层从不发送 ⇒ 三段恒 null ⇒
+   `getConfiguredProvider` 拿不到 `voice_provider` ⇒ `_tryProviderTTS` 返回 null ⇒ 落 edge-tts ⇒
+   落 `anullsrc` 静音；全程返回成功码，只有听感能发现）。改为在宿主内调用
+   `resolveEpisodeVoice`（唯一实现，回退顺序不重写）得到 `{providerId, model, voiceId}` 交给合成层；
+   解析失败即 `PODCAST_TTS_VOICE_UNRESOLVED` 拒发，且发生在取锁与任何磁盘写之前。
+   三个读取实现缺任一 ⇒ `PODCAST_EPISODE_INVALID` 当场拒，不得退回「没有 voiceRef」这条静音老路。
+2. `apps/desktop/electron/ipc-handlers/podcast.js`
+   把音色接线收敛为唯一工厂 `voiceResolveDeps()`，预览（`getPlanPreview`）与出期宿主
+   （`getEpisodeHost`）共用同一份 `defaultProviderOf / readPreference / getCapability`。
+   此前只有预览拿到过它们，宿主一条都没接——这就是「浮层承诺的音色」与「实际发声者」分叉的落点。
+3. `apps/desktop/electron/services/podcast-episode-host.test.js`
+   新增 `§4.5b④` 六条锁（先红后绿：实现前实测 6 failed，实现后 0 failed）：
+   解析命中偏好 ⇒ 下发三段逐字段相等；渲染层 voiceRef 一律不采纳；两层全空 ⇒ 拒发且零 TTS/零 mkdir/零 PUT；
+   计费闸门排在解析之前（解析要读两次存储）；三个读取实现缺一即拒；
+   **判据②**——同一份读取实现同时喂预览与宿主，预览 `voice` 与出期下发给 `generateTTS` 的键逐字段相等，
+   并验证清空偏好后两边**同时**改口到 capability 档。
+
+## 本刀现场抓到的另一条断链（不在本 PR 修，已登记）
+
+`podcast-episode-tts-adapters.js` 的 `createGenerateTTS` / `createConcatBlocks` / `createProbeImpl`
+在生产代码里**零消费点**（`createEpisodeHost` 的全部构造点只有 `ipc-handlers/podcast.js:367` 一处，
+它没注入合成三实现）。后果：三枚文本入口在线上会先撞
+`PODCAST_EPISODE_INVALID：文本出期必须注入 generateTTS / concatBlocks / probeImpl`，
+即文本出期整链在打包产物里根本走不通。测试全绿是因为夹具直接注入替身——
+「替身注入宿主会掩盖生产接线缺口」的又一例。下一片必须补生产接线并配一条
+「不注入替身的真实构造点」行为锁；本 PR 不并入，因为那需要独立的 QM-1 与真机验证。
+
+## 归因更正（同一次 PR 内的自我纠错，不得留给下一个会话重查）
+
+上表「既有红」一节最初写的是「tracked bundle 未重生的既有欠账」——**这句归因不准**。当场重查的事实是：
+`apps/desktop/electron/preload/*.bundle.js` 已在 `826fa7e13`（PR #3782，chore(build): 把 5 个受管构建产物移出版本控制）
+**移出版本控制**，`git diff --numstat -- apps/desktop/electron/preload/` 为空。那两条
+「两个 tracked bundle 必须含这条通道名」读的是**本机 build 产物**，所以真实成因是
+「先跑测试、后跑 build」的顺序问题：跑过 `pnpm run build:dir` 之后同一批用例 **89 passed / 0 failed**。
+因此本 PR 的最终单测读数以 **89/89 全绿**为准；先前那句「在 pristine main 同样红」仍然为真
+（共享根同样没有 build 残留），但它证明的是跑法依赖，不是仓库里的沉默缺陷。
+教训：判「某条红是不是既有欠账」之前，先问「这条锁读的是受管文件还是本机产物」——
+`git log -1 -- <产物路径>` 一句话就能分辨，我这次是先写了结论、后被 build 推翻。
+
+## QM-6 双模型深审（critic=claude，8 条）逐条处置
+
+判定 `DUAL`（261 行 > 200 阈值），跨家族 proposer=opencode / critic=claude，最低维度分 3 ⇒ 引擎进自扮演裁决档
+（置信权重 0.6，本面不在 `HIGH_RISK_SURFACES` 高危清单内，故自扮演在机械上可用；`tier=external` 目前仍无生产写入方，
+这一层如实记为「手写代用」）。8 条进裁决的 6 条逐条结论：
+
+- **i2（成立，upheld）**：评审独立命中了我自己查出的那条——合成三实现生产零消费 ⇒ 文本出期线上整链不可用。处置：`tasks 4.5b⑤` 新开未勾子项，含三条验收判据（不注入 `podcastEpisodeHost` 的真实构造点行为锁 / 复用既有工具路径与 assetGenerator 单一实例 / 独立 QM-1 + 真机出期试听）。
+- **i3（成立，upheld）**：工厂两处调用产生两份实例，「同一份接线」当时只是「同一段代码」。已当场改为记忆化单实例（`voiceDepsInstance`）。评审建议里「在测试中断言两边共享同一引用」那一半**未做**，随 4.5b⑤ 一起做——现在这条不变量由源码形状维持，尚无载体。
+- **i6（成立，upheld）**：本 PR 的验收证据只覆盖到注入面，没有覆盖「不注入替身的真实构造点」。与 i2 合并处置，措辞按此收紧，不谎报覆盖。
+- **i1（不成立，dismissed）**：指控前提是「合约不可见」。实际 `podcast-tts-voice.js:48-51` 的 JSDoc 明写 `defaultProvider` 传值、两个读取器传函数，且主干预览层 `podcast-episode-plan-preview.js:92-97` 一直是同一传法；本刀判据②把两端用同一份接线真跑，形状错会当场红。
+- **i4（不成立，dismissed）**：判定产物写在父 sha 上是本仓 pre-commit 的既有机制（deep-review 自己打印这句）；`tier` 整段缺席是全仓现状（主干 142 篇已闭环产物里 139 篇无该字段），CI 侧该判据仍以 advisory 运行。
+- **i5（不成立，dismissed）**：被 require 的是仓内既有模块，本刀未改它一行；「按 diff 审」不等于「依赖不在仓里」。
+
+裁决落盘：`.adversarial/ccg-deep-e0bce5d9/adjudication.json`（6/6 条已填 prosecution / defense / verdict / rationale）。
+**状态如实记录**：先前那笔 DUAL 产物 `24792dc6…json` 的 `deepReview.status` 仍是 `self_play_pending`——
+新提交（`59c800a55` 与其后）判定降为 `SKIP`，deep-review 按当前 staged diff 内容寻址命中的是 SKIP 那份，
+它不会替 `24792dc6` 收口。⇒ 本 PR 在 `--mode=enforce` 下仍会被 `evaluateDeepReviewDebt` 判「CCG 深度审查欠账」，
+CI 侧（advisory）不拦。**「QG Changes 绿」不等于「QM-6 已闭合」**，收口需按 `24792dc6` 那份 diff 重放一次深审。
+
+**该段的两处过期陈述，由后续动作改写（2026-10-22 现取读数）**：
+① `24792dc6` 已按判据给出的**出口②**收口（`status=self_play_resolved` + `closureNote` 含轮次标记与逐条处置），
+`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` 现返回 **OK**，不再报深度审查欠账。
+② 「全仓无生产方写 `tier`」这句已过期——`qm6-closure-writeback` 已落主干（2026-10-22），
+`sh scripts/deep-review.sh` 会在驱动返回后调 `scripts/ccg-review-writeback.js`，五条合取成立才写
+`tier=external` + `evidence=delivery@<sha256(findings)>`。⇒ 本 PR 的**正解是重跑深审让工具写**；
+在我手写之后重跑若拿到工具产物，以工具产物为准，手写那层在 `closureNote` 里已明写为代用。
+
+## CI 两条新增红的根因与修法（同一根因，现取读数）
+
+`check-main-red.js --pr 4200` 报 `NEW_RED`：`Gate Result` / `QG Changes` / `债务熔断检查`——**三条同源**：
+`ipc-handlers/podcast.js` 被我加了 15 行（488 → **503**），正好成为第 96 个超 500 行的文件
+⇒ `check-debt-budget.js` 的 `FILES_OVER_500: 96 > baseline 95` 红；而 `QG Changes` step 3 里那条
+`⑩ 消费者套件必须"整份真的跑了"` 是把 `scripts/check-debt-budget.test.js` 当消费者套件**真跑一遍**，
+被同一个数拖红；`Gate Result` 只是聚合器。对照组：main 共享根 `filesOver500: 95 == baseline`。
+同套件的 `⑫`（`--show-prefix` 那条）在 **main 上同样红**，症状是 expected/actual 逐字相同
+（读本机 `%TEMP%` 目录名大小写），与本 PR 无关，**不认领也不顺手修**。
+
+**修法不走「调大基线」**（那是给这个文件再送免涨额度，与点名还账的立项目的冲突）：
+把音色装配整段拆成 `apps/desktop/electron/services/podcast-voice-deps.js`（77 行，WeakMap 按 deps 记忆化），
+`ipc-handlers/podcast.js` 回到 **460 行** ⇒ `filesOver500: 95 ✅`，⑩ 一并转绿。
+这一拆同时补完 QM6 i3 采纳项剩下的那半——**「预览与宿主拿到同一个对象引用」第一次成为可断言的事实**：
+新增 `podcast-voice-deps.test.js` 五条（① 引用同一性 + 不同 deps 必须不同实例；② 缺 store ⇒ 返回 null 且 warn 恰一次；
+③ 缺 modelProviderManager ⇒ 定位键 null 且 warn 恰一次；④ 偏好键字面量仍出自 `createVoiceReaders` 一处、
+owner subject 被带上；⑤ 接线锁——`podcast.js` 内 `createVoiceDepsFactory` 恰两处（require + 调用）、
+宿主与预览共用同一 getter、且该文件不得再自带 `createVoiceReaders(` 或第二份 `tts-voice-preference:` 键）。
+读数：`vitest run` 三文件（新锁 + host + plan-preview-ipc）**81 passed / 0 failed**。
+
+## 拆分后的补证（2026-10-22 现跑，覆盖本节上方那三条「未做」中的前两条）
+
+1. **QM-1 已在拆分后重跑**：`pnpm run build:dir` rc=0 → 隔离 userData 启动，`alive=true`、
+   **LIVE stderr 0 字节**、四类红线 0、`app.asar` 内部路径 0、**DEP0180 命中 0**、stdout 22,856 字节（业务日志走 stdout）；
+   收尾按 PID 收口（`CLEANED`），未按名字批量 kill。新模块**确在产物内**：
+   `asar list … app.asar | grep -i podcast-voice-deps` → `\electron\services\podcast-voice-deps.js`
+   ⇒ 三层判据落第③层。拆分前那份 PASS 已被这份取代，不并列引用。
+2. **三条变异反证已实跑且各自指名红**（驱动 `%TEMP%\mut-voice-deps-4200.cjs`，按本仓驱动纪律自证跑了多少条、改了多少字节）：
+   基线 `rc=0 failed=0 passed=5`（先证明「真的跑了且全绿」，否则后面的红不算反证）；
+   `M1` 摘掉 WeakMap 记忆化（52 字节）⇒ ①红；`M2` 让预览拿独立拷贝 `Object.assign({}, voiceResolveDeps())`（19 字节）⇒ ⑤红；
+   `M3` 摘掉 `warnOnce` 去重（41 字节）⇒ ②红。汇总 `CAUGHT=3 MISSED=0 SKIP-PATCH=0`，
+   还原经 md5 双文件自证（`RESTORE-CHECK svc=true ipc=true`）。
+   另记一条归属：§4.5b④ 那六条锁用的是**实现缺席证明**（实现前实测 6 failed / 实现后 0 failed），
+   它证明的是"锁对着被测行为敏感"，与上面的 no-op 变异是两类证据，不得互相顶替。
+3. **仍未做（不得读成已完成）**：4.5b④ 判据③ 的**真机试听**——本 PR 会让已配默认 provider 的账号当场换发声者，
+   需人工听一段成片；打包启动不覆盖这一格。
