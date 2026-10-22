@@ -1,0 +1,61 @@
+{
+  "sha": "102afa82b4986cd0c895b6eee85a7bf7ccd3a59a",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 90 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 90,
+    "fileCount": 9,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "| i4 | Warning | `actions/runs` 需 `actions:read`、`check-runs` 只需 `checks:read`；「同一凭据」的说法掩盖了新增授权失败模式 | **成立（已改）**：原文写的「scope 相同、**不需要新增授权**」是**错的**——两者 scope 不同，只授 `checks:read` 的 PAT 读 `actions/runs` 会得 **403**。改为：scope 不同 + 403 ⇒ gh 非零 rc ⇒ 采集层抛错 ⇒ 判自身故障(4)，**不会静默返回空**（本机凭据实测可用） |",
+      "**权限**（决策层 i7）：读 `actions/runs` 与读 `check-runs` 用**同一份 gh 凭据**，scope 相同，",
+      "**不需要新增授权**；权限不足 ⇒ 403/404 ⇒ gh 非零 rc ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "87d229a146edfe840e232abb97da81c536ef48743d870752e2b597d275a5b661",
+  "decidedAt": "2026-10-22T04:29:18.408Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

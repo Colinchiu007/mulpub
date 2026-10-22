@@ -1,0 +1,106 @@
+{
+  "sha": "ef571cd84ce6b03144e0482050f73cd6a8eae673",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "cleared",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "minScore": 6,
+    "dimensionScores": {
+      "completeness": 7,
+      "consistency": 8,
+      "clarity": 8,
+      "feasibility": 6,
+      "security": 8
+    },
+    "findings": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "feasibility",
+        "finding": "C4 将 handler 迁移到 ubuntu-latest，行为锁仅禁显式 pwsh，未审计现有步骤是否隐含 Windows 依赖（路径、shell、命令），迁移后可能运行失败。",
+        "suggestion": "在 contract 测试增加 ubuntu 执行环境检查，并审计 ci-failure-handler.yml 所有步骤，确保无隐式 Windows 依赖。"
+      },
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "feasibility",
+        "finding": "行为锁要求从 actions/runs 提取作业级终态，但方案未说明如何提取（缺 jobs/<run_id> 路径、终态映射规则），无法直接落地。",
+        "suggestion": "在 spec.md 补充：调用 jobs/{run_id}/attempts 获取终态，并定义作业名与 check-run 名的对齐映射表。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "feasibility",
+        "finding": "新基准源 actions/runs 使用 --paginate + per_page=100，未定义分页中断、速率限制（429）、服务器错误或 token 超时的处理行为，行为锁缺失对应规则。",
+        "suggestion": "在行为锁增加：分页/请求失败 ⇒ rc=4，并在脚本中捕获 HTTP 错误码并抛出明确错误。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "clarity",
+        "finding": "稳定窗描述「取数前后各取一次；不一致 ⇒ 作废」，未明确比较对象是 tip SHA 还是完整数据集，可能误判。",
+        "suggestion": "在行为锁写明：前后比较对象为 head_sha；若 SHA 相同则视为稳定继续判读，不重试。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "过滤条件仅排除 event == 'workflow_run'，未说明其他事件（schedule、release）的 run 是否计入主干基准，可能引入噪声。",
+        "suggestion": "在 spec.md 补充允许事件白名单（如 push、pull_request）或说明仅排除 workflow_run 的理由。"
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "dimension": "completeness",
+        "finding": "影响面声明「运行时代码无」与实际修改 scripts/lib/main-red.js 等运行时脚本不完全一致，易误导 CCG 范围判定。",
+        "suggestion": "修正为「不触 apps/、packages/，但修改 scripts/ 运行时代码」，并点名所有被改脚本。"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "security",
+        "finding": "API 切换到 actions/runs 未提及 token 权限（repo/workflow 作用域）要求变化，若权限不足新基准源可能静默返回空数据。",
+        "suggestion": "在 proposal.md 注明 actions/runs 所需权限与现有 check-runs 一致（repo 作用域），无需新增授权。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "clarity",
+        "finding": "方案引用「AGENTS 口语的四档」解释五档语义，未在方案内定义来源，降低可审计性。",
+        "suggestion": "删除外部口语引用，直接定义五档（0 可合、1 新增红、2 主干红、3 未证实、4 判据故障）并逐档说明。"
+      }
+    ],
+    "unresolvedBySeverity": {
+      "Critical": 0,
+      "High": 0,
+      "Warning": 5,
+      "Info": 3
+    },
+    "scoreThreshold": 8,
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 0,
+        "minScore": 6,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 8,
+          "clarity": 8,
+          "feasibility": 6,
+          "security": 8
+        }
+      }
+    ],
+    "roundsRun": 1,
+    "roundsMax": 3,
+    "stoppedBy": "converged",
+    "note": "第 1 轮：无 Critical、无未解决的 High 级问题，方案可执行（最低维度分 6，仅作参考，不作放行判据）",
+    "artifacts": ".adversarial\\ccg-plan-plan-main-red-run-baseline-claude",
+    "at": "2026-10-22T02:47:28.514Z"
+  }
+}

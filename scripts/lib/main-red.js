@@ -72,20 +72,50 @@ function bucketOf (row) {
   return 'unknown'
 }
 
+/**
+ * 同名多行时取**最严格的一格**。
+ *
+ * 为什么需要（深度评审 i1）：差集按**名字**对齐，而名字可能重复——
+ * ① 跨 workflow 同名作业（`Changes` 在 quality-gate / electron-ci / build 各有一份）；
+ * ② 可重用工作流（调用方的聚合作业名 `<caller> / <callee>` 与被调 workflow 自己的作业名并存）；
+ * ③ 一次 run 里的重跑行。
+ * 不聚合的话，同名的「一红一绿」会让它同时落进 fail 集与 pass 集：
+ * 主干侧出现同名红 ⇒ PR 侧同名红被读成「既有红」⇒ **漏判新增红**。
+ *
+ * 严格度序：fail > unknown > pending > skipped > pass。
+ * fail 最高（已证实的红）；unknown 次之（形状坏了，不能被一行 benign 盖住——
+ * 判据对 unknown 一律 fail-closed）；pending（还没跑完，不是绿）；
+ * skipped（没跑这一格，不是红）；pass（绿）。
+ */
+const BUCKET_SEVERITY = { fail: 5, unknown: 4, pending: 3, skipped: 2, pass: 1 }
+
+/** @param {object[]} rows @returns {Map<string,string>} name → 最严格的那一档 */
+function aggregateRows (rows) {
+  const best = new Map()
+  for (const r of rows || []) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) continue
+    const name = String(r.name == null ? '' : r.name).trim()
+    if (!name) continue
+    const b = bucketOf(r)
+    const cur = best.get(name)
+    if (!cur || BUCKET_SEVERITY[b] > BUCKET_SEVERITY[cur]) best.set(name, b)
+  }
+  return best
+}
+
 /** 检查名集合（只取 fail / pending；其余不参与差集） */
 function namesBy (rows, bucket) {
   const out = new Set()
-  for (const r of rows || []) {
-    const n = String((r && r.name) || '').trim()
-    if (!n) continue
-    if (bucketOf(r) === bucket) out.add(n)
+  for (const [name, b] of aggregateRows(rows)) {
+    if (b === bucket) out.add(name)
   }
   return out
 }
 
 /**
- * @param {{prRows:object[], mainRows:object[], mainSha?:string, prSha?:string, allowMainRed?:string|null}} input
- *        prRows/mainRows 形态由采集层负责，本层只认 name + state|conclusion
+ * @param {{prRows:object[], mainRows:object[], mainSha?:string, prSha?:string, allowMainRed?:string|null, mainMoved?:{from:string,to:string}|null}} input
+ *        prRows/mainRows 形态由采集层负责，本层只认 name + state|conclusion。
+ *        mainMoved：读数期间主干 tip 移动（{from,to}）⇒ 基准作废，按未证实处理（2026-10-22）。
  */
 function judge (input = {}) {
   const prRows = Array.isArray(input.prRows) ? input.prRows : null
@@ -101,6 +131,8 @@ function judge (input = {}) {
   const mainFail = namesBy(mainRows, 'fail')
   const mainPending = namesBy(mainRows, 'pending')
   const mainUnknown = namesBy(mainRows, 'unknown')
+  /** 读数期间主干 tip 移动（{from,to}）⇒ 基准作废，见下面 mainMoved 档 */
+  const mainMoved = input.mainMoved || null
   // 计数在**每一个非顶层 SELF_FAULT 出口**都必须是实数：读数行里出现 `=?` 就等于「这次跑没算出来」，
   // 而它长得和「算出来是 0」几乎一样（本仓把后者读成通过过不止一次）。
   // 第六轮 i4：counts 里必须带 uncertain（被主干同名 pending 摘掉的那几条红）。此前它只活在
@@ -174,6 +206,30 @@ function judge (input = {}) {
       reason: '主干一条检查都没有（主干新 tip 的检查尚未生成，或该 commit 上没有 check-runs）——'
         + '主干态未证实：既不得读成「主干绿」，也不得在没有基准时判「本 PR 新增红」。',
       counts: counts(0),
+    }
+  }
+  // ⛔ 基准作废（读数期间主干 tip 移动）：差集不可归因 ⇒ 按未证实处理，且**不得**报新增红。
+  //   位置纪律：这条 MUST 排在「新增红」判定**之前**——主干基准作废时，主干侧读数与 PR 侧读数
+  //   不在同一棵树上，"这条红在主干上也有"这句话就失去了依据；把它读成「本 PR 新增红」= 把
+  //   不可归因读成证据（2026-10-22 实测：主干 tip 在一次读数期间从 2f5c0a32f 移到 8da92948，
+  //   闸门那次读数整个作废）。PR 侧已证实的红仍要点名，但不得据此判新增红。
+  if (mainMoved && mainMoved.from && mainMoved.to && mainMoved.from !== mainMoved.to) {
+    return {
+      verdict: VERDICTS.INCOMPLETE, code: 3,
+      reason: '主干在读数期间移动（最后一次尝试：读数时的 tip ' + String(mainMoved.from).slice(0, 9)
+        + ' → 读数后的 tip ' + String(mainMoved.to).slice(0, 9)
+        + '），本次主干基准作废：主干侧读数与 PR 侧读数不在同一棵树上，差集不可归因'
+        + (prFail.size ? '；PR 侧已失败 ' + prFail.size + ' 条（' + [...prFail].sort().join(', ') + '）——**未判新增红**：基准已作废' : '')
+        + (mainFail.size ? '；主干失败格子：' + [...mainFail].sort().join(', ') : '')
+        + '。按未证实处理：重试耗尽仍不稳定时不得据此判绿。',
+      // ⛔ `newRed` 在这一档是**「未计算」而不是「没有」**：差集缺基准时不可归因，
+      //    把它写成空数组会让下游把「不可归因」读成「零新增红」（评审 i1）。
+      //    机器可读的那一份放在 `prFailNames`（PR 侧已证实的失败名）——
+      //    `counts.prFail` 一直是真的（`counts()` 从闭包取，不硬编码）。
+      newRed: [], inherited: [], uncertain: [], mainFail: [...mainFail].sort(),
+      prFailNames: [...prFail].sort(),
+      newRedComputed: false,
+      counts: counts(0, 0),
     }
   }
   // 差集要把主干侧 pending 按**名字**算进「不可归因」集（第四轮 i5）。两个方向都不能整批降级：
@@ -291,6 +347,62 @@ function mentionsName (text, name) {
   return re.test(t)
 }
 
+/**
+ * 在一条**已取好**的提交链上，找出「主干最后一次完整跑完的那一版」。
+ *
+ * 动因（2026-10-21~22 现场）：闸门原先读 `origin/main` 的**当前 tip**，而主干每 15–30 分钟
+ * 被推进一次、整条 quality-gate 要 44 分钟 ⇒「全部检查已完成」这个窗口期望时长为负
+ * ⇒ 闸门常态落 rc=3。实测一份 24 项全绿、mergeable=MERGEABLE 的 PR 被卡约 8 小时。
+ * 本函数把问题从「主干**此刻**是否全绿」换成「主干**最后一次完整结论**是不是绿的」——
+ * 后者才是「我有没有把主干弄坏」该问的问题；前者回答的是「现在有没有人在跑检查」。
+ *
+ * 三条不可让的口径：
+ *  1. **先判 fail 再判 pending**（顺序承重）：若先判 pending，「中间某提交真红、更新的提交
+ *     还在跑」会被跳过 ⇒ 把红读成绿。变异反证见 tasks 1.1.7。
+ *  2. **零 run 的提交必须跳过**：`rows.length === 0` 的含义是「这一版没有任何非 workflow_run 的
+ *     run」，**不是**「全部通过」。真机实测 `85dc44ddc` 就是这一形态（真实 run 数 0，
+ *     而同 sha 上 `handle-ci-failure` 有 97 行）。漏掉这条会把「从没跑过」读成「全绿」。
+ *  3. **找不到绿基线一律 fail-closed**：`too-stale` / `unknown` 都不得判绿。
+ *
+ * @param {{chain:string[], rowsAt:(sha:string)=>object[], maxStale?:number}} input
+ *        chain 从新到旧（调用方用 `git rev-list --first-parent` 保证）；rowsAt 可取任意 sha 的行
+ * @returns {{kind:'green'|'red'|'too-stale'|'unknown', sha:(string|null), staleness:number, rows:object[]}}
+ */
+function pickBaseline (input = {}) {
+  const chain = Array.isArray(input.chain) ? input.chain : []
+  const rowsAt = typeof input.rowsAt === 'function' ? input.rowsAt : () => []
+  const maxStale = input.maxStale == null ? 3 : input.maxStale
+  const tip = chain.length > 0 ? chain[0] : null
+
+  for (let i = 0; i < chain.length; i++) {
+    const sha = chain[i]
+    // 口径 0（CCG i6）：rowsAt 抛错时补上「是谁在取哪一版」的上下文。
+    //   不包装的话，上层只能看到一句 "gh api rc=1"，无法区分「取数失败」与
+    //   「基准选择逻辑出错」——两者的处置完全不同（前者重试，后者改代码）。
+    let rows
+    try {
+      rows = rowsAt(sha)
+    } catch (e) {
+      throw new Error('pickBaseline: rowsAt(' + String(sha).slice(0, 9) + ') 取数失败（第 ' + i + ' 条回溯）：'
+        + ((e && e.message) || String(e)))
+    }
+    // 口径 2：零 run ≠ 全绿 ⇒ 跳过，继续往回找
+    if (!Array.isArray(rows) || rows.length === 0) continue
+    // 口径 1：先判 fail —— 真红优先于「再往前找绿」
+    if (rows.some((r) => bucketOf(r) === 'fail')) {
+      return { kind: 'red', sha, staleness: i, rows }
+    }
+    if (!rows.some((r) => bucketOf(r) === 'pending')) {
+      // 口径 3：找到绿基线，但太旧就不认（fail-closed）
+      return i > maxStale
+        ? { kind: 'too-stale', sha, staleness: i, rows }
+        : { kind: 'green', sha, staleness: i, rows }
+    }
+  }
+  // 走到这里 = 窗口内没有一版跑完（或全零 run）⇒ 未证实
+  return { kind: 'unknown', sha: tip, staleness: 0, rows: tip ? rowsAt(tip) : [] }
+}
+
 /** 单行现场读数——每次跑都必须打印，让下一个读者知道这次测了什么。 */
 function readout (v, meta) {
   const c = v.counts || {}
@@ -299,8 +411,17 @@ function readout (v, meta) {
     + ' pr=' + ((meta && meta.prSha) || '<none>')
     + ' prFail=' + (c.prFail == null ? '?' : c.prFail)
     + ' mainFail=' + (c.mainFail == null ? '?' : c.mainFail)
-    + ' newRed=' + (c.newRed == null ? '?' : c.newRed) + ' uncertain=' + (c.uncertain == null ? '?' : c.uncertain)
+    // ⛔ `newRed=na` 与 `newRed=0` 语义不同（CCG i4）：前者是「差集**未计算**」
+    //    （基准作废、不可归因），后者是「算了，是零」。读数行若把前者打成 0，
+    //    下游解析者会把「不可归因」读成「没有新增红」——正是本文件开头要防的同型。
+    //    判据侧由 `newRedComputed === false` 显式标记，这里只负责别把它涂成 0。
+    + ' newRed=' + (v.newRedComputed === false ? 'na' : (c.newRed == null ? '?' : c.newRed)) + ' uncertain=' + (c.uncertain == null ? '?' : c.uncertain)
     + ' unknown=' + (c.prUnknown == null ? '?' : c.prUnknown) + '/' + (c.mainUnknown == null ? '?' : c.mainUnknown) + ' prPending=' + (c.prPending == null ? '?' : c.prPending)
+    // 本判据的「判的是哪棵树」唯一可见面：dist 缺省时打印 `<none>`，绝不静默省略
+    // （AGENTS：判据的读数行不得让读者「测了什么都不知道」）。
+    + ' baseline=' + ((meta && meta.baseline && meta.baseline.sha) ? String(meta.baseline.sha).slice(0, 9) : '<none>')
+    + ' staleness=' + ((meta && meta.baseline && meta.baseline.staleness != null) ? meta.baseline.staleness : '-')
+    + ' baseKind=' + ((meta && meta.baseline && meta.baseline.kind) ? meta.baseline.kind : '-')
     + ' allow=' + ((meta && meta.allowMainRed) ? 'yes' : 'no')
 }
 
@@ -327,4 +448,4 @@ function resolveRepoSlug (src = {}) {
   return { slug: null, via: 'none' }
 }
 
-module.exports = { VERDICTS, FAILED_STATES, PENDING_STATES, SKIPPED_STATES, COMMIT_PENDING_STATES, bucketOf, namesBy, judge, mentionsName, readout, resolveRepoSlug }
+module.exports = { VERDICTS, FAILED_STATES, PENDING_STATES, SKIPPED_STATES, COMMIT_PENDING_STATES, bucketOf, namesBy, aggregateRows, judge, pickBaseline, mentionsName, readout, resolveRepoSlug }

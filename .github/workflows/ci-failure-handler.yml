@@ -29,7 +29,15 @@ concurrency:
 jobs:
   handle-ci-failure:
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
-    runs-on: windows-latest
+    # ⛔ 必须 ubuntu-latest，不得占 windows-latest 的并发额度（2026-10-22，change: main-red-run-baseline）。
+    #    本作业只跑 gh CLI + node + setup-python，无任何 Windows 专属依赖（实测
+    #    .github/scripts/classify-ci-failure.js 无 win32/windows/powershell 命中）。
+    #    迁移前的实测代价：electron-tests / GUI Tests / 本 handler 三家全在 windows-latest 抢同一个
+    #    托管池，主干 push 的 electron-tests 作业实测排队 46.6 分 / 51.5 分才起跑；而同批次的纯
+    #    ubuntu 作业（quality-gate）**零排队**。Windows 额度是「主干读数拿不到」的直接放大器。
+    #    同型先例：quality-gate 的 changes 作业早已锁死为 ubuntu-latest，理由原文
+    #    「判定只依赖 git+node，必须用 ubuntu（不占 Windows 并发额度）」。
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash

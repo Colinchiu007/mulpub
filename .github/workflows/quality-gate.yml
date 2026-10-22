@@ -455,7 +455,11 @@ jobs:
       - name: "Gate 2b8 - Main-red merge gate (changes job)"
         shell: bash
         run: |
-          node --test scripts/check-main-red.test.js
+          # 2026-10-22 阶段 1（main-red-liveness）：新增 main-red-baseline.test.js ——
+          # 主干侧读数改为「最后一次完整结论」（pickBaseline 纯函数 + 接线锁 + 变异反证）。
+          # 两个文件同属这一道判据，必须由同一步一起跑：拆开会让「判据本体」与「它的基线化」
+          # 落在两个 step 里，任一步被单独跳过时另一半仍在装作验过。
+          node --test scripts/check-main-red.test.js scripts/main-red-baseline.test.js
 
       # --- Gate 2b7：全仓 CI 作业超时常量的取证对账（2026-10-20 起覆盖全部 24 格） ---
       # 编 2b7 而不是 2b5：#3724（未合并）占用 "Gate 2b5 - CCG evidence anchor"，2b6 已被收敛探针占用，
