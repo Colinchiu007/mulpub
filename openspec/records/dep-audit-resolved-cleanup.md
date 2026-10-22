@@ -10,8 +10,8 @@ date: 2026-10-22
 |---|---|
 | 变更类型 | 判据本体（`scripts/check-dep-audit.js`）+ 守门配置（`.github/workflows/dep-audit.yml`）+ 门禁用例 |
 | 隔离 | worktree `<仓库父目录>/mp-worktrees/mp-dep-audit-resolved-cleanup`，分支 `dep-audit-resolved-cleanup`，`verify-worktree-deps.js` OK |
-| 门禁用例 | `node --test scripts/check-dep-audit.test.js`：**45 tests / 45 pass / 0 fail**（原 39 条 + Z1–Z5 + 评审后新增 Z6，另改造 2 条既有夹具） |
-| 变异反证 | **4 条 CAUGHT / 0 MISSED / 0 SKIP-PATCH**，基线先自证 `rc=0 tests=45 pass=45`，还原用 md5 对账（驱动见记录末） |
+| 门禁用例 | `node --test scripts/check-dep-audit.test.js`：rebase 前 **45 / 45 pass / 0 fail**（原 39 + Z1–Z6，另改造 2 条既有夹具）；rebase 到 `5e618f27e` 后 **58 / 58 pass / 0 fail**（顶层 48 条 = 45 + 主干 3 条，见「reconciliation」节两个测量域） |
+| 变异反证 | **4 条 CAUGHT / 0 MISSED / 0 SKIP-PATCH**，基线自证 rebase 前 `rc=0 tests=45 pass=45`、rebase 后 `rc=0 tests=58 pass=58`，还原用 md5 对账（驱动见记录末） |
 | workflow 结构判据 | `node .github/scripts/check-workflow-structure.js` → `files=16 violations=0` |
 | workflow 合同测试 | `node --test .github/scripts/workflow-contract.test.js` → **45 / 45 pass** |
 | 端到端（健康路径） | `NPM_AUDIT_REGISTRY=https://registry.npmjs.org node scripts/check-dep-audit.js` → **rc=0**，`命中分布: npm=24 npm-opscenter=2 pip=2 命中=28 挂账=28` |
@@ -194,6 +194,39 @@ CI 日志里**没有** `SCANNER_UNAVAILABLE` 告警——`npm audit` 对着没�
   **`performedBy` 保持驱动写的 `self-play` 不改**——改它就是把自扮演裁决说成外部裁决，那才是伪造。
 - 主干同形态先例（不是我自己立的规矩）：`1dac93456`（#4204，`tier=external` + evidence 指向 PR 评论）、
   `ef73f5fcf`（#4024，高危面，`tier=external` + 公开 URL evidence + `performedBy=self-play`）。
+
+## 与主干并发那一刀的 reconciliation（rebase 到 `5e618f27e` 之后现跑）
+
+本 PR 在飞期间主干合入了 **#4225（`5e618f27e`，「依赖审计把『扫描器失败』当成『量到 0』——错误信封不得算空报告」）**，
+改的正是同两个文件 ⇒ `CONFLICTING`。两侧判据**互补不是重复**，逐条核过（不是凭文件名猜）：
+
+| 问题 | 主干 #4225 那一刀 | 本 PR |
+|---|---|---|
+| 层 | **扫描器层**：`shellRun` 识别 npm 把错误 JSON 打到 stdout 的形态（`socket hang up` 时 `{"message":…,"error":…}` 也能 `JSON.parse`），判成「不是审计报告」⇒ 该域 `res.ok=false` | **判据层**：该域扫成了但 **0 产出**、而基线里它有挂账 ⇒ `UNVERIFIED_ZERO_SCAN`（未证实），并拒绝 `--update` 写基线 |
+| 本刀立项的那个 CI 读数 | **不覆盖**：CI 里 `npm audit` 对着没装过的树返回的是**合法空报告**，不是错误信封 ⇒ `ok:true`、0 条 ⇒ 仍会被旧判据读成「都修了」（实测：主干那刀里 `git show origin/main:scripts/check-dep-audit.js | grep -c zeroScanDomains` = 0） | 覆盖，并给这一域真实测量对象（`npm ci`，主干 `dep-audit.yml` 至今仍是「本 job 不执行 pnpm install」） |
+| 既有那道 `unavailable.length && isUpdate` 闸 | 未动（主干第 669 行仍在） | 未动，`Z6` + 变异 `M4` 锁住它 |
+
+冲突解法按「两侧记录都保留」：`zeroScanDomains` 与 `shellRun` 在主干同一处注释块撞车 ⇒ 并集（两个函数都留，各带自己的动因注释）；
+测试同理，两侧一条没删。两个测量域分开写（把其中一个当另一个会算错新增条数，本条第一版就这么错过一次）：
+
+| 口径 | 分支点 `85dc44ddc` | 主干 `5e618f27e`（#4225 后） | 本 PR rebase 前 | rebase 后并集 |
+|---|---|---|---|---|
+| 顶层 `test(` 行数（`grep -c "^test("`） | 39 | 42（**+3**：`shellRun` 错误信封 / `shellRunOnce` cwd 透传 / pip 报告形状） | 45（Z1–Z6） | **48** |
+| runner 报的叶子用例数（`# tests`，含 `t.test` 嵌套） | — | — | 45 | **58** |
+
+⇒ 主干那一刀在顶层只加 3 条，但它内部用嵌套子测试，所以 runner 计数从 45 涨到 58（+13）。**两个数都对，别互相引用。**
+**rebase 后全部本机判据重跑**，不是沿用折叠前那份读数：
+
+- `node --test scripts/check-dep-audit.test.js` → **58 / 58 pass / 0 fail**（顶层 48 条 = 本 PR 45 条 + 主干 3 条；runner 按叶子用例数到 58，见上表两个测量域）
+- 变异驱动 → `CAUGHT=4 MISSED=0 SKIP-PATCH=0`，基线自证 `rc=0 tests=58 pass=58`，还原 `[RESTORE-CHECK] true`
+- `check-workflow-structure.js` → `files=16 violations=0`；`workflow-contract.test.js` → **45 / 45 pass**
+- 端到端 → `rc=0`，`命中分布: npm=24 npm-opscenter=2 pip=2 命中=28 挂账=28`
+
+⚠️ 一条如实的局限：判定记录 `d0b13987…` 的 `stagedDiffHash` 是 **rebase 前**那份暂存 diff 的哈希，rebase 不重跑钩子，
+所以它现在指向的历史 diff 与最终提交的 diff 不再逐字相同（差异只有主干那侧并进来的 `shellRun` 等）。
+AGENTS.md 记过这条孤儿形态（「钩子产物文件名↔commit 无门禁校验，旧 SHA 成孤儿」），这里不假装它自洽；
+收口矩阵读的是产物**字段**（`mode=dual` + 闭合 `status` + `tier=external` + 可核 `evidence`），那些字段与 rebase 无关，
+且判据本体与用例在 rebase 后的树上全部重跑过（上面四条读数）。
 
 ## 本 PR 不含 / 未闭
 
