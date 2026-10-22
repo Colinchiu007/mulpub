@@ -48,10 +48,32 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "external(claude -p)",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4238#issuecomment-6337500097",
+    "confidenceWeight": 1,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "r1",
+        "severity": "High",
+        "finding": "确定性错误被瞬时关键词污染 ⇒ 404 里含 timeout 会被当网络抖动重试 3 轮（评审 e2/e4）。",
+        "verdict": "upheld",
+        "disposition": "已修：新增 DEFINITE_RE 并排在 TRANSIENT_RE 之前短路",
+        "rationale": "DEFINITE_RE 命中 401/403/404/Not Found/Bad credentials/Resource not accessible/Could not resolve to a 即立刻抛。结构锁断言下标顺序；变异 E（两判断调序）⇒ not ok 20 当场红。"
+      },
+      {
+        "id": "r2",
+        "severity": "High",
+        "finding": "Atomics.wait 不可用时重试间隔消失 ⇒ 背靠背重试加速触发 429（评审 e3）。",
+        "verdict": "upheld",
+        "disposition": "已修：退化路径改为带截止时间的忙等",
+        "rationale": "catch 分支改为 while (Date.now() < until)，保证 1.2s 间隔仍在。结构锁断言 catch 必须含 while (Date.now() <；变异 F（空 catch）⇒ not ok 21 当场红。"
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-fcb04c75\\adjudication.json",
+    "note": "本 commit 是外部评审（claude -p）意见的直接落地 —— 评审评论 #issuecomment-6337500097 的「逐条处置」表已写明 e2/e4 由 DEFINITE_RE 短路解决、e3 由忙等兜底解决，本 commit 实现的就是这两条。改动 109 行（含 2 条结构锁与新注释），不含新的判据语义；两条修复各带一条结构锁，变异 E/F 分别让 not ok 20 / not ok 21 当场红，还原后 21/21、53/53。",
+    "at": "2026-10-22T09:32:40.409Z"
   }
 }
