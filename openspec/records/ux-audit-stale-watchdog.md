@@ -13,12 +13,12 @@ date: 2026-10-22
 | 变更类型与隔离 | ✅ | 运行时代码变更（`apps/desktop/src/`）⇒ 隔离 worktree `mp-ux-audit-stale-watchdog`，裸分支 `ux-audit-stale-watchdog`，落点 `D:\Data\projects\mp-worktrees`（非 C 盘）；`node scripts/verify-worktree-deps.js` → OK（11 项解析通过） |
 | TDD | ✅ 先红后绿 | 新增 `src/stores/publishProgress.stale.test.js`（9 条）**首跑 9 failed / 0 passed**（`/d/tmp/stale-red.log`：`Test Files 1 failed`、`Tests 9 failed (9)`），实现后同文件 9 passed；面板侧 4 条新用例首跑即红 1 条（`handleClose` 被写成两份、旧的一份覆盖新的），修完 45 passed |
 | 消费者并集 | ✅ | `git grep -l publishProgress/PublishProgress*` 取并集后跑 12 个测试文件：**298 passed / 0 failed，无 `Errors` 段**（`/d/tmp/stale-union.log`）。范围口径如实写：这 12 个文件是**消费者并集**，不含 `electron/` 与 `tests/` |
-| 全域 | ⏳ 回填 | `vitest run src` 正在跑（`/d/tmp/stale-src-full.log`），读数见 §2 |
+| 全域 | ✅ 两处红均**不是我引入的**，且当场归因后已消 | `pnpm.cmd exec vitest run src`（未先 `build:preload`）⇒ `405 files: 2 failed / 403 passed`、`6413 tests: 2 failed / 6409 passed / 2 skipped`。两条红的**同一**根因是构建产物缺失：`src/overlay-view-suspension.test.js` 与 `src/shell-mode-6b.test.js` 都 `readFileSync(electron/preload/index.bundle.js)` ⇒ `ENOENT`。跑 `pnpm run build:preload`（rc=0）后同两条 **29 passed**。归属判据：本批未动 preload，且这两条是既有的"产物先于测试"前置（AGENTS 5.4 的「先 build:preload」）——**不认领，也不顺手改测试** |
 | 反证（8 道） | ✅ | `node scripts/stale-watchdog-contract-mutate.js --keep-going` ⇒ `[BASELINE] rc=0 failed=0 passed=45 collected=45 errors=0 blind=false`、`[SUMMARY] 共 8 条：CAUGHT=8 其余=0`、8/8 `RESTORE_OK`、驱动 rc=0。S2 首跑是 **PARTIAL_RED（探针 0/1）**，成因见 §3.1，修完重跑 CAUGHT |
 | QM-1 打包 | N/A（如实声明） | 本批只动 `apps/desktop/src/`（store + 三个组件 + locales），未触 `electron/` 与 `packages/rpa-engine/` ⇒ 按 QM-1 的触发条件不适用。**不是**"跑过且通过"，是"未触发" |
 | QM-4 视觉 | ⏳ 交 CI 判 | `/first-run` 类改动不同：本批动的是 `PublishProgressPanel` 的徽标 DOM（class 由静态变绑定）与任务行文案。非陈旧态下 class 集合与文本未变，但**这不是我本地能证的** —— 由 `QG Visual`（Gate 7，windows-latest + CI 的 Chromium）判，红则按"基线只能取自同一次 CI 渲染"口径处理，禁止 `--update-baseline` 消化 |
 | 静态门禁 | ✅ | `check-locale-sync.js --pair-base origin/main` → **PASS**；`--cjk` → **PASS（基线 1330 条，当前 1124 条，无新增硬编码）**；新增 3 键 zh/en 逐个 `grep -c` 均为 1；聚合 eslint 8 个改动文件 rc=0 |
-| 行尾对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐字一致（见 §4 的暂存后读数）；新建文件一律 LF；`CHANGELOG.md` / `01-docs/UX-AUDIT-2026-10-17.md` 当场量得 cr=0（LF），未做统一回写 |
+| 行尾对账 | ✅ | 提交后 `git diff --numstat HEAD~1 HEAD` = **add 1357 / del 17**，与 `--ignore-cr-at-eol --numstat` 两口径**逐字一致**（差得远即行尾被改写）。新建文件一律 LF；`CHANGELOG.md` 顶部新条目按现场形态补成 CRLF 与该 blob 既有行尾一致（当场 `node -e` 数得 cr=23556 ⇒ 工作副本 CRLF），审计文档 cr=0（LF）未动 |
 | 新文件未被 .gitignore 吞掉 | ✅ | `git check-ignore --no-index -v` 实测 `scripts/*.js`（.gitignore:106）**确实命中**新建的反证驱动 ⇒ 按既有惯例补 `!scripts/stale-watchdog-contract-mutate.js`（同族第 N 次：漏反选的症状是"本地全绿、CI 上 Cannot find module"）；测试文件 `publishProgress.stale.test.js` 不在忽略域内 |
 | QM-6 双模型 | ⏳ | 见 §5 |
 | 远程同步 | 由门禁推导 | PR 号见 §5；合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导收口，不手写状态词 |
@@ -80,8 +80,11 @@ watch(() => 有没有非终态任务, (hasLive) => hasLive ? 起 : 停, { immedi
 
 ## 4. 收尾清单（提交后回填）
 
-- `git diff --numstat` / `--ignore-cr-at-eol --numstat` 两口径读数：（提交后填）
-- PR 号、CI 结果、是否自动合并及理由：见 §5
+- 提交：`78bb932ab`，`git diff --numstat HEAD~1 HEAD` = add 1357 / del 17，
+  与 `--ignore-cr-at-eol --numstat` 逐字一致 ⇒ 行尾未被改写。
+- 新建脚本 `scripts/stale-watchdog-contract-mutate.js` 已随 `.gitignore` negation 一起进提交
+  （`git check-ignore --no-index -v` 当场证明它命中第 106 行 `scripts/*.js`）。
+- PR 号、CI 结果、是否自动合并及理由：见 §5。
 
 ## 5. QM-6
 
