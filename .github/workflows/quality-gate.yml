@@ -566,12 +566,12 @@ jobs:
           MB="$(git merge-base "$BASE_REF" "$HEAD_REF" 2>/dev/null || true)"
           node scripts/check-no-hot-carrier-edit.js --base="${MB:-$BASE_REF}" --head="$HEAD_REF" --mode=advisory
 
-      # --- Gate 2b10：artifact 清理作业的行为锁 ---
+      # --- Gate 2b12：artifact 清理作业的行为锁 ---
       # 被测对象是 .github/workflows/cleanup-artifacts.yml 里那段清理逻辑（已搬进 scripts/cleanup-artifacts.js）。
       # 必须接在 changes 作业：cleanup 那条 workflow 只由 schedule 触发，接在那儿等于"红在 PR 侧不可见"，
       # 那正是它连续 8 天全红而无人发现的成因（2026-10-21 实测：schedule 日日失败、非 required、无监控）。
       # 本步骤刻意**不**执行清理脚本本体（它会真删 CI 产物），只跑它的行为锁 —— 注入式测试，零真实出站。
-      - name: "Gate 2b10 - Artifact cleanup logic (changes job)"
+      - name: "Gate 2b12 - Artifact cleanup logic (changes job)"
         shell: bash
         run: |
           node --test scripts/cleanup-artifacts.test.js
