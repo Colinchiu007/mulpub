@@ -323,12 +323,16 @@ def test_style_to_strategy_mapping():
 
 
 def test_length_ranges_mapping():
-    """Regression: 3 种长度必须映射到正确的字数范围."""
+    """Regression: 3 种长度必须映射到正确的字数范围.
+
+    数字来历（为何是这三个数、为何本次只改 max）见 `service.py` 里 `_LENGTH_RANGES`
+    上方的注释——那里是单一真源，此处只留断言，避免两处散文漂移。
+    """
     from multi_publish.aggregation.service import _LENGTH_RANGES
 
-    assert _LENGTH_RANGES["keep"] == (300, 3000, 1500)
-    assert _LENGTH_RANGES["compress"] == (100, 800, 400)
-    assert _LENGTH_RANGES["expand"] == (800, 5000, 2500)
+    assert _LENGTH_RANGES["keep"] == (300, 50000, 1500)
+    assert _LENGTH_RANGES["compress"] == (100, 50000, 400)
+    assert _LENGTH_RANGES["expand"] == (800, 50000, 2500)
     assert len(_LENGTH_RANGES) == 3
 
 
@@ -683,9 +687,146 @@ def test_rewrite_length_fallback_for_legacy_clients():
     finally:
         svc_mod._lazy_import = orig_lazy
 
-    # compress 档应为 (100, 800)，而非默认 800/2000
+    # compress 档应为 (100, 50000)，而非默认 800/2000
+    # （2026-10-21 feat-zhihu-fav-batch-wordcount：三档 max 统一提到 50000，与引擎
+    #  MAX_OUTPUT_CHARS 对齐，解除 keep 档 3000 的历史暗上限）
     assert captured_cfg["min_word_count"] == 100
-    assert captured_cfg["max_word_count"] == 800
+    assert captured_cfg["max_word_count"] == 50000
+
+
+def test_length_ranges_max_aligned_with_engine_output_cap():
+    """三档的 max 必须与**引擎输出上限**对齐，而不是钉死一个字面值。
+
+    动因与数字来历见 `service.py` 里 `_LENGTH_RANGES` 上方的注释（单一真源，
+    此处不重复，避免两处散文漂移）。
+
+    本用例钉的是**对齐关系**而非字面值。仓库里这个上限一共存在**三份**副本，
+    本用例一次性把三方钉在一起（少钉一处 = 留一处新的暗上限）：
+
+      ① 引擎真源   packages/rewrite-engine/src/rewrite-engine-core.js
+                    → `const MAX_OUTPUT_CHARS = <n>`
+      ② 渲染层镜像 apps/desktop/src/utils/rewrite-engine-limits.js
+                    → `export const REWRITE_ENGINE_MAX_OUTPUT_CHARS = <n>`
+                    （JS 侧已有结构锁 rewrite-engine-limits.test.js 保证 ①② 同值；
+                      本用例在此之上把 **③ Python 三档** 也纳入）
+      ③ Python 三档 `multi_publish.aggregation.service._LENGTH_RANGES[*][1]`
+
+    读法与仓库既有结构锁同构（见 rewrite-engine-limits.test.js 的同名正则用法），
+    属「跨语言常量对齐」而非「复制字面量」。
+
+    ⚠️ **判据性质（外部后端复核结论：upheld / Warning，但维持现状）**：
+    「读 JS 源码 + 正则 + 词边界计数」是**文本级代理**，不是编译值验证——
+    它挡不住同名影子变量这类更极端的伪装。作为补偿有三道：
+      ① 本用例自身的 fail-closed + 剔注释 + 词边界 + **只认生产代码消费点**；
+      ② JS 侧既有结构锁 `rewrite-engine-limits.test.js` 作为**第二道闸**（它跑在 Node 侧，
+         能真正 import 那个模块，验证的是「值本身」而非文本）；
+      ③ 反证逐条实测（改值 / 删消费点 / 乱单调 ⇒ 均变红）。
+    复核同时评估过「把上限下沉成一份 JSON 让两边各读」：**收益低于成本**
+    （要改两边的读取路径并新增同步点，仍解决不了「谁读谁」的活源问题），故不引入。
+
+    若上限将来再变（例如提到 100000），本用例会因「某一方没跟上」而红，
+    且报错直接点名是哪一处脱钩——这正是要防的「放宽一处、另一处成暗上限」。
+    """
+    import re
+    from pathlib import Path
+
+    from multi_publish.aggregation.service import _LENGTH_RANGES
+
+    repo_root = Path(__file__).resolve().parents[3]
+
+    def read_number(rel_path, pattern, label, const_name, min_refs=1, consumer_root=None):
+        """从**指定的权威源**取数值，并证明它是「活的」权威源（外部复核 i4/i5 加固）。
+
+        三件事必须同时成立，缺一条都可能变成装饰性断言：
+
+        1. **存在且是文件**（fail-closed）：文件缺失 / 不是文件 ⇒ 直接断言失败，
+           不静默跳过——skip 掉的契约等于没有。
+        2. **数值可解析**：正则不匹配 ⇒ 断言失败。
+        3. **活的**：该常量必须**被消费**，不能只躺在那里当一份没人用的副本。
+           `min_refs` 断言常量名在定义文件内还出现（定义之外至少还有引用）；
+           `consumer_root` 给定时，额外断言该常量在别处被真正引用。
+           （这一条替代了先前那个「resolve 后与自身相等」的同义反复断言——它恒真、
+           等于没有保护；正因如此外部复核才判它无效。）
+        """
+        src = (repo_root / rel_path).resolve()
+        assert src.exists(), f"找不到{label}：{src}"
+        assert src.is_file(), f"{label}不是文件：{src}"
+        text = src.read_text(encoding="utf-8")
+        m = re.search(pattern, text)
+        assert m, f"{label}里找不到数值定义（模式：{pattern}）"
+        # 只数**非注释代码行**里的出现，且用**词边界**匹配：
+        #   ① 注释里提到常量名不算「被消费」（否则「定义 1 次 + 注释 1 次」也能凑够阈值）；
+        #   ② 词边界避免影子名字（如 MAX_OUTPUT_CHARS_UNUSED）被误计入。
+        code_only = "\n".join(
+            line for line in text.splitlines() if not line.strip().startswith("//")
+        )
+        ref_count = len(re.findall(r"\b" + re.escape(const_name) + r"\b", code_only))
+        assert ref_count >= min_refs, (
+            f"{label}里的 {const_name} 在**代码行**里只出现 {ref_count} 次"
+            f"（至少要 {min_refs} 次）——它可能是一份没人消费的副本，不是活的权威源"
+        )
+        if consumer_root is not None:
+            consumed = []
+            for p in (repo_root / consumer_root).rglob("*.js"):
+                if p == src:
+                    continue
+                # 只认**生产代码**的消费点：测试文件自己引用该常量不算
+                # （否则「活的权威源」的证明会退化成「有个测试在用它」）。
+                if p.name.endswith((".test.js", ".spec.js")):
+                    continue
+                body = p.read_text(encoding="utf-8", errors="ignore")
+                code_only = "\n".join(
+                    line for line in body.splitlines() if not line.strip().startswith("//")
+                )
+                if re.search(r"\b" + re.escape(const_name) + r"\b", code_only):
+                    consumed.append(p)
+            assert consumed, (
+                f"{label}里的 {const_name} 在 {consumer_root} 下没有任何**生产代码**消费点"
+                "（测试文件不算）——它可能不是当前真正生效的那份"
+            )
+        return int(m.group(1))
+
+    engine_cap = read_number(
+        Path("packages") / "rewrite-engine" / "src" / "rewrite-engine-core.js",
+        r"const\s+MAX_OUTPUT_CHARS\s*=\s*(\d+)",
+        "引擎上限真源",
+        const_name="MAX_OUTPUT_CHARS",
+        min_refs=2,  # 定义 + 引擎内部消费点（如 range.max <= MAX_OUTPUT_CHARS）
+    )
+    render_cap = read_number(
+        Path("apps") / "desktop" / "src" / "utils" / "rewrite-engine-limits.js",
+        r"export\s+const\s+REWRITE_ENGINE_MAX_OUTPUT_CHARS\s*=\s*(\d+)",
+        "渲染层上限镜像",
+        const_name="REWRITE_ENGINE_MAX_OUTPUT_CHARS",
+        min_refs=1,
+        consumer_root=Path("apps") / "desktop" / "src",  # 证明渲染层真的在用它
+    )
+    assert render_cap == engine_cap, (
+        f"渲染层镜像 {render_cap} 与引擎真源 {engine_cap} 脱钩"
+        "（JS 侧结构锁只保证这两者，没覆盖 Python 侧）"
+    )
+
+    assert set(_LENGTH_RANGES.keys()) == {"keep", "compress", "expand"}
+    for name, (min_wc, max_wc, target_wc) in _LENGTH_RANGES.items():
+        assert max_wc == engine_cap, (
+            f"{name} 档 max {max_wc} 与引擎上限 {engine_cap} 脱钩"
+            "（引擎放宽了，三档没跟上 ⇒ 又一道暗上限）"
+        )
+        assert min_wc <= max_wc, f"{name} 档 min 不得大于 max"
+        assert 0 <= min_wc < target_wc <= max_wc, f"{name} 档三值关系被破坏: {(min_wc, max_wc, target_wc)}"
+
+    # 三档的**相对关系**也必须成立：三档 max 放宽到同一个值后，
+    # 区分「精简 / 保持原文 / 扩写」语义的就只剩 target（prompt 里的「目标 N 字」）。
+    # 若 target 的单调关系被改乱（例如把 expand 的 target 调到比 compress 还小），
+    # 三档会名不副实——而这不会触发上面任何一条断言。故把它也钉成契约。
+    compress_target = _LENGTH_RANGES["compress"][2]
+    keep_target = _LENGTH_RANGES["keep"][2]
+    expand_target = _LENGTH_RANGES["expand"][2]
+    assert compress_target < keep_target < expand_target, (
+        "三档 target 的单调关系被破坏（应满足 精简 < 保持原文 < 扩写）："
+        f"compress={compress_target}, keep={keep_target}, expand={expand_target}"
+        "——三档 max 同值后，target 才是区分档位语义的唯一依据"
+    )
 
 
 # ── 11. 回归测试：word_count 兜底 ──────────────────────────────────
