@@ -432,3 +432,22 @@ main.mp-workspace.cohere-main        ← display:flex; flex-direction:column
 | 同类风险普查 | 其它 `margin: 0 auto` 页面根容器在 flex 容器中的宽度行为 | P1 |
 | 未定义 CSS 变量清理 | 全仓仍有 `--text-primary` / `--text-secondary` / `--surface-secondary` / `--border` / `--coral-bg` 的引用（本次仅清理改写页） | P2 |
 | 共享组件字号统一 | `RewriteStrategyPicker` 内部 12px 字号由父级 `:deep()` 覆盖，非根治 | P2 |
+
+---
+
+## 附：样式宿主位置的变更（rewrite-view-decompose，2026-10-21）
+
+本 PRD 描述的**全部视觉规则**（卡片层级、勾选框固定尺寸、字段行布局、质量报告强调条、
+动作行主次分离等）**一条未改**。本次只改了这些规则的**宿主位置**：
+
+| 项 | 变更前 | 变更后 |
+|---|---|---|
+| 样式所在文件 | `apps/desktop/src/views/RewriteView.vue` 的 `<style scoped>` 块（321 行） | `apps/desktop/src/views/rewrite-view.css`（319 行，**逐条原样迁移**） |
+| 视图里的引用 | 内联 `<style scoped>…</style>` | `<style scoped src="./rewrite-view.css"></style>` |
+| 作用域语义 | scoped | scoped（**不变**：`scoped` + `src` 由 Vue SFC 编译器施加同一 scope id，`:deep()` 语义相同） |
+| 视觉契约测试的读取对象 | `src/views/RewriteView.vue` | `src/views/rewrite-view.css`（并**新增**两条断言：视图必须仍引用该 CSS 文件 / 视图里不得再有内联 `<style scoped>`，防止样式文件变成孤儿或出现两份真相） |
+
+选择器、属性值、注释**全部逐字保留**；全局设计系统（`styles/cohere-design-system.css`）**未动**。
+
+> 动因：`RewriteView.vue` 触到行数门禁天花板（登记 1430 / 天花板 1630），再增 200 行即红。
+> 详见 `01-docs/PRD-REWRITE-VIEW-DECOMPOSITION-2026-10-21.md` §八。

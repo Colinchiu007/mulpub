@@ -20,7 +20,7 @@
  * 与 Collection.rewrite-sensitive-warning.test.js 的分工：那个文件锁采集页，
  * 本文件锁改写页与 AI 面板，互不重叠。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
@@ -59,6 +59,23 @@ vi.mock('@/api/publisher', () => ({
 
 const WARNING_TEXT = '改写结果可能包含敏感内容，请人工审核'
 
+/**
+ * 本文件首测要付「RewriteView.vue 及其依赖图的一次性编译」成本。
+ *
+ * 实测（rewrite-view-decompose，2026-10-21，本机 jsdom + vitest）：
+ *   · `await import('./RewriteView.vue')` 单段 = **3.7s**（拆出 3 个 composable
+ *     + 外置样式后 ≈ **4.2s**）—— 这是 Vite 把 SFC 及其整张依赖图编译一遍的**一次性**成本；
+ *   · `mount()` 本体 = **75–92ms**；`firstNextTick` = **0ms**。
+ * ⇒ 首测的 5.8s 里，**绝大部分不是产品行为慢，是脚手架的一次性编译**。
+ *
+ * 为什么必须处理：默认 `testTimeout = 10000`，而冷缓存 + 同片并发编译时
+ * 首测曾实测超时（7 个文件同场冷跑）。全局抬高 `testTimeout` 不可取 ——
+ * 那会让**真正挂死**的用例也跟着放宽，把缺陷藏进更长的等待里。
+ * 正解是把一次性编译挪到 `beforeAll`（给它一份显式预算），
+ * 让**每条用例的断言窗口仍是 10s** —— 产品行为变慢照样 10s 内报错。
+ */
+const IMPORT_BUDGET_MS = 60_000
+
 /** 引擎成功 + 带敏感词 warnings 的信封（形状与真实引擎一致） */
 function successWithWarnings () {
   return {
@@ -78,6 +95,15 @@ function successWithWarnings () {
 }
 
 describe('敏感词警告的严重级（fix-rewrite-warning-severity）', () => {
+  /**
+   * 一次性编译预热：把 RewriteView.vue 及其依赖图的编译成本挪到 setup 阶段，
+   * 并给这一段一份显式预算。下面的用例仍走自己的 `await import(...)`（结构不变），
+   * 但那已是缓存命中，**每条用例的断言窗口仍是默认 10s**。
+   */
+  beforeAll(async () => {
+    await import('./RewriteView.vue')
+  }, IMPORT_BUDGET_MS)
+
   beforeEach(() => {
     vi.clearAllMocks()
     setActivePinia(createPinia())
