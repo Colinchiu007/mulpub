@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    }
+  ],
+  "critiqueFingerprint": "fe1111ad3f0fe4c0",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "verdict": "upheld",
+      "rationale": "经读码确认为真缺陷：taskStallMinutes 的循环把「这个会话里没有这个 taskId」当成「这个任务不陈旧」直接 return 0。本 store 支持多会话（MAX_SESSIONS=5），任务落在第 2 个及以后的会话时永远读出 0 分钟，行级后缀对其完全失灵。评审给的复现路径（两个会话各一个 running 任务）与代码逐行核对成立。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "verdict": "upheld",
+      "rationale": "\"立即解除\"此前只在 store 级 computed 上被证明，面板层没有锁。补一条真 tracker + 真挂载的用例：徽标先亮，喂新事件后必须回到「进行中」并让转圈回来。断言形态也当场纠过一次——徽标是同一个元素换类换文案（不是 v-if 拆掉），所以判据取「不再出现无更新字样 + 类回到 running + 转圈存在」。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "verdict": "upheld",
+      "rationale": "承重不变量此前无证据：关闭按钮同时读 hasRunning（session.status 派生）与 hasStalledRunning（任务 phase 派生），两条链若错位就可能出现「有非终态任务但 hasRunning 为假」或反之。补一条真 store 用例把两侧同时钉住：刚登记（还没事件）⇒ hasRunning 真；陈旧 ⇒ 两链都真；全终态 ⇒ 两链都假。评审推测的「adopted/queued/paused 使 status ≠ running」这一具体形态未在实现中找到（init 领养写的是 phase 而非 status，status 由 _recomputeSessionStatus 统一产出），故不按其建议扩成状态矩阵，只锁这条同缘不变量。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "verdict": "upheld",
+      "rationale": "这条是\"断言没测它声称的那一侧\"的准确命中：nowTs 只随 15s tick 推进，advanceTimersByTime(3*MIN - 1) 后最后一格落在 165000，比较的是 165000 vs 180000，从未触碰 179999。改写为先推进到 179999、再用公共出口（endStallClock + beginStallClock 会重新盖章 nowTs）把钟精确钉上，断言不陈旧；再推 1ms 钉一次断言进集合。不给实现开任何测试专用通道。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "verdict": "dismissed-with-evidence",
+      "rationale": "前提不成立：init() 的 queue:status 领养走 _createSession({title:null}) ⇒ session.createdAt 取的是**本次运行**的 Date.now()，且该路径只写 task.phase/stageKey，从不带 lastEventAt/startedAt 的旧墙钟。因此回落链锚点 = 本次运行创建时刻 ⇒ idle≈0，不会\"开机即显示 N 分钟无更新\"。但这条提问把一个真实缺口暴露了出来（原先无测试），所以处置是\"驳回前提 + 补一条锁\"：恢复会话启动当下不陈旧，且若这次运行真的从此没有事件，4 分钟后必须进陈旧集合（回落链不得失灵）。"
+    },
+    {
+      "id": "i6",
+      "severity": "Info",
+      "verdict": "declined",
+      "rationale": "方向认同但不在本批做：合并成一份以 nowTs 为唯一依赖的 taskId→stallMinutes map computed 是更好的结构，但它会改掉 taskStallMinutes 的读法（函数→查表）并牵动 Session/Row 两个模板与三条反证锚点，属另一条 M 成本。现状量级如实写明：会话上限 5、每会话任务数为一次发布的条数，三次全扫是常数级；\"惰性\"省掉的是无任务时段的常驻唤醒，本批要的是这条而不是活跃时段的扫描次数。"
+    },
+    {
+      "id": "i7",
+      "severity": "Info",
+      "verdict": "upheld",
+      "rationale": "文档漂移成立，按代码为准收敛：locale 实际键是 closeStalledHint（proposal 写过 closeWhenStalledHint）、locales 实际路径是 src/locales/publish-page/{zh,en}.js、timer 作用域已从\"模块级\"改为\"按 store 实例 WeakMap 缓存 + 面板持有生命周期\"。三处同次改写，不留\"文档说 A、代码做 B\"。"
+    },
+    {
+      "id": "i8",
+      "severity": "Info",
+      "verdict": "upheld",
+      "rationale": "隐性泄漏成立：用例结束后 tracker 的 fake interval 仍活着，靠\"每条用例只看自己新建的 liveTimers 集合\"恰好不炸。处置是在 afterEach 里对 begin 过的 tracker 逐个 endStallClock，并把收尾发生在还原 globalThis **之前**（否则 clearInterval 已换成真的那个，fake 句柄删不掉），另加一条\"用例结束时活跃 tick 必须为 0\"的卫生断言——把靠顺序兜住的东西显式化。"
+    },
+    {
+      "id": "i9",
+      "severity": "Info",
+      "verdict": "upheld-as-decision",
+      "rationale": "按评审给的第二条出口落定：把「部分陈旧永不解禁」写成显式裁决进显示项表与 §7，而不是继续让它看起来像随手实现。文案增强（禁用态 title 带上\"2 个任务已无更新，尚有 N 个在动\"）需要改既有 closeDisabledHint 的语义并加参数，属另批；本批的判据是\"只要还有未陈旧的就不解禁\"，理由是不给用户一个会遮蔽在动任务的出口。"
+    },
+    {
+      "id": "i10",
+      "severity": "Info",
+      "verdict": "upheld",
+      "rationale": "成立且与立项目标自相矛盾：isTaskStalled 全仓零消费方（任务行用 taskStallMinutes、徽标用 hasStalledRunning、面板用 maxStallMinutes），本批的立项理由恰恰是\"lastEventAt 不能再是死观测字段\"。已从 publicApi 摘除，同时删掉文档里的这一行——不保留\"为 5.4 预留\"的注释，那正是无人认领的死出口。"
+    }
+  ],
+  "round1Dispositions": 10
+}

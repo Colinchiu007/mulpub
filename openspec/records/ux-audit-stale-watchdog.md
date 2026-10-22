@@ -127,4 +127,14 @@ watch(() => 有没有非终态任务, (hasLive) => hasLive ? 起 : 停, { immedi
 
 ## 5. QM-6
 
-（评审跑完后回填：后端、条目、逐条处置、闭环状态与不可闭合原因。）
+### 5.1 第一轮（批判产物 10 条：1 Critical + 4 Warning + 5 Info）
+
+- 产物（**已复制到受跟踪面**，因为 `.adversarial/` 被 .gitignore 吞掉 —— 只留在引擎工作目录里等于证据随本机清理而消失，这是本仓记过的「产物在 gitignored 目录 ⇒ 不构成证据」同型坑）：`.ccg/reviews/stale-watchdog-critique-round1.json`（批判原文 10 条）与 `.ccg/reviews/stale-watchdog-adjudication-round1.json`（逐条裁决），`critiqueFingerprint=fe1111ad3f0fe4c0`。
+- 逐条处置见 `01-docs/PRD-STALE-WATCHDOG-2026-10-22.md` §10。采纳并修 i1/i2/i3/i4/i7/i8/i10，i5 驳回前提并补锁，i6/i9 落成显式裁决。
+- **i1 是本批唯一 Critical，且是真缺陷**：`taskStallMinutes` 的多会话路径把「没找到」读成「不陈旧」。  现场修法是先补双会话用例再由反证 S11 证明该用例确实打这一格（退回 `return 0` 只有那条红）。
+- 引擎把 i1/i3/i5 标为高危域（`domains:["auth"]`）要求外部复核。该标签系启发式误判 ——   改动集全仓无 auth/凭证/登录态路径（见本次 `git diff --name-only`）。**但不因归因错误而免跑**：  判据问的是「这类面有没有被外部模型看过」，不是「标签打得对不对」；所以第二轮对外置后的最终 diff 跑真外部评审，  闭环状态以 `tier=external` 的证据收口（见 5.2）。
+
+### 5.2 第二轮（对外置重构后的最终 diff）
+
+（跑完后回填：后端真名、产物路径、条目与逐条处置、`deepReview.tier`/`evidence`、闭环状态。）
+

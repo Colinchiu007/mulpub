@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "issues": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "dimension": "correctness",
+      "finding": "`taskStallMinutes(taskId)` 的循环体在第一个会话上无条件 `return 0`：`const task = session.tasks[taskId]; if (!task || TERMINAL_PHASES.has(task.phase)) return 0`。当 taskId 属于第 2 个及以后的会话（本 store 支持多会话，MAX_SESSIONS=5，`isSingleSession` computed 表明多会话是真实形态）时，第一个会话里 `!task` 成立，直接 return 0，后面的会话永远扫不到——这些行即便陈旧也永远不会显示「N 分钟无更新」后缀。新增的 store 测试 1.1–1.6 全部只用单个会话，面板测试用 `vi.fn` 直接 mock 掉 `taskStallMinutes`，这条多会话路径零覆盖且逻辑错误，可验证：两个会话各含一个 running 任务，第二个会话的任务陈旧 4 分钟后 `store.taskStallMinutes(它的 id)` 返回 0。",
+      "suggestion": "改为遇不到该 taskId 时 `continue` 而不是 return：`if (!task) continue`；仅当命中该 taskId 且 phase 为终态时才 `return 0`，循环结束后仍 `return 0`。并补一条双会话测试：第 2 个会话的陈旧任务必须返回分钟数 > 0、且应付的 `hasStalledRunning` 计数正常。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "finding": "验收 V3「收到新事件即解除」只在 store 层被证明：测试 1.3 直接重读 `stalledTaskIds`（computed 按序求值），没有任何用例在挂载的真实 store 上验证面板徽标/行后缀在**一次渲染粒度**内清除。本 PR 自己记录了本 store「会话对象按原始引用改写、Vue 追踪看不见」的形态，且 `nowTs` 仅由 15s tick 推进——若事件路径后续出现未被追踪的写入，徽标清除会延迟到下一个 tick（最长 15s），面板层的「立即解除」无测试锁住。",
+      "suggestion": "补一条真实 store + mount 面板的用例：推进到陈旧 → 面板显示「N 分钟无更新」→ 发送新 progress 事件 → 断言挂载 DOM 在 nextTick 内清除徽标/后缀，而不是只断言 store 的 computed。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "finding": "UI 门禁用 `hasRunning`（基于 `session.status`）与 `hasStalledRunning`（基于任务 `phase` 非终态）两条不同派生链耦合，而「非终态任务 ⟺ status==='running'」这个承重不变量在 PRD 里被直接断言却没有任何测试证实（adopt/queued/paused 等路径的 status 取值未知）。一旦某个会话存在非终态任务但 status 不是 'running'，关闭按钮保持禁用、徽标永不切换，整个「可退出」修复在局部静默失效——正是本批要消灭的不可退出形态。",
+      "suggestion": "新增不变式矩阵测试：任意非终态 phase ⇔ `hasRunning`；含 adopted 会话、dismiss 后、clearFinished 后各断言 `_recomputeSessionStatus` 产出的 status 与 `_eachLiveTask` 的 live 判定一致。若确有 status 取值不等于 'running' 的合法态（如 queued），明确定义并在 spec 里写死。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "finding": "测试 1.2 声称「差 1 毫秒不判」钉住 `>=` 边界，但 `nowTs` 只随 15s tick 更新：`advanceTimersByTime(3*MIN - 1)` 后最后一次 tick 落在 165s，实际比较的是 165,000ms vs 180,000ms，并不是 179,999ms 的边界值。真正命中 `>=` 精确边界的是 1.1（180,000 恰为 15s 整数倍）。因此所谓「差 1 毫秒」断言并未测到它声称的那一侧，只在 15s 量化窗口内成立。",
+      "suggestion": "用可注入的 now 推进直接命中精确边界：先 advance 到 179,999ms 再手动同步一次 `nowTs`（或把 tick 期与差额设计成互质探针），断言不陈旧；再推 1ms 断言进陈旧集合，让「差 1 毫秒」名副其实。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "finding": "adopted 会话（`findAdoptableSessions` / `mergeSessionInto` 路径继承上一轮运行的会话）的 `lastEventAt`/`startedAt`/`createdAt` 来自上一次运行的墙钟。应用重启后这些任务会**立即**被判陈旧——徽标开机即显示「N 分钟无更新」（数值可能是几百分钟），关闭按钮随即解禁。对「RPA 进程还活着、只是 IPC 链路慢」的任务，这读起来像「出事了」；PRD §11.2 的锚点回落链没有讨论启动即刻陈旧这一行为是否是有意为之，也没有任何 adopt + stale 交织的测试。",
+      "suggestion": "明确记录「启动即陈旧」的裁决（若无意，可把 adopt 瞬间的注册时刻作为锚点起点）；补一条 `registerSession({ adopt: true })` + 陈旧派生层的测试，断言 adopt 场景下的启动初值行为，并把结论写进 PRD §7 的「刻意不做」或显示项表格。"
+    },
+    {
+      "id": "i6",
+      "severity": "Info",
+      "dimension": "performance",
+      "finding": "`PublishProgressSession.vue` 模板对每行调用 `store.taskStallMinutes(taskId)`：它在渲染副作用里读取 `nowTs`/`sessions`，使整个会话子树把 15s tick 当作渲染依赖——只要有任何 running 任务，每次 tick 都整体重渲所有会话与任务行。存储侧三个 computed（`stalledTaskIds`/`hasStalledRunning`/`maxStallMinutes`）各自独立跑一遍 `_eachLiveTask` 全量扫描并新建 `Object.keys` 数组。任务数少时可接受，但「惰性」只省了无任务时段，活跃时段的重复全扫没有共享。",
+      "suggestion": "在 store 里用一个以 `nowTs` 为唯一依赖的 computed 产出 `{taskId → stallMinutes}` map（与 `hasStalledRunning`/`maxStallMinutes` 共用一次扫描），Session/Row 直接取 map 值，去掉每次渲染的逐会话循环与重复 `Object.keys`。"
+    },
+    {
+      "id": "i7",
+      "severity": "Info",
+      "dimension": "correctness",
+      "finding": "三份文档与代码之间存在可对指的漂移：`proposal.md` 的 ADDED 列表写 locale 键 `closeWhenStalledHint`，代码实际落地为 `closeStalledHint`；`design.md` §4 写「实现取**模块级** stallTimer」，代码评论明确刻意改成因实例隔离的 setup 内 `stallTimer`（为修跨用例串扰）；`proposal.md` Impact 写 `src/locales/publishPage/{zh,en}.js`，实际路径是 `apps/desktop/src/locales/publish-page/{zh,en}.js`。同一批变更三层文档各执一词，QM-6 双模型评审时这类不一致会被当成可接受的口径差别放过。",
+      "suggestion": "统一 proposal/design/record 三处：键名、timer 作用域说明、locales 相对路径，以代码为准；提交前把「文档 vs 代码」键名/路径差并入静态门禁核对清单。"
+    },
+    {
+      "id": "i8",
+      "severity": "Info",
+      "dimension": "maintainability",
+      "finding": "`publishProgress.stale.test.js` 中 1.1/1.3/1.4/1.6 结束后任务仍是 running，store 的 ticker 带着一个 fake 定时器继续存活，直到 `useRealTimers()` 重置回归器才消失——旧 store 的孤儿 interval 会在后续用例的 `advanceTimersByTime` 里继续执行 `nowTs.value = Date.now()`。当下断言只看本用例新建的 `liveTimers` 集合，恰好不炸；但这是靠测试编排顺序兜住的隐性泄漏，任何未来「全局活跃定时器总数」类断言（如 S3/S4 的扩展）都会无差别变红。",
+      "suggestion": "afterEach 中显式停掉残余 ticker（或给 store 暴露 `_stopStallTicker` 供测试收尾），并在 1.7「全终态停 tick」之外补一条「用例结束后活跃定时器为 0」的卫生断言。"
+    },
+    {
+      "id": "i9",
+      "severity": "Info",
+      "dimension": "correctness",
+      "finding": "混合态（1 个任务卡死 10+ 分钟 + 1 个任务无限期缓慢推进）会永久禁用手关闭按钮，且禁用态 `title` 仍只显示「发布进行中，可先最小化到后台」，对已经陈旧的那部分任务零提示——行级后缀虽有，但关闭入口对「部分卡死」这种最需要出口的形态不提供任何可行动信号；若有任务以小于 3 分钟的间隔持续产生事件，陈旧兄弟任务永远等不到全部陈旧，用户再次陷入「无按钮可点」。",
+      "suggestion": "要么在禁用 `title` 里带上陈旧数（如「2 个任务已无更新，尚有 N 个在动」），要么按 PRD §6 V5 之外的场景明确裁决「部分陈旧永不解禁」并把这条写进显示项表格，避免该行为被当成随手实现。"
+    },
+    {
+      "id": "i10",
+      "severity": "Info",
+      "dimension": "maintainability",
+      "finding": "`isTaskStalled` 被 store 导出但在本 diff 内没有任何消费方（任务行用 `taskStallMinutes`，徽标用 `hasStalledRunning`，面板用 `maxStallMinutes`）——新增的公开 API 是死出口；它与「任务行 @ 5.4 死观测字段门禁」无关联，属于本次顺手导出。",
+      "suggestion": "本批不消费就先不导出（或明确标注为 5.4 门禁预留并写注释），避免给 `publishProgress` 的公开面增加无读者的方法——与本批「lastEventAt 必须有读者」的立项目标在结构上自相矛盾。"
+    }
+  ],
+  "dimensionScores": {
+    "correctness": 5,
+    "security": 9,
+    "performance": 7,
+    "maintainability": 7
+  }
+}

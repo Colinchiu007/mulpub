@@ -12,7 +12,7 @@
       不计入 `hasStalledRunning`
 - [x] 1.6 混合态：1 陈旧 + 1 新鲜 ⇒ `hasStalledRunning === false`（还有在动的就不许关）
 - [x] 1.7 定时器生命周期：全终态/清空会话 ⇒ 活跃 tick 为 0；有 running ⇒ 恰好 1；
-      `init()` 调两次 ⇒ 仍恰好 1（模块级单实例）
+      重复 `beginStallClock()` ⇒ 仍恰好 1（tracker 内私有句柄 + 幂等守卫；第二轮更正，见 2.6）
 - [x] 1.8 `PublishProgressPanel.test.js`：关闭按钮 `:disabled` 从 `hasRunning`
       改为 `hasRunning && !hasStalledRunning` 的两半各一条（部分陈旧仍禁 / 全陈旧解禁）
 - [x] 1.9 解禁后**真能关掉**：点关闭 ⇒ `panelVisible === false`，且 `sessions` 未被丢弃
@@ -24,7 +24,7 @@
 
 - [x] 2.1 store 增陈旧派生层：`STALL_AFTER_MS` / `STALL_TICK_MS` 常量 +
       `stalledTaskIds` / `hasStalledRunning` / `taskStallMinutes(taskId)` 导出
-- [x] 2.2 惰性单实例 tick：`ensureStallTicker()` / `stopStallTicker()` 模块级句柄，
+- [x] 2.2 惰性单实例 tick：`beginStallClock()` / `endStallClock()`，句柄按 store 实例缓存（第二轮由模块级改为 WeakMap，见 2.6），
       在 `handleProgressEvent` / `handleBatchEvent` / `dismissSession` / `clearFinished` 之后统一调
       「按当前有无 running 决定启停」（不在每个出口各写一份判据）
 - [x] 2.3 `PublishProgressTaskRow.vue`：非终态且陈旧 ⇒ 状态文案后追加 `stallSuffix`，
@@ -49,7 +49,7 @@
 - [x] 3.2 至少六道，各打各的格子：
       S1 阈值改成 `Infinity`（永不陈旧）/ S2 把陈旧同时写进 `phase = 'failed'`
       （验证 §1.4 那条正面锁真有牙）/ S3 摘掉 `clearInterval`（常驻 tick）/
-      S4 `ensureStallTicker` 去掉 `if (stallTimer) return`（重复注册）/
+      S4 `beginStallClock` 去掉 `if (timer !== null) return`（重复注册）/
       S5 关闭按钮退回 `:disabled="store.hasRunning"` /
       S6 `handleClose` 退回只 `clearFinished()`（解禁但点了没反应）
 - [x] 3.3 末跑全 CAUGHT 且逐条 `RESTORE_OK`

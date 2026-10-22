@@ -47,7 +47,7 @@ import PublishProgressPanel from './PublishProgressPanel.vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 // 真实现（本文件不 mock 它）：面板测试断言的一切都由它算出来，tick 周期也取自它，
 // 免得"15000"这个字面量在测试里再存一份。
-import { STALL_TICK_MS } from '@/stores/publishProgressStall'
+import { STALL_TICK_MS, usePublishProgressStall } from '@/stores/publishProgressStall'
 
 function makeSession(overrides = {}) {
   return {
@@ -664,6 +664,35 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     expect(storeStateRaw.sessions, '关闭不得丢弃任务态（再展开仍是原状态）').toHaveLength(1)
     expect(storeStateRaw.cancelRunning, '关闭不等于取消').not.toHaveBeenCalled()
     expect(storeStateRaw.retryFailed).not.toHaveBeenCalled()
+  })
+
+  it('1.8 面板层的新事件必须解除徽标（而不是只有 store 级 computed 被证明，QM-6 i2）', async () => {
+    const fresh = Date.now()
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [makeSession({
+      tasks: { 't-1': makeTask({ lastEventAt: fresh - 4 * MIN }) },
+      taskOrder: ['t-1'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+    const badge = body().querySelector('[data-testid="publish-progress-stall-badge"]')
+    expect(badge, '先要看到徽标亮着').toBeTruthy()
+    expect(badge.textContent).toContain('4 分钟无更新')
+
+    // 新事件：锚点前移，然后走**公共出口**重新盖章墙钟
+    //（生产里由 15s tick 推进；这里不靠等真时间，也不给实现开测试专用通道）。
+    store.sessions[0].tasks['t-1'].lastEventAt = Date.now()
+    usePublishProgressStall(store).endStallClock()
+    usePublishProgressStall(store).beginStallClock()
+    await nextTick()
+    // 徽标是**同一个元素**换类换文案（不是 v-if 拆掉），所以断言取「不再出现无更新字样 + 回到 running 类 + 转圈回来了」
+    const after = body().querySelector('[data-testid="publish-progress-stall-badge"]')
+    expect(after, '头部徽标必须一直在场').toBeTruthy()
+    expect(after.textContent, '新事件后不得再显示无更新').not.toContain('分钟无更新')
+    expect(after.classList.contains('ppp__badge--running'), '必须回到进行中的中性档').toBe(true)
+    expect(after.querySelector('.ppp__spin'), '转圈是还在动的唯一视觉信号，必须回来').toBeTruthy()
+    expect(body().querySelector('[data-testid="publish-progress-close"]').hasAttribute('disabled'), '解除后不得仍可关').toBe(true)
   })
 
   it('1.8 面板是看门狗时钟的宿主：挂载起一个 tick、卸载必须交还', async () => {

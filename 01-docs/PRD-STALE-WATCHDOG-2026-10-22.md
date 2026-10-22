@@ -58,7 +58,6 @@
 - `hasStalledRunning: boolean` —— **存在**非终态任务且**全部**非终态任务都无更新；
 - `maxStallMinutes: number` —— 无更新任务里最长的分钟数（向下取整）；
 - `taskStallMinutes(taskId): number` —— 单任务分钟数，未陈旧/终态一律返回 0；
-- `isTaskStalled(taskId): boolean`；
 - `beginStallClock()` / `endStallClock()` —— 时钟生命周期，由**面板**在挂载/卸载时调用。
   Panel 与 Session 各调一次 `usePublishProgressStall(store)` 拿到的是**同一个** tracker
   （同一份墙钟、同一个定时器）；模块级单例会让定时器跨 store 实例泄漏，故用 WeakMap。
@@ -89,7 +88,9 @@
    时收起，而无更新的会话仍是 `running`、`clearFinished()` 只清 `status==='done'` 的会话，
    于是光把按钮改成可点会得到「按钮能点了、点了没反应」——把本批要修的不可退出
    换了个位置重演一遍。反证 S7 就是打这一格的。
-4. **不自动收敛**：`usePublishProgressAutoCollapse` 的口径未改（它只在全部终态后收敛），
+4. **部分陈旧永不解禁 —— 这是裁决，不是随手实现**（QM-6 i9）：只要还有任何一个非终态任务在 3 分钟内产生过事件，关闭按钮就保持禁用。理由：收起面板会遮蔽那个仍在动任务的唯一可见信号，而「有兄弟任务卡住」不构成把它一起藏掉的理由。代价如实写明——若某任务以小于阈值的间隔持续产生事件，陈旧的兄弟任务永远等不到「全部无更新」，用户此刻的出口是最小化到胶囊。把禁用态 title 增强成「2 个任务已无更新，尚有 N 个在动」需要改既有 `closeDisabledHint` 的语义并加参数，属另批，本批不顺手做。
+5. **恢复会话（`queue:status` 领养）启动当下不判陈旧**（QM-6 i5 的裁决）：领养路径用 `_createSession` 新建会话，`createdAt` 取的是**本次运行**的墙钟，且该路径从不携带上一轮运行的 `lastEventAt`/`startedAt` ⇒ 首帧 idle≈0，不会「开机即显示 N 分钟无更新」。同时回落链不得因此失灵：这次运行若真的从此一个事件都没来，4 分钟后必须进陈旧集合。两条都有用例。
+6. **不自动收敛**：`usePublishProgressAutoCollapse` 的口径未改（它只在全部终态后收敛），
    无更新态不会被"自动收起"偷偷处理掉——用户必须自己决定收起还是看着。
 
 ## 6. 验收标准
@@ -153,6 +154,23 @@
    测试里表现为 `expected [] to include 't-1'` 之外更糟的形态——`Boolean(ComputedRef)` 是
    `true`，于是"无更新"徽标永亮、转圈永不停、关闭按钮永久解禁，且不抛错。
    解包只发生在 reactive 对象上。由反证 S10 钉住（退回普通对象时 10 条红，含 2 条指名）。
+
+## 10. QM-6 第一轮外部评审逐条处置（批判产物 10 条）
+
+| # | 严重度 | 裁决 | 处置与证据 |
+| --- | --- | --- | --- |
+| i1 | Critical | 采纳并修 | `taskStallMinutes` 把「这个会话没有这个 taskId」误当「这个任务不陈旧」直接 `return 0`。本 store 支持多会话（`MAX_SESSIONS=5`），落在第 2+ 会话的任务永远读出 0 分钟。改为 `continue` 逐会话找，命中且终态才 `return 0`；新增两条用例（双会话必须各出自己的分钟数 / 未知 id 与终态都返回 0），并由反证 **S11** 把 `continue` 退回 `return 0` —— 只有那条多会话用例变红。原 9 条 store 级用例**全部只用一个会话**，这条路径零覆盖，属"测试把缺陷钉成契约"的前置形态。 |
+| i2 | Warning | 采纳并补锁 | 「新事件即解除」此前只在 store 级 computed 上被证明。补一条真 tracker + 真挂载的面板用例：徽标先亮 → 喂新事件 → 断言不再出现「分钟无更新」字样、类回到 `ppp__badge--running`、转圈回来。写这条时先按「徽标元素消失」断言，当场红 —— 徽标是同一元素换类换文案，不是 `v-if` 拆掉。 |
+| i3 | Warning | 采纳（缩到可证的那格） | 关闭按钮同时读两条派生链（`hasRunning` 由 `session.status`、`hasStalledRunning` 由任务 `phase`），这条不变量原先无证据。新增用例把两侧同时钉住：刚登记（还没有事件）⇒ `hasRunning` 真；陈旧 ⇒ 两链都真；全终态 ⇒ 两链都假。评审推测的 `queued/paused` 使 `status !== running` 那一具体形态**在实现里没找到**（`init` 领养写的是 `phase`，`status` 一律由 `_recomputeSessionStatus` 产出），故不按其建议扩成状态矩阵，只锁这条同缘不变量 —— 拒绝一半也要写明拒绝的那一半缺什么证据。 |
+| i4 | Warning | 采纳并修 | 命中「断言没测它声称的那一侧」：`advanceTimersByTime(3*MIN - 1)` 后最后一格 tick 落在 165000，实际比较 165000 vs 180000，从未触碰 179999。改为推进到 179999 后用**公共出口**（`endStallClock` + `beginStallClock`，后者起表时重新盖章 `nowTs`）精确钉一次断言不陈旧，再推 1ms 钉第二次断言进集合。不开测试专用通道。 |
+| i5 | Warning | 前提驳回 + 补锁 | 「adopted 会话带上一轮运行的墙钟 ⇒ 开机即陈旧」不成立：领养走 `_createSession`，`createdAt` 是本次运行的 `Date.now()`，且该路径从不写 `lastEventAt`/`startedAt`。但这条提问暴露了真实缺口（原先零测试），所以处置是驳回前提**并**补一条锁：恢复会话启动当下不陈旧、4 分钟后必须进陈旧集合。 |
+| i6 | Info | 本批不做，写明量级 | 三次全扫合并成一份 `taskId → stallMinutes` 的 map computed 结构上更好，但会改掉 `taskStallMinutes` 的读法并牵动两个模板与三条反证锚点，属另一条 M 成本。现状上界如实写：会话 ≤5，每会话任务数 = 一次发布的条数；「惰性」省的是无任务时段的常驻唤醒，本批要的是那条。 |
+| i7 | Info | 采纳并修 | 三处文档漂移按代码收敛：locale 键 `closeStalledHint`（proposal 原写 `closeWhenStalledHint`）、locales 实际是连字符目录 `src/locales/publish-page/`、timer 作用域由「模块级」更正为「按 store 实例 WeakMap + 面板宿主生命周期」。 |
+| i8 | Info | 采纳并修 | 用例间残留的 fake interval 靠「每条用例只看自己的 `liveTimers` 集合」恰好不炸，是隐性泄漏。`afterEach` 现在对 begin 过的 tracker 逐个 `endStallClock()`（必须发生在还原 `globalThis` **之前**，否则 `clearInterval` 已换成真的那个、fake 句柄删不掉），并加一条「用例结束时活跃 tick 为 0」的卫生断言。 |
+| i9 | Info | 落成裁决 | 「部分陈旧永不解禁」写进 §5 第 4 条与显示项表，含代价与用户此刻的出口；禁用态 title 带陈旧计数需改既有键语义 + 加参数，属另批。 |
+| i10 | Info | 采纳并删 | `isTaskStalled` 全仓零消费方（任务行用 `taskStallMinutes`、徽标用 `hasStalledRunning`、面板用 `maxStallMinutes`），而本批立项理由恰恰是「`lastEventAt` 不能再是死观测字段」。已从 publicApi 摘除并删掉本文档那一行；不保留「为 5.4 预留」的注释 —— 那正是无人认领的死出口。 |
+
+引擎把 i1/i3/i5 标成高危域（`domains: ["auth"]`）要求外部复核。**该标签是启发式误判**：本次改动集内没有 auth/凭证/登录态路径（`git diff --name-only` 全是 `apps/desktop/src/stores|components|locales`、`scripts/` 与文档）。但判据不因"归因错了"而免跑，所以仍按外部评审路径收口（第二轮针对外置后的最终 diff 跑真外部模型）。
 
 ## 9. 落点为什么不在 store 里（债务熔断的现场读数）
 

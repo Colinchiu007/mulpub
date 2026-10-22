@@ -32,14 +32,19 @@ UX 审计 1.8 / audit-15（[major]）：`src/stores/publishProgress.js` 在四�
   - 关闭按钮：`:disabled="store.hasRunning && !store.hasStalledRunning"` ⇒
     **全部** running 都陈旧时解禁（部分陈旧仍禁，因为还有在动的任务）；
   - 任务行：陈旧任务的状态文案后追加「（N 分钟无更新）」，不改 phase 语义色。
-- **ADDED** locales（zh/en 成对）：`stallBadge`、`stallSuffix`、`closeWhenStalledHint`。
+- **ADDED** locales（zh/en 成对）：`stallBadge`、`stallSuffix`、`closeStalledHint`。
+  （键名以代码为准 —— 本行原写 `closeWhenStalledHint`，落地时用的是更短的 `closeStalledHint`，
+  差一处就会让下一个读 proposal 的人去找一个不存在的键。QM-6 i7）
 
 ## Impact
 
 - 受影响规格：`desktop-ui-consistency`（新增 1 条 Requirement）。
 - 受影响代码：`apps/desktop/src/stores/publishProgress.js`、
   `apps/desktop/src/components/PublishProgressPanel.vue`、
-  `apps/desktop/src/components/PublishProgressTaskRow.vue`、`src/locales/publishPage/{zh,en}.js`。
+  `apps/desktop/src/components/PublishProgressSession.vue`、
+  `apps/desktop/src/components/PublishProgressTaskRow.vue`、`apps/desktop/src/locales/publish-page/{zh,en}.js`。
+  （第二轮新增 `apps/desktop/src/stores/publishProgressStall.js` 承载派生层；locales 实际是**连字符目录**
+  `publish-page/`，且拆分文件的成对性由 Gate 7 的 `--pair-base` 档核。QM-6 i7）
 - 不涉及主进程 / IPC 通道 / 授权白名单 ⇒ 不触发 QM-1 打包门槛（但改了 `src/` 仍跑视觉相关判定）。
 - **非目标**（明确不做，见 design §7）：
   ① 不做「陈旧 ⇒ 自动取消/自动判失败」——那需要主进程侧的任务存活判据，属另批；

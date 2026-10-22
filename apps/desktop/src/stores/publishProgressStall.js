@@ -101,20 +101,25 @@ export function createStallTracker ({ sessions, terminalPhases }) {
     return worst
   })
 
+  /**
+   * 单任务分钟数。
+   * ⚠ 「这个会话里没有这个 taskId」是**继续找下一个会话**，不是"这个任务不陈旧"。
+   * 写成 `return 0` 是本批外部评审（QM-6 i1，Critical）抓出的真实缺陷：本 store 支持
+   * 多会话（MAX_SESSIONS=5），任务落在第 2 个及以后的会话时，第一个会话就 miss、
+   * 当场 return 0 ⇒ 那些行即便卡了 40 分钟也永远不会显示「N 分钟无更新」，
+   * 而 store 级用例原先全部只用一个会话，这条路径零覆盖。
+   */
   function taskStallMinutes (taskId) {
     if (!taskId) return 0
     const now = nowTs.value
     for (const session of sessions.value) {
       const task = session.tasks[taskId]
-      if (!task || isTerminal(task.phase)) return 0
+      if (!task) continue
+      if (isTerminal(task.phase)) return 0
       const idle = now - stallAnchor(task, session)
       return idle >= STALL_AFTER_MS ? Math.floor(idle / MINUTE_MS) : 0
     }
     return 0
-  }
-
-  function isTaskStalled (taskId) {
-    return stalledTaskIds.value.includes(taskId)
   }
 
   function hasLiveTask () {
@@ -166,7 +171,6 @@ export function createStallTracker ({ sessions, terminalPhases }) {
     hasStalledRunning,
     maxStallMinutes,
     taskStallMinutes,
-    isTaskStalled,
     beginStallClock: begin,
     endStallClock: end,
   })

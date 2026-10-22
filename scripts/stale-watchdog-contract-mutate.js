@@ -123,6 +123,15 @@ const MUTATIONS = [
       '1.8 部分陈旧仍禁用关闭；全部无更新才解禁',
     ],
   },
+  {
+    // QM-6 i1（Critical）的修法反证：把"这个会话没命中"重新写成"这个任务不陈旧"。
+    // 这条形态在单会话夹具下**永远绿**，所以它必须由多会话用例本身来红。
+    id: 'S11',
+    label: 'taskStallMinutes 在第一个会话 miss 时就 return 0（多会话的第 2+ 会话永远显示 0 分钟）',
+    file: STALL,
+    pairs: [{ from: '      if (!task) continue\n      if (isTerminal(task.phase)) return 0', to: '      if (!task || isTerminal(task.phase)) return 0' }],
+    expect: ['第 2 个会话里的陈旧任务也必须给出分钟数（QM-6 i1 Critical）'],
+  },
 ]
 
 // 命令名按平台选：`pnpm.cmd` 是 Windows 专有，Linux runner 上 spawn 失败 ⇒ 基线读成 blind，

@@ -55,6 +55,8 @@ describe('publishProgressStall — 无更新派生层（1.8）', () => {
   let liveTimers
   let realSetInterval
   let realClearInterval
+  /** 本用例起过表的 tracker —— afterEach 一律收尾（QM-6 i8） */
+  let started
 
   beforeEach(async () => {
     setActivePinia(createPinia())
@@ -71,6 +73,7 @@ describe('publishProgressStall — 无更新派生层（1.8）', () => {
     vi.useFakeTimers({ now: new Date('2026-10-22T00:00:00Z').getTime() })
 
     liveTimers = new Set()
+    started = []
     realSetInterval = globalThis.setInterval
     realClearInterval = globalThis.clearInterval
     globalThis.setInterval = (fn, ms, ...rest) => {
@@ -85,6 +88,12 @@ describe('publishProgressStall — 无更新派生层（1.8）', () => {
   })
 
   afterEach(() => {
+    // QM-6 i8：用例之间不得留活着的 ticker。收尾必须发生在**还原 globalThis 之前**——
+    // clearInterval 换成真的那一个之后，fake 句柄删不掉，活跃集合会跨用例累积，
+    // 而现在所有断言只看本用例自己的 liveTimers，正好看不见它（靠测试编排顺序兜住的隐性泄漏）。
+    for (const s of started) s.endStallClock()
+    expect(liveTimers.size, '用例结束时活跃 tick 必须为 0').toBe(0)
+    started = []
     globalThis.setInterval = realSetInterval
     globalThis.clearInterval = realClearInterval
     liveTimers = null
@@ -105,6 +114,7 @@ describe('publishProgressStall — 无更新派生层（1.8）', () => {
    */
   function startClock (stall) {
     stall.beginStallClock()
+    started.push(stall)
     return stall
   }
 
@@ -123,14 +133,26 @@ describe('publishProgressStall — 无更新派生层（1.8）', () => {
   })
 
   // ─── 1.2 边界：未到阈值不判（把 >= 的那一侧钉住）─────────────
-  it('差 1 毫秒到阈值不得判陈旧', async () => {
+  it('差 1 毫秒不得判陈旧（边界由 end+begin 重新盖章精确命中，QM-6 i4）', async () => {
     const { store, stall } = await makeStore()
-    store.registerSession({ taskIds: ['t-1'], title: 'x' })
     startClock(stall)
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
     store.handleProgressEvent(progressEvent({ taskId: 't-1' }))
+
+    // 原先这条只写 advanceTimersByTime(3*MIN - 1) 就声称「差 1 毫秒」，但读数只随 15s tick 推进：
+    // 最后一格落在 165000 ⇒ 实际比的是 165000 vs 180000，**根本没碰到 179999 那一侧**，
+    // 边界契约是虚的。现在用公共出口把钟精确盖章（end 停机 + begin 重新盖章 = nowTs 取当场时钟）。
     vi.advanceTimersByTime(3 * MIN - 1)
-    expect(stall.stalledTaskIds).toEqual([])
+    stall.endStallClock()
+    stall.beginStallClock()
+    expect(stall.stalledTaskIds, '179999ms 不得判陈旧').toEqual([])
     expect(stall.hasStalledRunning).toBe(false)
+
+    vi.advanceTimersByTime(1)
+    stall.endStallClock()
+    stall.beginStallClock()
+    expect(stall.stalledTaskIds, '180000ms 必须判陈旧（钉住 >= 的那一侧）').toEqual(['t-1'])
+    expect(stall.hasStalledRunning).toBe(true)
   })
 
   // ─── 1.3 新事件解除 ─────────────────────────────────────────
@@ -195,6 +217,36 @@ describe('publishProgressStall — 无更新派生层（1.8）', () => {
     expect(stall.hasStalledRunning, '只要还有未陈旧的任务就不得解禁关闭').toBe(false)
   })
 
+  // ─── 1.6b 多会话：taskStallMinutes 不得在第一个会话 miss 时就收工 ───
+  it('第 2 个会话里的陈旧任务也必须给出分钟数（QM-6 i1 Critical）', async () => {
+    const { store, stall } = await makeStore()
+    startClock(stall)
+    // 本 store 支持多会话（MAX_SESSIONS=5），多会话是真实形态而非设想：
+    // 单会话用例把 `if (!task) return 0` 这条错判完全遮住了。
+    store.registerSession({ taskIds: ['a-1'], title: 'A' })
+    store.registerSession({ taskIds: ['b-1'], title: 'B' })
+    store.handleProgressEvent(progressEvent({ taskId: 'a-1' }))
+    store.handleProgressEvent(progressEvent({ taskId: 'b-1' }))
+    vi.advanceTimersByTime(4 * MIN)
+
+    expect(stall.stalledTaskIds, '两个会话各一个陈旧任务').toEqual(['a-1', 'b-1'])
+    expect(stall.taskStallMinutes('a-1')).toBe(4)
+    expect(stall.taskStallMinutes('b-1'), '后面的会话不得因第一个会话没命中而被判 0').toBe(4)
+    expect(stall.maxStallMinutes).toBe(4)
+  })
+
+  it('未知 taskId 与终态任务都返回 0（i1 修法不得把「找不到」和「已结束」混成一类）', async () => {
+    const { store, stall } = await makeStore()
+    startClock(stall)
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'success', stageKey: 'done', percent: 100 }))
+    vi.advanceTimersByTime(4 * MIN)
+    expect(stall.taskStallMinutes('t-1'), '终态任务不得有分钟数').toBe(0)
+    expect(stall.taskStallMinutes('nope'), '查不到的 id 不得抛错').toBe(0)
+    expect(stall.taskStallMinutes(''), '空 id 直接 0')
+      .toBe(0)
+  })
+
   // ─── 1.7 定时器生命周期 ─────────────────────────────────────
   it('begin 后恰好 1 个 tick；仍有非终态任务不得停，全部终态后一个 tick 内自泊', async () => {
     const { store, stall, stallMod } = await makeStore()
@@ -236,6 +288,33 @@ describe('publishProgressStall — 无更新派生层（1.8）', () => {
     expect(liveTimers.size, '取用本身不得起定时器 —— 只有宿主 begin 才起').toBe(0)
   })
 
+  it('两条派生链不得错位：存在非终态任务 ⇔ store.hasRunning（QM-6 i3）', async () => {
+    const { store, stall } = await makeStore()
+    startClock(stall)
+    store.registerSession({ taskIds: ['t-1'], title: 'x' })
+    expect(store.hasRunning, '刚登记（还没有事件）也必须算在跑 —— 否则关闭按钮直接解禁').toBe(true)
+    store.handleProgressEvent(progressEvent({ taskId: 't-1' }))
+    vi.advanceTimersByTime(4 * MIN)
+    expect(store.hasRunning).toBe(true)
+    expect(stall.hasStalledRunning).toBe(true)
+    store.handleProgressEvent(progressEvent({ taskId: 't-1', phase: 'success', stageKey: 'done', percent: 100 }))
+    expect(store.hasRunning, '终态后两条链都要落下').toBe(false)
+    expect(stall.stalledTaskIds).toEqual([])
+    expect(stall.hasStalledRunning, '全终态 ⇒ 不存在『全部无更新』这种说法').toBe(false)
+  })
+
+  it('恢复会话（queue:status 领养）启动当下不得被判无更新，但真的没事件时必须判（QM-6 i5）', async () => {
+    const { store, stall } = await makeStore()
+    startClock(stall)
+    mockGetQueueStatus.mockResolvedValue({ code: 0, data: { running: [{ id: 'orphan-1', platform: 'douyin' }], queue: [] } })
+    await store.init()
+    expect(store.sessions.length, '孤儿任务必须被领养成一个恢复会话').toBe(1)
+    expect(stall.stalledTaskIds, '恢复时刻锚点取本次运行新建会话的 createdAt ⇒ 不得开机即显示无更新').toEqual([])
+    expect(stall.hasStalledRunning).toBe(false)
+    // 回落链不能因此失灵：这次运行从此一个事件都没来，它最终必须被判无更新。
+    vi.advanceTimersByTime(4 * MIN)
+    expect(stall.stalledTaskIds).toEqual(['orphan-1'])
+  })
   it('陈旧判定两路时钟同域：读的是 Date.now()，不是事件带来的主进程时间戳', async () => {
     const { store, stall, stallMod } = await makeStore()
     // 事件里带一个"很久以前"的主进程 timestamp —— 不得拿它当锚点（跨域比较）

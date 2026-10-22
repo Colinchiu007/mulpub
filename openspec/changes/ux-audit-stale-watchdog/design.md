@@ -38,9 +38,15 @@ hasRunning = computed(() => sessions.value.some((s) => s.status === 'running'))
 2. **可注入**：阈值与 `now` 都走参数默认值，测试用 `vi.useFakeTimers()` + `setSystemTime`
    推进；**禁止**在夹具里写死绝对时间戳配相对窗口（那是本仓已知的引信形态）。
 3. **惰性单实例**：tick 只在有 running 任务时活着。
-   实现取模块级 `stallTimer` + `ensureStallTicker()` / `stopStallTicker()`：
-   - `_recomputeSessionStatus` 与 `handleProgressEvent` 之后各调一次「按当前是否有 running 决定启停」；
-   - `ensureStallTicker()` 先 `if (stallTimer) return` ⇒ 重复 `init()` 不叠加；
+   ⚠ 最终实现与设计初稿不同（按代码更正，QM-6 i7 + 记录 §3.4）：句柄**不是模块级**，
+   而是「按 store 实例缓存的 tracker 内私有」，启停由**面板**这一宿主调用：
+   - `usePublishProgressStall(store)` 用 WeakMap 按 store 实例取 tracker ——
+     模块级单例会让定时器跨实例泄漏（多次 `setActivePinia`、逐例测试、未来第二个消费方）；
+   - `beginStallClock()` 先 `if (timer !== null) return` ⇒ 重复调用不叠加，并在真正起表前
+     把 `nowTs` 重新盖一次章（面板「卸载→再挂载」后不补就会让首帧读数为旧）；
+   - 面板 `watch(hasRunning)` 把它叫回来 + `onBeforeUnmount` 调 `endStallClock()` 交还句柄；
+   - **不靠 watch 追踪会话内容**：本 store 的会话对象是按原始引用改写的，watch 恒不触发
+     （PRD §8.1 实测），tick 内部改为「看到全部终态就自泊」。
    - tick 周期 15 s（比 3 min 阈值细一个量级，用户看到的分钟数不会跳变超过 1）；
    - 停止时 `clearInterval` 并把句柄置 null。
 
