@@ -23,7 +23,7 @@ date: 2026-10-21
 | QM-1 打包 | ✅ | 见自测块（`pnpm run build:vue` rc=0 + electron-builder `--dir` rc=0 + 启动存活 + stderr 0 字节） |
 | QM-2 代码必检项 | ✅ | 无新增 IPC、无 `v-html`、无同步阻塞原语、无硬编码等待；所有新增用户可见文案走 locale（zh/en **成对**提交，`check-locale-sync.js --keys` 209 个使用中 key 均存在于 zh/en）；CSS 零 hex 字面量、零 `font-size` 字面量、零未定义 CSS 变量（`check-color-literals` / `check-font-size-scale` / `check-css-var-defined` 三门禁均 PASS）；`check-scoped-root` / `check-vue-style-parse` / `check-max-lines` / `check-ui-wired` / `check-frontend-consistency` 全 PASS |
 | QM-4 视觉回归 | ✅（有据，附一处如实留白） | ① **真实渲染核对已做**：用仓库自带 Playwright 管线对本 worktree 的 vite 实例实跑并出图（开弹窗 / 展开浮层 / 搜索 / 选中 / 重开六态），据此修掉三处观感问题：① 搜索框焦点环原为「描边叠在边框上」的粗重双层紫环 ⇒ 改为与 `UiSelect` 同口径的「主色边框 + 14% 柔光环」；② 浮层最大高度 320px 时只能露出 5 个平台 ⇒ 提到 420px（可见 8 个）；③ 浮层宽度取 320 会比触发器宽出一截（右边缘对不齐）⇒ 取 300（本仓 360px 弹窗里恰好等于触发器宽度）；另把「鼠标点开时预置首项高亮」改为「不预置（无幽灵高亮）/ 激活项落在已选平台」。② **像素基线这一格如实留白**：本仓视觉基线必须与 **CI 同一次渲染**逐像素相等（QM-4 第 7 条 + Gate 7b 的 0 px 判定），本机截图当基线是明确禁止的；且工作流基线复用**视图**基线（视图是路由级，渲染不出「浮层展开」这个交互态）⇒ 本 PR 只补**交互层**保护（新增 `accounts-platform-picker` 工作流，复用既有 `accounts-list` 基线、末态复位），不伪造像素基线。「浮层展开态」的像素基线留作遗留项（见下节） |
-| QM-6 CCG 双模型外部评审 | 🟡（第一轮已完成裁决并修复；第二轮见下节） | pre-commit 判定 **DUAL**（变更 886 行 > 200 行阈值）⇒ `sh scripts/deep-review.sh` 实跑 **opencode(proposer) + claude(critic)** 双后端（`--check-deps` 两后端裸名自检均通过，依赖体检通过）。**第一轮**（针对 commit `e2e07725`）：critic=claude 给出 **7 条**（2 Critical + 3 Warning + 2 Info），4 维度分 correctness 6 / security 8 / performance 7 / maintainability 5，**最低分 5** ⇒ 引擎判 `status=self_play`（置信权重 0.6 < 1.0），落自扮演裁决模板 `.adversarial/ccg-deep-e2e07725/adjudication.json`。**逐条裁决**：**upheld 2 条（i1 弹窗测试用假桩件致集成回归失真、i5 滚动时逐事件重算位置无节流）**——两条均已修（i1 改为挂**真组件**跑真实交互，i5 合并到 `requestAnimationFrame` 一帧一算）；**dismissed 5 条**，逐条理由见「§QM-6 第一轮逐条裁决」。i6（CSS 令牌）被引擎判为高危域（`auth`）⇒ 不允许自扮演豁免，**必须外部复核 + 公开出处**，见「§QM-6 外部复核」 |
+| QM-6 CCG 双模型外部评审 | ✅（四轮全部闭环，最终轮 `self_play_resolved` / blocking=0） | pre-commit 判定 **DUAL**（变更 986 行 > 200 行阈值）⇒ `sh scripts/deep-review.sh` 实跑 **opencode(proposer) + claude(critic)** 双后端（`--check-deps` 两后端裸名自检均通过，依赖体检通过）。**共四轮**，每轮均落自扮演裁决出口（引擎置信权重 0.6 < 1.0），逐条 prosecution/defense/verdict/rationale 见本记录 §QM-6 各节：<br>· **第一轮**（针对 `e2e07725`，7 条：2 Critical + 3 Warning + 2 Info，最低分 5）⇒ **upheld 2 条已修**（i1 弹窗测试用假桩件致集成回归失真、i5 滚动时逐事件重算位置无节流）、dismissed 5 条；<br>· **第二轮**（针对 `16d8b08cc`，6 条：3 Critical + 2 Warning + 1 Info，最低分 3）⇒ **upheld 2 条已修**（i3 定位依赖 nextTick 与 Teleport 挂载的时序假设、i4 平台 id 直接拼进 `querySelector` 会抛 SyntaxError）、**高危域 1 条走外部复核**（claude 真跑，结论 dismissed，公开出处 <https://github.com/Colinchiu007/mulpub/pull/4160#issuecomment-6311273936>）、dismissed 3 条；<br>· **第三轮**（针对 `2167d7ce`，5 条，最低分 3）⇒ **upheld 1 条已修**（i2 post-flush watch 里多套了一层 nextTick，冗余）、dismissed 4 条；<br>· **最终轮**（针对 `63200320`，4 条：2 Critical + 2 Warning，最低分 3，**高危域 0 条**）⇒ **4 条全部 dismissed**（i1 把 getElementById 与选择器解析混为一谈、i2 误以为 post-flush 时布局未定、i3 误以为本 PR 替换了 UiSelect、i4 的 SSR 水合场景在本仓不存在），引擎复用存档 critique 后判定 **「自扮演裁决未发现阻断项」**。<br>判定记录 `.ccg/reviews/2e46e486….json` 最终状态 **`status=self_play_resolved` / `performedBy=self-play` / `blocking=0`**（落在 `check-pr-exec-record.js` 的闭环白名单内）；两条成立项均**已修 + 补回归锁**，其中 i4 做了**变异反证**（退回旧写法该用例当场变红 1 failed / 22 passed，恢复后全绿） |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并前这篇文件还不在基线上，判 byDesign 不红；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红 |
 
 ## QM-6 第一轮逐条裁决（critic=claude，7 条）
@@ -54,6 +54,29 @@ date: 2026-10-21
 | i6 测试用 `document.body.replaceChildren()` 做全局清理，并行下会破坏其他测试的 DOM | Warning | **dismissed** | 本仓 vitest 配置是 `maxWorkers: 1` + `fileParallelism: false` ⇒ **测试文件串行执行**，不存在并行互相踩 DOM 的场景；同一仓已有先例（`RewriteView.output-truncated.test.js` 用的是同一个 `document.body.replaceChildren()` 写法，且注释里就写明了它是为绕开 CCG 安全扫描对 `innerHTML` 的判定）。本文件的清理只针对自己 `attachTo` 挂上去的节点。 |
 
 
+
+## QM-6 第三轮与最终轮逐条裁决
+
+第三轮（针对 `2167d7ce`，5 条：3 Critical + 1 Warning + 1 Info，最低分 3）：
+
+| id | 裁决 | 理由 |
+|----|------|------|
+| i1 `repositionFrame` 是模块级共享变量，并发实例会互相破坏节流 | **dismissed** | 前提事实错误：它声明在 `<script setup>` 顶层，而 `<script setup>` 的顶层代码**每个实例各跑一遍**（等价于 setup() 作用域）⇒ 它是**实例级**变量。两个实例各有自己的 `repositionFrame`、uid、open/keyword/activeId，不共享任何可变状态 |
+| i2 post-flush watch 里再套 nextTick 是冗余的双层异步 | **upheld（已修）** | 成立：post-flush 已保证「本次渲染（含 Teleport 子节点）已落定」，内层 nextTick 是纯冗余。**已删**；删后行为由新增用例「浮层打开后搜索框自动获得焦点」守住（直接断言 `document.activeElement` 是搜索框），40 例全绿 |
+| i3 uid 用 `Math.random()` 可能碰撞，破坏 getElementById 与聚焦 | **dismissed** | 概率与后果都不构成缺陷（36^8 ≈ 2.8e12，两实例碰撞约 1e-12；即便碰撞也只影响滚动定位，不影响选中与 emit）。**顺带加固**：位数由 6 位加到 8 位，与 `UiModal.vue` 对齐 |
+| i4 判定记录以 `status: pending` 入库，留痕不完整 | **dismissed** | `pending` 是 pre-commit 时刻的**正常快照**（深度评审按流程在提交之后才跑）。填完裁决后引擎 `writeBack` 把同一份记录改写为已裁决并附 findings，随本 PR 后续提交落地 ⇒ 指摘的「留痕不完整」在本轮即闭环 |
+| i5 快速开合会让 `openEdge` / `keyword` 残留到下一轮 | **dismissed** | 残留路径逐条走不通：`openPicker` 第一行就无条件写 `openEdge.value = edge`（任何打开都先写后用）；`keyword`/`activeId` 在 close 与 open 里各重置一次；「开→关」发生在同一 flush 内时，post-flush 回调读到的 ref 已是 null，`?.` 保护使其成为无副作用的空操作 |
+
+最终轮（针对 `63200320`，4 条：2 Critical + 2 Warning，最低分 3，**高危域 0 条**）：
+
+| id | 裁决 | 理由 |
+|----|------|------|
+| i1 `getElementById` 用原始平台 id，HTML 不友好字符会让键盘滚动静默失效 | **dismissed** | 混淆了两个 API 的语义：`getElementById` 按 DOM 规范做**精确 id 属性值匹配**，不做选择器解析 ⇒ 空格等字符不影响命中（上一轮修掉的正是 `querySelector` 的选择器解析问题）；且本组件拼出的 id 恒为 `mp-picker-<8位>-option-<平台id>`，前缀固定 ⇒ **不可能以数字开头**，指控里那条路径不可达 |
+| i2 post-flush 里同步做定位/聚焦，此时布局未定 ⇒ 位置算错或丢焦点 | **dismissed** | post-flush 只保证 DOM 落定，而几何与聚焦都不依赖「布局已完成」：**`getBoundingClientRect()` 本身会强制同步布局**，返回的就是已布局的几何值；聚焦只要求元素在文档中。可当场复核：删掉嵌套 nextTick 后新增的「浮层打开后搜索框自动获得焦点」用例**仍然通过** |
+| i3 新增 601 行代码 + 292 行 PRD，且是另起一个而非扩展 UiSelect，造成重复 | **dismissed** | 前提有一处事实错误：**本 PR 没有替换 UiSelect** —— 它的 15 处调用方（含视频创作面板那处带隐藏守卫契约的）原封未动，本 PR 只是**新增**一个领域专用选择器并在「添加账号」一处接线。不扩展 UiSelect 的理由：通用控件塞进「平台图标 / 按平台目录分组 / 按平台 id 搜索」这类领域信息，会让另外 14 个调用方背上无关 prop。体量口径同第一轮已核过的账（真正新增代码 414 + 211 行，均在 limit 500 内） |
+| i4 uid 用 `Math.random()` 导致测试抖动与 SSR 水合不一致 | **dismissed** | 两个后果一个不适用（本仓是 Electron + Vite SPA，**没有 SSR/水合**）、一个不成立（用例一律按 `data-testid` 定位，不依赖 uid 值）；仓库既有同款写法（`UiModal.vue`，长度一致） |
+
+最终轮后引擎**复用存档 critique + 已填裁决**（零模型调用）判定：**「自扮演裁决未发现阻断项」**，判定记录 `2e46e486….json` 状态落为 `self_play_resolved` / `performedBy=self-play` / `blocking=0`。
 
 ### 遗留（不假装已闭合）
 
