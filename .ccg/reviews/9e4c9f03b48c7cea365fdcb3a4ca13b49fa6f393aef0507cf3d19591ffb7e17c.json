@@ -48,10 +48,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
+    "status": "self_play_resolved",
     "tier": "unknown",
-    "performedBy": null,
+    "performedBy": "self-play",
     "evidence": null,
-    "findings": null
+    "findings": 0,
+    "blocking": [],
+    "closureNote": "【本记录对应的是一次「纯重构」提交，行为零变化】\n提交内容：按职责把三个超 500 行门禁的文件拆开 —— shot-prompt-task.js（656）→ 6 个模块、\nfilm-engineering-auto.js（538）→ film-engineering-auto-projection.js（只读投影）、\nFilmAutoPanel.vue（513）→ MethodologyStatusPanel.vue（方法论接入状态区块）。\n对外导出面 26 项**逐项相等**（消费方 import 一行未改）、影视工程 49 文件 / 825 例全绿 ⇒ 行为零变化。\n\n【为什么 mode=dual：行数触发，不是敏感面触发】\nreason = 变更 1563 行 > 200 行阈值 ⇒ dual。\nsensitivePathHits = 0（空：未触碰 auth / 数据库 / 加密路径）\n⇒ 适用门禁自己写明的第 ② 条出口（非高危面写 closureNote + 置闭环值）。\n\n【敏感内容 10 处逐条核对：全部是假阳性】\nsensitiveContentHits = 10，逐条看过：\n**全部**是 crypto.createHash('sha256') —— 即资产指纹的**内容寻址哈希**\n（promptAssetHash / promptRenderHash / 变量名短哈希），**不是**口令、密钥、证书或数据库访问。\n该规则本意是抓「拿 sha256 存口令」；此处命中的是哈希函数本身 ⇒ 假阳性，如实记录，不当成真敏感面。\n\n【验证层（diff）外部复核仍未完成，如实标注】\nsh scripts/deep-review.sh 跑 2 次均未产出有效 critique：引擎 diff 层只认维度词表\ncorrectness/security/performance/maintainability，而可用 critic 后端（claude）输出的是决策层词表\nconsistency/feasibility/completeness/clarity ⇒ Critique 校验失败（见本记录 error/validationErrors）。\n这是后端与该层词表不兼容，不是评审通过，也不是发现了缺陷；本 closureNote 不把校验失败读成通过。\n\n【替代覆盖】① 决策层 19 轮 146 条逐条处置（设计已评审）；\n② 本次拆分零行为变化：导出面逐项相等 + 49 文件 / 825 例全绿；\n③ 门禁全绿：check-max-lines（无新增超大文件）、check-debt-budget（filesOver500 95 == baseline 95）、\n   check-vue-style-parse / check-css-var-defined / check-color-literals / check-coverage-include-sfc /\n   check-locale-sync(--cjk/--keys) / check-text-encoding-integrity / check-no-brand-residue /\n   check-gate-record-debt / check-locale-button-name-sync 均 rc=0；行尾两口径 numstat 逐文件一致。",
+    "at": "2026-10-22T05:05:55.251Z"
   }
 }
