@@ -571,39 +571,54 @@ describe('QrCodeLogin ↔ 分区回收存活登记（#2701 评审 C1）', () => 
       loginPromise.catch(function () { /* 本例不关心登录结果 */ })
 
       const accountId = qrCodeLogin.currentAccountId
-      expect(accountId).toMatch(/^auth-wechat_mp-\d+-\d+$/)
+      // 2026-10-21：扫码会话改为「按平台复用的稳定槽位」（目录名不带时间戳），
+      // 目的是让第三方登录页的 HTTP 缓存跨多次登录留存（冷缓存时图形验证码要几秒才弹出）。
+      expect(accountId).toBe('auth-wechat_mp-slot')
       const dir = reclaim.partitionNameOf(accountId)
-      // 前提：这个目录名确实命中回收白名单 —— 不命中就没必要登记，这条锁就在测空气
-      expect(reclaim.isThrowawayPartitionName(dir)).toBe(true)
+      expect(dir).toBe('auth-auth-wechat_mp-slot')
+      // 槽位**不是**一次性分区：它不进回收面（这条豁免就是它的护身符，
+      // 少了它，槽位会在某次 sweep 被连目录删掉 ⇒ 缓存全丢、登录重新变慢）。
+      expect(reclaim.isThrowawayPartitionName(dir)).toBe(false)
+      // 仍然要登记存活：Session 在进程内不销毁，目录被 Chromium 持有时删会写坏状态
       expect(reclaim.livePartitionNames()).toContain(dir)
 
       // mock 的 fromPartition 不落盘，按真实形态把同组目录铺出来。
       // #2734 起回收端保留「最近 PROBE_LIMIT 份」，只铺两份会双双落在窗口内 —— 那时「没删」
-      // 只是因为窗口宽，测不到存活登记表本身。故铺到窗口之外：K 份更新的同组目录把 dir 挤出窗口，
-      // dir 仍然活着**只能**是因为它在登记表里（K 也是下面反向对照要用的同一个常量）。
+      // 只是因为窗口宽，测不到保护本身。故铺到窗口之外：K 份更新的同组目录把候选挤出窗口。
       const K = reclaim.PROBE_LIMIT
       const newerDirs = []
       for (let i = 0; i < K; i += 1) newerDirs.push('auth-auth-wechat_mp-99999999999' + i)
+      // 一次性分区形态的对照目录：它**应该**被删（证明 sweep 仍在正常工作，
+      // 槽位之所以活着不是因为「谁都删不动」）
+      const throwawayDir = 'auth-auth-wechat_mp-1790000000000'
       const root = nodePath.join(base, 'session', 'Partitions')
       fs.mkdirSync(root, { recursive: true })
       fs.mkdirSync(nodePath.join(root, dir), { recursive: true })
+      fs.mkdirSync(nodePath.join(root, throwawayDir), { recursive: true })
       for (const n of newerDirs) fs.mkdirSync(nodePath.join(root, n), { recursive: true })
 
       const summary = reclaim.reclaimStaleAuthPartitions({ userDataPath: base })
-      expect(summary.removed).toEqual([])
+      // 槽位必须活着（它不在回收面里）
+      expect(summary.removed).not.toContain(dir)
       expect(fs.existsSync(nodePath.join(root, dir))).toBe(true)
+      // 反向对照：一次性分区形态的对照目录**被删掉了** ⇒ sweep 仍在正常工作，
+      // 槽位之所以活着是因为「它不是一次性分区」，不是因为「谁都删不动」。
+      expect(summary.removed).toContain(throwawayDir)
+      expect(fs.existsSync(nodePath.join(root, throwawayDir))).toBe(false)
       expect(fs.existsSync(nodePath.join(root, newerDirs[K - 1]))).toBe(true)
 
       // 反向对照：把登记摘掉（等价 C1 修复前的实现），同一条判据必须真的把它删掉。
       // 没有这一格，上面两个断言可能只是因为「谁都删不动」而通过。
       // #2734 起窗口是「保留最近 PROBE_LIMIT 份」而不是「只留末位」：摘掉登记后（planReclaim 不读进程内
-      // 登记表，正是「等价 C1 修复前」那一格），dir 落在 K 份更新目录之后 ⇒ 必须是 victims。
-      const plan = reclaim.planReclaim([dir].concat(newerDirs))
-      // 精确断言而非 toContain：组内共 K+1 份、窗口宽度恰为 K ⇒ victims 有且只有被挤出窗口的 dir。
-      // （本条最初写成 toContain(newerDirs[0]) 是我把窗口宽度算错了 —— K=5 时 n0 仍在窗口内，
-      //  跑出来当场变红才发现。写成 toEqual 之后，窗口宽度再被人改动会立刻暴露，而不是静默偏移。）
-      expect(plan.victims).toEqual([dir])
+      // 登记表，正是「等价 C1 修复前」那一格），一次性目录落在 K 份更新目录之后 ⇒ 必须是 victims。
+      const plan = reclaim.planReclaim([throwawayDir].concat(newerDirs))
+      // 精确断言而非 toContain：组内共 K+1 份、窗口宽度恰为 K ⇒ victims 有且只有被挤出窗口的那一份。
+      expect(plan.victims).toEqual([throwawayDir])
       expect(plan.kept).toEqual(newerDirs.slice().sort())
+      // 槽位在任何窗口计算里都不出现（它根本不是一次性分区）
+      const planWithSlot = reclaim.planReclaim([dir].concat(newerDirs))
+      expect(planWithSlot.victims).not.toContain(dir)
+      expect(planWithSlot.kept).not.toContain(dir)
     } finally {
       try { fs.rmSync(base, { recursive: true, force: true }) } catch (_e) { /* 临时目录清不掉不影响结论 */ }
     }
