@@ -52,10 +52,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4256#issuecomment-6347881696",
+    "reviewedAt": "2026-10-22T18:10:00Z",
+    "findings": 5,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）审阅 payment-preflight.js 及测试，原始输出逐字公开于 evidence。1 Critical + 1 High + 2 Medium + 1 Low 全部成立并已修：close() 同步抛顶掉结论→try/catch；--database-url --json 误当连接串→参数校验；错误分类只认 code 的 CERT→加 message 兜底；补 close 同步抛测试；none 分支补 database SKIP 行。变异反证 18/2 红，新增 4 例、总计 20 例，全量 rc=0。"
   }
 }
