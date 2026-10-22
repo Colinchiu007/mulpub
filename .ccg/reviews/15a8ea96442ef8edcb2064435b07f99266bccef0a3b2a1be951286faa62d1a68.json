@@ -48,10 +48,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4240#issuecomment-6338678187",
+    "reviewedAt": "2026-10-22T10:40:00Z",
+    "findings": 4,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对本 PR 的 scripts/check-main-red.{js,test.js} diff（8,820 字符）独立审阅，原始输出逐字公开于 evidence。给出 2 Critical + 2 High。逐条核验后**两条 Critical 全部成立并已修**：① mainRowsAt 为箭头函数却用 this.requiredContexts()，this 为 undefined，已实测复现 Cannot read properties of undefined 并改回方法简写；② 逐字相等会滤掉 matrix 分片作业（QG Desktop Shards (1/2) vs QG Desktop Shards），红的分片被滤掉即假绿，已加 matchesRequired 剥尾部 (n/m) 匹配。两条 High 亦已修：过滤后空交集退回全部作业并出声；测试补 5 例含一条源码形态结构锁（断言不得改回箭头）。变异反证两条均双向（63 pass / 2 fail），逐字节还原 True。"
   }
 }
