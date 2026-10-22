@@ -1,0 +1,61 @@
+{
+  "sha": "72f3719255e08ac003ed804fafec04b4bd8e427a",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 4,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "- [ ] 11.1 **两张守门表缺同步机制**（外部复核的 BLINDSPOT，比指控原条目更深，本条取代 8.7 的措辞）：`check-pr-exec-record.js::HIGH_RISK_SURFACES`（路径前缀）与 `ccg-review-decider.js::RULES.sensitivePaths`（决策层敏感路径）是两份独立清单、实测已分叉（8.5 记过一次）。后果不是\"某文件漏登记一行\"，而是**判据消费的库与判据自身可以分处两表**：`scripts/check-` 在表内、它依赖的 `scripts/lib/ccg-delivery-` 在表外 ⇒ 改库不改表，矩阵对\"改谁在守门\"始终看不见。修法要同时收敛两表口径来源，且**属改谁来守门 ⇒ 人工过目，不在 agent 自动合并授权内**；扩表必须同次重取每条前缀的已入库命中下界（写高了本地当场红）"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"defense\": \"三点：① 本仓既有规矩把改动 `HIGH_RISK_SURFACES` 归为\\\"改谁来守门\\\"，必须人工过目、不在 agent 自动合并授权内（AGENTS.md「禁止自动合并的情形」第 2 条）；指控要求的\\\"本片加这一行\\\"在流程上越权。② 该文件不是没有兜底：向量锁（`U+FFFF` vs `U+1F600` 码点序方向断言）、两侧同一实现的行为锁（真跑 `--print-fingerprint` 比对）、写回器侧 `CLOSED_DEEP_REVIEW_STATUSES` 闭集冻结快照锁，三条都是可执行用例而非散文。③ 欠账不是遗漏而是登记：tasks 8.7 未勾选、逐字写明后果与\\\"应与 8.5 一并处理\\\"的理由。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e9b857fcf42bc135cfe5aae30a2473eccf1334c604891a22712582b9e3a2ca92",
+  "decidedAt": "2026-10-22T05:23:12.607Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
