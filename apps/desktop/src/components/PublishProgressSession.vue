@@ -14,7 +14,7 @@
       v-for="taskId in session.taskOrder"
       :key="taskId"
       :task="session.tasks[taskId]"
-      :stall-minutes="store.taskStallMinutes(taskId)"
+      :stall-minutes="stall.taskStallMinutes(taskId)"
       @retry="emit('retry', session, taskId)"
       @copy-error="emit('copy-error', $event)"
     />
@@ -47,6 +47,7 @@
 import { useI18n } from 'vue-i18n'
 import { RefreshRight } from '@element-plus/icons-vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
+import { usePublishProgressStall } from '@/stores/publishProgressStall'
 import PublishProgressTaskRow from './PublishProgressTaskRow.vue'
 
 defineProps({
@@ -60,6 +61,8 @@ const emit = defineEmits(['retry', 'copy-error', 'retry-failed'])
 
 const { t } = useI18n()
 const store = usePublishProgressStore()
+// 与 Panel 取到的是同一个 tracker（按 store 实例缓存）—— 同一分钟数只能有一份真相。
+const stall = usePublishProgressStall(store)
 
 function sessionTitle(session) {
   if (session.title) return session.title

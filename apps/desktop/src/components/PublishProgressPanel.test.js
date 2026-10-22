@@ -16,13 +16,6 @@ const storeStateRaw = vi.hoisted(() => ({
   retrying: false,
   cancelling: false,
   hasRunning: false,
-  // 1.8 无更新派生（store 是真源，这里只当夹具）：taskStallMinutes 必须是函数，
-  // 否则 PublishProgressSession 里的 store.taskStallMinutes(taskId) 在挂载时当场抛错。
-  hasStalledRunning: false,
-  maxStallMinutes: 0,
-  stalledTaskIds: [],
-  taskStallMinutes: vi.fn(() => 0),
-  isTaskStalled: vi.fn(() => false),
   aggregate: { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 },
   init: vi.fn(),
   minimizePanel: vi.fn(),
@@ -37,9 +30,13 @@ const storeStateRaw = vi.hoisted(() => ({
 
 vi.mock('@/stores/publishProgress', async () => {
   const { reactive } = await import('vue')
+  // 真 store 模块的 TERMINAL_PHASES 必须原样带出来：publishProgressStall.js 从它派生
+  // 「什么算终态」。这里若在夹具里另抄一份集合，就是「替对方剥壳」的同型错误 ——
+  // 终态口径漂移时面板测试会照样绿。
+  const actual = await vi.importActual('@/stores/publishProgress')
   // reactive 包装：组件内模板/computed 才能跟踪测试对原始对象的属性变更
   const reactiveStore = reactive(storeStateRaw)
-  return { usePublishProgressStore: () => reactiveStore }
+  return { ...actual, usePublishProgressStore: () => reactiveStore }
 })
 
 vi.mock('element-plus', () => ({
@@ -48,6 +45,9 @@ vi.mock('element-plus', () => ({
 
 import PublishProgressPanel from './PublishProgressPanel.vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
+// 真实现（本文件不 mock 它）：面板测试断言的一切都由它算出来，tick 周期也取自它，
+// 免得"15000"这个字面量在测试里再存一份。
+import { STALL_TICK_MS } from '@/stores/publishProgressStall'
 
 function makeSession(overrides = {}) {
   return {
@@ -107,13 +107,9 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     storeStateRaw.panelVisible = false
     storeStateRaw.panelMinimized = false
     storeStateRaw.hasRunning = false
-    // 1.8 新增夹具必须每轮复位：否则上一条用例设的 hasStalledRunning / taskStallMinutes
-    // 会渗进后续用例（本仓「跨用例泄漏」的同一种落法）
-    storeStateRaw.hasStalledRunning = false
-    storeStateRaw.maxStallMinutes = 0
-    storeStateRaw.stalledTaskIds = []
-    storeStateRaw.taskStallMinutes = vi.fn(() => 0)
-    storeStateRaw.isTaskStalled = vi.fn(() => false)
+    // 1.8：面板的无更新派生走**真** tracker（publishProgressStall.js），其唯一输入就是
+    // sessions[].tasks[].lastEventAt ⇒ 复位 sessions 即复位派生态，不需要也不允许在这里
+    // 再摆一组 hasStalledRunning / taskStallMinutes 存根（那会让面板测试测的是夹具）。
     storeStateRaw.cancelling = false
     storeStateRaw.aggregate = { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 }
     storeStateRaw.consumeFirstHideToast.mockReset().mockReturnValue(false)
@@ -580,13 +576,18 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   // 修前的真实死锁：`:disabled="store.hasRunning"` 只能被终态事件解除，
   // RPA 挂死时终态事件永不到来 ⇒ 转圈 + 按钮永久灰；而且 handleClose 只在
   // `sessions.length===0` 时收起，running 会话清不掉 ⇒ 光解禁按钮仍是"点了没反应"。
+  // 这组用例**不摆派生存根**：输入只有 lastEventAt，面板看到的一切都由真 tracker 算出来。
+  const MIN = 60000
+
   it('1.8 部分陈旧仍禁用关闭；全部无更新才解禁', async () => {
+    const fresh = Date.now()
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.hasStalledRunning = false
-    storeStateRaw.maxStallMinutes = 0
     storeStateRaw.sessions = [makeSession({
-      tasks: { 't-1': makeTask({ taskId: 't-1' }), 't-2': makeTask({ taskId: 't-2' }) },
+      tasks: {
+        't-1': makeTask({ taskId: 't-1', lastEventAt: fresh - 4 * MIN }),
+        't-2': makeTask({ taskId: 't-2', lastEventAt: fresh }),
+      },
       taskOrder: ['t-1', 't-2'],
     })]
     wrapper = mountPanel()
@@ -595,8 +596,8 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     let closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
     expect(closeBtn.hasAttribute('disabled'), '还有在动的任务就不得解禁').toBe(true)
 
-    store.hasStalledRunning = true
-    store.maxStallMinutes = 4
+    // 第二个也停止更新 ⇒ 全部无更新（写必须经 reactive 代理，直改 raw 不触发重渲染）
+    store.sessions[0].tasks['t-2'].lastEventAt = Date.now() - 9 * MIN
     await nextTick()
     closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
     expect(closeBtn.hasAttribute('disabled'), '全部无更新时必须可点').toBe(false)
@@ -604,12 +605,13 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   })
 
   it('1.8 全部无更新时头部徽标转中性文案并停掉转圈', async () => {
+    const fresh = Date.now()
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.hasStalledRunning = true
-    storeStateRaw.maxStallMinutes = 7
-    storeStateRaw.taskStallMinutes = vi.fn(() => 7)
-    storeStateRaw.sessions = [makeSession({ tasks: { 't-1': makeTask() }, taskOrder: ['t-1'] })]
+    storeStateRaw.sessions = [makeSession({
+      tasks: { 't-1': makeTask({ lastEventAt: fresh - 7 * MIN }) },
+      taskOrder: ['t-1'],
+    })]
     wrapper = mountPanel()
     await nextTick()
 
@@ -622,12 +624,15 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     expect(badge.querySelector('.ppp__spin')).toBeNull()
   })
 
-  it('1.8 任务行按 store 的分钟数追加后缀，未陈旧的行不得追加', async () => {
+  it('1.8 任务行按真实无更新分钟数追加后缀，未陈旧的行不得追加', async () => {
+    const fresh = Date.now()
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.taskStallMinutes = vi.fn((id) => (id === 't-1' ? 3 : 0))
     storeStateRaw.sessions = [makeSession({
-      tasks: { 't-1': makeTask({ taskId: 't-1' }), 't-2': makeTask({ taskId: 't-2' }) },
+      tasks: {
+        't-1': makeTask({ taskId: 't-1', lastEventAt: fresh - 3 * MIN }),
+        't-2': makeTask({ taskId: 't-2', lastEventAt: fresh }),
+      },
       taskOrder: ['t-1', 't-2'],
     })]
     wrapper = mountPanel()
@@ -640,13 +645,13 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   })
 
   it('1.8 关闭 ≠ 取消：只隐藏可见性，不动 sessions、不碰取消/重试入口', async () => {
+    const fresh = Date.now()
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.hasStalledRunning = true
-    storeStateRaw.maxStallMinutes = 5
-    storeStateRaw.taskStallMinutes = vi.fn(() => 5)
-    // running 会话（status 不是 done）：真实 clearFinished 不会清掉它，mock 也刻意什么都不做
-    storeStateRaw.sessions = [makeSession({ tasks: { 't-1': makeTask() }, taskOrder: ['t-1'] })]
+    storeStateRaw.sessions = [makeSession({
+      tasks: { 't-1': makeTask({ lastEventAt: fresh - 5 * MIN }) },
+      taskOrder: ['t-1'],
+    })]
     wrapper = mountPanel()
     await nextTick()
 
@@ -659,6 +664,30 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     expect(storeStateRaw.sessions, '关闭不得丢弃任务态（再展开仍是原状态）').toHaveLength(1)
     expect(storeStateRaw.cancelRunning, '关闭不等于取消').not.toHaveBeenCalled()
     expect(storeStateRaw.retryFailed).not.toHaveBeenCalled()
+  })
+
+  it('1.8 面板是看门狗时钟的宿主：挂载起一个 tick、卸载必须交还', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = []
+    wrapper = mountPanel()
+    await nextTick()
+
+    const tickIdx = setIntervalSpy.mock.calls.findIndex((c) => c[1] === STALL_TICK_MS)
+    expect(tickIdx, '面板挂载必须把墙钟起起来（否则分钟数永远停在挂载那一刻）').toBeGreaterThanOrEqual(0)
+    // 句柄取**返回值**：mock.calls[i] 是入参数组，c[0] 是回调函数本身，
+    // 拿它去比 clearInterval 的首参会永远不等（本条用例第一次就这么写错了）。
+    const timerId = setIntervalSpy.mock.results[tickIdx].value
+
+    clearIntervalSpy.mockClear()
+    wrapper.unmount()
+    wrapper = null
+    const released = clearIntervalSpy.mock.calls.some((c) => c[0] === timerId)
+    expect(released, '卸载必须交还同一个句柄 —— 留在场上就是每条路由的白唤醒').toBe(true)
+    setIntervalSpy.mockRestore()
+    clearIntervalSpy.mockRestore()
   })
 
   it('展开态无会话：显示空态文案', async () => {

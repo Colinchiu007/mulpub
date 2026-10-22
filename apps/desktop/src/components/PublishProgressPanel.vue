@@ -19,12 +19,12 @@
           <span
             v-if="store.hasRunning"
             class="ppp__badge"
-            :class="store.hasStalledRunning ? 'ppp__badge--stalled' : 'ppp__badge--running'"
+            :class="stall.hasStalledRunning ? 'ppp__badge--stalled' : 'ppp__badge--running'"
             data-testid="publish-progress-stall-badge"
           >
-            <el-icon v-if="!store.hasStalledRunning" class="ppp__spin"><Loading /></el-icon>
-            {{ store.hasStalledRunning
-              ? t('publishPage.publishProgressPanel.stallBadge', { minutes: store.maxStallMinutes })
+            <el-icon v-if="!stall.hasStalledRunning" class="ppp__spin"><Loading /></el-icon>
+            {{ stall.hasStalledRunning
+              ? t('publishPage.publishProgressPanel.stallBadge', { minutes: stall.maxStallMinutes })
               : t('publishPage.publishProgressPanel.sessionRunning') }}
           </span>
         </span>
@@ -43,7 +43,7 @@
             type="button"
             class="ppp__icon-btn"
             data-testid="publish-progress-close"
-            :disabled="store.hasRunning && !store.hasStalledRunning"
+            :disabled="store.hasRunning && !stall.hasStalledRunning"
             :title="closeTitle"
             :aria-label="t('publishPage.publishProgressPanel.close')"
             @click="handleClose"
@@ -123,21 +123,35 @@
  * - 完成自动收敛（usePublishProgressAutoCollapse.js）；@pointerdown 取消收敛。
  * - 会话卡拆出 PublishProgressSession.vue（逐文件行数门禁拆分承载面）。
  */
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
   CircleCheckFilled, Close, Loading, Minus,
 } from '@element-plus/icons-vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
+import { usePublishProgressStall } from '@/stores/publishProgressStall'
 import { usePublishProgressAutoCollapse } from '@/composables/usePublishProgressAutoCollapse'
 import PublishProgressFooter from './PublishProgressFooter.vue'
 import PublishProgressSession from './PublishProgressSession.vue'
 
 const { t } = useI18n()
 const store = usePublishProgressStore()
+// 「无更新」派生层是**只读**的，且按 store 实例缓存（Panel 与 Session 拿到同一个 tracker）。
+// 不放进宿主 store 的两个理由写在同目录 publishProgressStall.js 头部。
+const stall = usePublishProgressStall(store)
 
 store.init()
+
+// 「无更新」看门狗的时钟生命周期（1.8）。面板是它的**宿主**：这一层存在的唯一目的就是
+// 让"分钟数"随墙钟重新渲染，没有面板就没有读者，所以定时器不放进 store（理由见
+// publishProgressStall.js 头部）。beginStallClock() 幂等（同 autoUpdater 那条
+// 「窗口重建不得重复绑定全局监听器」的教训）；定时器在"全部终态"时自泊，所以还要在
+// hasRunning 重新为真时把它叫回来 —— 否则「登记了新任务但一个事件都没来」这一种
+// 恰好看不到无更新，而那正是本条要救的情形。
+stall.beginStallClock()
+watch(() => store.hasRunning, (running) => { if (running) stall.beginStallClock() })
+onBeforeUnmount(() => stall.endStallClock())
 
 const progressWidth = computed(() => {
   const { done, total } = store.aggregate
@@ -154,8 +168,8 @@ const isSingleSession = computed(() => store.sessions.length === 1)
  *   "关掉这个面板不等于放弃这次发布"，否则没人敢点。
  */
 const closeTitle = computed(() => {
-  if (store.hasRunning && store.hasStalledRunning) {
-    return t('publishPage.publishProgressPanel.closeStalledHint', { minutes: store.maxStallMinutes })
+  if (store.hasRunning && stall.hasStalledRunning) {
+    return t('publishPage.publishProgressPanel.closeStalledHint', { minutes: stall.maxStallMinutes })
   }
   if (store.hasRunning) return t('publishPage.publishProgressPanel.closeDisabledHint')
   return t('publishPage.publishProgressPanel.close')
@@ -167,7 +181,7 @@ function handleClose() {
   // 而无更新的会话仍是 running、`clearFinished()` 只清 done 会话 ⇒ 清不掉 ⇒
   // 「按钮能点了，但点了没反应」——把本批要修的不可退出换了个位置重演一遍。
   // 所以这里只改**可见性**：不动 `sessions`（再展开仍是原状态）、不发任何取消 IPC。
-  if (store.sessions.length === 0 || store.hasStalledRunning) store.panelVisible = false
+  if (store.sessions.length === 0 || stall.hasStalledRunning) store.panelVisible = false
 }
 
 function handleMinimize() {

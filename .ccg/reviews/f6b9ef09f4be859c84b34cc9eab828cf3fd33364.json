@@ -1,0 +1,85 @@
+{
+  "sha": "f6b9ef09f4be859c84b34cc9eab828cf3fd33364",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 804 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 804,
+    "fileCount": 19,
+    "codeFileCount": 10,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **验证**：新增 `src/stores/publishProgress.stale.test.js` 9 条（首跑 **9 failed** 的先红证据）+ 面板 4 条；消费者并集 12 个测试文件 **298 passed / 0 failed、无 `Errors` 段**；反证 `scripts/stale-watchdog-contract-mutate.js` 8 道（S1 阈值 Infinity / S2 陈旧写进 phase / S3 摘 `clearInterval` / S4 摘单实例守卫 / S5 `>=`改`>` / S6 关闭按钮退回 / S7 `handleClose` 退回只清空 / S8 不传分钟数）末跑 `CAUGHT=8/8`、8/8 `RESTORE_OK`、基线 `collected=45 passed=45`。`check-locale-sync --pair-base` 与 `--cjk` 均 PASS（CJK 基线 1330 → 1124）；聚合 eslint 改动文件 rc=0。QM-1 本批**未触发**（只动 `apps/desktop/src/`，未触 `electron/` 与 `packages/rpa-engine/`）；像素回归交 `QG Visual` 判，不用 `--update-baseline` 消化。",
+      "- 不涉及主进程 / IPC 通道 / 授权白名单 ⇒ 不触发 QM-1 打包门槛（但改了 `src/` 仍跑视觉相关判定）。",
+      "| QM-4 视觉 | ⏳ 交 CI 判 | `/first-run` 类改动不同：本批动的是 `PublishProgressPanel` 的徽标 DOM（class 由静态变绑定）与任务行文案。非陈旧态下 class 集合与文本未变，但**这不是我本地能证的** —— 由 `QG Visual`（Gate 7，windows-latest + CI 的 Chromium）判，红则按\"基线只能取自同一次 CI 渲染\"口径处理，禁止 `--update-baseline` 消化 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T02:52:38.395Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-f6b9ef09\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
+    "at": "2026-10-22T02:58:36.572Z"
+  }
+}

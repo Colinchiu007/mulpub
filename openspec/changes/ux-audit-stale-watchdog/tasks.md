@@ -32,6 +32,14 @@
 - [x] 2.4 `PublishProgressPanel.vue`：头部徽标增陈旧态分支；关闭按钮 `:disabled` 与 `:title` 改口径；
       `handleClose` 在全陈旧时显式 `panelVisible = false`（隐藏不丢状态）
 - [x] 2.5 `src/locales/publishPage/{zh,en}.js`：3 键成对新增，不改既有键语义
+- [x] 2.6 **第二轮（CI 逼出来的落点重构）**：2.1/2.2 原写"在 store 里加派生层"，实测把 496 行的
+  `publishProgress.js` 推过 `check-debt-budget.js` 的 ≥500 行熔断
+  （`QG Changes` 现场读数 `FILES_OVER_500: 96 > baseline 95`）。处置是**搬代码不动基线**：
+  新增 `src/stores/publishProgressStall.js`（`createStallTracker` + `usePublishProgressStall(store)`
+  WeakMap 按 store 实例缓存 + `reactive(publicApi)`），store 相对主干只多一个 `export TERMINAL_PHASES`；
+  时钟生命周期改由面板持有（V12），面板测试删掉 5 个无读者的派生存根、只喂 `lastEventAt`，
+  并新增 S6（读数不得绕过 `nowTs`）/ S10（`publicApi` 不得退回普通对象）两道反证。
+  2.1/2.2 的**判据内容不变**，只是承载文件变了 —— 不留"任务写着 store、代码在模块"的口径分裂。
 
 ## 3. 反证
 
@@ -50,7 +58,7 @@
 
 - [x] 4.1 `01-docs/PRD-STALE-WATCHDOG-2026-10-22.md`（显示项/交互逻辑/数据校验/提示文字逐项）
 - [x] 4.2 审计文档 1.8 行状态 + 文末落地记录；CHANGELOG 条目 —— 审计文档行已标 ✅ 并加 §11（现状取证 / 三条口径 / 反证读数 / 两处自错 / 刻意不做），CHANGELOG 顶部新条目按现场 CRLF 档插入
-- [ ] 4.3 `openspec/records/ux-audit-stale-watchdog.md`（门禁表 + 现场读数）
+- [x] 4.3 `openspec/records/ux-audit-stale-watchdog.md`（门禁表 + 现场读数 + §3.4 落点重构）
 - [x] 4.4 全域读数：`vitest run src` ⇒ `405 files: 2 failed / 403 passed`、`6413 tests: 2 failed / 6409 passed / 2 skipped`。两条红同一根因是**构建产物前置缺失**（`electron/preload/index.bundle.js` ENOENT，属 overlay-view-suspension 与 shell-mode-6b 两条既有静态链路锁），`pnpm run build:preload` 后同两条 **29 passed**；本批未动 preload ⇒ 不认领也不改测试。消费者并集 12 文件 **298 passed / 0 failed、无 Errors 段**
 - [x] 4.5 静态门禁：`check-locale-sync --pair-base origin/main` PASS、`--cjk` PASS（基线 1330 → 1124，无新增硬编码）；新增 3 键 zh/en `grep -c` 各为 1；聚合 eslint 8 个改动文件 rc=0；行尾两口径逐字一致（add 1357 / del 17）；新脚本按 `git check-ignore --no-index` 实测命中 `scripts/*.js` ⇒ 同 PR 补 negation
 - [ ] 4.6 QM-6 双模型评审与逐条处置（改 store + 三组件 ⇒ 预计 DUAL）

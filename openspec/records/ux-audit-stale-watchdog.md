@@ -12,9 +12,9 @@ date: 2026-10-22
 | --- | --- | --- |
 | 变更类型与隔离 | ✅ | 运行时代码变更（`apps/desktop/src/`）⇒ 隔离 worktree `mp-ux-audit-stale-watchdog`，裸分支 `ux-audit-stale-watchdog`，落点 `D:\Data\projects\mp-worktrees`（非 C 盘）；`node scripts/verify-worktree-deps.js` → OK（11 项解析通过） |
 | TDD | ✅ 先红后绿 | 新增 `src/stores/publishProgress.stale.test.js`（9 条）**首跑 9 failed / 0 passed**（`/d/tmp/stale-red.log`：`Test Files 1 failed`、`Tests 9 failed (9)`），实现后同文件 9 passed；面板侧 4 条新用例首跑即红 1 条（`handleClose` 被写成两份、旧的一份覆盖新的），修完 45 passed |
-| 消费者并集 | ✅ | `git grep -l publishProgress/PublishProgress*` 取并集后跑 12 个测试文件：**298 passed / 0 failed，无 `Errors` 段**（`/d/tmp/stale-union.log`）。范围口径如实写：这 12 个文件是**消费者并集**，不含 `electron/` 与 `tests/` |
+| 消费者并集 | ✅ | 第二轮重算并集为 **14 个测试文件**（`git grep -l` 按 5 个被改 stem 取并集）：**305 passed / 0 failed，无 `Errors` 段**。第一轮那 12 文件 298 是外置前的范围，已被本轮取代（范围口径不变：不含 `electron/` 与 `tests/`） |
 | 全域 | ✅ 两处红均**不是我引入的**，且当场归因后已消 | `pnpm.cmd exec vitest run src`（未先 `build:preload`）⇒ `405 files: 2 failed / 403 passed`、`6413 tests: 2 failed / 6409 passed / 2 skipped`。两条红的**同一**根因是构建产物缺失：`src/overlay-view-suspension.test.js` 与 `src/shell-mode-6b.test.js` 都 `readFileSync(electron/preload/index.bundle.js)` ⇒ `ENOENT`。跑 `pnpm run build:preload`（rc=0）后同两条 **29 passed**。归属判据：本批未动 preload，且这两条是既有的"产物先于测试"前置（AGENTS 5.4 的「先 build:preload」）——**不认领，也不顺手改测试** |
-| 反证（8 道） | ✅ | `node scripts/stale-watchdog-contract-mutate.js --keep-going` ⇒ `[BASELINE] rc=0 failed=0 passed=45 collected=45 errors=0 blind=false`、`[SUMMARY] 共 8 条：CAUGHT=8 其余=0`、8/8 `RESTORE_OK`、驱动 rc=0。S2 首跑是 **PARTIAL_RED（探针 0/1）**，成因见 §3.1，修完重跑 CAUGHT |
+| 反证（10 道） | ✅ | `node scripts/stale-watchdog-contract-mutate.js --keep-going` ⇒ `[BASELINE] rc=0 failed=0 passed=47 collected=47 errors=0 blind=false`、`[SUMMARY] 共 10 条：CAUGHT=10 其余=0`、10/10 `RESTORE_OK`、驱动真实 rc=0（不经管道取）。S2 首跑是 **PARTIAL_RED（探针 0/1）**，成因见 §3.1；S4 首跑 **ANCHOR_NOT_FOUND**（锚点跨过了我新写的注释行），改窄为只摘守卫那一条后 CAUGHT。新增两道的来路见 §4 |
 | QM-1 打包 | N/A（如实声明） | 本批只动 `apps/desktop/src/`（store + 三个组件 + locales），未触 `electron/` 与 `packages/rpa-engine/` ⇒ 按 QM-1 的触发条件不适用。**不是**"跑过且通过"，是"未触发" |
 | QM-4 视觉 | ⏳ 交 CI 判 | `/first-run` 类改动不同：本批动的是 `PublishProgressPanel` 的徽标 DOM（class 由静态变绑定）与任务行文案。非陈旧态下 class 集合与文本未变，但**这不是我本地能证的** —— 由 `QG Visual`（Gate 7，windows-latest + CI 的 Chromium）判，红则按"基线只能取自同一次 CI 渲染"口径处理，禁止 `--update-baseline` 消化 |
 | 静态门禁 | ✅ | `check-locale-sync.js --pair-base origin/main` → **PASS**；`--cjk` → **PASS（基线 1330 条，当前 1124 条，无新增硬编码）**；新增 3 键 zh/en 逐个 `grep -c` 均为 1；聚合 eslint 8 个改动文件 rc=0 |
@@ -77,6 +77,45 @@ watch(() => 有没有非终态任务, (hasLive) => hasLive ? 起 : 停, { immedi
 锁抓不到自己声称的东西。修法不是改宽断言，而是**按生产的读取顺序排队**
 （先算派生值，再断 phase）—— 面板渲染就是这个次序。
 这条与「测试断言不得反向固化错误行为」同族，但落点是**断言顺序**，值得单记。
+
+## 3.4 第二轮：CI 红逼出来的落点重构（派生层从 store 外置）
+
+**现场读数**：`QG Changes` 红，逐步归因到 `scripts/lib/git-domain.test.js` 子用例 ⑩ ——
+`AssertionError: 消费者套件必须整体通过 … FILES_OVER_500: 96 > baseline 95`。
+`check-debt-budget.js` 的计数判据是 `lines >= 500`，`publishProgress.js` 本来 496 行
+⇒ **只有 3 行余量**，本批任何"往 store 里加一层"的形式都会撞上它。
+
+**两条候选的取舍**（记下来是因为第二条被实测否证）：
+① 调大基线到 96 —— 直接否决。AGENTS「计数/比例型门禁」条写明正解是补东西而非调阈值，
+且 `scripts/debt-baseline.json` 调大须与真实清理同 PR；为"容忍自己新增"而调大 = 把熔断改成装饰。
+② 搬出去 —— 采纳。先例是同目录 `publishProgressSessionMerge.js`（同一条门禁逼出来的）。
+抽第一版后 store 仍 521、第二版仍 500（**500 也红**，因为判据是 `>=`），
+第三版把 store 收敛成「相对 `origin/main` 只多一个 `export` 关键字」才回到 95。
+
+**搬动带来的三个真实改动**（不是纯粹的机械搬迁，各有一条新锁）：
+1. 时钟生命周期从 store 移到**面板**（`beginStallClock` / `endStallClock`）。
+   理由不只是行数：这一层存在的唯一目的是让面板重新渲染，store 不该为可能不挂载的读者常驻定时器。
+   新增 V12（面板挂载起表 / 卸载交还同一句柄）。
+   写这条用例时我第一次拿 `mock.calls[i][0]`（回调函数）去比 `clearInterval` 的首参，
+   恒不等 ⇒ **句柄必须取 `mock.results[i].value`**，注释已写进测试防重演。
+2. tracker 按 **store 实例** WeakMap 缓存（`usePublishProgressStall(store)`）。
+   模块级单例会让定时器跨实例泄漏（多次 `setActivePinia`、测试逐例、未来第二个消费方）。
+   新增 V13（两次取用返回同一对象 + 取用本身不起表）。
+3. store 的 `TERMINAL_PHASES` 改为 `export`，由派生层 `import` —— 终态集合仍是**一处派生**，
+   没有第二份。面板测试因此必须用 `vi.importActual` 把真集合带出来，
+   不得在夹具里另抄（抄了就是"替对方剥壳"，集合漂移时测试照样绿）。
+
+**新增两道反证都来自本轮真实写错的形态**（不是设想）：
+- `S6` 读数从 `nowTs` 换成当场 `Date.now()` —— 直觉上"更准"，实际切断 computed 的失效链，
+  第一次求值后冻结；当时让 `advanceTimersByTime(3*MIN)` 后仍读出 `[]`。CAUGHT 红 5 条。
+- `S10` `publicApi` 退回普通对象 —— 模板不做跨对象解包，`Boolean(ComputedRef)` 恒真，
+  症状是"徽标永亮 + 转圈永不停 + 关闭永久解禁"且**不报错**。CAUGHT 红 10 条（探针 2/2）。
+
+**测试夹具的一次实质加强**：面板测试删掉了 `storeStateRaw` 里的
+`hasStalledRunning` / `maxStallMinutes` / `stalledTaskIds` / `taskStallMinutes` / `isTaskStalled`
+五个存根（它们在新落点下没有读者，属"死观测字段"——正是阶段 5.4 要门禁的东西），
+改为只喂 `lastEventAt` 让真 tracker 算。副作用是面板测试从"测夹具"变成"测派生 + 绑定"，
+37 条全绿且 `S7/S8/S9/S10` 都在这上面变红。
 
 ## 4. 收尾清单（提交后回填）
 

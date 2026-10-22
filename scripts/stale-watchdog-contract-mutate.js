@@ -8,9 +8,14 @@
  *   ⑤ finally 还原 + 独立 md5 回读，不一致 rc=4（由 main() 返回，不能靠 process.exitCode），
  *      并挂 SIGINT/SIGTERM/SIGHUP 还原兜底。
  *
- * 本驱动的一条独有教训：S2/S3/S4 的"被禁形态"都是**看起来更像正确实现**的写法
- * （把陈旧当真失败、让 tick 常驻、给 timer 加"看起来安全"的守卫缺失），
- * 所以每条都必须各自指名红集，不接受"反正有红"。
+ * 本驱动的两条独有教训（都来自本轮实现过程，不是设想）：
+ *  ① S2/S3/S4/S10 的"被禁形态"都是**看起来更像正确实现**的写法（把陈旧当真失败、
+ *     让 tick 常驻、把 publicApi 退回普通对象），所以每条都必须各自指名红集，不接受"反正有红"。
+ *  ② S6 是本轮真实写错又被改回的那一格：读数从 `nowTs` 换成当场 `Date.now()`
+ *     直觉上"更准"，实际切断 computed 的失效链 ⇒ 第一次求值后永久冻结。
+ *     它当时让两条 store 级用例变红，改回后必须留一条反证钉住，否则下次"顺手优化"会重演。
+ *
+ * 派生层为什么不在 store 里：见 publishProgressStall.js 头部（≥500 行熔断 + 只读派生）。
  *
  * 用法：node scripts/stale-watchdog-contract-mutate.js [--only=S3] [--keep-going]
  */
@@ -23,7 +28,7 @@ const REPO = path.resolve(__dirname, '..')
 const DESKTOP = path.join(REPO, 'apps', 'desktop')
 const F = (rel) => path.join(DESKTOP, rel)
 
-const STORE = F('src/stores/publishProgress.js')
+const STALL = F('src/stores/publishProgressStall.js')
 const PANEL = F('src/components/PublishProgressPanel.vue')
 const SESSION = F('src/components/PublishProgressSession.vue')
 
@@ -38,67 +43,85 @@ const MUTATIONS = [
   {
     id: 'S1',
     label: '阈值改成 Infinity（看门狗永不发火，字段照旧写、读者照旧瞎）',
-    file: STORE,
+    file: STALL,
     pairs: [{ from: 'export const STALL_AFTER_MS = 3 * 60 * 1000', to: 'export const STALL_AFTER_MS = Infinity' }],
     expect: ['无事件满 3 分钟 ⇒ 该任务进陈旧集合并给出分钟数'],
   },
   {
     id: 'S2',
     label: '把陈旧直接写进 phase（把"没有新事件"当失败证据 —— spec 的只读派生口径被推翻）',
-    file: STORE,
+    file: STALL,
     pairs: [{
-      from: '    _eachLiveTask((taskId, anchor) => {\n      if (nowTs.value - anchor >= STALL_AFTER_MS) out.push(taskId)',
-      to: "    _eachLiveTask((taskId, anchor, task) => {\n      if (nowTs.value - anchor >= STALL_AFTER_MS) { task.phase = 'failed'; out.push(taskId) }",
+      from: '        visit(taskId, stallAnchor(task, session), now - stallAnchor(task, session))',
+      to: "        if (now - stallAnchor(task, session) >= STALL_AFTER_MS) task.phase = 'failed'\n        visit(taskId, stallAnchor(task, session), now - stallAnchor(task, session))",
     }],
     expect: ['陈旧是附加展示态：phase 与 aggregate 一律不得被改写成失败'],
   },
   {
     id: 'S3',
-    label: '摘掉 clearInterval ⇒ tick 常驻（每条路由都付它用不到的唤醒成本）',
-    file: STORE,
-    pairs: [{ from: '    clearInterval(stallTimer)\n    stallTimer = null', to: '    stallTimer = null' }],
-    expect: ['有 running 时恰好 1 个 tick；全部终态后必须停掉'],
+    label: '摘掉自泊的 clearInterval ⇒ tick 常驻（每条路由都付它用不到的唤醒成本）',
+    file: STALL,
+    pairs: [{ from: '        clearInterval(timer)\n        timer = null', to: '        timer = null' }],
+    expect: ['begin 后恰好 1 个 tick；仍有非终态任务不得停，全部终态后一个 tick 内自泊'],
   },
   {
     id: 'S4',
     label: '摘掉单实例守卫 ⇒ 重复注册定时器（autoUpdater 同型事故）',
-    file: STORE,
-    pairs: [{ from: '    if (stallTimer !== null) return\n    stallTimer = setInterval', to: '    stallTimer = setInterval' }],
-    expect: ['重复 init() 不得叠加第二个定时器（进程级单例教训同 autoUpdater）'],
+    file: STALL,
+    pairs: [{ from: '    if (timer !== null) return\n', to: '' }],
+    expect: ['重复 begin 不得叠加第二个定时器；end 必须真的交还句柄（同 autoUpdater 教训）'],
   },
   {
     id: 'S5',
     label: '判据从 >= 改成 >（差一毫秒那一侧的边界契约失守）',
-    file: STORE,
-    pairs: [{
-      from: '      if (nowTs.value - anchor >= STALL_AFTER_MS) out.push(taskId)',
-      to: '      if (nowTs.value - anchor > STALL_AFTER_MS) out.push(taskId)',
-    }],
+    file: STALL,
+    pairs: [{ from: '      if (idle >= STALL_AFTER_MS) out.push(taskId)', to: '      if (idle > STALL_AFTER_MS) out.push(taskId)' }],
     expect: ['无事件满 3 分钟 ⇒ 该任务进陈旧集合并给出分钟数'],
   },
   {
+    // 这一条是本轮实现过程**自己踩出来**的形态，不是设想：读数改成当场 Date.now() 看起来
+    // 更准（"永远不过期"），但 computed 的缓存只被 nowTs 的写入失效 ⇒ 第一次求值后冻结，
+    // 表现为"永远不陈旧"。写回这个"更聪明"的写法必须变红。
     id: 'S6',
-    label: '关闭按钮退回 :disabled="store.hasRunning"（本批的主症状回归）',
-    file: PANEL,
-    pairs: [{ from: ':disabled="store.hasRunning && !store.hasStalledRunning"', to: ':disabled="store.hasRunning"' }],
-    expect: ['1.8 部分陈旧仍禁用关闭；全部无更新才解禁'],
+    label: '读数从 nowTs 换成当场 Date.now()（computed 缓存失效链被切断 ⇒ 分钟数冻结）',
+    file: STALL,
+    pairs: [{ from: '    const now = nowTs.value\n    for (const session of sessions.value) {\n      for (const taskId of Object.keys(session.tasks)) {', to: '    const now = Date.now()\n    for (const session of sessions.value) {\n      for (const taskId of Object.keys(session.tasks)) {' }],
+    expect: ['无事件满 3 分钟 ⇒ 该任务进陈旧集合并给出分钟数'],
   },
   {
     id: 'S7',
+    label: '关闭按钮退回 :disabled="store.hasRunning"（本批的主症状回归）',
+    file: PANEL,
+    pairs: [{ from: ':disabled="store.hasRunning && !stall.hasStalledRunning"', to: ':disabled="store.hasRunning"' }],
+    expect: ['1.8 部分陈旧仍禁用关闭；全部无更新才解禁'],
+  },
+  {
+    id: 'S8',
     label: 'handleClose 退回只在 sessions 空时收起（按钮解禁了但点了没反应）',
     file: PANEL,
     pairs: [{
-      from: '  if (store.sessions.length === 0 || store.hasStalledRunning) store.panelVisible = false',
+      from: '  if (store.sessions.length === 0 || stall.hasStalledRunning) store.panelVisible = false',
       to: '  if (store.sessions.length === 0) store.panelVisible = false',
     }],
     expect: ['1.8 关闭 ≠ 取消：只隐藏可见性，不动 sessions、不碰取消/重试入口'],
   },
   {
-    id: 'S8',
-    label: 'Session 不再将分钟数传给任务行（任务行永远看不到无更新）',
+    id: 'S9',
+    label: 'Session 不再把分钟数传给任务行（任务行永远看不到无更新）',
     file: SESSION,
-    pairs: [{ from: ':stall-minutes="store.taskStallMinutes(taskId)"', to: ':stall-minutes="0"' }],
-    expect: ['1.8 任务行按 store 的分钟数追加后缀，未陈旧的行不得追加'],
+    pairs: [{ from: ':stall-minutes="stall.taskStallMinutes(taskId)"', to: ':stall-minutes="0"' }],
+    expect: ['1.8 任务行按真实无更新分钟数追加后缀，未陈旧的行不得追加'],
+  },
+  {
+    // 这一条钉的是"派生层不得退回普通对象"（ComputedRef 不解包 ⇒ 模板恒为真值）。
+    id: 'S10',
+    label: 'publicApi 退回普通对象（模板拿到 ComputedRef ⇒ 徽标恒真、转圈永不停）',
+    file: STALL,
+    pairs: [{ from: '  const publicApi = reactive({', to: '  const publicApi = ({' }],
+    expect: [
+      '1.8 全部无更新时头部徽标转中性文案并停掉转圈',
+      '1.8 部分陈旧仍禁用关闭；全部无更新才解禁',
+    ],
   },
 ]
 
