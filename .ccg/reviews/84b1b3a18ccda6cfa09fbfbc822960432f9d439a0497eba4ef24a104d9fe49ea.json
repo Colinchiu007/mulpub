@@ -52,10 +52,155 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i1",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4237#issuecomment-6336826085"
+      },
+      {
+        "id": "i4",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4237#issuecomment-6336826085"
+      },
+      {
+        "id": "i5",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4237#issuecomment-6336826085"
+      },
+      {
+        "id": "i6",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4237#issuecomment-6336826085"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "reclaimLoginSession uses stale module-level capturedPartitions.has(name) for slot partitions when o.captured is undefined, defeating per-round isolation for reused auth-auth-<platform>-slot directories.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4237#issuecomment-6336826085",
+          "reviewedAt": "2026-10-22T09:00:07.756Z"
+        },
+        "prosecution": "指控制得对：reclaimLoginSession 在 o.captured === undefined 时仍回落到模块级 capturedPartitions，而该 Set 以**分区名**为键、槽位跨轮次同名 ⇒ 上一轮成功会让这一轮被判成「已取证」⇒ close 阶段不清槽位。失败场景：用户登录 A 成功（槽位入 Set）→ 关掉 → 换 B 走同一槽位（本轮未取到凭证）→ 若本轮调用方漏传 captured，槽位里 A 的会话被当作「有据可留」而不清。",
+        "defense": "指控描述的代码路径存在，但**它不是隔离路径**：① 隔离由「导航前的开局清」保证 —— auth-login-slot.navigateAfterSlotCleanup 无条件清槽位（clearStorageData，保留 HTTP 缓存）且**发生在 loadURL 之前**，下一轮登录开始时上一轮的会话一定已被清掉；② close 阶段的 captured 只决定「这次会话要不要留作发布链兜底」，不参与隔离判定；③ 生产路径上唯一的调用方 AuthViewManager.close **显式**传 captured（= this._currentAttemptCaptured），回落分支走不到；④ 走不到的回落分支现在还会记一条 login-slot-captured-missing warn 点名（新增 + 已登记进 notify 契约清单）。",
+        "verdict": "dismissed",
+        "rationale": "可验证依据：① auth-login-slot.js 的 navigateAfterSlotCleanup 在 navigate() 之前 await 完清理（测试：「导航前先清掉槽位里的旧凭证」断言调用顺序为 [wipe, load]）；② auth-view-manager.js close() 显式传 captured；③ 回落分支有 warn（auth-partition-reclaim.js）。⇒ 隔离不依赖 captured，回落分支即使被误用也不会造成「第二个账号被静默存成第一个」。（若把回落分支直接删掉亦可，但那是改门禁语义，另议。）"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/*.json embeds environment fragments (fake-ip ranges, proxy ports, internal hosts) in version-controlled artifacts, risking infrastructure leakage.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控成立过：早期判定记录里带出过本机路由地址、控制口端口、未授权响应串与 fake-ip 段字面量（由 pre-commit 的「文档敏感词采样」从排障手册取样带进去），属本机网络特征入库。",
+        "defense": "当前状态已不复现：① 排障手册里的本机地址/端口/响应串/fake-ip 段字面量已全部去除（实测串扫描命中 0 次）；② **具体的 OpenClash 域清单已移出仓内文档**（属本机网络配置），改放 PR 评论与用户侧回复；③ 判定记录由 pre-commit 依据**已脱敏的文档**重新生成 ⇒ 记录内容随之变化。至于「给 pre-commit 加敏感串过滤器」：那是改**门禁本身**（改「谁来守门」），按仓规须人工过目，不能夹带在本 PR。",
+        "verdict": "dismissed",
+        "rationale": "可验证依据：对当前判定记录（84b1b3a1…）与本刀 5 个文档做串扫描（192.168 / 9090 / 环境变量名 / fake-ip 段 / 未授权响应），命中均为 0 次。「加 pre-commit 过滤器」另开 change 人工过目，不在本 PR 夹带。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "navigateAfterSlotCleanup mixes Promise.race, manual timer.unref(), and nested callbacks; fragile across Electron updates.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "结构判断有一定道理：navigateAfterSlotCleanup 里 Promise.race + 手动 timer.unref() + 嵌套回调叠在一起，Electron 升级或后人改动时容易出错。",
+        "defense": "超时与 unref **全在 auth-login-slot 一处**（withSlotWipeTimeout），调用方（auth-view-manager / qrcode-login）只传一个回调，不接触任何计时细节；该模块有 15 条自有用例覆盖（超时返回 timeout、非布尔抛错、清理顺序、会话被替换则不导航、显式超时预算）。",
+        "verdict": "dismissed",
+        "rationale": "可验证依据：auth-login-slot.test.js 的 15 条用例；两个调用点的代码里没有 Promise.race / setTimeout。「把超时封装成单一 await wipeSlot(session)」的诉求在现状下已由 withSlotWipeTimeout + wipeLoginSlotCredentials 满足。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "this._loginLoadStartedAt is assigned before cleanup, so load-time metrics include cleanup delay and corrupt performance diagnostics.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4237#issuecomment-6336826085",
+          "reviewedAt": "2026-10-22T09:00:07.756Z"
+        },
+        "prosecution": "担心首屏耗时读数把清理耗时算进去：_loginLoadStartedAt 在清理之前就赋了值。",
+        "defense": "读数用的是**导航那一刻**的基线：navigate 回调里在 loadURL 之前重新赋值，did-finish-load 读到的必然是导航后的基线；开局那次赋值只是「清理期间还没导航」的兜底，导航一旦发生就被覆盖 ⇒ 首屏耗时**不含**清理耗时。",
+        "verdict": "dismissed",
+        "rationale": "可验证依据：auth-view-manager.js 里 `this._loginLoadStartedAt = Date.now()` 出现在 navigate 回调内部（loadURL 之前），开局赋值仅作兜底且在导航时被覆盖；日志用 `base ? Date.now() - base : -1`，基线缺失时记 -1 而不是伪造数值。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "Default wipe timeout is 1200ms; under disk load navigation delays by up to 1.2s for every login attempt.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4237#issuecomment-6336826085",
+          "reviewedAt": "2026-10-22T09:00:07.756Z"
+        },
+        "prosecution": "1200ms 的清理超时上限意味着磁盘繁忙时每次登录最多多等 1.2 秒。",
+        "defense": "该上限是**卡死兜底**而非常态：正常路径上 clearStorageData 是毫秒级本机磁盘操作（实测无感）；把上限调到 300ms 的风险是「清理还在进行就被判超时」⇒ 隔离被削弱 —— 而隔离失败的代价（第二个账号被静默存成第一个）远大于 1.2 秒的等待。",
+        "verdict": "dismissed",
+        "rationale": "可验证依据：wipeLoginSlotCredentials 的清理是单次 clearStorageData（无网络、无跨进程），正常耗时 ms 级；上限可通过环境变量覆盖（名见代码注释）以便现场调整；超时后仍放行导航且记 warn（不阻断登录）。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "Three new modules (auth-login-slot, login-network-monitor, auth-view-saved-account) added without dependency docs or architecture notes.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4237#issuecomment-6336826085",
+          "reviewedAt": "2026-10-22T09:00:07.756Z"
+        },
+        "prosecution": "新增三个模块（auth-login-slot / login-network-monitor / auth-view-saved-account）缺少依赖方向说明与架构注记。",
+        "defense": "auth-login-slot.js 头部已写明**单向依赖**（回收模块 → 槽位模块；槽位模块绝不 require 回收模块，否则成环），并指明两份「auth-<accountId>」实现由回环契约锁钉在一起；auth-partition-reclaim.js 头部也写了同一方向。另两个模块的依赖面极窄（login-network-monitor 不依赖任何仓内模块；auth-view-saved-account 只依赖 electron + platform-definitions + auth-view-session）。",
+        "verdict": "dismissed",
+        "rationale": "可验证依据：auth-login-slot.js 与 auth-partition-reclaim.js 头部的依赖方向注释；两个新模块的 require 列表（无反向依赖）。「给所有新模块补统一架构注记」属文档完善项，不构成正确性缺陷。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-22T09:02:58.222Z"
   }
 }
