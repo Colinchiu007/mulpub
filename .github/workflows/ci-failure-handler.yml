@@ -15,7 +15,7 @@ on:
   workflow_run:
     # 不变量（由 scripts/check-schedule-failure-watch.test.js 的 Gate 2b13 机械守住，两条方向都要成立）：
     #   ① 凡带 `on.schedule:` 的作业必须出现在这份名单里 —— 定时作业没有 PR、没有人在盯，
-    #      挂十天也不会在任何合并路径上显形（Cleanup Artifacts 连红 8 天就是这么漏过去的）；
+    #      挂十天也不会在任何合并路径上显形（Cleanup Artifacts 的定时 run 连红 9 次就是这么漏过去的）；
     #   ② 名单里的每个名字必须还能在 .github/workflows/*.yml 的 `name:` 上找到 —— 改名或删作业
     #      而名单留着，读起来像"已覆盖"，实际那条永远不会触发。
     workflows: [
