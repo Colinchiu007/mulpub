@@ -611,6 +611,26 @@ PAYMENT_PROVIDER=none   # 然后重启服务
 效果：`/me/checkout` 恢复 503 `PAYMENT_PROVIDER_UNAVAILABLE`，前端回到「支付通道暂未开放」；
 已产生的 `pending` 订单不会被清理（它们永远不会 `paid`，无副作用）；已生效的订阅不受影响。
 
+## 15.9 ⚠️ 已知限制：支付回调不落 `identity_webhook_events`（2026-10-23 核对）
+
+§5.3 写的是「`identity_webhook_events` 复用为支付 outbox」，但实现里**没有写这张表**：
+
+| 位点 | 事实 |
+|---|---|
+| `_handlePaymentWebhook` | 验签 → `settlePaymentWebhook` → 回 200，全程**不 INSERT** 任何事件行 |
+| `settlePaymentWebhook` | 幂等靠 `markOrderPaid` 的条件更新 + `identity_subscriptions.provider_reference` UNIQUE，不靠事件表 |
+
+**影响**：回调到达/处理**没有持久化记录**，事后追查只能翻服务端日志（`hook="payment-webhook"`）。
+
+**不影响**：幂等（E2E-4）与验签拒绝（E2E-5）仍然成立 —— 前者靠 UNIQUE、后者靠 401，都不依赖事件表。
+
+**建议的补法**（下一轮，非本次）：在 `_handlePaymentWebhook` 里验签通过后、结算之前，
+按 `identity_webhook_events` 既有形状插一行（`provider='wechat_pay'`、`auth_subject=<orderId>`、
+`event=<归一化类型>`、`status='processing'`），结算后置 `processed` + 写 `result`。
+唯一键 `(provider, id)` 已能承接 `Wechatpay-Nonce` 或 `transaction_id` 作为幂等 id。
+
+> 记这一条的理由：PRD 说了「复用」，代码没做 —— **文档与实现各说一套**。
+> 这类不一致比"没做"更危险，因为读文档的人会以为有。
 ## 16. ✅ 已修复：provider 从未被构造（2026-10-22 发现并当日修复）
 
 > 本节记录的是一条**会让第 15 节全部白做**的缺口。它不属于"配置没做好"，是**代码没接上**。
