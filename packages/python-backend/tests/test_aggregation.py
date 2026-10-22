@@ -801,6 +801,19 @@ def test_length_ranges_max_aligned_with_engine_output_cap():
         assert min_wc <= max_wc, f"{name} 档 min 不得大于 max"
         assert 0 <= min_wc < target_wc <= max_wc, f"{name} 档三值关系被破坏: {(min_wc, max_wc, target_wc)}"
 
+    # 三档的**相对关系**也必须成立：三档 max 放宽到同一个值后，
+    # 区分「精简 / 保持原文 / 扩写」语义的就只剩 target（prompt 里的「目标 N 字」）。
+    # 若 target 的单调关系被改乱（例如把 expand 的 target 调到比 compress 还小），
+    # 三档会名不副实——而这不会触发上面任何一条断言。故把它也钉成契约。
+    compress_target = _LENGTH_RANGES["compress"][2]
+    keep_target = _LENGTH_RANGES["keep"][2]
+    expand_target = _LENGTH_RANGES["expand"][2]
+    assert compress_target < keep_target < expand_target, (
+        "三档 target 的单调关系被破坏（应满足 精简 < 保持原文 < 扩写）："
+        f"compress={compress_target}, keep={keep_target}, expand={expand_target}"
+        "——三档 max 同值后，target 才是区分档位语义的唯一依据"
+    )
+
 
 # ── 11. 回归测试：word_count 兜底 ──────────────────────────────────
 

@@ -113,6 +113,18 @@
   `compress` 100 < 400 ≤ 50000、`expand` 800 < 2500 ≤ 50000。
 - 该不变式由契约测试断言（`test_length_ranges_max_aligned_with_engine_output_cap`）。
 
+### 4.1.1 三档的相对关系（target 单调性）
+
+三档的 `max` 本次统一到同一个值后，**区分「精简 / 保持原文 / 扩写」语义的就只剩 `target`**
+（prompt 里的「目标 N 字」）。因此 target 的相对关系必须保持单调：
+
+```
+compress.target (400) < keep.target (1500) < expand.target (2500)
+```
+
+若这个单调关系被改乱（例如把 `expand` 的 target 调到比 `compress` 还小），三档会名不副实，
+而它**不会**触发上面任何一条单档断言 ⇒ 需单独钉成契约（同一用例内断言）。
+
 ### 4.2 与引擎上限的对齐契约（新增回归锁）
 
 ```
