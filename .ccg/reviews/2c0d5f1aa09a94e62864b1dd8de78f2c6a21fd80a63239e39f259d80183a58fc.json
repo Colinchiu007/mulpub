@@ -1,0 +1,191 @@
+{
+  "sha": "6b8815eacd361e2b845fa7023f7621b0a8372f58",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2c0d5f1aa09a94e62864b1dd8de78f2c6a21fd80a63239e39f259d80183a58fc",
+  "decidedAt": "2026-10-22T11:11:49.779Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "claude(critic, 第四轮真外部交付) + self-play adjudication",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "domains": [
+          "datamigration"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i1",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6345511957"
+      },
+      {
+        "id": "i3",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6345511957"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "`deepReview.requiresExternalReview` 保留 `i3` (datamigration) 为 Warning 且要求外部复核，但 PR 差量中无任何数据迁移代码；决策说明承认是措辞触发，仍强制保留并写“手写 tier=external”。这等于把引擎规则当成不可撤回的假阳性。",
+        "highRiskDomains": [
+          "datamigration"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6345511957",
+          "reviewedAt": "2026-10-22T19:40:00Z"
+        },
+        "prosecution": "引擎把 i3 留在 requiresExternalReview 并要求\"手写 tier=external\"，等于把一条措辞触发的假阳性当成不可撤回的结论。",
+        "defense": "我没有改引擎产出，而是走了它自己给的合规出口：补一次真外部复核并把出处公开，成本一次性、判据不动。",
+        "verdict": "dismissed",
+        "rationale": "建议的\"dismiss 并移除 requiresExternalReview\"属改\"谁来守门\"，不由本 PR 动（AGENTS 明令该类改动须人工过目）。域标签 datamigration 的成因（classifyHighRisk 的措辞正则）双方一致，分歧只在处置：本 PR 差量里确实没有迁移代码，而解除阻断的正解是给出处而不是删判据。公开出处见本条评论，逐条裁决同时落在本文件与执行记录。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "`.ccg/reviews/*.json` 及 `openspec/records/schedule-failure-watch.md` 引用 `https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6338792436` 等 URL 作为“真外部交付”证据，但该 PR 与评论在本仓无对应提交/内容，属于合成证据被写成真实审计产物。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "记录与产物引用 https://github.com/.../pull/4234#issuecomment-… 作为\"真外部交付\"证据，但本仓 HEAD 内没有对应提交或内容 ⇒ 合成证据被写成真实审计产物。",
+        "defense": "评论是 gh CLI 真实创建并回显 URL 的对象；本仓 HEAD 里没有它们，是因为它们本来就不该在仓库里（合并后回读的证据写在 PR 评论、不写回文件，是 AGENTS 收尾清单第 6 条的明文口径）。",
+        "verdict": "dismissed",
+        "rationale": "可反证，不需要解释：`gh api repos/Colinchiu007/mulpub/issues/comments/6339171412` 现场返回 `id=6339171412 PR#4234 created=2026-10-22T11:03:21Z author=Colinchiu007`，`…/6338792436`、`…/6345511957` 同样存在 ⇒ 非 synthetic。采纳其剩余的那一半（闭环不该只有一个指针）：dual 产物的 closureNote 与记录里同时给出执行记录路径和公开评论 URL，并逐字写明 tier 由会话手写。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "`.gitignore` 新增 `!scripts/check-schedule-failure-watch.mutation.js`（变异驱动入库），而该脚本对受跟踪文件执行 `fs.writeFileSync` 就地替换，无原子回滚；与“只读/零真实资源变更”的门禁声明矛盾。",
+        "highRiskDomains": [
+          "datamigration"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6345511957",
+          "reviewedAt": "2026-10-22T19:40:00Z"
+        },
+        "prosecution": ".gitignore 用 negation 把变异驱动纳入跟踪，而该脚本对受跟踪文件就地 fs.writeFileSync、无原子回滚，这与门禁声明的\"只读/零真实资源变更\"矛盾。",
+        "defense": "那句声明讲的是 CI 步骤：Gate 2b13 只有 judge 与 test 两条命令，workflows 目录里 mutation.js 命中 0；驱动侧另有 dirty 前置、写后回读、还原后 md5 + 重跑被测锁三道。",
+        "verdict": "upheld",
+        "rationale": "矛盾的是**措辞**不是行为，而措辞确实会让人读成\"入库了一个会改受跟踪文件的工具却宣称只读\" ⇒ 已把那句话按语义切开，写明\"CI 一次都不点名跑它 + 驱动靠哪三道自缚\"。不采纳另一半（破坏性工具不该入库/应放独立目录）：与 #4199 及第一轮 i4 的既有裁决正面冲突 —— 不入库的取证工具等于把反证退化成\"作者说跑过\"，这条对撞在记录里点名过，不静默选边。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`tier=external` 被声明为“会话手写（不是工具产物）”，同时 `scripts/ccg-review-writeback.js` 对自扮演收口一律拒写（`reason=not-closed`）。这形成自我豁免：外审等级由同一会话手动声明，工具拒绝写入，审计链无法独立复核。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "tier=external 由同一会话手写，而唯一生产方 ccg-review-writeback.js 对自扮演收口一律拒写 ⇒ 外审等级自我豁免，审计链无法独立复核。",
+        "defense": "本仓的判据只验形态与就地自洽（delivery@ 重算、路径存在性、URL 形状），本来就不承诺\"验真伪\"；AGENTS 也明文允许手写 tier，但要求 closureNote 声明\"由会话手写\"。",
+        "verdict": "upheld",
+        "rationale": "这条打在机制上，打对了，所以处置不是辩解而是**把来源交给工具**：本轮改走深审链（真 critic 交付 + 已填完的裁决模板 + i1/i3 的 externalReview 三格），由 writeback 的五条合取自行决定是否写 tier。做到 ⇒ 记\"工具产物\"；做不到 ⇒ 记\"仍由会话手写\"并点名缺哪条合取。两种结果都如实入库，不假装闭合。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "`.adversarial/ccg-deep-980bb7b0/adjudication.json` 与 `ccg-deep-707ac4fa/` 被多次引用为已填写的裁决存档，但本 diff 中未包含这些目录内容；审计记录指向缺失文件。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "记录多处引用 .adversarial/ccg-deep-*/adjudication.json 作为已填写的裁决存档，但这些目录不在 diff 里 ⇒ 审计指针悬空。",
+        "defense": "裁决全文在每轮的逐条处置表里有文字副本，第四轮另有公开评论副本，所以\"读不到 json\"不等于\"读不到处置\"。",
+        "verdict": "upheld",
+        "rationale": "事实成立：`.adversarial/` 被 `.gitignore:476` 忽略，克隆者确实读不到 ⇒ 已在记录里加\"出处可核性\"一节明写这一点，并把\"记录内逐条表 + 公开评论\"列为并列出处。不采纳\"把裁决文件整份入库\"：那会把 gitignored 的本机工作产物塞进受 `check-doc-abs-paths` / `check-text-encoding-integrity` 扫描的文件集，制造新的假阳面。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "`mutation.js` 在运行前 `delete env['GIT_DIR']` 等变量以“避免压过 cwd”，随后在 `T9` 运行 `git ls-files -- -- scripts/check-...mutation.js` 以验证文件被追踪；删除 GIT 变量会破坏 `git ls-files` 的仓上下文，导致追踪检查本身不可靠。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "驱动运行前删除 GIT_DIR 等变量，随后 T9 用 git ls-files 验证自身被跟踪；删除这些变量会破坏 git 的仓上下文 ⇒ 追踪检查不可靠。",
+        "defense": "剥离变量正是为了让 git 回到 cwd 发现仓库；本仓实测过反方向：变量保留会静默压过 cwd，夹具读到别人的仓且不报错。",
+        "verdict": "dismissed",
+        "rationale": "方向反了，且失效形态是 fail-closed：`git ls-files` 取不到该文件 ⇒ T9 判\"驱动未被跟踪\"并红，不存在\"探针坏了却报通过\"。建议改用显式 `--work-tree/--git-dir` 会把被测性质从\"从 cwd 发现仓库\"换成\"按传参发现仓库\"，等于测了别的东西。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "finding": "`quality-gate.yml` 新增 `Gate 2b13` 直接运行 `judge()`（依赖 `process.cwd()` 默认为 `SWD_REPO`），而 `mutation.js` 会就地修改 `.github/workflows/` 与 `scripts/` 文件；若变异未完全还原，后续 CI 门禁会在被污染的源上给出错误结论。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "Gate 2b13 直接运行 judge（依赖 process.cwd），而驱动会就地改 .github/workflows 与 scripts；变异若未完全还原，后续 CI 会在污染源上给错误结论。",
+        "defense": "CI 不跑驱动（workflows 目录里 mutation.js 命中 0），且 CI 作业跑在 fresh checkout 上；本地一侧有写后回读、还原后回读、末轮 md5 + 重跑被测锁，崩溃后下一次运行先 REFUSE。",
+        "verdict": "dismissed",
+        "rationale": "前提不成立 ⇒ 结论不成立。建议里\"执行前验证文件与 HEAD 一致\"这一半已由 dirty 前置覆盖（实测打 REFUSE 并 exit 2），不再重复加一道。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-22T16:17:51.625Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4234#issuecomment-6345511957",
+    "closureNote": "第 4 轮（评审提交 e397de22，rebase 到 origin/main 之后跑，critic=claude，基线 1201 行）：8 条问题、待裁决 7 条 —— i3/i4/i5 upheld 且已落地（CI 步骤与本地驱动的措辞切开、tier 来源改走深审链、出处可核性一节补上），i1/i2/i6/i7 dismissed 且各附可复核反证。引擎给出的判定是 self_play_blocked（阻断 2 条 = i4/i5），根因是 blockingFromAdjudication 对任何 upheld 一律计阻断、不看是否已修，所以 self_play_resolved 在\"诚实标 upheld\"的前提下机制上不可达；本仓的闭环出口是把 status 置为 needs_revision 并写明逐条处置出处（主干先例 0d2be3f84008 同形）。两条高危域条目 i1/i3 的 externalReview 三格由引擎自己认下（产物里 externallyReviewed 两条 in place）⇒ 高危域这一档不是靠自扮演豁免过的。tier=external 仍由会话手写，而这一次是**实测**出来的不可达：第四轮让 writeback 跑到了它面前（复用存档 critique + 已填完的裁决、跳过模型调用），它以 reason=not-closed detail=status=\"self_play_blocked\" 拒写、rc=1 —— 工具写 tier 的前提是闭环 status，而闭环 status 在有任何 upheld 时机制上拿不到。"
+  }
+}
