@@ -153,9 +153,9 @@ max-lines 账本里）⇒ **本片不得新增 locale key**，只能在**既有 
 
 | 档 | 改前 | 改后（中文） | 改后（英文） |
 |---|---|---|---|
-| keep | 保持原文 | 保持原文（约 1500 字） | Keep original (~1500 words) |
-| compress | 精简 | 精简（约 800 字） | Compress (~800 words) |
-| expand | 扩写 | 扩写（约 2500 字） | Expand (~2500 words) |
+| keep | 保持原文 | 保持原文（约 1500 字） | Keep original (~1500 chars) |
+| compress | 精简 | 精简（约 800 字） | Compress (~800 chars) |
+| expand | 扩写 | 扩写（约 2500 字） | Expand (~2500 chars) |
 
 ### 6.2 交互流程
 
@@ -186,7 +186,8 @@ max-lines 账本里）⇒ **本片不得新增 locale key**，只能在**既有 
 - locale 改动方式：**在既有 key 的同一行内**改成带 `{count}` 的模板
   （`rewriteLengthKeep: '保持原文（约 {count} 字）'` 等），
   **不新增 key**（collection locale 已贴 500 行天花板，新增 key 会触发行数门禁）。
-- 英文用 `words`（`(~{count} words)`）。
+- 英文用 `chars`（`(~{count} chars)`）—— `{count}` 的口径是**字符数**，不是词数
+  （`words` 会让「800 chars 的中文」在英文里被读成「800 words」，长度预期差一个量级）。
 
 ---
 
