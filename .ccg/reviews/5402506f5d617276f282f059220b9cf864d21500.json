@@ -5,9 +5,82 @@
   "deepReview": {
     "required": true,
     "layer": "decision",
-    "status": "error",
-    "performedBy": "opencode",
+    "status": "blocked",
+    "performedBy": "claude",
     "objectType": "plan",
+    "minScore": 7,
+    "dimensionScores": {
+      "completeness": 7,
+      "consistency": 6,
+      "clarity": 7,
+      "feasibility": 6,
+      "security": 5
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "dimension": "security",
+        "finding": "仅依赖内存实例字段做「导入进行中」标记，无持久化锁。若进程在 rename 间崩溃重启，标记丢失，_ensureKit() 会在 film-kit 变 .bak 且无标记时静默回落随包 min 版（穿透 S11），.bak 也无法自动清理。",
+        "suggestion": "增加 userData/film-kit.import-lock 文件标记（含 PID+时间戳），重启检测时进入恢复：若 .bak 存在则回滚，若 staging 存在则完成换入，否则删除锁并继续。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "dimension": "security",
+        "finding": "白名单同步仅靠测试断言（=== 比对），无运行时锁。若 SCHEMA.md 更新而代码白名单未同步，运行时导入仍按旧契约执行，后续消费方可能读到不完整 kit 而静默出错。",
+        "suggestion": "在 loadFilmKit 入口增加运行时断言：解析 SCHEMA.md 并与内置白名单逐行比对，不一致抛 SCHEMA_DRIFT 错误。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "images/ 决定不校验内容却仍拷入 userData。虽当前无消费方，但已落盘的恶意构造 .webp（多格式文件）在后续批次增加消费时将成为已落盘攻击面。",
+        "suggestion": "即使不消费，也应校验 images/ 文件头签名（RIFF....WEBP），拒绝无签名或可疑多格式文件。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "严格模式对源目录含非白名单文件的处理未明确定义。判据⑤说「不拷入 staging」，但 S8 说「严格模式失败⇒不落盘」。若源含 .git，是拒绝整个导入还是静默跳过？方案未锁定。",
+        "suggestion": "明确：严格模式下源目录存在任何非白名单文件或目录⇒整体拒绝（非跳过），并在 SCHEMA.md 注明。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "feasibility",
+        "finding": "大小上限（256MB/32MB）已实测拍数，但未设文件数上限。随包 36 文件，完整库可能数千，拷入无限制文件数可能耗尽 inode 或内存。",
+        "suggestion": "在 kit-import.js 常量中增加最大文件数（如 5000），超限与体积超限并列拒绝。"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "clarity",
+        "finding": "成功换入后立即删除 .bak，方案未说明若后续发现新 kit 损坏（非导入时），用户如何手动回退（.bak 已删）。无历史版本兜底。",
+        "suggestion": "在 SCHEMA.md 和 UI 提示中注明：成功后 .bak 不保留，接受无历史版本策略；若需备份由用户自行操作。"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "dimension": "consistency",
+        "finding": "i18n 键名前缀 filmEngineering.auto.* 与现有模块命名空间（film-engineering-auto.js、preload/film-engineering.js）未对齐，渲染端可能找不到翻译。",
+        "suggestion": "确认键名前缀与实际模块路径一致，建议统一为 filmEngineering.*（去掉 auto.），避免找不到翻译。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "completeness",
+        "finding": "未提及媒体路径同步。shot-library.json / reference-registry.json 引用的媒体路径指向 kit 外部产物目录，导入新 kit 后这些外部路径是否仍有效？未在方案中说明。",
+        "suggestion": "在方案中补充：导入仅替换 userData/film-kit，外部媒体产物目录不在本批范围，消费方需自行确保路径有效（或在后续批次处理）。"
+      }
+    ],
+    "unresolvedBySeverity": {
+      "Critical": 2,
+      "High": 0,
+      "Warning": 3,
+      "Info": 3
+    },
+    "scoreThreshold": 8,
     "rounds": [
       {
         "round": 1,
@@ -16,17 +89,31 @@
         "minScore": 7,
         "dimensionScores": {
           "completeness": 7,
-          "consistency": 8,
+          "consistency": 7,
           "clarity": 9,
           "feasibility": 7,
-          "security": 7
+          "security": 9
+        }
+      },
+      {
+        "round": 2,
+        "issues": 8,
+        "critical": 2,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 7,
+          "consistency": 6,
+          "clarity": 7,
+          "feasibility": 6,
+          "security": 5
         }
       }
     ],
-    "error": "输入超长：10858 字符，超过 opencode 后端上限 7800 字符（实测边界 (8125, 8145]，非文档承诺）。该后端会同步拒绝（~120ms、exit 1、无任何错误信息）。",
-    "validationErrors": null,
-    "note": "第 1 轮修订失败",
+    "roundsRun": 2,
+    "roundsMax": 3,
+    "stoppedBy": "regressed",
+    "note": "跑满 3 轮仍有 2 条 Critical 未解决，必须由出方案方逐条回应（可拒绝但须给证据）后才能动手",
     "artifacts": ".adversarial\\ccg-plan-pr3b-import-design-claude",
-    "at": "2026-10-22T10:43:24.084Z"
+    "at": "2026-10-22T10:58:14.200Z"
   }
 }

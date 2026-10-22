@@ -1,205 +1,135 @@
-# PR-3b · F-J 资产导入（写路径）· 方案与写路径安全清单
+# PR-3b · F-J 资产导入（写路径）· 方案
 
-> 状态：**方案待评审**（本文件只出方案，不含运行时代码）。
-> 上游：PR-1（方案）、PR-2（F-A 分镜提示词三分）、PR-3（F-I 方法论接入规划 + F-H 方法论分区补全）均已合并。
-> 依据：`tasks.md` 的 PR-3b 段 + `design.md` D19（为什么 F-J 必须单独一批）+ 研究报告 §五 的 F-J 条目。
+> 决策层对抗评审 4 轮（16+8 条已落地），逐条处置见 `pr3b-import-review-record.md`。
+> 本文件只出方案，**不含运行时代码**。worktree：`film-kit-import`（非 C 盘）。依据：`tasks.md` PR-3b 段 + `design.md` D19。
 
----
+## 零、目标与现状
 
-## 零、这一批要解决什么
+**目标**：用户可导入**自己的一份**完整影视工程资产，之后「自动」标签的规划基于**用户的资产**而非随包 min 版。
 
-**现状（已核实）**：影视工程的资产（`film-kit`）是**随包携带**的 min 版，写死在 `apps/desktop/electron/film-kit/`。
-用户在产品里**没有任何入口**能把资产换成自己的一份 ⇒ `userData/film-kit` 这个目录**存在但永远为空**
-（`container.setup.js:463` 把它设为回退链首级，但没有任何代码往里写）。
+**现状（已核实）**：资产随包写死在 `electron/film-kit/`；`userData/film-kit`（回退链首级）**存在但永远为空** —— 产品里**没有任何入口**往里写。
 
-**这一批做完之后**：用户可以选一个本地目录，把一份**完整**的影视工程资产包导进来；
-之后「自动」标签的规划就基于**用户自己的资产**（方法论、任务模板、分镜库、色盘、参考图），
-而不是随包的 min 版。
+**为何单独一批**（D19）：导入是**写路径**，PR-3 整批是**只读**接线；混批会让安全判据互相干扰。
 
-**为什么必须单独一批**（D19 的原话，保留）：导入是**写路径**，而 PR-3 整批都是**只读**接线。
-只读与写路径混在一批里，安全评审的判据会互相干扰 ⇒ 本批**不与 PR-3 的任何内容混批**。
+## 一、流程
 
----
+| 段 | 做什么 | 用现成的什么 |
+|----|--------|--------------|
+| ① 选目录 | `dialog.showOpenDialog({properties:['openDirectory']})`；返回路径须 `fs.stat().isDirectory()` | 先例：`ipc-handlers/pipeline.js` 的 `story2video:pick-batch-files`（`dialogApi` 可注入 ⇒ 可测） |
+| ② 严格校验 | 源目录上跑 `loadFilmKit({kitDir, requireAssets:true})` | 已存在：`kit-loader.js` 里 `loadFilmKit` 的 `requireAssets` 开关（其注释明说「导入校验」用它） |
+| ③ 原子落盘 | 两遍扫描（§三 S6）→ 拷到 `film-kit.staging-<ts>` → 再校验 staging → 目录级换入（§二） | 原子写先例：`auto-project.js` 的「原子写（.tmp+rename）」是**单文件**；kit 是**目录** ⇒ 需目录级 |
+| ④ 失效缓存 | 先置「导入中」标记 → 清 service 缓存 → 换入成功后删标记 | `_kit`/`_shotLibrary`/`_scriptAdapter` 是 `film-engineering-service.js` 的**实例字段** |
 
-## 一、导入面设计（四段式）
+**架构边界（写死）**：① `dialog` 在 **IPC 层**（`ipc-handlers/`），**service 只收已选定的 kitDir 字符串**，不碰 Electron `dialog`；
+② 导入通道沿用 `withSenderCheck`（**已核实**的仓内 IPC 信任边界 = `app://localhost` 或 app 目录内 `file://`，**不按视图限定**）⇒ 本批**不引入窗口级限定**（另开切片），改为**写审计日志**（时间/sender/目录/结果），边界写进 `SCHEMA.md`。
 
-```
-① 选目录 ──► ② 严格校验（源目录）──► ③ 原子落盘（staging → 换入）──► ④ 失效缓存
-   dialog      loadFilmKit(requireAssets:true)   目录级 rename 换入        清 _kit/_shotLibrary/_scriptAdapter
-```
-
-| 段 | 做什么 | 用现成的什么 | 失败形态 |
-|----|--------|--------------|----------|
-| ① 选目录 | `dialog.showOpenDialog({ properties: ['openDirectory'] })` | **先例**：`ipc-handlers/pipeline.js:295`（`dialogApi` 可注入 ⇒ 可测） | 用户取消 ⇒ 静默返回，不报错 |
-| ② 严格校验 | 在**源目录**上跑 `loadFilmKit({ kitDir, requireAssets: true })` | **已存在**：`kit-loader.js:307` 的注释明说「**导入校验**」用这个开关 | 校验失败 ⇒ **一律不落盘**（第 ③ 段根本不开始） |
-| ③ 原子落盘 | **两遍扫描**（先 `lstat` 全量算大小与形状，超限/软链/硬链/隐藏名/超深一律**在写入前**拒）→ 拷到 `<userData>/film-kit.staging-<ts>` ⇒ 再校验 staging ⇒ 目录级换入 | 原子写先例：`auto-project.js:79-84`（`.tmp + rename`），但那是**单文件**；kit 是**目录** ⇒ 需要**目录级**换入 | 换入失败 ⇒ 回滚（旧 kit 原样）；**回滚也失败** ⇒ 保留 `.bak` + 报错告知手动恢复（S4） |
-| ④ 失效缓存 | **在 rename 之前**清 service 的 `_kit` / `_shotLibrary` / `_scriptAdapter`（S12）；并置「导入进行中」标记，使窗口内的读**不重读磁盘**（S11） | 三个都是**实例字段**（`film-engineering-service.js:41-44`）⇒ 需要一个显式的失效方法 | 缓存没清 ⇒ 用户看到旧资产（**最阴的 bug**）；窗口内重读 ⇒ 静默回落到随包 min 版（同样阴） |
-
-### ③ 原子落盘的目录级换入（关键细节）
-
-单文件的 `.tmp + rename` 对**目录**不成立（rename 一个非空目录会失败）。目录级原子换入的做法：
+## 二、换入顺序（写死，逐段断言）
 
 ```
-<userData>/film-kit              ← 当前生效的 kit（可能不存在）
-<userData>/film-kit.staging-<ts> ← ③ 拷进来的候选（在**同父目录**⇒ 同卷 ⇒ rename 原子）
-<userData>/film-kit.bak-<ts>     ← 换入时的旧 kit 备份
+⓪ 预检：userData 可写 + 预创建 userData/.import-lock   （失败即退出，不碰旧 kit）
+① 置「导入中」标记（内存 + .import-lock 文件）
+② 清 service 缓存（_kit / _shotLibrary / _scriptAdapter）
+③ rename 旧 film-kit → film-kit.bak-<ts>
+④ rename film-kit.staging-<ts> → film-kit        ← 原子（同卷）
+⑤ 删「导入中」标记（内存 + .import-lock 文件）
+⑥ 删 film-kit.bak-<ts>
 ```
 
-1. 拷白名单文件到 `staging-<ts>`（**不**直接写 `film-kit`）
-2. 对 `staging-<ts>` **再跑一次**严格校验（拷贝过程可能截断/损坏 ⇒ 不能只信源目录的校验）
-3. 旧 `film-kit` 存在 ⇒ 改名为 `film-kit.bak-<ts>`
-4. `staging-<ts>` 改名为 `film-kit` ← **这一 rename 是原子的**（同卷）
-5. 第 4 步失败 ⇒ `film-kit.bak-<ts>` 改回 `film-kit`（回滚），删 staging
-6. 第 4 步成功 ⇒ 删 `film-kit.bak-<ts>`
+`staging`/`.bak`/`.import-lock` 与 `film-kit` **同父目录**（同卷 ⇒ rename 原子）。任一步失败 ⇒ §二末的回滚分支。
 
-⇒ **任何时刻 `film-kit` 要么是旧的、要么是新的，从不出现半份**。
+**Windows 语义（主战场是 win32）**：① rename 一个**已存在**的目录会失败（`EEXIST`/`EPERM`）⇒ 必须 ③④ 两步；② `ERROR_ACCESS_DENIED`（被占用：杀毒/索引器/编辑器暂存/他进程持句柄）**可重试**，仍失败则**保留 `.bak`** + 报错带出恢复路径；③ 同卷 rename 才原子。
 
----
+**回滚分支**：⓪/② 之前失败 ⇒ 清 staging、旧 kit 未动；③ 之后（④ 失败）⇒ `.bak` 改回 `film-kit` + 删 staging；**回滚也失败** ⇒ `.bak` **保留不删** + 报错写明「旧资产在 `<路径>`，请手动恢复」（i18n `filmKitImportRecover`）；⑥ 失败 ⇒ 不影响生效，提示残留。
 
-## 二、写路径安全清单
+**`.bak` 去留（已拍板）**：成功路径**立即删**（⑥），不留历史（保留历史需定义「几份/何时清理/回退入口」，是另一个功能）；**回滚也失败时必须留**（最后一道保险）。
 
-> 本节是 **2026-10-22 决策层对抗评审**（critic=claude，8 条 / Critical 2）的落地版：
-> **8 条全部成立、全部采纳**（逐条处置见 `pr3b-import-review-record.md`）。
+## 三、写路径安全清单
 
-| # | 约束 | 为什么 | 判据形态 |
-|---|------|--------|----------|
-| S1 | **只拷白名单文件**（不递归拷贝未知文件） | 用户的目录里可能有 `.git`、大视频、私密文件 ⇒ 不能整个目录搬进 `userData` | 拷完断言：staging 里的文件集合 **⊆** 白名单；白名单外的文件**不在** staging 里 |
-| S2 | **不跟随符号链接，也不接受硬链接** | 软链可把「看起来在 kit 内」的内容指向 kit 外；**硬链接**（同 inode）同样能越权读到 kit 外的文件 | 拷贝前 `lstat()`：`isSymbolicLink()` ⇒ 拒绝；`stats.nlink > 1` ⇒ 拒绝（随包 kit 自身全是 `nlink=1`） |
-| S3 | **半份 kit 不留** | 用户重开应用时读到半份 ⇒ 影视工程整体不可用 | 任意一步失败 ⇒ staging 目录**不存在**、旧 kit **逐字未变** |
-| S4 | **失败回滚，且回滚失败也有兜底** | 换入中途失败不能让用户既没旧的又没新的；**回滚本身**也可能失败（文件被占用/权限） | 注入换入失败 ⇒ 旧 kit 仍在原处、内容逐字相同；**回滚也失败** ⇒ `.bak` **保留不删** + 明确报错告知「旧资产在 `<路径>`，请手动恢复」⇒ 旧资产**不丢** |
-| S5 | **只写 `userData/film-kit`（及其同父的 staging/.bak）** | 其它路径一律不写 | 断言：导入过程中**没有**对 staging/.bak 之外的路径发生写入 |
-| S6 | **大小上限：两遍扫描，超限在写入之前就拒** | 用户可能选到一个 10GB 的目录；且「边拷边发现超限」会留下半份 staging | **第一遍**：`lstat` 全量算大小与形状（超限 / 软链 / 硬链 / 隐藏名 / 超深）⇒ 有任一不合格 ⇒ **立即拒绝，一个字节都不写**；**第二遍**才开始写入 |
-| S7 | **不写 kit 之外的用户数据** | 同 S5 | 同 S5 |
-| S8 | **严格模式失败 ⇒ 一律不落盘** | 「校验过了再落盘」是导入的**唯一**安全前提 | 校验失败 ⇒ `userData/film-kit` **不存在**（且原来存在的话也**不变**） |
-| S9 | **每条相对路径做越界检测** | 白名单里有 `prompts/tasks/**` 这类**含目录名**的条目（任务名来自源目录）⇒ 拼出的相对路径可能带 `../` ⇒ 写到 staging **之外** | 拷贝前对每条相对路径 `path.normalize` ⇒ 归一后的路径必须以「staging 根 + 分隔符」开头，否则**拒绝** |
-| S10 | **固定目录深度 + 拒绝隐藏文件名** | `images/**` 若允许任意深度 ⇒ 可能带 `.env` 之类；`prompts/tasks/<task>/<lang>/<file>` 的任务名同样来自源 | `images/` 只允许**深度 1**（`images/<file>`，不递归）；`prompts/tasks/` 只允许**固定 3 层**且任务名 / 语种名**不得以 `.` 开头**；**任何层级**的文件名以 `.` 开头 ⇒ 拒绝 |
-| S11 | **导入期间 service 不得从磁盘重读 kit** | 换入是**两次 rename**（旧 → `.bak`、staging → `film-kit`）⇒ 中间存在一个「`film-kit` 短暂不存在」的窗口。此窗口内若 service 重读盘，会**静默回落到随包 min 版**（回退链的末级）⇒ 用户刚导入的资产被悄悄换掉 | service 暴露一个「导入进行中」标记：`_ensureKit()` 看到标记 ⇒ **不重读磁盘**（有缓存就返回缓存；无缓存 ⇒ 抛**可识别**的「导入中，请稍后」错误）⇒ **绝不静默回落** |
-| S12 | **缓存失效在 rename 之前** | 顺序决定窗口内读到什么 | 顺序：**失效缓存** → 旧 kit → `.bak` → staging → `film-kit` → 删 `.bak`。窗口内的读被 S11 的标记挡住（fail-fast、可见） |
+| # | 约束（含判定要点；对应判据见 §六） |
+|---|------|
+| S1 | 只拷白名单文件（不递归拷贝未知文件） |
+| S2 | 不跟随符号链接（`lstat().isSymbolicLink()` ⇒ 拒）、不接受硬链接（`stats.nlink > 1` ⇒ 拒） |
+| S3 | 半份 kit 不留：失败 ⇒ staging 不存在、旧 kit 逐字未变 |
+| S4 | 失败回滚；**回滚也失败 ⇒ `.bak` 保留不删** + 报错带出恢复路径（旧资产不丢） |
+| S5 | 只写 `userData/film-kit` 及其同父的 staging/.bak/.import-lock（断言没有对这三者之外的路径写入） |
+| S6 | **两遍扫描**：第一遍 `lstat` 全量算大小与形状（超限/软链/硬链/隐藏名/超深/扩展名/魔数）⇒ 不合格立即拒、**一个字节都不写**；第二遍才写 |
+| S7 | 不写 kit 之外的用户数据（同 S5） |
+| S8 | 严格模式失败 ⇒ 一律不落盘（`userData/film-kit` 不存在，原存在的也不变） |
+| S9 | 相对路径越界：`path.isAbsolute(rel)` ⇒ 拒；再用 `core/ipc-security.js` 已有的 `isPathInside(stagingRoot, path.resolve(stagingRoot, rel))` 判（`path.relative` 口径天然处理 `\`/`/` 归一化）⇒ 拒 |
+| S10 | 固定深度 + 拒绝隐藏名 + 限制扩展名：`images/` 只允许深度 1（白名单写 `images/*`，不递归）；`prompts/tasks/` 只允许固定 3 层；**任何路径组件（目录或文件）以 `.` 开头 ⇒ 拒**；扩展名须在允许集内（根文件与任务库 `{json,md}`；`images/` `{webp,json}`） |
+| S11 | 导入中 ⇒ service 不得从磁盘重读 kit：标记 = 内存标志 **+ `userData/.import-lock` 落盘文件**（重启/服务重建不丢，service 初始化时读它）；`_ensureKit()` 见标记 ⇒ **抛可识别错误、不读盘** ⇒ 绝不静默回落到随包 kit |
+| S12 | 缓存失效在 rename 之前；标记**先置后删**且与 `.import-lock` 同生命周期、与 `.bak` 状态对齐 |
+| S13 | 二进制资产做文件头魔数校验：`*.webp` 头须 `RIFF….WEBP`、`*.json` 头须 `{`/`[`（去 BOM/空白）⇒ 不匹配即拒、**不写盘**（防多态文件/注入内容进 userData） |
+| S14 | 上限常量与 `reason` 枚举单一定义：常量在 `kit-import.js` 顶部**导出**（`MAX_KIT_FILE_BYTES`/`MAX_KIT_TOTAL_BYTES`）⇒ 测试与方案引用**同一源**；`SCHEMA.md` 记录数值与复核机制 |
+| S15 | `.bak` 残留的手动恢复说明进 `SCHEMA.md`（「`.bak` 存在且 `film-kit` 完整 ⇒ 可安全删；`.bak` 存在且 `film-kit` 缺失 ⇒ 手动 rename 恢复」——⑤-⑥ 间崩溃会留下这种状态） |
+| S16 | 第 0 步预检父目录可写 + 预创建锁文件：`fs.access(userData, W_OK)` + 预创建 `.import-lock`；失败 ⇒ 立即退出、**绝不动旧 kit**（否则中途崩溃后连锁与回滚日志都写不下） |
 
+## 四、白名单：真源、形状、内容
 
-### 白名单从哪来（**单一真源**）
+**真源** = `film-kit/SCHEMA.md` 的「文件清单」表（核心 4 件 + v7 增强 4 件 + 可选 2 类）。导入代码维护一份**机器可读**白名单，
+**测试断言两个集合排序后逐行 `===` 相等**（防各自漂移）。
 
-`apps/desktop/electron/film-kit/SCHEMA.md` 的「**文件清单**」表就是白名单的真源：
+| 类别 | 文件 | 必填 | 形状/内容 |
+|------|------|------|----------|
+| 核心 4 件 | `film-manifest.json` / `shot-library.json` / `reference-registry.json` / `prompt-doctrine.json` | ✅ | 根 `.json` |
+| v7 增强 4 件 | `shot-grammar.json` / `compliance-checklist.json` / `palette.json` / `prompts/tasks/**` | 严格模式下 ✅ | 根 `.json`×3；任务库固定 3 层、`.md` |
+| 可选 2 类 | `prompt-doctrine.zh.md` / `images/*` | ❌（但要拷） | `.md`；`images/` 单层：`.webp` + `images-manifest.json`（`.json`） |
 
-| 类别 | 文件 | 必填 |
-|------|------|------|
-| 核心 4 件 | `film-manifest.json` / `shot-library.json` / `reference-registry.json` / `prompt-doctrine.json` | ✅ |
-| v7 增强 4 件 | `shot-grammar.json` / `compliance-checklist.json` / `palette.json` / `prompts/tasks/**` | 严格模式下 ✅ |
-| 可选 2 类 | `prompt-doctrine.zh.md` / `images/**`（含 `images-manifest.json`） | ❌（但**要拷**） |
+**两条已核实的事实**：① `images/`（11 文件）**目前无任何代码消费**（全仓非注释命中 0，仅 `kit-loader.js` 文件头注释提到它）
+⇒ 要拷（契约完整性），但**只做魔数校验**、不做语义校验，且**必须在 `SCHEMA.md` 与 `kit-import.js` 注释里写明「`images/` 目前无消费方」**（否则会被误当成 bug）；
+② `shot-library.json`/`reference-registry.json` 的媒体路径指向 **kit 之外**的媒体产物目录 ⇒ 不在白名单内、导入**不**碰。
 
-⇒ 导入代码里维护一份**机器可读**白名单，并加一条**测试**断言它与 `SCHEMA.md` 的文件清单表**逐条对应**（**两边排序后逐行 `===` 比对**，评审 i6）
-⇒ 两份不会各自漂移（这正是 PR-3 全程在治的病：同一事实被复述在多处就会漂）。
+**两处取舍要写进 `SCHEMA.md`**（避免被误读为遗漏）：① `nlink > 1` **一律拒绝**是**设计选择**（**不做**跨目录 inode/dev 对比，故同卷多目录硬链也会被拒）；
+② `.bak` 残留的手动恢复路径（S15）。
 
-**白名单的三条形状约束**（评审 i1 / i3 / i8 落成 S9 / S2 / S10）：
+## 五、失败原因枚举与 i18n
 
-| 约束 | 规则 |
-|------|------|
-| **相对路径不许越界** | 每条相对路径 `path.normalize` 后必须以「staging 根 + 分隔符」开头 ⇒ `../` 一律拒绝 |
-| **只接受单层文件 + 固定结构** | `images/` 只允许**深度 1**（`images/<file>`）；`prompts/tasks/` 只允许**固定 3 层**（`<task>/<lang>/<file>`）且**任务名 / 语种名不得以 `.` 开头** |
-| **不跟随软链、不接受硬链** | `lstat().isSymbolicLink()` ⇒ 拒绝；`stats.nlink > 1` ⇒ 拒绝 |
+`reason` 闭集（服务端只回这些值，枚举写在 `SCHEMA.md`，**测试可逐个断言**）：
+`VALIDATION_ERROR` / `NOT_A_DIRECTORY` / `PATH_ESCAPE` / `SYMLINK_REJECTED` / `HARDLINK_REJECTED` /
+`HIDDEN_NAME_REJECTED` / `EXT_NOT_ALLOWED` / `MAGIC_MISMATCH` / `SIZE_EXCEEDED` / `PARENT_NOT_WRITABLE` /
+`LOCK_CREATE_FAILED` / `SWAP_FAILED` / `ROLLBACK_FAILED` / `CANCELLED`。
 
-### i18n 键名（评审 i7 明确要求给出）
+i18n 键（`filmEngineering.auto.*`，zh/en 成对）：`filmKitImport`（入口）/ `filmKitImportHint`（说明会替换当前资产）/
+`filmKitImporting` / `filmKitImportSuccess`（带镜数/场景数占位）/ `filmKitImportFailed`（带 `reason` 占位）/
+`filmKitImportCancelled`（取消**不**算失败）/ `filmKitImportRecover`（回滚也失败的兜底，带 `.bak` 路径占位）。
+`reason` 必须是服务端回传的具体原因（不写「导入失败，请重试」这种无信息文案）。
 
-| 键（`filmEngineering.auto.*`） | 用途 |
-|------------------------------|------|
-| `filmKitImport` | 入口按钮文案（「导入影视工程资产」） |
-| `filmKitImportHint` | 入口旁的说明（会替换当前资产） |
-| `filmKitImporting` | 导入进行中 |
-| `filmKitImportSuccess` | 成功（含导入的镜数/场景数占位） |
-| `filmKitImportFailed` | 失败（带 `reason` 占位 ⇒ 服务端回传的**具体**原因） |
-| `filmKitImportCancelled` | 用户取消（**不**算失败，单独一句） |
-| `filmKitImportRecover` | 回滚也失败时的兜底提示（带 `.bak` 路径占位） |
+## 六、验收判据（TDD-RED，`kit-import.test.js`）
 
-⇒ zh/en **成对**；`filmKitImportFailed` 的 `reason` 必须来自服务端的具体原因
-（不写「导入失败，请重试」这种无信息文案）。
+**A 组（原 `tasks.md` 4 条）**：① 严格模式校验失败 ⇒ 不落盘；② 成功 ⇒ `userData/film-kit` 齐备 + service 缓存已失效；
+③ 源目录含符号链接 ⇒ 拒；④ 换入中途失败 ⇒ 无半份 kit、旧 kit 逐字未变。
 
-**已核实的事实**（决定了白名单的两处细节）：
+**B 组（新增 12 条）**：⑤ 白名单外的文件不被拷入；⑥ 超限 ⇒ 拒且未开始拷；⑦ 没写到 staging/.bak/.import-lock 之外；
+⑧ 换入失败后旧 kit 逐字未变；⑨ 相对路径越界或绝对路径 ⇒ 拒、没写到 staging 之外；⑩ 硬链接 ⇒ 拒；
+⑪ 隐藏名（含**目录名**）或 `images/` 超深 ⇒ 拒；⑫ 回滚本身失败 ⇒ `.bak` 仍在 + 报错带出恢复路径；
+⑬ 导入中 `_ensureKit()` 抛可识别错误、不读盘，标记先置后删且 `.import-lock` 同生命周期；⑭ 代码白名单集合 == `SCHEMA.md` 文件清单表解析集合（排序后逐行 `===`）；⑮ `.webp`/`.json` 魔数不匹配 ⇒ 拒且不写盘；⑯ 父目录不可写或锁文件建不出来 ⇒ 立即退出、旧 kit 逐字未动。
 
-- `images/**`（11 个文件：10 个 512px webp + `images-manifest.json`）**目前没有任何代码消费**
-  （全仓非注释命中为 0，只有 `kit-loader.js:15` 的文件头注释提到它）
-  ⇒ **要拷**（它是 kit 契约的一部分、随包交付），但**不校验内容**（没人读它，校验它等于自造门禁）。
-- `shot-library.json` / `reference-registry.json` 里的媒体路径（如 `260503_164739_….mp4`、
-  `BTvvdqad639gj/7366f2ea-….jpg`）指向 **kit 之外**的媒体产物目录
-  ⇒ **不在白名单内**（那是外部产物，不是 kit 资产）⇒ 导入**不**碰它们。
-
----
-
-## 三、验收判据草案（TDD-RED，`kit-import.test.js`）
-
-| # | 判据 | 对应安全条款 |
-|---|------|--------------|
-| ① | 严格模式校验失败 ⇒ **不落盘**（`userData/film-kit` 不存在） | S8 |
-| ② | 成功 ⇒ `userData/film-kit` 齐备（白名单文件全在）+ **service 缓存已失效**（下次 `_ensureKit()` 读盘拿新资产） | — |
-| ③ | 源目录含**符号链接** ⇒ 拒绝（不落盘） | S2 |
-| ④ | 换入中途失败 ⇒ **无半份 kit**（staging 已清理、旧 kit 逐字未变） | S3 / S4 |
-| ⑤ | 源目录含**白名单外**的文件 ⇒ **不**被拷进 staging | S1 |
-| ⑥ | 源目录含**超限**文件 ⇒ 拒绝（且**未开始拷**） | S6 |
-| ⑦ | 导入过程中**没有**写到 staging/.bak 之外的路径 | S5 |
-| ⑧ | 换入失败后旧 kit 仍在原处、内容**逐字相同** | S4 |
-| ⑨ | 源目录含**带 `../` 的相对路径**（任务名/语种名越界）⇒ 拒绝，**没写到 staging 之外** | S9（评审 i1） |
-| ⑩ | 源目录含**硬链接**文件 ⇒ 拒绝 | S2（评审 i3） |
-| ⑪ | 源目录含**隐藏文件**（`.` 开头）/ `images/` 下**超深** ⇒ 拒绝 | S10（评审 i8） |
-| ⑫ | **回滚本身失败** ⇒ `.bak` **仍在** + 报错里带出恢复路径 | S4（评审 i4） |
-| ⑬ | 导入**进行中**时 service 的 `_ensureKit()` **不重读磁盘**（不静默回落到随包 kit） | S11 / S12（评审 i5） |
-| ⑭ | **代码白名单集合 == `SCHEMA.md` 文件清单表解析出的集合**（两边**排序后逐行 `===` 比对**） | i6 |
-
-> 判据 ⑤⑥⑦ 是本轮**新补**的（`tasks.md` 原列 4 条）。
-> 判据 ⑨-⑭ 是**决策层对抗评审**（8 条 / Critical 2）新带出来的。
-> 补的理由（对写路径尤其致命的三类）：漏了 S1 会把用户的整个目录搬进 userData；
-> 漏了 S6 会拷爆磁盘；漏了 S9 会写到 staging 之外；漏了 S11 会让用户刚导入的资产被**静默**换回随包版。
-
----
-
-## 四、落点与改动量（预估，实施后按实测回填）
+## 七、落点
 
 | 层 | 文件 | 性质 |
 |----|------|------|
-| 主进程服务（新建） | `apps/desktop/electron/services/film-engineering/kit-import.js` | 导入的核心（白名单拷贝 + 校验 + 换入 + 回滚），**纯函数化**：fs/dialog/时钟全部可注入 ⇒ 可测 |
-| 主进程服务（改） | `film-engineering-service.js` | 加一个**缓存失效**方法（清 `_kit`/`_shotLibrary`/`_scriptAdapter`） |
-| 主进程 IPC（改） | `ipc-handlers/film-engineering-auto.js` 或**新建**同级模块 | 注册 `film-engineering:import-kit`（`withSenderCheck` + 入参校验） |
-| preload（改） | `preload/access-control.js` + `preload/film-engineering.js` | 通道白名单加 `filmEngineering.importKit`；API 构造加同名方法 |
-| 渲染端（改） | `src/api/electron-bridge.js` + `src/views/film-auto/FilmAutoPanel.vue` | 桥接 + 一个「导入资产」入口（对话框 + 结果提示） |
-| i18n（改） | `locales/film-engineering/{zh,en}.js` | 新增文案 **zh/en 成对** |
-| 测试（新建） | `services/film-engineering/kit-import.test.js` | 上表 8 条判据 |
-| 文档（改） | `SCHEMA.md`（导入契约）/ `PRD-FILM-PIPELINE-V2`（§9.c）/ 本文件 / `tasks.md` / 执行记录 | 同步 |
+| 服务（新建） | `services/film-engineering/kit-import.js` | 核心（拷贝 + 校验 + 换入 + 回滚 + 锁文件）；**fs/dialog/时钟全部可注入** ⇒ 可测；顶部**导出** `MAX_KIT_*`（S14）；文件头写「`images/` 目前无消费方」 |
+| 服务（改） | `film-engineering-service.js` | 加缓存失效方法 + 读 `.import-lock` |
+| IPC（改） | `ipc-handlers/film-engineering-auto.js` | 注册 `film-engineering:import-kit`（`withSenderCheck` + 入参校验 + `isDirectory` 校验 + 审计日志）；**dialog 在这一层** |
+| preload（改） | `preload/access-control.js` + `preload/film-engineering.js` | 通道白名单 + API 构造 |
+| 渲染端（改） | `src/api/electron-bridge.js` + `src/views/film-auto/FilmAutoPanel.vue` | 桥接 + 「项目案例」顶部入口 |
+| i18n（改） | `locales/film-engineering/{zh,en}.js` | §五 7 键，成对 |
+| 测试（新建） | `services/film-engineering/kit-import.test.js` | §六 16 条判据 |
+| 文档（改） | `film-kit/SCHEMA.md`（**导入契约**小节，内容见 §四/§五/§六/§七）、`PRD-FILM-PIPELINE-V2`（§9.c）、本文件、`tasks.md`、执行记录 | 同步 |
 
----
+## 八、明确不做
 
-## 五、明确不做（不假装有）
+❌ 增量/合并（整体替换）· ❌ 导入历史/多版本 · ❌ 导出 · ❌ 压缩包/下载/扫盘（来源只有本机目录）· ❌ 写 kit 之外的路径 · ❌ 把 `images/` 变成消费方
 
-- ❌ **不做增量/合并**：整体替换，不做逐文件合并（合并语义要定义「同名谁赢」，那是另一批）
-- ❌ **不做导入历史/多版本**：只保留当前一份（失败时的 `.bak` 是**回滚用**，成功后即删）
-- ❌ **不做导出**
-- ❌ **不做压缩包/网络下载/扫盘发现**：来源只有「用户选的本机目录」
-- ❌ **不做 kit 之外的写入**（不写媒体产物目录、不写 userData 其它位置）
-- ❌ **不把 `images/` 变成消费方**（本批只「拷它」，不「用它」）
+## 九、决策点（全部已拍板，无开放项）
 
----
+| # | 决策 | 结论 | 理由 |
+|---|------|------|------|
+| 1 | 成功后 `.bak` 去留 | **立即删**；**回滚也失败时保留** | 「原子落盘」纪律的延续 |
+| 2 | 大小上限 | 单文件 **32 MB** / 总量 **256 MB** | 实测随包 kit 36 文件 / **2.848 MB**，最大单文件 `shot-library.json` **2.530 MB** ⇒ 12.6× / 90× 余量（随包是 min 版，完整库更大） |
+| 3 | UI 入口位置 | **「项目案例」标签顶部** | 那里是**看**资产的地方，导入是同一件事的另一半；「自动」标签是**消费**资产的地方，写操作放进去会让只读区混入写操作 |
 
-## 六、需要评审拍板的三个点
+## 十、许可与来源
 
-1. **`.bak` 的去留**：成功换入后**立即删**（不留历史）还是保留最近一份（占磁盘但可人工回退）？
-   —— 倾向：**立即删**（`tasks.md` 的 3b.1 写的是「原子落盘」，不留历史；磁盘占用与人工回退需求都要问用户）
-2. **大小上限的具体数值**：**已实测**，不拍脑袋。
-
-   实测（`app/electron/film-kit`，36 个文件）：
-
-   | 维度 | 实测值 | 提议上限 | 依据 |
-   |------|--------|----------|------|
-   | 总体积 | **2.848 MB** | **256 MB** | 随包的是 **min 版**（SCHEMA.md 自述），完整库只会更大 ⇒ 给 90× 余量；同时 256 MB 拷进 userData 不会「拷爆磁盘」 |
-   | 最大单文件 | **2.530 MB**（`shot-library.json`） | **32 MB** | 给 12.6× 余量（完整版分镜库可能几十 MB），但挡住「一个 500MB 的 json」这种离谱输入 |
-
-   ⇒ 上限**在拷贝前检查**（S6）：超限直接拒绝，**不拷一半才报错**。
-   ⇒ 这两个数进判据（`kit-import.test.js` 要有「超限 ⇒ 拒绝且未开始拷」的用例）。
-
-3. **UI 入口的位置**：放在「自动」标签的计划区旁边，还是「项目案例」标签的顶部？
-   —— 倾向：放在**项目案例**顶部（那里是「查看资产」的地方，导入是同一件事的另一半）
-
----
-
-## 七、本批的许可与来源结论
-
-- 本批**不引入任何第三方代码/资产**：只读写用户自己提供的目录 + 复用仓内已有的 `kit-loader` /
-  `kit-asset-validators` / `film-engineering-service`。
-- 资产导入**不搬运**研究项目的任何文件（研究项目给的是**方法论与资产形态**，不是二进制资产）。
-- 许可结论：仓内既有代码沿用原仓许可；`SCHEMA.md` 与 `film-kit/**` 是**本仓自有资产**。
+本批**不引入第三方代码/资产**：只读写用户提供的目录 + 复用仓内 `kit-loader`/`kit-asset-validators`/`film-engineering-service`；
+导入**不搬运**研究项目的任何文件。仓内既有代码沿用原仓许可；`SCHEMA.md` 与 `film-kit/**` 是本仓自有资产。
