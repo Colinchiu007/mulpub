@@ -8,7 +8,7 @@ date: 2026-10-22
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 运行时代码（`scripts/` 判据本体 + `.github/workflows/` CI 配置）⇒ 走隔离 worktree：worktree `D:\Data\projects\mp-worktrees\mp-main-red-run-baseline` + **裸分支** `main-red-run-baseline`（`scripts/start-mp-task.ps1 -TaskName main-red-run-baseline -NoDeps` 建的），`git rev-parse --abbrev-ref HEAD` 实证。依赖就绪：`pnpm install --frozen-lockfile`（1m27s）→ `node scripts/ensure-electron.js`（electron dist v43.7.7 就绪）→ `node scripts/verify-worktree-deps.js`（**消费方解析通过 11 个 / OK**）。共享根全程停在 `main` 且未落盘任何运行时路径 |
+| 变更类型与隔离 | PASS | 运行时代码（`scripts/` 判据本体 + `.github/workflows/` CI 配置）⇒ 走隔离 worktree：worktree `<仓库父目录>/mp-worktrees/mp-main-red-run-baseline` + **裸分支** `main-red-run-baseline`（`scripts/start-mp-task.ps1 -TaskName main-red-run-baseline -NoDeps` 建的），`git rev-parse --abbrev-ref HEAD` 实证。依赖就绪：`pnpm install --frozen-lockfile`（1m27s）→ `node scripts/ensure-electron.js`（electron dist v43.7.7 就绪）→ `node scripts/verify-worktree-deps.js`（**消费方解析通过 11 个 / OK**）。共享根全程停在 `main` 且未落盘任何运行时路径 |
 | 第一性原因（QM-5 ①） | PASS | **两层失真，机制不同**。① **读数被噪声淹没**：GitHub 把 `workflow_run` 触发的工作流的 check run 一律挂在**默认分支当前 tip** 上（不管触发它的是哪个 PR 的 CI）⇒ 实测主干 tip `8da92948` 的 check-run **102 行里 81 行**是同一个 `handle-ci-failure`（来自 30 个 handler run，25 分钟内新增 29 个），真实信号只剩 21 行；闸门实测 `mainPending=4` 而**真实未完成只有 2 条**（`QG Coverage`/`electron-tests`）——另一半是噪声。② **移动目标**：闸门读「此刻的 tip」，而 tip 每 15–30 分钟前进一次；实测一次读数期间 tip 从 `2f5c0a32f` 移到 `8da92948`，那次读数整个作废 |
 | 逃逸分析（QM-5 ②） | PASS | 既有闸门为什么抓不到：① **同名折叠掩盖噪声**——`namesBy` 用 Set 把 81 行折成 1 个名字，但只要其中**任意一条在飞**（全是 windows-latest 作业，在挤爆的托管池里排队），主干侧就多出一个 pending ⇒ 真实检查全绿也判「未证实」；② **只读一次判一次**——tip 移动既不作废读数也不重试，合并入口 `scripts/merge-when-green.ps1:81` 拿不到读数就 `FAIL(7)`，让人从头重跑脚本；③ **Windows 额度被挤爆**——`electron-tests` 作业实测排队 **46.6 分 / 51.5 分**才起跑（`run_created 16:20:26 → job started 17:07:04`），而同批次的纯 ubuntu 作业（quality-gate）**零排队**（`run_started_at == created_at`）⇒ 读数墙钟 = 45 分钟执行 + 47 分钟排队，而 tip 每 25 分钟跳一次 |
 | 修复 + 回归保护（QM-5 ④） | PASS | ① 采集层新增 `mainRowsAt(sha)`：读 `actions/runs?head_sha=`（`--paginate` + `per_page=100`），**只取 `event != 'workflow_run'` 的 run**，同一 workflow 取**最新**一次（`run_number` + `run_attempt` 双重最大），再取其**作业级**终态；PR 侧仍读 check-runs（两侧行粒度都是作业名，差集口径不变）。② **稳定窗**：每次尝试都重新取当前 tip，取数前后各取一次，不一致即作废本次读数并有界重试（`--attempts` 默认 3、`--retry-seconds` 默认 90）。③ `lib/main-red.js` 新增 `mainMoved` 档（基准作废 ⇒ 未证实(3)，且**不报新增红**）。④ CI Failure Handler 改 `ubuntu-latest`（只依赖 gh CLI + node）。**回归**：`node --test scripts/check-main-red.test.js` → **44 例全绿**（新增 7 组：run 集合筛选 / 重跑取最新 / event 缺失抛错 / 结构锁 / 稳定窗重试 / 重试耗尽 / 参数校验 + judge 的 `mainMoved` 档）；`node --test .github/scripts/workflow-contract.test.js` → **46 例全绿**（新增 1 条契约锁） |
@@ -16,14 +16,14 @@ date: 2026-10-22
 | 行尾与 diff 对账 | PASS | `git diff --numstat origin/main...HEAD` 与 `git diff --ignore-cr-at-eol --numstat origin/main...HEAD` **两口径各 14 行且逐行完全相同** ⇒ 无 CRLF/LF 造成的虚假增删；删除 43 行归因：`scripts/check-main-red.js` 的旧采集层（`checksAt` 兼作主干侧）+ 旧 `parseCheckRunLines` 实现 + 旧 `main()` 单次读数块，**无整文件删除** |
 | 接线棘轮 | PASS | **未新增** `*.test.js` 文件（新增用例落在**已接线**的 `scripts/check-main-red.test.js` 与 `.github/scripts/workflow-contract.test.js` 内，两者分别由 quality-gate 的 Gate 2b 系列作业执行）⇒ 棘轮无需新增接线 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/`、`packages/`、`apps/desktop/electron/**`、locale、视觉基线 ⇒ 打包与像素基线不适用（判定依据已写进 `openspec/changes/main-red-run-baseline/proposal.md` 的「影响面」） |
-| QM-6 CCG 双模型外部评审 | PASS | **验证层**（`sh scripts/deep-review.sh`，判定 mode=dual / 变更 449 行 > 200 行阈值）**已执行**：critic=claude 产出 **7 条**意见（correctness 5 / security 6 / performance 4 / maintainability 5，最低 4），逐条裁决留档 `openspec/changes/main-red-run-baseline/ccg-review-record.md`（原始产物 `.adversarial/ccg-deep-25739c94/` 被 gitignore，不入库）。**3 条 upheld 已修并带回归锁**：i1（`mainMoved` 档新增 `prFailNames` + `newRedComputed=false`，让「未计算」不再被读成「零新增红」）、i3（裁决收口本身）、i4（新增 `--max-wait-seconds` 总等待上限，杜绝 `--attempts 100 --retry-seconds 3600` 这类无界参数）；**3 条 dismissed 均给出可验证理由与登记去向**：i2（opencode 单次输入上限 7800 字节的**静默拒绝**属工具链遗留，登记为遗留 1）、i5（「字段缺失抛错」符合失明纪律，「未知事件类型自动进基准」已是安全侧——驳回其「降级放行」的修法）、i6（`openspec validate --strict` 实测 valid + quality-gate Gate 2b2 + Scenario↔行为锁用例逐条对应）；i7（Info）已满足。**决策层**（`plan-review.sh`）亦已执行：7 条 / Critical 2，逐条处置见 `tasks.md` §T9 |
+| QM-6 CCG 双模型外部评审 | PASS | **验证层**（`sh scripts/deep-review.sh`，mode=dual / 变更 449 行）**已执行**：critic=claude 产出 **7 条**意见（correctness 5 / security 6 / performance 4 / maintainability 5），逐条裁决留档 `openspec/changes/main-red-run-baseline/ccg-review-record.md`。**3 条 upheld 已修并带回归锁**：i1（`mainMoved` 档新增 `prFailNames` + `newRedComputed=false`）、i3（裁决收口本身）、i4（新增 `--max-wait-seconds` 总等待上限）；**3 条 dismissed** 给出可验证理由与登记去向：i2（opencode 输入上限的静默拒绝属工具链遗留）、i5（「字段缺失抛错」符合失明纪律）、i6（`openspec validate --strict` + Gate 2b2 + Scenario↔行为锁逐条对应）。**决策层共三轮**：① 7 条 / Critical 2（档位表述、两端口径自相矛盾）→ 已改；② 方案压缩后重跑 8 条 / **Critical 0** / 最低分 6 → 收敛（cleared）；③ 补完 8 条澄清后 6 条 / **Critical 2**（新补文字引入的「名字对齐过度声称」与「C4 因果未证实」）→ 已改 + 补同名聚合与空 event 回归锁。逐条处置见 `ccg-review-record.md` 三节 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>`。合并后 main push 的回读证据写在 PR 评论里，不写回本文件 |
 
 ### 遗留（不假装已闭合）
 
 - **CCG 引擎的输入长度协议**（评审 i2）：opencode 后端单次输入上限 7800 字节，超限时
   **同步拒绝**（~120ms、exit 1、无任何错误信息）⇒ 决策层的「逐条回应」环节停在"挑完刺但没人回应"。
-  本片用「把现场读数拆到 `evidence.md`」绕开（方案正文 6865 字节 < 7800），
+  本片用「拆 `evidence.md` + 压缩正文」绕开（方案正文 7470 字节 < 7800），
   但引擎侧仍缺显式长度校验与分段重试协议。改它属「改谁来守门」的邻域，本片不动。
 - **spec ↔ 实现的逐条自动同步**（评审 i6）：本片靠 `openspec validate --strict`（实测 valid）
   + quality-gate Gate 2b2（spec 镜像契约）+ 「Scenario ↔ 行为锁用例逐条对应」这三样，
@@ -41,7 +41,13 @@ date: 2026-10-22
   QG Coverage 分片）不在本片范围。
 - **`workflow_run` 的挂载语义未改**：handler 仍会挂在主干 tip 上（那是 C1 在**读数侧**隔离的）。
 - **差集仍按检查名对齐**：同名红只证明「主干上也红过」，不证明是同一条用例——
-  本片没有动这条已知局限（换源不改变对齐粒度）。
+  本片没有动这条已知局限（换源不改变对齐粒度）。新增的**同名多行取最严格的一格**只保证差集**确定**，
+  不保证跨 workflow 同名作业（如 `Changes` 三处各一份）能消歧；
+  消歧到 workflow 级需两侧都改取数方式（PR 侧要从 check-run 反查所属 workflow），本片不做。
+- **C4 的收益只到「预期」为止**（决策层 i2）：观测事实是「Windows 作业排队 46.6/51.5 分、
+  同批次 ubuntu 作业零排队」；**「handler 占了 `electron-tests` 的位置」这一因果未被证实**
+  （托管池的实时占用不可观测）。故执行记录与规格一律写成**预期释放**，并留一个观测点：
+  迁移后复跑 `electron-tests` 的排队时长读数（与 evidence E3 同口径）。
 
 ## CHANGELOG 条目
 

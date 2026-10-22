@@ -19,7 +19,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const cp = require('node:child_process')
 
-const { judge, bucketOf, readout, resolveRepoSlug, mentionsName } = require('./lib/main-red')
+const { judge, bucketOf, readout, resolveRepoSlug, mentionsName, namesBy, aggregateRows } = require('./lib/main-red')
 const { parseArgs, run, createGhCollector, parseCheckRunLines } = require('./check-main-red')
 
 /** `gh pr checks --json name,state` 的真实形状 */
@@ -718,4 +718,50 @@ test('基准作废档必须把 PR 侧已证实的失败名单交出来（评审 
   assert.strictEqual(v.newRedComputed, false, 'newRed 在这一档是「未计算」，不得被读成「没有」')
   assert.strictEqual(v.counts.prFail, 2, 'counts.prFail 必须是真值（不是硬编码 0）')
   assert.strictEqual(v.counts.mainFail, 0)
+})
+
+test('同名多行必须取最严格的一格（评审 i1：跨 workflow 同名作业 / 可重用工作流 / 重跑）', () => {
+  // 一红一绿的同名作业：不得同时落进 fail 集与 pass 集
+  const rows = [apiRow('Changes', 'failure'), apiRow('Changes', 'success')]
+  assert.strictEqual(aggregateRows(rows).get('Changes'), 'fail', '同名多行取最严格的一格')
+  assert.strictEqual(namesBy(rows, 'pass').size, 0, '同名里有一行红 ⇒ 不得同时算作绿')
+  assert.strictEqual(namesBy(rows, 'fail').size, 1)
+
+  // 严格度序：fail > unknown > pending > skipped > pass
+  assert.strictEqual(aggregateRows([apiPending('X'), apiRow('X', 'success')]).get('X'), 'pending',
+    '同名里有一行未完成 ⇒ 不得被一行绿盖成绿')
+  assert.strictEqual(aggregateRows([{ name: 'X', status: 'completed' }, apiRow('X', 'success')]).get('X'), 'unknown',
+    '同名里有一行形状不认识 ⇒ 不得被一行绿盖住（失明要 fail-closed）')
+
+  // 判据层面：主干同名「一红一绿」⇒ 该名确定地是红，PR 侧同名红属既有红、且**不再**被算成 uncertain
+  const v = judge({
+    prRows: [apiRow('Changes', 'failure')],
+    mainRows: [apiRow('Changes', 'failure'), apiRow('Changes', 'success')],
+  })
+  assert.strictEqual(v.verdict, 'STOP_MAIN_RED')
+  assert.strictEqual(v.counts.uncertain, 0, '同名聚合后该名只在一档里，不得同时算 fail 与 uncertain')
+})
+
+test('分页中断 / 429 / token 失效 ⇒ 采集层抛错 ⇒ 判自身故障(4)（评审 i2/i3：不得读成「无检查」）', async () => {
+  const paged = {
+    repo: 'o/r',
+    mainSha: () => 'm1',
+    prHeadSha: () => 'p1',
+    mainRowsAt: () => { throw new Error('gh api rc=1 429 Too Many Requests') },
+    checksAt: () => [apiRow('A', 'success')],
+  }
+  const { code, out } = await captureStdout(() => run(['--pr', '7'], paged))
+  assert.strictEqual(code, 4, '取数失败必须判自身故障，实到 ' + code)
+  assert.match(out, /SELF_FAULT/, '读数行必须自报档位')
+  assert.match(out, /429/, '失败原因必须被念出来，否则下一个读者不知道是限流还是别的')
+})
+
+test('event 为 null / 空字符串 ⇒ 一律抛错（评审 i6：空值不得通过过滤）', () => {
+  for (const bad of [null, '', undefined]) {
+    assert.throws(
+      () => selectMainRuns([{ id: 1, name: 'quality-gate', event: bad, run_number: 1, run_attempt: 1 }]),
+      /缺 event 字段/,
+      'event=' + JSON.stringify(bad) + ' 必须抛错（形状不认识不得静默放行）',
+    )
+  }
 })

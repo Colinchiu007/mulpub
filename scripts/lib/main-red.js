@@ -72,13 +72,42 @@ function bucketOf (row) {
   return 'unknown'
 }
 
+/**
+ * 同名多行时取**最严格的一格**。
+ *
+ * 为什么需要（深度评审 i1）：差集按**名字**对齐，而名字可能重复——
+ * ① 跨 workflow 同名作业（`Changes` 在 quality-gate / electron-ci / build 各有一份）；
+ * ② 可重用工作流（调用方的聚合作业名 `<caller> / <callee>` 与被调 workflow 自己的作业名并存）；
+ * ③ 一次 run 里的重跑行。
+ * 不聚合的话，同名的「一红一绿」会让它同时落进 fail 集与 pass 集：
+ * 主干侧出现同名红 ⇒ PR 侧同名红被读成「既有红」⇒ **漏判新增红**。
+ *
+ * 严格度序：fail > unknown > pending > skipped > pass。
+ * fail 最高（已证实的红）；unknown 次之（形状坏了，不能被一行 benign 盖住——
+ * 判据对 unknown 一律 fail-closed）；pending（还没跑完，不是绿）；
+ * skipped（没跑这一格，不是红）；pass（绿）。
+ */
+const BUCKET_SEVERITY = { fail: 5, unknown: 4, pending: 3, skipped: 2, pass: 1 }
+
+/** @param {object[]} rows @returns {Map<string,string>} name → 最严格的那一档 */
+function aggregateRows (rows) {
+  const best = new Map()
+  for (const r of rows || []) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) continue
+    const name = String(r.name == null ? '' : r.name).trim()
+    if (!name) continue
+    const b = bucketOf(r)
+    const cur = best.get(name)
+    if (!cur || BUCKET_SEVERITY[b] > BUCKET_SEVERITY[cur]) best.set(name, b)
+  }
+  return best
+}
+
 /** 检查名集合（只取 fail / pending；其余不参与差集） */
 function namesBy (rows, bucket) {
   const out = new Set()
-  for (const r of rows || []) {
-    const n = String((r && r.name) || '').trim()
-    if (!n) continue
-    if (bucketOf(r) === bucket) out.add(n)
+  for (const [name, b] of aggregateRows(rows)) {
+    if (b === bucket) out.add(name)
   }
   return out
 }
@@ -187,7 +216,8 @@ function judge (input = {}) {
   if (mainMoved && mainMoved.from && mainMoved.to && mainMoved.from !== mainMoved.to) {
     return {
       verdict: VERDICTS.INCOMPLETE, code: 3,
-      reason: '主干在读数期间移动（' + String(mainMoved.from).slice(0, 9) + ' → ' + String(mainMoved.to).slice(0, 9)
+      reason: '主干在读数期间移动（最后一次尝试：读数时的 tip ' + String(mainMoved.from).slice(0, 9)
+        + ' → 读数后的 tip ' + String(mainMoved.to).slice(0, 9)
         + '），本次主干基准作废：主干侧读数与 PR 侧读数不在同一棵树上，差集不可归因'
         + (prFail.size ? '；PR 侧已失败 ' + prFail.size + ' 条（' + [...prFail].sort().join(', ') + '）——**未判新增红**：基准已作废' : '')
         + (mainFail.size ? '；主干失败格子：' + [...mainFail].sort().join(', ') : '')
@@ -353,4 +383,4 @@ function resolveRepoSlug (src = {}) {
   return { slug: null, via: 'none' }
 }
 
-module.exports = { VERDICTS, FAILED_STATES, PENDING_STATES, SKIPPED_STATES, COMMIT_PENDING_STATES, bucketOf, namesBy, judge, mentionsName, readout, resolveRepoSlug }
+module.exports = { VERDICTS, FAILED_STATES, PENDING_STATES, SKIPPED_STATES, COMMIT_PENDING_STATES, bucketOf, namesBy, aggregateRows, judge, mentionsName, readout, resolveRepoSlug }

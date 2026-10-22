@@ -15,11 +15,18 @@
 `per_page=100`；实测单页装不下 30+ 个 run 的 tip），并且**只取 `event != 'workflow_run'` 的 run**；
 每个 workflow MUST 取**最新**一次 run（`run_number` 与 `run_attempt` 同时最大），
 再从端点 `actions/runs/{run_id}/jobs` 取该 run 的**作业级**终态（`jobs[].name/status/conclusion`）
-作为主干侧读数行。作业名即 check-run 名（GitHub 用作业名做 check run 名）⇒ 两侧名字天然对齐。
+作为主干侧读数行。作业名即 check-run 名（GitHub 用作业名做 check run 名）。
 PR 侧 MUST 仍读 `commits/<sha>/check-runs`。
 两侧的**行粒度 MUST 一致**（都落在作业名这一层），差集按名字对齐；
 但两端**取数端点不同**（主干 `actions/runs`、PR `check-runs`），
 MUST NOT 把「行粒度一致」表述成「同一个 API」。
+
+**同名多行 MUST 取最严格的一格**（`fail` > `unknown` > `pending` > `skipped` > `pass`）：
+跨 workflow 的同名作业（如 `Changes` 在多个 workflow 各有一份）、可重用工作流的
+`调用方 / 被调方` 聚合作业名、重跑行，都会让同一个名字出现多行。
+不聚合的话同名「一红一绿」会同时落进 fail 集与 pass 集，差集行为不确定。
+**已知局限**：消歧到 workflow 级需要两侧都改取数方式（PR 侧要从 check-run 反查所属 workflow），
+本片不做——差集仍按名字对齐。
 
 **基准的事件范围**：MUST 等于该 tip 上的**全部非 `workflow_run` run**（含 `push` / `schedule` /
 `workflow_dispatch`）。`pull_request` 事件的 run 的 `head_sha` 是 PR 分支提交，
@@ -28,7 +35,9 @@ MUST NOT 把「行粒度一致」表述成「同一个 API」。
 
 **失败处理**：任一 API 调用失败（429 / 5xx / token 失效 / 分页中断 / 403 权限不足）MUST 抛错
 ⇒ 闸门判自身故障（退出码 4），MUST NOT 读成「无检查」或「主干绿」。
-读 `actions/runs` 与读 `check-runs` 用同一份凭据，**MUST NOT** 需要新增授权。
+`actions/runs` 需 `actions:read`、`check-runs` 需 `checks:read`——两者 scope **不同**，
+只授 `checks:read` 的凭据读 `actions/runs` 会得 403；403 MUST 走上面的 fail-closed 路径，
+MUST NOT 静默返回空。
 
 理由（实测，2026-10-22）：GitHub 把 `workflow_run` 触发的工作流的 check run 一律挂在
 **默认分支当前 tip** 上，不管触发它的是哪个 PR 的 CI。实测主干 tip 上 102 条检查行里

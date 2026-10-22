@@ -10,9 +10,14 @@ CI Failure Handler（`.github/workflows/ci-failure-handler.yml`）的作业 MUST
 理由（实测，2026-10-22）：`electron-tests`、`GUI Tests`、CI Failure Handler 三家全在
 `windows-latest` 抢同一个托管池，主干 push 的 `electron-tests` 作业实测排队
 **46.6 分 / 51.5 分**才起跑；同批次的纯 ubuntu 作业（`quality-gate`）**零排队**。
-Windows 托管额度是「主干读数拿不到」的直接放大器之一。
 同型先例：quality-gate 的 `changes` 作业早被锁死为 `ubuntu-latest`，理由原文
 「判定只依赖 git+node，必须用 ubuntu（不占 Windows 并发额度）」。
+
+⚠️ **因果只到「预期」为止**（深度评审 i2）：观测事实是「Windows 作业排队长、ubuntu 作业零排队」，
+但「handler 占了 `electron-tests` 的位置」这一因果**未被证实**——托管池的实时占用不可观测。
+因此本 Requirement 只承诺「handler 不再占 Windows 额度」，
+**MUST NOT** 把「Windows 排队因此会缩短」写成已证事实；收益以**预期**措辞记录，
+并留一个观测点：迁移后复跑 `electron-tests` 的排队时长读数（与 evidence E3 同一口径可复跑）。
 
 #### Scenario: 契约锁钉住 runner 标签
 

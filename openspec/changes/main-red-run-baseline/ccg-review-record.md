@@ -165,6 +165,22 @@ GitHub 将来新增任何事件类型（`merge_group` 等）都会**自动进基
 | i7 | Info | 换端点后的 token 权限要求未说明（权限不足会静默返回空） | **已修**：写明「与读 check-runs 同一份 gh 凭据、scope 相同、**无需新增授权**；权限不足 ⇒ 403/404 ⇒ gh 非零 rc ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**」 |
 | i8 | Info | 「AGENTS 口语的四档」这个外部引用降低可审计性 | **已修**：删掉口语引用，直接定义五档并逐档说明 |
 
+## 决策层第三轮（2026-10-22，方案补完 i1–i8 澄清后，critic=claude）
+
+> 触发：第二轮收敛后，我把 8 条澄清补进方案（事件范围 / 权限 / 端点 / 比较对象 / 影响面措辞），
+> 方案体量涨到 7642 字节 ⇒ proposer 侧再次撞上 7800 字节上限（7976 字符），
+> **critic 侧仍正常产出 6 条**（含 2 条 Critical，最低分 5）。
+> 这 2 条 Critical 正是**新补的文字引入的**——补澄清会引入新矛盾，这是本轮最值得记的一条。
+
+| # | 严重度 | 意见（摘要） | 裁决与处置 |
+|---|--------|--------------|------------|
+| i1 | Critical | 「作业名 == check-run 名 ⇒ 差集对齐天然成立」**没有**覆盖复合/可重用工作流；同一作业多检查时差集行为未定义 | **成立（已修）**：① 实现层加**同名多行取最严格的一格**（`fail` > `unknown` > `pending` > `skipped` > `pass`，`scripts/lib/main-red.js` 的 `aggregateRows`）——不聚合的话同名「一红一绿」会同时落进 fail 集与 pass 集，差集行为不确定；② 文档层把「天然对齐」改写为「行粒度一致」，并把「跨 workflow 同名作业（如 `Changes` 三处各一份）按同名合并」写成**已知局限**（消歧到 workflow 级要两侧都改取数方式，本片不做）。回归锁 1 例 |
+| i2 | Critical | C4 迁 ubuntu 释放 Windows 额度的**因果未经验证**——未证明 handler 与 `electron-tests` 共享同一 runner 池 | **成立（已改口径）**：观测事实只有「Windows 作业排队 46.6/51.5 分、同批次 ubuntu 零排队」；「handler 占了 electron-tests 的位置」**未被证实**（托管池实时占用不可观测）。故 C4 的收益一律写成**预期释放**，并在 spec 与提案里明写「MUST NOT 把『Windows 排队会因此缩短』写成已证事实」，另留观测点（迁移后复跑 `electron-tests` 排队读数，E3 同口径） |
+| i3 | Warning | 契约锁只测 C4；C1 的 event 过滤、分页中断、C2 重试无对应 CI 锁 | **前提不成立（已核）**：`node --test scripts/check-main-red.test.js` 就在 `quality-gate.yml:458`（Gate 2b 系列）执行，判据侧 49 例的行为锁**确实接在 CI 里**。仍**补了一条**：分页中断 / 429 ⇒ 采集层抛错 ⇒ 判自身故障(4) 的回归锁（原来只有「缺 mainRowsAt」与「prHeadSha 抛错」两处） |
+| i4 | Warning | `actions/runs` 需 `actions:read`、`check-runs` 只需 `checks:read`；「同一凭据」的说法掩盖了新增授权失败模式 | **成立（已改）**：原文写的「scope 相同、**不需要新增授权**」是**错的**——两者 scope 不同，只授 `checks:read` 的 PAT 读 `actions/runs` 会得 **403**。改为：scope 不同 + 403 ⇒ gh 非零 rc ⇒ 采集层抛错 ⇒ 判自身故障(4)，**不会静默返回空**（本机凭据实测可用） |
+| i5 | Warning | C2 耗尽时「点名两个 sha」未指是首尝/末尝的 before/after | **成立（已改）**：措辞改为「最后一次尝试：读数时的 tip X → 读数后的 tip Y」 |
+| i6 | Info | `event` 缺失抛错未覆盖 null / 空字符串 | **成立（已补）**：实现上 `null` / `''` / `undefined` 都走「缺 event 字段 ⇒ 抛错」；补了回归锁一例逐个验证三种空值 |
+
 ## 遗留（不假装已闭合）
 
 1. **CCG 引擎的输入长度协议**（i2）：opencode 后端单次输入上限 7800 字节，
