@@ -303,3 +303,132 @@ test('plan-review.sh：方案文件不可达时守卫必须出声"已跳过"（�
   assert.match(r.out, /绝对路径/, '必须给出修法，否则下一个人只会换个相对路径再试一次')
   assert.ok(r.out.includes('no-such-proposal'), '必须点名那个解不进的路径，否则等于打印一句通用安慰')
 })
+
+
+// ---------- 决策层的 SKIP 分支与 --force：实测无对象（切片 ccg-force-flag-honest） ----------
+// 现场：本入口的 `if [ "$MODE" = "SKIP" ] ...` 与 --force 旗标构成第二处装饰性承诺。
+// 实测依据（2026-10-22，两种路径形状各一次）：判定器对 --input 恒给 SINGLE/DUAL ——
+// isDocsOnly() 对 staged.proposal 直接短路，所以决策层根本产不出那个档，
+// 那句「跳过跨家族对抗评审」永远不会被打印，旗标也就没有可作用的对象。
+// 下面四把锁的取向是**反向**的：把"不可达"与"照样交给驱动"钉成事实。
+// 将来谁要让方案评审按规模跳过，会先让这些锁变红，必须显式改判据（那是新增豁免，属"谁来守门"），
+// 而不是顺手把旗标加回来。
+
+function markPathFor(tag) {
+  return path.join(os.tmpdir(), `plan-${tag}-mark-${process.pid}-${seq++}.txt`)
+}
+
+function makeHomeWithRecordingEngine(mark) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), `plan-force-${process.pid}-${seq++}-`))
+  fs.mkdirSync(path.join(home, ".claude", "bin"), { recursive: true })
+  fs.writeFileSync(path.join(home, ".claude", "bin", "codeagent-wrapper.exe"), "stub")
+  const skillDir = path.join(home, ".claude", "skills", "adversarial-review-loop", "scripts")
+  fs.mkdirSync(skillDir, { recursive: true })
+  // 桩驱动只做一件事：把「我被启动了」与收到的 argv 落到 mark。plan-review.sh 定位驱动的
+  // 第三候选就是 $HOME/.claude/skills/... ⇒ 本锁不需要本机有真引擎，CI 上同样执行。
+  fs.writeFileSync(path.join(skillDir, "ccg-deep-review.js"), [
+    '"use strict"',
+    "const fs = require('node:fs')",
+    "try { fs.writeFileSync(process.env.MP_PLAN_STUB_MARK, 'argv=' + process.argv.slice(2).join(' ')) } catch (e) {}",
+    "process.exit(0)",
+    "",
+  ].join("\n"))
+  const bin = path.join(home, ".local", "bin")
+  fs.mkdirSync(bin, { recursive: true })
+  const IS_WIN = process.platform === "win32"
+  for (const tool of ["claude", "opencode"]) {
+    const f = path.join(bin, IS_WIN ? `${tool}.exe` : tool)
+    fs.writeFileSync(f, "#!/bin/sh\nexit 0\n")
+    try { fs.chmodSync(f, 0o755) } catch { /* Windows 空操作 */ }
+  }
+  return home
+}
+
+function makeSmallProposal(dir) {
+  const base = dir || os.tmpdir()
+  fs.mkdirSync(base, { recursive: true })
+  const f = path.join(base, `plan-small-${process.pid}-${seq++}.md`)
+  fs.writeFileSync(f, "# 小方案\n\n只写三行，用来把决策层判定推到最低档。\n", "utf8")
+  return f
+}
+
+function runPlanWithStub(args, mark) {
+  const home = makeHomeWithRecordingEngine(mark)
+  // 预算 300 秒的出处：同一条链在**空载**本机单跑实测 62 秒（duration_ms=61651，2026-10-22），
+  // 而 120 秒在同一天的高负载窗口被实测杀过（症状=标记文件不存在，读起来像实现坏了）。
+  // 这里取 62 × ~4 的余量，不改任何断言；再贴脸就该先看机器读数再谈预算。
+  const res = spawnSync(resolveGitBash(), [PLAN_REVIEW, ...args], {
+    encoding: "utf8",
+    timeout: 300000,
+    env: {
+      PATH: bashPath(),
+      HOME: home,
+      USERPROFILE: home,
+      CCG_BACKEND_BIN_DIRS: "",
+      MP_PLAN_STUB_MARK: mark,
+    },
+  })
+  return { rc: res.status, out: `${res.stdout || ""}${res.stderr || ""}`, home }
+}
+
+function decidePrintedMode(inputFile) {
+  const res = spawnSync(process.execPath, [path.join(ROOT, "scripts", "ccg-review-decider.js"), "--input", inputFile, "--print"], {
+    encoding: "utf8",
+    timeout: 60000,
+  })
+  assert.equal(res.status, 0, `判定器自身必须退 0（读不到就是判据坏了，不得当成"没跳过"）：${res.stderr}`)
+  return `${res.stdout || ""}${res.stderr || ""}`
+}
+
+test("判定器对 --input 恒不产出 skip（裸临时目录与 docs 白名单路径两种形状都实测）", () => {
+  const bare = makeSmallProposal()
+  // 第二格必须落在文档白名单目录**形状**里：docs-only 是唯一能产出 skip 的那条路，
+  // 而它对方案输入被短路 —— 只测裸路径会漏掉"换个位置就跳过了"这一形态。
+  const nested = makeSmallProposal(path.join(os.tmpdir(), `plan-docs-shape-${process.pid}-${seq++}`, "openspec", "changes", "probe-slug"))
+  try {
+    for (const [label, f] of [["裸临时目录", bare], ["docs 白名单形状", nested]]) {
+      const out = decidePrintedMode(f)
+      const m = out.match(/\]: *(SKIP|SINGLE|DUAL)/)
+      assert.ok(m, `${label}：读不到判定行 ⇒ 判据漂移，不得把"没读到"当成"没跳过"。实得：\n${out}`)
+      assert.notEqual(m[1], "SKIP", `${label}：决策层产出 skip ⇒ D5 的"不可达"前提已被推翻，必须先显式裁决再恢复旗标`)
+    }
+  } finally {
+    cleanup([bare, nested], [])
+  }
+})
+
+test("plan-review.sh：S 复杂度方案必须把控制权交给驱动（不带旗标这一格就是今天的真相）", () => {
+  const proposal = makeSmallProposal()
+  const mark = markPathFor("force")
+  const r = runPlanWithStub([proposal], mark)
+  try {
+    assert.ok(fs.existsSync(mark),
+      "决策层不存在可跳过的那一档 ⇒ 方案必须交给驱动；rc=" + r.rc + "\n" + r.out)
+    assert.match(fs.readFileSync(mark, "utf8"), /--proposal/, "驱动收到的必须是方案评审那条命令行：" + fs.readFileSync(mark, "utf8"))
+  } finally {
+    cleanup([proposal], [r.home])
+    try { fs.rmSync(mark, { force: true }) } catch { /* 忽略 */ }
+  }
+})
+
+test("plan-review.sh：那个已删的旗标不得复活（分支与参数臂都不许再加回来）", () => {
+  const src = fs.readFileSync(PLAN_REVIEW, "utf8")
+  // 判据按**语义位置**切，不按"字符串是否出现"切：本段注释要解释删了什么，
+  // 所以禁的是那两处语法形态（case 臂的右括号、比较式的引号等号），不是那个词本身。
+  assert.doesNotMatch(src, /--force\)/, "不得再有旗标的 case 臂 —— 它对不可达的那一档作承诺")
+  assert.doesNotMatch(src, /= *"SKIP"/, "不得再有该档的早退分支 —— 判定器对方案输入恒不产出它")
+  assert.match(src, /不可达|没有可作用的对象/, "删除处必须留下为什么，否则下一个维护者会当成遗漏补回来")
+})
+
+test("plan-review.sh：带已删旗标调用时行为与不带同形（未知旗标只出声不拦，既有分支）", () => {
+  const proposal = makeSmallProposal()
+  const mark = markPathFor("force2")
+  const r = runPlanWithStub([proposal, "--force"], mark)
+  try {
+    assert.ok(fs.existsSync(mark), "同形性：rc=" + r.rc + "\n" + r.out)
+    assert.match(r.out, /忽略未知旗标/, "必须把「传了但不认识」说出来 —— 静默忽略会让「我传了」与「传进去了」在产物上同形")
+  } finally {
+    cleanup([proposal], [r.home])
+    try { fs.rmSync(mark, { force: true }) } catch { /* 忽略 */ }
+  }
+})

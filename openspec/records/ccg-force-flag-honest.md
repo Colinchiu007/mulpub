@@ -1,0 +1,56 @@
+---
+record: ccg-force-flag-honest
+task: 评审链两个入口的 --force 装饰性承诺 —— 验证层改显式拒绝，决策层删不可达分支
+date: 2026-10-22
+---
+
+## 本次执行记录：评审入口不得承诺做不到的事（ccg-force-flag-honest，2026-10-22）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 授权与裁决来源 | ✅ | 承接用户 2026-10-20「第 2、3 条授权你改判据。第 5 条，选②」的 A/B/C/D 序列之后的**第五片**，但本片不依赖那条授权：改的是本地评审工具旗标的诚实性，**不动任何守门清单**（分支保护、required check、`CI_IGNORED_PATHS`、`MP_RECHECK_COMMENT` 一条都没碰）。立项依据是切片 D 收尾时登记的那条遗留「两条评审链工具缺陷未修……另起一刀」，以及本会话实测把其中一条**否证**、把另一条**扩域**（详见下面「第一性原因」） |
+| 变更类型与隔离 | ✅ | 混合 PR（改 `scripts/deep-review.sh`、`scripts/plan-review.sh`、`scripts/ccg-review-decider.js` 的消费者与两份测试 ⇒ `classify-docs-only.js` 判 `docs-only=false`）；隔离走正规入口 `scripts/start-mp-task.ps1 -TaskName ccg-force-flag-honest` → `<仓库父目录>/mp-worktrees/mp-ccg-force-flag-honest`，裸分支同名，`pnpm install --frozen-lockfile` + `ensure-electron`（v43.7.7）+ `verify-worktree-deps`（11 个消费方解析通过）全 OK。共享根当时有他人会话 3 个未跟踪条目，入口未受挡（fail-closed 判据看的是 tracked 脏度）；全程未动他人文件 |
+| 第一性原因（QM-5 ①） | ✅ | 不是"旗标忘了转发"，是**承诺写在了实现做不到的那一层上，且没有任何东西在看它**。三条实测：① `deep-review.sh --force` 只挡自己 `:798` 那格早退，`exec` 不带任何旗标，而驱动（仓外 `ccg-deep-review.js`）在验证层从 `.ccg/reviews/<sha>.json` 自己读 `mode` ⇒ 实测 `rc=0` + 「不做深度审查 —— 退出 0」+ **wipe=true**（该记录 `deepReview` 由 `cleared/tier=external/evidence=PR #4204 issuecomment-6323452201/findings=7` 被整块覆写成 `skipped_by_mode/performedBy=null/findings=null`）；② `plan-review.sh` 那一格 `--force` 更彻底——**它保护的是一个不可达分支**：`isDocsOnly()` 首行对 `staged.proposal` 直接短路 ⇒ 同一份 2 行方案在裸临时目录与 `openspec/changes/...` 两种形状下都判 `SINGLE`，那句「跳过（--force 可强制）」永远不会打印；③ 引用面实测：`openspec/records/collection-page-ui-ue-refine.md:176` 与 `openspec/records/film-engineering-user-manual.md:42` 把它写成「唯一能真正补审的路径」，`fix-worktree-remove-dirty-gate.md` tasks 6.10 早已诊断「不真 force」但判为「报人不自治」而未修 ⇒ 教给后续会话的补救动作从落笔那天起就是空转 |
+| 逃逸分析（QM-5 ②） | ✅ | 逐层：① 单元层——`deep-review-deps.test.js` 里 `--force` **只在"缺值/未知旗标"那组参数里出现过一次**（作为被拒的输入），从来没有一条用例问"带它跑一次会发生什么"；② 文档层——`--help` 由 `sed` 打印文件头，头部那句承诺本身就是被测对象的**说明书**，而没有任何锁读它；③ 归因层——即使有人真跑，`rc=0` 与"按决策矩阵正常跳过"逐字同形，日志里没有任何东西区分"跳过是设计"与"我请求强制而它没理我"；④ 决策层——`plan-review-deps.test.js` 的 7 条锁全在测后端体检（PATH prepend / 零后端早退 / 降级点名），入口的档位分支一次都没被问过。**共性**：锁都盯着"能不能跑起来"，没有一条盯着"旗标说了什么、兑现了什么" |
+| 系统性漏洞（QM-5 ③） | ✅ | 两类，各有指名落点：**「参数面有承诺、无对手锁」**（与「装饰性门禁」同族：旗标在 `--help` 里有句子，在测试里没有格子）；**「入口的失败文案不唯一归属」**（`skip + --force` 在有后端环境 `rc=0`、在无后端环境 `rc=2` 且理由是"缺后端"，同一形态两种读数，归因被环境劫持） |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 验证层：`:798` 那格拆两档，带旗标那档新增拒绝块，位置排在「4. 依赖体检」之前，`exit 2`，文案三件事 + 两条出路（① 方案层面直接 `plan-review.sh <方案>`；② diff 要真审就按 AGENTS QM-6 直接起两路后端或只读 fresh-context 派发，出处写进 PR 评论，**不得**事后改记录 `mode` 造 dual）。决策层：删不可达早退分支 + `FORCE` 变量 + case 臂，用法行与未知旗标文案同步，原位置留"为什么删"的注记。**同处顺带清掉一处本刀新造的死码**：删掉那格分支后变量 `MODE` 变成只写不读，正解不是把解析那两行也删（那会让「我这么小的方案为什么还是跑了 15 分钟」这个问题在运行时无人回答），而是把它接回一处真实用途——交给驱动之前把判定说出来（S 方案恒不跳过）。：锁共 **9 条**（终版；原写 8 条，其中"拒绝行为"那把因 M-E1/M-E3 同红集被拆成答复面/产物面两把，拆开过程见 learnings 里"补丁吞掉锚点"那条）。`deep-review-deps` 5 条（答复面 rc+文案 / 产物面 驱动未起+记录字节 / 默认档同形 / 位置接线 / `--help` 如实，实测 41→46，其中 46 含上游 #4151 带入的 1 条）+ `plan-review-deps` 4 条（判定器两种形状都不产出 skip / S 方案必须交给驱动 / 已删旗标不得复活 / 带已删旗标同形且出声，实测 10→14）。断言一律取入口自己的可观测产物（rc、文案、桩驱动是否被 exec、判定记录**字节**相等），不引用仓外引擎行号 |
+| 防止再次发生（QM-5 ⑤） | ✅ | ① 承诺与实现对齐有执行体：`--help` 锁同时要求"必须有 `不会强制`、必须没有 `忽略 mode=skip`"，把说明书变成被测面；② "不可达"从散文变成判据：`decider --input` 两种路径形状各跑一次并断言不是 skip ⇒ 将来引入方案级豁免必须先让这些锁红，再显式改（结构锁的禁串按**语法位置**切：`--force\)` 与 `= *"SKIP"`，注释里提那个词不会自指命中）；③ 判定产物完整性有字节级对手（`skipped_by_mode` 那一类"没跑的审查改写记录"再也过不了）；④ 规格落 `openspec/changes/ccg-force-flag-honest/specs/qm6-review-chain/spec.md`（3 Requirement / 7 Scenario）；⑤ learnings 两条写进本记录末节，发版由 `scripts/aggregate-changelog.js` 搬运（PR 不直接编辑 `01-docs/learnings.md`） |
+| 取证读数（当场量，非推断） | ✅ | 引擎 skip 分支探针（临时 git 仓、父环境显式置空 `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`）：`rc=0`、末行「判定为 S 复杂度低风险，按决策矩阵不做深度审查 —— 退出 0」、`wipe=true`（该记录 `deepReview` 由 `cleared/tier=external/evidence` 被整块覆写成 `skipped_by_mode/performedBy=null/findings=null`）。决策层两种形状判定：均 `SINGLE`。TDD 首跑红集：`deep-review-deps` `not ok 42/44/45`，`plan-review-deps` `not ok 13/14`。实现后同一份内容整文件复跑（本机，含负载读数以便下一轮调预算而不是再猜）：`plan-review-deps` **tests=14 pass=14 fail=0，4 分 34 秒**；`deep-review-deps` **tests=45 pass=45 fail=0，5 分 50 秒**（pre-rebase 基线）；rebase 后终版整文件复跑 **tests=46 pass=46 fail=0**（同一天该文件第一跑 43/46：3 条 ABS-prepend 家族红，单跑 3/3 绿、负载退去后整文件全绿 ⇒ 归因负载，不当通过证据，通过证据取复跑的 46/46 与本 PR 的 CI）；消费者并集其余三文件合并跑 **tests=201 pass=201 fail=0 rc=0**。`sh -n` 两份入口均通过；`grep -c FORCE scripts/plan-review.sh` = 0；`--help` 输出实测含新行（由第 4 条锁证明打印区间覆盖） |
+| 变异反证（指名红 + 红集关系） | ✅ | 驱动 v3（`D:/Temp/e-mutate3.cjs`，不入仓）跑 **7 个变异全 CAUGHT、红集互不相同=yes、非CAUGHT=[]、还原 drift=0**（2026-10-22 06:42–06:57 那趟）。每轮只跑本片那 9 条锁（`--test-name-pattern` 选），**测量域如实收窄**：整文件绿另有独立证据（46/46 与 14/14 的整文件复跑 + 本 PR 的 CI），而变异要证的是"每条锁对它声称那一格有牙"，选择域逐格包含该锁。**第一轮的两条自打（都由读数抓到，不是事后解释）**：① M-E4 **MISSED** —— 位置锁锚串「不会强制」在文件里出现两次，`indexOf` 取到的是文件头注释那一次，于是这把锁量的是"注释排在体检之前"，恒真 ⇒ 换成锚那条拒绝语句自己的唯一前缀，换锚后 M-E4 单独红在该锁；② M-E1 与 M-E3 **红集相同**（都在同一条用例名上）—— 那条用例把两种不变式（答复面 rc+文案 / 产物面 驱动+字节）混在一起，rc 断言先抛就看不见产物面 ⇒ 拆成两条，拆后 M-E1 红 3 条、M-E3 红 1 条。逐条：M-E1 删拒绝分支→{答复面,产物面,位置}；M-E2 删"不带旗标才跳过"档→{默认档}；M-E3 拒绝改 exit 0→{答复面}；M-E4 拒绝点后移到体检之后→{位置}；M-E5 恢复 case 臂→{不得复活,同形}；M-E6 恢复不可达档早退→{不得复活}；M-E7 摘 decider 对方案输入的短路→{两种形状不产出 skip}。**另记一次自己的流程事故（读数因此作废重跑）**：上一版驱动我用 TaskStop 停过，工具报"已停止"，但驱动进程树**活着继续改同一批文件**（13:24 起的那棵树活到 14:2x 才被按 PID 杀掉），于是 v2 与 v3 并发跑、互相把对方的变异态当基线，`git diff` 里甚至留下一份 M-E4 形状的污染（按精确路径 `git restore --source=HEAD --worktree` 复位）。⇒ 第一版 v3 的整轮读数**作废不引用**；驱动加单实例锁（锁文件里的 PID 还活着即拒绝启动，判据取产物不取"我记得只有一个在跑"）。终止前后 node 计数 24→19，只按 PID 杀自己那三棵（`47864→21236`、`57184→47864` 亲缘已核），未按名字批量杀 |
+| 接线棘轮 | ✅ | 本刀**没有新增测试文件**，只往两份既有测试加用例，二者都已在 `quality-gate.yml` 逐个点名（`scripts/deep-review-deps.test.js` :656、`scripts/plan-review-deps.test.js` :661；其余三个消费者 `check-pr-exec-record.test.js` :174、`ccg-review-decider.test.js` :230、`ccg-bash-entry.test.js` :668 也各自在单），所以 `check-unwired-tests` 的域与读数不变（当场读数待回填 `__UNWIRED__`） |
+| TDD 顺序的如实说明 | ✅ | 9 条新增锁里 **5 条实现前见证红**（上面红集：`deep-review-deps` 42/44/45、`plan-review-deps` 13/14），**3 条首跑即绿**：验证层默认档锁、`decider` 两种形状不产出 skip、S 方案必须交给驱动。这三条的作用是把"将来的退化"钉住，不在证明本刀改动，不得写成"先见证红"；它们各自的可证性由变异 M-E2 / M-E6 / M-E7 提供（摘掉对应实现必须变红）。另记一条顺序偏差：拆出「答复面 / 产物面」两把锁时**没有重走"先见证红"**——它们的红由 M-E1（三条一起红）与 M-E3（只红答复面）在终版内容上实测提供 |
+| 行尾与 diff 对账 | ✅ | `scripts/deep-review.sh` 与 `scripts/plan-review.sh` 工作副本实测**纯 LF**（`crlf=0 lf=878/441 dbl=0 crTotal=0`）⇒ 补丁按 LF 写回，不做任何"多数派探测统一回写"；两份测试文件实测**纯 CRLF**，追加前用"CR 数 == 行数"自证。**`CHANGELOG.md` 与 `01-docs/learnings.md` 本次零改动**，条目写在本记录末节 |
+| QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件；本刀是评审链工具脚本 |
+| QM-6 CCG 外部评审 | ⏳ | 设计轴已真交付：`sh scripts/plan-review.sh <唯一命名副本> --force` 判定 DUAL、critic=claude 交付 6 条（Critical 0 / 最低维度分 7 / converged / cleared），逐条处置见 design D8（采纳 i1/i3/i4/i6，拒绝 i2/i5 并给可反证理由）。**其中 i1 的采纳过程推翻了我自己的初稿结论**：初稿说"决策层的 --force 是真的"，实测否证为"那一档根本不可达"⇒ 本刀的落点二由此产生。实现轴待回填 `__QM6_IMPL__` |
+| 过程发现（本刀自己制造的一次机械假绿，未合入） | ✅ | rebase 之后分支上连续出现两笔**只改 `.ccg` 判定产物文件名**的提交（内容寻址键换名，代码一字未动）。钩子对这两笔的判定是 `SKIP / 改动全部命中文档白名单 / 变更 0 行` ⇒ 若照那样开 PR，净差量里没有任何 `mode=dual` 产物，而 `check-pr-exec-record.js` 的欠账判据与高危面收口矩阵**都只看 `mode=dual`** ⇒ 678 行、含高危面 `scripts/deep-review.sh` 的改动会在机械上"一条 QM-6 都不欠"地合进去。这正是本刀在修的那族形态，且由本刀自己的过程产生，所以如实记在这里而不是只写进 PR 评论。处置：`reset --soft origin/main` + `git rm -f <陈旧键>` 压回一笔，让钩子对真实差量判定，现产物 `mode=dual / reason=变更 270 行 > 200 行阈值 / deepReview.status=pending`。**同场一条工具事实**：`git reset --soft` 在 PowerShell 侧连续两次静默未生效（打印出的 `RESET_RC=` 为空 ⇒ 该 native 命令根本没跑），同一条命令在 Git Bash 里立即生效（`ahead` 1→0）；归因未做对照实验，只作现场记录。可复用的口径是本刀漏掉的那条：**收尾型动作之后必须回读产物**（`git rev-list --count origin/main..HEAD`），"脚本没报错"不构成证据——前两版脚本只打印 `RESET_RC` 而不判定，于是连着骗了两次，多出的两笔 skip 提交就是代价 |
+| 远程同步 | PR `__PR__` | 合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导，不手写状态词、不开回填 PR |
+
+### 遗留（不假装已闭合）
+
+- **验证层"真强制"仍无通道**（design D6 残留 1）。合同已写进规格：要么由 decider 支持"按已提交区间重测并写一条新判定"的显式补跑档并留可审计字段，要么由入口生成 diff 简报走决策层。两者都必须让 `check-pr-exec-record.js` 看得见出处。本刀只把假承诺换成真拒绝。
+- **`mode=dual`/`single` 记录下驱动的回写行为未实测**，不得从本刀的 `wipe=true` 外推（规格「已知范围外推边界」Scenario 已写死这条边界）。
+- **两份历史执行记录里那句"唯一能真正补审的路径"没有被改写**（按"不改写历史、追加最新锚点"口径）。真实控制点是命令自己：下一次执行会当场读到拒绝与出路。那两笔的补审**至今仍未完成**，且现在有了正确的做法。
+- **引擎在决策层跑完后会新建 `.ccg/reviews/<当时 HEAD sha>.json`**（本轮现场：`ab806ce0…`，而该 sha 是分支创建点、不是被审对象）。这是「跑完顺手造一条没有对应提交的判定产物」的形态，属仓外引擎与仓侧命名约定的接缝，另起一刀；本轮把这条产物作为设计轴证据**保留并如实标注其键名含义**。
+- **`enforce` 在 CI 侧仍是 advisory**、`MP_RECHECK_COMMENT` 仍 `"0"`：与切片 C/D 同一边界，属人工裁决。
+
+## CHANGELOG 条目
+
+# fix(评审链): deep-review/plan-review 的 --force 不再承诺做不到的事（ccg-force-flag-honest）
+
+评审链两个入口的 `--force` 都是装饰性旗标，且各自以不同方式空转。`scripts/deep-review.sh --force` 只挡自己那一格早退，驱动仍按判定记录里的 `mode` 自行决定——实测 `mode=skip` 时它 `rc=0`、一个后端都不起，**却把那条记录的 `deepReview` 整块覆写成 `skipped_by_mode`**（原先的 `cleared` / `tier=external` / 评审出处随之消失）；而两份已合并的执行记录把这条命令写成"唯一能真正补审的路径"。`scripts/plan-review.sh --force` 保护的是一个**不可达分支**：判定器对方案输入恒不产出可跳过的那一档（两种路径形状实测都是 SINGLE），那句"跳过（--force 可强制）"永远不会打印。
+
+现在：验证层带旗标遇到 `skip` 会**早于依赖体检**出声拒绝（`rc=2`），说破为什么做不到、继续跑会毁掉什么，并给出现前真能用的两条出路；决策层删掉死码分支与无对象的旗标。判定产物在任何参数组合下都不会再被"没跑的审查"改写——这条有字节级回归锁。新增 9 条锁（含 3 条把"将来的退化"钉住的取证性锁）；`--help` 的说明书文本本身成了被测面。
+
+## learnings
+
+### lesson: ccg-force-flag-honest-patch-ate-its-own-anchor
+
+按锚点做区间拼接时，如果新文本不把**锚点本身**写回去，被替换掉的不只是目标短语，而是整段锚。本刀一次"往执行记录里补一句说明"的补丁就这样把「锁共 8 条新增」这个主语吞了：文档读起来缺半句，而脚本 rc=0、长度变化看着完全合理。三条口径：① 落盘前打印"替换前后长度 + 锚点出现次数"，对不上期望就不写；② 拼接的正确形态是 `slice(0, i) + NEW + slice(i)` 且 NEW 自带锚点（或用 `replace(from, to)` 且 to 里含 from 的可读改写），**不要** `slice(0, i + len(ANCHOR))` 再自己补；③ 改完必须由一个**独立读数**回验——本刀是后面 grep 锁数时发现"4 条/5 条"与终版对不上才抓到的，脚本自己的 rc 不算证据。
+
+### lesson: ccg-force-flag-honest-help-is-a-tested-surface
+
+`--help` 这类"由实现文本自动生成的说明书"必须进判据域。本仓的 `deep-review.sh --help` 是用 `sed` 打印文件头注释，所以头注释里那句「忽略 mode=skip，强制跑」既是文档也是产品表面：它错了，而**没有任何一条测试读它**。修法不是"记得改文档"，是给 `--help` 的**输出**加行为锁（同时断言"必须出现真相、必须不再出现假承诺"，并顺带证明打印区间覆盖到了新行——区间用固定行号写死时，新加的那行会被静默截掉而 --help 看起来照样有输出）。同类位置：任何"从源码抽注释/抽清单"的门禁文案、workflow 的 step 名、CLI 的 usage 串。
+
+### lesson: ccg-force-flag-honest-flag-refusal-before-env-gates
+
+一个"做不到的请求"的拒绝点**位置**决定了它能不能被归因。放在依赖体检之后，零后端环境会先 `exit 2` 并打印"找不到评审后端"，于是同一条命令在不同机器上有两种失败理由，而其中一种把工具缺陷伪装成环境问题；放在体检之前，`rc=2` 才有唯一归属。配套纪律两条：① 拒绝的锁不能只看 `rc`，必须同时命中那句**指名旗标做不到**的固定判据串（实现与测试共用同一字面量，不各写一份"同族词"）；② 因此还需要一条按源码位置断言的接线锁——当夹具把后端桩装齐时，位置错乱在行为上完全不可见（本轮变异 M-E4 就是这一格）。

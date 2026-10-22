@@ -1119,3 +1119,115 @@ test("i3 闭包完整性锁：夹具登记的 require 清单必须由真实 requ
   assert.ok(got.size >= 4, `推出来的闭包规模异常（实得 ${got.size}）—— require 解析退化，本锁会空转`)
   console.log('[ENTRY-CLOSURE] 真实 require 闭包=' + [...got].sort().join(','))
 })
+
+
+// ---------- --force 在验证层是装饰性旗标（切片 ccg-force-flag-honest） ----------
+// 实测现场见 openspec/changes/ccg-force-flag-honest/proposal.md：引擎（仓外技能目录）在验证层
+// 从判定记录自己读 mode，遇 skip 直接 return 0，并把该记录的 deepReview 整块覆写成
+// skipped_by_mode（2026-10-22 临时仓读数：cleared/external/evidence=PR #4204 issuecomment-6323452201
+// → skipped_by_mode/performedBy:null/findings:null，wipe=true）。入口过去只跳过自己的早退、
+// 照样 exec ⇒ 命令 rc=0 而什么都没审，而两份已合并的执行记录把它写成「唯一能真正补审的路径」。
+// 四格锁矩阵与分工见 design D5 / D7。
+
+const SKIP_RECORD_B = JSON.stringify(
+  {
+    mode: "skip",
+    reason: "S 复杂度低风险（夹具构造）",
+    reviewBackends: {
+      critic: "claude",
+      proposer: "opencode",
+      from: { critic: "list", proposer: "list" },
+      notes: [],
+      overridden: false,
+    },
+    deepReview: {
+      required: true,
+      status: "cleared",
+      performedBy: "claude",
+      tier: "external",
+      evidence: "PR #4204 issuecomment-6323452201",
+      findings: 7,
+    },
+  },
+  null,
+  2
+);
+
+descB("验证层 skip + --force 的答复面：rc=2 且文案点名旗标做不到（M-E3 的可见者）", () => {
+  // 答复面单独一条：把 exit 2 改成 exit 0 只会红在这里，不会连带把产物面一起吃掉。
+  const fx = makeReviewRecordRepoB(SKIP_RECORD_B);
+  try {
+    const before = fsB.readFileSync(fx.recPath, "utf8");
+    const r = runReviewRealB(fx.dir, ["--force"]);
+    assert.equal(r.rc, 2, "旗标做不到 ⇒ 不得退 0（退 0 读起来就是「已按要求跑过一遍」），实得 rc=" + r.rc + "\n" + r.out);
+    assert.match(r.out, /不会强制/, "必须点名是「该旗标在验证层做不到」。夹具里后端桩齐备，所以这一句只可能来自拒绝点，"
+      + "不由依赖体检那格顶罪：\n" + r.out);
+    assert.match(r.out, /plan-review\.sh/, "必须给出当前真能用的替代路径（决策层对方案恒不跳过），否则拒绝等于把人留在原地：\n" + r.out);
+  } finally {
+    fsB.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+descB("验证层 skip + --force 的产物面：桩驱动一次都没起来、判定记录逐字节不变（M-E1 的可见者）", () => {
+  // 产物面单独一条：整块删掉拒绝分支时驱动会被启动（rc 也一起坏），这一条必须在**用例名粒度**上能被分辨，
+  // 否则它与上一条同红集、等于一把装饰。断言取字节相等而不是"某字段没变"（后者对新增字段免疫）。
+  const fx = makeReviewRecordRepoB(SKIP_RECORD_B);
+  try {
+    const before = fsB.readFileSync(fx.recPath, "utf8");
+    const r = runReviewRealB(fx.dir, ["--force"]);
+    assert.ok(!fsB.existsSync(fx.out), "桩驱动一次都不能起来 —— 覆写判定产物正是发生在把控制权交给驱动之后那一步");
+    assert.equal(fsB.readFileSync(fx.recPath, "utf8"), before,
+      "判定产物必须逐字节不变（断言字节相等，不是断言某个字段没变 —— 后者对新增字段免疫）");
+  } finally {
+    fsB.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+descB("验证层 skip 不带旗标：既有跳过语义逐字不变（rc=0、驱动不起、记录不动）", () => {
+  // 这一格防的是"顺手把误用与正常跳过做成同一种红"：若实现把 MODE=skip 一律改成非零，
+  // 正常档每次跳过都变红，而下一个维护者的补法是把整段拒绝删掉 —— 那就回到今天。
+  const fx = makeReviewRecordRepoB(SKIP_RECORD_B);
+  try {
+    const before = fsB.readFileSync(fx.recPath, "utf8");
+    const r = runReviewRealB(fx.dir, []);
+    assert.equal(r.rc, 0, "正常跳过档必须照旧 rc=0，实得 rc=" + r.rc + "\n" + r.out);
+    assert.ok(!fsB.existsSync(fx.out), "跳过档不得起驱动");
+    assert.equal(fsB.readFileSync(fx.recPath, "utf8"), before, "跳过档不得改判定产物");
+  } finally {
+    fsB.rmSync(fx.dir, { recursive: true, force: true });
+  }
+});
+
+test("拒绝点必须排在依赖体检与交给驱动之前（M-E4 的唯一可见者）", () => {
+  // 为什么位置锁不可省：夹具把后端桩装齐了，所以「拒绝点后移到体检之后」这一形态在行为锁里
+  // 照样 rc=2、照样有那句文案 —— 只有按源码位置才看得见它。锚点缺失一律当场红，
+  // 不得让 indexOf 的 -1 继续参与位置比较（那会退化成"恒真"）。
+  const sh = fsB.readFileSync(SCRIPT, "utf8");
+  const refuse = sh.indexOf('\u2717 --force \u5728\u9a8c\u8bc1\u5c42\u4e0d\u4f1a\u5f3a\u5236');
+  const depCheck = sh.indexOf("# ---------- 4. 依赖体检 ----------");
+  const handoff = sh.indexOf('run_driver_with_writeback --sha "$SHA"')
+  assert.ok(refuse > 0, "找不到那条拒绝语句本身（锚=✗ --force 在验证层不会强制）⇒ 入口没有拒绝点，或文案被改名");
+  assert.ok(depCheck > 0, "找不到依赖体检段的锚点 ⇒ 本锁的区间已漂移，不得退化成空比较");
+  assert.ok(handoff > 0, "找不到把控制权交给驱动的锚点（上游换成 run_driver_with_writeback，锚点必须跟着迁）⇒ 本锁不得退化成空比较");
+  assert.ok(depCheck > refuse, "拒绝必须早于依赖体检（实得 refuse=" + refuse + " dep=" + depCheck + "）："
+    + "体检在零后端时也 exit 2，会把「旗标做不到」伪装成「环境问题」");
+  assert.ok(handoff > refuse, "拒绝必须早于把控制权交给驱动（实得 refuse=" + refuse + " handoff=" + handoff + "）");
+});
+
+test("--help 必须如实描述 --force（扫描域=脚本自身与 --help 输出，不含文档）", () => {
+  const r = spawnB(bashB, ["scripts/deep-review.sh", "--help"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    timeout: 60000,
+    env: {
+      PATH: BARE_PATH,
+      HOME: process.env.HOME || osB.homedir(),
+      USERPROFILE: process.env.USERPROFILE || osB.homedir(),
+    },
+  });
+  const out = String(r.stdout || "") + String(r.stderr || "");
+  assert.equal(r.status, 0, "--help 必须退 0，实得 rc=" + r.status + "\n" + out);
+  assert.match(out, /--force/, "用法块里必须仍列着这个旗标（删掉旗标会让人以为是自己拼错了参数，归因推给下一个查询者）");
+  assert.doesNotMatch(out, /忽略 mode=skip/, "不得再对已被实测否证的行为作承诺");
+  assert.match(out, /不会强制/, "真相必须写在 --help 里，而不是等人真跑一次才看到；同时证明 --help 的打印区间覆盖到了新行");
+});

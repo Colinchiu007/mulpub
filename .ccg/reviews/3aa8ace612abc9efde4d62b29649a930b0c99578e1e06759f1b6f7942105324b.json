@@ -1,0 +1,59 @@
+{
+  "sha": "98e94bc3b0d8089bfedd5ac669e9cac3d86259dd",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 286 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 286,
+    "fileCount": 10,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 授权与裁决来源 | ✅ | 承接用户 2026-10-20「第 2、3 条授权你改判据。第 5 条，选②」的 A/B/C/D 序列之后的**第五片**，但本片不依赖那条授权：改的是本地评审工具旗标的诚实性，**不动任何守门清单**（分支保护、required check、`CI_IGNORED_PATHS`、`MP_RECHECK_COMMENT` 一条都没碰）。立项依据是切片 D 收尾时登记的那条遗留「两条评审链工具缺陷未修……另起一刀」，以及本会话实测把其中一条**否证**、把另一条**扩域**（详见下面「第一性原因」） |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3aa8ace612abc9efde4d62b29649a930b0c99578e1e06759f1b6f7942105324b",
+  "decidedAt": "2026-10-22T07:43:27.002Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
