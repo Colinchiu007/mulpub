@@ -853,3 +853,48 @@ test('选最新 run 必须有兜底：run_attempt 缺失按 1 计，两维都不
   ])
   assert.deepStrictEqual(rerun.map((r) => r.id), [6], '重跑那次（attempt 更大）必须胜出')
 })
+
+// ——— 主干侧收窄到 required 检查（2026-10-22） ———
+//
+// 现场：`mainRowsAt` 原先取 tip 上**全部**非 workflow_run 作业，于是
+// `Build & Release` / `Visual Tests` / `GUI Tests` / `QG Visual` / `QG Desktop Shards` /
+// `QG Browser E2E` / `QG Autonomous` 这些**非必需**长跑项也参与「是否已完整跑完」的判定。
+// 主干每 15-30 分钟前进一次、整条 quality-gate 要 44 分钟 ⇒ 一个"全部作业已完成"的版本
+// 几乎不存在 ⇒ 闸门常态 rc=3（同日 PR #4219 三小时内撞到 3 个 tip）。
+test('pickRequiredContexts：两套机制的并集，取不到时不得返回空集', async (t) => {
+  const { pickRequiredContexts } = require('./check-main-red.js');
+
+  await t.test('分支保护 + rulesets 取并集（本仓实测的两份真实形状）', () => {
+    const protection = { required_status_checks: { contexts: ['Gate Result', 'build', 'QG Unit Tests', 'QG Coverage'] } };
+    const rulesets = [{ rules: [{ type: 'required_status_checks', parameters: { required_status_checks: [
+      { context: 'QG Static' }, { context: 'QG Unit Tests' }, { context: 'electron-tests' }, { context: '文档同步检查' },
+    ] } }] }];
+    const got = pickRequiredContexts(protection, rulesets);
+    assert.deepEqual([...got].sort(), ['Gate Result', 'QG Coverage', 'QG Static', 'QG Unit Tests', 'build', 'electron-tests', '文档同步检查'].sort());
+    assert.equal(got.size, 7, '重复的 QG Unit Tests 必须去重');
+  });
+
+  await t.test('只有 rulesets 也能取到（protection 403 的免费仓）', () => {
+    const got = pickRequiredContexts(null, [{ rules: [{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'QG Static' }] } }] }]);
+    assert.deepEqual([...got], ['QG Static']);
+  });
+
+  await t.test('新版 checks[] 形状（含 context 字段）也要认', () => {
+    const got = pickRequiredContexts({ required_status_checks: { checks: [{ context: 'Gate Result' }, { context: 'build' }] } }, []);
+    assert.deepEqual([...got].sort(), ['Gate Result', 'build']);
+  });
+
+  await t.test('两源都取不到 → null（不过滤），不得返回空集', () => {
+    assert.equal(pickRequiredContexts(null, []), null, '全失败必须降级为「不过滤」，而不是「滤空一切」');
+  });
+
+  await t.test('两源都读到了但一条 required 都没有 → null（形状可能变了，按取不到处理）', () => {
+    assert.equal(pickRequiredContexts({ required_status_checks: { contexts: [] } }, [{ rules: [] }]), null,
+      '返回空集会滤掉所有作业 ⇒ 主干恒绿；这是把「读不到」读成「没有检查」');
+  });
+
+  await t.test('空白名字被忽略，不制造幽灵匹配', () => {
+    const got = pickRequiredContexts({ required_status_checks: { contexts: ['  ', '', null, 'build'] } }, []);
+    assert.deepEqual([...got], ['build']);
+  });
+});

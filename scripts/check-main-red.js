@@ -196,6 +196,61 @@ function selectMainRuns (runs) {
   return [...latest.values()]
 }
 
+/**
+ * 从「分支保护」与「rulesets」两份数据里取**必需检查**的名字并集（纯函数，可零网络单测）。
+ *
+ * 为什么必须两套都读（AGENTS「取证口径」）：GitHub 的 `branches/main/protection` 与 `rulesets`
+ * **并存**，只查前者会得出「某检查不是 required」的假结论。本仓实测两份各自只列一部分：
+ *   protection → `Gate Result, build, QG Unit Tests, QG Coverage`
+ *   ruleset     → `QG Static, QG Unit Tests, electron-tests, 文档同步检查, 债务熔断检查, 单元测试 + Lint, GUI Gate Result`
+ * 少读任何一份，都会把真正的必需检查当成可忽略的噪声 —— 那是**放松**判据，比噪声更危险。
+ *
+ * 为什么要按 required 收窄主干侧（2026-10-22 实测）：`mainRowsAt` 原先取该 tip 上**全部**非
+ * `workflow_run` 作业的终态，于是 `Build & Release`、`Visual Tests`、`GUI Tests`、`QG Visual`、
+ * `QG Desktop Shards`、`QG Browser E2E`、`QG Autonomous` 这些**非必需**的长跑项也参与"是否已完整跑完"
+ * 的判定。实测后果：主干每 15–30 分钟前进一次、整条 quality-gate 要 44 分钟 ⇒ 一个"全部作业都已完成"
+ * 的版本几乎不存在 ⇒ `mainBaseline` 沿链回溯 5 步也找不到绿基线 ⇒ 闸门常态 rc=3。
+ * 两次真实卡点（同日）：PR #4219 在 3 小时内撞到 3 个不同 tip，每次都是"刚清零就被推走"。
+ *
+ * ⛔ 收窄的**只是主干侧**：PR 侧仍要求「全部检查零 pending、零 fail」，不放宽。
+ * ⛔ 取不到 required 清单时返回 null（= 不过滤、维持原口径），**不得**返回空集——
+ *    空集会把所有作业都滤掉，等于「主干没有检查」⇒ 恒绿。
+ *
+ * @param {any} protectionJson `GET branches/main/protection` 的响应（可为 null/失败）
+ * @param {any[]} rulesetDetails 每个 ruleset 的详情响应数组（可为 null/失败）
+ * @returns {Set<string>|null}
+ */
+function pickRequiredContexts (protectionJson, rulesetDetails) {
+  const names = new Set()
+  let sawAnySource = false
+  const add = (v) => {
+    const n = String(v == null ? '' : v).trim()
+    if (n) names.add(n)
+  }
+  if (protectionJson && typeof protectionJson === 'object') {
+    sawAnySource = true
+    const rsc = protectionJson.required_status_checks
+    if (rsc && Array.isArray(rsc.contexts)) rsc.contexts.forEach(add)
+    // 新版 API 用 checks[]（含 context 字段），老版用 contexts[]；两者并存时都收。
+    if (rsc && Array.isArray(rsc.checks)) rsc.checks.forEach((c) => add(c && c.context))
+  }
+  for (const d of Array.isArray(rulesetDetails) ? rulesetDetails : []) {
+    if (!d || typeof d !== 'object') continue
+    sawAnySource = true
+    const rules = Array.isArray(d.rules) ? d.rules : []
+    for (const rule of rules) {
+      if (!rule || rule.type !== 'required_status_checks') continue
+      const list = (rule.parameters && rule.parameters.required_status_checks) || []
+      for (const item of Array.isArray(list) ? list : []) add(item && item.context)
+    }
+  }
+  if (!sawAnySource) return null
+  // 两份源都读到了、却一条 required 都没有 ⇒ 要么仓库真没设，要么形状变了。
+  // 这时**不能**返回空集（会滤空一切而恒绿），按「取不到」处理，维持原口径。
+  if (names.size === 0) return null
+  return names
+}
+
 /** 默认取数：全部走 gh，失败即抛（由 main 转成退出码 4，不静默返回空数组） */
 function createGhCollector (repo) {
   const run = (args) => {
@@ -230,6 +285,8 @@ function createGhCollector (repo) {
   const slug = resolved.slug
   /** 按 sha 缓存 mainRowsAt 的结果（见 mainRowsAt 内的说明，CCG i2） */
   const rowsCache = new Map()
+  /** required 清单只算一次（一次闸门运行内不变）；undefined=未取过，null=取不到 */
+  let requiredCache
   return {
     repo: slug,
     slugVia: resolved.via,
@@ -246,6 +303,38 @@ function createGhCollector (repo) {
       const raw = run(['api', '--paginate', `repos/${slug}/commits/${sha}/check-runs`, '--jq',
         '.check_runs[]? | {name, status, conclusion}'])
       return parseCheckRunLines(raw)
+    },
+    /**
+     * 必需检查清单（分支保护 + rulesets 并集）。取不到返回 null（= 不过滤）。
+     *
+     * 两套机制各自可能 403/404（免费仓不允许设 required checks、rulesets 需要更高权限），
+     * 所以**逐源 try/catch**：任一成功就用它的结果，全失败才 null。
+     * 这里刻意不抛错：主干侧读数的**其余**部分仍要能工作；抛错会让整个闸门退化成 rc=4，
+     * 而"没有 required 清单"的正确降级是"回到原口径（全部作业）"，不是"闸门坏掉"。
+     */
+    requiredContexts: () => {
+      if (requiredCache !== undefined) return requiredCache
+      let protection = null
+      let details = []
+      try {
+        protection = JSON.parse(run(['api', `repos/${slug}/branches/main/protection`]))
+      } catch (_) { protection = null }
+      try {
+        const listRaw = run(['api', '--paginate', `repos/${slug}/rulesets?per_page=100`, '--jq',
+          '.[]? | {id, target, enforcement}'])
+        const list = parseJsonLines(listRaw, 'rulesets')
+        for (const r of list) {
+          // 只管分支规则且生效中的；tag 规则与 disabled/evaluate 不构成"必需"。
+          if (!r || String(r.target) !== 'branch' || String(r.enforcement) !== 'active') continue
+          const id = String(r.id == null ? '' : r.id).trim()
+          if (!id) continue
+          try {
+            details.push(JSON.parse(run(['api', `repos/${slug}/rulesets/${id}`])))
+          } catch (_) { /* 单个 ruleset 读不到就跳过，其它源仍可用 */ }
+        }
+      } catch (_) { details = [] }
+      requiredCache = pickRequiredContexts(protection, details)
+      return requiredCache
     },
     /**
      * 主干侧读数：**只取该 tip 的非 `workflow_run` run**，再取其**作业级**终态。
@@ -283,8 +372,12 @@ function createGhCollector (repo) {
           '.jobs[]? | {name, status, conclusion}'])
         for (const j of parseJsonLines(jobRaw, 'actions/runs/' + id + '/jobs')) rows.push(j)
       }
-      rowsCache.set(sha, rows)
-      return rows
+      // 只保留 required 检查参与「是否已完整跑完」的判定（见 pickRequiredContexts 的说明）。
+      // required 为 null（取不到清单）时不过滤，维持原口径 —— 宁可慢，不可误判为绿。
+      const required = this.requiredContexts()
+      const scoped = required ? rows.filter((r) => required.has(String((r && r.name) || '').trim())) : rows
+      rowsCache.set(sha, scoped)
+      return scoped
     },
     /**
      * 主干基线（2026-10-22 阶段 1）：沿第一父链回溯 `maxBack` 个提交，取**最后一次完整跑完**的那一版。
@@ -451,4 +544,4 @@ if (require.main === module) {
 
 // parseCheckRunLines 必须可单独被测：它是「宿主输出 → 判据输入」那一层的唯一入口，
 // 藏在一个需要真 gh 的闭包里就只能靠集成跑，而那类跑一次要几十秒、还依赖模型额度。
-module.exports = { main, run, parseArgs, createGhCollector, parseCheckRunLines, parseJsonLines, isLaterRun, selectMainRuns }
+module.exports = { main, run, parseArgs, createGhCollector, parseCheckRunLines, parseJsonLines, isLaterRun, pickRequiredContexts, selectMainRuns }
