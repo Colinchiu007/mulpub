@@ -361,6 +361,26 @@ SELECT id, user_id, amount, created_at
 
 ---
 
+## 灰度期每天跑一次对账
+
+```bash
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/payment-reconcile.js --since-days 1
+```
+
+退出码 `0` 才继续放量；`1` 有阻塞差异（见 PRD §15.10.5 的处置表）；`2` 是工具/连接问题，
+**不能读成"没问题"**。下面是它覆盖的五项，和上面那几条 SQL 是一回事，但一次算完并给出处置提示：
+
+| 判据 | 等级 | 出现时的第一动作 |
+|---|---|---|
+| 已支付但没发权益 | **阻塞** | 查该单事件行：没行=回调没到；有行=结算抛错 |
+| 发了权益但订单非已支付 | **阻塞** | 先核对微信商户平台是否真收到钱，**不要自动降级** |
+| 回调已处理但订单非已支付 | **阻塞** | 代码缺陷信号，先 `PAYMENT_PROVIDER=none` 回滚入口 |
+| 已支付但无事件行 | 提示 | 历史单正常；新单查 `PAYMENT_EVENT_NOT_RECORDED` |
+| 事件卡 processing >10 分钟 | 提示 | 人工清账，**不要据此重新发放** |
+
+---
+
 ## 回滚
 
 ```bash
