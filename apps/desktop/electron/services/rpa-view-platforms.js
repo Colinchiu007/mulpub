@@ -334,6 +334,8 @@ const platformsMixin = {
           await this._sleep(1000)
         }
       }
+    } else if (platform === 'tencent_video' && article.video_path) {
+      const tr = await require('./tencent-video-frame').fillTencentVideo(win, article, { log, platform }); fillReport.title = { ok: tr.ok }; fillReport.content = { ok: tr.ok, frameStep: tr.step }
     } else if (article.title) {
       log.warn('RpaView', '[' + platform + '] title field not found (no title_input nor editor candidate), title skipped')
       fillReport.title = { ok: false, error: 'title field not found (no selector matched)' }
@@ -1421,9 +1423,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         // contenteditable，实测 innerHTML 写入后框架状态为空、发布出空文）；也不接受
         // execCommand 合成分块。正解（实测取证）：JS focus .public-DraftEditor-content →
         // CDP Input.insertText 可信注入（框架收到真实 beforeinput 并入状态）。
-        // 内容格式：发布页编辑器是 Quill（content-type=html），article.content 到达时已被
-        // 规范化为 HTML（<p>…</p>）；Draft.js 是纯文本编辑器，注入前先在页面内转纯文本
-        // （<p> 段落 → \n\n 分隔，textContent 保留段内换行）。
+        // 内容格式：发布页编辑器是 Quill（content-type=html），article.content 到达时已被；规范化为 HTML（<p>…</p>）；Draft.js 是纯文本编辑器，注入前先在页面内转纯文本；（<p> 段落 → \n\n 分隔，textContent 保留段内换行）。
         const plainContent = await win.webContents.executeJavaScript('(function(){var html=' + JSON.stringify(String(article.content)) + ';if(!/<[a-z][\\s\\S]*>/i.test(html))return html;try{var doc=new DOMParser().parseFromString(html,\'text/html\');var paras=[...doc.querySelectorAll(\'p,div,h1,h2,h3,h4,li,blockquote,pre\')];if(paras.length>0)return paras.map(function(p){return p.textContent.trim()}).filter(Boolean).join(\'\\n\\n\');return doc.body.textContent}catch(e){return html.replace(/<[^>]+>/g,\'\')}})()')
         const focused = await win.webContents.executeJavaScript('(function(){var ed=document.querySelector(\'.public-DraftEditor-content, [contenteditable="true"]\');if(!ed)return false;ed.focus();return document.activeElement===ed})()')
         if (focused) {
