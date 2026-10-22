@@ -75,6 +75,7 @@ const CONFIRM_TIMEOUT_MS = 20000
 // （①跑完再 await 它，若窗口短于①就会在自己还在等的时候就超时收摊）。
 const SAVE_RESPONSE_TIMEOUT_MS = 30000
 // ③ 兜底复核：整页 goto 贵，窗口短、只跑一次。
+const IDB_WINDOW_MS = 30 * 60 * 1000 // 只认本次流程 30 分钟内创建的草稿，防同名旧草稿假阳性
 const RECHECK_TIMEOUT_MS = 8000
 const RECHECK_INTERVAL_MS = 1500
 const POLL_INTERVAL_MS = 1500
@@ -192,6 +193,10 @@ async function recheckDraftBox (host, win, title, baseline, counterSel, boxUrl, 
     if (read !== null && read !== undefined) {
       counterReadable = true
       if (!out.increment && baseline !== null && baseline !== undefined && read > baseline) out.increment = true
+    }
+    // 强判据：小红书草稿在本地 IndexedDB（无网络请求），直接查草稿列表
+    if (!out.increment && title) {
+      try { const idb = await require('./xhs-draft-store').findDraftByTitle(win, title, { minTimeStamp: Date.now() - IDB_WINDOW_MS }); if (idb.ok) { out.increment = true; out.titleSeen = true; out.evidence = 'idb-title-match' } } catch (_e) { /* IndexedDB 不可读按未确认，继续轮询 */ }
     }
     // 辅助证据：列表里的同名条目（**不给确认权**，且需存在性前提）
     if (!out.titleSeen && title && counterReadable) {
