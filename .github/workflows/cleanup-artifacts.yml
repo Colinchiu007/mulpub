@@ -37,6 +37,5 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
         run: |
-          node scripts/cleanup-artifacts.js --write --days=5
+          node scripts/cleanup-artifacts.js --write --days=5 --repo=${{ github.repository }}

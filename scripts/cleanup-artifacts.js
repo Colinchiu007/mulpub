@@ -9,11 +9,16 @@
  * （page=2 两次调用一次 500 一次 200）⇒ **间歇性**，不是某个坏记录。`--paginate` 没有重试，
  * 所以日日必红（自 2026-10-14 起 schedule 连续失败，且它不是 required ⇒ 没有任何东西在看它）。
  *
- * 三条口径：
+ * 五条口径：
  * 1. **逐页列举 + 每页重试**，任一页最终失败 ⇒ 如实计入 `pages_degraded` 并非零退出：
  *    "没做完"永远不被读成"没有待删条目"。首页就失败 ⇒ `UNPROVEN`，一条都不删。
  * 2. DELETE 走 `--silent`：204 空体会被 gh 当 JSON 解析（与上面同形）。写旗标由测试逐参数锁住。
  * 3. 默认 dry-run（只读数不动手），真删必须显式 `--write` —— CI 的定时作业是唯一的写方。
+ * 4. **仓库坐标由调用点在命令行上显式给**（定时作业写 `--repo=` 接 runner 的仓库变量）。禁止只在
+ *    workflow 的 `env:` 里声明一个脚本根本不读的键：那种写法今天靠 runner 自带的 `GITHUB_REPOSITORY`
+ *    恰好兜住，读起来却像"坐标已经接好了"——判据对、传参错位，接线锁抓不到（QM-6 i4 实测命中）。
+ * 5. **上游返回的 id 会被拼进 DELETE 的路径段**，所以按形状收口（纯正整数），不合要求的计入
+ *    `rejected=` 并在首行出声；不得"GitHub 当然返回整数"就当它不存在（QM-6 i5）。
  *
  * 依赖：只允许 node 内置（落点 `changes` 作业无 Install deps）。
  * 用法：node scripts/cleanup-artifacts.js [--days=5] [--dry-run|--write] [--repo=o/r] [--retries=3]
@@ -60,6 +65,7 @@ function runCleanup (deps) {
   let page = 1
   let pages = 0
   let degraded = 0
+  let rejected = 0
   const ids = []
 
   for (;;) {
@@ -72,7 +78,7 @@ function runCleanup (deps) {
     }
     if (!res || !res.ok || !res.body || !Array.isArray(res.body.artifacts)) {
       if (page === 1) {
-        return { verdict: 'UNPROVEN', cutoff, pages: 0, degraded: 1, candidates: 0, deleted: 0, deletedIds: [] }
+        return { verdict: 'UNPROVEN', cutoff, pages: 0, degraded: 1, rejected: 0, candidates: 0, deleted: 0, deletedIds: [] }
       }
       degraded++
       break
@@ -80,7 +86,11 @@ function runCleanup (deps) {
     pages++
     const list = res.body.artifacts
     for (const a of list) {
-      if (a && a.expired === false && typeof a.created_at === 'string' && a.created_at < cutoff && a.id !== undefined) ids.push(a.id)
+      if (!(a && a.expired === false && typeof a.created_at === 'string' && a.created_at < cutoff)) continue
+      // id 来自上游 API，且会被拼进 DELETE 的**路径段**。非纯正整数一律不采纳并计数出声：
+      // "把外部可控值原样写进请求路径"在本仓是要机械拦的形态，不是"看起来不可能发生"的形态。
+      if (Number.isInteger(a.id) && a.id > 0) ids.push(a.id)
+      else rejected++
     }
     if (list.length < opt.perPage) break
     page++
@@ -92,7 +102,7 @@ function runCleanup (deps) {
     for (const id of ids) {
       const r = del(['api', '--silent', '-X', 'DELETE', `repos/${opt.repo}/actions/artifacts/${id}`])
       if (!r || !r.ok) {
-        return { verdict: 'DELETE_FAILED', cutoff, pages, degraded, candidates: ids.length, deleted, deletedIds, failedId: id }
+        return { verdict: 'DELETE_FAILED', cutoff, pages, degraded, rejected, candidates: ids.length, deleted, deletedIds, failedId: id }
       }
       deleted++
       deletedIds.push(id)
@@ -100,7 +110,7 @@ function runCleanup (deps) {
   }
   return {
     verdict: degraded > 0 ? 'DEGRADED' : 'OK',
-    cutoff, pages, degraded, candidates: ids.length, deleted, deletedIds,
+    cutoff, pages, degraded, rejected, candidates: ids.length, deleted, deletedIds,
   }
 }
 
@@ -125,7 +135,7 @@ function main () {
   }
   const started = new Date()
   const r = runCleanup({ now: started, opt, api: defaultApi, del: defaultDel, log: (m) => console.log(m) })
-  console.log(`ARTIFACT-CLEAN repo=${opt.repo} days=${opt.days} cutoff=${r.cutoff} pages=${r.pages} pages_degraded=${r.degraded} candidates=${r.candidates} deleted=${r.deleted} mode=${opt.write ? 'write' : 'dry'} verdict=${r.verdict}`)
+  console.log(`ARTIFACT-CLEAN repo=${opt.repo} days=${opt.days} cutoff=${r.cutoff} pages=${r.pages} pages_degraded=${r.degraded} rejected=${r.rejected} candidates=${r.candidates} deleted=${r.deleted} mode=${opt.write ? 'write' : 'dry'} verdict=${r.verdict}`)
   process.exit(r.verdict === 'OK' ? 0 : 1)
 }
 
