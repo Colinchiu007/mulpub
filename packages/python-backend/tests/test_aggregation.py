@@ -744,17 +744,30 @@ def test_length_ranges_max_aligned_with_engine_output_cap():
         text = src.read_text(encoding="utf-8")
         m = re.search(pattern, text)
         assert m, f"{label}里找不到数值定义（模式：{pattern}）"
-        assert text.count(const_name) >= min_refs, (
-            f"{label}里的 {const_name} 在文件内只出现 {text.count(const_name)} 次"
+        # 只数**非注释代码行**里的出现，且用**词边界**匹配：
+        #   ① 注释里提到常量名不算「被消费」（否则「定义 1 次 + 注释 1 次」也能凑够阈值）；
+        #   ② 词边界避免影子名字（如 MAX_OUTPUT_CHARS_UNUSED）被误计入。
+        code_only = "\n".join(
+            line for line in text.splitlines() if not line.strip().startswith("//")
+        )
+        ref_count = len(re.findall(r"\b" + re.escape(const_name) + r"\b", code_only))
+        assert ref_count >= min_refs, (
+            f"{label}里的 {const_name} 在**代码行**里只出现 {ref_count} 次"
             f"（至少要 {min_refs} 次）——它可能是一份没人消费的副本，不是活的权威源"
         )
         if consumer_root is not None:
-            consumed = [
-                p for p in (repo_root / consumer_root).rglob("*.js")
-                if p != src and const_name in p.read_text(encoding="utf-8", errors="ignore")
-            ]
+            consumed = []
+            for p in (repo_root / consumer_root).rglob("*.js"):
+                if p == src:
+                    continue
+                body = p.read_text(encoding="utf-8", errors="ignore")
+                code_only = "\n".join(
+                    line for line in body.splitlines() if not line.strip().startswith("//")
+                )
+                if re.search(r"\b" + re.escape(const_name) + r"\b", code_only):
+                    consumed.append(p)
             assert consumed, (
-                f"{label}里的 {const_name} 在 {consumer_root} 下没有任何消费点"
+                f"{label}里的 {const_name} 在 {consumer_root} 下没有任何**代码行**消费点"
                 "——它可能不是当前真正生效的那份"
             )
         return int(m.group(1))
