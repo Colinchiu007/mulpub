@@ -18,6 +18,7 @@
  */
 import { ref } from 'vue'
 import { storeGetSetting, storeSetSetting } from '@/api/publisher'
+import { countRewriteChars } from '@/utils/rewrite-engine-limits'
 
 /** 改写文案持久化键名（与采集记录 collected_items 分离存储） */
 export const COPY_REWRITES_KEY = 'copy_library_rewrites'
@@ -163,7 +164,9 @@ export function useCopyLibrary () {
           fromTitle: truncate(entry && entry.fromTitle !== undefined && entry.fromTitle !== null && entry.fromTitle !== "" ? entry.fromTitle : (existing && existing.fromTitle) || "", TITLE_LIMIT),
           title: truncate(entry && entry.title, TITLE_LIMIT),
           content,
-          wordCount: content.length,
+          // 字数按**码点**计（feat-zhihu-fav-batch-wordcount，外部评审 i4）：与引擎/Python 口径一致，
+          // 否则同一段带 emoji 的改写稿在文案库卡片与采集结果卡片上会显示不同数字。
+          wordCount: countRewriteChars(content),
           platform: truncate(entry && entry.platform, 50),
           sourceUrl: truncate(entry && entry.sourceUrl, 2048),
           createdAt: new Date().toISOString(),

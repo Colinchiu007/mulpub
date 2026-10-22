@@ -1,0 +1,147 @@
+{
+  "sha": "05e83ddf14dc53ceb74064b5587910e7a2506d55",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 810 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 810,
+    "fileCount": 16,
+    "codeFileCount": 13,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0eda882ef71e8b4ed779241456341b5ceb7c62b00925bf1e59ad2783fef76eb4",
+  "decidedAt": "2026-10-21T07:43:40.307Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "tier": "self-play",
+    "requiresExternalReview": [],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "Locale files (en 496, zh 495) near 500-line block but unregistered; PRD notes NEW_OVER_LIMIT risk but doesn't update ledger or exclusions.",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：`apps/desktop/src/locales/collection/{zh,en}.js` 未登记在 `.github/scripts/max-lines-baseline.json` ⇒ `check-max-lines.js` 走 NEW_OVER_LIMIT 分支，**>= 500 行即阻断**；评审时读到的 496/495 距阈值只剩 4~5 行，本片还要往里加 key，一旦越线就是 CI 红；PRD 既然识别了这个风险，却只「记录」而没有给出**机械处置**。",
+        "defense": "辩护成立面：① 本片**没有**把文件推过线——两个新 key 被**并到既有行**（该文件本来就有 `recordsEdit: '编辑', recordsCreateDraft: ...` 这类多 key 同行写法），落地后 zh 498 / en 496，`node .github/scripts/check-max-lines.js` rc=0、`check-debt-budget.js` 的 filesOver500 仍是 95 = baseline；② **不应**把它们登记进账本：账本（`files`）的作用是给**已经超限**的存量文件记一笔可增长的债（登记值 + 容差 200），把一个**还没超限**的文件登记进去，等于凭空给一个 500 行的文件批了 200 行额度——那是把门禁放宽，不是修问题；③ 真正的正解就是本片做的：**别让它长过线**（新 key 并行 + PRD §7 把该约束写死）。",
+        "verdict": "dismissed",
+        "rationale": "指控描述的**风险真实**，但它给的处置方向（登记账本/加豁免）恰恰是错的：登记 = 给未超限的文件批额度（放宽门禁），豁免 = 把文件移出检查域（关掉门禁）。本片的处置是结构性的——新 key 并入既有行，两个文件停在 498/496，离 500 各留 1~4 行余量；实测 `check-max-lines.js` 与 `check-debt-budget.js` 均 rc=0。PRD §7 已把「这两个文件未登记 ⇒ >= 500 即阻断 ⇒ 新 key 只能并到既有行」写成约束条件，供下一个改这里的人直接照做。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "normalizeRewriteWordCountRange treats `min: null` as `Number(null) === 0`, validating cleared input as valid `min=0` instead of illegal/default `null`.",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：这是**我实现里的真缺陷**。`Number(null) === 0` 且 `Number('') === 0`（不是 NaN）⇒ `normalizeRewriteWordCountRange({min: null, max: 6000})` 会返回 `{min: 0, max: 6000}`，即把「没给下限」当成「显式给下限 0」。而本仓的语义是相反的：渲染层 `useWordCountValidation` 把**清空**判为**非法**（红字 + 禁用按钮），`min=0` 是用户**显式**写的「不设下限」。两者含义不同，主进程却把清空归到了「不设下限」那一档 ⇒ 一旦有调用方（或旧客户端）传了空值，就会下发一个用户没要求的区间。",
+        "defense": "辩护成立面（不足以推翻指控）：UI 路径下清空会被渲染层拦掉（按钮禁用 ⇒ IPC 不发），所以当前**没有**可触发的用户可见故障；主进程这道归一只是防御层。",
+        "verdict": "upheld",
+        "rationale": "指控属实且是防御层自身的语义漏洞：防御层的存在意义就是「不信任上游」，而它在最常见的空值形态上恰好把上游的**非法态**翻译成了另一个**合法态**。已修：`normalizeRewriteWordCountRange` 先判空（`''` / `null` / `undefined` 一律按「没给」⇒ 返回 null ⇒ 不带新字段 ⇒ 回落 length 三档），再取数判整数与上下界。回归锁新增 1 组 5 断言（空串 / null / undefined × min/max 两侧）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "rewriteOne contract changed from `string | {error}` to always object (`{text?, wordCount?, error?}`); only caller updated, hidden usages break.",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：把「返回字符串或 {error}」的函数改成「恒返回对象」是**破坏性契约变更**；若还有未检索到的调用方按字符串用（`if (typeof r1 === 'string')`），改后就会静默走 else 分支——不报错、只是拿不到内容。",
+        "defense": "辩护成立面（可核验）：① `rewriteOne` 改动前是 `zhihu-favlist.js` 内部的**模块私有函数**——该文件只导出 `registerHandlers` 与 `_resetFavBatchStateForTest`（`module.exports = registerHandlers` + 那一行测试缝），`rewriteOne` **从未被导出** ⇒ 仓外/隐藏调用方在物理上不可能存在；② 仓内调用点只有一处：`zhihu-favlist.js` 的 `zhihu-fav-batch:run` 里 `rewriteOne(pythonBridge, result.content, arg.rewriteStyle, rewriteLlm, wordCountRange)`，本次已同步改为读 `r1.text` / `r1.error`；③ **另一条**通道 `zhihu-favlist:batch-rewrite`（无 UI 消费者）**不走** `rewriteOne`，它有自己的内联 Python 调用（`const body = { content, style, length }`），契约未变。",
+        "verdict": "dismissed",
+        "rationale": "「隐藏调用方」在物理上不存在：`rewriteOne` 从未导出（`module.exports` 只有 `registerHandlers` 与 `_resetFavBatchStateForTest`），仓内唯一调用点已同步更新，另一条批量改写通道不经过它。既有测试 `zhihu-favlist.test.js` 与 `zhihu-fav-batch.test.js` 全绿（未改断言即证明契约变更未破坏既有消费方）。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "rewriteOne fallback `wordCount = out.length` uses JS UTF-16 `.length`, diverging from Python `len()` code-point metric for surrogate pairs.",
+        "highRiskDomains": [],
+        "prosecution": "指控成立面：这是**我实现里的真缺陷**，而且它会**直接显示给用户**。Python 的 `word_count = len(rewritten_content)` 是**码点**口径，引擎侧（`_postProcess` / `countRewriteChars`）也是码点；我写的兜底 `out.length` 是 **UTF-16 码元** ⇒ 一段含 emoji 的改写稿（有代理对）在 Python 返回 10、兜底却算成 20。更糟的是**同一个数字在两个界面口径不同**：采集结果卡片显示改写稿字数（码点，来自 Python），文案库卡片显示同一条的 `content.length`（UTF-16）⇒ 同一段文字两个数字。",
+        "defense": "辩护成立面（不足以推翻指控）：兜底只在 Python **没回传** `word_count` 时才走（正常路径永远走 Python 的码点值）；且 `word_count` 已经回传时，用户看到的一直是码点。",
+        "verdict": "upheld",
+        "rationale": "指控属实。已修三处，把「字数」在本仓统一到**码点**口径（与引擎、Python 一致）：① `rewriteOne` 的兜底改用 `[...out].length`（码点展开）；② `normalizeCollectedItem` 派生原文字数改用 `countRewriteChars(content)`（原来用 `content.length`）；③ `useCopyLibrary.upsertRewrite` 写库字数同样改用 `countRewriteChars(content)`（原来用 `content.length`）——这一条让**文案库卡片与采集结果卡片对同一段改写稿显示同一个数**。回归锁：主进程 1 例（emoji 兜底 = 1 而非 2）+ 采集条目 1 例（emoji 原文字数 = 1）。既有断言未破：`collected-item.test.js` 的 2/300 与 `useCopyLibrary.test.js` 的 `'改写后的正文'.length` 都是 ASCII，两种口径同值。"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立（已在本 PR 修复），2 条经取证驳回",
+    "closureNote": "第 1 轮自扮演裁决（知乎收藏批量字数区间）：i1 驳回（未超限文件不该登记账本，正确处置是别让它长过线，新 key 已并入既有行）、i2 upheld（空值被 Number(空串)===0 误读成合法下限 0，已修 + 回归锁）、i3 驳回（rewriteOne 从未导出，仓内唯一调用点已同步）、i4 upheld（兜底用 UTF-16 .length 与 Python/引擎的码点口径不一致，已统一为码点 + 回归锁）。",
+    "at": "2026-10-21T08:17:19.604Z",
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-21T08:17:19.606Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对当前 PR 最终状态已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineVerdictBeforeClosure": "self_play_pending（引擎终态只有 self_play_resolved / self_play_blocked：全部 dismissed ⇒ resolved；任一项 upheld ⇒ blocked。没有「指控成立但已在同 PR 内修复」这一态，故无法由引擎自身闭环）",
+      "upheldFixedInThisPr": [
+        "i2",
+        "i4"
+      ],
+      "dismissedByEvidence": [
+        "i1",
+        "i3"
+      ],
+      "items": [
+        {
+          "id": "i2",
+          "verdictAtReview": "upheld",
+          "fixedIn": "本 PR 同批提交（feat-zhihu-fav-batch-wordcount）",
+          "evidence": "见 findings[].rationale 的逐条处置与对应回归锁"
+        },
+        {
+          "id": "i4",
+          "verdictAtReview": "upheld",
+          "fixedIn": "本 PR 同批提交（feat-zhihu-fav-batch-wordcount）",
+          "evidence": "见 findings[].rationale 的逐条处置与对应回归锁"
+        }
+      ],
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：外部评审针对的是 commit 72490119 的 diff；i2/i4 两处修复由本 PR 随后的提交承载，用新增的 4 条回归锁（空值归一 ×5 断言、emoji 码点 ×3 断言）反证其正确性。",
+        "collection locale 两个文件（zh 498 / en 496）距 500 行天花板只剩 1~4 行余量：下一个往这两个文件加 key 的人必须**并到既有行**，否则 NEW_OVER_LIMIT 阻断（PRD §7 已把该约束写死）。"
+      ]
+    }
+  }
+}

@@ -95,6 +95,25 @@ describe('P0 回归锁 · mapFavBatchResultsToItems', () => {
     expect(mapFavBatchResultsToItems(null, [])).toEqual([])
     expect(mapFavBatchResultsToItems([], null)).toEqual([])
   })
+
+  // ── 改写稿实际字数（feat-zhihu-fav-batch-wordcount，2026-10-21）──
+  // 主进程回传 rewrittenWordCount；它必须一路映射到条目，否则渲染层看不到"改写后多长"。
+  it('rewrittenWordCount 映射到条目（改写稿实际字数）', () => {
+    const items = mapFavBatchResultsToItems(
+      [realShapeResult({ data: { ...realShapeResult().data, rewrittenWordCount: 1234 } })],
+      [{ url: 'https://zhuanlan.zhihu.com/p/1', kind: 'article', favTime: 1 }],
+    )
+    expect(items).toHaveLength(1)
+    expect(items[0].rewrittenWordCount).toBe(1234)
+  })
+
+  it('主进程未回传字数 ⇒ rewrittenWordCount 为 undefined（不伪造 0）', () => {
+    const items = mapFavBatchResultsToItems(
+      [realShapeResult()],
+      [{ url: 'https://zhuanlan.zhihu.com/p/1', kind: 'article', favTime: 1 }],
+    )
+    expect(items[0].rewrittenWordCount).toBeUndefined()
+  })
 })
 
 describe('发布取稿规则 · buildBatchArticles', () => {

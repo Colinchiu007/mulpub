@@ -248,7 +248,7 @@ export default {
       progressTitle: 'Collect & rewrite progress',
       progressText: '{done}/{total} in progress',
       progressSummary: 'Done: {success} ok · {failed} failed · {skipped} duplicates · {rewriteFailed} rewrite failed',
-      expandDetail: 'Show details',
+      overLimitSuffix: ', {count} over the word-count limit', expandDetail: 'Show details',
       collapseDetail: 'Hide details',
       mappingMismatch: 'Result mapping mismatch (main process reported success but produced no items); check logs or report feedback',
     },
@@ -375,7 +375,8 @@ export default {
     draftsEmptyAction: 'New draft',
     recordsUntitled: 'Untitled',
     invalidResultHint: 'Looks like a verification page or empty result — re-collect it',
-    recordsEdit: 'Edit', recordsCreateDraft: 'Create Draft', recordsToVideo: 'Video',
+    // Actual length of the rewritten copy (feat-zhihu-fav-batch-wordcount): shown next to the original length
+    recordsEdit: 'Edit', recordsCreateDraft: 'Create Draft', recordsToVideo: 'Video', recordsRewrittenCount: 'Rewritten {count} chars',
     recordsPublish: 'Publish', recordsDelete: 'Delete',
     recordsWordCount: (ctx) => ctx.named('count') + ' chars',
     recordsDeleteConfirm: 'Delete this copy? This cannot be undone.',

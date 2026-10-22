@@ -12,6 +12,38 @@
 - **反证 T1–T10 逐条 CAUGHT**，还原后逐字节相同：串行 / `race` 代替 `allSettled` / 不剥 ANSI / 锚要求行首空白 / timeout 与 failed 并档 / provenance 的 max 抬高 / workflow 退回内联 bash / 摘掉逐片 `elapsed=` 打印 / 摘掉时间戳剥离 / 零样本判成通过。
 - **遗留（如实登记）**：① 并行争用倍数只有第一次 CI 真跑才知道 ⇒ 上线后必须跑 `node scripts/electron-ci-shard-audit.js` 按现场重定数；② `realSpawn` 的输出缓冲 32MB 上限会截断**计数用**的副本（不改判定，只可能让 `completed=` 偏小），已注释标明；③ `runStep` 的等待块形如 `while{…break}` 实为单次等待，属可读性异味，未在本片收敛；④ issue #2458 档 4（`CI Failure Handler` 把 `exit 124` 且无摘要行归类为 `ci-timeout-budget`）仍未做。
 
+
+======
+
+# [未发布] feat(collect): 知乎收藏批量改写支持字数区间，并显示改写稿实际字数（feat-zhihu-fav-batch-wordcount）
+
+- **改前**：知乎收藏批量「采集并改写」的稿子长度**写死**——面板没有字数入口，请求体固定 `{content, style, length:'keep', llm}`，
+  Python 侧走 `_LENGTH_RANGES['keep']`（目标 1500 字 / 区间 300-3000），用户改不了；改写稿多长也**看不见**
+  （结果区只显示原文字数；Python 响应里明明有 `word_count`，主进程只取 `result_content` 把它丢了）；
+  且批量摘要行一直是**空的**（调用了不存在的 locale key `collection.zhihuFav.progressSummary`，实际在 `zhihuFavlist` 下）。
+- **改后**：面板出现「字数」区间（默认 800-2000，与采集页**同一组件、同一校验口径**），非法即红字 + 禁用按钮 + 早退不发 IPC；
+  区间真的生效（透传为 Python 的 `min_word_count`/`max_word_count`；**缺省/非法则不带字段**，Python 回落 length 三档 ⇒ 旧行为不变）；
+  采集结果卡片显示「改写 N 字」并与原文字数**并排**；超出设定上限的条数在批量摘要里告知。
+- **顺带修掉 Python 的目标篇幅语义**：显式区间原先一律用**区间中点**当目标（`target=(min+max)//2`）——
+  用户设 0-6000 会让 300 字的知乎回答被要求写 3000 字、5000 字的长文被砍掉四成。
+  改为**只有 `min==0`（不设下限）**时取 `min(原文长度, 上限)`（与 Node 引擎的同族语义一致），
+  `min>0` 的中点语义与 `length` 三档**一行未动**；目标推导抽成纯函数 `_resolve_target_word_count` 并直接单测。
+- **不硬截断**：Python 侧的 `max_word_count` 只是 prompt 里的软指令（`content_aggregator_shared._parse_response` 不按 max 截断），
+  截断=静默丢内容（可能切在半句）⇒ 本片选择**告知**（摘要 + 卡片字数），与本仓「可见化而非静默」的理念一致。
+- **结构债**：主进程 handler 当时 498 行、距行数门禁天花板（500）只剩 2 行，加不动 ⇒
+  把「单条改写 + 失败诊断脱敏 + 字数区间归一」整体搬成独立模块 `electron/services/zhihu-fav-rewrite.js`（纯搬迁，行为逐字不变），
+  handler 降到 463 行；两个未登记在 max-lines 账本里的 collection locale 文件（>= 500 即阻断）新增 key 只能并到既有行。
+- **回归**：四层新增 12 例（主进程区间透传/字数回传/超限计数、渲染层面板契约、映射层派生值形状、Python 目标篇幅语义）；
+  既有套件 Python 聚合 53 例、桌面端相关 90 例全绿。
+- **外部双家族评审**：`sh scripts/deep-review.sh` 实跑 opencode(proposer) + claude(critic)，跨家族校验通过，
+  critic 给出 4 维度评分与 4 条争议项（**0 条高危域**）⇒ 逐条裁定 **upheld 2 / dismissed 2**：
+  - **i2**（成立）防御层把上游的**非法态**（清空输入，`Number('')===0`）翻译成了另一个**合法态**（显式下限 0）
+    ⇒ 已修：空值一律按「没给」处理（回落旧行为），回归锁 5 断言；
+  - **i4**（成立）兜底字数用 UTF-16 `.length`，与 Python `len()`/引擎的**码点**口径不一致
+    （带 emoji 的文本两处显示不同数字）⇒ 已把三处「字数」统一为码点（`rewriteOne` 兜底、
+    `normalizeCollectedItem` 原文字数、`useCopyLibrary` 写库字数），回归锁 3 断言；
+  - i1 / i3 驳回（附取证依据：未超限的 locale 文件不该登记账本，正确处置是别让它长过线；
+    `rewriteOne` 从未导出、仓内唯一调用点已同步）。
 # [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
 
 - **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。

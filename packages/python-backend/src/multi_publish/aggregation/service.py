@@ -80,6 +80,29 @@ _LENGTH_RANGES = {
 }
 
 
+def _resolve_target_word_count(min_wc: int, max_wc: int, original_length: int) -> int:
+    """推导改写的**目标篇幅**（写进 prompt 的「目标 N 字」）。
+
+    动因（feat-zhihu-fav-batch-wordcount，2026-10-21）：原先显式区间一律用
+    **区间中点**当目标（``(min + max) // 2``）。用户把区间设成 0-6000 时目标变成 3000 字：
+    对一篇 300 字的知乎回答是「要求写 3000 字」（离谱膨胀），对 5000 字的长文则是「砍掉四成」。
+    中点语义对**宽区间**天然失真。
+
+    改法（与 Node 引擎 ``word-count-instruction.js`` 的 min=0 语义对齐）：
+
+    - ``min > 0``：仍是区间中点——用户给了窄区间，中点就是他要的（既有语义不动）；
+    - ``min == 0``（**不设下限**）：目标 = ``min(原文长度, 上限)``——与原文篇幅相当且不超上限。
+      原文长度未知时取上限。
+
+    注意 ``min == 0`` 只能由**显式传入**走到这里；``length`` 三档路径完全不受影响。
+    """
+    if min_wc > 0:
+        return (min_wc + max_wc) // 2
+    if original_length > 0:
+        return min(original_length, max_wc)
+    return max_wc
+
+
 class AggregationService:
     """热文采集和改写服务。
 
@@ -307,7 +330,9 @@ class AggregationService:
         if "min_word_count" in fields_set and "max_word_count" in fields_set:
             min_wc = request.min_word_count
             max_wc = request.max_word_count
-            target_wc = (min_wc + max_wc) // 2
+            # 目标篇幅不再用区间中点（宽区间下中点会把内容砍一半/撑爆短文），
+            # 语义见 _resolve_target_word_count 的注释。
+            target_wc = _resolve_target_word_count(min_wc, max_wc, len(request.content or ""))
         else:
             min_wc, max_wc, target_wc = _LENGTH_RANGES.get(request.length, (300, 3000, 1500))
         rewrite_cfg = RewriteConfig(
