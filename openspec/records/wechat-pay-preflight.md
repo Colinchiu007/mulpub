@@ -65,7 +65,7 @@ date: 2026-10-23
 
 ## 4. ⚠️ 过程事故：我把文件写到了共享根
 
-写这个脚本时，我用绝对路径直接写进了 `D:\Data\projects\mulpub\packages\api-publish-engine\scripts\`
+写这个脚本时，我用绝对路径直接写进了**共享主工作区**的 `packages/api-publish-engine/scripts/`
 ——**共享主目录，运行时代码禁止落盘**。
 
 **写保护按设计收缴了它**：
