@@ -72,7 +72,7 @@ const uploadWaiterMixin = {
       // 但 videoCount=0、无 textarea/contenteditable、placeholder 不含「标题」、URL 不含 post/video
       // ⇒ 旧 positive 的四个判据全落空 ⇒ P4(positive && !uploading) 永不成立 ⇒ 干等满预算。
       // 强完成文案是**平台无关的语义信号**，补进 positive 才能让该类页面正常收敛。
-      + 'var doneCopy=/上传成功|上传完成|上传完毕/.test(t);'
+      + 'var doneCopy=/上传成功|上传完成|上传完毕|设置封面|检测为高清/.test(t);'
       // 2026-10-22：把「强完成文案」(doneStrong) 与「纯文本上传中」(uploadingText) 单列上报。
       // 原因：uploading 里的 pv>0 是弱 DOM 形状判据（容器类名即可命中），它会让 P4 永不成立——
       // 与 L48-50 记的抖音同型故障一模一样。西瓜页实测：页面已显示「上传成功」但仍有
