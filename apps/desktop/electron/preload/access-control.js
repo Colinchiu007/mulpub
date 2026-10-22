@@ -27,7 +27,7 @@ const PUBLIC_METHODS = [
   'onOAuthOpened', 'onOAuthCompleted', 'onOAuthFailed', 'onOAuthClosed',
   'platformList', 'platformGet', 'getPlatformDefinitions',
   'offlineStatus', 'offlineIsOffline', 'offlineCachedTasks', 'offlineAddToCache',
-  'offlineClearCache', 'onOfflineRestored',
+  'offlineClearCache', 'onOfflineRestored', 'onOfflineLost',
   'onCallbackReceived',
   'hotkeysList',
   'sensitiveCheck', 'sensitiveReplace',

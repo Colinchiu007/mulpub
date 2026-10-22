@@ -36,6 +36,7 @@ export function useOfflineStatus() {
 
   let attached = false
   let unsubscribeRestored = null
+  let unsubscribeLost = null
   /**
    * 新鲜度序号：init 的首次读回与每次事件后的复核**共用**一个计数器。
    * 没有它时「谁最后到达谁说话」，而 IPC 不保证多次调用的响应按发起顺序到达 ——
@@ -110,7 +111,21 @@ export function useOfflineStatus() {
       }
     }
 
-    // 中途断网的那条边原先没人监听：主进程只在「恢复」时通知前端
+    // 断网方向：主进程现在也会推（1.7 主进程半边）。它比浏览器事件更可信——
+    // 待发布队列深度与缓存真源都在主进程，载荷里的 cachedCount 直接采纳，不再另起一次复核。
+    // 浏览器 `offline` 事件继续保留：宿主不支持该订阅（旧 preload / 浏览器直开）时它是唯一通道。
+    if (api && api.onOfflineLost) {
+      try {
+        unsubscribeLost = api.onOfflineLost(function (data) {
+          isOffline.value = true
+          cachedTaskCount.value = (data && data.cachedCount) || 0
+          reconcile()
+        })
+      } catch (e) {
+        console.warn('[offline] onOfflineLost registration failed:', (e && e.message) || String(e))
+      }
+    }
+
     window.addEventListener('offline', onBrowserOffline)
     window.addEventListener('online', onBrowserOnline)
   }
@@ -120,14 +135,16 @@ export function useOfflineStatus() {
     attached = false
     window.removeEventListener('offline', onBrowserOffline)
     window.removeEventListener('online', onBrowserOnline)
-    if (typeof unsubscribeRestored === 'function') {
+    for (const pair of [['offline:restored', unsubscribeRestored], ['offline:lost', unsubscribeLost]]) {
+      if (typeof pair[1] !== 'function') continue
       try {
-        unsubscribeRestored()
+        pair[1]()
       } catch (e) {
-        console.warn('[offline] unsubscribing offline:restored failed:', (e && e.message) || String(e))
+        console.warn('[offline] unsubscribing ' + pair[0] + ' failed:', (e && e.message) || String(e))
       }
     }
     unsubscribeRestored = null
+    unsubscribeLost = null
   }
 
   return {

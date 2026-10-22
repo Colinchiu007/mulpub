@@ -125,6 +125,16 @@
 - **过程自错两条（改正的是期望与驱动，不动断言）**：① 驱动把 vitest 全绿时不打 `Tests N failed` 段读成「不健康」，整轮误报 PROBE_BLIND；② 变异锚写 `\n` 而该文件工作副本是 **CRLF**（`i/lf w/crlf`）⇒ ANCHOR_MISS，现驱动按文件真实行尾展开锚。同族第 N 次踩行尾，所以归一化进驱动而不是靠人记。
 - **边界**：回归锁加在既有 `apps/desktop/electron/services/windows-file-lock.test.js`（已点名进 `quality-gate.yml` Gate 2b），未新增测试文件；`docs/windows-lock-budget-provenance.md` §4 第 6 条同步改写，避免「本片未扩」那句自述在扩完后仍留在原地。
 
+# [未发布] fix(离线): 主进程补上「进入离线」方向的推送通道，断网横幅不再只靠浏览器事件（ux-audit-offline-live 第二半）
+
+- **问题**：断网（拔网线 / 关 WiFi）时，横幅只能等 Chromium 网络栈派发 `offline` 事件才出现；主进程其实**已经**知道自己离线了，却什么都不告诉渲染层。
+- **根因**：`apps/desktop/electron/services/offline-manager.js::onNetworkChange` 只有恢复分支——`if (wasOffline && !isOffline) { … notifyFrontend() }`，**没有 else**。而 `startMonitoring` 的两侧监听是对称注册的（`net.on("online")` / `net.on("offline")`），所以状态机两侧都在跑，只有通知这一侧缺。这是「方向性静默」：不报错、不崩，只是永远不会有人知道。
+- **修复**：新增 `!wasOffline && isOffline` 分支 → 写日志 + 向渲染层推 `offline:lost`，载荷 `{isOffline:true, cachedCount}`；`cachedCount` 直接取主进程缓存队列真源。恢复侧一字未动。判据是**状态迁移**而不是事件计数：已在离线态时重复的 offline 事件不重发。
+- **接线四段**：`preload/system.js` 暴露 `onOfflineLost` → `preload/access-control.js` 登记 → `preload.test.js` 两处计数 141→142 / 339→340 → `src/api/publisher.js` 走 `bridgeOn("OfflineLost")` → `useOfflineStatus` 订阅并**随后复核**（载荷字段缺席时由复核补回真值，不得当成 0）。`dispose()` 改为按 `[通道名, 取消函数]` 成对解绑，失败文案点名是哪条通道。
+- **明确不做**：不给 `license-access-control.js` 的 `PUBLIC_CHANNELS` 加 `offline:lost`。该表管的是**请求型**通道（`ipcMain.handle`），而推送型通道 `offline:restored` 从来不在表内——加进去是一条永不命中的死条目。核对方式是先查表语义与既有同类通道，不是想当然。
+- **顺带修掉一条装饰用例**：`tests/offline-manager.test.js` 里那条名字写着 `onNetworkChange sends offline:restored event` 的用例**从来没断言过 send**（只查 `isOffline()`），且文件顶部 `var mockSend = vi.fn()` 全文件零引用。根因之一在宿主夹具：`test-setup.js` 的 `webContents.send` 是空函数而不是 `vi.fn`，所以「有没有发」在这个夹具里结构性不可表示。本轮改为按实例把 `send` 换成探针再断言。
+- **回归保护**：主进程侧 4 条（断网必须推 / 重复不重发 / 恢复仍推（正控）/ 两个监听都注册（正控））+ 渲染层侧 4 条（立即置离线并采纳队列深度 / dispose 成对解绑 / 宿主不支持订阅时不抛且浏览器事件仍生效 / 载荷缺 `cachedCount` 由复核补回）。红侧取证：订阅门改 `if (false && …)` 后 `3 failed | 13 passed`；两条正控在该变异下仍绿，证明夹具能观测到 send。
+- **验证**：定向四文件（含 `electron/preload.test.js`）`425 passed / 0 failed`，无 `Errors` 行；QM-1 打包与全域复跑读数见 `openspec/records/ux-audit-offline-live.md` §七。
 # [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
 
 - **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。

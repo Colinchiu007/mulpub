@@ -85,3 +85,25 @@
 
 - **WHEN** `role="status"` / `aria-live` 被移回横幅行，或容器行加上 `v-if`
 - **THEN** 结构锁判红（扫描域排除注释行，避免说明文字自指）
+### Requirement: 主进程网络状态变化的**两个方向**都必须推给渲染层
+
+连通性状态机有两个迁移方向，两个方向 MUST 都有前端可达的通知通道；
+只实现一侧（本条变更前：只有 `offline:restored`）MUST 被当作**方向性静默缺陷**，
+MUST NOT 用"渲染层还有浏览器事件"当豁免——浏览器事件只知连通性、不知缓存队列深度。
+
+#### Scenario: 由在线转离线
+
+- **WHEN** `net` 判定由在线转为离线
+- **THEN** 主进程 MUST 写日志并向渲染层发 `offline:lost`，载荷含 `isOffline: true` 与 `cachedCount`
+- **AND** 渲染层 MUST 立即进入离线态，并在复核返回后以复核结论为准
+
+#### Scenario: 已在离线态时重复收到 offline 事件
+
+- **WHEN** 状态机已经处于离线，宿主再次派发 offline 事件
+- **THEN** MUST NOT 重复推送（判据是状态迁移，不是事件计数）
+
+#### Scenario: 宿主不支持该订阅
+
+- **WHEN** `window.electronAPI.onOfflineLost` 不存在或注册抛错
+- **THEN** 渲染层 MUST 只告警并退回浏览器事件，MUST NOT 抛出或让横幅失效
+

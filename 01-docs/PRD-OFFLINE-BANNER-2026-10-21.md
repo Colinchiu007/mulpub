@@ -91,9 +91,50 @@
 - [ ] `cachedTaskCount === 0` 时不出现计数段
 - [ ] 关掉开发者工具也能归因：IPC 失败时日志有 `[offline]` 开头的 warn
 
-## 7. 遗留（第二半，刻意拆出）
+## 7. 第二半：主进程 `offline:lost` 推送（2026-10-22 已并入本条 PR）
 
 主进程 `onNetworkChange` 补 `offline:lost` 推送：要改 `electron/` + preload 暴露面白名单
 （`preload.test.js:112` 是等值断言）并按 QM-1 做打包与 8 秒 stderr 三层判据。
 本批不动 `electron/`，因此浏览器事件是当前唯一实时源；主进程事件到位后构成
 「乐观值 + 权威值」双通道，S2 的裁决方向不变。
+
+### 7.1 根因（读 main 同源文件取证）
+
+`offline-manager.js::onNetworkChange` 原先只有恢复分支：
+
+```js
+if (wasOffline && !isOffline) { log.info(...); processCachedTasks(); notifyFrontend() }  // → offline:restored
+// 进入离线方向：既不写日志，也不通知任何人
+```
+
+而 `startMonitoring` 两侧监听是**对称注册**的（`net.on("online")` / `net.on("offline")`），
+所以状态机两侧都在跑，**只有通知这一侧缺**。后果不是"报错"，是**方向性静默**：
+用户拔网线/断 WiFi 时，主进程知道自己离线了，渲染层却不知道，横幅只能等浏览器 `offline` 事件或下一次人工触发的复核。
+
+### 7.2 显示项与交互（并回后半边后的完整口径）
+
+| 触发源 | 到达时机 | 横幅状态 | 待发布数量（`cachedTaskCount`）来源 | 播报 |
+| --- | --- | --- | --- | --- |
+| 主进程 `offline:lost`（新增） | `net` 判定由在线转离线的那一刻，**状态迁移**才发，重复 offline 事件不重发 | 立即显示离线态 | **优先取载荷里的 `cachedCount`**（主进程缓存队列真源），随后仍发起一次复核 | 与浏览器事件同一条 locale 文案，不新增播报 |
+| 浏览器 `offline` 事件（第一轮已有） | Chromium 网络栈变化 | 立即显示 | 浏览器只知连通性 ⇒ 由复核取真源 | 同上 |
+| 复核 `offlineStatus`（真源） | 上述两者之后各一次 | 结论**覆盖**事件值 | 主进程返回值 | — |
+| 主进程 `offline:restored` | 离线转在线 | 收起横幅 | 载荷 `cachedCount` | — |
+
+三条不变量（写下来是给下一个改这里的人，不是给评审看的）：
+
+1. **载荷字段缺席不得被当成 0**。`cachedCount` 缺失时先按 0 显示、由复核补回真值——
+   这条不是防御性代码，是因为主进程 `loadCache()` 与 `offlineStatus` 走的是两个函数，
+   将来任一侧改形状都会让"显示 0 条待发布"变成假话。回归锁：`useOfflineStatus.live.test.js`
+   「载荷缺 `cachedCount` 时复核必须把真值补回来」。
+2. **宿主不支持订阅时必须降级而不是抛**。`window.electronAPI.onOfflineLost` 不存在
+   （旧 preload / 浏览器直开 dev server）⇒ 只 warn，浏览器事件继续作为唯一实时源工作。
+3. **订阅与解绑成对**。`dispose()` 按 `[通道名, 取消函数]` 逐个解绑并在失败文案里**点名是哪条通道**——
+   本仓多处 SPA 标签共存，泄漏的订阅会跨实例串写状态。
+
+### 7.3 明确不做
+
+- **不给 `license-access-control.js` 的 `PUBLIC_CHANNELS` 加 `offline:lost`**。
+  核对方式不是想当然：该表管的是**请求型**通道（`ipcMain.handle`），
+  而推送型通道 `offline:restored` 从来不在表内。往里加一条 send 通道 = 写一条永不命中的死条目。
+- 不改恢复侧的任何行为（`processCachedTasks()` 的顺序与语义保持原样）。
+- 不新增 locale 键：断网文案沿用第一轮那两条，播报锚点沿用常驻 region。

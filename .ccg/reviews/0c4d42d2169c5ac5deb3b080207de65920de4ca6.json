@@ -1,0 +1,57 @@
+{
+  "sha": "0c4d42d2169c5ac5deb3b080207de65920de4ca6",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 870 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 870,
+    "fileCount": 17,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T20:26:59.837Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "JSON解析失败:模型输出被截断，JSON 不完整（{ 20 个 / } 18 个，结尾无 }），共 28262 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
+    "validationErrors": null,
+    "at": "2026-10-21T20:32:05.343Z"
+  }
+}

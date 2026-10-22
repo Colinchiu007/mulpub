@@ -110,6 +110,9 @@ function createSystemApi(ipcRenderer) {
     onOfflineRestored: (cb) => {
       const h = (_, d) => cb(d); ipcRenderer.on('offline:restored', h); return () => ipcRenderer.removeListener('offline:restored', h)
     },
+    onOfflineLost: (cb) => {
+      const h = (_, d) => cb(d); ipcRenderer.on('offline:lost', h); return () => ipcRenderer.removeListener('offline:lost', h)
+    },
 
     // Onboarding API
     onboardingComplete: () => ipcRenderer.invoke('onboarding:complete'),
