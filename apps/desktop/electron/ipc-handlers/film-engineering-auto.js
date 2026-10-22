@@ -181,7 +181,8 @@ function registerAutoHandlers (ipcMain, deps) {
 
     // 影视工程 v2 · F-I：把方法论资产（doctrine / palette / promptLibrary / 角色）接进规划。
     // 拿不到 kit 上下文时**不产出**任何方法论字段 ⇒ 既有字段逐字不变（纯增量）。
-    let kitCtx = null
+    // ⚠ 不给初值：try 与 catch **两条分支都会赋值** ⇒ 初值是无用赋值（ESLint no-useless-assignment）。
+    let kitCtx
     try {
       kitCtx = typeof service.getKitContext === 'function' ? service.getKitContext() : null
     } catch (e) {

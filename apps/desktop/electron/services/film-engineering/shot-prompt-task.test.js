@@ -451,6 +451,10 @@ describe('F-I · shot-prompt-task / 确定性（design D22：资产面与渲染�
     const { vars, missing } = buildShotTaskVars({ shot: SHOT, kit: makeKit(), locale: 'zh', durationSec: 5 })
     const r = buildShotTaskPrompt({ library: lib, vars, missing, locale: 'zh' })
     for (const m of r.missing) {
+      // ⚠ 这里的正则**故意**含控制字符：它是「名字里不该有控制字符」的**判定 oracle**
+      //   （必须与实现剥除的区间逐字一致）⇒ `no-control-regex` 做**定点豁免**，
+      //   行为本身由上面这条用例钉住（不是靠注释放行）。
+      // eslint-disable-next-line no-control-regex
       expect(/[\u0000-\u001f\u007f-\u009f]/.test(m.name), '名字里残留控制字符: ' + JSON.stringify(m.name)).toBe(false)
     }
   })

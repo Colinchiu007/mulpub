@@ -39,6 +39,10 @@ function capMissingList (list) {
 function sanitizeUntrustedText (s) {
   return String(s == null ? '' : s)
     // C0 / C1 控制字符（含换行与 DEL）
+    // ⚠ 下面的正则**故意**含控制字符：剥除它们就是本函数的**全部目的**（见函数头注释）。
+    //   `no-control-regex` 默认把控制字符当手误（例如正则里漏写转义）⇒ 这里做**定点豁免**，
+    //   并由 `shot-prompt-task.test.js`「控制字符从变量名里剥除」用例把行为钉住。
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
     // 零宽与方向控制（U+200B-200F、U+202A-202E、U+2060-2064、U+FEFF、BOM）
     .replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g, '')
