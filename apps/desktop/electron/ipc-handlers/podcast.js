@@ -319,7 +319,12 @@ function registerHandlers (ipcMain, deps) {
   // 谁说话）必须读同一份偏好与同一份 capability——抄两份的结局是「界面承诺 A、成片里是 B」，
   // 而这正是本刀要消除的断链。回退顺序本身不在这里写：唯一实现是 `podcast-tts-voice.js`。
   let previewDepWarned = false
+  // 记忆化（QM6 i3 采纳项）：预览与宿主必须拿到**同一个对象引用**，不是「同一段代码的两份实例」。
+  // 现在这两份闭包都是无状态的，所以现网不漂；但「同一份接线」这条不变量若只靠源码形状维持，
+  // 下一个往里加缓存/加状态的人就会把两边拆成两份事实，而那时没有任何东西会红。
+  let voiceDepsInstance = null
   function voiceResolveDeps () {
+    if (voiceDepsInstance) return voiceDepsInstance
     const { createVoiceReaders } = require('../services/podcast-episode-tts-adapters')
     const catalog = require('../services/tts-voice-catalog')
     const { resolveProviderDefaultModel } = require('../services/model-provider-manager')
