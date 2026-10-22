@@ -541,19 +541,38 @@ docker compose -f packages/api-publish-engine/docker-compose.yml \
 
 ### 15.3 第三步：重启并自检
 
+**先跑支付预检**（一条命令查完四件事）：
+
 ```bash
-# 1) 配置自检（在容器内跑，读的就是容器真实环境）
 docker compose -f packages/api-publish-engine/docker-compose.yml \
-  exec publish-api node packages/api-publish-engine/scripts/validate-production-config.js --phase required
-
-# 2) 就绪探针
-curl -fsS http://127.0.0.1:3030/api/v1/ready
-
-# 3) 端点存在性（未登录应 401，而不是 404）
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3030/api/v1/me/checkout
+  exec publish-api node packages/api-publish-engine/scripts/payment-preflight.js
 ```
 
-三条都要过。第 1 条报 `PAYMENT_CONFIG_INVALID` 时，`errors[]` 里的 `field` 就是缺的那个变量名。
+| 检查项 | 查什么 | 失败时的典型原因 |
+|---|---|---|
+| `provider-kind` | `PAYMENT_PROVIDER` 取值合法；`none` 时直接 SKIP 并结束 | 拼错成 `wechat-natvie` |
+| `env` | 7 个支付变量的**存在性与形状**（复用 `validateProductionConfig`） | 少变量 / APIv3 密钥不是 32 字符 / notify_url 不是 https |
+| `credentials` | 私钥与平台公钥能否被 `crypto` **解析**（不是只看非空） | PEM 粘错、路径指错、只填了半边 |
+| `provider` | **provider 真的能被构造出来** | 这一项 FAIL 就意味着 `/me/checkout` 会恒 503 |
+| `database` | `identity_payment_customers` 等必需关系是否存在 | 没跑 006 迁移（见 §15.1） |
+
+退出码：`0` 全通过 / `1` 有失败项 / `2` 用法错误。`--json` 给机器读，`--skip-db` 只查配置时用。
+
+**再跑三条常规自检**：
+
+```bash
+# 1) 就绪探针
+curl -fsS http://127.0.0.1:3030/api/v1/ready
+
+# 2) 端点存在性（未登录应 401，而不是 404）
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3030/api/v1/me/checkout
+
+# 3) 更全的配置校验（含 Logto / entitlement 等非支付项）
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/validate-production-config.js --phase required
+```
+
+**预检只能证明「我们这边准备好了」，不能证明「微信会接受」** —— 后者只有真机 E2E 能证明（§11.4）。
 
 ### 15.4 前端用户会看到什么
 
