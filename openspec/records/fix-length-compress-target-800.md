@@ -16,8 +16,30 @@ date: 2026-10-22
 | 行尾与 diff 对账 | 通过 | `git diff --cached --numstat` 与 `git diff --cached --ignore-cr-at-eol --numstat` 两口径相等 |
 | 接线棘轮 | 通过 | 本次新增测试文件（`rewrite-engine-limits.test.js` 的用例与 `AutoPipelineView` 的渲染用例）均**扩既有文件**，不新增测试文件 ⇒ 不触发接线棘轮；新增的跨语言锁挂在**已被 CI 执行**的 `apps/desktop/src/utils/rewrite-engine-limits.test.js` 上（QG Unit Tests 会跑） |
 | QM-1 打包 / QM-4 视觉 | N/A | 改一个后端数值 + 一个下拉文案（无新元素、无布局变化），无打包配置变更 |
-| QM-6 CCG 双模型外部评审 | 待读数 | 双家族评审运行中，结论落地后回填本行并补「外部评审争议」小节 |
+| QM-6 CCG 双模型外部评审 | 通过 | **双家族均已实跑**：① claude（验证层 critic）5 条（0 Critical / 4 Warning / 1 Info）；② opencode（独立第二家族 critic）7 条（2 Critical / 4 Warning / 1 Info）。**成立 5 条全部修完**（测试文件格式被编辑挤坏、PRD 与代码的 max 表述不符、未用**真实** `resolveNotifyText` 验插值、英文用 `words` 造成单位语义漂移、结构锁漏 `min≤target≤max` 不变量），**驳回 4 条**（附取证）。详见下方小节 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红 |
+
+### 外部双家族评审争议项逐条裁定
+
+**成立并已修（5 条）**
+
+| 来源 | 争议 | 处置与取证 |
+|---|---|---|
+| claude i1 | `rewrite-engine-limits.test.js` 里 `describe(...)` 与首个 `it(...)` 被挤在同一行（**我自己编辑时造成的格式损坏**，肉眼极易漏） | **已修**：恢复换行与缩进。教训：改测试文件后必须跑一次（vitest 能过，但格式已坏）——本次是外部评审先发现的 |
+| claude i2 | PRD 1.5 节称「改前 compress 档 max=800」，但代码里改前已是 `(100, 50000, 400)` ⇒ 文档与代码不符 | **已修**：核实 `#4165` 合并后的值确为 `(100, 50000, 400)`（「max=800」是 **#4208 之前**的历史值），PRD 已改为明确区分「本片改前」与「更早历史值」，并点明 400 一直就是实际篇幅（与 max 无关） |
+| claude i4 | 传 `{count}` 依赖 `resolveNotifyText` 的插值，但**未验证真实插值函数**会替换（我原来的测试用的是自造假 resolve ⇒ 等于没测） | **已修**：测试改用**真实** `resolveNotifyText`（`resolveNotifyText('collection.rewriteLengthCompress', { count: 800 }).text`），断言其不含 `{count}` 且含 `800` |
+| opencode i4 | 英文文案用 `words`，而 `{count}` 是**字符数** ⇒ 中文「约 800 字」= 800 字符，英文「800 words」≈ 4000+ 字符，**跨语言同一数字含义漂移**，英文界面会给用户错误的长度预期 | **已修**：英文改为 `chars`（`~{count} chars`），与「码点/字符」口径一致 |
+| opencode i2 | 结构锁只比 `target`，漏掉 `min`/`max`：若 Python 侧把 `min` 改成大于 `target`，界面显示的字数就成了误导，而锁仍绿 | **已修**：锁内追加三元组不变量断言 `min ≤ target ≤ max`，并给每条断言带上可定位的失败信息 |
+
+**驳回（4 条，附取证）**
+
+| 来源 | 争议 | 驳回依据 |
+|---|---|---|
+| opencode i1 | locale 文案把「约 800 字」**写死**，与 `LENGTH_TARGET_CHARS` 是两份副本 | 与实现不符：locale 模板是 `'精简（约 {count} 字）'`，**数字由 `{count}` 插值传入**，没有写死 800（评审依据的是 brief 摘要）。但**建议部分采纳**：已加断言「locale 模板除 `{count}` 外不得出现裸数字」，防止今后有人把数字直接写进文案 |
+| opencode i3 | 结构锁的正则脆弱：若 Python 侧改成非常量元组，解析数变 0 会**静默通过** | 锁内已有**精确集合**断言 `expect(Object.keys(targets).sort()).toEqual(['compress','expand','keep'])` ⇒ 解析不到即红，不存在空过 |
+| opencode i5 | 跨语言读源依赖测试文件在 `src/utils/` 的固定深度，文件移动即失效 | 失效是**显式**的（`readFileSync` 抛 ENOENT ⇒ 测试红，不会静默）；且 CI 是 monorepo 完整 checkout，Python 后端必然在检出范围内。**部分采纳**：注释已写明这条依赖的必要性、代价与「为何不下沉成 JSON 契约文件」的权衡 |
+| opencode i6 | compress 400→800 未核查下游是否对字数有硬编码假设（字幕/TTS/卡片文案） | 已核查：`rewriteLength` 在主进程**只出现在 `full-auto-pipeline.js`**（保存进 run config + 作为 `length` 传给 `/aggregation/rewrite`）；下游的视频创作阶段与发布阶段**都不读它、也不读字数** ⇒ 无任何对 compress 字数的假设 |
+| opencode i7 | 「净增 0 行」是脆弱的门禁规避，应改门禁或登记例外 | 属实但**不在本片范围**：改门禁（`check-max-lines.js`）属「改谁来守门」，按规范须人工过目。本片以「既有行内改写」达成零增行，并把该约束记进执行记录与 commit message，让后续维护者知道这里为什么不能随手加行 |
 
 ### 遗留（不假装已闭合）
 
