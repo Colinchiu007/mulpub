@@ -115,6 +115,21 @@ spec 要求 pending 订单的「继续支付」**用同一 `orderId` 重新取 `
 | `check-debt-budget` | 全部指标在基线内，`circularDeps: 0` |
 | eslint | 0 error |
 
+## 7.5 QM-1 打包与启动验证（本 PR 改了 `apps/desktop/electron/`，必跑）
+
+| 步骤 | 命令 | 读数 |
+|---|---|---|
+| 依赖解析 | `node scripts/verify-worktree-deps.js` | OK，11 个消费方全部解析到本 worktree |
+| 打包 | `pnpm exec electron-builder --win --dir --publish never` | **rc=0**，electron 43.7.7，产物 `dist-electron/win-unpacked` |
+| 启动 | 直接 spawn `Multi-Publish.exe`，观察 8s | **存活 True**（未提前退出） |
+| stderr | 同一进程捕获 | **长度 0** ⇒ 三层判据的第 ③ 层（stderr 为空）才判通过 |
+
+**存活这一条必须单独断言，不能只看 stderr**：`ELECTRON_RUN_AS_NODE=1` 会让 Electron 以纯 Node 模式启动并静默退出
+（rc=0、stdout/stderr 全空），与「启动干净」完全同形。本机**父环境恰好带着该变量**（已按规程出声告警），
+子进程 spawn 时显式剔除；进程能存活 8s 本身就是「它真的作为 Electron 起来了」的证据。
+
+打包期两条 `file source doesn't exist`（`dist/fonts`、`.playwright-browsers`）属**既有状态**：
+渲染层未构建、Playwright 浏览器未安装，与本次改动无关，不作为本 PR 的判据。
 ## 8. 仍未做
 
 - **微信沙箱/生产端到端 E2E 零执行**（沙箱凭据未申请）——本 PR 的判据全部是注入式的，
