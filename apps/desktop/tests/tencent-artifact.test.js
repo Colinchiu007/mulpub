@@ -8,7 +8,14 @@
 const { POST_LIST_URL, confirmPublished } = require('../electron/services/tencent-artifact')
 
 function fakeWin (impl) {
-  return { webContents: { executeJavaScript: impl, loadURL: async () => {} } }
+  const frame = { executeJavaScript: impl }
+  return {
+    webContents: {
+      executeJavaScript: impl,
+      loadURL: async () => {},
+      mainFrame: { framesInSubtree: [frame] },
+    },
+  }
 }
 
 describe('tencent-artifact', () => {

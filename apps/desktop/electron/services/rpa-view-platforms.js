@@ -806,6 +806,13 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
   // ========== Verify publish success ==========
   async _verifyPublishSuccess(win, platform, config, responsePromise, networkCapture, context = {}) {
+    // 视频号：发布后页面重置为壳页，url/dom 判据必 timeout ⇒ 必须先查作品列表（2026-10-23）
+    if (platform === 'tencent_video') {
+      try {
+        const ta = await require('./tencent-artifact').confirmPublished(win, (context && context.title) || '', { log, host: this })
+        if (ta.ok) return { ok: true, mode: 'artifact', evidence: ta.evidence }
+      } catch (_e) { log.warn('RpaView', '[tencent_video] artifact 判据异常，回落 url/dom') }
+    }
     let captureStopped = false
     let requests = []
     const stopNetworkCapture = async () => {
@@ -859,11 +866,6 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // 头条：发布后页面不跳转也无成功文案（url/api/dom 三模式皆不可用），改查作品列表（端点取自逆向成果）
   if (platform === 'toutiao') {
     try {
-      // 视频号：发布后页面重置为壳页，url/dom 判据必 timeout ⇒ 改查作品列表（真机 2026-10-23）
-      if (platform === 'tencent_video') {
-        const ta = await require('./tencent-artifact').confirmPublished(win, (context && context.title) || '', { log, host: this })
-        if (ta.ok) return { ok: true, mode: 'artifact', evidence: ta.evidence }
-      }
       const art = await require('./toutiao-artifact').confirmPublished(win, (context && context.title) || '', { log })
       if (art.ok) return { ok: true, mode: 'artifact', evidence: art.evidence }
     } catch (_e) { log.warn('RpaView', '[toutiao] artifact 判据异常，回落到 success_mode') }
