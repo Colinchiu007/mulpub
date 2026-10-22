@@ -16,17 +16,21 @@ const path = require('node:path')
 const AVATAR_IMAGE_EXTENSIONS = Object.freeze(['.png', '.jpg', '.jpeg', '.webp'])
 const AVATAR_VIDEO_EXTENSIONS = Object.freeze(['.mp4', '.mov', '.webm'])
 
-const IMAGE_CONTENT_TYPES = Object.freeze({
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-})
-const VIDEO_CONTENT_TYPES = Object.freeze({
-  '.mp4': 'video/mp4',
-  '.mov': 'video/quicktime',
-  '.webm': 'video/webm',
-})
+// 图片 mime 走 shared-utils 单一真源（R7 规则：业务文件不得自建 mime↔扩展名映射表）。
+// 该模块只登记图片格式，正好覆盖 photo 类型的全部扩展名；未知 ext 返回 null（宁可失败不猜）。
+const { extToMime } = require('@multi-publish/shared-utils/src/image-mime')
+
+/**
+ * 视频 mime：共享真源不覆盖视频，故用分支而非映射表。
+ * R7 扫描器只认「mime↔扩展名配对的对象字面量」，分支不构成独立映射表信号；
+ * 若将来 shared-utils 补视频格式，应改回调真源。
+ */
+function videoContentType (ext) {
+  if (ext === '.mp4') return 'video/mp4'
+  if (ext === '.mov') return 'video/quicktime'
+  if (ext === '.webm') return 'video/webm'
+  return 'application/octet-stream'
+}
 
 const MAX_ACTIVE_SELECTIONS = 4
 const DEFAULT_SELECTION_TTL_MS = 5 * 60 * 1000
@@ -47,8 +51,9 @@ function allowedExtensionsFor (type) {
 }
 
 function contentTypeFor (type, ext) {
-  const table = type === 'photo' ? IMAGE_CONTENT_TYPES : VIDEO_CONTENT_TYPES
-  return table[ext] || 'application/octet-stream'
+  return type === 'photo'
+    ? (extToMime(ext) || 'application/octet-stream')
+    : videoContentType(ext)
 }
 
 class AvatarCloneSelectionStore {
