@@ -212,18 +212,6 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-hp3w-g68c-fv3c",
-      "module": "sprintf-js",
-      "severity": "moderate",
-      "patched": ">=1.1.4",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "no-fix-available",
-      "note": "唯一一条确实拿不到修复版的：公告要求 >=1.1.4，而 npm registry 上 sprintf-js 最新发布版为 1.1.3（npm view sprintf-js version 实测），修复版本尚不存在，故不能写 upgrade-tracked 蒙混。本仓零直接引用（git grep 仅命中 pnpm-lock.yaml 三处）。上游 argparse@1.0.10 把范围锁死为 ~1.0.2（npm view 实测），即使 1.1.4 发布也需 argparse 先放宽；来源链为 js-yaml@3.x（nx / front-matter 的传递链）与 mammoth@1.12.2（desktop 直接依赖），均只在构建/文档转换路径使用。复核条件：npm view sprintf-js version 出现 >=1.1.4 时改判 upgrade-tracked。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-jqcg-44mw-7w3h",
       "module": "proxy-addr",
       "severity": "critical",
