@@ -1,0 +1,61 @@
+{
+  "sha": "c297d64e0024a8ad5e64c576619054c85b6fc0c7",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "| i8 | Info / clarity | \"§一 边界② 与 §九 决策点重复窗口级限制后续切片；SCHEMA.md 首行尚未写入『本文件不用于运行时解析』.\" / \"SCHEMA.md 首段统一写安全边界声明.\" | **成立·已改**：窗口级授权的处置**只在 §四 取舍③ 一处说**（§一 边界② 不复述）；`SCHEMA.md` 首段的「本文件不用于运行时解析」声明写进 §四（**本批待写入**）并澄清该约束**只管运行时代码**，构建期/测试期工具不违反 | §一 边界② / §四 |",
+      "**边界（写死）**：① `dialog` 在 **IPC 层**，service 只收 kitDir 字符串，不碰 Electron UI 原语；② 导入通道沿用 `withSenderCheck`（仓内 IPC 信任边界 = `app://localhost` 或 app 目录内 `file://`，**不按视图限定**）⇒ 窗口级/组件级授权的处置**只在 §四 取舍③ 一处说**（此处不重复）；本批做法 = **写审计日志**（含 sender 路由，S20 **只做审计增强、不作拒绝依据**）+ §一 边界① 的「**目录只能由用户原生选**」；⚠ **触发导入 ≠ 完成导入**：目录**只能由用户在原生对话框里选**（**renderer 无法传路径**）⇒ 任意可信渲染进程最多**弹一次选目录框**，无法指定替换内容；③ 取消 ⇒ `{cancelled:true, reason:'CANCELLED'}`，**不写、不清缓存、不写审计**（取消发生在 ⓪ 之前 ⇒ 锁尚未建）；**取消域（写死）**：取消**只发生在进入 ⓪ 之前**（此时**无锁**、无任何写操作）⇒ 取消路径不需要清锁；**⓪ 内部四步（严格校验 → 审计预检 → 审计落「开始」行 → 预创建锁）是一个不可分割的原子块**，一旦进入 ⓪ 即**没有取消通道**（无 abort token、无取消消息）⇒ 导入进行中**不可中止**；⓪ 之后若因**异常**中止 ⇒ `finally` **删锁 + 删 staging**（兜底）。**导入进行中不可中止**（无 abort token、无取消通道）⇒ `SCHEMA.md` 明写这一点（用户要中止只能等它结束或删锁自愈）—— ⇒ **用户可见**：i18n `filmKitImporting` 的文案**必须写明「导入进行中不可中断，请勿关闭应用」** + 中断后的恢复说明（删 `userData/.import-lock`）；`SCHEMA.md` 写**最长等待量级**（上限 256 MB ⇒ 本地磁盘拷贝**秒级到分钟级**）与**手动恢复步骤**。**UI 层约束（写死）**：点导入 ⇒ ① 入口按钮**禁用** + **模态**「导入进行中，不可中断」（模态**不提供取消**）⇒ ② 导入结束（成功/失败/取消）⇒ 关模态、恢复按钮。",
+      "3. **授权边界**：窗口级/组件级授权**不在本批**，处置**只写在 §四 取舍③**（此处不重复）。本批做法 = `withSenderCheck` + **审计**（含 sender 路由，S20 **只做审计增强、不作拒绝依据**）。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "141360759b5e3e396ffca0b02252aca7b83e98f942a0ddb7d99e5d09508695e2",
+  "decidedAt": "2026-10-22T23:30:36.685Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
