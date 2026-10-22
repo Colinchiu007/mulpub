@@ -239,6 +239,16 @@ jobs:
         shell: bash
         run: node --test scripts/lib/ccg-review-backends.test.js
 
+      # --- Gate 2c7：守门面清单的单一真源（tasks 11.1）---
+      # 动因（2026-10-23 实测）：「哪些路径属于机械闸门本体」原先在判据侧与决策侧各有一份表，
+      # 而决策侧那份一条守门面条目都不含 ⇒ 改 CI 判据本体的 PR 常被评 single，凭一条 pending 产物
+      # 就能通过既有闭环判据（已登记的缺陷 G）。本锁守三件事：两表同源、匹配实现只有一处、
+      # 观测命中不把 mode 抬起来（升级属改「谁来守门」，须人工过目）。
+      # 落点与 2c4 / 2c6 同理：scripts/** 在 docs-only 白名单内，放 static-gates 等于给它自己关掉校验。
+      - name: "Gate 2c7 - QM-6 gate-surface single source (changes job)"
+        shell: bash
+        run: node --test scripts/lib/ccg-review-gate-surfaces.test.js
+
       # --- Gate 2c3：执行记录的 QM-5 行集棘轮 ---
       # 动因（本会话实测）：PR #3477 的记录在多次改写中把「防止再次发生（QM-5 ⑤）」的**行标题吞掉**、
       # 正文并入上一行末尾 ⇒ 五步只剩四步有名有姓，而 Gate 2c2 只判"记录存在与否"、不校验行集，全程全绿。

@@ -21,7 +21,7 @@ const path = require('node:path')
 const cp = require('node:child_process')
 
 const survey = require('./ccg-artifact-shape-survey.js')
-const { CLOSED_DEEP_REVIEW_STATUSES, classifyEvidenceTier } = require('./check-pr-exec-record.js')
+const { CLOSED_DEEP_REVIEW_STATUSES, SELF_PLAY_RESOLVED_STATUS, classifyEvidenceTier } = require('./check-pr-exec-record.js')
 
 const CLOSED = 'cleared'
 const OPEN = 'pending'
@@ -398,3 +398,69 @@ function makeTempRepo (files) {
 function rmTemp (dir) {
   try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* 临时目录留给 OS，测试不因清理失败而红 */ }
 }
+
+// ── tasks 11.5③ 的配套可见性：self-play 收口 × 有没有外部复核条目，必须两格分开报 ──
+// 为什么单列：11.5 定了 ③（自扮演收口永远拿不到 tier=external，这是正确的），
+// 但"高危面只能自扮演收口"这件事如果在读数里与"评过了"混成一行，下一个会话就看不见它。
+// 词表一律从判据注入：这里再写一份字面量就是第二份事实（本文件上一条禁词锁扫的就是这个形状）
+const SP_ARGS = { closedSet: CLOSED_DEEP_REVIEW_STATUSES, selfPlayStatus: SELF_PLAY_RESOLVED_STATUS }
+
+test('11.5③ summarizeSelfPlay：四格精确读数（自扮演收口 / 其中带外部复核条目 / 不带 / 真外部收口）', () => {
+  const rows = [
+    { status: SELF_PLAY_RESOLVED_STATUS, tier: 'self-play', xr: 0 },
+    { status: SELF_PLAY_RESOLVED_STATUS, tier: 'self-play', xr: 1 },
+    { status: SELF_PLAY_RESOLVED_STATUS, tier: 'self-play', xr: 2 },
+    { status: 'cleared', tier: 'external', xr: 0 },
+    { status: 'pending', tier: 'absent', xr: 0 },
+    { status: SELF_PLAY_RESOLVED_STATUS, tier: 'external', xr: 1 }
+  ]
+  assert.deepStrictEqual(
+    survey.summarizeSelfPlay(rows, SP_ARGS),
+    { selfPlayClosed: 4, withExternalReview: 3, withoutExternalReview: 1, externalClosed: 2 },
+    '四格必须是上面那个算法：按 status 词表分档，不看 mode、不看文件名'
+  )
+})
+
+test('11.5③ 空集也出行：否则「这套没跑」与「仓里没有自扮演收口」逐字同形', () => {
+  assert.deepStrictEqual(survey.summarizeSelfPlay([], SP_ARGS),
+    { selfPlayClosed: 0, withExternalReview: 0, withoutExternalReview: 0, externalClosed: 0 })
+})
+
+test('11.5③ closedSet 必须显式注入（词表真源在判据侧，本文件不得抄第二份）', () => {
+  assert.throws(() => survey.summarizeSelfPlay([], {}), /closedSet/, '缺注入键要当场抛错')
+  assert.throws(() => survey.summarizeSelfPlay([], { closedSet: ['cleared'] }), /closedSet/, '传数组不是 Set 也算缺')
+  assert.throws(() => survey.summarizeSelfPlay([], { closedSet: CLOSED_DEEP_REVIEW_STATUSES }), /selfPlayStatus/, '自扮演出口状态同样必须注入')
+  assert.throws(() => survey.summarizeSelfPlay([], { closedSet: CLOSED_DEEP_REVIEW_STATUSES, selfPlayStatus: '' }), /selfPlayStatus/, '空串等于没给，不得当成合法状态')
+})
+
+test('11.5③ 字段缺失按 0 算，不得读成"带外部复核"', () => {
+  const r = survey.summarizeSelfPlay([{ status: SELF_PLAY_RESOLVED_STATUS, tier: 'self-play' }], SP_ARGS)
+  assert.deepStrictEqual(r, { selfPlayClosed: 1, withExternalReview: 0, withoutExternalReview: 1, externalClosed: 0 })
+})
+
+test('11.5③ 采集面：xr 必须是 externallyReviewed 的真实条数（恒 0 的采集会让四格全变成"不带"）', () => {
+  const dir = makeTempRepo([
+    { name: 'a.json', body: { mode: 'dual', deepReview: { status: SELF_PLAY_RESOLVED_STATUS, performedBy: 'self-play', externallyReviewed: [{ id: 'i1' }, { id: 'i2' }] } } },
+    { name: 'b.json', body: { mode: 'dual', deepReview: { status: SELF_PLAY_RESOLVED_STATUS, performedBy: 'self-play' } } },
+    { name: 'c.json', body: { mode: 'dual', deepReview: { status: 'cleared', performedBy: 'claude', tier: 'external', evidence: 'delivery@' + 'a'.repeat(64) } } }
+  ])
+  try {
+    const rows = survey.collectRows('HEAD', { cwd: dir }).rows
+    assert.strictEqual(rows.length, 3, '三份产物都要被采到')
+    const by = {}
+    for (const r of rows) by[r.file] = r.xr
+    assert.strictEqual(by['.ccg/reviews/a.json'], 2, '两条外部复核条目必须数成 2：夹具不得替采集面算数')
+    assert.strictEqual(by['.ccg/reviews/b.json'], 0, '字段缺席必须数成 0，不得是 undefined')
+    assert.deepStrictEqual(survey.summarizeSelfPlay(rows, SP_ARGS),
+      { selfPlayClosed: 2, withExternalReview: 1, withoutExternalReview: 1, externalClosed: 1 },
+      '采集面 + 分档面必须串得起来：上面那三条只测纯函数，测不出这条缝')
+  } finally { rmTemp(dir) }
+})
+
+test('11.5③ CLI 接线锁：模块自己的调用点必须两个注入键都给（漏一个，跑 CLI 当场抛而单测全绿）', () => {
+  const modSrc = fs.readFileSync(path.join(__dirname, 'ccg-artifact-shape-survey.js'), 'utf8')
+  const call = modSrc.split(/\r?\n/).find((l) => /summarizeSelfPlay\(rows,/.test(l))
+  assert.ok(call, '模块里找不到 summarizeSelfPlay 的调用点 ⇒ 这格读数永远不会被打印，工具面是装饰性的')
+  assert.match(call, /closedSet:\s*CLOSED_DEEP_REVIEW_STATUSES/, '闭环词表必须由判据导出注入')
+  assert.match(call, /selfPlayStatus:\s*SELF_PLAY_RESOLVED_STATUS/, '自扮演状态必须由判据导出注入')
+})

@@ -1,0 +1,60 @@
+{
+  "sha": "c8a28e91c928d6f23a5c0f4212a02259b1e1edaa",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 2,
+    "ccgSensitiveContentSample": [
+      "        \"finding\": \"tasks.md 将 11.1 标记为 [x] 完成，但正文明确写“仅守门面轴已交付；auth/加密轴按设计不合，残差另立 11.6 未做”。父任务被关闭而核心子域未交付，任务追踪与实际状态不一致。\",",
+      "        \"defense\": \"本行的记法就是本仓既有约定：父项勾 + 证据行 + 未完成的后半拆成新的未勾项。现状三处同时说话——① 11.1 标题自带括号限定「仅守门面轴已交付；auth/加密轴按设计不合，残差另立 11.6 未做」；② §11 段首一行「本节交付范围」把已交付/未交付逐名列出；③ 11.6 与 11.7 是独立未勾项且带现跑读数。退回 [ ] 反而违反该约定（会让\\\"已交付的那一半\\\"失去账）。\","
+    ],
+    "gateSurfaceHits": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T20:13:55.875Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

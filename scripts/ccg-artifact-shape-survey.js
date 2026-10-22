@@ -18,7 +18,7 @@
  * 「这个原始值算不算闭集之外」——重抄任何一份就是第二份事实，两份必然漂移。
  */
 const cp = require('child_process')
-const { CLOSED_DEEP_REVIEW_STATUSES, classifyEvidenceTier } = require('./check-pr-exec-record.js')
+const { CLOSED_DEEP_REVIEW_STATUSES, SELF_PLAY_RESOLVED_STATUS, classifyEvidenceTier } = require('./check-pr-exec-record.js')
 
 function arg (name, dflt) {
   const hit = process.argv.slice(2).find((a) => a.startsWith(`--${name}=`))
@@ -67,7 +67,7 @@ function collectRows (ref, opts) {
       : (dr.performedBy === undefined ? 'absent' : String(dr.performedBy))
     const f = dr.findings === null ? 'null'
       : (Array.isArray(dr.findings) ? `arr/${dr.findings.length}` : (dr.findings === undefined ? 'absent' : typeof dr.findings))
-    rows.push({ file: n, mode: String(j.mode), status: String(dr.status), pb, f, sp: Array.isArray((j.stats || {}).sensitivePathHits) ? j.stats.sensitivePathHits.length : -1, sc: typeof (j.stats || {}).sensitiveContentHits === 'number' ? j.stats.sensitiveContentHits : -1, tier: dr.tier === undefined ? 'absent' : String(dr.tier) })
+    rows.push({ file: n, mode: String(j.mode), status: String(dr.status), pb, f, sp: Array.isArray((j.stats || {}).sensitivePathHits) ? j.stats.sensitivePathHits.length : -1, sc: typeof (j.stats || {}).sensitiveContentHits === 'number' ? j.stats.sensitiveContentHits : -1, xr: Array.isArray(dr.externallyReviewed) ? dr.externallyReviewed.length : 0, tier: dr.tier === undefined ? 'absent' : String(dr.tier) })
   }
   return { rows, parseFail, jsonTotal: names.length }
 }
@@ -106,6 +106,35 @@ function summarizeClosedTier (rows, opts) {
     tierPresent: rows.filter((r) => vocabOf(r.tier) !== 'absent').length,
     unrecognized: rows.filter((r) => vocabOf(r.tier) === 'unrecognized').length
   }
+}
+
+/**
+ * 以**自扮演出口**收口的记录有几条、其中带 `externallyReviewed` 条目的有几条（tasks 11.5③ 的
+ * 配套可见性）。11.5 选了 ③——自扮演收口永远拿不到 `tier=external` 是正确的，但如果这一档在
+ * 读数里与"评过了"混成一行，下一个会话就看不见"高危面只能自扮演收口"到底有多少存量。
+ * 分档按 **status**（走的是哪个出口），不按 tier：两者刻意可以重叠（一条记录可以是
+ * `self_play_resolved` 而 tier 已是 external），把它们做成互斥就是把这格读数改成药。
+ * `closedSet` 与 `selfPlayStatus` 必须显式注入，理由与 summarizeClosedTier 同一条：词表真源在判据侧。
+ */
+function summarizeSelfPlay (rows, opts) {
+  const closedSet = opts && opts.closedSet
+  if (!(closedSet instanceof Set)) {
+    throw new Error('summarizeSelfPlay: closedSet 必须是调用方透传的 Set（闭环词表真源在 check-pr-exec-record.js，本文件不得抄）')
+  }
+  const selfPlayStatus = opts && opts.selfPlayStatus
+  if (typeof selfPlayStatus !== 'string' || !selfPlayStatus) {
+    throw new Error('summarizeSelfPlay: selfPlayStatus 必须是调用方透传的字符串（自扮演出口词表真源在 check-pr-exec-record.js，本文件不得抄）')
+  }
+  const out = { selfPlayClosed: 0, withExternalReview: 0, withoutExternalReview: 0, externalClosed: 0 }
+  for (const r of rows || []) {
+    if (!r || !closedSet.has(r.status)) continue
+    if (r.tier === 'external') out.externalClosed++
+    if (r.status !== selfPlayStatus) continue
+    out.selfPlayClosed++
+    if (Number(r.xr) > 0) out.withExternalReview++
+    else out.withoutExternalReview++
+  }
+  return out
 }
 
 function tally (rows, key) {
@@ -152,10 +181,12 @@ function main () {
   show('闭环 × tier 交叉表（qm6-closure-writeback design §2 三条数的唯一生产处）', ct.entries)
   console.log(`\n[闭环×tier] closed=${ct.closed} 其中 tier=absent=${ct.absentInClosed}` +
     ` ｜ 全库带 tier=${ct.tierPresent}（其中闭集外自造值=${ct.unrecognized}）`)
+  const spv = summarizeSelfPlay(rows, { closedSet: CLOSED_DEEP_REVIEW_STATUSES, selfPlayStatus: SELF_PLAY_RESOLVED_STATUS })
+  console.log('\n[self-play×外部复核] 以自扮演出口收口=' + spv.selfPlayClosed + ' 其中带 externallyReviewed=' + spv.withExternalReview + ' 不带=' + spv.withoutExternalReview + ' ；tier=external 已闭环=' + spv.externalClosed)
   console.log('[闭环×tier 结论] 已闭环却整段无 tier 的那批 = 判据放行、但来源无法归类的存量；' +
     '闭集外自造值 = 判据一律拦的 unrecognized。两者都不是「有人作弊」，是结构要求由判据提出、结构却无人生产。')
 }
 
 if (require.main === module) main()
 
-module.exports = { collectRows, resolveRef, requireCwd, summarizeClosedTier, vocabOfJudgeAuthority }
+module.exports = { summarizeSelfPlay, collectRows, resolveRef, requireCwd, summarizeClosedTier, vocabOfJudgeAuthority }

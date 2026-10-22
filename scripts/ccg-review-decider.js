@@ -34,6 +34,10 @@ const { execFileSync, spawnSync } = require("child_process");
 // 判定器的「要求 X 深度审查」文案、可用性表、落进记录的请求值，全部由它派生 ——
 // 此前这几处各自写死 claude/opencode，于是换后端时判定器与入口体检互不认账。
 const RB = require("./lib/ccg-review-backends.js");
+// 守门面清单的唯一真源（tasks 11.1）+ 文件→前缀匹配的唯一实现（判据侧 highRiskPrefixOf）。
+// 本文件只**消费**这两个读数做观测，MUST NOT 自带第三份前缀表，也 MUST NOT 把它抬进 mode 判定。
+const GS = require("./lib/ccg-review-gate-surfaces.js");
+const EXEC = require("./check-pr-exec-record.js");
 
 // ═══════════════════════════════════════════════════════════════════
 //  规则配置
@@ -529,6 +533,33 @@ function isDocsOnly(staged) {
   });
 }
 
+/**
+ * 守门面命中分组（tasks 11.1 的观测面）。
+ *
+ * 只做两件事：用判据侧那条匹配（含 vendored 排除与段起点）取前缀，再问单源清单
+ * 「这个前缀算不算守门面」。返回空数组是有效读数（这次改动没碰闸门），与"没接上"可区分 ——
+ * 调用方必须无条件打印计数，不得 `if (hits.length)` 之后才出声。
+ *
+ * ⚠ 命中**不改 mode**：把它升成 dual 会让每次改判据固定多花 23-40 分钟的 DUAL 钩子，
+ *   属改「谁来守门」，须人工过目（tasks 8.5①/11.1 的裁决记录在设计产物里）。
+ */
+function gateSurfaceHitGroups (files) {
+  const groups = new Map();
+  // 同一文件既在变更集又被方案点名时不得数两次：count 是"几份守门面件被触碰"，不是"出现几次"
+  for (const f of new Set(files || [])) {
+    const prefix = EXEC.highRiskPrefixOf(f);
+    if (prefix === null || !GS.isGateSurfacePrefix(prefix)) continue;
+    if (!groups.has(prefix)) groups.set(prefix, []);
+    groups.get(prefix).push(f);
+  }
+  return [...groups].map(([prefix, list]) => ({
+    prefix,
+    count: list.length,
+    sample: list.slice(0, 3),
+    why: (GS.GATE_SURFACES.find((s) => s.prefix === prefix) || {}).why || "",
+  }));
+}
+
 function judge(staged) {
   // 决策层：方案本身通常是 .md，不能按源码扩展名过滤（否则规模会被算成 0）
   const isProposal = !!staged.proposal;
@@ -563,6 +594,12 @@ function judge(staged) {
   //   codeFiles 口径不一致 ⇒ 在文档里写「加密/口令」的分析文字会被判成
   //   「改动涉及加密」，误置 deepReview.required。
   //   现在用 collectStaged() 额外产出的 codeChangedLines（已按 codeExtensions 过滤）。
+  // 守门面观测（11.1）。路径集取**全部**变更文件，并按 mode 补上方案点名的待改文件：
+  // 决策层（动手前）里 staged.files 只有那份 .md 方案本身，真正的门面路径只存在于正文点名的
+  // plannedFiles 里 —— 不补这一半，提案模式这格恒空，观测面等于只在动手后才存在。
+  const gateSurfacePaths = (staged.files || []).map((f) => f.file);
+  if (isProposal && staged.plannedFiles) gateSurfacePaths.push(...staged.plannedFiles);
+  const gateSurfaceHits = gateSurfaceHitGroups(gateSurfacePaths);
   const contentHits = (staged.codeChangedLines || []).filter((l) =>
     RULES.sensitiveContents.some((re) => re.test(l))
   );
@@ -659,6 +696,7 @@ function judge(staged) {
       // 判定器自身产物里的敏感词命中：已从取证面摘出，仍逐条计数（评审 critic#3 的处置）
       ccgSensitiveContentHits: ccgContentHits.length,
       ccgSensitiveContentSample: ccgContentHits.slice(0, 3),
+      gateSurfaceHits,
       lineReadGaps,
       // 合并态才有的判定域元数据（非合并态为 undefined ⇒ JSON 里不出现）。
       // 它必须进 stats 而不是只活在内存里：事后审计要能回答「这次 dual 是按交集判的，
@@ -1201,6 +1239,12 @@ function main() {
     );
   }
 
+  // 无条件出行：零命中也是读数（"这次没碰闸门"），缺行与缺格必须可区分（AGENTS「空集也出行」同口径）
+  const gh = result.stats.gateSurfaceHits || [];
+  console.log(
+    `          守门面命中 ${gh.length} 条（**不计入模式判定**，升级属改「谁来守门」）` +
+      (gh.length ? "：" + gh.map((h) => `${h.prefix}×${h.count}`).join(" ") : "（本次改动未触碰任何判据本体）")
+  );
   if (result.mode === "skip") {
     console.log("          S 复杂度低风险，按 CCG 决策矩阵不调外部模型");
   } else {

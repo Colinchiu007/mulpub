@@ -1,0 +1,191 @@
+{
+  "sha": "6f9467cefd3dcbec29f32aa3be7525b645b9e6db",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 594 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 594,
+    "fileCount": 12,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "`RULES.sensitivePaths` 回答的是\"这段改动碰了鉴权/加密/数据库吗\"（内容风险），",
+      "不含一行加密逻辑。**把它们并成一张表会同时污染两个 reason**（改一行 CI 阈值的原因被写成\"涉及加密\"）。",
+      "- [ ] 11.1 **两张守门表缺同步机制**（外部复核的 BLINDSPOT，比指控原条目更深，本条取代 8.7 的措辞）：`check-pr-exec-record.js::HIGH_RISK_SURFACES`（路径前缀）与 `ccg-review-decider.js::RULES.sensitivePaths`（决策层敏感路径）是两份独立清单、实测已分叉（8.5 记过一次）。后果不是\"某文件漏登记一行\"，而是**判据消费的库与判据自身可以分处两表**：`scripts/check-` 在表内、它依赖的 `scripts/lib/ccg-delivery-` 在表外 ⇒ 改库不改表，矩阵对\"改谁在守门\"始终看不见。修法要同时收敛两表口径来源，且**属改谁来守门 ⇒ 人工过目，不在 agent 自动合并授权内**；扩表必须同次重取每条前缀的已入库命中下界（写高了本地当场红）"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "gateSurfaceHits": [
+      {
+        "prefix": ".github/workflows/",
+        "count": 1,
+        "sample": [
+          ".github/workflows/quality-gate.yml"
+        ],
+        "why": "CI 判据本体（谁来守门），实测命中 15 个"
+      },
+      {
+        "prefix": "scripts/ccg-review-",
+        "count": 2,
+        "sample": [
+          "scripts/ccg-review-decider.js",
+          "scripts/ccg-review-decider.test.js"
+        ],
+        "why": "判定写入方（决定\"要不要评审\"），实测命中 3 个受管文件"
+      },
+      {
+        "prefix": "scripts/check-",
+        "count": 2,
+        "sample": [
+          "scripts/check-pr-exec-record.js",
+          "scripts/check-pr-exec-record.test.js"
+        ],
+        "why": "仓内静态门禁脚本本体 = 判据自指，实测命中 106 个（含 .github/scripts/ 40 与 apps/desktop/scripts/ 2 —— 段起点匹配的全部理由）"
+      },
+      {
+        "prefix": "scripts/lib/ccg-review-",
+        "count": 2,
+        "sample": [
+          "scripts/lib/ccg-review-gate-surfaces.js",
+          "scripts/lib/ccg-review-gate-surfaces.test.js"
+        ],
+        "why": "评审后端对的真源（决定\"谁来评\"）—— 跨家族轴 X2-9 实测这条此前落在清单外，改它不触发任何收口要求；实测命中 2 个"
+      }
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2b9730acfca5dd7855fc050ff20f26c78a980658386f676259b429f9cc2ab2e9",
+  "decidedAt": "2026-10-22T20:01:14.872Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth",
+          "crypto"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i3",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4261#issuecomment-6350271526"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "check-pr-exec-record.js 用 ...assertGateSurfaces(GATE_SURFACES) 替代原内嵌列表：若新文件 scripts/lib/ccg-review-gate-surfaces.js 缺失或导出损坏，核心执行模块在加载时直接抛，变成单点失效；原列表被整体删去，无法回退。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "判据加载依赖新增文件：check-pr-exec-record.js 是两条合并入口与 CI 都调的 enforce 判据，改成 ...assertGateSurfaces(GATE_SURFACES) 后，lib 缺失或导出损坏 ⇒ 判据加载即抛；原内嵌清单已被删除，没有\"就地退回原样\"的路径。",
+        "defense": "① 抛错的方向就是设计意图：静默的空清单会让每条高危面判据恒不命中，读起来完全像\"这次改动没碰闸门\"——本仓把\"把工具的失明读成结论\"记为装饰性门禁的同型事故。② 两种坏形态都点名：模块缺失由 require 抛 Cannot find module 并带路径；导出损坏由 assertGateSurfaces 抛「必须是数组 / 为空 / 缺 prefix」，三条行为锁在 check-pr-exec-record.test.js。③ \"判据依赖 lib\"不是本刀引入的架构：本文件 38 行早已 require ./lib/ccg-delivery-digest.js（delivery@ 摘要唯一实现），41 行才是本次新增，同一形状。④ 可回退性由 git 历史与 retire 标签保证，不靠就地保留第二份表。",
+        "verdict": "dismissed",
+        "rationale": "指控的后果（加载即抛）正是辩护里论证为正确的那一档；\"新增单点\"可被一条 grep 否证为既有架构（scripts/check-pr-exec-record.js:38 早于 :41），\"无法回退\"不成立。可复核锚点：判据文件 38/41 行；check-pr-exec-record.test.js 的守门面守卫三条行为锁 + 调用点接线锁。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "ccg-review-decider.js 引入 require('./check-pr-exec-record.js')（整份执行/检查模块）只为获取 highRiskPrefixOf，造成决策层与执行层双向强耦合，违背设计中“只消费读数、不自带第三份表”的隔离意图。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "决策层（pre-commit 热路径、退出码恒 0）为一个 highRiskPrefixOf 而 require 整份 enforce 判据；若判据反过来引用决策层即成环，两侧演进互相牵制，也与\"只消费读数、不自带第三份表\"的隔离意图相挤。",
+        "defense": "① 方向可测且是单向：判据文件里 \"ccg-review-decider\" 的 4 处命中（68/658/783/954 行）全在注释与文档，没有任何 require ⇒ \"双向强耦合\"这一断言不成立。② 反向选择（决策层自写前缀匹配）不是理论代价：变异 MT-B 实测自写的根锚定实现与判据实现在 vendored 那格同形、在段起点那格漂移——那才是真的静默分叉。③ 本仓既有纪律就是\"跨模块契约要注入真实现\"（先例：cloud-account-restore.test.js 装真 persistLoginState）。④ 依赖方向已显式写进 lib 头部的依赖图段（真源/消费方 A/消费方 B/匹配实现唯一处/回归锁落点），不是隐式耦合。",
+        "verdict": "dismissed",
+        "rationale": "指控的核心断言可被一条 grep 否证（判据不 require 决策层）；它担心的隔离问题由 lib 头部依赖图与 ccg-review-gate-surfaces.test.js 的接线锁承担，且接线锁同时断言两侧都 require 本模块。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "tasks.md 将 11.1 标记为 [x] 完成，但正文明确写“仅守门面轴已交付；auth/加密轴按设计不合，残差另立 11.6 未做”。父任务被关闭而核心子域未交付，任务追踪与实际状态不一致。",
+        "highRiskDomains": [
+          "auth",
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4261#issuecomment-6350271526",
+          "reviewedAt": "2026-10-22T20:08:56.846Z"
+        },
+        "prosecution": "把 11.1 勾成完成而它的原文要求\"同时收敛两表口径来源\"，下一个读者可能把 [x] 读成\"两轴都已收敛\"，从而不再回头看 11.6/11.7 两条未勾项。",
+        "defense": "本行的记法就是本仓既有约定：父项勾 + 证据行 + 未完成的后半拆成新的未勾项。现状三处同时说话——① 11.1 标题自带括号限定「仅守门面轴已交付；auth/加密轴按设计不合，残差另立 11.6 未做」；② §11 段首一行「本节交付范围」把已交付/未交付逐名列出；③ 11.6 与 11.7 是独立未勾项且带现跑读数。退回 [ ] 反而违反该约定（会让\"已交付的那一半\"失去账）。",
+        "verdict": "dismissed",
+        "rationale": "本条属高危域（auth/crypto），按协议不由自扮演单独豁免：已取一次真外部复核（后端 claude），其结论与公开出处见 externalReview 三格；复核针对\"记法是否会误导\"与\"是否构成代码层高危缺陷\"两点，均为否。理由可复核：tasks.md §11 段首声明行、11.1 标题限定、11.6/11.7 两条未勾项。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "ccg-review-decider.test.js 的“mode 判定不得消费 gateSurfaceHits”测试通过 fs.readFileSync 读取源码并做正则匹配（/const sensitive =.../），属于源文本层面的脆弱契约：重命名变量或格式化即会假红/假绿。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "源文本判据脆弱：const sensitive 改名或换行即假红；也可能假绿——若布尔表达式被拆成两段，正则只捕到第一段，第二段里的违规引用看不见。",
+        "defense": "① \"改名/改形状要红\"正是这类接线锁的目的（重命名必须强制同步），红是设计行为不是事故，且读不到赋值时断言直接点名\"本锁需同步更新（不允许静默失配）\"。② 假绿方向有两条正控：捕获长度必须落在 20..400（不像一条布尔赋值即红）与 raw 中 gateSurfaceHits, 必须存在（扫描域非空、合法引用确在）。③ 行为侧另有 MT-A/M-G4 两条变异各自指名红，静态线与行为锁互不替代。④ 判据刻意切在 const sensitive = ...; 这一条赋值的语义位置上，而不是\"整个文件不许出现这个词\"——后者会把 stats/CLI 里的合法引用判红（本仓禁词锁的同型事故）。",
+        "verdict": "dismissed",
+        "rationale": "脆弱性的两个方向各有对应自检，且有独立行为锁背书；可复核锚点：ccg-review-decider.test.js 中该测试的 4 条断言，以及 M-G4 的红清单（静态线 + 两条行为锁同时指名）。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "设计提到“下界对账”（X2-14、命中数不得低于已入库下界），但生产代码（judge、gateSurfaceHitGroups）与新测试（规模读数留痕）均只做计数打印，未在判据中强制执行任何下界或上界拦截。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "下界只在测试里断言；生产判据（judge / gateSurfaceHitGroups）与 lib 的\"规模读数留痕\"只打印，不拦——有人删一条前缀时若无测试覆盖则静默。",
+        "defense": "① 下界确实被强制，位置在回归锁：check-pr-exec-record.test.js 的 2.1「每条前缀至少命中 1 个受管文件（命中 0 即装饰条目）」与 X2-14「why 里写的实测命中 N 个是下界，归因跌破即红」两条都会红，而这两条跑在 required 的 QG Changes（Gate 2c）路径上。② lib 那条\"规模读数留痕\"刻意只做相等断言（derived === entries），不做第二份命中统计——同一件事两处各数一遍就是两份事实，本仓有先例约束。③ 分工是显式的：判据负责\"命中的前缀属于哪一档\"，账目下界由回归锁负责。",
+        "verdict": "dismissed",
+        "rationale": "指控对\"谁在拦\"判断有误。可现跑复核：node --test scripts/check-pr-exec-record.test.js 里 2.1 与 X2-14 两条都存在且为断言而非打印。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "evaluateDeepReviewDebt 新增高危面扫描：遍历 involved 记录并逐条解析磁盘 JSON（JSON.parse + fs.readFileSync），在判据运行时引入额外 I/O，原路径无此批量解析。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "新块对变更集里每条 involved 记录做 readFileSync + JSON.parse，给判据运行（pre-commit 与 CI）加了额外 I/O，原路径没有这种批量解析。",
+        "defense": "① 同一函数原本就在做同一件事：evaluateDeepReviewDebt 体内已有 4 处 readFileSync/JSON.parse 路径（函数体内相对行 54/106/162/230），新块不是第一份 I/O，只是同一 involved 集合上的第二次遍历。② 遍历域是本 PR 自己的 .ccg 产物（个位数），不是全仓 1.6k 份；按全仓迭代的采集面在 ccg-artifact-shape-survey.js，且它刻意不进 CI 关键路径（理由与实测耗时写在文件头）。③ 解析失败计入 unproven（未证实），不改判定方向。",
+        "verdict": "dismissed",
+        "rationale": "成本与既有路径同源、规模由 PR 差量界定；可复核：函数体内原有 JSON.parse 出现次数，以及新增块的遍历域同为 involved 而非全仓 ls-tree。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-22T20:12:41.797Z"
+  }
+}

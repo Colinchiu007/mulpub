@@ -36,6 +36,9 @@ const { changedFileStatuses } = require('./classify-docs-only.js')
 // `delivery@<sha256>` 的规范化口径与写回器共用一份实现（tasks 4.1）：两边各算一份哈希，
 // 写回器写的与判据认的就会永远对不上 —— 那才是本片真正要防的失效形态。
 const { isDeliveryEvidenceShape, matchesDeliveryEvidence } = require('./lib/ccg-delivery-digest.js')
+// 守门面清单（哪些路径是「机械闸门本体」）的唯一真源（tasks 11.1）：判据与决策层共用一份表；
+// 文件→前缀的匹配实现仍只在本文件 highRiskPrefixOf 一处，本模块只做名称查询。
+const { GATE_SURFACES } = require('./lib/ccg-review-gate-surfaces.js')
 // 降档文案只说「重算值不符」，不说「真伪」：该摘要任何填写方都能一条命令自算（tasks 8.5 / 4.1c），
 // 把它说成抓到伪造，等于对作者动机下一个判据并不支持的结论。
 const DELIVERY_MISMATCH_HINT = '摘要与本记录 findings 重算值不符 ⇒ 降为 external-unverified；这不是指控伪造，是该档无法就地自洽'
@@ -602,17 +605,28 @@ function main(argv) {
 // 每条都必须带 why（实测出处），且**由测试断言每条前缀至少命中 1 个受管文件**：
 // 命中 0 的前缀守的是一个不存在的面，那是装饰性条目，比没有条目更坏。
 // 清单只能缩小；新增前缀必须给实测出处，不做自动推断（与 LOGIN_PAGE_PATH_MARKERS 同口径）。
+/**
+ * 守门面派生的存在性守卫（QM-6 i3 的可操作半边）。
+ * 判据"以半张表守门"比"起不来"危险得多：空表会让每条高危面判据静默恒不命中，
+ * 读起来完全像"这次改动没碰闸门"。所以这里一律 fail-closed 并点名是哪一面坏了。
+ */
+function assertGateSurfaces (list) {
+  if (!Array.isArray(list)) throw new Error(`守门面清单取到 ${typeof list}（必须是数组）⇒ 单一真源被改坏或未被导出，判据拒绝以半张表守门`)
+  if (list.length === 0) throw new Error('守门面清单为空 ⇒ 高危面判据将静默恒不命中，这不是"没有高危面"，是真源断了')
+  const bad = list.filter((s) => !s || typeof s.prefix !== 'string' || !s.prefix)
+  if (bad.length > 0) throw new Error(`${bad.length} 条守门面条目缺 prefix ⇒ 匹配会把它当成不存在的门面上报 0 命中`)
+  return list
+}
+
 const HIGH_RISK_SURFACES = [
   { prefix: 'apps/desktop/electron/services/credential-', why: '登录凭证加解密（AES-256-GCM），实测主干命中 3 个受管文件' },
   { prefix: 'apps/desktop/electron/services/account-state-lock.js', why: '登录态真源的串行锁，实测命中 1 个' },
   { prefix: 'packages/api-publish-engine/src/auth/', why: '云端账号/凭证校验面，实测命中 18 个' },
   { prefix: 'packages/shared-utils/src/login-state.js', why: '登录态三态迁移的唯一口径，实测命中 1 个' },
   { prefix: 'fingerprint', exts: ['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.vue', '.py', '.sh'], why: '设备/内容指纹面（跨目录）。裸子串实测命中 9 个受管文件，其中 2 个是 `01-docs/evidence/**.txt` 取证快照 —— 讲到指纹的文档不是指纹面，所以本条限定源码扩展名，收窄后命中 7 个（第 2 轮 R2-5）' },
-  { prefix: '.github/workflows/', why: 'CI 判据本体（谁来守门），实测命中 15 个' },
-  { prefix: 'scripts/check-', why: '仓内静态门禁脚本本体 = 判据自指，实测命中 106 个（含 .github/scripts/ 40 与 apps/desktop/scripts/ 2 —— 段起点匹配的全部理由）' },
-  { prefix: 'scripts/ccg-review-', why: '判定写入方（决定"要不要评审"），实测命中 3 个受管文件' },
-  { prefix: 'scripts/lib/ccg-review-', why: '评审后端对的真源（决定"谁来评"）—— 跨家族轴 X2-9 实测这条此前落在清单外，改它不触发任何收口要求；实测命中 2 个' },
-  { prefix: 'scripts/deep-review', why: '评审驱动本体（闭环值与 performedBy 由它写），实测命中 2 个受管文件' },
+  // 守门面条目派生自 scripts/lib/ccg-review-gate-surfaces.js（tasks 11.1）。
+  // why 里带的"实测命中 N 个"由 X2-14 按当前归因做下界对账 —— 那是活数，不是这里的常数。
+  ...assertGateSurfaces(GATE_SURFACES),
 ]
 
 /**
@@ -637,6 +651,14 @@ function isVendored (f) {
  * **唯一**的匹配实现 —— 自指判据与变更集分组都走它。两处各写一遍前缀匹配时，
  * 变异「把 isHighRiskSurface 摘成恒 false」不会让矩阵变红，因为矩阵走的是
  * highRiskHits 里另抄的那份（本轮 P1 实测 PARTIAL 的成因）。
+ */
+/**
+ * 文件 → 守门面前缀的**唯一**匹配实现（段起点 + vendored 排除 + exts 作用域）。
+ *
+ * ⚠ 改它之前必须先跑 ccg-review-decider.test.js 的「段起点语义在决策层同样可见」那一条：
+ * 它是仓内唯一能分辨"复用本函数"与"自己写一份根锚定 startsWith"的输入 ——
+ * 「vendored 副本不算命中」那一格对两种实现同形（都返回 0），实测被变异 MT-B 当场判 ESCAPED。
+ * 段起点不是装饰：实测 40 个判据住在 .github/scripts/，根锚定会把它们全部读成"没碰闸门"。
  */
 function highRiskPrefixOf (file) {
   const f = String(file || '').replace(/^\.\//, '')
@@ -735,10 +757,24 @@ function summarizeTransitionCheck (rows, scanned) {
   }
 }
 
+/**
+ * 收口出口的指路牌。**只准有一份**：上面「收口不成立」与下面「高危面零外部证据」两条判据
+ * 说的是同一件事的两个层面（一条讲某篇产物的收口不成立，一条讲整个变更集压根没有外部出处），
+ * 各抄一遍必然在下次改措辞时分裂 —— 而分裂的代价是读者按其中一份做、撞上另一份的红。
+ * 由本仓测试的「出口文案单源锁」钉住：长版整块（①+②+反向处置）全文件只出现一次，且只能经下面的常量引用。
+ * 转变检测那句短指路（"补跑一次评审"）主语不同、刻意另写 —— 本锁只数长版，不数它。
+ */
+const CLOSURE_EXIT_LINES = '\n    出口：① 跑真外部评审（sh scripts/deep-review.sh）—— 驱动返回后由 ccg-review-writeback.js '
+  + '\n         写 tier=external + delivery@ 摘要，这是唯一不需要人工补字段的路径；'
+  + '\n         若因故只能由会话把 tier/evidence 手写进产物，必须在同次记录里写明「tier 由会话手写」'
+  + '\n         并给出轮次与逐条处置，否则该收口只算未证实；'
+  + '\n    ② 非高危面可按门禁既有合规出口写 closureNote（须含轮次标记与逐条处置结论，光一句长话不算）。'
+  + '\n    不得反向处置：删掉 tier 只是退回 unknown 被放过，那不等于评审做过 —— 覆盖率读数会把它显出来。'
+const SELF_PLAY_RESOLVED_STATUS = 'self_play_resolved'
 const CLOSED_DEEP_REVIEW_STATUSES = new Set([
   'cleared',
   'needs_revision',
-  'self_play_resolved',
+  SELF_PLAY_RESOLVED_STATUS,
 ])
 
 // ── QM-6 丙：来源分档与覆盖率读数（先可见不拦，见 design §9.1）────────────
@@ -1198,13 +1234,49 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase, existsAt) {
       //   scripts/ccg-review-writeback.js 写 tier/evidence，所以正解只有那一条；
       //   手写仍然**能**通过判据（delivery@ 只是本地一致性校验、不是签名，见
       //   lib/ccg-delivery-digest.js 文件头），但它是代用而不是合规路径，必须如实标注。
-      + '\n    出口：① 跑真外部评审（sh scripts/deep-review.sh）—— 驱动返回后由 ccg-review-writeback.js '
-      + '\n         写 tier=external + delivery@ 摘要，这是唯一不需要人工补字段的路径；'
-      + '\n         若因故只能由会话把 tier/evidence 手写进产物，必须在同次记录里写明「tier 由会话手写」'
-      + '\n         并给出轮次与逐条处置，否则该收口只算未证实；'
-      + '\n    ② 非高危面可按门禁既有合规出口写 closureNote（须含轮次标记与逐条处置结论，光一句长话不算）。'
-      + '\n    不得反向处置：删掉 tier 只是退回 unknown 被放过，那不等于评审做过 —— 覆盖率读数会把它显出来。'
+      + CLOSURE_EXIT_LINES
     )
+  }
+  // ★ tasks 8.5① / 11.1：命中高危面而**整个变更集一条外部评审证据都没有**，此前完全静默。
+  //   洞的成因不是"漏写一条判据"，是两条合起来：mode !== dual 的记录一律 continue（那是缺陷 G
+  //   实测过的成环防线），而改判据本体的小提交**永远**是 single —— 于是"没有 dual 产物"与
+  //   "评审做过了"在读数上逐字同形。所以这里补的是**证据面**，不是 mode 面：任何一条产物
+  //   带 tier=external 且 status 已闭环即算有出处，不看它被判成 dual 还是 single。
+  //   （反过来要求"必须存在一条 dual 产物"就是把唯一出口焊死：小改动拿不到 dual 产物，
+  //     人只能手写 tier —— 那正是 #4151 要消掉的东西，也是缺陷 G 那个环的第二种成法。）
+  //   出声只能有一次：矩阵若已经点名了本集的收口问题（单篇的「收口不成立」或 dual 的「深度审查欠账」），本条就闭嘴 —— 两条各带一份出口文案，读者的计数会虚高而处置动作只有一个（既有测试用 reasons.length 精确钉这一点）。
+  //   强度上限如实登记在 tasks 8.6：产物与提交的配对还没人校验，所以"集内有一条 external"
+  //   并不证明**这笔**守门改动被评过 —— 那条锁归 8.6，本条不冒充它。
+  if (onHighRisk) {
+    let externalFound = 0
+    let unproven = 0
+    for (const rel of involved) {
+      let rec = null
+      try {
+        rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
+      } catch {
+        unproven++
+        continue
+      }
+      const dr = rec && rec.deepReview
+      if (!dr || !CLOSED_DEEP_REVIEW_STATUSES.has(dr.status)) continue
+      if (closureCorroboration(dr, existsAt) === 'external') externalFound++
+    }
+    // 「取不到读数」不得读成「没有证据」：产物解析不动时由既有未证实档出声，这里不补一刀。
+    if (externalFound === 0 && unproven === 0 && badClosureBy.size === 0 && unresolved.length === 0) {
+      reasons.push(
+        `CCG 高危面零外部证据 —— 本次变更集命中高危面前缀 ${riskHits.slice(0, 4).map((h) => h.prefix).join(' / ')}`
+        + `（由 ${riskHits.slice(0, 2).map((h) => h.files.slice(0, 2).join(', ')).join(' ; ')} 拉进来），`
+        + (involved.length
+          ? `集内 ${involved.length} 条判定产物没有一条带 tier=external + 已闭环 status：\n`
+            + involved.slice(0, 8).map((p) => `    - ${p}`).join('\n')
+          : '且变更集里一条判定产物都没有（改了守门件却没有任何评审记录随集落地）。命中文件：\n'
+            + riskHits.slice(0, 4).map((h) => `    - ${h.prefix} ← ${h.files.slice(0, 3).join(', ')}`).join('\n'))
+        + CLOSURE_EXIT_LINES
+        + '\n    本条是**变更集层面**的读数（若同时有「收口不成立」，那条说的是单篇产物），处置相同：'
+        + '\n    补一次真外部评审，由写回器把 tier 写上；不要靠改本判据让它不红。'
+      )
+    }
   }
   if (backendMismatch.length > 0) {
     reasons.push(
@@ -1263,7 +1335,7 @@ function judgeBackendMismatch (rec) {
   const dr = rec.deepReview
   if (!dr || typeof dr !== 'object') return null
   // ② 自扮演闭合走它自己的审计路径，本判据不插手（收紧它属改豁免政策，须人工过目）
-  if (dr.status === 'self_play_resolved') return null
+  if (dr.status === SELF_PLAY_RESOLVED_STATUS) return null
   const performed = typeof dr.performedBy === 'string' ? dr.performedBy.trim() : ''
   const closed = CLOSED_DEEP_REVIEW_STATUSES.has(dr.status)
   // 署名义务**不分是否覆盖**（QM-6 评审 i1/i4）：带着 reviewBackends 的记录是本轮之后的新产物，
@@ -1313,6 +1385,6 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, repoObjectPath, makeEvidenceProbe, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { assertGateSurfaces, CLOSURE_EXIT_LINES, isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, repoObjectPath, makeEvidenceProbe, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, SELF_PLAY_RESOLVED_STATUS, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

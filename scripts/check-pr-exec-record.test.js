@@ -2565,3 +2565,101 @@ test('4.1c 文案锁：delivery 降档必须说"重算值不符"，不得说"伪
     assert.ok(!near.includes(bad), `降档文案附近出现了 ${bad} —— delivery 摘要任何人可自算，判的是自洽不是真伪`)
   }
 })
+
+// ── tasks 8.5① / 11.1：命中高危面的变更集必须自带一条「外部评审已闭环」的证据 ────────
+// 场景脑暴（先想清再写）：
+//   正常：高危面 + 集内有 tier=external 且已闭环的产物 ⇒ 放行
+//   异常：高危面 + 集内只有一条 pending 的 single 产物 ⇒ 拦（旧行为是**完全静默**，本切片抓的就是这一格）
+//   异常：高危面 + 集内是 self-play 收口 ⇒ 拦（11.5 选 ③：自扮演不得冒充外部）
+//   边界：非高危面 + 无 external ⇒ 不拦（不得给别人的小改动凭空加一道双模型门槛）
+//   防成环：判据看**证据**不看 mode 标签 —— 小改动的记录永远是 single（引擎只写 deepReview、不写 mode），
+//     若要求"必须存在一条 dual 产物"，就重造缺陷 G（2026-10-15 实测的无法闭合循环）。
+const ART3 = '.ccg/reviews/' + 'c'.repeat(64) + '.json'
+const GATE_FILE = 'scripts/ccg-review-writeback.js'
+const SINGLE_PENDING = { mode: 'single', deepReview: { required: true, status: 'pending', tier: 'unknown', evidence: null, performedBy: null, findings: null } }
+const SINGLE_EXTERNAL = { mode: 'single', deepReview: { required: true, status: 'cleared', tier: 'external', evidence: 'ses_probe0001', performedBy: 'claude', findings: null } }
+const NEED_EXTERNAL = /高危面[\s\S]*tier=external/i
+
+test('8.5① 高危面变更集里一条外部评审证据都没有 ⇒ 必须点名（旧行为：single 全被 continue 掉，静默通过）', () => {
+  const repo = repoWithFile(ART3, SINGLE_PENDING)
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['M', ART3], ['M', GATE_FILE]]), repo, () => null)
+    const block = r.reasons.find((x) => NEED_EXTERNAL.test(x)) || ''
+    assert.ok(block, `命中高危面却零声（8.5① 那格：改判据本体的小改动凭一条 pending 记录即可通过）。实际 reasons=${JSON.stringify(r.reasons.map((x) => x.slice(0, 60)))}`)
+    assert.ok(block.includes(GATE_FILE), `红文案必须点名是哪个文件把变更集拉进高危域，实际 ${block.slice(0, 260)}`)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('11.5③ self-play 收口不得冒充外部：高危面 + self_play_resolved ⇒ 仍然拦', () => {
+  const repo = repoWithFile(ART3, { mode: 'single', deepReview: Object.assign({}, SELF_PLAY) })
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['M', ART3], ['M', GATE_FILE]]), repo, () => null)
+    assert.ok(r.reasons.some((x) => NEED_EXTERNAL.test(x)),
+      `自扮演收口在高危面上被当成已闭合了：${JSON.stringify(r.reasons.map((x) => x.slice(0, 60)))}`)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('正控：高危面 + 集内有一条 tier=external 已闭环产物 ⇒ 放行（且不要求它是 dual）', () => {
+  const repo = repoWithFile(ART3, SINGLE_EXTERNAL)
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['M', ART3], ['M', GATE_FILE]]), repo, () => null)
+    assert.deepStrictEqual(r.reasons.filter((x) => NEED_EXTERNAL.test(x)), [],
+      `已有外部证据还拦 = 把出口焊死，人只能手写 tier —— 正是本仓要消掉的形态：${JSON.stringify(r.reasons.map((x) => x.slice(0, 60)))}`)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('边界：非高危面 + 无 external ⇒ 不拦（不得给别人的小改动凭空加一道双模型门槛）', () => {
+  const repo = repoWithFile(ART3, SINGLE_PENDING)
+  try {
+    const r = mod.evaluateDeepReviewDebt(st([['M', ART3], ['M', 'apps/desktop/src/a.js']]), repo, () => null)
+    assert.deepStrictEqual(r.reasons.filter((x) => NEED_EXTERNAL.test(x)), [],
+      `非高危面被这条新判据波及了：${JSON.stringify(r.reasons.map((x) => x.slice(0, 60)))}`)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('守门面派生守卫：undefined / 空表 / 缺 prefix 一律当场抛（不得留到判据静默不命中）', () => {
+  const mod = require('./check-pr-exec-record.js')
+  assert.strictEqual(typeof mod.assertGateSurfaces, 'function', '守卫必须是导出的纯函数，否则只能靠读源码断言')
+  assert.deepStrictEqual(mod.assertGateSurfaces([{ prefix: 'scripts/check-', why: 'x' }]).length, 1, '合规表必须原样返回')
+  assert.throws(() => mod.assertGateSurfaces(undefined), /必须是数组/, '非数组（含整段丢失）要点名是「单一真源被改坏」')
+  assert.throws(() => mod.assertGateSurfaces([]), /为空/, '空表是静默恒不命中的入口，必须拒')
+  assert.throws(() => mod.assertGateSurfaces([{ why: '无前缀' }]), /缺 prefix/, '条目形状坏了要点名，不得让它变成 0 命中')
+})
+
+test('守门面派生的调用点接线锁：清单必须经守卫进入 HIGH_RISK_SURFACES', () => {
+  // 守卫是纯函数，光有它不代表调用点在用它 —— 摘掉调用点的包裹，行为锁一条都不会红。
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.ok(src.indexOf('...assertGateSurfaces(GATE_SURFACES),') >= 0,
+    '调用点没包守卫 ⇒ 派生回到裸展开，真源坏时会抛 TypeError 而不是点名「哪一面断了」')
+})
+
+test('出口文案单源锁：长版整块只许出现一次，且两处调用点都经常量引用', () => {
+  // 动因：收口不成立那段和「高危面零外部证据」那段说的是同一件事（怎么拿到 tier=external）。
+  // 各抄一遍的代价是下次改措辞只改一处，两份文案分裂 —— 而读者按其中一份做会撞上另一份的红。
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  // 锚取**裸词组**，不取 `\n + 缩进`：绑排版时，改一次缩进就让读数掉到 0，
+  // 而 0 会被下一行读成"没人抄"——那是把探针失明当成结论（本仓反复踩的同一条）。
+  const TOKEN = '出口：① 跑真外部评审'
+  const re = new RegExp(TOKEN, 'g')
+  const n = (src.match(re) || []).length
+  assert.ok(n >= 1, `锚在源码里取到 ${n} 次 ⇒ 长版措辞已被改写或本锚失效，这条锁此刻什么都测不到（不是"没有第二份"）`)
+  assert.strictEqual(n, 1, `长版出口文案出现 ${n} 次（应为 1）⇒ 有人又抄了一份，或把常量正文复制进了调用点`)
+  // 正控（QM-6 i4）：锚不得绑文案内部的缩进。注意**行首缩进动不到它** ——
+  // 那串「    出口：①」躺在字符串字面量里（前面是 \\n 那两个字符），给整份文件加行首缩进
+  // 读数不变，这样的正控什么都没测（第一版就是这么写的，M-G3 当场 ESCAPED）。
+  // 真正会漂移的是有人在文案里多敲/少敲一格缩进，所以演练必须改那一段本身。
+  // 方向性也记一条：把 4 格改成 5 格**不构成区分**（4 格串是 5 格串的子串，两种锚都读到 1）；
+  // 只有把缩进整个去掉，绑缩进的锚才会掉到 0 而裸词组锚保持 1。演练取后者。
+  const shifted = src.split('\\n    出口：①').join('\\n出口：①')
+  assert.notStrictEqual(shifted, src, '演练没落进源码 ⇒ 这条正控恒真，与「锁有牙」逐字同形（本仓变异驱动的老坑）')
+  assert.strictEqual((shifted.match(re) || []).length, n, '锚绑在文案内部的缩进上：多一格就让读数掉 0，而失败文案会说不存在的话（「没人抄」）')
+  const refs = src.split(/\r?\n/).filter((l) => /\+ CLOSURE_EXIT_LINES$/.test(l.trim().replace(/;$/, '')))
+  assert.strictEqual(refs.length, 2, '两处调用点必须都经常量引用（少了＝有一处退回本地字面量）')
+  assert.strictEqual(typeof require('./check-pr-exec-record.js').CLOSURE_EXIT_LINES, 'string', '常量必须导出：第二处判据要指同一条路，不得再抄第三份')
+  // 只数出现次数挡不住「把常量正文改成别的话」—— 补内容断言：出口必须还是那两条，且指向真入口。
+  const LINES = require('./check-pr-exec-record.js').CLOSURE_EXIT_LINES
+  assert.match(LINES, /出口：①/, '长版必须仍给出出口①（改成一句泛泛提示等于把出口抹掉）')
+  assert.match(LINES, /deep-review\.sh/, '出口①必须指向真入口脚本名，否则读者按提示找不到那条路')
+  assert.match(LINES, /ccg-review-writeback\.js/, '出口①必须写明由谁写 tier=external（即「不需要人工补字段」那条路）')
+  assert.match(LINES, /② 非高危面|②/, '出口②（closureNote 档）必须在，否则高档与低高档的差别被抹平成一句话')
+})

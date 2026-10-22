@@ -675,12 +675,25 @@ test('结构锁：saveRecord 必须经由 recordFileName 取名（防纯函数�
 
 test('QM-6 i3：闭环白名单与门禁同源（改一处忘另一处必须当场红）', () => {
   // 重复定义的风险只能用等价锁兜底：直接读门禁源码断言两处集合相等。
+  // 成员有两种合法写法：字面量 'cleared'，或引用同文件里的具名常量（SELF_PLAY_RESOLVED_STATUS）。
+  // 标识符形态由 tasks 11.5③ 引入：判据把自扮演出口状态升为导出，供普查工具注入而不抄字面量。
+  // 本锁若仍只认引号形态，会在成员被换成标识符时**少数一项而照报相等**（解析退化＝静默失明），
+  // 所以标识符必须就地解析回字面量；解析不到当场红，不得读成"少一个成员"。
   const gate = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
   const m = gate.match(/CLOSED_DEEP_REVIEW_STATUSES = new Set\(\[([^\]]*)\]\)/)
   assert.ok(m, '门禁侧的白名单定义形态变了，本锁需同步更新（不允许静默失配）')
-  const fromGate = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort()
+  const fromGate = [...m[1].matchAll(/'([^']+)'|([A-Za-z_$][\w$]*)/g)].map((x) => {
+    if (x[1] !== undefined) return x[1]
+    const d = gate.match(new RegExp('const ' + x[2] + " = '([^']+)'"))
+    assert.ok(d, '门禁白名单里的标识符 ' + x[2] + ' 解析不到字面量定义 —— 本锁不得少数')
+    return d[1]
+  }).sort()
+  // 文本解析必须等于判据**运行时**导出的集合：这条才是"解析退化"的探测器（没有它，漏认一种形态会静默少数）
+  const fromRuntime = [...require('./check-pr-exec-record.js').CLOSED_DEEP_REVIEW_STATUSES].sort()
+  assert.deepStrictEqual(fromGate, fromRuntime,
+    '本锁的文本解析结果与判据运行时导出不等 ⇒ 解析面漏认了一种成员写法，等价锁已静默少数')
   const fromDecider = [...decider.CLOSED_DEEP_REVIEW_STATUSES].sort()
-  assert.deepStrictEqual(fromDecider, fromGate,
+  assert.deepStrictEqual(fromDecider, fromRuntime,
     'decider 与门禁的闭环白名单必须一致；否则「已闭环」在两处判定不同 ⇒ 要么丢结论要么误红')
 })
 
@@ -2251,3 +2264,92 @@ test("遗留10-T11 合并态与暂存档同口径：.ccg 自身产物进观测�
     fx.cleanup()
   }
 })
+
+// ── tasks 11.1 / 11.5：守门面命中在决策层必须「看得见、但不改判定」──────────────
+// 裁决记在 design 与本文件：把 gate 命中升成 dual 会让每次改判据固定多花 23-40 分钟的
+// DUAL 钩子，那属「谁来守门」的政策变更（须人工过目），不由本片顺手决定。
+// 所以这里既锁「有读数」，也锁「mode 没被抬起」—— 少了后者，下一个会话会把升级当顺手改进。
+test("mode 判定不得消费 gateSurfaceHits（静态触发线，与变异 MT-A 并列的第二道）", () => {
+  // 判据切在**语义位置**上：只看 `const sensitive = ...` 这一条赋值。
+  // gateSurfaceHits 本来就该出现在 stats 构造与 CLI 里，"整个文件不许出现这个词"的宽判据会把合规写法判红
+  // （本仓禁词锁的同型事故）。所以这里锁的是"它有没有进入 mode 的那条布尔表达式"。
+  const raw = fs.readFileSync(SRC, "utf8");
+  const m = raw.match(/const sensitive =([\s\S]*?);/);
+  assert.ok(m, "读不到 sensitive 赋值 —— 判据的写法变了，本锁需同步更新（不允许静默失配）");
+  assert.ok(!/gateSurfaceHits/.test(m[1]),
+    "sensitive 赋值里出现了 gateSurfaceHits ⇒ 守门面命中被抬进 mode 判定；那属改「谁来守门」，须人工过目");
+  // 正控：扫描域非空且那处**合法**引用确实存在（否则"没抓到"只是探针失明）
+  assert.ok(m[1].length > 20 && m[1].length < 400, `捕获长度 ${m[1].length} 不像一条布尔赋值`);
+  assert.ok(raw.indexOf("gateSurfaceHits,") >= 0, "stats 里那处合法引用找不到 ⇒ 扫描域退化");
+});
+
+test("守门面命中：scripts/check-*.js 的小改动被报告，且 mode 仍是 single", () => {
+  const r = judge(makeStaged({ files: [{ file: "scripts/check-demo-gate.js", added: 3, deleted: 1 }] }));
+  assert.equal(r.mode, "single", "gate 命中不得升成 dual：升级属改「谁来守门」，须人工过目");
+  const hits = r.stats.gateSurfaceHits || [];
+  assert.equal(hits.length, 1, "必须报告命中的守门面条目（零读数＝这条观测面没接上）");
+  assert.equal(hits[0].prefix, "scripts/check-");
+  assert.ok(hits[0].count >= 1 && hits[0].sample.length >= 1, "点名要有文件，否则报告无法复核");
+});
+
+test("workflow 本体同样可见（它不在 sensitivePaths 里，只有守门面清单认它）", () => {
+  const r = judge(makeStaged({ files: [{ file: ".github/workflows/quality-gate.yml", added: 2, deleted: 0 }] }));
+  const prefixes = (r.stats.gateSurfaceHits || []).map((h) => h.prefix);
+  assert.ok(prefixes.includes(".github/workflows/"), JSON.stringify(prefixes));
+  assert.equal(r.stats.sensitivePathHits.length, 0, "同一条改动在两张表里的读数必须各自如实：sensitivePaths 本来就不认它");
+});
+
+test("vendored 副本不算命中：匹配必须复用判据侧实现，不得在决策层再抄一份前缀比较", () => {
+  const r = judge(makeStaged({ files: [{ file: ".quality-rhythm/.github/workflows/mechanism-check.yml", added: 2, deleted: 0 }] }));
+  assert.equal((r.stats.gateSurfaceHits || []).length, 0,
+    "vendored 子树被算成守门面命中 ⇒ 决策层自己写了匹配（判据侧那条 highRiskPrefixOf 的排除逻辑没被复用）");
+});
+
+test("非守门面改动必须零读数（否则这条观测与「一切都要评审」同形）", () => {
+  const r = judge(makeStaged({ files: [{ file: "apps/desktop/electron/services/foo.js", added: 2, deleted: 0 }] }));
+  assert.equal((r.stats.gateSurfaceHits || []).length, 0);
+});
+
+test("清单只有一处：决策层不得自带守门面字面量（真源引用 + 禁词）", () => {
+  const raw = fs.readFileSync(SRC, "utf8");
+  assert.ok(raw.indexOf('./lib/ccg-review-gate-surfaces.js') >= 0, '决策层必须从本模块取守门面清单');
+  const code = raw.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join("\n");
+  const QUOTES = ['"', "'"];
+  for (const lit of ['scripts/ccg-review-', 'scripts/deep-review', '.github/workflows/']) {
+    for (const q of QUOTES) {
+      assert.ok(!code.includes(q + lit + q), '决策层源码里出现了守门面字面量 ' + lit + ' ⇒ 清单开始分叉');
+    }
+  }
+});
+
+test("提案模式：方案正文点名的守门面文件必须进观测面（codeFiles 在提案里恒空）", () => {
+  const st = makeStaged({ files: [{ file: "plan.md", added: 6, deleted: 0 }], proposal: true });
+  st.plannedFiles = ["scripts/check-pr-exec-record.js", ".github/workflows/quality-gate.yml"];
+  st.stats = { changedLines: 60, estimated: true };
+  const r = judge(st);
+  const prefixes = (r.stats.gateSurfaceHits || []).map((h) => h.prefix).sort();
+  assert.deepEqual(prefixes, [".github/workflows/", "scripts/check-"],
+    "动手前这一层唯一能看见的门面路径就是方案点名的那些；只按 staged.files 算会让这格恒空");
+  assert.notEqual(r.mode, "dual", "点名守门面不改判定：升级属改「谁来守门」");
+});
+
+test("CLI 必须无条件打印守门面命中那一行（零命中也是读数，不得 if 之后才出声）", () => {
+  const raw = fs.readFileSync(SRC, "utf8");
+  const code = raw.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join("\n");
+  assert.ok(code.indexOf("守门面命中") >= 0, "CLI 里没有那一行 ⇒ 观测面只落在 stats 里，pre-commit 现场看不见");
+  assert.ok(code.indexOf("if (gh.length)") < 0,
+    "打印被包在「有命中才出声」的条件里 ⇒ 「没碰闸门」与「这格没接上」两种读数逐字同形");
+});
+
+
+test("段起点语义在决策层同样可见：这一格才是「自己写匹配」与复用判据的分界线", () => {
+  // 为什么 vendored 那条不够：朴素 `f.slice(0, prefix.length) === prefix` 对
+  // `.quality-rhythm/.github/workflows/x.yml` 也返回 0（它压根不看非根部路径），于是"排除 vendored"
+  // 这一格两版实现同形，变异 MT-B 当场 ESCAPED。能分辨两者的是段起点：`.github/scripts/check-*.js`
+  // 在判据侧命中 scripts/check-（实测 40 个判据住在 .github/scripts/，这正是段起点存在的全部理由），
+  // 而朴素根锚定返回 null ⇒ 只有复用 highRiskPrefixOf 才报得出来。
+  const r = judge(makeStaged({ files: [{ file: ".github/scripts/check-locale-sync.js", added: 2, deleted: 0 }] }));
+  const prefixes = (r.stats.gateSurfaceHits || []).map((h) => h.prefix);
+  assert.deepEqual(prefixes, ["scripts/check-"],
+    "非根部位姿的判据没被报出来 ⇒ 决策层自己写了一份根锚定匹配，段起点语义丢了");
+});
