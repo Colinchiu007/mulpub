@@ -104,12 +104,14 @@
 ### 4.1 恒等式（三档必须始终成立）
 
 ```
-min ≤ target ≤ max
+0 ≤ min < target ≤ max
 ```
 
-- `keep`: 300 ≤ 1500 ≤ 50000 ✓
-- `compress`: 100 ≤ 400 ≤ 50000 ✓
-- `expand`: 800 ≤ 2500 ≤ 50000 ✓
+- 上界用 `≤`（max 就是上界，target 取到 max 是合法的）；
+- 下界用**严格** `<`：target 是「目标 N 字」的落点，必须严格大于 min（= min 会让区间退化成一
+  个点，「目标」失去意义）。三档实际值均满足：`keep` 300 < 1500 ≤ 50000、
+  `compress` 100 < 400 ≤ 50000、`expand` 800 < 2500 ≤ 50000。
+- 该不变式由契约测试断言（`test_length_ranges_max_aligned_with_engine_output_cap`）。
 
 ### 4.2 与引擎上限的对齐契约（新增回归锁）
 

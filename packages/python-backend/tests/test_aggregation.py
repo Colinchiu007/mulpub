@@ -724,32 +724,55 @@ def test_length_ranges_max_aligned_with_engine_output_cap():
 
     repo_root = Path(__file__).resolve().parents[3]
 
-    def read_number(rel_path: str, pattern: str, label: str) -> int:
-        """从**指定的权威源**取数值；解析对象必须与预期路径完全同一（外部复核 i4 加固）。
+    def read_number(rel_path, pattern, label, const_name, min_refs=1, consumer_root=None):
+        """从**指定的权威源**取数值，并证明它是「活的」权威源（外部复核 i4/i5 加固）。
 
-        为什么加同一性断言：`exists()` + `re.search()` 只能证明「某个文件里有这个数」，
-        不能证明「读到的就是当前指定的权威源」——路径被重命名 / 出现同名副本 / 解析偏移时，
-        前两者仍可能通过却指向了非权威副本。故这里显式比对 resolve 后的绝对路径。
+        三件事必须同时成立，缺一条都可能变成装饰性断言：
+
+        1. **存在且是文件**（fail-closed）：文件缺失 / 不是文件 ⇒ 直接断言失败，
+           不静默跳过——skip 掉的契约等于没有。
+        2. **数值可解析**：正则不匹配 ⇒ 断言失败。
+        3. **活的**：该常量必须**被消费**，不能只躺在那里当一份没人用的副本。
+           `min_refs` 断言常量名在定义文件内还出现（定义之外至少还有引用）；
+           `consumer_root` 给定时，额外断言该常量在别处被真正引用。
+           （这一条替代了先前那个「resolve 后与自身相等」的同义反复断言——它恒真、
+           等于没有保护；正因如此外部复核才判它无效。）
         """
-        expected = (repo_root / rel_path).resolve()
-        src = expected
+        src = (repo_root / rel_path).resolve()
         assert src.exists(), f"找不到{label}：{src}"
         assert src.is_file(), f"{label}不是文件：{src}"
-        # 同一性断言：解析到的对象必须就是预期权威源（外部复核 i4：upheld）
-        assert src == expected, f"{label}路径解析偏移：解析到 {src}，预期 {expected}"
-        m = re.search(pattern, src.read_text(encoding="utf-8"))
+        text = src.read_text(encoding="utf-8")
+        m = re.search(pattern, text)
         assert m, f"{label}里找不到数值定义（模式：{pattern}）"
+        assert text.count(const_name) >= min_refs, (
+            f"{label}里的 {const_name} 在文件内只出现 {text.count(const_name)} 次"
+            f"（至少要 {min_refs} 次）——它可能是一份没人消费的副本，不是活的权威源"
+        )
+        if consumer_root is not None:
+            consumed = [
+                p for p in (repo_root / consumer_root).rglob("*.js")
+                if p != src and const_name in p.read_text(encoding="utf-8", errors="ignore")
+            ]
+            assert consumed, (
+                f"{label}里的 {const_name} 在 {consumer_root} 下没有任何消费点"
+                "——它可能不是当前真正生效的那份"
+            )
         return int(m.group(1))
 
     engine_cap = read_number(
         Path("packages") / "rewrite-engine" / "src" / "rewrite-engine-core.js",
         r"const\s+MAX_OUTPUT_CHARS\s*=\s*(\d+)",
         "引擎上限真源",
+        const_name="MAX_OUTPUT_CHARS",
+        min_refs=2,  # 定义 + 引擎内部消费点（如 range.max <= MAX_OUTPUT_CHARS）
     )
     render_cap = read_number(
         Path("apps") / "desktop" / "src" / "utils" / "rewrite-engine-limits.js",
         r"export\s+const\s+REWRITE_ENGINE_MAX_OUTPUT_CHARS\s*=\s*(\d+)",
         "渲染层上限镜像",
+        const_name="REWRITE_ENGINE_MAX_OUTPUT_CHARS",
+        min_refs=1,
+        consumer_root=Path("apps") / "desktop" / "src",  # 证明渲染层真的在用它
     )
     assert render_cap == engine_cap, (
         f"渲染层镜像 {render_cap} 与引擎真源 {engine_cap} 脱钩"
