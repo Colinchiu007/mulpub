@@ -39,6 +39,23 @@ function errorMessage(value) {
 }
 
 /**
+ * 解析「显式跳过」的可选 bridge 名单（MP_SKIP_BRIDGES=SplitterBridge,PromptBridge）。
+ *
+ * 动机（2026-10-18 真机）：这两个 bridge 的可选依赖先天缺位时——
+ * SplitterBridge 需 pip 包 smart-sentence-splitter、PromptBridge 需独立仓库的 prompt-engine——
+ * 每次启动都会跑满 MAX_RESTARTS(3) × HEALTH_CHECK_TIMEOUT(10s) 的重启退避，
+ * 表现为「窗口迟迟不出现」的 10–30s 白屏，而这些功能本来就不可用。
+ * 默认返回空集合 ⇒ 不配置时行为与之前完全一致（既有单测锁死该默认）。
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {Set<string>} 统一小写，便于与 'SplitterBridge' / 'PromptBridge' 比对
+ */
+function resolveSkippedBridges(env = process.env) {
+  const raw = typeof env.MP_SKIP_BRIDGES === 'string' ? env.MP_SKIP_BRIDGES : ''
+  return new Set(raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean))
+}
+
+/**
  * 启动所有 Python bridges 并注册退出清理
  * @param {object} deps
  * @param {object} deps.app - Electron app 实例
@@ -56,11 +73,22 @@ async function startBridges({ app, pythonBridge, splitterBridge, promptBridge })
   }
 
   // 2. SplitterBridge / PromptBridge 并行启动（allSettled 容错）
-  const results = await Promise.allSettled([
-    splitterBridge.start(),
-    promptBridge.start(),
-  ])
-  const names = ['SplitterBridge', 'PromptBridge']
+  // 被 MP_SKIP_BRIDGES 点名的直接跳过并留痕，不参与重试退避（见 resolveSkippedBridges）。
+  const skipped = resolveSkippedBridges()
+  /** @type {Array<[string, { start: () => Promise<unknown> }]>} */
+  const targets = []
+  for (const [name, bridge] of /** @type {const} */ ([
+    ['SplitterBridge', splitterBridge],
+    ['PromptBridge', promptBridge],
+  ])) {
+    if (skipped.has(name.toLowerCase())) {
+      log.notify('App', 'bridge-skipped', { level: 'INFO', params: { bridge: name } })
+      continue
+    }
+    targets.push([name, bridge])
+  }
+  const results = await Promise.allSettled(targets.map(([, bridge]) => bridge.start()))
+  const names = targets.map(([name]) => name)
   results.forEach((r, i) => {
     if (r.status === 'rejected') {
       const reason = r.reason instanceof Error ? r.reason.message : String(r.reason)
@@ -98,4 +126,4 @@ async function startBridges({ app, pythonBridge, splitterBridge, promptBridge })
   return stopBridges
 }
 
-module.exports = { startBridges }
+module.exports = { startBridges, resolveSkippedBridges }

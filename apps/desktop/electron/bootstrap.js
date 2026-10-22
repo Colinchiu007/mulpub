@@ -244,14 +244,29 @@ function runWhenReady(context, deps) {
       } catch (error) {
         log.warn('App', 'Story2Video media server unavailable: ' + errorMessage(error))
       }
-      stopBridges = await startBridges({ app, pythonBridge, splitterBridge, promptBridge })
-      context.stopBridges = stopBridges
+      // 2026-10-18（启动提速 A）：bridges 与 services 之间没有「就绪态」依赖 —— 二者只共享
+      // 同一批实例（pythonBridge 等），不需要对方先完成。此前串行 await 会把
+      // 「Python 后端健康等待」（真机实测 6.5s）**全额**叠加进窗口出现时间。
+      // 改为并行后，两条线在 IPC 注册与建窗之前一起收敛，关键路径从 sum 变成 max。
+      // 语义不变：任一条失败仍由外层 catch 触发同一套 rollback。
+      const bridgesPromise = startBridges({ app, pythonBridge, splitterBridge, promptBridge })
+        .then((stop) => {
+          stopBridges = stop
+          context.stopBridges = stop
+        })
+      // 先挂一个空 catch 标记「已处理」：若 startServices 先抛错，bridgesPromise 随后的
+      // 拒绝不会被 Node 判成 unhandledRejection；真正的错误仍由下方 await 抛出。
+      bridgesPromise.catch(() => {})
 
-servicesResult = await startServices({
+      servicesResult = await startServices({
         container, store, taskQueue, callbackServer, scheduler,
         keywordMonitor, analyticsService, usageTracker, pythonBridge, CloudPublisher, commentManager,
         modelProviderManager, getMainWin, opsCenterSync,
       })
+
+      // 建窗前必须等 bridge 线收敛：IPC 处理器与渲染进程首屏都会打后端，
+      // 提前建窗只会把「后端未就绪」变成用户可见的报错。
+      await bridgesPromise
 
       // 启动知识进化调度器
       try {

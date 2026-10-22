@@ -172,4 +172,46 @@ describe('phase2-bridges.startBridges', () => {
     expect(mockSplitterBridge.start).toHaveBeenCalledTimes(1)
     expect(log.notify).toHaveBeenCalledWith('App', 'bridge-started', expect.objectContaining({ params: { bridge: 'SplitterBridge' } }))
   })
+
+  // 2026-10-18：可选 bridge 的可选依赖（pip 包 / 独立仓库）缺位时，启动会跑满
+  // MAX_RESTARTS × HEALTH_CHECK_TIMEOUT 的重试退避（白屏 10-30s）。
+  // MP_SKIP_BRIDGES 用于显式跳过；默认不配置时行为必须与之前完全一致。
+  it('MP_SKIP_BRIDGES 点名时跳过 start 并留痕，stop 仍调用（清理幂等）', async () => {
+    process.env.MP_SKIP_BRIDGES = 'SplitterBridge, PromptBridge'
+    try {
+      const stopBridges = await startBridges({
+        app: mockApp,
+        pythonBridge: mockPythonBridge,
+        splitterBridge: mockSplitterBridge,
+        promptBridge: mockPromptBridge,
+      })
+      expect(mockPythonBridge.startPythonBackend).toHaveBeenCalledTimes(1)
+      expect(mockSplitterBridge.start).not.toHaveBeenCalled()
+      expect(mockPromptBridge.start).not.toHaveBeenCalled()
+      expect(log.notify).toHaveBeenCalledWith('App', 'bridge-skipped', expect.objectContaining({ params: { bridge: 'SplitterBridge' } }))
+      expect(log.notify).toHaveBeenCalledWith('App', 'bridge-skipped', expect.objectContaining({ params: { bridge: 'PromptBridge' } }))
+      // 跳过不等于不清理：shutdown 仍对三者调用 stop，语义与未跳过时一致。
+      await stopBridges()
+      expect(mockSplitterBridge.stop).toHaveBeenCalledTimes(1)
+      expect(mockPromptBridge.stop).toHaveBeenCalledTimes(1)
+    } finally {
+      delete process.env.MP_SKIP_BRIDGES
+    }
+  })
+
+  it('只跳过 SplitterBridge 时 PromptBridge 照常启动', async () => {
+    process.env.MP_SKIP_BRIDGES = 'splitterbridge'
+    try {
+      await startBridges({
+        app: mockApp,
+        pythonBridge: mockPythonBridge,
+        splitterBridge: mockSplitterBridge,
+        promptBridge: mockPromptBridge,
+      })
+      expect(mockSplitterBridge.start).not.toHaveBeenCalled()
+      expect(mockPromptBridge.start).toHaveBeenCalledTimes(1)
+    } finally {
+      delete process.env.MP_SKIP_BRIDGES
+    }
+  })
 })

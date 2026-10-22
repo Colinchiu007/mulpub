@@ -102,7 +102,41 @@ describe('rpa-view-helpers — 行为层接线（任务 3.4）', () => {
     expect(ctx._isoEval).toHaveBeenCalledTimes(1)
     expect(String(ctx._isoEval.mock.calls[0][1])).toContain('el.click()')
     expect(r).toBe(true)
-    expect(warnSpy).toHaveBeenCalledWith('RpaView', expect.stringContaining('回落原生合成'))
+    expect(warnSpy).toHaveBeenCalledWith('RpaView', expect.stringContaining('回落可信点击'))
+  })
+
+  // 2026-10-20（wechat-save-click）：公众号「保存为草稿」真机表现是按钮命中但
+  // 页面零请求（probe appReqN=0）。根因是合成 click 无 isTrusted，React 版后台不响应；
+  // 而行为层的 getBounds 走 CDP DOM.querySelector（只认标准 CSS），对 :has-text
+  // 必然抛错 ⇒ 它压根到不了可信通道。以下三条锁住新的分流与返回值语义。
+  it('含 :has-text 的选择器跳过行为层，直走 CDP 可信点击', async () => {
+    const ctx = makeCtx()
+    ctx._clickViaCdp = vi.fn().mockResolvedValue('TRUSTED_CLICK')
+    const win = { webContents: { executeJavaScript: vi.fn() } }
+    const r = await helpersMixin._click.call(ctx, win, 'button:has-text("保存")')
+    expect(ctx._behaviorClick).not.toHaveBeenCalled()
+    expect(ctx._clickViaCdp).toHaveBeenCalledWith(win, 'button:has-text("保存")')
+    expect(ctx._isoEval).not.toHaveBeenCalled()
+    expect(r).toBe(true)
+  })
+
+  it('可信点击通道不可用时仍回落合成 click（不丢兜底）', async () => {
+    const ctx = makeCtx()
+    ctx._clickViaCdp = vi.fn().mockResolvedValue(null)
+    const win = { webContents: { executeJavaScript: vi.fn() } }
+    const r = await helpersMixin._click.call(ctx, win, 'a:has-text("保存")')
+    expect(ctx._clickViaCdp).toHaveBeenCalled()
+    expect(ctx._isoEval).toHaveBeenCalledTimes(1)
+    expect(r).toBe(true)
+  })
+
+  it('元素未命中时 _click 返回 false（此前恒为 true，失败分支是死代码）', async () => {
+    const ctx = makeCtx()
+    ctx._clickViaCdp = vi.fn().mockResolvedValue('NOT_FOUND')
+    const win = { webContents: { executeJavaScript: vi.fn() } }
+    const r = await helpersMixin._click.call(ctx, win, 'a:has-text("不存在")')
+    expect(ctx._isoEval).not.toHaveBeenCalled()
+    expect(r).toBe(false)
   })
 
   it('MP_RPA_DRIVER=native 时跳过行为层直接原生合成 click', async () => {

@@ -35,6 +35,7 @@ const {
   extractAppMsgIdFromBody,
   describeSaveFailure,
   describeUnconfirmedSave,
+  saveWechatMpDraft,
 } = require('./wechat-mp-draft-mediaid')
 const {
   TOAST_SELECTORS,
@@ -70,7 +71,9 @@ function createWindow (url, plan = {}) {
     if (s.includes('/*mpwc-jsapi*/')) return { ok: true }
     if (s.includes('/*mpwc-cover-state*/')) return { preview: false, hasCdn: false, bgUsable: false, imgCount: 0 }
     if (s.includes('.title-editor__input')) return false
-    if (s.includes('appmsgid=')) return true
+    // 草稿箱反查（lookupDraftIdByTitle）：只认「按标题查列表行」那条脚本
+    if (s.includes('querySelectorAll("[appmsgid]")')) return plan.draftListId || ''
+    if (s.includes('appmsgid=')) return plan.savedUrl === undefined ? true : plan.savedUrl
     // 保存 XHR 之后读编辑器 toast（失败路径用）
     if (s.includes('toast') || s.includes('tips')) return plan.toast === undefined ? '' : plan.toast
     return true
@@ -247,5 +250,98 @@ describe('公众号「保存未被确认」文案（wxmp-unconfirmed-save，2026
     expect(unconfirmed).not.toBe(missingId)
     expect(missingId).toContain('媒体 ID')
     expect(unconfirmed).not.toContain('媒体 ID')
+  })
+})
+
+/**
+ * 2026-10-20（wechat-save-click）回归锁。
+ *
+ * 真机证据（app-run.log 05:24 / 05:29）：保存按钮**已命中**（`BUTTON||保存为草稿`），
+ * 但 probe `appReqN=0`、`xhr=none`、`saved=false` —— 页面一个保存请求都没发。
+ * 根因：行为层 getBounds 走 CDP DOM.querySelector，对含 `:has-text` 的选择器必然
+ * 抛错；回落成 `el.click()` 又是非受信事件，React 版后台不响应。
+ *
+ * 因此这里锁四条判据：点不动要能重试、要能区分「没触发」与「缺 ID」、
+ * 平台拒绝要说清、以及拿不到 ID 时按标题反查草稿箱。
+ */
+describe('wechat-mp DOM 轨 — 保存点击有效性（wechat-save-click）', () => {
+  const SAVE_RESP = {
+    url: 'https://mp.weixin.qq.com/cgi-bin/operate_appmsg?t=ajax-response&sub=create&type=77&token=123456&lang=zh_CN',
+    statusCode: 200,
+    body: JSON.stringify({ base_resp: { ret: 0 }, appMsgId: '2651883499' }),
+  }
+
+  it('点击命中但无保存请求 → 改用可信点击重试，并采到 mediaId', async () => {
+    const { win } = createWindow(URL_OK)
+    const context = createWechatContext()
+    context._waitForResponse.mockResolvedValueOnce(null).mockResolvedValueOnce(SAVE_RESP)
+    context._clickViaCdp = vi.fn().mockResolvedValue('TRUSTED_CLICK')
+
+    const r = await saveWechatMpDraft(context, win, { title: '读书笔记' })
+
+    expect(context._clickViaCdp).toHaveBeenCalledTimes(1)
+    expect(r.ok).toBe(true)
+    expect(r.mediaId).toBe('2651883499')
+  })
+
+  it('两轮都无请求 → 报「未触发」而不是「缺少媒体 ID」', async () => {
+    const { win } = createWindow(URL_OK, { savedUrl: false })
+    const context = createWechatContext()
+    context._waitForResponse.mockResolvedValue(null)
+    // 真机同一时刻的 URL/文案判据也是 false（日志 saved=false），不能只 mock 成默认的 true
+    context._waitForCondition.mockResolvedValue(false)
+    context._clickViaCdp = vi.fn().mockResolvedValue('TRUSTED_CLICK')
+
+    const r = await saveWechatMpDraft(context, win, { title: '读书笔记' })
+
+    expect(r.ok).toBe(false)
+    expect(r.detail).toBe('save-request-not-sent')
+    expect(r.error).toContain('未触发')
+    expect(r.error).not.toContain('缺少媒体 ID')
+  })
+
+  it('平台 base_resp.ret!=0 → 报「被平台拒绝」并带 ret', async () => {
+    const { win } = createWindow(URL_OK)
+    const context = createWechatContext()
+    context._waitForResponse.mockResolvedValue({
+      url: SAVE_RESP.url,
+      statusCode: 200,
+      body: JSON.stringify({ base_resp: { ret: 200013, err_msg: 'freq control' } }),
+    })
+
+    const r = await saveWechatMpDraft(context, win, { title: '读书笔记' })
+
+    expect(r.ok).toBe(false)
+    expect(r.detail).toBe('save-rejected')
+    expect(r.error).toContain('ret=200013')
+  })
+
+  it('保存已发出但响应体无 appMsgId → 按标题从草稿箱反查', async () => {
+    const { win } = createWindow(URL_OK, { draftListId: '2651883500' })
+    const context = createWechatContext()
+    context._waitForResponse.mockResolvedValue({
+      url: SAVE_RESP.url,
+      statusCode: 200,
+      body: JSON.stringify({ base_resp: { ret: 0 } }),
+    })
+
+    const r = await saveWechatMpDraft(context, win, { title: '读书笔记' })
+
+    expect(r.ok).toBe(true)
+    expect(r.mediaId).toBe('2651883500')
+    // 反查必须建立在「保存请求已发出」之上；没发请求时不得执行（由上一用例锁定）
+    expect(context._navigateAndWait).toHaveBeenCalled()
+  })
+
+  it('反查只认「保存请求已发出」这一前提：无响应时不得导航到草稿箱', async () => {
+    const { win } = createWindow(URL_OK, { savedUrl: false })
+    const context = createWechatContext()
+    context._waitForResponse.mockResolvedValue(null)
+    context._clickViaCdp = vi.fn().mockResolvedValue('TRUSTED_CLICK')
+
+    await saveWechatMpDraft(context, win, { title: '读书笔记' })
+
+    const navigated = context._navigateAndWait.mock.calls.some((c) => String(c[1]).includes('appmsg_list'))
+    expect(navigated).toBe(false)
   })
 })

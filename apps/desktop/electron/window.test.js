@@ -203,6 +203,29 @@ describe('window — createWindow', () => {
     }
   })
 
+  it('未打包但 MP_FORCE_PROD_RENDERER=1 时加载 dist/index.html（启动提速 B）', () => {
+    const originalPackaged = __electronMock.app.isPackaged
+    const originalForce = process.env.MP_FORCE_PROD_RENDERER
+    __electronMock.app.isPackaged = false
+    process.env.MP_FORCE_PROD_RENDERER = '1'
+    try {
+      // openDevTools 在 dev 分支里无条件调用；此处走 loadFile 分支，顺带锁住「不再弹开发者工具」
+      const originalImplementation = __electronMock.BrowserWindow.getMockImplementation()
+      __electronMock.BrowserWindow.mockImplementationOnce(function (options) {
+        originalImplementation.call(this, options)
+        this.webContents.openDevTools = vi.fn()
+      })
+      createWindow(context)
+      const win = lastWindow()
+      expect(win.loadFile).toHaveBeenCalled()
+      expect(win.loadURL).not.toHaveBeenCalled()
+    } finally {
+      __electronMock.app.isPackaged = originalPackaged
+      if (originalForce === undefined) delete process.env.MP_FORCE_PROD_RENDERER
+      else process.env.MP_FORCE_PROD_RENDERER = originalForce
+    }
+  })
+
   it('生产环境加载 dist/index.html', () => {
     delete process.env.NODE_ENV
     // 模拟生产：--dev 不在 argv 且 app.isPackaged = true

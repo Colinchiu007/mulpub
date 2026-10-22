@@ -198,6 +198,60 @@ const platformsMixin = {
     }
   },
 
+  // 2026-10-20（fix-publish-failures）：发布字段/按钮全部未命中时，把页面**真实结构**摘要打进日志。
+  // 为什么必须有：平台改版时旧选择器会静默全落空，日志只剩「not found」，无从知道该改成什么。
+  // 2026-10-20 微博即为此：URL 已正确导航到 weibo.com、页面有 238 个可交互元素，
+  // 但 .publisher_text/.W_input/textarea[node-type] 三条正文候选与三个发布按钮候选全部超时——
+  // 没有这份 dump 就只能继续猜。只读不点，且失败不抛（诊断不能反过来打断发布）。
+  async _dumpPublishDom(win, platform) {
+    try {
+      const info = await win.webContents.executeJavaScript(`(function(){
+        var vis=function(e){try{var r=e.getBoundingClientRect();return r.width>4&&r.height>4}catch(_){return false}};
+        var pick=function(e){return {t:e.tagName,c:String(e.className||'').slice(0,36),id:String(e.id||'').slice(0,20),ph:String(e.getAttribute('placeholder')||e.getAttribute('data-placeholder')||'').slice(0,20),v:vis(e)}};
+        var areas=[].slice.call(document.querySelectorAll('textarea,[contenteditable="true"]')).slice(0,10).map(pick);
+        var btns=[].slice.call(document.querySelectorAll('button,a,[role="button"],div,span')).filter(function(e){
+          var t=(e.innerText||'').trim(); return t && t.length<=8 && vis(e) && /发布|发送|发微博|写微博|发帖|投稿|写文章/.test(t);
+        }).slice(0,12).map(function(e){var o=pick(e);o.tx=(e.innerText||'').trim().slice(0,10);return o});
+        var inputs=[].slice.call(document.querySelectorAll('input[type="file"]')).slice(0,5).map(pick);
+        return JSON.stringify({url:location.href,areas:areas,btns:btns,inputs:inputs,body:(document.body.innerText||'').replace(/\\s+/g,' ').slice(0,160)});
+      })()`)
+      log.warn('RpaView', '[' + platform + '] DIAG dom-dump ' + String(info).slice(0, 1600))
+    } catch (e) {
+      log.warn('RpaView', '[' + platform + '] DIAG dom-dump failed: ' + e.message)
+    }
+  },
+
+  // 2026-10-20（fix-publish-failures）：微博发布产物证据（只读，不点不填）。
+  // 判据：时间线里某个「刚刚」标记之后的 400 字符内，出现本次标题前 10 字或正文前 12 字。
+  // 用「刚刚」是因为它只出现在刚发布的条目上；同时必须命中本次内容，避免把别人的「刚刚」当成自己的。
+  // 等待 15s（真机实测插入耗时约 3–8s）。
+  async _weiboPublishEvidence(win, article) {
+    try {
+      const strip = (s) => String(s || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+      const title = strip(article && article.title)
+      const content = strip(article && article.content)
+      const probes = []
+      if (title.length >= 6) probes.push(title.slice(0, 10))
+      if (content.length >= 12) probes.push(content.slice(0, 12))
+      if (probes.length === 0) return false
+      const ok = await this._waitForCondition(win, 'function(){' +
+        'var t=(document.body&&document.body.innerText)||"";' +
+        'var probes=' + JSON.stringify(probes) + ';' +
+        'var i=t.indexOf("刚刚");' +
+        'while(i!==-1){' +
+        '  var seg=t.slice(i,i+400);' +
+        '  for(var k=0;k<probes.length;k++){if(probes[k]&&seg.indexOf(probes[k])!==-1)return true}' +
+        '  i=t.indexOf("刚刚",i+1);' +
+        '}' +
+        'return false;', 15000, 800)
+      if (ok) log.info('RpaView', '[weibo] publish evidence found in timeline (刚刚 + 本次内容)')
+      return Boolean(ok)
+    } catch (e) {
+      log.warn('RpaView', '[weibo] publish evidence probe failed: ' + e.message)
+      return false
+    }
+  },
+
   // ========== P2-B: Generic publish engine ==========
   async _publish_generic(win, article, platform, publishConfig) {
     const config = publishConfig || this._getPlatformConfig(platform, article)
@@ -365,6 +419,8 @@ const platformsMixin = {
           }
         } else {
           log.warn('RpaView', '[' + platform + '] content editor not found among ' + cs.length + ' candidates')
+          // 正文是发布链的地基：这里落空时页面结构已经可以定性（改版 / 弹层未展开），立即留证
+          await this._dumpPublishDom(win, platform)
           fillReport.content = { ok: false, error: 'content editor not found among ' + cs.length + ' candidates' }
         }
       }
@@ -483,7 +539,11 @@ const platformsMixin = {
           for (const cand of sel.publish_btn || []) {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
-          if (!publishSelector) throw new Error('publish btn not found')
+          if (!publishSelector) {
+            // 全部候选落空 ⇒ 先把页面真实结构留证，再如实失败（平台改版的唯一可诊断入口）
+            await this._dumpPublishDom(win, platform)
+            throw new Error('publish btn not found')
+          }
           networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
           // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
@@ -887,6 +947,20 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         return await finish({ stage: 'URL fallback', url: url2 })
       }
     } catch(e) { log.warn('RpaView','['+platform+'] URL fallback: '+e.message) }
+    // 2026-10-20（fix-publish-failures）：微博新版首页发布后**三类信号一个都不给**——
+    // 不跳转（url 仍是 weibo.com）、不出「发布成功」文案、捕获到的可匹配响应为 0
+    // （真机取证：`publish verification timeout endpoint=https://weibo.com/ responses=0`）。
+    // 但时间线顶部会立刻插入刚发的那条：「刚刚 来自 微博网页版」+ 标题/正文。
+    // 只认上面三类信号 ⇒ 一次**真实成功**的发布被判失败（假失败，比假成功更伤：
+    // 用户会反复重发，账号上出现重复微博）。这里补一条只读的产物证据。
+    if (platform === 'weibo') {
+      const hit = await this._weiboPublishEvidence(win, article)
+      if (hit) {
+        // 时间线 DOM 里拿不到稳定的 mid（新版列表不暴露 data-id），故用时间戳派生一个仅供
+        // 历史展示的记录 ID —— 与快手 `from=publish` 分支的 `published-<ts36>` 同一口径。
+        return await finish({ stage: 'weibo timeline evidence', url: win.webContents.getURL() || '', postId: 'published-' + Date.now().toString(36) })
+      }
+    }
     // 2026-09-30 严格平台兜底（头条实测）：发布后**既不跳转也不给响应信号**，
     // 上面所有分支都不会命中 ⇒ 判超时前主动查一次发布产物（作品列表 API，见 helpers）。
     if (STRICT_PUBLISH_ID_PLATFORMS.has(platform) && typeof this._strictPublishFallback === 'function') {
@@ -1161,11 +1235,18 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     this._emitProgress('wechat_mp','saving draft...',70)
     const draftMediaId = require('./wechat-mp-draft-mediaid')
     // saveWechatMpDraft 成功路径必返回 mediaId（字符串，可能为空串）；失败路径已在函数内 return
-    const saved = await draftMediaId.saveWechatMpDraft(this, win).catch((e) => {
+    const saved = await draftMediaId.saveWechatMpDraft(this, win, { title: article.title }).catch((e) => {
       log.warn('RpaView','wechat_mp save: '+e.message+' url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
       return { ok: false, error: '微信公众号草稿保存失败：' + e.message }
     })
-    if (!saved.ok) return { success:false, error:saved.error, platform:'wechat_mp' }
+    if (!saved.ok) {
+      // 保存没触发 / 按钮不可用：页面结构与上一次能成功时已经不同，留证据再失败
+      // （wechat-save-click；与正文/发布按钮落空时的 _dumpPublishDom 同一判据）。
+      if (saved.detail === 'save-request-not-sent' || saved.detail === 'save-button-unavailable') {
+        if (typeof this._dumpPublishDom === 'function') await this._dumpPublishDom(win, 'wechat_mp')
+      }
+      return { success:false, error:saved.error, platform:'wechat_mp' }
+    }
     const mediaId = saved.mediaId || ''
 
     if (!mediaId) {

@@ -140,11 +140,19 @@ describe('保存段拦截脚本（XHR_INTERCEPT_SCRIPT）— 不依赖 CDP 的�
 
   it('🔴 保存点击前必须先注入拦截脚本（顺序锁）', () => {
     const src = fs.readFileSync(path.join(__dirname, 'wechat-mp-draft-mediaid.js'), 'utf8')
-    const injectIdx = src.indexOf('executeJavaScript(XHR_INTERCEPT_SCRIPT)')
-    const clickIdx = src.indexOf('host._click')
+    // 2026-10-20（wechat-save-click）：点击下沉到了 clickSaveAndWait，全文件 indexOf 会把
+    // 辅助函数的定义误判成「点击早于注入」。锁的语义是「保存流程里先注入再点」——
+    // 因此在 saveWechatMpDraft 函数体内比「注入 → 调用点击」，再单独锁住辅助函数里真的点了。
+    const seg = src.slice(src.indexOf('async function saveWechatMpDraft'), src.indexOf('module.exports'))
+    const injectIdx = seg.indexOf('executeJavaScript(XHR_INTERCEPT_SCRIPT)')
+    const clickCallIdx = seg.indexOf('clickSaveAndWait(')
     expect(injectIdx).toBeGreaterThan(-1)
-    expect(clickIdx).toBeGreaterThan(-1)
-    expect(injectIdx).toBeLessThan(clickIdx)
+    expect(clickCallIdx).toBeGreaterThan(-1)
+    expect(injectIdx).toBeLessThan(clickCallIdx)
+
+    const helper = src.slice(src.indexOf('async function clickSaveAndWait'), src.indexOf('async function saveRejectReason'))
+    expect(helper).toContain('host._click')
+    expect(helper).toContain('SAVE_BUTTON_SELECTOR')
   })
 
   it('保存后必须从拦截结果提取 appMsgId（extractAppMsgIdFromBody 复用，不另造第二份判据）', () => {

@@ -280,7 +280,12 @@ function createWindow(context) {
     showMainWindow()
   }
   // 打包状态是窗口加载模式的唯一权威，生产包不能被残留开发信号降级到本地服务器。
-  const isDev = app.isPackaged === false
+  // 2026-10-18（启动提速 B）补充**方向相反**的唯一例外：未打包、但已 `vite build` 出 dist 时，
+  // 可用 MP_FORCE_PROD_RENDERER=1 选择加载 dist/index.html。
+  // 契约不变：该开关只可能把「未打包」升到生产渲染，打包态永远走 loadFile，
+  // 即永远不会把真打包降级到 dev server（下方条件里 isPackaged 优先判定）。
+  // 动机：dev 模式下渲染进程要现场编译，真机实测首屏 > 5s，窗口只能靠 5s兜底计时器出现。
+  const isDev = app.isPackaged === false && process.env.MP_FORCE_PROD_RENDERER !== '1'
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!isAllowedMainWindowUrl(url)) {
       event.preventDefault()
