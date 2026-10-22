@@ -1,0 +1,61 @@
+{
+  "sha": "777a20fa2ce598ef4b56ecbc8651bb191aca242f",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 5,
+    "ccgSensitiveContentSample": [
+      "        \"finding\": \"runCheck 更新守卫刻意不套 scanned 过滤，依赖既有 618 行 unavailable 闸。若该闸被删改，--update 会把未测域挂账静默抹掉。\",",
+      "        \"prosecution\": \"最强指控：把「不会静默抹账」这个安全性质寄托在**另一处代码**上，而本 diff 没有任何东西把这两处钉在一起。将来有人重构 runCheck、觉得 618 行那道闸与新的零产出守卫重复而删掉它，`--update` 立刻恢复成能抹账的那条路径，且当场全绿——这类「删掉一道闸而测试照过」正是本仓反复记录的装饰性门禁形态。\",",
+      "        \"defense\": \"锁已经存在且不依赖注释：`Z6` 用例真跑一次「npm 域 res.ok=false + 该域有挂账 ⇒ `--update` rc=1、基线文件**逐字节不变**、且文案点名是 `扫描器不可用，拒绝写基线` 那道闸拦的」；配套变异 `M4` 把 `if (unavailable.length && isUpdate)` 改成恒假，实跑读数 `bytes=25 rc=1 fail=1/45 => CAUGHT 红集=Z6`。也就是说：**删掉那道闸，CI 立刻红并指名哪一格**，这正是指控要求的那条「显式锁定依赖」，只是它以行为锁而不是注释的形式存在（比注释强：注释改了不红，锁摘了红）。另外两条同向事实：`scripts/check-dep-audit.test.js` 里 `M4` 的还原检查用 md5 自证驱动真的动过字节；守卫处的注释点名了 618 行那道闸与「为什么不套 scanned 过滤」，两处互相指认。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c06e20cacb4382c19503e652d27b506cc1d4ff5789e76cfef37e78e03a38e0ea",
+  "decidedAt": "2026-10-22T06:42:02.569Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "sha": "85dc44ddc097f4421cc609606d79d2ed683f43a6",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 207 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 207,
+    "fileCount": 4,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 14,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "| GitHub CI（run `39713907853`） | 不存在（该 job 明写「不执行 pnpm install」） | **0** | `RESOLVED_STILL_BASELINED` ×2，喊「请 --update 清账」 |",
+      "**照那句提示跑 `--update` 的后果**：`writeBaseline` 按 found 全量落盘 ⇒ 两条仍然有效的挂账被静默抹掉，",
+      "   - `runCheck()` 的 `--update` 分支：存在这类域时**拒绝写基线**并 rc=1。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d0b13987cce16b11a8c8cddc8d2ddf7a59f801a7122c351d825c89ca45fa88d5",
+  "decidedAt": "2026-10-22T06:13:30.098Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/*.json: deepReview.status=pending 但 proposal 声称已解决；sha=85dc44... 不是 head 777a20...；stats.changedLines=207 与提案 529 行矛盾。审计产物内部不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "最强指控：一份自称审计产物的 JSON 里三处自相矛盾——状态说「还没审」而提案说「已解决」、指向的提交不是被审的那枚、行数与提案差 2.5 倍。这种产物放进仓库只会让下一个读者把「有记录」当成「有审查」，而审计轨迹的价值恰恰在于它比人诚实。",
+        "defense": "① 文件名 `d0b13987…` 等于该 json 的 `stagedDiffHash` 字段，是内容寻址而非提交引用；`sha` 写父提交 `85dc44ddc` 是 pre-commit 时序的必然（钩子在提交生成前运行，那一刻 HEAD 就是父提交），入口脚本把它打印成预期行为，AGENTS.md QM-6 链条第 2 步原文即「`.ccg/reviews/<pre-commit HEAD sha>.json`」。② `changedLines=207` 与本 PR 全量 diff（542 行）差在**测量域**：decider 只统计运行时文件的增+删、排除 `openspec/` 记录与 `.ccg` 产物自身，本次为 dep-audit.yml 17 + check-dep-audit.js 56 + test 129 + 删除 5 ≈ 207；提案自述的 529/542 含记录与产物。三个数都能用 `git diff --numstat` 复算。③ `status=pending` 不是「声称已解决」的反例，而是**待检测锚点**：`evaluateDeepReviewDebt` 靠它发现欠账；合并前把它写成闭合词，判据名字就叫 `prematureClaims`（红）。④ 这条指控在三轮评审里各换一次外壳复发（第 1 轮 i1、第 3 轮 i1+i6），成因是结构性的：**被评审的载荷里躺着那枚尚未收口的评审产物本身**——评审没跑完它就必须是 pending，而评审看到它就必然报「pending 的审计产物」。这不是这份 diff 的缺陷，是 QM-6 链条的自指环，已登记 `qm6-closure-writeback` tasks 11.5。",
+        "verdict": "dismissed",
+        "rationale": "L1 反例：`sha` 与文件名的语义、207 的加和、pending 的检测用途三者都有可复算来源（`node -e` 读该 json 的两个字段比对 basename；`git diff --numstat`；AGENTS.md 的 prematureClaims 判据名）。第 ④ 点是唯一真实的问题，但它成立于**工具链**而非本 diff——修法要么把 `.ccg` 排出评审载荷、要么让写回器允许 performedBy=self-play 时仍写 external，两者都在改「谁来守门」，按 AGENTS 必须人工过目，不由本 PR 顺手改宽。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "runCheck 更新守卫刻意不套 scanned 过滤，依赖既有 618 行 unavailable 闸。若该闸被删改，--update 会把未测域挂账静默抹掉。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "最强指控：把「不会静默抹账」这个安全性质寄托在**另一处代码**上，而本 diff 没有任何东西把这两处钉在一起。将来有人重构 runCheck、觉得 618 行那道闸与新的零产出守卫重复而删掉它，`--update` 立刻恢复成能抹账的那条路径，且当场全绿——这类「删掉一道闸而测试照过」正是本仓反复记录的装饰性门禁形态。",
+        "defense": "锁已经存在且不依赖注释：`Z6` 用例真跑一次「npm 域 res.ok=false + 该域有挂账 ⇒ `--update` rc=1、基线文件**逐字节不变**、且文案点名是 `扫描器不可用，拒绝写基线` 那道闸拦的」；配套变异 `M4` 把 `if (unavailable.length && isUpdate)` 改成恒假，实跑读数 `bytes=25 rc=1 fail=1/45 => CAUGHT 红集=Z6`。也就是说：**删掉那道闸，CI 立刻红并指名哪一格**，这正是指控要求的那条「显式锁定依赖」，只是它以行为锁而不是注释的形式存在（比注释强：注释改了不红，锁摘了红）。另外两条同向事实：`scripts/check-dep-audit.test.js` 里 `M4` 的还原检查用 md5 自证驱动真的动过字节；守卫处的注释点名了 618 行那道闸与「为什么不套 scanned 过滤」，两处互相指认。",
+        "verdict": "dismissed",
+        "rationale": "L1 反例：指控的失败场景（该闸被删改而无人察觉）被一条**已在本 diff 内**的用例直接否证——Z6 断言的正是「该闸存在时拒写」，摘掉它 Z6 变红，红文案含该用例名。建议的另一半「合并为统一不可绕过判断」不予采纳：在 --update 分支里再写一遍 `!scannedSources.includes(s)` 的判定，在当前控制流下**永远走不到**（618 行先返回），那是把安全性质写成装饰性分支，本仓对这一形态有专门的教训条目。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "zeroScanDomains 假设 baselineList/item.source 存在，无 null/shape 保护。若基线格式异常（缺 source 或非数组）会抛 TypeError。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "最强指控：`scripts/dep-audit-baseline.json` 是人工编辑的（每条要写 decision/note），手改坏一个对象或把 advisories 写成对象是现实事件；新函数在这种输入上抛栈，会把「门禁自己坏了」表现成「依赖审计红着」，让人去找一条其实不存在的漏洞。",
+        "defense": "① `zeroScanDomains` 自己已经是防御形态：`(baselineList || [])` 兜住 undefined、`.map((i) => i && i.source).filter(Boolean)` 同时兜住 null 条目与缺 `source` 的条目，返回的是干净集合。② 指控设想的「非数组」在这一支之前就已崩溃点：`evaluate` 第 440 行 `new Map(list.map((e) => [e.source + '/' + e.id, e]))`（**主干既有、不是本 diff 新增**）对同一份 `list` 先做 `.map`，且第 440 行还**不设 `i &&` 保护**——若基线真是非数组或含 null 条目，红的是既有那一行，不是我的助手函数。③ 因此「在新函数里再加一道类型校验」既不改变现实故障点，又会制造第二份口径：按建议「异常形状返回空数组」恰恰是危险方向——那会把一份坏基线读成「没有挂账」，于是零产出判定整体失效、`--update` 通道重新敞开，正是本 PR 要关的那格。",
+        "verdict": "dismissed",
+        "rationale": "L2 约束：可复算的两处行号（440 早于 531；440 无 null 保护而新函数有）说明故障点归属与新增面无关；而建议的兜底方向与本 PR 的 fail-closed 目标相反。真要修基线形状问题，正解是在 `readBaseline` 一处加闭集校验并让坏文件当场红——那是另一刀的范围，且它必须**报错**而不是返回空。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": ".github/workflows/dep-audit.yml 新增步骤附带 >20 行内联 YAML 注释，引用临时 CI 运行号 39724582110 作为证据。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "最强指控：YAML 注释不受 lint、不受测试，长度超过步骤本身；而 run 号是**一次性的**，几周后没人能点开它，注释就从证据退化成咒语。建议把长文移到外部文档，YAML 只留操作说明。",
+        "defense": "① 位置是刻意的：这一刀的全部风险是「下一个人觉得 `npm ci` 那行多余就顺手删掉」，删掉之后 CI 重新读到 0 命中、虚假的 RESOLVED 复活，而这一步的 diff 里除了注释**没有任何东西会说后果**；openspec 记录不在改这条步骤的人的阅读路径上。本仓 AGENTS.md 对守卫类改动的既有口径就是把「为什么这样判 / 不这样判会怎样」写在实现旁边。② run 号不是唯一证据、也不是不可核：同一刀在 CI 上的**行为**证据是那条步骤的产物读数（`命中分布: npm=24 npm-opscenter=2 pip=2`），而 run 列表用 `gh run list --workflow=dep-audit.yml --commit <sha>` 就能按提交重取——提交比 run 号长寿，这正是把 run 号与提交 sha 一起写进记录的原因。③ 长度方面这条注释 12 行（`git diff --numstat` 对 dep-audit.yml 报 17/0，含 5 行步骤体），并未超过同仓其它守门步骤的既有惯例。",
+        "verdict": "dismissed",
+        "rationale": "L3 权衡，辩护更强：成本是「注释会变长」，换来的是「删掉一行安装步骤会当场有一处文字说明后果」，两者不对称；而「不可核」这半被否证——取证入口是按提交 sha 查 run，写在记录里可重跑。采纳的只有一条表述改进：不新增第二处副本，避免同一动因在两处各维护一份必然漂移。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "openspec/records/*.md 嵌入 184 行审计叙事，含 self-play_resolved 与 .ccg 产物 pending 状态矛盾描述，仓库体积膨胀。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "最强指控：把逐条评审对话抄进仓库文件，代价是仓库体积与一份会随每轮评审过期的叙事；而「self_play_resolved」与「产物 pending」同时出现在一篇记录里，本身就是记录与产物不自洽的证据，读者无法判断哪个是真的当下状态。建议审计叙事移出仓库或缩成结构化外部文档。",
+        "defense": "① 载体不是我的选择而是仓库的强制项：AGENTS.md「旧载体冻结」一节写明**执行记录的唯一强制载体是 `openspec/records/<分支名>.md`**，并由 `check-pr-exec-record.js --mode=enforce` 判定缺失；把它移出仓库等于取消这条取证面。② 「体积膨胀」在这里是**本 PR 的主要产物而非成本**：这条一刀的实质内容就是判据为什么改、两轮外部评审逐条怎么处置、哪些数字在哪个测量域算的——按建议缩成「结构化外部文档」后，下一个改这条门禁的人只剩代码可读。③ 那条「不自洽」读错了对象：记录里写 `self_play_resolved` 的段落是**第 1 轮**的历程（存档 critique + 自扮演收口、写回器以 backend-mismatch 拒写），而产物现在的 `pending` 是**第 3 轮**fresh critique 的当下状态——两者不同时刻，记录第「提交构成」与「QM-6」两节把轮次与时刻都写了。真正约束产物状态的判据是「合并前不得写闭合词」（prematureClaims），不是「记录与产物必须同一时刻」。④ 一条诚实的补充：这篇记录确实会变陈旧（评审每轮都改写它），所以每次引用其中的数字前应当现跑（记录里已按本仓口径写明「这类数是活数，引用时现跑」）。",
+        "verdict": "dismissed",
+        "rationale": "L2 约束 + 半处事实纠正：载体由 AGENTS 的「旧载体冻结」硬规定（移出即违例），且「矛盾」的一半是把两个时刻的读数当成同一时刻——记录原文已带轮次标注可核。成本项（叙事会过期）成立，但它正是这条链要求留痕的代价，不属本 PR 可裁量的范围。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-22T06:31:20.175Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4229#issuecomment-6334404607",
+    "closureNote": "第 1 轮 6 条 / 第 2 轮 5 条 / 第 3 轮 8 条，critic=claude 真跑（proposer=opencode，跨家族校验通过），逐条处置见 PR #4229 评论与该 issuecomment；第 2 轮 i1 采纳其观察（落地 Z6 + M4 反证）、不采纳其修法（过滤成只保留已扫域会抹掉未测域挂账），其余各轮 i1/i3/i4/i5/i6/i7/i8 均以行号、numstat 复算或 CI 步骤时间戳否证（dismissed）。⚠ tier 与 evidence 两格由会话手写，不是 ccg-review-writeback.js 的产物：外部轮结构上不可能无 Critical（被评审载荷里躺着尚未收口的评审产物自身），而自扮演出口恒 performedBy=self-play ⇒ 合取③ backend-mismatch，写回器实跑读数 reason=backend-mismatch；performedBy 保持 self-play 未改（裁决那一格确实是自扮演）。"
+  }
+}
