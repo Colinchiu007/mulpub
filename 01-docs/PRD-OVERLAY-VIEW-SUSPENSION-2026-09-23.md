@@ -138,7 +138,7 @@ resumeEmbeddedViews: (owner) => ipcRenderer.invoke('page-manager:resume-embedded
 
 0. **与「应用内页面可见性」合同并列（2026-10-23 补充）**：本 PRD 治理的是**应用级模态浮层**；
    **应用内页面（路由页）**由 `01-docs/PRD-APP-ROUTE-NAV-VISIBILITY-2026-10-23.md` 治理
-   （原语 `apps/desktop/src/composables/useAppRouteNavigation.js`）。
+   （当前实现：`apps/desktop/src/layouts/MpSidebar.vue` 的 `onNavClick(to)`；PR #4209 正在把它收敛为 `composables/useVisibleNavigation.js`）。
    两者的分野：浮层要的是「原生图层让位」（`suspend`/`release`）；路由页要的是
    「活动标签回到首页虚拟标签」（切标签）。**只治理其一，另一半必然漏** ——
    2026-10-23 的「点了会员中心没反应」正是本 PRD 范围外的那一半。

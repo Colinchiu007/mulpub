@@ -97,7 +97,7 @@ describe('弹窗互斥：静态链路完整性', () => {
   it('MpSidebar：升级入口走「可见的应用内导航」，不再有升级弹窗需要挂起内嵌视图', () => {
     const src = fs.readFileSync(path.join(ROOT, 'src/layouts/MpSidebar.vue'), 'utf8')
     // ① 正向锁：必须真的走路由跳转（防「既没弹窗也没跳转」的空洞）
-    expect(src).toMatch(/@upgrade="navigateToAppRoute\('\/member-center'\)"/)
+    expect(src).toMatch(/@upgrade="onNavClick\('\/member-center'\)"/)
     // 反向锁：不得退回裸 router.push（那正是 2026-10-23 缺陷的形态）
     expect(src).not.toMatch(/@upgrade="router\.push/)
     // ② 弹窗已移除 ⇒ 不得再有针对它的挂起/释放
