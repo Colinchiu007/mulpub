@@ -12,8 +12,106 @@
 - **属性解析改 token 级**（i4）：`attr()` 原先在整段属性串上跑 `name=…` 正则，于是 `:alt='loading="lazy"…'` 被当成真声明（假绿）、`:alt="'loading=b'"` 被当成非法值（假红）；这把锁此前已处理过「属性值里带 `>`」的同族坑，这次补上「属性名字面量出现在别的属性值里」的另一半。
 - **一处实现与规则分叉被纠正**（i2）：`SceneAssetSelection.vue` 的候选素材**灯箱大图**原写 `lazy`，与 `ResultView.vue` 的素材预览面语义相同（都是"用户点开才出现的那一张"）⇒ 改 `eager` 并按②登记；同文件的**候选缩略图网格仍 lazy**（远程、v-for、列表）。PRD 的 eager 口径同时改为三条并写明反向清单：壳层里 v-for 出来的小图标（标签栏 16px 平台图标）**不算**「外壳单例」，一律 lazy。
 - **格式噪声收敛 + 编译复验**（i5）：批量插入留下双空格与错位缩进共 15 个文件，一次脚本化归一（缩进取自同标签上一行，不写死空格数），15 个 `.vue` 经 `@vue/compiler-sfc` 复验 **BAD=0**。
-- **反证从 8 道扩到 12 道，`COUNTERPROOF=ALL_CAUGHT`（控制跑 `collected=6 red=0`）**：M9 造「同文件第三个 eager」、M10 造「两条锚点互相认领」、M11 把解析退回整串正则、M12 摘掉空话词表；其中 **M12 第一版 MISSED** —— 摘掉守卫不产生红，因为仓里没有空话理由可拦，于是补一条 fixture「理由词表自身」直接测判据本身（与 M8 的「词表闭合」同形：**存量观测不到的守卫必须由 fixture 观测**）。
 - **反证从 8 道扩到 **13 道（M1–M13）**，`COUNTERPROOF=ALL_CAUGHT`（控制跑 `collected=6 red=0`；条数是当日读数，验收以门禁现场为准）**：M9 造「同文件第三个 eager」、M10 造「两条锚点互相认领」、M11 把解析退回整串正则、M12 摘掉空话词表；其中 **M12 第一版 MISSED** —— 摘掉守卫不产生红，因为仓里没有空话理由可拦，于是补一条 fixture「理由词表自身」直接测判据本身（与 M8 的「词表闭合」同形：**存量观测不到的守卫必须由 fixture 观测**）。
+
+# [未发布] fix(登录): 头条号登录期观测的覆盖面补正——真实生效的验证码入口此前既不在监测域、也不匹配锚点
+
+- fix(登录): 头条号登录期观测的**监测域补两条**（`yhgfb-cn-static.com` 验证码中心、`bytetos.com` 风控 glue）。动因是 2026-10-22 从 `https://mp.toutiao.com/` 的**实际登录页 HTML** 静态引用里抓到资源清单，发现上一刀（PR #4237）的监测域清单**漏了这两条**——而漏掉的恰恰是**真正生效**的图形验证码入口所在域：该域的请求此前**根本进不了** `webRequest` 过滤面 ⇒ 它的失败请求、HTTP≥400、慢请求**一条都不记**。
+- fix(登录): 图形验证码组件的判定新增**组合锚点**：路径**同时**含 `/sec_sdk_build/` 与 `/captcha/` 才算命中（真实形态 `…/obj/rc-verifycenter/sec_sdk_build/<ver>/captcha/index.js`）。为什么不用单段锚点：只认 `/captcha/` 会把无关资源误判、噪声淹没真信号；只认 `/sec_sdk_build/` 会把同目录下非验证码资源算成组件 ⇒ 「灰显遮罩结束的时刻」这个读数提前且失真。老形态（`secsdk-captcha` / `webmssdk`）与「只认路径、不认查询串/域名」的既有约束**一字不动**，未登记平台（微信/腾讯）的过滤面**一字不动**。
+- fix(登录): 上一刀承诺的「记录图形验证码组件加载完成（灰显遮罩结束的时刻）」在真实链路上**不生效**——两处同时漏（域没登记 ⇒ 进不了过滤面；路径形态不匹配锚点 ⇒ 不会被判成组件）。现场读数：真实验证码入口 77,476 B，冷时首包 **2.65~2.96s**、命中边缘后 **0.13s** ⇒ 高度间歇，正是「灰显几秒」那段波动的来源，也正是最需要被观测到的一段。补正后该时刻第一次能被日志直接读出。
+- docs(登录): PRD 增补 §5.6「观测面覆盖补正」（动因/判据/不做什么）；排障手册增补 §1.1 复测读数与 §3.2 清单补正提示（OpenClash 域清单 10 → 12 条，**仍不进仓内文档**，见 PR 评论）。
+- refactor(登录): 验证码组件判定抽出**具名谓词** `isCombinedCaptchaAnchor(path)`（此前是写在返回语句里的复合 `&&`，对后来的维护者是「哪一段是必要、优先级如何」的隐式表达），并补**优先级测试**：不经 URL 解析层直接断言「两段缺一不可」与空输入不命中。
+- docs(登录): 监测域清单处补**显式边界守卫**（只读 / 不外发 / 不拦截 / 不记凭证）：扩大监测域清单只等于扩大「被看见的请求集合」，**不等于**扩大数据出站面 —— 这条以前只是隐式假设，现写成看得见的四条。
+- fix(登录): 按第三/四轮外部评审把观测边界从**注释变成可执行契约**——每条边界各带
+  `forbidden`（源码里不得出现的形态）与 `required`（源码必须出现的形态）两把锁，回归锁逐条扫
+  **去注释后的代码**；并如实登记观测层唯一的请求级动作是「**默认关闭**的登录噪声取消」
+  （需 `MP_LOGIN_NOISE_CANCEL=1` 显式开启、只取消噪声 URL、不改写任何内容），由两道
+  `required` 锁住 —— 此前那四条「不拦截 / 只读」的声明没有对应代码消费，是装饰性的。
+- test(登录): 变异反证 harness **入仓**（`openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs`），
+  证据因此**可复现**；11 条变异（实现文件 8 条 + 读体闸门 3 条：删掉 / 改成永真 / 挪到读体调用之后）
+  **全 CAUGHT**，跑后**每个被变异文件分别**比对 md5（monitor 与 diagnostics 各 MATCH）。
+- fix(登录): 变异 harness 补**原子回滚**（**循环开始前**为每个被变异文件各落一份原始内容备份，
+  写在**系统临时目录**而非源文件同目录 —— 进程被强杀时 `finally` 不执行，备份留在源目录会变成脏文件；
+  整个循环包在 `try/finally` 里从备份**逐字节还原**）——此前直接写源文件，若脚本中途被 kill / 磁盘满，
+  源文件会**永久停在损坏状态**；同时去掉 `shell: true`（改用 node 直接跑 vitest 的 js 入口），
+  让「命令不存在」与「用例失败」不再撞进同一个错误通道，环境故障单独计数、单独退出码，
+  不再与「变异逃逸」混为一谈；另加**整体时限**（单条 600s × 11 条最坏超过 110 分钟，此前无上限）。
+- fix(登录): **刻意排除**的域（`www.douyin.com`）从「只写在文档里」改为**编码进代码**
+  （`EXCLUDED_HOSTS` + 排除理由），并加断言：被排除的域不得出现在任何平台的监测域清单里。
+- test(登录): 加断言——读体平台清单必须与诊断层的端点匹配器**键集逐字一致**（两边漂移 ⇒
+  读体面悄悄变了没人知道），所有计时平台（头条/微信/腾讯视频）一律不在清单里；
+  同一平台多次取匹配器必须返回**同一正则对象**（缓存未被破坏）。
+- docs(登录): 移除一份**零行变更**的评审档案（`changedLines=0` 的空记录），它只给审计添噪。
+- docs(登录): 域来源证据快照补抓取内容 **SHA-256** 与抓取命令（证据完整性可事后核对：重抓哈希相同 ⇒ 登录页没变）；
+  执行记录瘦身（现场读数归位到 change 的 `design.md` §D6，记录只留执行与证据）。
+- test(登录): 新增用例（真实验证码入口命中 rc1/rc2 两个冗余节点、域覆盖双向断言、泛化反例 ×8、常量断言、具名谓词优先级、**每条边界各有锁的逐条扫描**、**域来源证据必须在仓内**）。**变异反证 M1~M9 全 CAUGHT**；其中 **M4 首轮 ESCAPED 暴露出一条弱负例**——URL 路径里没有真正的 `/captcha/` 段 ⇒ 去掉条件也不变、钉不住，补强后 CAUGHT。原始 harness 输出与 md5 逐文件比对已附进 `.ccg/reviews` 的评审记录（证据而非叙述）。
+
+# [未发布] fix(ui): 补完 P0-6 空态收敛 + 修巡检采集脚本的静默失效 + 把交付数字改准（ui-visual-empty-state）
+
+- **动因**：上一轮交付（#4124）在交付后复核中被查出三处「**文档说的比代码做到的多**」——分析报告是那轮的交付物，它对「哪些已达成、哪些没达成」的说法必须与代码逐条对得上。
+- **① 空态**：观感层那条覆盖点名了 `.insight-empty-card` / `.perf-empty-card` 等 **6 个代码里根本不存在的类名**（规则一条也没命中），于是**效能洞察的两处空态至今仍是虚线**，而报告把它列成了「已达成」。本轮删掉 6 个死选择器、补上真实类名 `.pi-empty-state` / `.pi-dim-empty`（实线发丝；圆角与底色沿用组件自身口径——它们是卡片网格里的卡片，改柔面会显脏），付费占位的品牌色边条此前已落地未动。**新增回归锁** `apps/desktop/src/styles/empty-state.contract.test.js`（5 例）：空态块点名的类名必须在 src 真实存在（检索域排除本文件，否则锁成恒绿的自证）／被覆盖的类必须有 `border-style: solid` 覆盖／仍用虚线的容器必须在例外清单登记（清单外新增虚线空态 ⇒ 判红；清单里标 defer 的已不虚线 ⇒ 清单陈旧 ⇒ 判红）。扫描用**嵌套感知**的规则抽取（`@media` 内的规则各自抽出）——第一版用贪婪匹配，@media 里的虚线空态被静默漏掉；修完立刻多扫出 **2 个之前漏掉的**（`.is-placeholder` / `.video-preview-placeholder`），已登记。**变异反证**：注入一个不存在的类名，当场判红并点名。
+- **② 数字**：仓内清单 `ui-audit-manifest.md` 是 **210 行**（亮 177 + 暗 33，覆盖 34 条路由），而报告 / CHANGELOG / 执行记录写的是 **177**（那是**亮色那批**的张数被当成了总数）；视觉基线目录是 **43 个 PNG**（40 张像素基线 + 3 张 autonomous-loop 专属），证据资产是 **20 张 PNG = 10 组**（+1 份 README）。报告 / CHANGELOG / 两份执行记录 / 证据 README 已全部改准。
+- **③ 顺带挖出一个真缺陷**：巡检采集脚本为过行数门禁拆成三份时，探针文件引用了 `READY_TIMEOUT`，而这个常量**定义留在了被拆走的编排文件里** ⇒ 采集脚本对**每一条路由**都抛 `READY_TIMEOUT is not defined`，**一张图都采不出来**（实测 0 张；仓内那份 210 行清单是拆分**之前**那次运行留下的，所以表面上看不出问题）。之所以没被门禁拦住：① 冒烟测试只断言「模块能被 require」；② **巡检脚本目录完全不在 lint 范围**（lint 脚本只扫 `electron/ src/`），`no-undef` 从未生效。本轮补回常量，并把 `tests/visual-testing/scripts/` **纳入 eslint 范围、只开 `no-undef`**（不整包启用 recommended——那会把该目录既有的 `no-useless-assignment` 等无关告警一并变成错，属于借修缺陷之名扩大改动面）；**变异反证**：把 `READY_TIMEOUT` 的定义整条删掉 ⇒ eslint `no-undef` 判红并点名。**修复后实测**：`node ui-audit-capture.js --phase=a` 采出 **33 张**。
+- **验收**：空态契约锁 5/5 · eslint（新增覆盖后）exit 0 · 采集脚本 33 张 · 本机像素回归亮/暗各 20/20 · 对比度审计 0 处低对比度 · `max-lines` / `debt-budget` / `gate-record-debt` / `doc-abs-paths` / `changelog-growth` / `visual-coverage` 全 exit 0。**像素基线中性**：本次改的两个类只出现在 `PerformanceInsights.vue`，而效能洞察不在 20 张像素基线视图里 ⇒ 基线不受影响，无需重建。
+- **CCG 外部双家族评审**（critic=claude / proposer=opencode，判定 SINGLE，7 条意见）：6 条进入裁决并逐条填完（i1/i5/i7 dismissed、i2/i3/i4/i6 upheld），据评审改了扫描器（i3）、注册表补到 10 项（i3/i4）、断言失败信息给出处置动作（i2）、措辞澄清（i5/i7）、eslint 覆盖（i6）。产物 `.adversarial/ccg-deep-04005ae3/` 已入库，逐条处置见 `openspec/records/ui-visual-empty-state.md` §四。
+- **遗留（如实登记）**：其余 **4 类语义空态仍是虚线**（`.podcast-empty` / `.segment-empty-filter` / `.pipeline-progress-empty` / `.is-empty`）——它们落在 20 张**像素基线视图**里，改样式会让基线漂移，须先按「CI artifact 渲染重建基线」的流程重建基线；**有意保留虚线的 6 项**（拖放区 / 视频预览位 / 提示块 / 分隔线 / 估算占位标记 ×2）语义正确，不是「未完成」。R6（真实 Electron 窗口 GPU 帧率实测 + 暗色真机复核）与 R7（新增 `.adversarial` SHA 对齐门禁，属改守门结构）沿用上一轮，交人工。
+
+# [未发布] feat(登录): 登录视图按平台复用分区（缓存跨次留存）+ 头条号登录期网络观测（login-slot-reuse-and-toutiao-diagnostics）
+
+- fix(登录): 登录视图与扫码登录改为**按平台复用同一分区目录**（`auth-auth-<platform>-slot`），只清凭证、**不清 HTTP 缓存** ⇒ 第三方登录页的静态资源与风控 SDK 第二次起命中缓存。动因是 2026-10-21 的头条号现场复现：点「获取验证码」后平台灰显好几秒才弹图形验证码，实测该图形验证码组件（`webmssdk.js` 520KB + `secsdk-captcha/captcha.js` 784KB）在冷缓存下各要 ~1.1s，而登录视图此前每次都用 `Date.now()` 新建空分区 ⇒ 缓存每次从零开始（普通 Chrome 早就缓存了 ⇒「浏览器正常、app 慢」，这个差异是本仓造成的）。
+- fix(登录): 复用槽位带来的凭证隔离改由**开局清**显式保证（导航前清掉槽位里的旧 Cookie/存储，保留 HTTP 缓存；空槽位零 IO；带 1200ms 硬上限且失败不阻断导航）——否则第二次打开登录页会直接命中上一个账号的登录态，用户想加**第二个**同平台账号时会静默存成**同一个账号**。清理由「每次新建空分区」这个隐式隔离改成显式实现，是本次的必配项，不是顺手优化。
+- fix(登录): 「本轮是否取到凭证」改为**按轮次**判定（登录承载方显式传给回收端）——槽位跨轮次同名，按分区名判会把「上一轮成功」误当「本轮成功」，导致本轮没登录成、槽位里还留着上一轮会话时该清的没清（实测三条既有用例当场变红正是这条）。
+- feat(登录): 槽位名取 `auth-auth-<platform>-slot`（落在发布链兜底读取端的既有前缀下）⇒ 读取端**零改动**即可读到，且按字典序排在时间戳目录之后 ⇒「从新到旧逐份探」先探槽位、槽位空时落到旧目录，**回退链完整保留**；槽位同时被显式排除出一次性分区回收面（回收端永不删它）。
+- feat(登录): 头条号进入登录期观测面：会话级记监测域内的失败请求与 HTTP≥400（字节自家 CDN 的 504 此前完全无痕），CDP 记**慢请求耗时**、**图形验证码组件加载完成**（用户看到的灰显遮罩结束的时刻）与监测域请求失败；未登记平台的过滤面**一字不变**，观测层**永不读响应体**。
+- refactor(登录): 按仓内行数门禁拆出三个模块（`auth-login-slot.js` 槽位规则 / `login-network-monitor.js` 观测口径 / `auth-view-saved-account.js`「打开已保存账号」纯平移，特征测试先钉住当前行为）；监测域匹配改为按平台编译正则并缓存（O(1) 查表）。
+- docs(登录): 新增 `01-docs/PRD-LOGIN-SLOT-REUSE-2026-10-21.md`（数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 不做什么 / 取舍）与 `01-docs/TROUBLESHOOT-TOUTIAO-LOGIN-SLOW-2026-10-21.md`（用户侧排障手册）。
+
+# [未发布] feat(ci): electron-ci 桌面全量收回单一实现 —— 同一步两片并行 + 共享预算 2700s + 剥 ANSI/时间戳的现场计数
+
+- **动因（2026-10-21 现取读数）**：`electron-ci.yml` 的 `Unit tests (Vitest…)` 步骤在 main push 最近 12 趟里 **8 趟非绿**，逐趟下作业日志核对后 **8/8 都是预算墙**（`rc=124`×1、`TIMEOUT_BUDGET_EXCEEDED`×2、**断言红=0**）；红趟作业墙钟 2177–2215s，成功趟 1511/1542/1820/1934s ⇒ 贴脸逼近 2100s 步骤预算。
+- **形状**：30 行内联 bash 收回 `scripts/electron-ci-desktop-step.js`（workflow 只调用不判定，同 `agent-review-gate.js` / `main-red.js` 先例）。**同一个作业内**并起 `--shard=1/2` + `--shard=2/2` 共享一份预算 ⇒ 作业名仍是 `electron-tests`，**不动** ruleset `main-ci-gate` 的 required context（matrix 会给名字加后缀，那属"改谁来守门"）。`--maxWorkers=1 --no-file-parallelism` 保留，确定性语义与「main 侧第二次独立运行」的 flake 检出原意不丢。
+- **预算 2100 → 2700 的理由（不是"给同样的活加宽墙"）**：`max(单片成功值)=23.2min × 1.5 = 2091s` 对 2100s 只剩 9 秒，而那批样本是**每片独占一个 runner** 测的（`QG Desktop Shards` 7 趟 14 片：min 11.2 / p50 18.6 / max 23.2）；本步是同 runner 两片并行，**争用倍数未测**。贴脸按本仓口径是事前证据 ⇒ 取 `2700s ≈ max × 1.94`，属**单调放宽**（不会让任何原本通过的运行变红），且不与 job 级 `timeout-minutes: 70` 倒挂（其余带 timeout 的步骤合计 20 min，20+45=65<70，由锁逐步骤实算）。
+- **修掉一处计数器失明**：旧 `grep -cE '^[[:space:]]+[✓×↓-]'` 对 vitest 真实行恒 0（`od -c` 实测行首是 `033[32m✓033[39m`，第一个字符是 ESC；Actions 日志还要再剥每行时间戳前缀），于是"跑满预算"被读成"一条都没跑"。按修好的锚重读同一批红趟是 **✓×行=18156–18929、摘要=0** —— 其中 `摘要=0` 是被杀趟的**正确读数**，文案不得读成工具坏。
+- **四档 verdict 各自可分辨**（timeout / ok / failed / crashed）：`rc=124` 与 `rc=1` 的修法相反，并档等于把预算墙读成用例坏。「全部收敛」用 `Promise.allSettled` 而非 `race(h.done)` —— race 在第 1 片收敛时即报 all，慢的一片既没被等也没被归类（现场形态是 verdict 整格缺席，比判错更坏）。
+- **复测入口落在仓库里**：新增 `scripts/electron-ci-shard-audit.js`（读新形状的逐片 `elapsed=`，取不到时退回老基线并自报"这是下界"）；`verdict` 分 NO_SAMPLES / BELOW_FLOOR / HUGGING / OK 四档，**零样本与自身故障都以非零码出声**（把"没量到"读成"预算没问题"是本仓反复出现的同型事故）。输出字段与 `STEP_BUDGET_PROVENANCE` 逐字段对齐，由结构锁钉住。
+- **一次真实拦阻（不是事后追认）**：`workflow-contract.test.js` 的「消费者覆盖面下界 3」在本次改动中途报红（实测 2）。根因是委托判据取**第一个** `node scripts/*.js` 命中，而我在同步写的注释里点名了另一个脚本 ⇒ `electron-tests` 整片从覆盖面消失。正解不是改措辞，而是扫**全部**候选按语义判定，并补两类对照：注释遮挡形态必须仍判 true、只有那个不跑桌面全量的脚本必须判 false。
+- **第二处被现场红的判据（`QG Static`，本机绿/CI 红）**：换调用形态后还有**第三个消费者**不认委托形态 —— `check-desktop-test-prereqs.js` 自己那套形态识别器看不到 `node scripts/…` ⇒ `electron-ci.yml#electron-tests` 从它的域内消失、登记表被判 `STALE_REQUIRED`；而红文案给的"正解"（删掉这条登记）等于**关掉一条 required 检查的前置构建覆盖**。已加第六形态 `delegate`（认委托成立的条件仍是**被点名脚本自己的源码**里三条锚齐命中，读不到文件按"没有委托" fail-closed），并顺带修掉一处设计缺陷：委托判据原先硬编码读 `REPO_ROOT/scripts/…`，与 `collect({root})` 不同源 ⇒ 夹具的正控分支结构性不可表示。新增 4 个夹具 job + 一条 T10（含"该步不得再有任何非 delegate 的桌面命令命中"，把"两份实现"焊死）。**验证口径随之改定**：改调用形态时按 `git grep` 枚举全部消费者逐个跑，而不是靠自己想到的清单。
+- **测试与接线**：新增 `scripts/electron-ci-desktop-step.test.js`（12 条）与 `scripts/electron-ci-shard-audit.test.js`（9 条），都点名进 `quality-gate.yml` 的 `changes` job（不被 docs-only 短路、且在非 PR 早退之前）；`.gitignore` 补两条 `!scripts/*.js` 反选（第 106 行会把新建脚本静默忽略 ⇒ 本地全绿、CI 上 `Cannot find module`，同族第 5/6 次）。既有三锁迁移到委托形状：`workflow-contract.test.js` 45/45、`gui-ci-exit-contract.test.js` 46/46（预算取自模块 + 真 `bash -e -o pipefail` 执行 + 接线判据按代码区剥注释）。
+- **反证 T1–T10 逐条 CAUGHT**，还原后逐字节相同：串行 / `race` 代替 `allSettled` / 不剥 ANSI / 锚要求行首空白 / timeout 与 failed 并档 / provenance 的 max 抬高 / workflow 退回内联 bash / 摘掉逐片 `elapsed=` 打印 / 摘掉时间戳剥离 / 零样本判成通过。
+- **遗留（如实登记）**：① 并行争用倍数只有第一次 CI 真跑才知道 ⇒ 上线后必须跑 `node scripts/electron-ci-shard-audit.js` 按现场重定数；② `realSpawn` 的输出缓冲 32MB 上限会截断**计数用**的副本（不改判定，只可能让 `completed=` 偏小），已注释标明；③ `runStep` 的等待块形如 `while{…break}` 实为单次等待，属可读性异味，未在本片收敛；④ issue #2458 档 4（`CI Failure Handler` 把 `exit 124` 且无摘要行归类为 `ci-timeout-budget`）仍未做。
+
+
+======
+
+# [未发布] feat(collect): 知乎收藏批量改写支持字数区间，并显示改写稿实际字数（feat-zhihu-fav-batch-wordcount）
+
+- **改前**：知乎收藏批量「采集并改写」的稿子长度**写死**——面板没有字数入口，请求体固定 `{content, style, length:'keep', llm}`，
+  Python 侧走 `_LENGTH_RANGES['keep']`（目标 1500 字 / 区间 300-3000），用户改不了；改写稿多长也**看不见**
+  （结果区只显示原文字数；Python 响应里明明有 `word_count`，主进程只取 `result_content` 把它丢了）；
+  且批量摘要行一直是**空的**（调用了不存在的 locale key `collection.zhihuFav.progressSummary`，实际在 `zhihuFavlist` 下）。
+- **改后**：面板出现「字数」区间（默认 800-2000，与采集页**同一组件、同一校验口径**），非法即红字 + 禁用按钮 + 早退不发 IPC；
+  区间真的生效（透传为 Python 的 `min_word_count`/`max_word_count`；**缺省/非法则不带字段**，Python 回落 length 三档 ⇒ 旧行为不变）；
+  采集结果卡片显示「改写 N 字」并与原文字数**并排**；超出设定上限的条数在批量摘要里告知。
+- **顺带修掉 Python 的目标篇幅语义**：显式区间原先一律用**区间中点**当目标（`target=(min+max)//2`）——
+  用户设 0-6000 会让 300 字的知乎回答被要求写 3000 字、5000 字的长文被砍掉四成。
+  改为**只有 `min==0`（不设下限）**时取 `min(原文长度, 上限)`（与 Node 引擎的同族语义一致），
+  `min>0` 的中点语义与 `length` 三档**一行未动**；目标推导抽成纯函数 `_resolve_target_word_count` 并直接单测。
+- **不硬截断**：Python 侧的 `max_word_count` 只是 prompt 里的软指令（`content_aggregator_shared._parse_response` 不按 max 截断），
+  截断=静默丢内容（可能切在半句）⇒ 本片选择**告知**（摘要 + 卡片字数），与本仓「可见化而非静默」的理念一致。
+- **结构债**：主进程 handler 当时 498 行、距行数门禁天花板（500）只剩 2 行，加不动 ⇒
+  把「单条改写 + 失败诊断脱敏 + 字数区间归一」整体搬成独立模块 `electron/services/zhihu-fav-rewrite.js`（纯搬迁，行为逐字不变），
+  handler 降到 463 行；两个未登记在 max-lines 账本里的 collection locale 文件（>= 500 即阻断）新增 key 只能并到既有行。
+- **回归**：四层新增 12 例（主进程区间透传/字数回传/超限计数、渲染层面板契约、映射层派生值形状、Python 目标篇幅语义）；
+  既有套件 Python 聚合 53 例、桌面端相关 90 例全绿。
+- **外部双家族评审**：`sh scripts/deep-review.sh` 实跑 opencode(proposer) + claude(critic)，跨家族校验通过，
+  critic 给出 4 维度评分与 4 条争议项（**0 条高危域**）⇒ 逐条裁定 **upheld 2 / dismissed 2**：
+  - **i2**（成立）防御层把上游的**非法态**（清空输入，`Number('')===0`）翻译成了另一个**合法态**（显式下限 0）
+    ⇒ 已修：空值一律按「没给」处理（回落旧行为），回归锁 5 断言；
+  - **i4**（成立）兜底字数用 UTF-16 `.length`，与 Python `len()`/引擎的**码点**口径不一致
+    （带 emoji 的文本两处显示不同数字）⇒ 已把三处「字数」统一为码点（`rewriteOne` 兜底、
+    `normalizeCollectedItem` 原文字数、`useCopyLibrary` 写库字数），回归锁 3 断言；
+  - i1 / i3 驳回（附取证依据：未超限的 locale 文件不该登记账本，正确处置是别让它长过线；
+    `rewriteOne` 从未导出、仓内唯一调用点已同步）。
 # [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
 
 - **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。
@@ -24,6 +122,7 @@
 - **回归保护**：新增 `electron/services/native-menu.test.js` 15 例（平台策略 / 全局移除 / 窗口移除 / API 缺失不抛错 / 幂等 / **真实依赖锁**：直接读已安装 Electron 的 `electron.d.ts` 核对 `Menu.setApplicationMenu(Menu|null)`、`BrowserWindow.setMenu(Menu|null)`、`autoHideMenuBar?: boolean` 三处签名，不靠记忆）+ `window.test.js` 2 例（`autoHideMenuBar=true`、`setMenu(null)`）+ `main.test.js` 2 例（启动即置空应用菜单、且发生在窗口创建之前）。
 - **变异反证**：撤掉实现（删 `removeWindowMenuBar(mainWindow)` / `autoHideMenuBar` / `removeApplicationMenu`）后 **4 条新锁当场变红**（window 2 条 + main 2 条），确认不是「恒绿的装饰性断言」。
 - **验证**：3 个测试文件 101 例全绿；eslint（改动 6 文件）rc=0；**QM-1 打包 PASS**（`electron-builder --win --x64` exit 0，产出 `Multi-Publish.Setup.0.2.0.exe`）；**真机验证**：启动打包产物并抓原生窗口截图，标题栏下**直接就是侧边栏与内容区**，File/Edit/View/Window 那一行已消失。
+
 
 # [未发布] docs(changelog): 把 #2842 squash 漏带的那一行「顺带修复」条目逐字节搬回主干（restore-2842-changelog-entry）
 
@@ -41,6 +140,15 @@
 - **TDD / 反证 / 一处自我纠正**：先红 `2 failed | 44 passed`（红因 = `PRODUCERS` 缺席、`source` 未点名生产者）⇒ 实现后 **46 passed**；变异 **K1–K6 逐条指名变红且按字节还原**（K1 退回单条登记 / K2 抹平 workflow 轴 / K3 退化成扫所有作业 / K4 循环写死单 workflow / K5 排除 `(2/2)` / K6 覆盖度搬到循环外）。两处判据自错记录在案：① 正向锚最初按我设想的写法（循环 `PRODUCERS`）锚，实现选了按 workflow 去重分组 ⇒ **改锚点形状**（锁「循环取域并喂进 listRuns」这条可执行链 + `listRuns(` 后不得跟字面量），不放宽强度，K4 照样红；② 最初把 1705/1261 报成「该文件全部 43 条 verbose 行的 max」，按用例全名重过滤后确认这两个数恰好就是该用例的耗时（它是该文件最慢一条）——结论未变，但**用全体取 max 冒充单用例**这个推导是错的。
 - **边界**：`lock-timing-audit.js` 的 workflow 轴仍未扩（#4072 记录 §4 第 3 条）——本片只把 `case-timeout-audit.js` 的两根轴做完整；两个脚本取数对象不同（握手行 vs verbose 行），修法同源但登记表不能共用一份。无 UI / locale / 主进程运行面改动，QM-1 与 QM-4 判 N/A。执行记录：`openspec/records/case-timeout-audit-coverage-domain.md`。
 
+# [未发布] feat(ui): 桌面端视觉系统升级 —— 统一表面层级、品牌渐变与高级感细节（ui-visual-premium）
+
+- **一句话**：把「视觉」从**每页各写各的**收敛成**一套分层令牌 + 一套观感口径** —— 表面五层、圆角六档、品牌渐变统一、标题与数字排版归一、P0-6 点名的四类空态不再用虚线；并落一套**机器可复跑的界面面巡检**（34 路由 / 210 界面面：亮 177 + 暗 33 / 每张标注页面·位置·操作状态）。
+- **动因是当场量的，不是推测**：用户反馈「视觉不统一、混乱、粗糙、不精致」。用 `ui-audit-recon.js` 逐路由枚举可见元素的计算样式，得到 **142 种颜色值**（其中 10 种是肉眼难辨的灰）、**22 种圆角**（设计系统只定义了 6 档）、**143 种间距组合**、**3 套字体栈**、**3 种页面标题色**（品牌紫 / 墨色 / 链接蓝）、以及 `19.5px` / `13.3333px` 一类小数像素字号。数字把"感觉不统一"变成了可指认的失败面。
+- **改法（分层，不是换色）**：① **令牌层** `tokens.css` 新增表面/描边/高度/渐变/玻璃/动效/统一字体栈，亮暗两套**同构**（暗底上描边变成"发光的边"而不是"更深的边"）；② **契约层** `cohere-design-system.css` 保持只管「有哪些类、语义是什么」；③ **观感层** `premium-components.css` + `premium-design-system.css` 管「这些类看起来应该怎样」。**观感与契约混在一份文件里，改一次观感就会顶破逐文件行数门禁的登记目标**（实测 TARGET_GROW 1794 > 1698）——分层后契约文件回到 1696 行。
+- **几个具体决定与它们的理由**：卡片与页面底**同色**（都是 `#fff`，只靠 1px `#efefef` 分隔）→ 引入表面阶梯，卡片改白色浮层 + 发丝描边 + 投影；卡片 hover **整块泛粉**（`--soft-stone` #faf6f8）→ 改「升起 + 影加深 + 描边加强」；主按钮是**纯平** `#5048E5` → 改品牌渐变 + 柔光（白字压渐变两端 ≥ 4.5:1，实测 4.91:1 / 5.51:1，亮端锁死在 `#8B3FD9`——再提亮会跌到 3.96:1 不合格）；标题三色并存 → 统一墨色（品牌色只留给图标/状态/CTA）；数据看板数字用 `JetBrains Mono`（本机未装，回退系统等宽体）与首页数字**不同字形** → 统一展示字族 + `tabular-nums`（多卡小数点对齐）；空态与付费占位用**虚线**（产品语义 = "没做完/出错了"）→ 付费占位改柔面 + 品牌色边条；空态改实线发丝——**本轮落地的是 P0-6 点名的四类**（首页两处 + 效能洞察两处），其余 4 类语义空态与像素基线视图耦合、改样式会动基线，已连同选择器清单登记为下一阶段（报告 §3 P0-6「落地状态」）。
+- **配套的机器守卫**：① `ui-audit-recon.js` 逐路由统计色/圆角/间距/字体的碎片度；② `ui-audit-capture.js` 按 6 个维度穷举界面面并逐面截图，标注「页面 / 位置 / 操作状态」；③ `ui-audit-scripts.test.js` 的**路由覆盖守卫**——解析 router 全路径与巡检清单求差集，**新增路由漏登记即红**（巡检的价值全在覆盖完整，漏页若无守卫会安静地让报告看着仍然完整）。
+- **守门与代价**：视觉基线属**有意变更**，由 **CI artifact 的渲染重建**后提交（仓库规矩：基线不得用本机 `test:visual:update-baseline` 的产物——本机与 CI runner 字体/渲染环境不同，同一份代码两边实测差 12~20384 px，在 CI 侧会逐张判 `BASELINE_STALE`；重建后判据本体复跑 **40/40 逐像素相等、违规 0**，本机像素回归亮/暗各 20/20 通过）；CCG 外部双家族评审（critic=claude / proposer=opencode）三轮 8 条意见**逐条裁决并全部处置**（毛玻璃 GPU 成本→半径 20px 降到 14px + `prefers-reduced-transparency` 守卫；暗色同构漏检→补断言；正则注入→补 `escapeRegExp`；零单测→补 6 例含路由覆盖守卫与变异反证；外部证据可核→补可 API 复核的公开评论）；`debt-budget` / `max-lines` 两套行数门禁**全程靠拆分与单键清账消化，一处基线都没抬**（`tokens.css` 压到 499 行、巡检脚本拆成四份、Home 样式搬到域级 CSS 后 `--prune` 单键清账）。
+- **文档**：巡检报告与优化方案 `01-docs/UI-VISUAL-AUDIT-2026-10-20.md` · 产品规格 `01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md` · 令牌口径 `01-docs/design-system-usage.md` §四之二 · 执行记录 `openspec/records/ui-visual-premium.md` · 前后对照证据 `01-docs/assets/ui-visual-audit-2026-10-20/`（10 组关键页面 = **20 张 PNG**，约 3.5MB；巡检清单收录的 **210 张**按仓库约定留在 gitignored 目录不入库，清单本身入库）。
 # [未发布] feat(门禁): 给「主干红着就别往里合」装执行体，并在自己的 PR 上把它跑红过四次（podcast-ci-new-red-gate）
 
 - feat(门禁): 给「主干红着就别往里合」装上执行体——新增 `scripts/check-main-red.js` + 判据本体 `scripts/lib/main-red.js`，`merge-when-green.sh` 与 `merge-when-green.ps1` 两个合并入口都强制在 REST 合并动作之前调用它（AGENTS「PR 自动合并」判据第 2 条从此不再靠会话临场判断）。动因是实测：该判据比 GitHub 的 required 清单更严却只以散文存在，一条**非 required** 的分片红先随窗口合进 main，main 转红后反过来把之后每个 PR 的 required `Gate Result` 判红，两个 PR 被冻约 40 分钟，而冻住它们的不是自己的改动。
