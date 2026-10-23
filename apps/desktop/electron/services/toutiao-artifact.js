@@ -54,6 +54,14 @@ async function probeEndpoints (win, title) {
     + 'return {ok:false,detail:"no-endpoint-hit"}'
     + '})()'
   try {
+    // 2026-10-23 真机：头条作品页与视频号同型，内容可能渲染在子 iframe ⇒ 逐 frame 执行并取并集
+    const frames = (win.webContents.mainFrame && win.webContents.mainFrame.framesInSubtree) || []
+    for (const fr of frames) {
+      try {
+        const r = await fr.executeJavaScript(code)
+        if (r && (r.hit === true || r.ok === true || r === true)) return r
+      } catch (_e) { /* 跨域/已销毁 frame 跳过 */ }
+    }
     return await win.webContents.executeJavaScript(code, true)
   } catch (e) {
     return { ok: false, detail: 'exec-failed:' + String(e && e.message).slice(0, 80) }
@@ -86,8 +94,15 @@ async function probeWorksPage (win, title, opts) {
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, intervalMs))
     try {
-      const hit = await win.webContents.executeJavaScript(
-        '(function(){var t=(document.body&&document.body.innerText)||"";return t.indexOf(' + JSON.stringify(want) + ')>=0})()', true)
+        // 2026-10-23：作品页可能渲染在子 iframe（与视频号同型）⇒ 逐 frame 匹配标题
+        const fw = (win.webContents.mainFrame && win.webContents.mainFrame.framesInSubtree) || [{ executeJavaScript: (c) => win.webContents.executeJavaScript(c, true) }]
+        let hit = false
+        for (const fr of fw) {
+          try {
+            const r = await fr.executeJavaScript('(function(){var t=((document.body&&(document.body.innerText||document.body.textContent))||"");return {hit:t.indexOf(' + JSON.stringify(want) + ')>=0,len:t.length}})()')
+            if (r === true || (r && r.hit === true)) hit = true
+          } catch (_e) { /* 跨域 frame 跳过 */ }
+        }
       if (hit) return { ok: true, detail: 'works-page-hit' }
     } catch (_e) { /* 继续轮询 */ }
   }
