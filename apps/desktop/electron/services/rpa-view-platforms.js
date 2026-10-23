@@ -941,7 +941,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       netOk = rs0.find((r) => { const ep = String((r && r.endpoint) || ''); return r && Number(r.status) >= 200 && Number(r.status) < 300 && /(publish|submit|create)/i.test(ep) && !/(media|upload|chunk|part|authkey|getauth)/i.test(ep) }) || null
       if (netOk) log.warn('RpaView', '[' + platform + '] publish 响应证据命中 endpoint=' + String(netOk.endpoint).slice(0, 120) + ' status=' + netOk.status)
     } catch (_e) { /* 取证失败不阻塞 */ }
-    if (netOk) return { success: true, mode: 'network', evidence: 'publish-response', platform, url: sanitizePublishResultUrl(finalUrl), objectId: null }
+    if (netOk) log.warn('RpaView', '[' + platform + '] 检测到发布类端点 2xx，但用户核对创作者中心无新内容 ⇒ 不作为成功证据（仅记录）')
     log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
     return { success: false, error: 'publish verification timeout', platform, url: sanitizePublishResultUrl(finalUrl), diagnostics: summarizePublishDiagnostics(stoppedRequests, null) }
     } finally {
