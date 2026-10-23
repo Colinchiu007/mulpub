@@ -473,6 +473,11 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
   },
 
   async _dropViaCdp (win, filePath, selector) {
+    // 一次性问清：本页有哪些 shadow host（上传区必挂在其中之一）
+    try {
+      const _hosts = await win.webContents.executeJavaScript("(function(){var out=[];var all=document.querySelectorAll('*');for(var i=0;i<all.length&&out.length<12;i++){var e=all[i];if(e.shadowRoot){out.push((e.tagName||'')+'.'+String(e.className||'').slice(0,40)+'#'+(e.id||''))}}return out})()", true)
+      log.info('RpaView', 'shadow-hosts: ' + JSON.stringify(_hosts))
+    } catch (_eH) { log.warn('RpaView', 'shadow-hosts probe failed') }
     // wujie-first 已移除：base64 注入会卡住渲染进程（2026-10-24 01:02 实测）
     const path = require('path')
     const dbg = win.webContents.debugger
