@@ -97,3 +97,18 @@ test('支付环境变量必须被 docker-compose 透传进容器', async (t) => 
       '支付是可选能力：没配时必须照常启动并保持入口 fail-closed，不能因为缺支付变量把整个服务卡死：' + offenders.join(', '));
   });
 });
+
+// ——— 密钥入库防线 ———
+//
+// 支付凭据（商户私钥 / APIv3 密钥）落在 `deploy/logto/api.env` 里，而 `.gitignore:330` 的 `.env`
+// **只匹配名为 `.env` 的文件，匹配不到 `api.env`** —— 2026-10-23 实测它当时确实未被忽略。
+// 一旦有人 `git add -A`，私钥就进了仓库。这条锁把"它必须被忽略"变成可执行判据。
+test('storefront env 文件必须被 gitignore（防私钥入库）', () => {
+  const { execFileSync } = require('node:child_process');
+  const path = require('node:path');
+  const root = path.resolve(__dirname, '../../..');
+  assert.doesNotThrow(() => {
+    // git check-ignore 返回 0 表示"命中忽略规则"；1 表示未忽略（会抛）
+    execFileSync('git', ['check-ignore', '-q', 'deploy/logto/api.env'], { cwd: root, stdio: 'pipe' });
+  }, 'deploy/logto/api.env 未被 .gitignore 忽略 —— 商户私钥会随 git add -A 入库');
+});
