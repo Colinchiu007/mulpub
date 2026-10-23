@@ -87,6 +87,15 @@
   变异反证：M-D3d 让 `recordedBy` 缺 `ref` ⇒ 红；M-D3e 把 `cases=0` 的出口改成 exit 0 ⇒ 红；
   **M-D3l 摘掉 `cat-file -e` 自证 ⇒ "不可读案例被拒"那条 MUST 红**。
   **M-D3t 把语料行的必填字段闭集放宽成"读得到就用" ⇒ "缺字段逐字段点名"那条必须红**（跨家族 i7）。
+  **第 3 轮跨家族补的四条**：
+  **M-D3u 把覆盖对账退回「各维度合计」 ⇒ 「一维降、另一维升、合计不变」那条用例必须红**（i1：
+  同一件事在本 spec 两处口径不一致时，弱的那一处一定被执行——当时第 5 条写合计、Requirement 3 写逐维度）；
+  **M-D3v 截断 `judgment-replay-runs.json` 里前面几条高覆盖记录 ⇒ 「上一条账必须从 git 读」那条必须红**
+  （i3：只锁语料 blob 时，伪造基线就够了，根本不必改变宽判据）；
+  **M-D3w 把单维度未武装也算成 rc=2 ⇒ 「前置期不得锁死全仓」那条必须红**（i2：
+  那等于用"还没有生产方的规则"拦人，正是本片要消灭的出口为空形状）；
+  **M-D3x 只改录制器一侧的规范化实现 ⇒ 固定测试向量那组必须红**（i5：两份读法必然系统性失配，
+  而失配表现出来像"语料被人动过"——把工具分歧误报成篡改是最坏的一种）。
 - [ ] 2.3 **差分判据** `scripts/check-qm6-judgment-regression.js`：`hits_new ⊇ hits_old`；
   读不到 ⇒ `unverified` 单列；`registered=0 || corpus-cases=0` ⇒ rc=2（**自身故障档与发现变宽档 rc=1 必须分档**）；
   首行打印 `JUDGMENT-RULES registered=<n> corpus-cases=<n> checked=<n> widened=<n> unverified=<n>`。
