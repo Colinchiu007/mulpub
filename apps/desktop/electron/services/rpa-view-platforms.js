@@ -386,7 +386,7 @@ const platformsMixin = {
 
     // cover
     // 封面（2026-10-22）：头条/西瓜页面**没有 image file input**，走弹窗「封面截取 → 下一步」；其它平台仍走 cover_input，且有封面却无选择器时必须出声。
-    if (false && platform === 'toutiao' && article.video_path) { const tc = require('./toutiao-cover'); const r = article.cover_path ? await tc.ensureCoverViaLocalUpload(this, win, article.cover_path, { log, platform }) : await tc.ensureCoverFromVideoFrame(this, win, { log, platform }); if (!r.ok) log.warn('RpaView', '[' + platform + '] cover path failed: ' + r.step) }
+    if (platform === 'toutiao' && article.video_path) { const tc = require('./toutiao-cover'); const r = article.cover_path ? await tc.ensureCoverViaLocalUpload(this, win, article.cover_path, { log, platform }) : await tc.ensureCoverFromVideoFrame(this, win, { log, platform }); if (!r.ok) log.warn('RpaView', '[' + platform + '] cover path failed: ' + r.step) }
     else if (article.cover_path && !sel.cover_input) log.warn('RpaView', '[' + platform + '] cover skipped: platform has no cover_input selector')
     if (platform !== 'toutiao' && article.cover_path && sel.cover_input) {
       try {
