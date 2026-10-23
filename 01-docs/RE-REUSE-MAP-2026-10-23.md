@@ -37,6 +37,15 @@
 出处：`01-analysis/两边竞品风控方式对照.md` L170
 
 - 竞品视频号链：本地 `createSign("SHA256")`（私信链）+ `QiehaoSm3` 文件哈希（上传校验）。
+> ⛔ **2026-10-23 实测更正（务必先读）**：上表三个主机**已失效**。直连探测结果：
+> `PUT finderassistancea/applyuploaddfs` → **404**、`PUT finderassistanced/uploadpartdfs` → **404**、
+> `POST finderassistancea/completepartuploaddfs` → **404**；而 `finder.video.qq.com` → `Parse Error: Expected HTTP/`。
+> 与本项目 2026-10-18 的注释「三条路径全 404」一致。
+>
+> **正确机制（取自平台自身代码 `finder-helper-web/chunk-common`）**：上传主机由运行时 `setHost(s.cdnHost)` 设置，
+> 主机来自接口响应字段 **`cdnHost`**，**不是常量**。落地实现见 PR #4303（`shipinhao-video.js` 从 Step-1 响应解析 `cdnHost`）。
+>
+> 结论：本节表格只能作为**历史对照**，不得照抄为常量。
 - 因此 **`signer-assembly` 不认识 `tencent_video` 属正常**，不应把它当作失败原因（该日志为 WARN，流程继续）。
 
 ## 4. 平台枚举：头条号与西瓜是两个 id
