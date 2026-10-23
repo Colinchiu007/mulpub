@@ -186,3 +186,28 @@
    「Critique校验失败」。**这条要留给仓外修**，本仓只如实记录。
 3. **「每个字段都核一遍」的自查比模型更早发现的两条**（回滚失败档位张冠李戴、`preload.test.js` 从未运行）
    都不是模型抓到的 ⇒ 跨家族 + 自查**都要做**，任何一边单独都不够。
+
+## 七、CI 首轮抓到的装配 bug（本地测不到的那一类）
+
+**症状**：`QG Desktop Shards (1/2)` 与 `(2/2)` 红，`QG Coverage` 连带红 ⇒ 共 **17 条**失败，
+全部报 `TypeError: require(...) is not a function`，失败用例集中在
+`tests/ipc-handlers.test.js` 与 `electron/ipc-handlers/performance-loop.test.js` 的**「装配锁」**。
+
+**根因**：`ipc-handlers/index.js` 的接线写法是 `require('./film-engineering-import')(ipcMain, deps)`
+（与同族 `film-engineering.js` / `film-engineering-auto.js` 一致 ⇒ **模块本身必须可调用**），
+而本片首版的 `film-engineering-import.js` **只导出对象** ⇒ 装配时抛 `require(...) is not a function`
+⇒ **整条 IPC 注册面挂掉**。
+
+**为什么本地没测到**（这才是要点）：本模块自己的单测（11 → 16 例）**直接 import `registerImportHandlers`**，
+不经过 `index.js` ⇒ **「导出形态 ↔ index 装配」的一致性不在任何本地用例的射程内**。
+本片本地跑了「影视工程域 41 文件 / 642 例」+ 打包 + 视觉基线，**全绿**，仍漏掉了它。
+
+**处置**：按同族形态改成「`module.exports = registerImportHandlers` + 附带具名导出」
+（`registerImportHandlers` / `authorizeSender` / `parseHashRoute` / `writeOutcomeAudit` / 常量），
+本模块单测的 import 方式不用改。
+
+**沉淀**（写进本记录与记忆）：
+① **新接一个 IPC handler ⇒ 必须跑「整面装配锁」**（`tests/ipc-handlers.test.js` + 各 handler 的 T21b/T21e
+装配锁用例），不能只跑本模块单测 —— 后者**结构上**测不到 index 装配；
+② 本仓的「装配锁」机制**真的有效**：它在 CI 上把这条抓了出来（本地全绿是假绿）；
+③ 「模块导出形态」属于**跨文件契约**，和 reason 闭集、审计字段一样，**必须与同族逐字对齐**。
