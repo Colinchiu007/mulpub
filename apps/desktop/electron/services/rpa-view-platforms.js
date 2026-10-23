@@ -932,12 +932,16 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         }
       } catch (_) { /* 截图失败不阻塞 */ }
     } catch (_) { /* 快照失败不阻塞 */ }
-    // 2026-10-23：视频号判据导航不生效（url 仍停在 post/create）⇒ 改用网络响应取证。
+    // 2026-10-23：视频号判据导航不生效（url 仍停在 post/create）⇒ 改用网络响应取证与判定。
+    let netOk = null
     try {
       const rs0 = Array.isArray(requests) ? requests : []
       const brief = rs0.slice(-8).map((r) => String((r && (r.endpoint || r.url)) || '').slice(0, 90) + ' [' + String((r && r.status) || '?') + ']')
       log.warn('RpaView', '[' + platform + '] publish captured responses n=' + rs0.length + ' :: ' + brief.join(' | '))
+      netOk = rs0.find((r) => { const ep = String((r && r.endpoint) || ''); return r && Number(r.status) >= 200 && Number(r.status) < 300 && /(publish|submit|create)/i.test(ep) && !/(media|upload|chunk|part|authkey|getauth)/i.test(ep) }) || null
+      if (netOk) log.warn('RpaView', '[' + platform + '] publish 响应证据命中 endpoint=' + String(netOk.endpoint).slice(0, 120) + ' status=' + netOk.status)
     } catch (_e) { /* 取证失败不阻塞 */ }
+    if (netOk) return { success: true, mode: 'network', evidence: 'publish-response', platform, url: sanitizePublishResultUrl(finalUrl), objectId: null }
     log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
     return { success: false, error: 'publish verification timeout', platform, url: sanitizePublishResultUrl(finalUrl), diagnostics: summarizePublishDiagnostics(stoppedRequests, null) }
     } finally {
@@ -1335,9 +1339,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     // 本轮拿到真机 DOM 证据（Playwright + 真实账号 cookie 打开
     // `publish/publish?from=menu&target=video` 并真实上传 mp4）后，视频链已可实现：
     //   `input.upload-input`（可见）→ 标题 `input.d-text`（placeholder=填写标题会有更多赞哦）
-    //   → 正文 `div.tiptap.ProseMirror` → **不点「发布笔记」**（真机为 DIV 按钮），
-    //   靠平台自动草稿保存落到草稿箱（图文模式 2026-09-29 已采用同一策略）。
-    // 守卫：合并后的选择器仍拿不到 file_input ⇒ 上传无从发生 ⇒ 绝不静默降级成草稿。
+    //   → 正文 `div.tiptap.ProseMirror` → **不点「发布笔记」**（真机为 DIV 按钮），；  靠平台自动草稿保存落到草稿箱（图文模式 2026-09-29 已采用同一策略）。；守卫：合并后的选择器仍拿不到 file_input ⇒ 上传无从发生 ⇒ 绝不静默降级成草稿。
     const videoFileInputs = (config.selectors && config.selectors.file_input) || []
     if (contentType === 'video') {
       log.info('RpaView', '[xiaohongshu] video draft-only：填内容后等平台自动存草稿，不点发布')
@@ -1347,15 +1349,13 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       }
     }
     const publishUrl = getPublishUrl('xiaohongshu', contentType)
-    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input accept 全是视频格式）；
-    // 图文须先点「上传图文」tab（switchImageTab hook，参考产品 renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
+    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input accept 全是视频格式）；图文须先点「上传图文」tab（switchImageTab hook，参考产品 renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
     const isImageMode = contentType === 'image'
     return this._publish_generic(win, article, 'xiaohongshu', {
       ...config,
       publish_url: publishUrl || config.publish_url,
       ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
-      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。
-      // 2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。；小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），；填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
+      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。；2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。；小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），；填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
       draftOnly: true,
     })
   },
