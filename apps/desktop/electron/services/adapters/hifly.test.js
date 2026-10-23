@@ -252,35 +252,52 @@ describe('HiFlyAdapter — 飞影数字人', () => {
     })
   })
 
-  describe('listAvatars / listVoices — 分页在 adapter 内消化', () => {
-    it('listAvatars 带 page/size/kind，翻完全部页后合并返回', async () => {
+  // 真实契约（Token 核对 2026-10-24）：响应是 { code, message, data: [...], request_id }，
+  // data 直接是数组，**没有 total 字段** ⇒ 翻页判据只能是「本页是否翻满」。
+  describe('listAvatars / listVoices — 真实契约（Token 核对）', () => {
+    it('listAvatars 取 kind=1（自己的），字段是 avatar/title/cover_url', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 0, data: { list: [{ avatar_id: 'a1', name: '形象1' }], total: 2 } }),
-        createFetchResponse({ code: 0, data: { list: [{ avatar_id: 'a2', name: '形象2' }], total: 2 } }),
-        createFetchResponse({ code: 0, data: { list: [], total: 2 } }),
+        createFetchResponse({ code: 0, data: [{ avatar: 'Qr2xcAv_Y21', kind: 1, title: '我的形象', cover_url: 'https://cdn/x.png' }] }),
       ])
       global.fetch = fetchMock
 
       const list = await createAdapter().listAvatars()
 
-      expect(list.map((a) => a.id).sort()).toEqual(['a1', 'a2'])
-      // 至少翻了两页（第三页空列表终止）
-      expect(fetchMock.calls.length).toBeGreaterThanOrEqual(2)
-      expect(fetchMock.calls[0].url).toContain('page=1')
+      expect(list).toEqual([{ id: 'Qr2xcAv_Y21', name: '我的形象', previewUrl: 'https://cdn/x.png', gender: '' }])
       expect(fetchMock.calls[0].url).toContain('kind=1')
     })
 
-    it('data 直接为数组的形态也能解析（官方示例：字段是 avatar/title）', async () => {
-      global.fetch = createFetchMock([
-        createFetchResponse({ code: 0, data: [{ avatar: 'x1', title: 'X' }] }),
+    it('listVoices 取 kind=2（公共），字段是 voice/title/preview_url', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ code: 0, data: [{ voice: 'BMB1UhRK-SPv', type: 10, title: '普通话', preview_url: 'https://cdn/a.wav' }] }),
       ])
-      const list = await createAdapter().listAvatars()
-      expect(list).toEqual([{ id: 'x1', name: 'X', previewUrl: '', gender: '' }])
+      global.fetch = fetchMock
+
+      const list = await createAdapter().listVoices()
+
+      expect(list).toEqual([{ id: 'BMB1UhRK-SPv', name: '普通话', language: '', gender: '' }])
+      expect(fetchMock.calls[0].url).toContain('kind=2')
+    })
+
+    it('本页翻满 ⇒ 继续翻页；没翻满即止', async () => {
+      const full = Array.from({ length: 100 }, (_, i) => ({ avatar: `a${i}` }))
+      global.fetch = createFetchMock([
+        createFetchResponse({ code: 0, data: full }),
+        createFetchResponse({ code: 0, data: [{ avatar: 'a100' }] }),
+      ])
+      let list = await createAdapter().listAvatars()
+      expect(list).toHaveLength(101)
+
+      // 没翻满（1 条 < 100）⇒ 只打一次请求
+      global.fetch = createFetchMock([createFetchResponse({ code: 0, data: [{ avatar: 'only-1' }] })])
+      list = await createAdapter().listAvatars()
+      expect(list.map((a) => a.id)).toEqual(['only-1'])
+      expect(global.fetch.mock.calls).toHaveLength(1)
     })
 
     it('缺 id 的条目丢弃（不产出空 character 让下游炸）', async () => {
       global.fetch = createFetchMock([
-        createFetchResponse({ code: 0, data: { list: [{ name: '无名' }, { avatar_id: 'ok' }] } }),
+        createFetchResponse({ code: 0, data: [{ title: '无名' }, { avatar: 'ok' }] }),
       ])
       const list = await createAdapter().listAvatars()
       expect(list.map((a) => a.id)).toEqual(['ok'])

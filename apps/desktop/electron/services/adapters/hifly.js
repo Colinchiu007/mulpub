@@ -37,9 +37,27 @@ const DEFAULT_TIMEOUT = 60000
  * 数字人配置区要的是「用户自己克隆的形象优先，公共形象兜底」，故取 **1**；
  * 若取默认值 2 会把用户刚克隆的形象整批漏掉（最坏故障形态：克隆成功但下拉里看不见）。
  */
+/**
+ * 列表 kind 参数（官方文档 + **真实 Token 核对 2026-10-24**）：
+ *
+ * avatar/list：
+ *   0: 全部（自己的排在前面）
+ *   1: 自己的数字人
+ *   2: 公共数字人（不传时的默认值）
+ *
+ * voice/list（实测三种取值）：
+ *   0: 返回 0 条
+ *   1: 自己的克隆音色（未克隆时为 0 条）
+ *   2: 公共音色（20 条）
+ *
+ * 数字人配置区要的是「用户自己克隆的优先，公共兜底」，故：
+ *   - 形象取 **1**（自己的）。取默认值 2 会把用户刚克隆的形象整批漏掉——
+ *     最坏故障形态是「克隆成功但下拉里看不见」。
+ *   - 音色取 **2**（公共）。取 1 在没克隆过音色时会拿到 0 条，
+ *     用户连一个音色都选不了。
+ */
 const AVATAR_KIND = '1'
-/** 音色列表 kind：官方 voice/list 示例值 */
-const VOICE_KIND = '1'
+const VOICE_KIND = '2'
 /** 列表分页大小（飞影 size 上限 200，取 100 留余量） */
 const LIST_PAGE_SIZE = 100
 /** 翻页上限：防止服务端 total 异常时无限翻 */
@@ -327,8 +345,8 @@ class HiFlyAdapter extends BaseAdapter {
    * @returns {Promise<Array<{id: string, name: string, previewUrl: string, gender: string}>>}
    */
   async listAvatars () {
-    // 官方字段：avatar（标识）/ title（名称）/ kind（1自己的 / 2公共）
-    return this._listCatalog('/avatar/list', AVATAR_KIND, ['avatar', 'avatar_id', 'id'], ['title', 'avatar_name', 'name'], 'preview_url')
+    // 真实字段（Token 核对）：avatar（标识）/ title（名称）/ cover_url（封面图）/ kind（1自己的 / 2公共）/ tags / description
+    return this._listCatalog('/avatar/list', AVATAR_KIND, ['avatar', 'avatar_id', 'id'], ['title', 'avatar_name', 'name'], 'cover_url')
   }
 
   /**
@@ -348,11 +366,12 @@ class HiFlyAdapter extends BaseAdapter {
       const items = this._listPageItems(decoded.data)
       for (const item of items) {
         if (!item || typeof item !== 'object') continue
-        const id = String(item.voice_id || item.id || '').trim()
+        // 真实字段（Token 核对）：voice（标识）/ title（名称）/ preview_url / type / rate / pitch / volume / tags
+        const id = String(item.voice || item.voice_id || item.id || '').trim()
         if (!id) continue
         out.push({
           id,
-          name: String(item.name || item.display_name || id).trim() || id,
+          name: String(item.title || item.name || item.display_name || id).trim() || id,
           language: String(item.language || '').trim(),
           gender: String(item.gender || '').trim(),
         })
@@ -414,8 +433,10 @@ class HiFlyAdapter extends BaseAdapter {
    * @private
    */
   _listPageHasMore (data, fetchedSoFar, pageSize) {
-    const total = data && typeof data === 'object' ? Number(data.total) : NaN
-    if (Number.isFinite(total)) return fetchedSoFar < total
+    // 真实响应（Token 核对）**没有 total 字段**——data 直接是数组。
+    // 所以翻页判据只能是「本页是否翻满」：翻满说明可能还有下一页，
+    // 没翻满说明已经是最后一页。靠 total 判会在没有该字段时提前终止，
+    // 表现是「永远只拿到第一页」。
     return pageSize >= LIST_PAGE_SIZE
   }
 
