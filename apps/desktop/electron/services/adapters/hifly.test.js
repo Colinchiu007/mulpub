@@ -129,6 +129,64 @@ describe('HiFlyAdapter — 飞影数字人', () => {
         expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
       }
     })
+
+    // ── change: hifly-voice-subtitle-parity：字幕参数透传 ──────────────
+    // 飞影官方 create_by_tts 支持 9 个字幕字段；不传则默认不显示字幕。
+
+    it('subtitle 缺省 ⇒ 请求体不含任何 st_* 字段（保持官方「默认不显示」）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 0, task_id: 't' })])
+      global.fetch = fetchMock
+      await createAdapter().generateVideo({ character: 'a', voice: 'v', script: 's' })
+      const body = bodyOf(fetchMock.calls[0])
+      expect(Object.keys(body).filter((k) => k.startsWith('st_'))).toEqual([])
+    })
+
+    it('subtitle.show=true ⇒ st_show=1，其余字幕字段一并透传', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 0, task_id: 't' })])
+      global.fetch = fetchMock
+      await createAdapter().generateVideo({
+        character: 'a', voice: 'v', script: 's',
+        subtitle: {
+          show: true, fontName: '抖音美好体', fontSize: 120,
+          primaryColor: '#ff0000', outlineColor: '#000000',
+          width: 640, height: 120, posX: 80, posY: 960,
+        },
+      })
+      expect(bodyOf(fetchMock.calls[0])).toMatchObject({
+        st_show: 1,
+        st_font_name: '抖音美好体',
+        st_font_size: 120,
+        st_primary_color: '#ff0000',
+        st_outline_color: '#000000',
+        st_width: 640,
+        st_height: 120,
+        st_pos_x: 80,
+        st_pos_y: 960,
+      })
+    })
+
+    it('subtitle.show=false ⇒ st_show=0（显式关闭，不依赖官方默认）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 0, task_id: 't' })])
+      global.fetch = fetchMock
+      await createAdapter().generateVideo({ character: 'a', voice: 'v', script: 's', subtitle: { show: false } })
+      expect(bodyOf(fetchMock.calls[0]).st_show).toBe(0)
+    })
+
+    it('字幕字段做数据校验：颜色须为 #rrggbb、数值须为有限整数，非法则拒', async () => {
+      const fetchMock = createFetchMock()
+      global.fetch = fetchMock
+      await expect(createAdapter().generateVideo({
+        character: 'a', voice: 'v', script: 's', subtitle: { show: true, primaryColor: 'red' },
+      })).rejects.toThrow(/st_primary_color/)
+      await expect(createAdapter().generateVideo({
+        character: 'a', voice: 'v', script: 's', subtitle: { show: true, fontSize: 12.5 },
+      })).rejects.toThrow(/st_font_size/)
+      await expect(createAdapter().generateVideo({
+        character: 'a', voice: 'v', script: 's', subtitle: { show: true, width: -1 },
+      })).rejects.toThrow(/st_width/)
+      // 非法输入不得发起请求
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
   })
 
   describe('getVideoStatus — /video/task 端点', () => {

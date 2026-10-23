@@ -409,16 +409,28 @@ providerId 的老数据自然失效（用户重新克隆即可）——迁移要
 
 ### A.5.1 声音克隆（与形象克隆的关系）
 
-**形象克隆与声音克隆是两条独立链路**，UI 也在两个面板：
+**形象与声音是两条独立链路**（样本类型、存储目录、训练轮询都不同，不合并成一套选择器），
+但 UI 位置在 2026-10-23 起收敛到同一面板：
 
 | 链路 | UI 位置 | 样本 | 产物 |
 |---|---|---|---|
 | 形象克隆 | 数字人配置区 →「管理克隆形象」 | 照片 / 视频 | avatar id（look id） |
-| 声音克隆 | 配音区 →「音色复制 / 克隆」 | 录音（mp3/m4a/wav） | voice id |
+| 声音克隆 | 数字人配置区 →「管理克隆形象」→「克隆我的声音」 | 录音（mp3/m4a/wav） | voice id |
 
-**为什么不合并成一个面板**：两者的样本类型、存储目录、训练轮询都不同，
-合并会造成两套选择器/两套样本目录，且用户要在同一处传两种文件。
-合并的只是**能力提示**——克隆形象面板会告知「本服务商支持配自己的声音」及入口位置。
+> **2026-10-23 修订（change: hifly-voice-subtitle-parity）**：声音克隆入口从配音面板
+> （`S2vConfigPanels` 的「音色复制 / 克隆」）**内联进数字人克隆面板**。原因是形象与声音
+> 在用户眼里是「一个数字人」的两半，此前的分离让用户克隆了形象后找不到配自己声音的地方。
+>
+> 内联版是**最小闭环**（上传录音 → 得到可用音色），不带 model 选择、requirements 提示、
+> 列表/重命名/删除一整套——那些留给配音面板那个面向 TTS provider 系的完整版。
+> 两者共用同一套 IPC 与 service（`tts-voice-clone`，早已完全 provider 化），
+> 不另起样本存储（否则会有两份目录、两套 TTL、两套清理）。
+>
+> **provider/model 由当前数字人服务商决定，不给用户选**：让用户在别处选 TTS provider
+> 会造出「HeyGen 的形象配 ElevenLabs 的声音」这种服务商不认的组合。
+>
+> **状态与形象克隆分开**（`voiceCreating` / `voiceCreateError` / `voiceCreatedName`）：
+> 两者可并行操作；共用一个 `creating` 会造出「传照片时不能同时传录音」的假约束。
 
 **两家服务商的声音克隆能力**（`tts-voice-catalog.js` 声明，`USER_CLONE` + `DESKTOP_UPLOAD_CLONE`）：
 
@@ -427,10 +439,76 @@ providerId 的老数据自然失效（用户重新克隆即可）——迁移要
 | HeyGen | `POST /v3/voices/clone` | `mode: instant`（单条）/ `professional`（多条） |
 | 飞影 HiFly | `POST /api/v2/hifly/voice/create` | `voice_type` 必填且目前只支持 8；mp3/m4a/wav、≤20MB、5 秒～3 分钟；同账号 API 创建上限 200 个 |
 
-**能力探测口径**：克隆面板的能力提示由 `getTtsVoiceCloneRequirements` IPC 判定
-（`type === 'user_clone' && clone.enabled === true`）。**不在渲染端直接判**——
-能力目录在主进程，且「支持克隆」还要看该 provider 是否已配置可用 Key；
-探测失败时保守显示「不支持」（不谎称支持）。
+**能力探测口径**：克隆面板的能力提示与内联上传区都由 `getTtsVoiceCloneRequirements` IPC 判定
+（`type === 'user_clone' && clone.enabled === true`）。**不在渲染端直判**——能力目录在主进程，
+且「支持克隆」还要看该 provider 是否已配置可用 Key；探测失败时保守显示「不支持」（不谎称支持）。
+
+**探测时机**：`selectPipeline` 时探一次 + `watch avatarProviderId` 兜底。
+后者不可省：`loadS2VProviders` 是异步的，选中数字人流水线那一刻 provider 列表往往还没回来，
+探测拿到空值被保守判 false；且「先打开创作页、再切数字人流水线」的用户根本不会触发
+`loadS2VProviders` 里那次探测（mounted 时 `isAvatarPipeline` 为 false）。
+
+### A.5.2 字幕（飞影独有）
+
+飞影官方 `create_by_tts` 支持 9 个 `st_*` 字段：
+
+| 字段 | 类型 | 说明 | 默认 |
+|---|---|---|---|
+| `st_show` | int | 是否显示字幕，1 显示 / 0 不显示 | 不显示 |
+| `st_font_name` | string | 字体（抖音美好体、荆南波波黑、Alimama FangYuanTi VF、云峰飞云体、三极泼墨体、快看世界体等） | 服务商默认 |
+| `st_font_size` | int | 字号 | 100 |
+| `st_primary_color` | string | 文字颜色，`#ff0000` | 服务商默认 |
+| `st_outline_color` | string | 文字描边颜色，`#ff0000` | 服务商默认 |
+| `st_width` | int | 字幕区域宽度 | 600 |
+| `st_height` | int | 字幕区域高度 | 100 |
+| `st_pos_x` | int | 字幕区域左上角 X 坐标 | 60 |
+| `st_pos_y` | int | 字幕区域左上角 Y 坐标 | 900 |
+
+**分层职责**：
+
+| 层 | 职责 |
+|---|---|
+| 前端 `AvatarSubtitlePanel.vue` | 只暴露开关 + 字体名/字号/文字色/描边色；`st_width`/`st_height`/`st_pos_x`/`st_pos_y` 用服务商默认（面板有一句说明） |
+| 前端 `avatarSubtitlePayload` | 开关关闭时返回 **undefined** 而非 `{show:false}`——请求体不出现 `subtitle` 键，让服务商用它自己的「默认不显示」语义；也让「没碰过字幕」和「显式关掉」在日志里可区分 |
+| 主进程 `resolveDigitalHumanInputs` | 提取 `subtitle`（对象字段，不走 `nonEmpty`；只认非数组普通对象） |
+| 主进程 `runDigitalHumanGenerate` | `...(inputs.subtitle ? { subtitle: inputs.subtitle } : {})` 透传，**不做字段级校验**（那是 adapter 职责） |
+| adapter `buildSubtitleFields` | 字段映射 + 校验：颜色必须 `#rrggbb`、数值必须非负整数，非法即抛错并点名字段（不猜、不静默丢弃） |
+
+**为什么整个面板不渲染而非置灰**：HeyGen 的 `create_by_tts` 没有 `st_*` 字段，
+给它看一堆字幕选项等于骗人。判据是 `providerId === 'hifly'` 白名单——字幕是飞影独有契约
+字段，官方文档只在他家出现；接第三家时若也支持字幕，把 id 加进去即可。
+
+### A.5.3 多 provider 差异的设计原则（能力驱动统一 UI）
+
+**问题**：数字人换供应商后，支持的功能与可选项差异可能很大。该做统一 UI 还是各做一套？
+
+**结论：统一布局 + 能力驱动显隐。** 三条规则：
+
+1. **核心三要素（形象/音色/文案）永远统一**——这是数字人流水线的最小契约，所有 provider
+   都有，布局固定，不随 provider 变化；
+2. **可选能力按 capability 显隐**——一个选项只在「至少一家支持」时出现在 UI 里；
+   当前 provider 不支持就**整个不渲染**，不是置灰（置灰会让用户以为再点点就能用）；
+3. **provider 切换时重算显隐**，已选的不支持项清空（两家 id 同形，留着等于让用户误选
+   另一家的资源）。
+
+**不做的两种方案及理由**：
+
+| 方案 | 不做的理由 |
+|---|---|
+| 每家做一套布局 | N 份维护、N 份测试、N 份视觉基线；provider 间切换时用户要重新适应；且差异主要集中在可选能力，核心流程完全同形 |
+| 全堆上去再禁用 | UI 常驻一半灰项；「支不支持」这件事对用户没有信息量——他只想用当前这家能用的东西 |
+
+**已按此原则落地的三处**：字幕面板只对飞影渲染（A.5.2）、声音克隆入口按能力显隐（A.5.1）、
+文案全走 provider 名不写死任何一家（`avatarCloneErrProvider` 的 `{name}` 占位符）。
+
+**新增一家 provider 时的检查清单**：
+① `model-provider-seeds.js` 加种子 + `capabilities: ['video', 'digital_human']`；
+② 写 adapter（与 HeyGen 同名同参，内部做字段映射）；
+③ `_base/base.js` 的 `KNOWN_METHODS` 登记其方法；
+④ 若支持声音克隆：`tts-voice-catalog.js` 加 `USER_CLONE` 声明；
+⑤ 若支持字幕：把 id 加进 `avatarSubtitleSupported` 白名单；
+⑥ 上述五步之外，**不改** UI 布局、IPC 契约、流水线编排。
+
 
 ## A.6 数据校验
 

@@ -59,6 +59,26 @@ export default {
   // this only tells the user that the current provider supports their own voice.
   avatarCloneVoiceHint: 'This provider also supports cloning your own voice: upload a recording under "Voice copy / clone" next to Digital human voice, then pick it here.',
   avatarCloneVoiceUnsupported: 'The current provider does not support voice cloning; only its built-in voices are available.',
+  // Inline voice clone section (change: hifly-voice-subtitle-parity): the entry
+  // moved from the voiceover panel into the digital human panel; provider/model
+  // come from the current digital human provider and are not user-selectable.
+  avatarCloneVoiceTitle: 'Clone my voice',
+  avatarCloneVoiceHintInline: 'Upload a recording to clone your own voice, then pick it under Digital human voice above.',
+  avatarCloneVoiceNamePlaceholder: 'Voice name',
+  avatarCloneVoiceChoose: 'Choose a local audio file',
+  avatarCloneVoiceCreated: 'Voice "{name}" created — pick it under Digital human voice above',
+  // Subtitles (change: hifly-voice-subtitle-parity): Hifly only (the official
+  // create_by_tts st_* family). HeyGen has no equivalent contract, so the panel
+  // is not rendered at all for providers that do not support it.
+  avatarSubtitleShow: 'Add subtitles',
+  avatarSubtitleHide: 'Hide subtitle settings',
+  avatarSubtitleHint: 'Subtitles are burned into the output video; style changes apply without re-training the avatar.',
+  avatarSubtitleFontName: 'Font',
+  avatarSubtitleFontNamePlaceholder: 'Leave empty for the provider default font',
+  avatarSubtitleFontSize: 'Font size',
+  avatarSubtitlePrimaryColor: 'Text color',
+  avatarSubtitleOutlineColor: 'Outline color',
+  avatarSubtitleAdvancedNote: 'Subtitle position and box size use the provider defaults for now.',
   avatarCloneCreating: 'Creating cloned avatar…',
   avatarCloneChooseMedia: 'Select {media}',
   avatarCloneErrInvalidArgs: 'Invalid arguments',
@@ -68,7 +88,10 @@ export default {
   avatarCloneErrDuplicate: 'This avatar already exists',
   avatarCloneErrNotFound: 'Avatar not found',
   avatarCloneErrStore: 'Local storage is unavailable',
-  avatarCloneErrProvider: 'HeyGen is temporarily unavailable, please retry later',
+  // {name} is substituted with the current provider name by the call site
+  // (change: hifly-voice-subtitle-parity). It used to hardcode "HeyGen",
+  // which pointed users the wrong way after switching to Hifly.
+  avatarCloneErrProvider: '{name} is temporarily unavailable, please retry later',
   avatarCloneErrUnknown: 'Unknown error',
   avatarCloneNoticeTitle: 'About avatar and voice cloning',
   avatarCloneNoticeBody: 'Cloning uses your uploaded photo/video/audio to train your own digital human avatar and voice. Make sure you have permission from everyone shown or recorded, including yourself. You are responsible for any legal liability arising from using another person\'s likeness or voice.',

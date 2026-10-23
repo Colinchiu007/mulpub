@@ -40,11 +40,82 @@ const DEFAULT_TIMEOUT = 60000
 const AVATAR_KIND = '1'
 /** 音色列表 kind：官方 voice/list 示例值 */
 const VOICE_KIND = '1'
-/**
 /** 列表分页大小（飞影 size 上限 200，取 100 留余量） */
 const LIST_PAGE_SIZE = 100
 /** 翻页上限：防止服务端 total 异常时无限翻 */
 const MAX_LIST_PAGES = 20
+
+/**
+ * 字幕字段映射与校验（change: hifly-voice-subtitle-parity）。
+ *
+ * 官方 `create_by_tts` 的 9 个 st_* 字段（见官方文档「视频创作（文本驱动）」）：
+ *   st_show / st_font_name / st_font_size / st_primary_color / st_outline_color /
+ *   st_width / st_height / st_pos_x / st_pos_y
+ *
+ * 设计要点：
+ *  - **全部可选**：subtitle 缺省时返回 `{}`，让飞影用它自己的「默认不显示」语义；
+ *  - **给了就校验**：颜色必须是 `#rrggbb`、数值必须是有限整数。非法值抛错并把
+ *    字段名点出来——静默丢弃会让用户以为字幕生效了，结果成片没有；
+ *  - 纯函数抽出来是为了能脱离 adapter 单测（字段多、边界多）。
+ *
+ * @param {unknown} subtitle 上层传入的字幕配置
+ * @returns {Record<string, number|string>} 可直接 Object.assign 进请求体的 st_* 字段
+ */
+function buildSubtitleFields (subtitle) {
+  if (subtitle === undefined || subtitle === null) return {}
+  if (typeof subtitle !== 'object' || Array.isArray(subtitle)) {
+    throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'params.subtitle must be an object')
+  }
+
+  const out = {}
+  // st_show：只有显式给了布尔值才发。0/1 之外的值不接受（官方是 int 枚举）
+  if (subtitle.show !== undefined) {
+    if (typeof subtitle.show !== 'boolean') {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'subtitle.show must be a boolean')
+    }
+    out.st_show = subtitle.show ? 1 : 0
+  }
+
+  if (subtitle.fontName !== undefined) {
+    if (typeof subtitle.fontName !== 'string' || !subtitle.fontName.trim() || subtitle.fontName.length > 100) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'st_font_name must be a non-empty string (<=100 chars)')
+    }
+    out.st_font_name = subtitle.fontName.trim()
+  }
+
+  // 数值字段：有限整数，且不允许负数（坐标/宽高/字号都没有负值语义）
+  const numericFields = [
+    ['fontSize', 'st_font_size'],
+    ['width', 'st_width'],
+    ['height', 'st_height'],
+    ['posX', 'st_pos_x'],
+    ['posY', 'st_pos_y'],
+  ]
+  for (const [inputKey, apiKey] of numericFields) {
+    const value = subtitle[inputKey]
+    if (value === undefined) continue
+    if (!Number.isInteger(value) || value < 0) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, `${apiKey} must be a non-negative integer`)
+    }
+    out[apiKey] = value
+  }
+
+  // 颜色字段：#rrggbb（官方文档示例即此格式；不接受颜色名或 #rgb）
+  const colorFields = [
+    ['primaryColor', 'st_primary_color'],
+    ['outlineColor', 'st_outline_color'],
+  ]
+  for (const [inputKey, apiKey] of colorFields) {
+    const value = subtitle[inputKey]
+    if (value === undefined) continue
+    if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, `${apiKey} must be in #rrggbb form`)
+    }
+    out[apiKey] = value
+  }
+
+  return out
+}
 
 const HIFLY_MODELS = [
   { id: 'hifly', name: '飞影 HiFly', description: '飞影数字人视频生成' },
@@ -198,6 +269,10 @@ class HiFlyAdapter extends BaseAdapter {
     if (typeof params.title === 'string' && params.title.trim()) {
       body.title = params.title.trim()
     }
+    // 字幕参数（change: hifly-voice-subtitle-parity）：官方 9 个 st_* 字段。
+    // 全部为可选——缺省整个不发，让飞影用它自己的「默认不显示」语义；
+    // 一旦给了 subtitle 就逐字段校验，非法值直接拒（不猜、不静默丢弃）。
+    Object.assign(body, buildSubtitleFields(params.subtitle))
 
     const resp = await this._request('/video/create_by_tts', {
       method: 'POST',

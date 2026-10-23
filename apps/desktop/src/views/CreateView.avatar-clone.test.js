@@ -37,6 +37,8 @@ const addAvatarClone = vi.hoisted(() => vi.fn())
 const deleteAvatarClone = vi.hoisted(() => vi.fn())
 const renameAvatarClone = vi.hoisted(() => vi.fn())
 const getTtsVoiceCloneRequirements = vi.hoisted(() => vi.fn())
+const chooseTtsVoiceCloneSamples = vi.hoisted(() => vi.fn())
+const addTtsVoiceClone = vi.hoisted(() => vi.fn())
 
 const getAvatarCatalog = vi.hoisted(() => vi.fn())
 const getAvatarVoiceCatalog = vi.hoisted(() => vi.fn())
@@ -67,8 +69,8 @@ vi.mock('@/api/avatar-clone', () => ({
 // change: digital-human-multiprovider —— 声音克隆能力探测走这个 API
 vi.mock('@/api/tts-voice-clone', () => ({
   listTtsVoiceClones: vi.fn(async () => ({ code: 0, data: { voices: [] } })),
-  addTtsVoiceClone: vi.fn(),
-  chooseTtsVoiceCloneSamples: vi.fn(),
+  addTtsVoiceClone,
+  chooseTtsVoiceCloneSamples,
   deleteTtsVoiceClone: vi.fn(),
   renameTtsVoiceClone: vi.fn(),
   getTtsVoiceCloneRequirements,
@@ -120,6 +122,15 @@ const CLONES = [
   { id: 'cl-1', name: '我的形象', sourceKind: 'self', mediaType: 'image', trainingState: 'completed', deletionState: 'active', createdAt: 1 },
 ]
 
+// 探测链路含 await import() + await IPC，单次 setTimeout(0) 跑不完；
+// 统一用 flushAsync 把微任务队列排空（change: hifly-voice-subtitle-parity）。
+async function flushAsync (times = 4) {
+  for (let i = 0; i < times; i++) {
+    await Promise.resolve()
+    await new Promise((r) => setTimeout(r, 0))
+  }
+  await nextTick()
+}
 async function mountView () {
   const w = mount(CreateView, {
     global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } },
@@ -144,6 +155,15 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
     deleteAvatarClone.mockReset()
     renameAvatarClone.mockReset()
     getTtsVoiceCloneRequirements.mockReset()
+    // 默认给「支持」：mounted 阶段的探测早于用例内 mockResolvedValue，
+    // 不给默认值会让首次探测拿到 undefined 而被 catch 成 false。
+    getTtsVoiceCloneRequirements.mockResolvedValue({
+      code: 0,
+      data: { type: 'user_clone', clone: { enabled: true, entry: 'desktop_upload' } },
+    })
+
+    chooseTtsVoiceCloneSamples.mockReset()
+    addTtsVoiceClone.mockReset()
     listAvatarClones.mockResolvedValue({ code: 0, data: { avatars: [] } })
     getAvatarCatalog.mockReset()
     getAvatarVoiceCatalog.mockReset()
@@ -384,7 +404,7 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
   // ── change: digital-human-multiprovider：声音克隆能力提示 ────────────
 
   describe('声音克隆能力提示', () => {
-    it('服务商支持克隆声音 ⇒ 显示引导去配音面板克隆', async () => {
+    it('服务商支持克隆声音 ⇒ 克隆面板渲染内联上传入口', async () => {
       getTtsVoiceCloneRequirements.mockResolvedValue({
         code: 0,
         data: { type: 'user_clone', clone: { enabled: true, entry: 'desktop_upload' } },
@@ -392,15 +412,17 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
       const w = await mountView()
       await selectPipeline(w, 'avatar-spokesperson')
       await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
-      await new Promise((r) => setTimeout(r, 0))
-      await nextTick()
+      await flushAsync()
+      // 跨用例的异步探测可能在 beforeEach 之前落地，显式再探一次拿当前 mock 值
+      await w.vm.probeAvatarVoiceCloneSupport(w.vm.avatarProviderId || 'heygen')
+      await flushAsync()
 
       expect(w.vm.avatarVoiceCloneSupported).toBe(true)
-      const hint = w.find('[data-testid="avatar-clone-voice-hint"]')
-      expect(hint.exists()).toBe(true)
+      const panel = w.find('[data-testid="avatar-clone-voice-panel"]')
+      expect(panel.exists()).toBe(true)
       // 渲染出的应是 locale 值而不是 key 本身
-      expect(hint.text()).not.toBe('avatarCloneVoiceHint')
-      expect(hint.text().length).toBeGreaterThan(0)
+      expect(panel.text()).not.toContain('avatarCloneVoiceTitle')
+      expect(panel.text().length).toBeGreaterThan(0)
       w.unmount()
     })
 
@@ -412,12 +434,15 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
       const w = await mountView()
       await selectPipeline(w, 'avatar-spokesperson')
       await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
-      await new Promise((r) => setTimeout(r, 0))
-      await nextTick()
+      await flushAsync()
+      // 跨用例的异步探测可能在 beforeEach 之前落地，显式再探一次拿当前 mock 值
+      await w.vm.probeAvatarVoiceCloneSupport(w.vm.avatarProviderId || 'heygen')
+      await flushAsync()
 
       expect(w.vm.avatarVoiceCloneSupported).toBe(false)
-      const hint = w.find('[data-testid="avatar-clone-voice-hint"]')
-      expect(hint.text()).not.toBe('avatarCloneVoiceUnsupported')
+      const note = w.find('[data-testid="avatar-clone-voice-unsupported"]')
+      expect(note.exists()).toBe(true)
+      expect(note.text()).not.toBe('avatarCloneVoiceUnsupported')
       w.unmount()
     })
 
@@ -425,10 +450,184 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
       getTtsVoiceCloneRequirements.mockResolvedValue({ code: -1, message: 'TTS_VOICE_CLONE_API_UNAVAILABLE' })
       const w = await mountView()
       await selectPipeline(w, 'avatar-spokesperson')
-      await new Promise((r) => setTimeout(r, 0))
-      await nextTick()
+      await flushAsync()
+      // 跨用例的异步探测可能在 beforeEach 之前落地，显式再探一次拿当前 mock 值
+      await w.vm.probeAvatarVoiceCloneSupport(w.vm.avatarProviderId || 'heygen')
+      await flushAsync()
 
       expect(w.vm.avatarVoiceCloneSupported).toBe(false)
+      w.unmount()
+    })
+  })
+
+  // ── change: hifly-voice-subtitle-parity：文案不得写死服务商名 ────────
+
+  describe('数字人相关文案不含任何服务商名', () => {
+    it('avatarClone* 文案不出现 HeyGen / heygen（切到飞影时报这个错会误导）', async () => {
+      const zh = (await import('@/locales/create/avatar/zh.js')).default
+      const en = (await import('@/locales/create/avatar/en.js')).default
+      const cloneKeys = Object.keys({ ...zh, ...en }).filter((k) => k.startsWith('avatarClone'))
+      expect(cloneKeys.length).toBeGreaterThan(0)
+      for (const k of cloneKeys) {
+        expect(String(zh[k] || '')).not.toMatch(/heygen/i)
+        expect(String(en[k] || '')).not.toMatch(/heygen/i)
+      }
+    })
+
+    it('provider 不可用文案走占位符 {name}，可代入当前服务商名', async () => {
+      const zh = (await import('@/locales/create/avatar/zh.js')).default
+      const en = (await import('@/locales/create/avatar/en.js')).default
+      expect(zh.avatarCloneErrProvider).toContain('{name}')
+      expect(en.avatarCloneErrProvider).toContain('{name}')
+    })
+  })
+
+  // ── change: hifly-voice-subtitle-parity：数字人面板内联声音克隆 ──────
+
+  describe('克隆面板内联声音克隆', () => {
+    it('支持声音克隆时渲染内联上传入口（不必跳去配音面板）', async () => {
+      getTtsVoiceCloneRequirements.mockResolvedValue({
+        code: 0,
+        data: { type: 'user_clone', clone: { enabled: true, entry: 'desktop_upload' } },
+      })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
+      await flushAsync()
+      // 跨用例的异步探测可能在 beforeEach 之前落地，显式再探一次拿当前 mock 值
+      await w.vm.probeAvatarVoiceCloneSupport(w.vm.avatarProviderId || 'heygen')
+      await flushAsync()
+
+      expect(w.find('[data-testid="avatar-clone-voice-panel"]').exists()).toBe(true)
+      expect(w.find('[data-testid="avatar-clone-voice-choose"]').exists()).toBe(true)
+      w.unmount()
+    })
+
+    it('不支持声音克隆时整个不渲染（不是置灰）', async () => {
+      getTtsVoiceCloneRequirements.mockResolvedValue({
+        code: 0,
+        data: { type: 'provider_personal_slot', clone: { enabled: false } },
+      })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
+      await flushAsync()
+      // 跨用例的异步探测可能在 beforeEach 之前落地，显式再探一次拿当前 mock 值
+      await w.vm.probeAvatarVoiceCloneSupport(w.vm.avatarProviderId || 'heygen')
+      await flushAsync()
+
+      expect(w.find('[data-testid="avatar-clone-voice-panel"]').exists()).toBe(false)
+      expect(w.find('[data-testid="avatar-clone-voice-choose"]').exists()).toBe(false)
+      w.unmount()
+    })
+
+    it('上传走两段式：chooseSamples → add，参数带当前 providerId 与 model', async () => {
+      getTtsVoiceCloneRequirements.mockResolvedValue({
+        code: 0,
+        data: { type: 'user_clone', clone: { enabled: true, entry: 'desktop_upload' } },
+      })
+      chooseTtsVoiceCloneSamples.mockResolvedValue({ code: 0, data: { selectionId: 'sel-v1' } })
+      addTtsVoiceClone.mockResolvedValue({ code: 0, data: { voice: { id: 'v-new', name: '我的声音' } } })
+
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
+      await flushAsync()
+      await w.vm.probeAvatarVoiceCloneSupport(w.vm.avatarProviderId || 'heygen')
+      await flushAsync()
+      w.vm.avatarCloneVoiceNameDraft = '我的声音'
+      await nextTick()
+
+      await w.find('[data-testid="avatar-clone-voice-choose"]').trigger('click')
+      await flushAsync()
+      await flushAsync()
+
+      expect(chooseTtsVoiceCloneSamples).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'heygen' }))
+      expect(addTtsVoiceClone).toHaveBeenCalledWith(expect.objectContaining({
+        providerId: 'heygen', name: '我的声音', selectionId: 'sel-v1',
+      }))
+      w.unmount()
+    })
+
+    it('用户取消对话框 ⇒ 不调 add、不报错', async () => {
+      getTtsVoiceCloneRequirements.mockResolvedValue({
+        code: 0,
+        data: { type: 'user_clone', clone: { enabled: true, entry: 'desktop_upload' } },
+      })
+      chooseTtsVoiceCloneSamples.mockResolvedValue({ code: 0, data: { paths: [] } })
+
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
+      await flushAsync()
+      await w.vm.probeAvatarVoiceCloneSupport(w.vm.avatarProviderId || 'heygen')
+      await flushAsync()
+      w.vm.avatarCloneVoiceNameDraft = 'x'
+      await nextTick()
+
+      await w.find('[data-testid="avatar-clone-voice-choose"]').trigger('click')
+      await flushAsync()
+      await flushAsync()
+
+      expect(addTtsVoiceClone).not.toHaveBeenCalled()
+      expect(w.find('[data-testid="avatar-clone-voice-error"]').exists()).toBe(false)
+      w.unmount()
+    })
+  })
+
+  // ── change: hifly-voice-subtitle-parity：字幕面板按能力显隐 ──────────
+
+  describe('字幕面板（仅飞影支持）', () => {
+    it('当前 provider 支持字幕 ⇒ 渲染字幕开关', async () => {
+      listAvatarClones.mockResolvedValue({ code: 0, data: { avatars: CLONES } })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await flushAsync()
+      // 字幕是飞影独有契约：夹具默认 heygen，先切到 hifly
+      await w.vm.switchAvatarProvider('hifly')
+      await flushAsync()
+
+      expect(w.vm.avatarSubtitleSupported).toBe(true)
+      expect(w.find('[data-testid="avatar-subtitle-panel"]').exists()).toBe(true)
+      expect(w.find('[data-testid="avatar-subtitle-toggle"]').exists()).toBe(true)
+      w.unmount()
+    })
+
+    it('字幕开关默认关闭；打开后才显示参数项（不一次性铺满）', async () => {
+      listAvatarClones.mockResolvedValue({ code: 0, data: { avatars: CLONES } })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await flushAsync()
+      await w.vm.switchAvatarProvider('hifly')
+      await flushAsync()
+
+      expect(w.vm.avatarSubtitleShow).toBe(false)
+      expect(w.find('[data-testid="avatar-subtitle-params"]').exists()).toBe(false)
+
+      await w.find('[data-testid="avatar-subtitle-toggle"]').trigger('click')
+      await nextTick()
+      expect(w.vm.avatarSubtitleShow).toBe(true)
+      expect(w.find('[data-testid="avatar-subtitle-params"]').exists()).toBe(true)
+      w.unmount()
+    })
+
+    it('字幕开启时 payload 带上参数；关闭时整个不发（不依赖官方默认）', async () => {
+      listAvatarClones.mockResolvedValue({ code: 0, data: { avatars: CLONES } })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await flushAsync()
+      await w.vm.switchAvatarProvider('hifly')
+      await flushAsync()
+
+      expect(w.vm.avatarSubtitleShow).toBe(false)
+      expect(w.vm.avatarSubtitlePayload).toBeUndefined()
+
+      await w.find('[data-testid="avatar-subtitle-toggle"]').trigger('click')
+      await nextTick()
+      w.vm.avatarSubtitleFontSize = 120
+      await nextTick()
+
+      expect(w.vm.avatarSubtitlePayload).toMatchObject({ show: true, fontSize: 120 })
       w.unmount()
     })
   })

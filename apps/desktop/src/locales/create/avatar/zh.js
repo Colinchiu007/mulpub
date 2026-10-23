@@ -59,6 +59,24 @@ export default {
   // 与形象克隆是两条独立链路；这里只负责告知用户「本服务商支持自己的声音」。
   avatarCloneVoiceHint: '本服务商还支持克隆你自己的声音：在下方「数字人音色」旁的「音色复制 / 克隆」里上传录音即可，克隆成功后即可在此选择。',
   avatarCloneVoiceUnsupported: '当前服务商不支持克隆声音，只能使用它提供的现成音色。',
+  // 声音克隆内联区（change: hifly-voice-subtitle-parity）：入口从配音面板
+  // 收敛到数字人面板，provider/model 由当前数字人服务商决定、不给用户选。
+  avatarCloneVoiceTitle: '克隆我的声音',
+  avatarCloneVoiceHintInline: '上传一段录音即可克隆出你自己的声音，克隆成功后可在上方「数字人音色」中选择。',
+  avatarCloneVoiceNamePlaceholder: '音色名称',
+  avatarCloneVoiceChoose: '选择本地录音文件',
+  avatarCloneVoiceCreated: '已创建音色「{name}」，可在上方「数字人音色」中选择',
+  // 字幕（change: hifly-voice-subtitle-parity）：仅飞影支持（官方 create_by_tts 的
+  // st_* 字段族）；HeyGen 无对应契约，故面板对不支持的 provider 整个不渲染。
+  avatarSubtitleShow: '添加字幕',
+  avatarSubtitleHide: '收起字幕设置',
+  avatarSubtitleHint: '开启后会在成片上烧录字幕，样式即时生效，无需重新生成形象。',
+  avatarSubtitleFontName: '字体',
+  avatarSubtitleFontNamePlaceholder: '留空使用服务商默认字体',
+  avatarSubtitleFontSize: '字号',
+  avatarSubtitlePrimaryColor: '文字颜色',
+  avatarSubtitleOutlineColor: '描边颜色',
+  avatarSubtitleAdvancedNote: '字幕位置与区域大小使用服务商默认值，暂不在应用内调整。',
   avatarCloneCreating: '正在创建克隆形象…',
   avatarCloneChooseMedia: '选择{media}',
   avatarCloneErrInvalidArgs: '参数不合法',
@@ -68,7 +86,9 @@ export default {
   avatarCloneErrDuplicate: '该形象已存在',
   avatarCloneErrNotFound: '形象不存在',
   avatarCloneErrStore: '本地存储不可用',
-  avatarCloneErrProvider: 'HeyGen 暂时不可用，请稍后重试',
+  // {name} 由调用点代入当前数字人服务商名（change: hifly-voice-subtitle-parity）。
+  // 此前写死「HeyGen」——切到飞影后报这个错会把人指错方向。
+  avatarCloneErrProvider: '{name}暂时不可用，请稍后重试',
   avatarCloneErrUnknown: '未知错误',
   avatarCloneNoticeTitle: '关于克隆形象与声音',
   avatarCloneNoticeBody: '克隆功能会把上传的照片/视频/录音用于训练你自己的数字人形象与音色。请确认你已获得其中人物（包括你自己）的授权；使用他人肖像或声音产生的法律责任由使用者承担。',

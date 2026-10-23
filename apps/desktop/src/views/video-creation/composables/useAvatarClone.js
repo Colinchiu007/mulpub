@@ -7,6 +7,12 @@
  *
  * 素材刻意走两段式（chooseMedia → add）：renderer 不直接传路径或字节，
  * 路径只能由主进程对话框产生（与 tts-voice-clone 同型的安全边界）。
+ *
+ * change: hifly-voice-subtitle-parity —— 本 composable 也管**声音**克隆的最小闭环
+ * （createVoiceClone）。形象与声音共用一套「两段式 + 竞态守卫 + 错误映射」，
+ * 但状态字段分开（voiceCreating / voiceCreateError / voiceCreatedName）：
+ * 两者可并行操作，共用一个 creating 会让「上传照片时不能同时上传录音」这种
+ * 假约束出现。
  */
 import { ref, computed } from 'vue'
 import {
@@ -16,6 +22,10 @@ import {
   deleteAvatarClone,
   renameAvatarClone,
 } from '@/api/avatar-clone'
+import {
+  chooseTtsVoiceCloneSamples,
+  addTtsVoiceClone,
+} from '@/api/tts-voice-clone'
 
 const clones = ref([])
 const loading = ref(false)
@@ -25,8 +35,13 @@ const noticeAcknowledged = ref(false)
 /** 正在创建中的 selectionId（用于禁用重复提交） */
 const creating = ref(false)
 const createError = ref('')
+/** 声音克隆区状态（与形象克隆分开，两者可并行） */
+const voiceCreating = ref(false)
+const voiceCreateError = ref('')
+const voiceCreatedName = ref('')
 let requestId = 0
 let loadRequestId = 0
+let voiceRequestId = 0
 
 function reset () {
   clones.value = []
@@ -34,6 +49,10 @@ function reset () {
   error.value = ''
   creating.value = false
   createError.value = ''
+  // 声音克隆状态一并复位：切换服务商时上一条的错误/成功提示不该留着
+  voiceCreating.value = false
+  voiceCreateError.value = ''
+  voiceCreatedName.value = ''
 }
 
 /**
@@ -177,6 +196,74 @@ async function renameAvatarCloneById (avatarId, name) {
   return { success: false, message: friendlyError(result && result.message) }
 }
 
+/**
+ * 创建克隆声音（change: hifly-voice-subtitle-parity）。
+ *
+ * 复用 tts-voice-clone 的 IPC 与 service——那条链早已完全 provider 化，
+ * 这里只做「按当前数字人 provider 填 providerId/model」的适配，
+ * 不另起一套样本存储（否则会有两份目录、两套 TTL、两套清理）。
+ *
+ * 两段式与形象克隆同型：先弹主进程对话框选录音，再按 selectionId 创建。
+ * renderer 始终不碰文件路径或字节。
+ *
+ * @param {object} input
+ * @param {string} input.name 音色名
+ * @param {string} input.providerId 当前数字人服务商
+ * @param {string} [input.model] 缺省 `<providerId>-video`
+ * @returns {Promise<{success: boolean, canceled?: boolean}>}
+ */
+async function createVoiceClone (input) {
+  const my = ++voiceRequestId
+  voiceCreating.value = true
+  voiceCreateError.value = ''
+  voiceCreatedName.value = ''
+  try {
+    const providerId = String((input && input.providerId) || '').trim()
+    if (!providerId) {
+      voiceCreateError.value = 'avatarCloneErrProvider'
+      return { success: false }
+    }
+    const name = String((input && input.name) || '').trim()
+    if (!name) {
+      voiceCreateError.value = 'avatarCloneErrInvalidArgs'
+      return { success: false }
+    }
+    const model = (input && input.model) || `${providerId}-video`
+
+    const chosen = await chooseTtsVoiceCloneSamples({ providerId, model })
+    if (my !== voiceRequestId) return { success: false, canceled: true }
+    if (!chosen || chosen.code !== 0) {
+      voiceCreateError.value = friendlyError(chosen && chosen.message)
+      return { success: false }
+    }
+    // 用户取消对话框：paths 为空，不是错误
+    if (chosen.data && Array.isArray(chosen.data.paths) && chosen.data.paths.length === 0) {
+      return { success: false, canceled: true }
+    }
+    const selectionId = chosen.data && chosen.data.selectionId
+    if (!selectionId) {
+      voiceCreateError.value = friendlyError(chosen && chosen.message)
+      return { success: false }
+    }
+
+    const added = await addTtsVoiceClone({ providerId, model, name, selectionId })
+    if (my !== voiceRequestId) return { success: false, canceled: true }
+    if (added && added.code === 0) {
+      const created = added.data && added.data.voice
+      voiceCreatedName.value = (created && created.name) || name
+      return { success: true, voice: created }
+    }
+    voiceCreateError.value = friendlyError(added && added.message)
+    return { success: false }
+  } catch (e) {
+    if (my !== voiceRequestId) return { success: false, canceled: true }
+    voiceCreateError.value = friendlyError(e && e.message)
+    return { success: false }
+  } finally {
+    if (my === voiceRequestId) voiceCreating.value = false
+  }
+}
+
 /** 可用（非失效）的克隆形象——供三要素下拉合并使用 */
 const usableClones = computed(() => clones.value.filter((a) => !a.invalidReason && a.trainingState !== 'failed'))
 
@@ -217,6 +304,9 @@ export const avatarCloneRefs = {
   createError,
   creating,
   noticeAcknowledged,
+  voiceCreating,
+  voiceCreateError,
+  voiceCreatedName,
 }
 
 export const avatarCloneComputeds = {
@@ -227,6 +317,7 @@ export const avatarCloneComputeds = {
 export const avatarCloneMethods = {
   loadAvatarClones,
   createAvatarClone,
+  createVoiceClone,
   removeAvatarClone,
   renameAvatarCloneById,
   invalidReasonKey,
