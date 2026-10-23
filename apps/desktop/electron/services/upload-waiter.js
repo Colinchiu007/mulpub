@@ -105,6 +105,12 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       if (this._probeTextLenLogged !== true) {
         this._probeTextLenLogged = true
         log.info('RpaView', '[' + platform + '] upload probe textLen=' + signal.textLen + ' (innerText||textContent)')
+      // 2026-10-23 真机：两次上传都停在 textLen=125 且无任何进展 ⇒ 需要内容级证据
+      // （文本片段 + video 元素数 + file.files 总数），才能区分「上传失败/文件没设进去/页面无反应」。
+      try {
+        const snip = await win.webContents.executeJavaScript('(function(){var t=(document.body&&(document.body.innerText||document.body.textContent))||"";var v=document.querySelectorAll("video").length;var f=document.querySelectorAll("input[type=file]");var n=0;for(var i=0;i<f.length;i++){n+=((f[i].files)||[]).length}return {s:String(t).slice(0,120),v:v,f:n}})()', true)
+        log.info('RpaView', '[' + platform + '] upload probe detail=' + JSON.stringify(snip))
+      } catch (_e) { /* 诊断失败不影响主流程 */ }
       }
       // 超时可见化：否则「探测一直不返回」与「页面一直没完成」在日志上完全同形。
       if (signal.probeTimedOut) {
