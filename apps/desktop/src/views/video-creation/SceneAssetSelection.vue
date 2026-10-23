@@ -63,7 +63,7 @@
                 </svg>
               </span>
             </span>
-            <video
+            <video role="button" tabindex="0" @keydown.enter.prevent="openPreview(scene, candidate)" @keydown.space.prevent="openPreview(scene, candidate)"
               v-else-if="candidate.kind === 'video' && urls[candidate.path]"
               class="sas-thumb sas-thumb-video"
               :src="urls[candidate.path]"

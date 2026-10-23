@@ -143,7 +143,7 @@
           <span class="toggle-icon">{{ showEventList ? '▼' : '▶' }}</span>
         </h3>
         <div v-if="showEventList" class="event-list">
-          <div
+          <div role="button" tabindex="0" @keydown.enter.prevent="jumpTo(i)" @keydown.space.prevent="jumpTo(i)"
             v-for="(evt, i) in events"
             :key="evt.id"
             class="event-row"

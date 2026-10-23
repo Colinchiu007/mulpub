@@ -1,5 +1,5 @@
 <template>
-  <div class="project-card" :class="'status-' + statusClass" @click="handleClick">
+  <div role="button" tabindex="0" @keydown.enter.prevent="handleClick" @keydown.space.prevent="handleClick" class="project-card" :class="'status-' + statusClass" @click="handleClick">
     <div class="project-card-thumb">
       <img v-if="project.thumbnail" :src="project.thumbnail" :alt="project.name" />
       <span v-else class="thumb-placeholder"><el-icon><VideoCamera /></el-icon></span>

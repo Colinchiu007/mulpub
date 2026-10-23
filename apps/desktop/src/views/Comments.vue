@@ -11,7 +11,7 @@
     <div style="flex:1;display:flex;overflow:hidden">
       <!-- 左侧平台列表 -->
       <aside style="width:200px;flex-shrink:0;border-right:1px solid var(--border,var(--border));background:var(--canvas,var(--bg));overflow-y:auto">
-        <div
+        <div role="button" tabindex="0" @keydown.enter.prevent="openPlatform(p)" @keydown.space.prevent="openPlatform(p)"
           v-for="p in platforms"
           :key="p.id"
           class="comment-platform-item"

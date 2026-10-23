@@ -49,7 +49,7 @@
 
         <!-- Takes 缩略图 -->
         <div v-if="scene.takes && scene.takes.length > 0" class="takes-grid">
-          <div
+          <div role="button" tabindex="0" @keydown.enter.prevent="selectTake(scene.id, take.id)" @keydown.space.prevent="selectTake(scene.id, take.id)"
             v-for="take in scene.takes"
             :key="take.id"
             class="take-card"
