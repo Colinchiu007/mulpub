@@ -537,7 +537,16 @@ const platformsMixin = {
                   win.webContents.sendInputEvent({ type: 'mouseDown', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
                   await this._sleep(60)
                   win.webContents.sendInputEvent({ type: 'mouseUp', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
+                  // click-probe：在页面挂捕获型监听，验证坐标点击是否真的落到文档上
+                  try {
+                    await win.webContents.executeJavaScript('window.__mpClickLog=[];if(!window.__mpClickHooked){window.__mpClickHooked=1;document.addEventListener("click",function(e){try{window.__mpClickLog.push(String((e.target&&e.target.tagName)||"")+"|"+String((e.target&&e.target.innerText)||"").slice(0,12))}catch(_){}},true)}', true)
+                  } catch (_eP0) {}
                   log.info('RpaView', '[tencent_video] native click dispatched at ' + _rc.x + ',' + _rc.y)
+                  await this._sleep(600)
+                  try {
+                    const _cl = await win.webContents.executeJavaScript('JSON.stringify(window.__mpClickLog||[])', true)
+                    log.info('RpaView', '[tencent_video] click-probe: ' + String(_cl).slice(0, 200))
+                  } catch (_eP1) {}
                   // cdp-publish-click：sendInputEvent 用窗口坐标，getBoundingClientRect 用视口坐标；
                   // BrowserView 有偏移时两者不等价 ⇒ 再用 CDP（视口坐标）点一次。
                   try {
