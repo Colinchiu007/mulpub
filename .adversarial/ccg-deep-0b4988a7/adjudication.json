@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "critiqueFingerprint": "a83578ab4b33ece5",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "finding": "wiring 测试对两处点位共用断言 `:href=\"safeHttpUrl\\(`，但 PublishHistory 的 detail-link 锚点 href 是 `publicLinkHref(selectedRecord)`（与 @click 传参同源），正则不匹配该锚点，与记录的 8/8 绿矛盾；若模板实为双重 sanitize 亦需说明。",
+      "highRiskDomains": [],
+      "prosecution": "接线锁对 PublishHistory 锚点的 :href 断言写死 safeHttpUrl( 开头，而该锚点实际是 :href=\"safeHttpUrl(publicLinkHref(selectedRecord))\"，多包一层函数；若正则只匹配字面前缀，该点位的形状断言会失明，与「8/8 绿」矛盾。",
+      "defense": "实测否证：用与测试同款正则在该锚点上逐条跑，五条断言（href/click/blank/noopener/no-prevent）全部真实通过——正则写的是 :href\\s*=\\s*\"safeHttpUrl\\(（不要求括号后紧跟 result.url），safeHttpUrl(publicLinkHref(...)) 同样命中。锚点 v-if 与 :href 同源取 safeHttpUrl(publicLinkHref(selectedRecord))，也符合 href-scheme-contract 的「同判据」锁。",
+      "verdict": "dismissed",
+      "rationale": "指控前提（只匹配字面前缀导致失明）与实现相反，实测五条断言全命中，驳回。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "finding": "handleLinkClick 在 preventDefault 后 `await openInAppTab(safe)` 无 try/catch，且 openInAppTab 入口的 safeHttpUrl 也在 try 外；任一意外抛错 ⇒ promise 拒绝，无默认、无应用内、无降级，静默死点击，违背自身口径 4。",
+      "highRiskDomains": [],
+      "prosecution": "handleLinkClick 里 await openInAppTab(safe) 不在 try 内，且 openInAppTab 自身的 safeHttpUrl 也在 try 外；任一意外抛错会导致 promise 拒绝：无默认、无应用内、无降级，静默死点击，违背自身「绝不静默失败」口径。",
+      "defense": "指控成立。既有测试只覆盖 createTab reject / 返回 null 两类已预期失败，未覆盖「未预期抛错」——而这正是 PRD §3.4 承诺要覆盖的第四类失败点，实现漏了。",
+      "verdict": "upheld",
+      "rationale": "属实，需修：把 openInAppTab 整体纳入 try/catch，任何意外抛错都走降级路径。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": ".ccg/reviews/8e9109a55…json 的 sha 是基线提交而非 head 0b4988a70；changedLines 383 与提案头 648 行对不上；deepReview.status=pending 而 openspec 各门禁已标 ✅，审计链自相矛盾。",
+      "highRiskDomains": [],
+      "prosecution": ".ccg/reviews/8e9109a55…json 的 sha 是基线提交而非 head 0b4988a70；changedLines 383 与提案头 648 行对不上；deepReview.status=pending 与执行记录各门禁已通过矛盾。",
+      "defense": "该文件是 pre-commit 的 ccg-gate 判定器在提交时生成的（判定器写在父 sha 上是本仓已知行为：提交时新 commit 尚未生成，hook 注释明写）。它记录的是 pre-commit 时的门禁判定，不是本 PR 的深度评审产物；深度评审产物在 .adversarial/ccg-deep-0b4988a7/（sha 与 head 一致）。changedLines 383 是判定器口径，与提案头 648 行（diff shortstat 增删合计）不是同一口径。deepReview.status=pending 指该判定记录尚未被 deep-review 消费，不是执行记录的门禁状态。",
+      "verdict": "dismissed",
+      "rationale": "三个「矛盾」都是把不同用途、不同口径的产物互相比对；各自单独看都自洽。驳回，但在 PR 正文注明两份产物分工以免误读。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "openInAppTab 公开导出但契约是失败返回 false 且无降级，只有 handleLinkClick 接 window.open 兜底；将来直接调用 openInAppTab 的代码会静默失败（点开无反应）。",
+      "highRiskDomains": [],
+      "prosecution": "openInAppTab 公开导出，但其契约是「失败返回 false 且无降级」；降级只在 handleLinkClick 里。将来直接调用 openInAppTab 的代码会静默失败（点开无反应）。",
+      "defense": "指控成立。导出面设计不一致：一个叫 openInAppTab 的函数失败了什么都不做，调用方很难想到还得自己兜底。",
+      "verdict": "upheld",
+      "rationale": "属实，需修：让 openInAppTab 自己走降级，使「失败也一定打开」成为单一函数的不变式。"
+    }
+  ]
+}

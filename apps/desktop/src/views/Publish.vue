@@ -618,7 +618,7 @@
               {{ t('publishPage.scheduleViewHistory') }}
             </UiButton>
             <div v-if="result.url" class="result-link-row">
-              <a v-if="safeHttpUrl(result.url)" :href="safeHttpUrl(result.url)" target="_blank" rel="noopener" class="result-link">{{ t('publishPage.viewArticle') }}</a>
+              <a v-if="safeHttpUrl(result.url)" :href="safeHttpUrl(result.url)" target="_blank" rel="noopener" class="result-link" data-testid="result-link" @click="openArticleLinkInApp($event, result.url)">{{ t('publishPage.viewArticle') }}</a>
               <span v-else class="result-link">{{ result.url }}</span>
               <button @click="copyUrl(result.url)" class="copy-url-button" :class="{ 'is-copied': copied }">
                 {{ copied ? t('publishPage.copied') : t('publishPage.copyLink') }}
@@ -704,6 +704,7 @@ import { usePublishTitleLimit, usePublishVideoTitleHint } from '@/composables/us
 import { ref, reactive, computed, onMounted, onActivated, onBeforeUnmount, watch } from 'vue'
 import { safeHttpUrl } from '@multi-publish/shared-utils/src/safe-http-url'
 import { getApi } from '@/api/electron-bridge'
+import { useInAppLink } from '@/composables/useInAppLink'
 import { useNotify } from '@/composables/useNotify'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -1260,7 +1261,7 @@ const {
 })
 
 const { copyDetailMeta, showCopyDetailBanner, applyCopyDetailHandoff, syncCopyDetailToLibrary, handleCreateVideo, onSaveDraft } = useCopyDetailMode({ article, activeMode, route, t, notifyInfo, saveDraft, router })
-
+const { handleLinkClick: openArticleLinkInApp } = useInAppLink()
 const precheckEnabled = ref(false)
 
 const {
