@@ -11071,6 +11071,25 @@ platforms:
 - `model-provider-*` 测试：英文括号注释移除、errorCode 断言；
 - 受影响视图/composable 测试：技术文本不直出、自然语言透传。
 
+**7. 调用点统一口径 `userFacingErrorMessage`（2026-10-21 新增，UX 审计 3.8 / ux-audit-knowledge-error-classify）**
+
+> 上一节的第 4 步「未知错误」在 `matched='passthrough'` 时会**原样透出**自然语言原文，在 `matched='fallback'` 时给通用「操作失败，请稍后重试」。
+> 这两个出口对「调用点自带页面专属文案」的场景都是**负收益**：前者把技术串交给用户，后者把「草稿加载失败」换成信息量更低的「操作失败」。
+> 因此调用点不得直接取 `formatUserError(x).message`，必须经 `userFacingErrorMessage`。
+
+| 项 | 规则 |
+|----|------|
+| 单一实现 | `apps/desktop/src/utils/user-facing-error.js` 的 `userFacingErrorMessage(input, fallback)`，`fallback` 可为字符串或**惰性函数**（`(() => t('key'))`，避免每次调用都做一次 i18n 查表）；禁止在调用点各抄一份判断 |
+| 采纳条件 | 仅当 `matched ∈ {errorCode, code, pattern}`（= 真的认出来了）才采用分类文案；`matched ∈ {fallback, passthrough}` 一律**退回调用方兜底** |
+| 输入资格 | `input` 可为 IPC 返回对象（`{errorCode}` / `{code}` / `{message}`）、`Error` 实例、字符串、`null`/`undefined`；后两者不得抛错，直接走兜底 |
+| 显示项 | 轻提示（ElMessage.error）正文 = 采纳的分类文案或页面兜底文案；**不得**出现 `ECONNREFUSED`、`127.0.0.1:8000`、`Command failed:`、堆栈行、内部路径 |
+| 交互逻辑 | 失败提示仍走各页面既有的「toast + 页面内错误行」，本口径只改**取文案**这一步，不改触发时机、不改按钮、不改是否自动消失 |
+| 数据校验 | 判据是**枚举匹配**而非「message 非空」：`fallback`/`passthrough` 两档的 `message` 同样非空，用非空判据会把技术串放行 |
+| 收敛存量 | 本刀收敛 9 处：`PatternAnalysisPanel.vue` 1、`PersonalKnowledgePanel.vue` 1、`ViralLibraryTable.vue` 1、`KnowledgeBasePage.vue` 1、`PublishFrequencySettings.vue` 4、`PerformanceInsights.vue` 1；收敛后 `ElMessage.*((res|e) && (res|e).message) \|\| t(..)` 在渲染端源码内**存量为 0** |
+| 未收敛存量（已知欠账，逐条待产品裁决） | `notify.error(String((e && e.message) || e))` 形态 3 处（`useCollectionBatchPublish.js`，兜底是异常对象本身而非 locale 键）；`error.value = (res && res.message) \|\| t(...)` 一类**页面内错误行**（非 toast）另有若干处，需先定「错误行是否也一律经分类器」再统一收敛 |
+
+**回归测试（第 7 节）**：`src/utils/user-facing-error.call-site.test.js`（11 例）—— ① 技术串不透出；② `passthrough` 时保留页面专属兜底（前提自证：先断言分类器确实产出 `passthrough`）；③ 已知 `errorCode` 走分类文案、空输入走兜底不抛错；④ 逐个点名 6 个文件的「已走 `userFacingErrorMessage` + 不含禁形态」；⑤ 全域棘轮「禁形态存量为 0」，并配**扫描域非空 + 域内 `ElMessage.error(` 命中数下界**两条反失明断言（否则「零命中」可能只是探针没读到文件）。四道变异（M1 调用点退回禁形态 / M2 拆掉分类门 / M3 在未点名文件回潮 / M4 掏空扫描域）逐条指名红、红集互不相同，跑完文件 md5 回原值。
+
 #### 多语言内容同步机制（2026-08-13 新增，i18n-content-sync）
 
 > 独立设计文档：`01-docs/i18n-sync-mechanism.md`；OpenSpec change：`openspec/changes/i18n-content-sync/`（proposal / spec / design / tasks）。
