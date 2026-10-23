@@ -1,0 +1,61 @@
+{
+  "sha": "05597f42e126aea057d0102f9b6057cc1378bfc4",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 4,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "> 动因与授权见 change 末尾「授权与顺序」，实现从 tasks §1 起。",
+      "## 授权与顺序",
+      "  不得假设能行——本 change 依赖它，而它是仓外制品（改动需人工授权，先例：`verificationSeverityVerdict` 那一刀）。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e14cb13fad0ae81f7a0e4cb3a3c03e6daa628e4b6d143f31c5db2cfcd9b1e70c",
+  "decidedAt": "2026-10-23T02:13:10.523Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
