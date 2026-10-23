@@ -8,7 +8,7 @@ date: 2026-10-19
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 运行时代码（`apps/desktop/electron/services/cover-cropper.js`、`packages/shared-utils/src/image-size.js` 及两份测试）⇒ 隔离 worktree `D:/Data/projects/mp-worktrees/mp-cover-crop-license-bugs`、裸分支 `cover-crop-license-bugs`（`session-init.sh` 创建，`rev-parse --abbrev-ref HEAD` 实证）；依赖就绪 `verify-worktree-deps` 11 项通过 |
+| 变更类型与隔离 | ✅ | 运行时代码（`apps/desktop/electron/services/cover-cropper.js`、`packages/shared-utils/src/image-size.js` 及两份测试）⇒ 隔离 worktree `<仓库父目录>/mp-worktrees/mp-cover-crop-license-bugs`、裸分支 `cover-crop-license-bugs`（`session-init.sh` 创建，`rev-parse --abbrev-ref HEAD` 实证）；依赖就绪 `verify-worktree-deps` 11 项通过 |
 | 第一性原因（QM-5 ①） | ✅ | 引入点 `f9d1343bd`（PR #1174，2026-08-27）。`readImageAsDataUrl()` 成功分支只返回 `{dataUrl,sizeBytes}`，**从未返回 width/height**，而 `cropImageFile()` 把 `read.width/read.height` 喂给 `normalizeRect()` ⇒ `Number(undefined)||0=0` ⇒ 恒「图片尺寸无效」。同链第二处缺陷：`pickJpegQuality` 是同步函数而真实编码器返回 Promise（`promise.length` undefined ⇒ 二分退到底 ⇒ `writeFileSync(Promise)` 抛 `ERR_INVALID_ARG_TYPE`），被第一处挡在下游从未显形。归因取证：`git log --diff-filter=A` 唯一命中 #1174；`git log -S'width: size.width'` 零命中 ⇒ **原发缺陷不是回归** |
 | 逃逸分析（QM-5 ②） | ✅ | ①单元层：`normalizeRect` 的宽高是**测试自己传的 1920/1080**，A→B 那条缝没有任何用例穿过；②`cropImageFile` 只测「文件不存在」早退分支；③`pickJpegQuality` 三条夹具一律返回 Buffer ⇒ 对 Promise 契约结构性免疫；④视觉层：失败路径没有可断言的画面变化；⑤审查层：字段同名、签名对得上，人眼看不出接缝为空 |
 | 系统性漏洞（QM-5 ③） | ✅ | 测试场景缺失 + **夹具类型与真实类型不同形**。落点 `cover-cropper.test.js` 缺三类锁：接缝数据锁 / Promise 编码器行为锁 / 本 realm 测不到处的接线守卫 |
@@ -31,3 +31,14 @@ date: 2026-10-19
    重新落盘。并发会话写同一键时写的是同一批字节，属可接受。
 3. **不改 `normalizeRect` 的判据形状**：它的 `图片尺寸无效` 分支语义本身是对的（调用方传了非正尺寸就该拒），
    错的是上游没把尺寸交出去。修上游而不是放宽下游。
+
+## 补记：rebase 吞提交导致的两处回退已修回（2026-10-23）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 现象 | ✅ | 本 PR rebase 到最新 `origin/main` 后，CI 的 `QG Changes` 红在 `[no-brand-residue] FAIL：发现 1 处品牌残留`，点名 `01-docs/BUGFIX-COVER-CROP-SIZE-SEAM-2026-10-19.md` |
+| 第一性原因（QM-5 ①） | ✅ | 本分支的第 2 个提交 `78e757fa4`（115 文件，既含主干内容也含「按 Gate 12/12c 去掉品牌字面与本机绝对路径」这次修复）在 rebase 重放时**被判定为已应用而跳过** ⇒ 品牌字面与本机绝对路径两处修复一并丢失 |
+| 逃逸分析（QM-5 ②） | ✅ | 这类回退在**门禁层**可见、在**提交层**不可见：rebase 本身报「成功」，但被跳过的提交携带的唯一修复（不在主干里的那两行）就消失了 ⇒ 只能靠门禁或逐 blob 比对发现 |
+| 修复（QM-5 ③④） | ✅ | 把 `78e757fa4` 相对本分支旧 tip（`8a7b6c3d`）的**独有内容**逐行补回：① 文档引用原提交主题处改回中性称谓（品牌字面）；② 执行记录里的本机绝对路径 `D:/Data/projects/mp-worktrees/mp-cover-crop-license-bugs` 改回占位符。两文件与旧 tip 逐 blob 相同（`git diff 8a7b6c3d -- <两文件>` = 0 行差异） |
+| 回归保护（QM-5 ④） | ✅ | 本机实跑 `node scripts/check-no-brand-residue.js` → **PASS（rc=0，扫描 12196 个 tracked 文件）**；`node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD` → **PASS（rc=0）** |
+| 防止再次发生（QM-5 ⑤） | ✅ | rebase 后必须做**逐 blob 对账**（旧 tip vs 新 tip，限 PR 自己的文件），不能只看 rebase 的 rc 与「无冲突」提示——rebase 报成功与内容完整是两件事 |

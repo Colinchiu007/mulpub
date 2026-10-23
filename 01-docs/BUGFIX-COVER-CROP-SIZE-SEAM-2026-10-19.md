@@ -1,6 +1,6 @@
 # BUGFIX：封面裁剪自 #1174 起从未可用（cover:crop 恒返回「图片尺寸无效」）
 
-日期：2026-10-19 ｜ 分支：`cover-crop-license-bugs` ｜ 引入点：`f9d1343bd`（PR #1174，2026-08-27，`feat(yixiaoer-ue): 封面裁剪 Phase A`）
+日期：2026-10-19 ｜ 分支：`cover-crop-license-bugs` ｜ 引入点：`f9d1343bd`（PR #1174，2026-08-27，"封面裁剪 Phase A"——原提交主题含参考产品名，按 Gate 12 口径此处只写中性称谓，取证一律以 commit SHA 与 PR 号为准）
 存续 **53 天**。归因取证：`git log --diff-filter=A -- apps/desktop/electron/services/cover-cropper.js` 只有一条 `f9d1343bd`；
 `git log -S'width: size.width' -- 同一文件` **零命中** ⇒ 该函数**从来没有**返回过宽高，这不是回归（regression），是**原发缺陷**。
 
