@@ -1,3 +1,347 @@
+# fix(gate): QM-6 入口夹具漏抄新模块导致 Gate 2b11 对所有 PR 转红（fix-qm6-entry-fixture-closure）
+
+- 修一处**与改动无关却让所有 PR 变红**的断链：#4093 给 QM-6 写回入口加了新依赖
+  `scripts/lib/exec-record-statuses.js`，但没把新文件抄进该门禁的测试临时仓 ⇒
+  入口一加载就抛「找不到模块」，该门禁的 6 条用例同形失败。已补齐夹具的 require 闭包。
+- 顺带补上审计路径的懒依赖，让闭包真正完整。
+- **加一条机械守卫**：被复制进临时仓的脚本，其本地依赖若没进复制清单，当场变红并指名缺哪个模块 ——
+  把「加了 require 记得同步清单」从靠自觉变成拦得住。已做变异验证：删掉一行清单即变红。
+- 这类红的形态值得记住：**本机跑是绿的**（真仓里那个模块存在），只有夹具把它排除时才崩，
+  所以本机复现不出来；而门禁在每个 PR 上都跑 ⇒ 红在所有 PR 头上，与谁改了什么无关。
+# docs(openspec): 归档 ccg-decider-merge-skip 并同步主规格 ccg-review-decider（ccg-decider-merge-skip-archive）
+
+- 把已合并的 `ccg-decider-merge-skip` change 归档进 `openspec/changes/archive/2026-10-23-ccg-decider-merge-skip/`，并新增主规格 `openspec/specs/ccg-review-decider/spec.md`（5 Requirement / 10 Scenario）。
+- 归档时补齐了 delta 与实现之间两处漂移：第 4 条 Requirement 缺 Scenario（此前 `openspec validate --strict` 判不合法）、第 5 条「探测失明与『真的不在合并中』分开」整条未进规格（实现与 T9 早已合入）。
+- 能力目录从 change slug 改名为语义名 `ccg-review-decider`，避免 `openspec/specs/` 出现以变更命名的能力。
+# feat(video): 数字人支持多服务商切换，并接入飞影 HiFly（digital-human-multiprovider）
+
+- 「数字人口播」流水线新增「数字人服务商」下拉：已配置 HeyGen 与飞影 HiFly 两家时可在两者间切换，切换后自动重拉形象、音色与克隆列表，并清空已选形象/音色（避免误选另一家资源）。只配置了一家时下拉禁用并提示如何去添加。
+- 新增飞影 HiFly 数字人 adapter，覆盖视频生成、任务查询、形象/音色列表、形象与声音克隆、素材上传全链路；形象与音色列表的分页在 adapter 内消化，上层仍拿全量数组。
+- 克隆形象改为按服务商隔离存放：在 HeyGen 克隆的形象不会出现在飞影的下拉里，反之亦然；切换服务商不影响另一家已创建的克隆形象。
+- 修正数字人 provider 的解析方式：此前 provider 名在两处硬编码为 HeyGen，现在统一按 `digital_human` 能力解析，新增第三家只需在种子数据里声明能力并写一个 adapter。
+# feat(视频创作): AI 讲解视频流水线可零凭据端到端复跑，并修掉「默认音色下成片完全没旁白」等四处缺陷（explainer-cdp-e2e）
+
+- fix(视频创作): **默认音色下成片完全没有旁白**。用默认音色且没配 TTS 服务商时（走内置的免 Key 语音合成），edge-tts 会收到 `'default'` 这个占位串当音色名，直接报错，于是旁白被静默降级成每段 3 秒静音 —— 成片能播、有音轨，但**一个字都没有**，界面也不报任何错。根因是「未指定音色」的占位值只在模型服务商那条路径上被识别，语音合成这条路径没识别；现已把占位值收敛成单一常量、两条路径共用同一套判据。
+- fix(模型设置): **本地模型服务商不再被强制要求 API Key**。内置的「Ollama (本地)」「本地 Whisper」在管理器里被要求必须填 Key（可它们自己的适配器明写「Key 可空」），用户被迫填一个毫无意义的假串；在系统安全存储不可用的机器上（Linux 无头/容器）连假串都存不进去，直接报「系统安全存储不可用」。根因是免 Key 判据写成了硬编码的服务商名单，而不是「地址在回环接口上」这一属性；现改为按地址判定 —— 远端服务商**仍严格要求 Key**，安全姿态不变。
+- fix(开发环境): 启动桌面端时 Electron 会被**反复拉起**（实测进程数冲到 189 个、内存吃满后把开发服务器挤掉，表现为「窗口刚起来就没了」）。根因是等待开发服务器就绪的逻辑缺少「只启动一次」的一次性守卫，响应超时重试与成功回调会各拉起一次；现已加守卫。
+- feat(开发环境): 新增 `MP_ELECTRON_PASSWORD_STORE` 开关，用于在无头/容器环境指定 Chromium 的口令存储后端（默认不设置 ⇒ Windows/macOS 行为一字不变；取值非法直接报错而不是静默忽略）。
+- feat(视频创作): 新增「AI 讲解视频」流水线的**零凭据端到端复跑**能力：本地 Provider 桩（OpenAI 兼容的 LLM 端点 + Stable Diffusion WebUI 兼容的出图端点，均免 Key、不外网）+ 原生 CDP 驱动（不经 Playwright 的 connectOverCDP），可连续跑多轮并把「成片存在 / 可播放 / 规格合规 / **音轨非静音**」变成可断言的验收条件。此前这条八阶段链路只能靠人工点界面验证，出了问题也只能在真实账号上复现。
+- docs(视频创作): PRD 增补 §12「AI 讲解视频离线可复跑与四处缺陷收口」，写清启动入参与校验、模型能力前置校验、本地桩的协议契约、**标题安全区**（合成默认的放大动效会裁掉左右各 10%，本地出图的文字必须留够边距，否则成片里首尾字被吃掉且不报错）、八阶段流程与产线口径、两种驱动方式的交互逻辑、阶段显示名与提示文字逐条对齐、验收矩阵、无凭据复跑操作手册，以及四个缺陷的第一性原因/逃逸分析/防再犯措施与未闭合项。
+# fix(公众号): 账号卡显示账号头像，昵称取平台解码后的值（fix-account-profile-extra-endpoints）
+
+- 公众号账号现在显示账号本人头像（此前恒为空，只能看到灰色通用图标），头像与昵称取自同一个已有请求，不新增网络请求。
+- 公众号昵称不再显示转义残渣（平台对昵称做过一次编码，现优先取它解码后的那份）。
+# fix(desktop): 应用内页面在外部网页标签活动时可见（会员中心点击无反应修复）（member-center-overlay-visibility）
+
+- 修复：打开自媒体账号创作者中心等外部网页标签后，点击左下角头像菜单里的「会员中心」界面无反应 —— 路由变了但活动标签没变，会员中心页面被原生网页图层整块盖住；现在会先切回应用首页标签再打开，会员中心正常显示。
+- 修复：同源的「升级 Pro」入口与 9 个全局快捷键导航（数据看板 / 内容采集 / 账号管理 等）一并改为可见导航，外部网页标签活动时同样有效。
+- 修复：「故事讲述」生成任务在后台完成时弹出的通知模态，之前会被外部网页图层盖住导致「生成完成」信号丢失，现在通知可见可交互。
+- 新增：统一的应用内导航原语，三步契约（内嵌主页实例定向投递 → 切回首页标签 → 路由跳转），后续新增入口不再需要各自实现一遍。
+# docs(openspec): 立项零人工高危面收口机制——把"谁签字"换成"每条意见的可重放处置"，并先造"判据变宽"的探测器（qm6-zero-human-closure）
+
+- **背景**：QM-6 收口矩阵要求高危面只认 `deepReview.tier=external` + 可核 `evidence`，而 `tier` 的唯一生产方
+  要求 `performedBy` 等于本轮 critic；评审引擎在仍有 Critical 未决时降级自扮演、把 `performedBy` 写成 `self-play…`
+  ⇒ **评审真发现问题的路径上，高危面没有任何机械出口**。现场实证：PR #4261 唯一失败格是 `Gate 2b11`，
+  其余 required 格全绿；主干存量已闭环 339 条里 `tier=self-play` 40 条、`tier` 整段缺席 202 条（普查工具当场取，活数）。
+- **两条独立病根**：① 收口判据把"签字者身份"当充分条件；② **没有任何机械判据能区分"合理收窄"与"为过闸而放宽"**
+  —— 这正是 AGENTS 把守门面清单划给人工过目的唯一原因。只治 ① 不治 ②，人工闸门是被转移而非被消除。
+- **方案（两刀，顺序是合同）**：第 3 刀先上——`scripts/qm6-judgment-corpus.jsonl`（只可追加的真实历史案例输入面）
+  + 差分判据 `新命中集 ⊇ 旧命中集` + 覆盖计数棘轮（维度覆盖数不降 / 新维度初始 > 0 / 总条数不降，三条独立红文案）；
+  第 1 刀随后——每条评审意见带封闭分档的 `resolution`（`code-fix` 红→绿双读数、`false-positive` 引用 #4297 的
+  `rebuttals[]`、`deferred` 锚未勾任务行逐字内容、`unsupported`/`accepted-risk` 在高危面拦）。
+- **可行性经现场核实，不是设想**：判据入口已接受全注入输入面（`evaluate()` 纯数据、CLI 已有 `--statuses=<json>`、
+  产物读取器是注入参数），且两份判据 require 集合为零第三方依赖 ⇒ 重放器可以待在 CI 的 `changes` 作业里。
+  **D3 不需要为可重放重构生产代码**，唯一一处生产改动是给散文 `reasons` 补一个并行结构化出口 `hits`。
+- **成本实测**：近 60 笔已合并 PR 交付时长 p50 1.54h / p90 7.92h / max 17.79h（两次读数与漂移一并写入文档）；
+  40 条语料重放约 5 分钟串行、可并行、可按守门面命中裁选择集。增量成本落在"改闸门那次提交"，不落在每个 PR。
+- **本文只提案**：零行实现代码。第 4/5/6 刀（跨家族共识组装、严重度标尺、异常自动收紧）刻意不做并写明理由，
+  其中第 4 刀的三个数没量到、拒绝写进文档当依据。#4148 的 QM-6 收口保持未闭合交人工，本片不为它开后门；
+  守门面清单条目（现读 10 条）一字不改。属"改谁来守门"，不自动合并。
+# feat(ci): 定时作业补上「心跳」判据——抓"一次 run 都没有"的那种失败（schedule-heartbeat-lock）
+
+- 新增每日巡检作业「定时作业心跳巡检」：每条声明了 `on.schedule:` 的工作流都会被告警——不是"跑失败了"，
+  而是"根本没跑"（cron 写错、作业被删或禁用、runner 长期排队）以及"跑迟了"。迟到阈值取周期 + 8 小时宽限，
+  可用 `MP_SCHEDULE_HEARTBEAT_SLACK_HOURS` 覆盖；写错值会回落并打印告警，不会静默。
+- 「没跑过 / 跑迟了 / 判据自己取不到数」是三个可区分的出口（退出码 1 / 1 / 2）：取不到数一律按未证实出声，
+  绝不被读成"那天真的没跑"，也不会被读成"全部正常"。
+- CI 失败自动报警的名单新增这一条作业；定时作业"是否被报警覆盖"与"是否真的按时跑过"由两把锁互相咬住，
+  任一把漂了都会在 PR 侧当场红。
+- 行为锁每次 PR 都跑（`quality-gate.yml` 新增 Gate 2b14），线上读数每日跑；新作业的预算格进全仓超时注册表。
+# docs(ci): 定时作业报警那把锁的注释改准 —— 连红 9 次定时 run，并把取证指针集中到一处（schedule-watch-doc-count）
+
+- 现场：#4234 把执行记录里的"连红 8 天"按 `gh run list` 重取改成"连续 9 次定时 run"（run `38385152658`…`39570873661`，最后一次成功 `38239617921`），但同一个被否证的数字还抄在这把锁自己的 5 处注释里（两份 workflow 的动因说明、判据本体头、行为锁头）。注释里的事实断言也是断言：下一个读这段动因的人无法分辨哪一份是被推翻的旧值，而这几行文字唯一的用途就是把根因说准。
+- 修法：5 处一次改准；run 号只留在动因那一行并显式指向取证所在（`openspec/records/schedule-failure-watch.md` 与 PR #4234），**不把出处抄四份** —— 多份副本正是本刀立项要防的那种漂移。
+- 附带一条工程口径：本仓 workflow blob 是混行尾，所以任何"改几行文字"都必须做**行内**替换并断言 CR/LF 计数不变，禁止按多数派探测行尾后统一回写（那会把每次 diff 变成整文件重写）。
+# feat(video): 飞影数字人支持克隆自己的声音，克隆面板补配套声音指引（voice-clone-multiprovider）
+
+- 飞影 HiFly 接入声音克隆：在「配音 → 音色复制 / 克隆」上传录音即可克隆，克隆成功后可在数字人音色下拉中选择。此前只有 HeyGen 支持。
+- 数字人「管理克隆形象」面板新增能力提示：当前服务商支持克隆声音时告知入口位置，不支持时明确说明只能用现成音色，不再让用户以为形象和声音必须捆绑。
+# feat(video): 数字人形象克隆 —— 上传照片/视频生成可长期复用的 HeyGen 形象（avatar-voice-clone）
+
+- 视频创作「数字人口播」新增「管理克隆形象」：上传一张照片或一段视频，克隆出属于自己的数字人形象，训练完成后直接进形象下拉（带「我上传的」标识），可反复使用。
+- 克隆形象按账号隔离存在本地 registry，跟着账号走；删除时同步删 HeyGen 侧资源，远端删除失败会保留本地记录并标记待删、下次重试。
+- 首次使用展示一次性法律提示（肖像权/声音权归上传者所有），不强制勾选；创建/删除/重命名/训练状态变更全部落 append-only 审计日志。
+- 修正 HeyGen adapter 的克隆端点族：克隆走 `/v3`（`POST /v3/avatars`、`POST /v3/voices/clone`、`DELETE /v3/avatars/looks/{id}`），与视频生成的 `/v2`、状态查询的 `/v1` 分段取值，不再硬拼前缀。
+# fix(评审链): deep-review/plan-review 的 --force 不再承诺做不到的事（ccg-force-flag-honest）
+
+评审链两个入口的 `--force` 都是装饰性旗标，且各自以不同方式空转。`scripts/deep-review.sh --force` 只挡自己那一格早退，驱动仍按判定记录里的 `mode` 自行决定——实测 `mode=skip` 时它 `rc=0`、一个后端都不起，**却把那条记录的 `deepReview` 整块覆写成 `skipped_by_mode`**（原先的 `cleared` / `tier=external` / 评审出处随之消失）；而两份已合并的执行记录把这条命令写成"唯一能真正补审的路径"。`scripts/plan-review.sh --force` 保护的是一个**不可达分支**：判定器对方案输入恒不产出可跳过的那一档（两种路径形状实测都是 SINGLE），那句"跳过（--force 可强制）"永远不会打印。
+
+现在：验证层带旗标遇到 `skip` 会**早于依赖体检**出声拒绝（`rc=2`），说破为什么做不到、继续跑会毁掉什么，并给出现前真能用的两条出路；决策层删掉死码分支与无对象的旗标。判定产物在任何参数组合下都不会再被"没跑的审查"改写——这条有字节级回归锁。新增 9 条锁（含 3 条把"将来的退化"钉住的取证性锁）；`--help` 的说明书文本本身成了被测面。
+# fix(ci): 债务重算轮次"一条都没量"不再报成功，量不到时点名到具体那一步（debt-recheck-zero-measurement-fail）
+
+- 落地后第一次真实运行会**变红**——如果 CI 上那 15 笔仍在合成提交/只读检出阶段失败。这不是新故障，是原来那条假的绿被取消：以前整轮 `UNJUDGEABLE=30`、判据一次没跑，作业照样 conclusion=success，谁都不知道守门基线从没被用来量过在飞 PR。
+- 退出码新增一条**不依赖原因名单**的判据：一轮拉到了 PR 却一笔都没量到（且不是每个人都在跟主干冲突）⇒ 非零退出。全 `conflict` 的一轮仍退 0，但会打印 `MEASURED=0(all-conflict)`，让"没量到"和"量了都合规"在日志里两种形状。
+- `UNJUDGEABLE` 现在带**失败阶段与现场**：`worktree-setup`(工具没装配) / `merge-commit-failed`(合成提交) / `merge-worktree-failed`(只读检出) 三个档名分开，并附该命令 stderr 首行。维护者不用再从"哪一步坏了"倒推。
+- 原因归类改成一张表持有，词表与故障清单都由它派生，非法归类在模块加载即抛——本次事故（名单两抄、漏一档）不可能再静默发生。
+- 宿主环境带 `GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE` 时，重算会剔除它们并**出声一次**：实测 `git -C <repo>` 挡不住 `GIT_DIR`，不剔除时整轮会去量别人的仓库而产物完全同形。
+- 附带：重算工具按依赖形态拆成"纯判决核 / 真 git 装配 / CLI 门面"三份（撞上行数红线的正解是拆结构不调基线），读源码的结构锁扫描域同步扩到三份并加规模下界。
+# fix(账号): 账号卡显示平台真实昵称、头像与粉丝数（fix-account-profile-avatar）
+
+- 账号页多个平台不再显示灰色通用头像或平台名：抖音/小红书/知乎显示账号真实昵称，头条/小红书显示账号本人头像而不是平台 logo 或默认图。
+- 账号页新增粉丝数显示（抖音/头条/B 站/小红书/视频号）。
+- 头像或粉丝数取不到时，卡片上明确提示「未获取到…，点『验证』可重新获取账号资料」，不再是一个无从判断的灰色图标。
+# fix(rewrite): 长度「精简」档目标字数 400 → 800，并在长度下拉显示各档目标字数（fix-length-compress-target-800）
+
+- **改前**：长度「精简」档的目标是 **400 字**，而这个数字**不是按平台需求定的**——它是 2026-09 按
+  keep 档 1500 的 1/4 人工取的相对档（375 取整 400），推导过程没有记录。
+  400 字够短视频口播与短文案，**不够**知乎回答（常见 1000–3000 字）与公众号正文（1500–3000 字）；
+  而自动流水线文章与视频都支持，一个固定值无法同时满足。界面上「精简」两个字也不带任何字数提示，
+  用户点完才知道拿到多少字。
+- **改后**：`compress` 档目标 **400 → 800**（`min`/`max` 与其它两档目标一行未动）；
+  长度下拉三项改为显示目标字数：「保持原文（约 1500 字）/ 精简（约 800 字）/ 扩写（约 2500 字）」，
+  默认档仍是「保持原文」。
+- **字数显示不是写死的文案**：显示值取自渲染层镜像常量，并由**跨语言结构锁**保证
+  === Python 后端 `_LENGTH_RANGES` 的 target（只改一边 ⇒ 测试红）。
+- **回归**：Python 断言更新 + 单调性契约继续成立（800 < 1500）+ 文案渲染断言（禁止残留 `{count}` 占位符）。
+# fix(gates): 补两处真机暴露的 Critical —— too-stale 曾不拦、弱网下判据几乎必然 rc=4（fix-main-red-too-stale）
+
+- `maxStale` 以前只是「生产者返回值里的一个字段」，判据消费端没有读它：明明 `staleness=4 > maxStale=3`，
+  仍然给出「主干绿、本 PR 无红」。现在 `too-stale` 会在差集之前单独拦成「未证实」，且读数行打 `newRed=na`
+  （「未计算」不再被涂成「零新增红」）。
+- 一次基线选择要连续成功 10 次以上 GitHub 接口调用，而本机实测单次失败率约 20% ⇒ 连续成功概率只有约 10%，
+  判据在弱网下几乎必然报「自身故障」。现在每次调用都带小重试（2 次 × 1.2 秒），只对瞬时错误重试，
+  凭据/路径错仍然立刻失败。
+- 这两处都是 PR #4221 合并之后才暴露的：一个测了「函数返回对了」没测「调用方用了它」，
+  一个把「请求数量放大」误当成「工具坏了」。
+# docs(openspec): 新增 main-red-liveness 提案，诊断合并门禁 8 小时卡死的结构性根因（main-red-liveness）
+
+- **背景**：PR #4186（账号资料兜底修复）被合并门禁卡约 8 小时，而它本身 24 项检查全程全绿、`mergeable=MERGEABLE`、`mergeStateStatus=CLEAN`。
+- **根因（三条，均有现场取证）**：① TOCTOU——`check-main-red.js` 取 `origin/main` 当前 tip，与真正合并之间有时间差；② 把「主干有检查在跑」误当「主干有红」，主干越活跃越合不进去；③ 缺「基础设施类红」整个类别——本次主干红是 `[electron-ci-timeout-budget] elapsed=2101s budget=2100s rc=124`（超时预算差 1 秒，非断言失败），而唯一豁免出口 `--allow-main-red` 的语义是「本 PR 正是去修那条红」，这类红没有任何 PR 能修 ⇒ 全仓 PR 一起冻住。
+- **关键事实**：实测分支保护两套机制（classic 4 条 + ruleset `main-ci-gate` 7 条），`strict_required_status_checks_policy=false` ⇒ **GitHub 本身并不要求「主干绿」**。这条是本仓自加的更严策略，目标正确但实现方式不可满足。
+- **方案**：四阶段——主干基线化（约 0.5 天）／基础设施类红登记（约 1 天）／Merge Queue（约 3–5 天）／缩短 `electron-tests`（已由 `electron-ci-budget-rescale` 认领）。
+- **本文只提案**：阶段 1/2/3 均属「改谁来守门」，`tasks.md` 0.1–0.4 列为前置裁决，未获人工批准不实施。
+
+---
+# feat(gates): 主干侧读数改为「最后一次完整结论」，解掉判据自身的「永不可绿」（main-red-run-baseline）
+
+- 闸门不再要求「主干此刻全部检查都已完成」。主干每 15–30 分钟前进一次、整条质量门禁要 44 分钟，
+  那个窗口的期望时长为负 ⇒ 以前常态落在「未证实」。现在改看「主干最后一次完整跑完的那一版」。
+- 实测效果：一份 24 项检查全绿、`mergeable=MERGEABLE` 的 PR 从 `rc=3`（未证实）变为 `rc=0`（可以合）。
+- 三条口径不可让：先判红再判未完成（反过来会把中间的真红读成绿）；某一版没有跑过任何作业时必须
+  跳过而不是当成全绿；找不到绿基线一律按「未证实」处理（永不把 `rc=2` 放宽成 `rc=0`）。
+- 两个改动必须配套：先去噪（下一条），再改判定语义；只做前者仍会被噪声卡住。
+
+# fix(gates): 主干红闸门改读该 tip 的 run 集合 + 读数稳定窗重试（main-red-run-baseline）
+
+- 并发合并时主干读数不再被同名噪声淹没：闸门原先读该 commit 上的全部检查，
+  而 CI 失败处理器这类「由别的 CI 触发」的工作流会被 GitHub 挂到主干 tip 上，
+  实测 102 行里 81 行是同一个名字的噪声——现在主干基准只认主干自己跑的作业。
+- 读数期间主干被推进时，这次读数自动作废并重试（默认 3 次 × 90 秒），
+  不再把「读的是旧主干」的结果当成当前主干的状态。
+- 拿不到读数时会说清是「未证实」而不是含糊地说主干红；PR 自己的红仍会被点名。
+# feat(podcast): 播客刀 4 第 3 片·下半——出期编排层（podcast-episode-tts-run）
+
+- 新增出期编排层：一次 prepare（零出站：依赖校验 → 音色 → 分块 → 展示量估算）把音色/口语化/分块/合成
+  四层串成一次出期，并给出「本期按原文播出（改写不可用）」这条提示文字的唯一依据位。
+- 用户可感知：出期前能看到「共 N 字 / 将合成 N 段 / 预计 X–Y 分钟」三项预估；音色解析不出来时在**任何
+  计费出站之前**就被拒（不烧 LLM 与 TTS 的钱）；口语化不可用时按原文出本期而不是整期失败。
+- 同时对齐主干的音色契约改判：回退链已是两层（用户偏好 → capability 默认音色），本层不再消费已撤档的
+  「频道 voiceRef」，定位键改为必填的默认 provider；`origin` 由三态收敛为「用户偏好 / provider 默认」两态。
+- 回归锁 20 条，零真实出站；两条变异反证各自指名红（不透传默认 provider ⇒ 12 条红；把已撤档的档位塞回
+  实现 ⇒ 恰好 1 条红）。
+# fix(qm6): 闭合 #4151 留下的那条 dual 判定记录，并把「自扮演收口拿不到 tier=external」登记成合同（qm6-4151-ext-review）
+
+> 标题末尾按合同写 **record 名（= 分支名）**。本条按 `changelog-record-carrier` 的合同写在执行记录里，`CHANGELOG.md` 与 `01-docs/learnings.md` 零改动（那两个是聚合器专属的归档写面）。
+
+- **解决的问题**：PR #4151（QM-6 收口值改由驱动侧写回器产出）合入时，随附的判定记录停在 `status=pending` 进了主干——当时全仓没有任何生产方会写 `tier`，那正是那一片要造的东西，于是它只能带着未闭合收口合入。
+- **修法**：不改判据、不手写 `tier`。以 `critic=claude` 对**同一份载荷**重跑深审，逐条处置自扮演出口的 4 条争议（含把其中高危域那一条交独立外部复核，三格出处填进裁决文件、公开评论 URL 可点），重跑入口后记录收口为 `self_play_resolved`；出处按非高危面的 `closureNote` 档给（轮次标记 + 逐条处置结论）。
+- **一条此前无人知道的事实**：判定记录名是**内容寻址**（`stagedDiffHash`），不是 commit sha ⇒ squash 后的主干提交逐字哈希回同一份载荷，深审入口可直接命中，不需要重建提交。
+- **被实测否证的一句合同**：「做完外部复核后 `tier=external` 应由写回器自动产出」在自扮演这一档不成立——引擎把记录级 `performedBy` 写成 `self-play`，与写回器合取③（须逐字等于本轮 critic）结构互斥，写回器两次真跑两次如实拒写（`not-closed`、`backend-mismatch`）。自扮演收口本就不该盖 external，所以这是合同的适用范围问题，不是写回器的缺陷；已登记并把三个候选落点写明「属改谁来守门，须人工过目」。
+- **顺带登记的真实缺口**：两张守门表（`RULES.sensitivePaths` × `HIGH_RISK_SURFACES`）没有同步机制——判据本体在表内、它消费的摘要库在表外，改库不改表则矩阵对「谁在守门」始终失明（外部复核指认，比本仓原先记的「漏登记一行前缀」深）。
+# fix(ci): 定时作业全部接进失败自动报警，并加一把防漂移锁（schedule-failure-watch）
+
+- 现场：`Cleanup Artifacts` 的 schedule run 连红 9 次无人发现（run `38385152658`…`39570873661`，2026-10-13 ~ 10-21；最后一次成功是 run `38239617921`，10-12）。报警装置其实早就有（`ci-failure-handler.yml`：`workflow_run` 失败 ⇒ 自动开 Issue + PR 留言），但它的工作流名单是手抄的 5 个名字，仓里 4 条带 `on.schedule:` 的作业一条都不在里面 —— 定时作业没有 PR、不参与 required check，红了只落在 Actions UI 里。
+- 修法：名单补齐 4 条定时作业；新增判据本体 `scripts/check-schedule-failure-watch.js`，**双向**对账（带 schedule 的必须被覆盖 / 名单里的名字必须还存在），三种"工具失明"统一判 `SCANNER_FAULT` 而不是退化成"没有定时作业 ⇒ 全绿"；接进 `quality-gate.yml` 的 `changes` 作业 `Gate 2b13`（放 `static-gates` 等于给自己关校验，因为 `.github/workflows/**` 在 docs-only 白名单里）。
+- 行为锁 13 条（夹具正反控 + 真仓规模下界 + 接线自检 + 驱动追踪锁 + 缩进弹性 + 合取条件反形夹具）；变异驱动入仓，10 条变异终跑 `CAUGHT=9 / MISSED=1 / PROBLEM=0`，唯一那条 MISSED（空扫描域守卫）的重叠由另一条变异 m4b 机械证明。驱动首跑时 7 条里 5 条 MISSED，查出 3 条是测试写空（单向夹具、匹配不上的锚点、摘断言本身），补成 T10 / 重写 T3 / 把反证靶子改到 workflow 接线行；第二轮又给驱动加了两道自我校验（"声明冗余却被抓住"与"写后回读不符"），当场否证了我贴在 m3 上的"冗余"标签。
+# docs(video): 用户手册数字人章节补 HeyGen 角色表与数据流（user-manual-avatar-heygen-flow）
+
+- 视频创作手册「数字人口播」新增两节：HeyGen 在四阶段管线里的职责边界（只负责 generate，且是唯一数字人供应商），以及从拉形象/音色列表到提交、轮询、下载的完整数据流。
+- 明确数字人分支与通用文生视频不是同一条链路，避免用户误以为切换默认视频模型会影响数字人。
+# fix(ci): artifact 清理定时作业改为逐页列举 + 重试，首页失败不再被读成"没有待删条目"（artifact-cleanup-resilient）
+
+- 症状：`Cleanup Artifacts` 自 2026-10-21 回溯连续 8 天 `completed failure`，日志只有一句 `unexpected end of JSON input`，看着像脚本坏了。
+- 真因：GitHub 的 artifacts 列举接口对本仓（`total_count=5350`，约 54 页）返回**间歇性 500 空体**（实测同一 URL 一次 500 一次 200），而 `gh api --paginate` 把全部页绑成一条管道、无重试，`set -euo pipefail` 于是每天必退出。
+- 修法：逻辑从 `run:` 块搬进 `scripts/cleanup-artifacts.js` —— 逐页列举 + 每页重试；首页彻底失败判 `UNPROVEN` 且一条都不删，半途失败判 `DEGRADED`（已列举部分照常处理、结论不得是 OK）；默认 dry-run，真删要显式 `--write`；DELETE 带 `--silent`（204 空体与上面的 500 同形，属潜伏的第二颗雷）。
+- 两条边界口径（外部双模型评审命中后补）：**仓库坐标由调用点在命令行上显式给**，禁止只在 workflow 的 `env:` 里声明一个脚本不读的键；**上游返回的 id 进 DELETE 路径段前按形状收口**（只接受正整数），其余计入首行的 `rejected=` 并把结论压成 `REJECTED_PRESENT`、非零退出 —— "有条目被我拒了"不许被读成"清理做完了"。
+- 新增行为锁 15 条 + 变异反证 11 条全指名，**变异驱动本体也入仓**（`scripts/cleanup-artifacts.mutation.js`，自带"脏树拒绝 + 锚点命中恰为 1 + 多靶子 + 还原后再跑一次被测锁"四条前置），接进 `quality-gate.yml` 的 `changes` 作业（`Gate 2b12`），使这段逻辑从此在每次 PR 上被执行过。
+# fix(gates): 合并提交按「两侧交集」判档、零语义合并判 skip 且不落盘，判定记录补尾换行（ccg-decider-merge-skip）
+
+- **现场（遗留 10，不是理论风险）**：`scripts/ccg-review-decider.js` 在**合并提交**上读的是 `git diff --cached`，
+  而 merge 提交的暂存面语义是「ours tip → 合并结果」，也就是**对方那一侧**的全部改动。实测一份 merge 提交的
+  pre-commit 产物：`mode=dual` / `deepReview.status=pending` / `stats.changedLines=1880` / `fileCount=27` /
+  `codeFileCount=20`，而这批改动里**没有一行**是本分支写的。后果不是「多跑一次审查」，而是把「需不需要 CCG 审查」
+  机械地推向 `dual`，并让一份待审记录永久挂在那里（`check-pr-exec-record.js` 的欠账面按 `mode=dual` 取）。
+- **修法（判定范围收敛）**：`detectMergeState()` 用 `git rev-parse --verify MERGE_HEAD` 探测合并态——
+  不硬编码 `.git/MERGE_HEAD`，因为 linked worktree 的 `.git` 是**文件**、那条路径在那里恒不存在，
+  硬编码会让修法在 worktree 里静默失效（而本仓所有运行时代码任务都在 worktree 里做）。
+  `collectMergeStaged()` 以 `merge-base HEAD MERGE_HEAD` 为 base，两侧各取
+  `git diff --name-only --no-renames <base> <rev>` 后取**交集**，再以交集为 pathspec 走既有 `collectFromDiff`
+  ⇒ 判定范围回到「双方都动过的文件」。
+- **为什么是「交集」而不是并集 / 单侧 / 只取冲突文件**：并集把对方整侧导入又搬回来（原缺陷本身）；单侧会漏掉
+  「我方和对方都改了同一文件」里对方那一份；冲突文件列表在**无冲突合并**上恒为空，而后者是最常见的形态。
+  副作用是**保守放大**（交集内按 `HEAD` 统计），已在 `design.md` §9 作为残余风险登记，不假装精确。
+- **零语义合并**：交集为空 ⇒ `judge()` 在阈值链**之前**显式判 `skip`，理由写「交集为空」而不是「≤10 行」——
+  后者会让「普通小改动」与「合并没带来双方共同改动」两个事实共用同一句话。`main()` 在 `mode==='skip' && mergeScope`
+  时**不落盘**（`skip` 本来就不是待审记录）。
+- **pathspec 必须用 `:(literal)` magic**：交集里的文件名可能含 glob 元字符（`[`/`]` 在 Windows 文件名里合法且仍是
+  pathspec 元字符），裸路径会被当成模式**放大**判定范围。
+- **内容寻址键与判定范围同源**：`saveRecord` 新增第 6 参 `opts.diffPaths`，默认值与历史配方逐字节相等 ⇒
+  非合并态路径**零行为变化**；合并态让「判定范围」与 `stagedDiffHash` 用同一组 pathspec，否则记录名按全域算、
+  内容按交集算，读的人无从比对。
+- **遗留 7（尾换行）**：两处写盘抽成单点 `recordBody()` = `JSON.stringify(record, null, 2) + "\n"`；
+  不回溯清理历史存量（存量缺尾换行的量级见本文「遗留 7 的行为证据」）。
+- **评审派生项**：i1 把「探测失明」与「不在合并中」分开（`probeError` 出声告警，仍 fail-open）；
+  i6 在判定域漏进非交集文件时**升 `dual`（fail-closed）**并告警，不抛错（交集内两侧相同改动的文件不进 numstat，
+  故取上界判据，`files.length` 合法地更小）。
+- **测试与反证**：既有 59 例 + T1–T11 = **70/70 全绿**（真 git 仓库夹具，`git merge --no-ff --no-commit` 保持
+  `MERGE_HEAD`；含 linked worktree 档与 CLI 级接线锁）；变异 M1–M14 **全部 CAUGHT**，且 M12/M13/M14 红集互不相交
+  （M15 为预测项，未实测，不计入）。
+- **遗留（明确不在本 PR 范围）**：6 `STALE_REQUIRED` 处方文案、8 CHANGELOG 长度无门禁、9 `CreateView.test.js`
+  单文件 A/B。其中 6 与 8 属「改谁来守门」，须人工过目，不走 agent 自动合并。
+# feat(gates): 发版门禁改为先取证再判 —— 台账未由聚合器收口时直接拦下（changelog-rollout-release-gate）
+
+- `scripts/release-gate.mjs` 现在在任何"读 CHANGELOG 内容"的判据**之前**取聚合器读数，并把三类失败拆成三条文案：`AGGREGATE_FAIL`（取不到数 / 聚合器 rc≠0 / `records=0` 采集面退化 / 数值读不出）、`AGGREGATE_PENDING`（确有 N 条待搬，逐字给出 `node scripts/aggregate-changelog.js --write`）、原有的 `CHANGELOG 未收口`。合并成一句会让人去手改 CHANGELOG 而不是修聚合器，这是本条的全部动机。
+- 校验侧**只读取数不写台账**（旗标清单 `AGGREGATE_READ_ARGS = ['--dry-run']` 是唯一的、且由 R13 + R10/R12 的实收 argv 双向钉住）：CI 在 tag push 上是一次性检出，写出的改动没人能提交。
+- `openspec/records/_TEMPLATE.md` 补上 `## CHANGELOG 条目` 与 `## learnings` 两个小节和形状说明，AGENTS.md 的 `CHANGELOG.md` 条目改写为"PR 不得直接编辑台账、只写自己的执行记录"，并写清发版顺序 `--write → 收口版本小节 → bump → tag`。
+- 行为锁 23 条（既有 9 条同步改为必须带聚合器读数；深审后追加 R14）+ 变异反证 7 条全指名、采纳 i5–i8 后在最终基线重跑一遍仍全指名；真仓现场：`release-gate` 实跑报 `AGGREGATE_PENDING … 2 条（CHANGELOG 1 / learnings 1, records=619）` rc=1，`check-pr-exec-record --mode=enforce` rc=0。
+# fix(accounts): 保存账号时用平台 API 兜底昵称/头像，修 SPA 平台回落成平台名（fix-account-profile-fallback）
+
+- **问题**：头条号等 SPA 后台登录成功后，保存的账号「账号名」显示成平台名（如「今日头条」）、头像为空，用户无法区分同平台的多个账号。
+- **根因**：不是选择器写错，而是**采集时机早于 SPA 渲染完成**。登录成功判据命中 URL 后，`_scheduleAutoCompletion` 只等 3000ms 就提取资料，而日志实测头条号后台页面渲染持续了 56 秒——昵称节点那时还没出现，DOM 采集跑在空 DOM 上返回 `{}`，`profileForCreate` 遂把 `account_name` 回落成 `name`（平台显示名）。用户随后点「保存账号」也已晚：登录尝试早被自动完成消费并关闭，那一下没有重新采集。
+- **修复**：新增 `fillProfileFromHttpApi()`，`saveCapturedAccount` 在 DOM 采集后调用。判据是「没有拿到真昵称（回落成了 name）」；命中则用**已捕获的 Cookie** 调平台创作者 API，逐个判空补位（昵称/平台 ID/粉丝/头像），不覆盖 DOM 已拿到的值、不改变 `name`。任何失败只记 warn，**绝不阻断账号创建**。8 个平台（抖音/头条/视频号/B站/快手/小红书/知乎/公众号）共用同一批已注册端点，不新增端点。
+- **不做的**：不调大 `_scheduleAutoCompletion` 的 3 秒延时（会拖慢每个平台的登录完成感知，而 API 兜底已能拿到结构化数据）；不给 extract 补头像字段（需逐个平台找，属独立任务）。
+- **已知限制**：当前 8 个平台的 extract 都不返回头像，所以修复后昵称与平台 ID 能补上，**头像仍可能为空**；头像回填依赖用户点账号卡片「检测登录态」时的 DOM/HTTP 回填路径。
+- **提示文字**：零改动，不新增/不修改任何 i18n 键。
+- **回归保护**：`account-manager.test.js` 新增 4 例（DOM 失败时补真实昵称/ID/粉丝、DOM 成功时不发请求、兜底只补空位不覆盖已命中昵称、兜底失败不阻断创建）；变异反证通过（摘掉修复，2 个核心用例当场变红）。
+- **文档**：PRD 新增 §「账号资料采集兜底：SPA 平台昵称/头像回落」；新增 `01-docs/PRD-ACCOUNT-PROFILE-FALLBACK-2026-10-21.md`。
+
+---
+# fix(deps): 长度三档映射的 max 统一提到 50000，与引擎输出上限对齐（fix-length-range-max-50000）
+
+- **改前**：`_LENGTH_RANGES` 三档的 max 是 **3000 / 800 / 5000**——那是 2026-09（全局输出上限还是 6000 字时）定的，
+  引擎在 `rewrite-limits-50000`（2026-10-19）把上限放到 50000 后**它们没跟着放大** ⇒
+  走 length 路径的改写最多只能出 3000 字，成了整套体系里最紧的一道「暗上限」。
+- **改后**：三档 max 统一 **50000**（与引擎 `MAX_OUTPUT_CHARS` 对齐）：
+  `keep` (300,50000,1500) / `compress` (100,50000,400) / `expand` (800,50000,2500)。
+  这三档是**有活 UI 的**用户选项（自动流水线视图的「长度」下拉：保持原文 / 精简 / 扩写）。
+- **target 保持原值**：它才是 prompt 里「目标 N 字」的锚（实际篇幅的落点），max 只是硬上界——
+  改 max 解除人为上限，改 target 才会改变实际篇幅（那是另一件事，本次不做）。
+- **数字来历已写进代码注释**（免得下次再考古）：`keep` 的 (300,3000,1500) 是外部引擎 `RewriteConfig` 的
+  **默认值逐字**；`compress`/`expand` 是 2026-09-06 `d0a9b00ba` 里人工挑的相对档（以 keep 为轴约缩 1/4 / 放大约 5/3），
+  该提交未记录推导过程。
+- **回归**：新增用例把「三档 max == 引擎上限」钉成可执行契约，将来谁写小就红。
+# fix(video): HeyGen 数字人 Adapter 按官方 v2 契约修正请求体、轮询端点与认证头（heygen-adapter-contract）
+
+- 修复数字人流水线首次真实调用必失败的三处契约错位：`video_inputs[].character/voice` 改为官方对象形状（含 `dimension`），轮询改为 `GET /v1/video_status.get?video_id=`，认证改为单一 `X-Api-Key`。
+- 回归锁改为按官方契约断言（旧测试断言的是自家错误形状，等于把 bug 写成期望值），并新增「不得发送 `Authorization`」的反向断言。
+# feat(gates): 热写面禁改门禁以 advisory 档接进 changes 作业（hot-carrier-edit-gate）
+
+- **拦什么**：`CHANGELOG.md` / `01-docs/learnings.md` 的 PR 顶插。实测 4/4 个可判定的 CONFLICTING PR 冲突文件只有这两个，20/30 笔 main 提交动过台账 —— CI 全绿也合不进去，还要再跑一轮 25–30 分钟。
+- **判据输入是 PR 差量（merge-base..head），不是文件现状**：按现状写会把别人刚并入 main 的台账行算到我头上（本仓实测全树比较 5 例里 3 例这类假阳性）。`T4` 专门站在"我 rebase 之后工作树里确实有别人的台账改动"的形态上判 PASS，变异 MA（退回读现状）指名让它变红。
+- **先 advisory 不 enforce**：在飞 PR 绝大多数已按旧规改了台账，一上来就阻断会把它们全判红，而那不是它们的错。档位由判据首行 `MODE=` 自己声明，两档点名内容逐字一致、只在是否阻断上分档（`T8`）。转档前置条件写在 tasks 4.3。
+- **授权出口必须是"本次差量新增"**：沿用 `changelog-dedup-authorization.json` 那条已验证形态 —— 坐标核对 + 常驻通行证不生效。此处踩过一条有代表性的坑：变异 MC 第一次报 NOT_CAUGHT，原因是 `readAuth` 读 head blob 独立挡住了，属**防御重叠不可分辨**而非锁没牙；补 `T6c`（授权同时在工作树与 head blob、坐标恰等于本次 merge-base，对应 CI 里 PR 建好后 main 未前进的形态）把重叠拆掉后才指名变红。
+- **差异审计**：动代码前查到 `hot-carrier-atomic-landing`（规格已合入、实现未做）的 D4 明确把这两个路径移出它的热点清单，理由是"没量过"。两者量的是不同失效（共享根未提交窗口 vs 跨 worktree PR 冲突），已在 spec 里新增一条 Requirement 禁止把两份清单"顺手统一"，并写明本读数不满足它的重进前提。
+- **CI 上取的 head 必须是 PR head sha，不能是 `HEAD`**：`pull_request` 事件 `actions/checkout` 检出 merge ref，`base.sha..HEAD` 于是把别人在 base 之后并入 main 的台账改动算成本 PR 的（现场 run `39536655940`：`命中热写面=2 判定=FAIL`，那两个文件不是本 PR 改的）。今天 advisory 不拦，转 enforce 那天会拦下每一个 base 落后的 PR。锁：`T12`（merge ref 形态）+ `T13`（接线锁：`CL_HEAD` 必须真在 `env:` 里）+ 变异 `M11`（删掉装配面必须红）。
+- 行为锁 16 条 + 变异反证 9 条全指名；本 PR 零改动台账与 learnings。
+# docs(memory): PR-2 影视工程提示词三分（F-A）的 7 条可复用教训（mem-film-prompt-triple-impl）
+
+- **本次只沉淀记忆，零运行时改动**：上游 PR #4127（F-A 分镜提示词三分）已合并（`05e83ddf1`），本篇把这轮**验证层对抗评审**里最值钱的 7 条教训写成仓内可检索形态。
+- **落在执行记录而不是台账**：`CHANGELOG.md` 与 `01-docs/learnings.md` 的写入方只能是聚合器 `scripts/aggregate-changelog.js`（`changelog-record-carrier` 新合同），PR 差量里动这两个文件会被热写面门禁点名（当前 advisory 档，2026-10-21 由 #4145 落地）。
+- **三路记忆同批写入**：内置记忆（`~/.dsh/profiles/`）、外部记忆（本机 gstack `learnings.jsonl` + 仓内本篇）、EverOS（`add → accumulated` → `flush → extracted`，并**回读 episode 文件**核验 —— 接口返回码不算成功证据）。
+- **7 条教训的性质**：自扮演裁决的机械语义（`upheld` 不是闭环）、引擎回写会**整体替换** `deepReview`、评审产物名是暂存 diff 的**内容地址**、「不要丢内容」要先看清相对**哪一份**内容、写阈值前先量资产形态、RED 证明只能回退实现前就存在的文件、同类产物的结尾换行有两套惯例。
+# feat(账号): 「添加账号」的平台选择器改为应用内自绘浮层——图标 / 搜索 / 分组 / 键盘全可控（platform-picker-ux）
+
+> 标题末尾按合同写 **record 名（= 分支名）**。
+> 本条按 `changelog-record-carrier` 的新合同写在执行记录里，`CHANGELOG.md` 与 `01-docs/learnings.md` **零改动**（那两个是聚合器专属的归档写面）。
+
+- **用户现场**：账号管理页点「+ 添加账号」，展开「平台」下拉时看到的是**操作系统绘制的系统列表**——系统蓝高亮、直角、无平台图标、15 个平台平铺一条、没有搜索也没有分组；列表还从弹窗里「长」出来盖住底部的「打开登录页 / 取消」按钮。用户反馈：「这个 UI 界面非常粗糙，不精致」。
+- **第一性原因（不是样式问题，是控件选型问题）**：`UiSelect` 用的是原生 `<select>` + `appearance: none`。`appearance: none` 只能去掉**收起态**的原生外观（箭头、边框）；一旦展开，弹出列表由**操作系统**绘制 ⇒ **CSS 完全无法介入**。圆角、配色、图标、分组、搜索、动效全都不归本应用管 —— 这不是「样式没写好」，是「控件选错了」。任何在原生下拉上做的视觉优化都改不动展开态。
+- **修复（换成应用内自绘的浮层）**：新增 `AccountPlatformPicker`，展开态完全由本应用绘制——
+  - **平台图标**：复用现成的 `PlatformIcon`（15 个平台真实品牌 SVG，无图时回退品牌色首字块），不再是一行行纯文字；
+  - **搜索**：按平台显示名与平台 id **双路**匹配（大小写不敏感），`dou` 命中抖音、`XiaoHongShu` 命中小红书；纯空格输入等价于空输入（不误伤「随手打一个空格结果列表全没了」）；
+  - **分组**：按平台目录的分类分成「国内平台 / 国际平台」两组（口径与发布页同源），**空组整组不渲染**，不留空标题；
+  - **收起态**：显示已选平台的**图标 + 名称**，随时能确认「我现在选的是哪个」；未选时用更浅的占位色（不靠字号区分）；
+  - **已选项**：列表里带勾选标记 + 主色底 + 主色文字三重表达，颜色不是唯一信息载体；
+  - **键盘全可达**：`role="combobox"` + `role="listbox"` + `aria-activedescendant`；↑↓ 移动、Enter 选中、Esc 收起并把焦点交还触发器；下方空间不足时**向上翻转**，浮层宽度与触发器对齐。
+- **顺带修掉三处观感问题**（真实渲染出图后逐条对照）：① 搜索框焦点环原是「描边叠在边框上」的粗重双层紫环 ⇒ 改为与既有 `UiSelect` 同口径的「主色边框 + 14% 柔光环」；② 浮层最大高度 320px 时只能露出 5 个平台 ⇒ 提到 420px（可见 8 个，其余滚动）；③ 浮层宽度取 320 会比触发器宽出一截、右边缘对不齐 ⇒ 取 300，在本仓 360px 弹窗里恰好等于触发器宽度；另把「鼠标点开时预置首项高亮」改为「**不预置**（不出现『鼠标并不在那儿却像被悬停』的幽灵高亮），已选平台则作为激活项，让用户看到『我现在在哪个平台上』」。
+- **连带把一个死组件接上线**：`PlatformIcon.vue` 自 2026-10-19 起挂在「未接线组件」欠账清单上（生产面零引用），本 PR 复用它 ⇒ 欠账清单对应条目销账（清单只能缩小）。复用现成的 15 平台图标实现，比在新组件里再造一份图标表更少漂移。
+- **分组口径的一处结构缺口**：平台目录的分类值是中文「中文 / 海外」，UI 层若直接拿它比字符串，就得在渲染端代码里写中文字面量（本仓 `locale-sync --cjk` 门禁对新增硬编码中文零容忍）。故在 `stores/platforms.js` 新增 `getCategoryGroup(id)`，把分类翻成 `domestic` / `international` 结构键 —— **中文值只留在 store 与 locale 两处**，新的调用方不会再写第二份。
+- **回归保护**：新增 `AccountPlatformPicker.test.js` **22 例**（展开/收起、显示名过滤、id 过滤且大小写不敏感、纯空格等价空输入、两种空态、点击选项 emit 并收起、已选项勾选态、键盘上下移动与边界不循环、Esc、点击外部、焦点回收、重复 id 去重、缺失 label 回退、禁用态、无幽灵高亮、激活项落已选平台）；`stores/platforms.test.js` 新增 2 例；`AccountLoginDialog.test.js` 更新 stub 并新增 1 例。视觉侧新增 `accounts-platform-picker` 工作流（开弹窗 → 展开浮层 → 搜索 → Esc → 关弹窗 → 复位），覆盖交互级回归。
+- **如实留白**：**「浮层展开态」的像素基线尚未建立** —— 本仓基线必须与 CI 同一次渲染逐像素相等（Gate 7b 判 0 px），本机截图当基线被明确禁止；且视图注册表是路由级的，渲染不出「浮层已展开」这个交互态。本 PR 补的是**交互层**保护，像素基线留作后续一刀（给视觉套件补一条带 `prepare` 钩子的用例，由 CI 产出同源渲染后再落 PNG）。
+# feat(qm6): 把 QM-6 的立项读数从一次性手工探针收进仓内普查工具（qm6-writeback-survey-tab）
+
+> 标题末尾按合同写 **record 名（= 分支名）**。本条按 `changelog-record-carrier` 的合同写在执行记录里，`CHANGELOG.md` 与 `01-docs/learnings.md` 零改动（那两个是聚合器专属的归档写面）。
+
+- **解决的问题**：design §2 那三条立项读数（判定域规模、闭环 × `tier` 交叉表、野值条数）此前由会话临时手写探针量出来、抄进文档，下一次会话无法重取，也分不清「量过一次没人再量」和「现状」。
+- **修法**：`scripts/ccg-artifact-shape-survey.js` 改为库 + CLI 双形态，交叉表由 `summarizeClosedTier` 产出，**工具自报它量的是哪个 commit**（`REF=origin/main@<9位>`）——主干每几分钟长一块，不带 commit 的数无法归因（实测同一条命令隔 4 分钟 1658→1662）。闭环词表与 tier 词表**都不在工具里抄**：`closedSet` 与 `vocabOf` 是调用方显式透传的注入参数，缺任一当场抛错；词表由判据的 `classifyEvidenceTier` 现问，避免第二份事实。
+- **口径变更不可比**：旧探针按 `{external, unknown, 其它}` 分桶（`其它` 里混着 `self-play`），工具按判据词表分桶。22→3 这类数字**不能**读成"欠账少了 19 条"。
+- **门禁**：`Gate 2b10`（changes 作业，`shell: bash`）跑其单测并自带判定域非空与两条形状下界；真仓全量采集**刻意不进 CI**（逐文件 `git show` 在 1.6k 份产物上实测 4 分钟）。
+- **读数**：`node scripts/ccg-artifact-shape-survey.js --ref=origin/main` 的 `[闭环×tier]` 一行（活数，引用时现跑）。
+
+# feat(qm6): QM-6 的 `tier=external` 改由驱动写回，收口不再需要人手写（qm6-writeback-survey-tab）
+
+- **解决的问题**：收口矩阵要求高危面必须有 `deepReview.tier=external` + 可核 `evidence`，但**全仓没有任何组件写这两个字段**——仓外评审引擎的 `writeBack` 是 `rec.deepReview = deepReview` 的整体替换（会把判定器初值里的 `tier`/`evidence` 键吃掉），引擎全文 `tier` 出现 0 次。后果不是"少个字段"，而是**跑了真评审在结构上比什么都没做更差**，合规的人只能手写（#3987 / #4071 的 `tier` 都是会话手写的）。
+- **修法**：① `scripts/lib/ccg-delivery-digest.js` 收住唯一一份规范化（对象递归按**键名码点**升序、数组保序、`JSON.stringify(v, null, 0)`、sha256 小写 64 hex），写回器与判据都 require 它；② `scripts/ccg-review-writeback.js` 按**五条合取**决定写不写：闭环 status / `deepReview.findings` 是非空数组 / `performedBy` 等于上层透传的期望后端 / 动手前后**字节与去掉 `at` 的语义指纹都变了** / 记录路径由上层显式透传。任一不成立 ⇒ 不写、不改 status、点名缺哪一条（`not-closed` / `empty-findings` / `backend-mismatch` / `no-write` / `no-new-delivery` / `before-state-missing` / `record-unreadable`）；③ `scripts/deep-review.sh` 的两条真跑 `exec` 改为「取动手前哈希 → 调驱动 → 立刻 `_wb_rc=$?` → 写回 → `exit "$_wb_rc"`」，`--dry-run` 与引擎缺失出口不引入写回；④ 判据侧 `evidenceForm()` 增 `delivery` 档并**就地重算**（不只看形状），失配降 `external-unverified`，红文案只说「摘要与本记录重算值不符」，不说"伪造"。
+- **强度边界（不夸大）**：`delivery@` 摘要任何填写方一条命令可自算，它提供的是"写回器与判据可互验"，**不是签名、不防伪造、不抬高成本**；手写 `tier` 仍然能过判据，但那属代用，必须同次在记录里写明。
+- **两条由自测抓出的真 bug**（都不是评审提的）：① 入口用 `sha256sum` 量原始字节、写回器一度 `sha256Hex(bytes.toString('binary'))` 会把非 ASCII 按 utf8 重编码 ⇒ 两侧永远不等 ⇒ `no-write` 永久点不到火；② `beforeSha` 为空时原实现整格跳过并照样打勾 ⇒ 新增 `before-state-missing` fail-closed。
+- **外部深审第 2 轮抓出的 Critical（i1）**：`④` 的第二半（"只有时间戳在变不算新交付"）原先只在调用方给 Buffer 时才生效，而生产入口只传十六进制串 ⇒ 真跑路径上那一格永远不触发，"只刷 `at` 的旧闭环"会被写上 `tier=external`。修法是把 ④ 的两半都变成**必需**：入口在调驱动之前用共享实现取动手前语义指纹（`lib/ccg-delivery-digest.js --print-fingerprint`），与字节哈希一起透传；缺一半 ⇒ `before-state-missing` 拒写。同一轮还补了「夹具 require 闭包必须由真实 require 图推出、不得手抄」的完整性锁。
+- **证据**：`scripts/deep-review-entry-rc.test.js`（9 条，真跑入口、假驱动、rc 逐字相等与信号终止的**实测**读数）、`scripts/ccg-review-writeback.test.js`（19 条）、`scripts/ccg-delivery-digest.test.js`（8 条，含写死的规范化行为向量与两条"换一个就改数"对偶）、`scripts/ccg-closure-writeback-chain.test.js`（3 条，示踪弹）；变异反证 6 条全部指名红并逐条还原核对。接线：`Gate 2b11`（changes 作业）。
+- **本片刻意不做**：跨仓 parity 锁（D5 / tasks §5）随下一片走，理由三条写在 tasks §5 段首，spec delta 里那条 Requirement 已整条移出——规格不写没实现的要求。
+# refactor(改写): 改写页视图解耦 —— RewriteView.vue 拆 3 个 composable + 外置样式（1430 → 977 行）（rewrite-view-decompose）
+
+> 标题末尾按合同写 **record 名（= 分支名）**，本条即 `rewrite-view-decompose`。
+> 按 `changelog-record-carrier` 的合同，本条写在执行记录里，`CHANGELOG.md` 与
+> `01-docs/learnings.md` **零改动**（那两个是聚合器专属的归档写面，由
+> `node scripts/aggregate-changelog.js --write` 在发版时统一搬运，幂等键是 record 名）。
+
+- **问题**：`apps/desktop/src/views/RewriteView.vue` 实测 **1430 行**，正好等于行数门禁的**登记值**（`.github/scripts/max-lines-baseline.json` 的 `files` 表）。门禁 `growthAllowance = 200` ⇒ 硬天花板 **1630 行** ⇒ **这个文件此刻一点余量都没有**：下一次给改写页加功能（哪怕只加 201 行）就会撞 `LEDGER_GREW` 阻断。PR #4141 的 CHANGELOG 已把这条记进仓库（「解法是**拆 composable**……但 PR 未落地」），本次把那把刀补上。
+- **拆法**（**用户可见行为零变化，模板一行未改**）：① 全部 `<style scoped>`（321 行）外置为 `apps/desktop/src/views/rewrite-view.css`，视图改用 `<style scoped src="./rewrite-view.css">`（`scoped` + `src` 由 Vue SFC 编译器施加同一 scope id，`:deep()` 语义相同；仓库已有 5 处同型用法）；② 字数区间（状态 + 校验接线 + 自适应推导）→ `composables/useRewriteWordCount.js`；③ 策略（列表加载 + 预览 + 竞态守卫 + 300ms 防抖）→ `composables/useRewriteStrategy.js`；④ 文案库回写（两条互斥写入路径 + djb2 哈希）→ `composables/useRewriteLibrarySync.js`。
+- **结果**：`RewriteView.vue` **1430 → 977 行**，距天花板余量 200 → **653 行**；顺带把聚合债务账 `filesOver1000` 由 **29 降到 28**（`scripts/check-debt-budget.js` 实测读数）。
+- **回归保护**：3 个新测试文件共 **29 例**。其中「手动置位后自适应不得覆盖用户值」「竞态守卫」「300ms 正文防抖」三条是**搬出视图后第一次有独立测试锁住**的契约 —— 它们在视图里只是「一个 `let previewSeq` 加一个定时器」「一行 `if (!wordCountManuallySet)`」，此前没有任何测试守过。
+- **既有结构锁一条未削弱**：`utils/rewrite-lineage.test.js`（要求 `RewriteView.vue` 源码里能读到 `aiRewrite(` 与 `utils/rewrite-lineage` 引用）与 `views/CopyLibraryView.test.js`（要求能读到 `podcast.activeChannelId.value`、不得有 `|| await ensureChannel()` 死分支）—— 这正是「`aiRewrite` 调用 / 归因链 / 文本出期入口**不搬走**」的原因。
+- **顺带修掉一处脚手架脆弱点**：`RewriteView.sensitive-warning.test.js` 首测的 10s 预算被「Vite 一次性编译整张依赖图」（实测 3706ms → 4190ms）吃光，冷缓存同片并发时超时。改法：把一次性编译挪进 `beforeAll` 并给显式预算，**每条用例的断言窗口仍是 10s**（首测 6235ms → **159ms**）。**不全局抬 `testTimeout`** —— 那会让真正挂死的用例也一起放宽。
+- **CCG 外部双家族评审**：critic=claude（8 条问题 / 4 个维度 / 最低分 5）+ proposer=opencode（跨家族校验通过）。6 条争议逐条裁决：**i1 / i4 / i5 成立并已修**（策略监听收进 effectScope、补构建产物级证据、视觉契约断言改判据）；**i2 高危域**走外部复核（claude 独立判定不成立，证据在 PR 评论）；**i3 / i6 不成立**（i3 有 A/B 与 CI 两档读数，i6 有现网 16 条同类条目为证）。
+- **明确不做**（各自需另开 PRD）：改任何用户可见行为；拆**模板**成子组件（父组件 `scoped` 样式不作用于子组件内部元素）；下调 `max-lines-baseline` 登记值（属「改谁来守门」，需人工过目）；改 djb2 回写 key 算法（会让既有文案库记录失联）；全局抬高 `testTimeout`；处理其它 28 个 ≥1000 行的文件。
+- **文档**：新增 `01-docs/PRD-REWRITE-VIEW-DECOMPOSITION-2026-10-21.md`（逐模块写清数据校验判据与阈值、流程、功能逻辑、交互逻辑、显示项、提示文字原文）；`PRD-REWRITE-PAGE-UI-2026-09-16.md` / `PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md` / `PRD-REWRITE-STRATEGY-UI-2026-09-15.md` 各补一节「归属变更」附注。
+# feat(ci): 收紧债务基线后重算在飞 PR 并点名陈旧结论——pull_request 的绿 run 钉在旧 merge ref 上，新红线从没量过它（debt-baseline-recheck）
+
+- **一句话**：`pull_request` 的 run 固定在**触发那一刻**的 merge ref 上，主干前进不会重跑；于是收紧 `scripts/debt-baseline.json` 之后，一笔带着**旧基线绿结论**的 PR 照样满足 required check、照样被自动合并，主干当场变红——红线是新收紧的，可没有任何东西拿它量过这笔 PR。
+- **动因是当下主干上的读数，不是推演**（探针逐条取 `check-runs` 的 `completed_at` 与基线最近一次变更时刻比大小）：open PR 30 个，**4 笔顶着陈旧绿**，最久的 #3376 那条绿 run 完成于 2026-10-12、基线 2026-10-19 收紧 ⇒ **陈旧 7 天**；另有 7 笔一条 check 都没生成（属另一族，见 `openspec/records/*` 与「不做」条）。频率侧：近 30 天基线变更 **12 次**、判据本体 `check-debt-budget.js` 变更 1 次 ⇒ 触发 `paths:` 必须**同时盯这两份**，只盯数据文件会漏掉"度量口径被收紧"那一半。单次重算本机实测 **1.9 秒** ⇒ 30 笔的判据部分约 57 秒；CI 侧 fetch/合成提交/worktree/评论写入**未测**，所以要求首次运行逐笔打印实测再回填，而不是先估一个"约 N 分钟"。
+- **修法（只做「重算 + 点名」，刻意不阻断）**：新增 `scripts/check-debt-recheck.js`（一切外部依赖注入、测试面零网络，生产走 `--live`）与 `.github/workflows/debt-baseline-recheck.yml`（主干上那两份守门输入变化时触发，外加 `workflow_dispatch`）。逐笔 PR 用 `git merge-tree --write-tree` 造合并态 ⇒ `commit-tree` 封成合成提交 ⇒ `worktree add --detach` 只读检出 ⇒ **在那个树里**跑 `check-debt-budget.js`。它是**非 required** 作业，不申请 `checks: write`，不改任何分支保护/ruleset，不自动 rebase 别人的 PR。
+- **合并态天然解决基线归属，没有特例**：PR 没动基线 ⇒ 读到的是主干当下收紧后的那份（正是本刀要量的那一格）；PR 自己改了基线 ⇒ 读到的是它提议的那份（不得没收一个正在还债的 PR 的提议）。这条"不特例"由**真 git 临时仓库集成用例**证明——读源码证明不了 merge-tree 的产物归属。
+- **⛔ 两条被自家实测否证的写法，必须留字**：① 初稿写"真冲突时 `merge-tree` 首行不是树 oid"，实测**假**——真冲突是 `rc=1`、**首行仍是那个冲突树的 oid**、stdout 含 `Auto-merging`/`CONFLICT`、**stderr 零字节**；按首行或按 stderr 分类都会把真冲突读成"合并成功"，而拿冲突树去量指标**一定**判"在基线内"，是这条链最坏的静默失效。② 浅历史给的**不是**假冲突而是 `rc=128 / refusing to merge unrelated histories` ⇒ 必须独立成 `unrelated-histories` 一档并让整轮非零退出、只归因一次；否则一次 `fetch-depth` 配错会在 30 个 PR 上刷出 30 条"你的 PR 合不进主干"的假判决。附带一条夹具纪律：本地路径 `clone --depth 1` 会**忽略** `--depth`（实测 warning），要量浅历史必须走 `file://`。
+- **四档 + 封闭 reason 词表 + 空集出行**：`IN_BASELINE / VIOLATES / UNJUDGEABLE / CHECKER_FAILED`，后两档不得折叠成"通过"；`UNJUDGEABLE` 的 `reason` 取自封闭词表 `{conflict, unrelated-histories, ref-missing, worktree-setup, unknown-shape}`——`worktree-setup` 那一格是外部评审 i4 逼出来的：**"工具没装配好"与"你的 PR 有冲突"必须可分辨**，否则一次 seam 漏传会在 30 个 PR 上刷出 30 条假判决。计数行 `rows=<n> IN_BASELINE=… VIOLATES=…` **空集也必须出行**（本仓实测过"空数组被读成检查已通过"）。退出码语义单列一节：**量到了就退 0（哪怕全部违规）**，只有工具侧故障才非 0——把"有债"判成 CI 红会诱导人去改评论而不是改债。
+- **评论幂等 + 写入面默认关**：正文首行机器标记 `<!-- debt-baseline-recheck:v1 base=… judged=… -->`，命中即 PATCH 不叠加；判据**只认标记前缀**，`base=`/`judged=` 是给人看的现场（纳入判定会把自家历史评论全判成过期，反复叠评论）。写入本身由纯函数 `shouldCommentOn(env)` 把关，**严格只认字符串 `"1"`**，workflow 里显式 `MP_RECHECK_COMMENT: "0"` ⇒ 首轮只打印结论、不动别人的 PR；开启后还有两道边界（同一格的外部复核后续 W3）：每轮上限 `MP_RECHECK_MAX_COMMENTS`（默认 10，`0` = 只点名不写，非法值回落并出声）与**每次写入前重新核查该 PR 仍为 `OPEN`**（读不到状态按未证实处理 ⇒ 不写）。这一格是 QM-6 实现层评审的 i3（`highRiskDomains:["auth"]`，引擎明打「高危域必须外部复核 1 条」）逼出来的，不得读成"顺手加的开关"。
+- **TDD 与反证**：先写 11 条锁并当场见证红（红因就是 `Cannot find module './check-debt-recheck.js'` ⇒ 那条链确实还不存在），实现 + 结构锁 + 评审后的门闩、行为锁、端点形状锁与守门输入派生锁收在 **25 条**；最终基线（rebase 后、W3/W4 落码后）控制跑 `tests=25 fail=0 loadFail=false`。变异 **M1–M14 逐条指名红**（M1 UNJUDGEABLE 折进通过 ⇒ 2 红；M2 用主干 blob 覆盖 ⇒ D2 集成用例红，并顺带撞上指标名结构锁，因变异文本本身含 `maxFileLines`；M3 空集不出行 ⇒ 1 红；M4 把 `base=` 纳入幂等判定 ⇒ 1 红；M5 脚本内点名指标 ⇒ 1 红；M6 摘掉每轮写入上限 ⇒ 「写入预算」红；M7 摘掉写前状态复查 ⇒ 「写前复查 PR 状态」红；M8 把门闩退回 truthy 判定 ⇒ 「写入门闩」红；M9 写前查询退化成硬编码 OPEN ⇒ 3 条行为用例红；M10 取消写入资格（合规条目也进写路径）⇒ 「写入资格」红；M11 拒写归因退化回通用尾巴 ⇒ 「拒写可归因」红；M12 更新端点退回缺 `issues/` 那一层 ⇒ 「端点形状」红；M13 无视 `continue-on-error` ⇒ 「集合派生」与「真实对账」两条红；M14 不再派生账本文件 ⇒ 三条红（含专为把它与 M13 分开而加的无软门禁夹具那条）），`有红集=14/14 / 互不相同红集=14`，跑完判据文件按字节还原 `md5=2a4ba86763`（前 10 位，按工作树字节算——同一份内容在另一种行尾档下是另一个数，引用它必须连带说"哪一份内容、哪一档"）。一条诚实补充：**M5 的红集是 M2 红集的子集**（两者共用指标名结构锁），所以"5 个互不相同"不等于"5 对 5 独占"。驱动自己也被抓到一条坑：`Number('') === 0` 且 `!Number.isNaN(0)` ⇒ "没传参数"被解析成"只跑索引 0"，一轮只验了第一条变异就报全通过——过滤器必须先滤空串再按整数校验。
+- **边界（不假装已闭合）**：本刀**不阻断**，交付后陈旧绿仍可能被合进去，变化只是"合并前 PR 上有名字"取代"合并后靠 main 变红才知道"；真要阻断只有三条路（打开 ruleset/classic 的 `strict`、由 CI 写 required 上下文、启用 Merge Queue），三条都属改守门、已由用户 2026-10-20 明确选择在四档里取本档。触发 `paths:` 与注入文件清单是第二处真源，未配锁（为"将来可能新增基线文件"预建判据属猜需求）。CI 耗时与 GitHub 评论写入的二级速率限制都是**未证事实**，首次真实运行后才允许被写进任何结论。
+# [未发布] test(parity): `python simulator failed:` 不再抛空消息 —— 缺 python / 被超时杀 / 真崩 三档分开上报（parity-spawn-blindness）
+
+- **同一句空消息第三次复发，且前两次已经留下过根因**：`grep -na "python simulator failed" .quality-gates.md` 实测 2 条历史命中 —— 第 1 次（`:3261`）判环境性失败后 `rerun --failed` 收口；第 2 次（`:10018-10026`）**已经把根因写了出来**（「只判 `res.status`、不读 `res.error` ⇒ 超时或缺 python 都抛空消息」）并附改进建议，当时以「避免扩大战线」没做；第 3 次就是今天，我合并 PR #4072 之后 main push run `39398401923` 的 `QG Coverage → Gate Result` 双红，又是一轮定责 + 一次重跑。读一个 `res.error` 的成本极低，**没做的代价就是这一整轮**（该口径已沉进内置记忆：低成本取证/建议不许写成遗留）。
+- **根因形状**：`spawnSync` 在最坏的两类情形下 stderr 与 stdout **都是空的** —— python 不在 PATH（`error.code=ENOENT`、`status=null`）与命中 `timeout:30000` 被 SIGTERM 杀（`ETIMEDOUT` + `signal` + `status=null`）。旧代码 `if (res.status !== 0) throw new Error('python simulator failed: ' + (res.stderr || res.stdout))` 于是把「环境不具备」「负载抖动」「python 真崩」三种成因压成同一句空消息，人的唯一出路就是 rerun。
+- **修法**：① 新增 `formatSpawnFailure(res, ctx)` 纯函数持有全部三档，各带 `cause`/`signal`/本次 `timeout` 与下一步动作（档1 给核验命令 `python --version`，档2 明说「属 runner 负载，可重跑，不是模拟器算错」，档3 带 stderr 尾 6 行），返回值**永不为空**；② `resolveSpawnTimeout` 让 `MP_PARITY_PYTHON_TIMEOUT_MS` 可覆盖，但 `0`/`NaN`/负值一律回落 30000 且**出声**（`timeout:0` 在 Node 里等于关掉超时，比 30s 更坏）；③ `status=0` 而末行非 JSON 新增一档 `PYTHON_OUTPUT_UNPARSEABLE`（带末行与行数），不再抛裸 `JSON.parse` 栈；④ spawn 后端可注入（`opts.spawnImpl`），失败路径这才在测试里可达。⛔ 预算数值 30000 一字未动——调它要先有分布。
+- **对上一轮建议的部分否证（这条最要紧）**：那条建议的另一半是「python 不可用时明确 skip 而非红整个作业」。**不做**：对拍只在 main push 跑（`if: github.event_name != pull_request`），静默 skip 等于把守门关掉还报通过，是本仓记过的「装饰性门禁」同型。处置是让红保持红，但从此红得可归因；理由写进代码注释与执行记录，免得下一个会话把 skip 当成「没做完的那半」补上。
+- **TDD / 反证**：先红 `8 failed | 36 passed`（红因全是机制缺席）⇒ 实现后 `node --test` **44 pass / 0 fail**；真 python 跑 `node scripts/compare-scheduler-models.js` 仍 `PARITY OK` rc=0（注入缝没动活路径）。变异 **P1–P5 逐条指名变红且按字节还原**（P1 改回被禁拼接 / P2 摘 ENOENT 档 / P3 摘超时档判据 / P4 放行 `timeout=0` / P5 退回裸 JSON.parse）。P3 顺手量出一条锁的边界：「三档互不相同」只挡**文案塌缩**、不挡**判据塌缩**（摘掉 `if (code==='ETIMEDOUT'…)` 后三句仍两两不同）—— 该局限直接写进用例注释，挡那个形态的是「档2」本身。另记一处我自己的错：P3 的期望清单多认领了一条不经该判据的用例，处置是改正期望 + 写下局限，没有改断言凑红、也没删弱锁。
+- **边界**：锁加在既有 `scripts/compare-scheduler-models.test.js`（已点名进 `quality-gate.yml` Gate 2b，每 PR 都跑 ⇒ 无新接线）；同形态第二处（其他 CI 脚本的 `spawnSync` 只判 status）未做全仓收敛，登记为遗留；本片**不含** `publish-history.test.js` 那条把接线棘轮跑到 10s 框架超时的红（那是另一族，任务 #89）。执行记录：`openspec/records/parity-spawn-blindness.md`。
 # [未发布] fix(i18n): TabBar 标签兜底文案收进 locales —— 并把"谁在决定可见文案"这条层间关系钉成断言（ux-audit-nav-locales）
 
 - `TabBar.vue` 的 `getTabLabel` 两处字面量换成既有键：`‘首页’` → `t(‘nav.home’)`、`‘新标签页’` → `t(‘tabs.newTabTitle’)`。可见文案逐字不变 ⇒ **像素中性**，不动 locale 文件（两个键与英文侧早已存在，只多消费一次）。

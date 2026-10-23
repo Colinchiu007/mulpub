@@ -3683,3 +3683,262 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 
 
 
+
+## 12. AI 讲解视频（animated-explainer）离线可复跑与四处缺陷收口（2026-10-23）
+
+### 12.1 目标与范围
+
+「视频创作 → AI 讲解视频」（流水线 `animated-explainer`）此前只能在**配齐付费 API Key、且设备能访问模型服务**的前提下端到端跑通，导致两个后果：① 流水线八段链路（研究 → 方案 → 文案 → 分镜 → 素材 → 剪辑 → 合成 → 发布）无法被**自动**回归，改一处素材/合成逻辑只能靠人工点界面；② 出了问题（例如成片没有旁白）只能在真实账号上复现，代价高。
+
+本次目标：
+1. 让 `animated-explainer` 具备**零凭据、零外网**的端到端复跑能力（本地 Provider 桩 + CDP 驱动），并把「跑通」变成**可断言的**（成片存在 / 可播放 / 规格合规 / 音轨非静音）。
+2. 借这次复跑，定位并修复流水线链路上**四个真实缺陷**（见 §12.8），其中两个是**会命中真实用户**的：默认音色下成片完全无旁白、本地模型服务商被强制要求 API Key。
+3. 把本次的能力边界、判据与遗留项写进本 PRD，供后续维护者复现与审阅。
+
+**范围边界**：本次不新增任何用户可见的流水线能力，不改 `animated-explainer` 的阶段划分与产线口径，不改 UI 交互形态；新增物全部落在**开发/自测侧**（`apps/desktop/tests/e2e/**`、`apps/desktop/scripts/**`）与**模型服务商的凭据判定**（`model-provider-manager.js`）。UI 侧唯一的可见变化是「本地回环服务商不再被要求填 API Key」。
+
+### 12.2 数据合同与校验
+
+#### 12.2.1 流水线启动入参（`pipelineStartOrchestrated`）
+
+| 键 | 类型 | 校验 | 缺省 / 失败回退 |
+|---|---|---|---|
+| `text` | string | trim 后非空；空则 UI 层拦截（`canStartPipeline`） | 主进程侧 `explainer_research` 阶段再校验一次，失败即 `success:false` |
+| `inputMode` | `'text'` | 固定值 | — |
+| `checkpointPolicy` | `'none'` \| `'manual_all'` \| `'auto_noncreative'` | `'none'` ⇒ 全程无人工暂停 | 缺省走 `stageDef` 的 `checkpointRequired`（本流水线全为 false） |
+| `autoAdvance` | boolean | false ⇒ 跑完当前阶段即挂起等 `advanceToNextCheckpoint` | — |
+| `background` | boolean | true ⇒ IPC **立即返回 runId**，推进在后台进行 | false ⇒ IPC 阻塞到本轮结束 |
+| `resolution` | `'1920x1080'` \| `'1280x720'` \| … | 受 `validateResolution`（像素上限）与 `validateResolutionCapability`（运营开关 1080p/4k）**双重**校验 | 缺省 `1920x1080` |
+| `aspectRatio` | `'16:9'` \| `'9:16'` \| `'1:1'` | 供出图换算像素尺寸 | 缺省 `'16:9'` |
+| `fps` | number | 1..120 | 缺省 30 |
+| `format` | `'mp4'` \| `'webm'` | — | 缺省 `mp4` |
+| `subtitleEnabled` | boolean | 仅影响合成期是否烧录字幕 | 缺省 false |
+
+**并发闸**：设备上同时运行的流水线达到上限（默认 2）时，启动被拒，`errorCode = PIPELINE_CONCURRENCY_LIMIT`，`errorParams = { count, max }`。这是**正常的容量保护**，调用方应当**等待后重试**而不是判定为失败。
+
+#### 12.2.2 模型能力前置校验（`checkPipelineModelRequirements`）
+
+`animated-explainer` 申报的能力需求为 **LLM + IMAGE**（TTS 不申报）。
+
+| 能力 | 解析方式 | 通过条件 | 缺失时 |
+|---|---|---|---|
+| LLM | 未显式指定 → `ModelProviderManager.getDefault('llm')` | 命中任一 `enabled=1` 的 llm provider，且**有可用 Key 或属于回环免 Key** | `PIPELINE_MODEL_REQUIREMENTS_MISSING`，`errorParams.missing = ['llm']` |
+| IMAGE | 同上，取 `'image'` | 同上 | `errorParams.missing = ['image']` |
+| TTS | 不申报 | — | 不拦截；TTS 走「默认 provider → Edge TTS → 静音兜底」链路 |
+
+用户可见文案（`locales/story2video/zh.js` 的 `models_required`）：
+
+> 启动前置校验未通过：缺少{能力中文名}。请到「模型设置」中添加对应模型后重试。
+
+能力中文名映射：推理模型 / 图片生成 / 视频模型 / TTS语音 / 语音识别。
+
+#### 12.2.3 本地 Provider 桩的协议契约
+
+桩严格复刻真实服务商协议，**桌面端适配器零改动**即可对接：
+
+| 桩 | 协议 | 请求 | 响应 | 对应适配器 |
+|---|---|---|---|---|
+| LLM 桩 | OpenAI 兼容 | `POST {base}/chat/completions`，体含 `{model, messages, temperature, max_tokens}` | `{choices:[{message:{content}, finish_reason}]}` | `adapters/openai.js` / `adapters/ollama.js`（薄包装 OpenAICompatible） |
+| 图片桩 | Stable Diffusion WebUI | `POST {base}/sdapi/v1/txt2img`，体含 `{prompt, width, height, steps, sampler_name}` | `{images:[base64png]}` | `adapters/local-diffusion.js` |
+| 图片桩连活探针 | 同上 | `GET {base}/sdapi/v1/options` | `{sd_model_checkpoint, samples}` | `local-diffusion.testConnection` |
+
+**阶段路由**：LLM 桩按**阶段 system prompt**（而非用户输入）判定当前阶段 —— `结构化的讲解视频大纲` → research、`分镜方案` → proposal、`逐段旁白文案` → script、`视频场景` / `严格的 JSON 输出助手` → scenes。判据必须只认 **system 消息**：scenes 阶段的 user 消息里含「旁白文案」字样，若连 user 消息一起匹配就会被误判成 script。
+
+**文案基准**：`tests/e2e/fixtures/explainer-copy.json` 是四个阶段输出的**单一事实源**。桩按阶段返回对应字段；scenes 字段返回 `JSON.stringify(scenes)`，其元素形状固定为 `{prompt, text, duration}`。
+
+**出图画幅**：桩必须**消费 width/height**并按其渲染；`local-diffusion` 适配器的画幅契约是「显式 width/height 优先，未给时按 `aspect_ratio` 换算」，桩收到的已是换算后的像素值。
+
+#### 12.2.4 卡片版面的标题安全区（本地出图必须遵守）
+
+合成引擎默认动效 `zoom-in` 的实现是 `1+0.25*progress` 的**居中**缩放（`story2video-compose-engine.js` 的 `buildImageEffectFilter`），即画面在场景内从 1.0 放大到 **1.25** 倍并居中裁切 —— 左右各被裁掉 `(1 - 1/1.25) / 2 = 10%`。
+
+因此：**任何本地出图 Provider 生成的画面，其文字/主体必须距左右边缘 ≥ 10% 画幅**。本地桩的边距取 **13%**（留 3% 余量）。违反该约束的实测症状：成片里「好消息是」被裁成「消息是」——首字丢失且**不报任何错**。
+
+#### 12.2.5 成片校验（复跑断言）
+
+| 断言 | 判据 |
+|---|---|
+| 成片存在 | `context.compose.videoPath` 指向的文件在磁盘上存在 |
+| 成片是视频 | 扩展名 ∈ {mp4, webm, mov, mkv}。**不得**用泛用键 `path` 匹配后当作成片 —— compose 产物结构里同时挂着素材图（`imagePath`）与分段视频（`videoPath`），泛用匹配会先命中 `img_0000.png`，产生「成片是 PNG」的假阳性 |
+| 可播放 | `ffprobe` 能读出视频流 |
+| 规格 | 视频流存在且宽高 > 0 |
+| 有声 | 存在音频流（`hasAudio`）。**仅有音频流不足以证明有旁白** —— 静音兜底同样产出音频流 |
+| 非静音 | 音轨 `mean_volume` 显著大于 -91 dB（ffmpeg 数字静音下界）。实测真实旁白 `mean_volume = -19.7 dB / max_volume = -2.9 dB` |
+| 时长 | 与「场景数 × 场景时长」量级相符；纯静音兜底下每场景固定 3.0s（总时长 = 3 × 场景数），真实旁白下每场景时长随文案长度变化 |
+
+### 12.3 流程逻辑（八阶段与产线口径）
+
+| # | 阶段 | stage `type` | 产出 | 检查点 | 关键说明 |
+|---|---|---|---|---|---|
+| 1 | research | `explainer_research` | `research_brief` | 否 | 主题 → 结构化解说大纲（3-6 个要点） |
+| 2 | proposal | `explainer_proposal` | `proposal_packet` | 是 | 大纲 → 分镜方案 |
+| 3 | script | `explainer_script` | `script` | 是 | 分镜方案 → 逐段旁白文案（段落间空行分隔） |
+| 4 | scenes | `explainer_scenes` | `scenes` | 是 | 文案 → 场景数组 `{prompt, text, duration}`，**上限 30 个**；JSON 解析失败先做一次「修复为严格 JSON」重试，仍失败则按行级兜底拆分 |
+| 5 | assets | `explainer_generate_assets` | `asset_manifest` | 是 | 复用 `story2video_generate_assets`：并行出图（并发 3）+ 旁白合成（含内容政策重试）。图片 provider / 音色 provider **未显式指定时自动取模型设置里的默认 provider** |
+| 6 | editing | `explainer_editing` | `asset_manifest` | 是 | 校验并透传：资源清单非空即通过（真实动效/转场由合成引擎执行） |
+| 7 | compose | `compose`（内置） | `render_report` | 是 | `inputFrom: assets` → `serviceBus.composeVideo` → ffmpeg 合成引擎 |
+| 8 | publish | `publish`（内置） | `publish_log` | 是 | `inputFrom: compose`；未选平台时跳过 |
+
+**阶段推进契约**：`_autoAdvanceRun` 循环执行 `while (run.status === 'running')`；阶段失败 ⇒ 发 `stage:fail` + `pipeline:fail` 并把 run 收敛为 `failed`；遇人工检查点 ⇒ run 置 `paused` 并发 `checkpoint:pause`；全部完成 ⇒ `completed`。
+
+**失败即终止**：任一阶段失败后，后续阶段保持 `pending`，不继续执行。失败信息同时进 `snapshot.error` / `snapshot.errorCode` / `snapshot.errorParams` 与该阶段的 `stage.error`。
+
+**compose 阶段的关键约束**：
+- 素材路径必须在**受控媒体根**内（默认 `os.tmpdir()/story2video` + `process.cwd()` + userData 下的项目/素材库目录），否则报 `SCENE_MEDIA_UNREADABLE`。
+- 每个场景必须同时具备**图片（或视频）与音频**，否则报 `SCENE_AUDIO_UNREADABLE`。
+- 产物路径：分段 `s2v_<ts>_<seq>_segments/segment_NNNN.mp4` → 合并 `s2v_<ts>_<seq>/output.mp4` → **成片 `s2v_<ts>_<seq>_output.mp4`**；旁白音轨 `s2v_<ts>_<seq>_narration.m4a`。
+- 分段转场 `transition: fade`（时长 0.4s），画面动效 `imageEffect: zoom-in`（见 §12.2.4）。
+
+**运行期参数与 stageDef 的关系（易踩）**：运行期参数经 `resolveRuntimeStageOptions` 按**阶段名**注入。本流水线的素材阶段名叫 `assets`（不是 `generate_assets`），因此 `params.imageProvider` / `params.voiceId` / `params.aspectRatio` **不会**注入该阶段；素材阶段的 provider 由 `explainer_generate_assets` 执行器自己从「模型设置的默认 provider」解析。`compose` 阶段的 `resolution/fps/format` 则**会**被运行期参数覆盖。
+
+### 12.4 交互逻辑
+
+#### 12.4.1 UI 驱动（DOM）
+
+1. 路由 `#/create`（hash 模式；`/create/pipeline` 重定向到 `/create`）。
+2. 选流水线：点击 `[data-pipeline-id="animated-explainer"]`（卡片标题「AI 讲解视频」，描述「从主题或创意自动生成完整讲解视频」）。
+3. 填主题：`.input-area textarea.form-textarea`。**Vue `v-model` 必须写 `.value` 后再 `dispatchEvent(new Event('input', {bubbles:true}))`**，只赋值不派发事件则 `pipelineText` 不会更新。
+4. 启动：点击 `[data-testid="start-story2video"]`。按钮可用性闸 `canStartPipeline` 对本流水线要求**主题 trim 后非空**。
+5. 启动前会经过**登录门**（`ensureLoginForStart` → `useLoginGate.ensureLogin`）：已登录直接放行；身份服务 `disabled`/`error` 时提示并拒绝；未登录则弹确认框走 OAuth。
+
+> **实测（2026-10-23，CDP 驱动真实界面）**：身份服务处于「未启用」态时，**UI 路径点【启动流水线】不会启动流水线** —— 登录门按 `status === 'disabled'` 弹提示后返回 `false`，`startPipeline()` 根本不被调用。这是既有安全策略（未接入身份服务时不允许发起需要身份的主动操作），**不是缺陷**。
+> 而 **API 路径（`pipelineStartOrchestrated`）不受这层登录门约束**：它只看 IPC 访问级别，未打包运行（`app.isPackaged === false`）时主进程直接给 `admin`。
+> 两条路径的差异必须分清，否则会把「UI 跑不通」误判成流水线缺陷、或把「API 跑得通」误当成登录门失效。
+
+> **导航实测**：**只改 `location.hash` 不足以切到视频创作页** —— 实测把 hash 置为 `#/create` 后 `location.href` 确实变了，但视图仍停在首页（壳层不响应这次 hash 变更）。真实用户路径是点侧边栏的「视频创作」入口 `[data-testid="mp-primary-create"]`，那才会挂载 `CreateView` 并出现流水线卡片。CDP 驱动必须走这条路径。
+
+#### 12.4.2 API 驱动（编排入口）
+
+`window.electronAPI.pipelineStartOrchestrated('animated-explainer', params)` → 返回 `{code:0, data:{success:true, runId}}`；`background:true` 时**立即**返回。
+
+进度观察：`window.electronAPI.pipelineGetRunContext(runId)` → `{status:{status, currentStage, progress}, stages[], context{}, error, errorCode, errorParams}`，终态 `status ∈ {completed, failed, cancelled}`。另有 `pipeline:update` 推送通道（`onPipelineUpdate`）。
+
+**权限**：非 `public` 通道需要 `authenticated` 级。**未打包运行（`app.isPackaged === false`）时主进程返回 `admin`**，免登录可用；**但身份服务一旦启用**，主进程以身份状态为准（`authenticated` / `offline_authenticated` 才算通过），此时未登录会被拒。两条判据必须分清，否则会把「dev 模式应当免登录」当成无条件成立。
+
+#### 12.4.3 CDP 驱动（本地复跑专用）
+
+用**原生 WebSocket** 直连 `http://127.0.0.1:<cdpPort>/json/list` 里 url 以 `http://127.0.0.1:<vitePort>` 开头的 page target，再发 `Runtime.evaluate`（`awaitPromise:true, returnByValue:true, userGesture:true`）。
+
+> 不用 Playwright 的 `connectOverCDP`：本仓 Electron 43 上实测侧握手稳定超时（15s × 6 次全 timeout），而原生 WebSocket 直连完全正常。点击一律走 DOM `.click()`，与既有 E2E 驱动一致。
+
+CDP 握手需 Electron 侧带 `--remote-allow-origins=*`（本仓 dev 启动器已有 `MP_CDP_ALLOW_ALL_ORIGINS=1` 开关）。
+
+### 12.5 显示项与提示文字
+
+#### 12.5.1 阶段显示项
+
+阶段中文名（`locales/pipelines/zh.js` 的 `stages`）：
+
+| 阶段 | 显示名 | 阶段 | 显示名 |
+|---|---|---|---|
+| research | 内容调研 | assets | 素材准备 |
+| proposal | 方案提议 | editing | 剪辑 |
+| script | 脚本撰写 | compose | 视频合成 |
+| scenes | 分镜规划 | publish | 发布 |
+
+流水线卡片显示名「AI 讲解视频」，分类「AI 生成」，描述「从主题或创意自动生成完整讲解视频」。
+
+#### 12.5.2 阶段进度提示文字（`locales/stage-progress/zh.js`）
+
+| 阶段 | 进行中 | 完成 | 摘要 |
+|---|---|---|---|
+| research | 正在生成解说大纲… | 解说大纲生成完成 | 已生成解说视频大纲 |
+| proposal | 正在生成分镜方案… | 分镜方案生成完成 | 已生成解说视频分镜方案 |
+| script | 正在生成旁白文案… | 旁白文案生成完成 | 已生成逐段旁白文案 |
+| scenes | 正在拆分视频场景… | 视频场景拆分完成 | 已拆分为 {count} 个视频场景 |
+| assets | 正在准备素材 · 图片 {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}（出图/出视频/出旁白各有细粒度变体，含「正在改写敏感提示词并重试」） | 素材生成完成 | 已生成 {done}/{total} 项素材 |
+| compose | 正在合成片段 {done}/{total} · {percent}% / 视频合成 {percent}% | — | — |
+| editing | （无独立进度键，直接透传资源清单） | — | — |
+| publish | 正在发布到 {platform} · {done}/{total} | — | — |
+
+> 说明：只有 research / proposal / script / scenes 四个 LLM 阶段有 **explainer 专属**文案键；
+> assets / editing / compose / publish 走**通用**的 Story2Video 阶段文案（`assetsStarting` / `assetsImage` /
+> `assetsVideo` / `assetsTts` / `assetsComplete` / `composeSegments` / `composeVideo` / `publishing`）。
+> 这是既有实现，本次未改；它的代价是：用户在这条流水线上看到的是「正在准备素材」这类通用措辞，
+> 而看不到「解说」语境下的专属提示。
+
+#### 12.5.3 状态枚举显示名
+
+待开始 / 等待中 / 进行中 / 已完成 / 已跳过 / 失败 / 需要用户输入 / 已暂停 / 等待确认 / 已取消。
+
+#### 12.5.4 失败与降级的可见性（本次重点收口项）
+
+| 情形 | 用户可见现象 | 本次收口 |
+|---|---|---|
+| 音色参数是占位值 `'default'` 且无 TTS provider | **成片完全没有旁白**，界面无任何异常提示（只有主进程日志一行 WARN） | 已修（§12.8 ②）：占位值统一判为「未指定」，回落到真实音色名 |
+| 旁白整体降级为静音 | 成片能播，但每场景固定 3.0s、无声 | 本次新增断言：`hasAudio` **且** `mean_volume` 显著大于 -91 dB 才算「有旁白」 |
+| 本地服务商被要求填 API Key | 「模型设置」里填不进本地端点的 Key（safeStorage 不可用时直接 `CRYPTO_UNAVAILABLE`） | 已修（§12.8 ①） |
+| 素材图被 zoom-in 裁掉边缘文字 | 成片里首尾字缺失，**不报错** | 本次新增「标题安全区」契约（§12.2.4）与版式实现 |
+
+### 12.6 测试与验收矩阵
+
+| 层级 | 必测场景 | 载体 |
+|---|---|---|
+| 桩单测 | 阶段路由四态 + 修复提示词；user 消息不得参与路由；基准文件缺字段即抛错；场景 prompt 精确匹配；中文折行不丢字；LLM 端点返回 OpenAI 兼容结构；scenes 阶段返回可直接解析的 JSON 数组；图片端点返回 PNG 魔数 + 尺寸符合请求 | `apps/desktop/tests/local-provider-hub.test.js`（vitest） |
+| 驱动单测 | `--key=value` / `--key value` 两种参数写法；成片路径发现只认视频扩展名；优先顶层成片而非素材图；不存在文件不得被当成成片；ffprobe 读出视频/音频流/时长 | `apps/desktop/tests/animated-explainer-cdp.test.js`（vitest） |
+| 免 Key 判据单测 | ollama / local-whisper 回环免 Key；**远端端点仍必须 Key**；回环判定对 `127.0.0.1` / `localhost` / `::1` / 空值成立、对 `https://api.openai.com` 与 `http://10.0.0.5` 不成立 | `apps/desktop/electron/services/model-provider-local-no-key.test.js`（vitest） |
+| 音色占位单测 | `default` / `male` / `female-soft` 一律判为「未指定」；真实音色名原样保留；edge-tts 路径不得把占位值传给 edge-tts | `apps/desktop/electron/services/asset-generator.test.js`（vitest） |
+| 启动器单测 | 口令存储后端白名单与非法取值抛错；未设置时不下发开关；`--password-store=` 保持末位为应用路径；dev.js 接线锁与留痕锁 | `apps/desktop/scripts/dev-launcher.test.js`（node --test） |
+| dev.js 一次性守卫 | Electron 至多启动一次（源码级性质锁） | `apps/desktop/scripts/dev-launcher.test.js`（node --test） |
+| 端到端 | 两轮连续复跑均产出**带非静音人声**的 MP4；ffprobe 规格合规；阶段全部 `completed` | `apps/desktop/tests/e2e/animated-explainer-cdp.js` |
+
+### 12.7 复跑操作手册（无凭据 / 无外网模型）
+
+前置：Node 22、Python 3.11+（含 `edge-tts`）、ffmpeg/ffprobe、系统 CJK 字体、本地 X 显示（无头用 Xvfb）。
+
+**Linux 上的依赖注意**：仓库根 `.npmrc` 把 `supported-architectures` 钉在 `win32`（Windows 优先，避免在 Windows 机器上下载 Linux/macOS 的可选依赖）。在 Linux 上复跑时需要额外装上 Linux 侧的可选原生依赖（rollup / esbuild 等），否则 Vite 起不来；本机复跑时是在 worktree 内**临时**放开该键（`supported-architectures[os]=linux`）后安装的，**该临时改动未入库**（它会改变所有 Windows 开发者的安装体积，属另一件事）。
+
+1. 起本地 Provider 桩：`node apps/desktop/tests/e2e/lib/local-provider-hub.js`（见该文件导出，默认 8787 / 7860）。
+2. 起桌面端（开发模式，CDP 端口由 `MP_CDP_PORT` 指定），确保 `--remote-allow-origins=*`（`MP_CDP_ALLOW_ALL_ORIGINS=1`）。
+3. 跑：`node apps/desktop/tests/e2e/animated-explainer-cdp.js --cdp-port=<cdp> --vite-port=<vite> --runs=2 --resolution=1280x720 --out-dir=<out>`。
+4. 产物：`explainer-run-N.mp4` + `explainer-cdp-report.json`（含每轮 runId、阶段状态、成片路径、ffprobe 规格）。
+
+**Linux 无头环境的两个必备开关**：
+- `MP_ELECTRON_PASSWORD_STORE=basic`：无头容器没有 gnome-keyring/kwallet，Chromium 的 `basic_text` 后端在 Linux 上**不算加密**，`safeStorage.isEncryptionAvailable()` 恒为 false ⇒ 模型 API Key 存不进去（`CRYPTO_UNAVAILABLE`）。`basic` 是唯一不依赖守护进程的后端。
+- 身份服务需处于「未启用」态（`config/identity-public.json` 的 `identityAuthEnabled: false`）：身份服务启用时主进程以身份状态为准，未登录拿不到 `authenticated` 级，`model-provider:update` 与 `pipeline:startOrchestrated` 都会被拒。
+
+### 12.8 本次修复的四个缺陷
+
+#### ① 本地服务商被强制要求 API Key（`model-provider-manager.js`）
+
+- **现象**：内置预置「Ollama (本地)」「本地 Whisper」在管理器里被要求必须填 API Key，而它们自己的适配器契约写明「apiKey 可空」；在 safeStorage 不可用的环境里连假 Key 都存不进去。
+- **第一性原因**：免 Key 判据写成**硬编码服务商 id 白名单**（`piper / local-diffusion / comfyui`），而不是**「地址在回环接口上」这一属性**。两个本地预置因为不在白名单里被漏掉。
+- **修复**：判据改为「**显式回环地址** + 本地预置」两路：
+  - `base_url` **显式**指向回环地址 ⇒ 免 Key（`ollama` / `local-whisper` / 用户自建的本地 OpenAI 兼容端点）；
+  - 本地预置（`piper` / `local-diffusion` / `comfyui` / `local-whisper`，其适配器默认地址在回环）⇒ 免 Key；**但它们若显式指向非回环地址，仍然拒绝**。
+- **安全性**：远端服务商**仍严格要求 Key**，「无 Key 配置」永远变不成一条远程请求通道。
+- ⛔ **空 `base_url` 不等于「本地」**：空值的语义是「**用适配器自带的默认地址**」，而那个默认地址**可能是远端**（`heygen` 的默认是 `https://api.heygen.com/v2`）⇒ 空地址只有本地预置才免 Key，其余一律要求 Key。
+  这条边界有既有回归锁（`electron/tests/pipeline-model-preflight.digital-human.test.js` 的「HeyGen 已配但无 API Key → 拦截」）：判据**从名单放宽到属性**时若不单独判空值语义，安全边界会被静默放宽。
+- **副作用（正向）**：用户自建的本地 OpenAI 兼容端点（Ollama / LM Studio / vLLM / 自建网关）终于能免 Key 配置。
+
+#### ② 默认音色下成片完全没有旁白（`asset-generator.js`）
+
+- **现象**：用默认音色 + 未配置 TTS provider（走内置 edge-tts 免 Key 路径）时，成片**没有任何旁白**，每个场景固定 3.0s 静音；界面无异常提示。
+- **第一性原因**：上游取音色的兜底是哨兵串 `'default'`（`firstDefined(params.voiceId, stage.options?.voiceId, 'default')`）。provider 路径早就会把 `'default' / 'male' / 'female-soft'` 过滤掉（当 undefined 交给适配器挑默认），**edge-tts 路径没有过滤**，原样把 `'default'` 当音色名传给 edge-tts，edge-tts 抛 `ValueError: Invalid voice 'default'` ⇒ TTS 静默降级为 3s 静音。
+- **修复**：把「未指定音色」的哨兵值收敛为**单一常量** `PLACEHOLDER_VOICE_IDS`，两条路径共用同一个解析函数 `resolveConcreteVoiceId`；edge-tts 路径在无具体音色时回落到 `zh-CN-XiaoxiaoNeural`。
+- **落点约束**（易踩）：`asset-generator.js` 与 `model-provider-manager.js` 都在**「点名还账」名单**里（逐文件行数门禁 `check-max-lines.js` 的 `targets`，**零增长容差**）⇒ 新逻辑优先进**新文件**（本次音色占位值判定抽成 `apps/desktop/electron/services/tts-voice-id.js`）。
+  但 `model-provider-manager.js` 另有**双零余量**约束：它同时受「逐文件行数门禁」（上限 1284）与「债务预算门禁」的 `MODEL_PROVIDER_FAN_OUT`（**唯一 require 数上限 66**）管着 ⇒ 把判据抽成新模块会**多一个 require**（fan-out 67 > 66）⇒ 该文件的改动必须**行数净 0、require 数净 0**（本次靠压缩 `isLoopbackBaseUrl` 的两行实现腾出额度）。
+- **逃逸分析**：单测层只锁了 provider 路径的过滤（`asset-generator.test.js` 里没有 edge-tts 音色断言）；端到端层此前没有「音轨非静音」这一断言（只有「有音频流」，而静音兜底同样产出音频流）⇒ 缺陷得以逃逸。
+- **防再犯**：① 哨兵值收敛为单一常量 + 两条路径共用（杜绝再次漂移）；② 新增单测锁「edge-tts 路径不得把占位值传给 edge-tts」；③ 复跑断言从「有音频流」升级为「有音频流 **且** 响度显著大于数字静音下界」。
+
+#### ③ dev 启动器反复拉起 Electron 导致 OOM（`dev.js`）
+
+- **现象**：开发机/容器上启动桌面端后，进程数在几分钟内冲到 100+（实测 189 个 Electron 进程、合计 RSS 3.4GB），Vite 被 OOM `SIGKILL`，表现为「窗口刚起来就没了」。
+- **第一性原因**：`waitForVite` 缺少「Electron 只启动一次」的一次性守卫。`req.setTimeout(1000, ...)` 触发的重试与随后的成功回调存在竞态，**两条路径都会走到 spawn**。
+- **修复**：加 `electronSpawned` 一次性守卫，重复的 vite 就绪回调只告警不再 spawn。
+- **防再犯**：源码级性质锁（守卫判据必须先于置位、置位必须先于 spawn）。
+
+#### ④ 无头 Linux 下模型 API Key 无法落库（`dev-launcher.js`）
+
+- **现象**：`modelProviderUpdate` 返回 `CRYPTO_UNAVAILABLE`（「系统安全存储不可用」）。
+- **第一性原因**：Electron 在 Linux 上的 `safeStorage` 只有在存在真实口令存储后端时才可用；无头容器里没有 gnome-keyring/kwallet，`basic_text` 后端在 Linux 上**不算加密** ⇒ `isEncryptionAvailable()` 恒 false。实测 `basic` 与 `gnome-libsecret` 两种后端均为 false。
+- **修复**：`dev-launcher` 新增 `MP_ELECTRON_PASSWORD_STORE` 开关（白名单：basic / gnome-libsecret / kwallet / kwallet5 / kwallet6），下发 Chromium 的 `--password-store=`；**未设置时完全不下发该开关**，Windows/macOS 行为一字不变。
+- **非法取值抛错而非静默忽略**：静默忽略会让「我明明配了口令存储」变成「配置形同虚设」，且失败点会推迟到保存 Key 时才以 `CRYPTO_UNAVAILABLE` 现身。
+
+### 12.9 未闭合 / 明确不做
+
+1. **Python 后端未在本环境跑通**：splitter / prompt 引擎因 `splitter` / `prompt_engine` 两个 Python 包未安装而反复重启；`animated-explainer` 的八阶段不依赖它们，**不影响本次结论**，但「主服务未启动」状态下若干旁路能力不可用。
+2. **1080p 合成在 3GB 内存容器下会被 OOM**：8 路 `xfade` 居中拼接在 1080p 下内存峰值超限（`dmesg` 实测 `oom-kill ... task=ffmpeg`）。本次以 720p 复跑通过；**这是环境容量约束，不是流水线缺陷**，桌面端 8GB+ 机器上不存在该问题。
+3. **不解除身份服务启用时的登录要求**：dev 管理员短路在「身份服务未启用」时生效，这是既有安全策略（已有回归锁），本次不动。
+4. **不改流水线阶段划分与产线口径**：八阶段、checkpoint 策略、资产并发度等一律保持原样。
+5. **合成素材图的标题安全区只在本地桩里落实**：真实 AI 出图是照片/插画，不受该约束；该契约记录在 §12.2.4，供后续做「本地/程序化出图」的 Provider 参考。
