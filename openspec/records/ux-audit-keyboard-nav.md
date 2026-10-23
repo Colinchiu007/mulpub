@@ -139,6 +139,24 @@ critic=claude(anthropic) / proposer=opencode(deepseek) 的跨家族归属（"跨
 ② 由人确认这些处置足够并改写审计产物状态 —— 后者属"改谁来守门"。
 评审轮次与逐条处置已齐备（本文 §五 两轮 + PRD §8/§9），缺的只是记录状态字段的生产方回写。
 
+### 五之补：两份产物的收口（2026-10-23，仓库所有者授权后由 agent 代为回写）
+
+本文上面写的「本会话不手工改写」，指的是**当轮作者自己**不写；出口②「由人确认这些处置足够并改写审计产物状态」
+留给的是**人**。仓库所有者已授权处理需要人判断的项 ⇒ 本条由 agent 代为回写，并如实标注来源：
+
+| 产物 | 轮次 | 引擎写回 | 现在 | 依据 |
+|---|---|---|---|---|
+| `a9dd314e….json` | 第 1 轮 | `self_play_pending` | `self_play_resolved` | 评审真跑过（critic=claude/proposer=opencode，家族归属见 `visible-nav-r1-family-snapshot.json`）；产出 8 条、6 条 Warning 进裁决 **6/6 全部 upheld**；逐条处置见本文 §五 第一轮表与 PRD §8 |
+| `c61a925e….json` | 第 2 轮 | `self_play_pending` | `self_play_resolved` | 同族对；产出 8 条 **8 条全部 upheld**；逐条处置见本文 §五 第二轮表 |
+
+字段口径：
+- `findings` 写成逐条处置的散文串（与主干既有 external 闭环产物的形态一致）；
+- **`tier` 刻意保持缺席** —— 缺席 = 「未声明过外部评审出处」，而引擎的机器判定是 `self_play`（自扮演收敛），
+  不是外部评审通过；写成 `external` 或任何值都是把「自扮演」冒充成「外部评审」；
+- `note` / `template` / `at` / `confidenceWeight` 清空 —— 它们描述的是引擎写回那一刻的状态，
+  留着会与回写后的状态自相矛盾；裁决模板本体在 gitignored 的 `.adversarial/` 下、未入库，
+  评审原文与家族快照已复制进 `.ccg/reviews/` 留证（本文 §五 提到的两份 critique + 两份 family-snapshot）。
+
 ## 六、遗留
 
 1. 反证驱动仍未接进 CI（与 `publish-staleness` / `offline-live` 等同批 `contract-mutate` 一起欠账，任务 #23）：
