@@ -794,3 +794,48 @@ publishMode: dom-only  # 2026-10-23 为验证 DOM 拖放而临时改，之后未
 
 **因此视频号应走 DOM 链路**（上传已证实成功：`publishBtnAfter:true`），
 把「发表点击为何不发请求」作为唯一待办 —— 下一步判据：点前打印按钮 `disabled` 与 `outerHTML` 片段。
+
+### 8.26 视频号「发表」被 CSS 类禁用的根因：封面缺失（2026-10-24 02:19）
+
+#### 证据链
+
+```
+18:13:03  uploading cover...
+18:13:03  cover: No file input found for input[type="file"][accept*="image"]   ← 主文档找不到封面框
+18:13:18  clicked-wujie|html=<button class="… weui-desktop-btn_disabled">发表</button>
+18:13:41  publish verification timeout responses=3
+```
+
+`disabled` **属性**是 `false`，但**类名**含 `weui-desktop-btn_disabled` ——
+框架用 CSS 类禁用按钮，`click()` 被忽略，因此 0 个发稿请求。
+
+#### 修复
+
+封面输入框同样位于 `.wujie_iframe` 的 shadowRoot 内。新增兜底：
+按 `accept` 含 `image/jpg/png` 挑选 `input[type=file]`，挑不到取最后一个，
+用原生 `files` setter + `change` 写入（`03d2de777`）。
+
+#### 修复后
+
+```
+18:16:36  clicked-wujie|html=<button class="weui-desktop-btn weui-desktop-btn_primary">发表</button>
+```
+
+`_disabled` 类**消失** ⇒ 封面补上后按钮确实解除禁用。
+
+#### 仍未解决：点击后仍无发稿请求
+
+```
+18:16:36  [click] 行为层失败，回落原生合成 click sel=button[class*="primary"]
+18:16:39  probe={"ocLog":[],"dpLog":[],"appReq":[],"appReqN":0}
+```
+
+`appReqN=0` ⇒ 两次点击都没触发任何应用层请求。
+
+**下一步判据（按性价比）**：
+
+| # | 动作 | 说明 |
+| --- | --- | --- |
+| 1 | 只保留 `_wujieClick`，跳过后续 `_click(publishSelector)` 回落 | 回落可能点到别的 primary 按钮，把状态搞乱 |
+| 2 | 点前打印按钮 `getBoundingClientRect()` 与 `pointer-events` 计算样式 | 判断是否被遮罩（此前已知有遮挡层会被 React 重建） |
+| 3 | 用 CDP `Input.dispatchMouseEvent` 在按钮中心真点一次 | 绕开 `element.click()` 的可信度问题 |
