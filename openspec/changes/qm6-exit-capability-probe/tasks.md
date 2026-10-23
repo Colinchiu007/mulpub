@@ -53,7 +53,7 @@
 
 ## 3. 撤销检出：独立文件的契约锁（这一组是本刀的立项动机）
 
-- [x] 3.1 新建 `scripts/qm6-exit-capabilities.test.js`（19 条 A1–A19）：`require` 读数器并断言导出面在位（A12）
+- [x] 3.1 新建 `scripts/qm6-exit-capabilities.test.js`（20 条 A1–A20）：`require` 读数器并断言导出面在位（A12）
 - [x] 3.2 每条谓词各配一对夹具（design §1.1 表），断言两版实现**答案不同**；同形当场红（A1/A2/A5）
 - [x] 3.3 结论生成器两条反方向锁：写死成"可达"要红（n8/n10 两条变异分别覆盖）、写死成"不可达"也要红；
       `unknown` 档必须有独立文案（A6/A8）
@@ -79,9 +79,9 @@
 ## 5. 变异反证驱动 `scripts/qm6-exit-capabilities.mutation.js`
 
 - [x] 5.1 靶子三类：读数器本体（CAPS）/ 探针本体（PROBE）/ workflow 接线行（WF）；
-      套件下界 `qm6-exit-capabilities.test.js=19`、`ccg-convergence-probe.test.js=11`
+      套件下界 `qm6-exit-capabilities.test.js=20`、`ccg-convergence-probe.test.js=11`
 - [x] 5.2 `ALLOWED_MISSED` 留空；每条变异指名要红的用例；`expectGreen` 的声明被否证即 PROBLEM
-      现场：`SUMMARY CAUGHT=26 MISSED=0 PROBLEM=0 TOTAL=26 ATTEMPTED=26` / `RESULT=OK`（2026-10-24，本 worktree，干净基线）
+      现场：`SUMMARY CAUGHT=28 MISSED=0 PROBLEM=0 TOTAL=28 ATTEMPTED=28` / `RESULT=OK`（2026-10-24，本 worktree，干净基线）
 - [x] 5.3 必含项逐条对上：恒 true（n1）/ 恒 false（n2）/ 结论写死（n10）/ 从导出面摘掉（n6）/
       摘掉 workflow 点名行（n12）/ 把 vendor 缺席伪装成"不在位"这一族（n15+n17+n18：分别覆盖
       "真跑路径整体不执行""调用在位但结果被常数覆盖""两路全瞎时守卫缺失"）

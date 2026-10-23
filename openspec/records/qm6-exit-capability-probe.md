@@ -15,17 +15,17 @@ date: 2026-10-23
 | 第一性原因（QM-5 ①） | ✅ | **不是"探针不够聪明"，是一次静默撤销让它开始说假话。** 2026-10-20 两笔相邻合并：`4d7c32535`（PR **#4067**，14:36+08）把探针改成**现读** vendor 能否表达外部复核、旧「不可达」结论不再写死；5 小时后 `8fdd617b2`（PR **#4062**，一个 s2v 错误码修复，19:47+08）携带评审前的旧副本 squash 落地，**把 #4067 在三个文件里的改动整段删空**（`git show --stat 8fdd617b2` 当场读数：探针 `+1/−21`、探针测试 `−25`、`ccg-convergence-exit/tasks.md` `−31`；且 `git log -S"externalReviewCapable"` 在这两个提交上各命中一次 = 一加一删）。今天 `git log 4d7c32535..HEAD -- <该 tasks 文件>` 只有 `8fdd617b2` 一笔 ⇒ 撤销是**唯一**的后续修改，恢复即取 #4067 那一版原文 |
 | 逃逸分析（QM-5 ②） | ✅ | 单元层：**没有逃逸路径可言——那条会红的断言与被删的实现是同一批文件里的同一次删除**，`node --test` 看不到"少了一个用例"（它只数跑掉的用例数，不数"本该有用例"）；CI 层：`Gate 2b6` 照跑探针测试，9 条全绿，红的必要条件（谓词缺失）不产生任何失败；判据层：探针自己那格 `--json` 仍报 `verdict=AS_EXPECTED / problems=[]`，而它的 stdout 结论句是**假的**（vendor 当场可读：`/function externalReviewSatisfied/` = true）；审查层：diff 里 22 行删除挂在一个 s2v 标题下，评审的人没有理由去查"这个文件是不是别人的" |
 | 系统性漏洞（QM-5 ③） | ✅ | 类别=测试机制缺失（不是代码缺陷）：**"检测某能力存在"的锁，不得与它守护的实现同文件、同批可删。** 这是本仓「装饰性门禁」家族的新落点：前几种是"锁恒真""捕获不判定""断言对方源码出现过某读法"，这一种是**"锁与实现同生命周期 ⇒ 撤销即失明，且失明长得像通过"**。第二条同型缺口：结论字符串写死在 stdout 里，**生成它的那份读数是可选的** —— 所以#4067 恢复回来也仍会再次说谎，直到结论变成读数的一元函数 |
-| 修复 + 回归保护（QM-5 ④） | ✅ | ① 新增 `scripts/qm6-exit-capabilities.js`：三条**纯谓词** `externalReviewCapable` / `upheldExitCapable` / `toolSignatureCapable`，返回值是**三档** `true / false / 'unknown'`，`unknown` 与 `false` 绝不合并（"vendor 把函数改名了"和"这条出口确实不存在"是两件事）；`readCapabilities` 对越界返回值**当场抛错**，`conclusionLine(readings)` 生成结论。② 探针改为 `require` 该模块并只输出**生成出来的**结论行；三处被撤销回来的写死句全部删除。③ 前滚恢复 `openspec/changes/ccg-convergence-exit/tasks.md`（取 #4067 原文，一字未改），并在同一文件**追加 §10.7 现状补记**（历史原文不改写，只声明现状，含"今天 P9 与 §10.4 的 P9 编号复用、语义不同"这条以免误导）。④ 契约锁住在**第三个文件** `scripts/qm6-exit-capabilities.test.js`：**19 条**（A1-A19），A1-A5 每条谓词一对夹具（两版实现答案必须不同）、A6 失明档不得输出结论句、A7 越界返回值必抛、A8 结论每句可追溯到某个布尔（三向各翻转一次）、A9 真源码档**只断言"读得出"并把读数打出来**（刻意不把今天那两面墙钉成契约——那会让将来真加出口的 PR 被自己的锁咬住）、A10 探针必须接读数器且不得再出现那句旧结论、A11 接线锁（按**剥掉注释后**的可执行正文点名）、A12 导出面 + `git ls-files` 追踪态（判忽略看回显模式不看 rc，`!` 反选也返回 0）、**A13-A15 行为档**（真调 `blockingFromAdjudication`，两版实现答案必须不同；"无凭证那份必须阻断"这道防呆单独测；交叉比较的两条不 ok/一致档逐个钉；探针必须把行为档与比较都接上）。⑤ **行为档已落地**（动笔时规划的 `vm` 编译被否证，实际用 `require`，理由见 design §1.2）：`upheldExitBehavioral` + `crossCheckUpheld` 两路互不代替，不一致 ⇒ rc=1；另补一道"vendor 在位但行为档取不到数"的守卫堵"两路全瞎仍报一致"（P11 真跑证明，n18 摘掉守卫即红） |
-| 变异反证 | ✅ | 驱动 `scripts/qm6-exit-capabilities.mutation.js`，五靶子（读数器 / 探针 / workflow 接线 / 探针测试的白名单 / **驱动自身**），终跑 **`SUMMARY CAUGHT=26 MISSED=0 PROBLEM=0 TOTAL=26 ATTEMPTED=26`**、`RESULT=OK`，两套收集数 `19 / 11`；`ALLOWED_MISSED` 留空。六条现场收获：① **n3 首跑 MISSED**，根因不是变异没写对而是**我自己那条夹具没牙**——把 6 行注释插在"解除臂与 push 之间"，任何窗口读法都还看得见那条臂 ⇒ 改成插在"if 与解除臂之间"之后 n3 才 CAUGHT（这条记进 A3 的注释，防它再被"顺手改回去"）。② n11（摘掉探针与读数器之间的 require 行）红集含**跨靶子的三条 P1/P3/P4**：探针起不来 ⇒ 它自己的测试也红，如实打印不认领为设计。③ n15/n17（行为档失明族）的红集**同时**含 P1/P3：那两条把行为档变成 `unavailable` 之后，新守卫按设计让探针 rc=1，于是"期望 rc=0"的既有测试一起红 —— 这是**防御重叠**不是设计错误，如实列在"未预期但红"里，不改期望值去迁就。④ `msanity`（把 A5 的期望值改成明显错的数）必须红 ⇒ 它测的不是锁的牙，是驱动有没有真的在读 TAP。⑤ **QM-6 第一轮评审 i2/i5 逼出一个我自己看不见的形状错误**（详见"QM-6 处置"）：行为档 B 份夹具写的 `resolution` 三格 vendor **从不消费**，"带凭证仍阻断"是在空形状上测量 ⇒ 补正控 `externalReviewReceiptLive` + 双形状夹具 + A13/A16 + 变异 n19/n20；n21 则把"词表里加了 `externalReview` 但无人量"这一格钉住（A2 补第三种在位夹具）。⑥ 加正控后 `if (typeof fn !== 'function') return 'unavailable';` 这一句在两个函数里各有一份 ⇒ **n15 的锚点命中数从 1 变 2，被驱动的命中数断言当场抓住**（不是它坏了，是我改的实现让锚点变模糊）；处置是把锚点带上函数头，而不是把命中数要求放宽 |
+| 修复 + 回归保护（QM-5 ④） | ✅ | ① 新增 `scripts/qm6-exit-capabilities.js`：三条**纯谓词** `externalReviewCapable` / `upheldExitCapable` / `toolSignatureCapable`，返回值是**三档** `true / false / 'unknown'`，`unknown` 与 `false` 绝不合并（"vendor 把函数改名了"和"这条出口确实不存在"是两件事）；`readCapabilities` 对越界返回值**当场抛错**，`conclusionLine(readings)` 生成结论。② 探针改为 `require` 该模块并只输出**生成出来的**结论行；三处被撤销回来的写死句全部删除。③ 前滚恢复 `openspec/changes/ccg-convergence-exit/tasks.md`（取 #4067 原文，一字未改），并在同一文件**追加 §10.7 现状补记**（历史原文不改写，只声明现状，含"今天 P9 与 §10.4 的 P9 编号复用、语义不同"这条以免误导）。④ 契约锁住在**第三个文件** `scripts/qm6-exit-capabilities.test.js`：**20 条**（A1-A20），A1-A5 每条谓词一对夹具（两版实现答案必须不同）、A6 失明档不得输出结论句、A7 越界返回值必抛、A8 结论每句可追溯到某个布尔（三向各翻转一次）、A9 真源码档**只断言"读得出"并把读数打出来**（刻意不把今天那两面墙钉成契约——那会让将来真加出口的 PR 被自己的锁咬住）、A10 探针必须接读数器且不得再出现那句旧结论、A11 接线锁（按**剥掉注释后**的可执行正文点名）、A12 导出面 + `git ls-files` 追踪态（判忽略看回显模式不看 rc，`!` 反选也返回 0）、**A13-A15 行为档**（真调 `blockingFromAdjudication`，两版实现答案必须不同；"无凭证那份必须阻断"这道防呆单独测；交叉比较的两条不 ok/一致档逐个钉；探针必须把行为档与比较都接上）。⑤ **行为档已落地**（动笔时规划的 `vm` 编译被否证，实际用 `require`，理由见 design §1.2）：`upheldExitBehavioral` + `crossCheckUpheld` 两路互不代替，不一致 ⇒ rc=1；另补一道"vendor 在位但行为档取不到数"的守卫堵"两路全瞎仍报一致"（P11 真跑证明，n18 摘掉守卫即红） |
+| 变异反证 | ✅ | 驱动 `scripts/qm6-exit-capabilities.mutation.js`，五靶子（读数器 / 探针 / workflow 接线 / 探针测试的白名单 / **驱动自身**），终跑 **`SUMMARY CAUGHT=28 MISSED=0 PROBLEM=0 TOTAL=28 ATTEMPTED=28`**、`RESULT=OK`，两套收集数 `20 / 11`；`ALLOWED_MISSED` 留空。六条现场收获：① **n3 首跑 MISSED**，根因不是变异没写对而是**我自己那条夹具没牙**——把 6 行注释插在"解除臂与 push 之间"，任何窗口读法都还看得见那条臂 ⇒ 改成插在"if 与解除臂之间"之后 n3 才 CAUGHT（这条记进 A3 的注释，防它再被"顺手改回去"）。② n11（摘掉探针与读数器之间的 require 行）红集含**跨靶子的三条 P1/P3/P4**：探针起不来 ⇒ 它自己的测试也红，如实打印不认领为设计。③ n15/n17（行为档失明族）的红集**同时**含 P1/P3：那两条把行为档变成 `unavailable` 之后，新守卫按设计让探针 rc=1，于是"期望 rc=0"的既有测试一起红 —— 这是**防御重叠**不是设计错误，如实列在"未预期但红"里，不改期望值去迁就。④ `msanity`（把 A5 的期望值改成明显错的数）必须红 ⇒ 它测的不是锁的牙，是驱动有没有真的在读 TAP。⑤ **QM-6 第一轮评审 i2/i5 逼出一个我自己看不见的形状错误**（详见"QM-6 处置"）：行为档 B 份夹具写的 `resolution` 三格 vendor **从不消费**，"带凭证仍阻断"是在空形状上测量 ⇒ 补正控 `externalReviewReceiptLive` + 双形状夹具 + A13/A16 + 变异 n19/n20；n21 则把"词表里加了 `externalReview` 但无人量"这一格钉住（A2 补第三种在位夹具）。⑥ 加正控后 `if (typeof fn !== 'function') return 'unavailable';` 这一句在两个函数里各有一份 ⇒ **n15 的锚点命中数从 1 变 2，被驱动的命中数断言当场抓住**（不是它坏了，是我改的实现让锚点变模糊）；处置是把锚点带上函数头，而不是把命中数要求放宽 |
 | 防止再次发生（QM-5 ⑤） | ✅ | ① **检出处与实现处分离**：能力谓词与契约锁分住两个文件，且契约锁由 `Gate 2b6` 的**可执行正文**独立点名（A11 自证这条接线在位，防止"接线被顺手摘掉"）；② 结论字符串不再允许是字面量 —— 任何一条分句都必须能追溯到一个布尔，两个方向（写死成可达 / 写死成不可达）各有变异红；③ 三档返回值 + 越界即抛，把"实现坏了"和"没有出口"在读数上分开；④ 恢复被撤销的 `tasks.md` 原文并**追加**而非改写现状节，把"编号复用、语义不同"这种会误导下一个会话的细节写进去；⑤ 本次事故的坐标（两个 commit sha、三处 −31/−25/+1−21 的 stat、可重取命令）逐条写进执行记录与本 PR，让"下一次谁把某个能力文件整段删掉"能被同样方式当场归因 |
 | 行尾与 diff 对账 | ✅ | 五处 CRLF 面改动（`ccg-convergence-probe.js`、`ccg-convergence-probe.test.js`、`quality-gate.yml`、`ccg-convergence-exit/tasks.md`、`.gitignore`）全部用"按当场 eol 逐行写回"的脚本插入，未统一回写；写前先算 cr/lf 并要求"每个 CR 紧跟一个 LF"且**末行必须已有行尾**，不合即拒绝动手。写后逐文件验 CR 守恒：探针 `256→257`（+1 行守卫）、探针测试 `242→258→292`（先 +16 的 P10、再 +34 的 P11，两次各自校验）。两口径对账（`git diff --cached --numstat` 对照 `--ignore-cr-at-eol --numstat`，13 个文件）：**逐文件完全相同，drift=0** —— 探针 `52/4`、探针测试 `76/1`、workflow `5/0`、`.gitignore` `3/0`、`ccg-convergence-exit/tasks.md` `55/0`。上一版记录里那条"tasks.md 差 1 行"已消失，成因如实记在这里以免被读成"漂移被修好了"：那次差异是恢复出来的 #4067 原文**末行没有行尾**、本次写入时补了行尾，`git diff` 把它记成一删一增；本轮取的是"末行必须已有行尾"这一档，所以两口径一致，**不是判据变宽**。新建的 `qm6-exit-capabilities*.{js,md}` 六个文件是 LF（同仓新建脚本惯例），blob 侧 `i/lf w/lf`，不涉行尾转换 |
 | QM-1 打包 / QM-4 视觉 | N/A | 差量文件集实测只有 `scripts/qm6-exit-capabilities{,.test,.mutation}.js`、`scripts/ccg-convergence-probe{,.test}.js`、`.github/workflows/quality-gate.yml`、`.gitignore`、两个 `openspec/` 目录下的 md 与本记录 —— 不触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | PENDING | 高危面命中**一格**（当场 `require('./scripts/check-pr-exec-record.js').HIGH_RISK_SURFACES` 现读 10 条逐文件比对）：`.github/workflows/`（`quality-gate.yml` 的 Gate 2b6 接线）。`scripts/ccg-convergence-probe.js` 与新增的 `scripts/qm6-exit-capabilities.js` **不命中**任何前缀 —— 表里有 `scripts/ccg-review-` 与 `scripts/deep-review`，但没有 `scripts/ccg-convergence-` / `scripts/qm6-exit-`（这是事实陈述，不是主张该扩表；扩表属"改谁来守门"）。⇒ 按收口矩阵本 PR 需 `tier=external` + 可核 `evidence`；拿不到工具署名时按 #4234 / #4305 先例人工闭环并逐字声明 |
+| QM-6 CCG 双模型外部评审 | ✅ 已闭合（tier 由会话手写，见"QM-6 处置"节） | 三轮真跑：critic=`claude` / proposer=`opencode`（真源 `scripts/ccg-review-backends.list`），第 3 轮收敛 `status=self_play_resolved`、`blocking=[]`、六条逐条驳回并公开处置；写回器拒签读数 `reason=backend-mismatch`（五条合取只欠 `performedBy`）⇒ `tier=external` + `evidence=PR #4326 评论` 由会话手写并在 `closureNote` 里逐字声明 |
 | 远程同步 | 由门禁推导 | 不手写状态词、不为收口另开 PR |
 
 ### 现场读数（全部当场重取，活数）
 
-- 契约锁：`node --test scripts/qm6-exit-capabilities.test.js` ⇒ `# tests 19 / pass 19 / fail 0`
+- 契约锁：`node --test scripts/qm6-exit-capabilities.test.js` ⇒ `# tests 20 / pass 20 / fail 0`
 - 探针既有锁（含本刀新增的 P9 反向夹具、P10 行为档取数、P11 行为档失明）：`node --test scripts/ccg-convergence-probe.test.js` ⇒ `# tests 11 / pass 11 / fail 0`
 - 探针本体：`node scripts/ccg-convergence-probe.js` ⇒ rc=0，新增第 ⑤ 行
   `⑤ upheld 出口交叉验证：结构=false 行为=false 正控(凭证是否被 vendor 消费)=true ⇒ 两路一致：这条出口不在位`，结论行变成
@@ -34,7 +34,7 @@ date: 2026-10-23
 - `--json` 档新增四组读数：`exitCapabilities={externalReview:true,upheld:false,toolSignature:false,upheldBehavioral:false,receiptLive:true,unknown:0}`、
   `capabilitySource={driver:…,writeback:scripts/ccg-review-writeback.js}`、`upheldCrossCheck={ok:true,note:"两路一致：这条出口不在位"}`、`conclusion=…`
   —— `receiptLive` 是正控读数：它证明本探针写的那份凭证**确实被 vendor 的某个分支消费**；为 false 时行为档一律报 `unavailable` 而不报 `false`
-- 变异驱动（在**干净基线**上跑，驱动的脏基线闸因此也被实跑过一次）：`SUMMARY CAUGHT=26 MISSED=0 PROBLEM=0 TOTAL=26 ATTEMPTED=26 / RESULT=OK`，收集数 `qm6-exit-capabilities.test.js=19 ccg-convergence-probe.test.js=11`
+- 变异驱动（在**干净基线**上跑，驱动的脏基线闸因此也被实跑过一次）：`SUMMARY CAUGHT=28 MISSED=0 PROBLEM=0 TOTAL=28 ATTEMPTED=28 / RESULT=OK`，收集数 `qm6-exit-capabilities.test.js=20 ccg-convergence-probe.test.js=11`
 - workflow 结构：`files=17 violations=0`；`check-step-failfast`、`check-unwired-tests`、`check-text-encoding-integrity`、`check-doc-abs-paths`、`openspec-sync-check`（`387 tasks, 100 active changes, 243 archives`）逐条 rc=0（终版数字见合并前回读）
 - 本机门禁批跑（15 条逐条 rc，2026-10-23 本 worktree；重取＝在仓根逐条点名跑下面列出的那 15 个 `scripts/` / `.github/scripts/` 判据）：
   **14 条 rc=0**，1 条 rc=2 —— `scripts/check-schedule-heartbeat.js` 在无 `GITHUB_REPOSITORY` 的本地 shell 里
@@ -77,10 +77,64 @@ date: 2026-10-23
 6. **驱动的"未预期但红"里没有一条被消解**：n15/n17 的红集含 P1/P3，是新守卫的正常后果（见"变异反证"行 ③）。
    我没有为此把 P1/P3 的期望改成"允许 rc=1"，也没有把它们从红集里摘掉 —— 那等于用放宽断言交差。
    如果将来这条守卫被证明不该存在，正确的动作是删守卫并同步删 P11 与 n18，不是留一条恒不触发的 if。
+7. **`.gitignore` 的模式化反选没做（第 3 轮评审 i4）**：候选修法是加一条 `!scripts/*.test.js`（让"新写一条测试"不再依赖手动补一行）。
+   本刀不做，两个理由：① 它改变**全部在飞会话**的忽略语义，属仓库配置变更（AGENTS：改守门面/白名单须人工过目）；
+   ② 它与既有 `test-*.js` 规则相互作用，而 P8 那条锁的判据是"最后命中的规则必须是放行" —— 顺序一变，那条锁要跟着重做。
+   重取现状：`git check-ignore --no-index -v scripts/<新文件>` 看回显的模式而不是 rc；本刀自己的三个文件由 A12 逐个钉追踪态。
+8. **单实例锁与固定 sidecar 名是成对的取舍**：允许并发就必须同时改掉 `--restore` 的可寻址性（带 pid 的名字让人先猜 pid）
+   和 `restoreFromSidecar` 的 root 判据；现在的形状是"一台机器一次只跑一个驱动"，陈旧锁**一律拒绝、不自动破**。
+   第 3 轮 i1 提的是同一格，处置见 PR 评论。
 
 ## QM-6 处置（跑完后逐条写在这里：哪条链、哪个后端、存档在哪，都要能一句话重取）
 
-PENDING
+**链与后端**：`sh scripts/deep-review.sh`（仓内入口 → 引擎 `~/.claude/skills/adversarial-review-loop/scripts/ccg-deep-review.js`），
+critic=`claude` / proposer=`opencode`（真源 `scripts/ccg-review-backends.list` 两行现读），跨家族校验通过。
+存档：`.adversarial/ccg-deep-<head8>/`（被 `.gitignore:510` 排除，不在仓内），判定产物 `.ccg/reviews/34d072ae….json`。
+
+**轮次（本刀共三轮真跑，含本轮）**
+
+| 轮 | 被评审的提交 | critic 交付 | 待裁决 | minScore | 结局 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `662f740fc`（加正控之前） | 8 条 | 6 条（含 1 条 crypto 高危域） | 2 | 未填裁决 ⇒ `self_play_pending`，写回器拒签 `reason=not-closed` |
+| 2 | `ba2a9d17b`（双路读数 + 正控已落地） | 8 条 | 7 条（高危域 0 条） | 3 | 同上 pending；**该轮 i2 判成立 ⇒ 当场修驱动基线卫生并重跑第 3 轮** |
+| 3 | `32f869578`（含单实例锁） | 7 条 | 6 条（高危域 0 条） | 3 | 六条逐条驳回并填裁决 ⇒ 复用存档跳过模型调用 ⇒ `✅ 自扮演裁决未发现阻断项`，`status=self_play_resolved`、`blocking=[]`、`findings=6` |
+
+**第 3 轮六条的处置**：`i1`（固定文件名/并发）·`i2`（vendor 本机补丁 ⇒ 跨 runner 不可复现）·`i3`（正控夹具是合成的）·
+`i4`（.gitignore 逐文件反选）·`i5`（结论文案是硬编码中文字面量）·`i6`（驱动原地改写受管文件）—— 六条全部 `dismissed`，
+prosecution / defense / verdict / rationale 四格逐条写全，**逐字原文与 finding 原文公开在 PR #4326 的评论里**
+（`https://github.com/Colinchiu007/mulpub/pull/4326#issuecomment-6372031270`）。
+其中 `i6` 是第 2 轮那条成立项的同一格（修复已在提交里，残留只有"SIGKILL 落在 write 与 finally 之间"这一不可由工具自身消灭的一格，
+已配 `--restore` 可执行出口）；`i4` 的修法（模式化反选）落在**仓库配置**层面，本刀不做，登记为遗留 3。
+
+
+**第 1/2 轮逼出来的两处真缺陷（不是驳回项）**
+
+1. `i2/i5（第 1 轮）`——行为档 B 份夹具只写了 `resolution` 三格，而 vendor 从不消费这份键 ⇒ "带凭证仍阻断"是在空形状上测量。
+   修复：`externalReviewReceiptLive` 正控 + 双形状凭证 + A13/A16 + 变异 n19/n20/n21（详见"变异反证"行 ⑤）。
+2. `i2（第 2 轮，Critical，判**成立**）`——驱动原地覆盖受 git 管理的源文件，`finally` 只覆盖抛错路径；
+   被信号杀掉后盘上留在改坏的那一份，而**下一次运行会把这份污染当成原始内容写回去**。
+   修复：脏基线拒绝 + sidecar（原子写 + 写后回读）+ `--restore` 可执行出口 + `parseCli` 不静默吞旗标；
+   第 3 轮 `i1（Critical）` 的并发那一半继续加单实例锁（A20 + n26/n27，陈旧锁**不自动破**）。
+
+**第 3 轮逐条处置**：见下（跑完当场补，每条含 prosecution / defense / verdict / rationale 四格，
+原文同时落 `.adversarial/ccg-deep-32f86957/adjudication.json` 与本 PR 评论）。
+
+**工具署名这一格（本刀自己测的那面墙，此处是现场第二次实测，且这次量到了"只欠一格"）**：
+第三轮收敛后写回器当场读数
+
+```
+[ccg-review-writeback] 未写回 reason=backend-mismatch spoke=closed-status|findings-present|nonempty-findings detail=performedBy="self-play" 期望 "claude"
+```
+
+五条合取里 `spoke=` 只点名了**三条成立**（closed-status / findings-present / nonempty-findings），
+拒签原因精确落在 `performedBy` 一格 —— 自扮演出口下它恒为 `self-play`，**与有没有 upheld、blocking 是否为空都无关**。
+这条读数把此前"成立⇒阻断⇒拒签"的描述进一步收窄为"收口来自自扮演出口⇒拒签"。
+所以本产物的 `tier=external` 与 `evidence` **由会话手写**（代用，不是工具产物），
+`closureNote` 里逐字声明这一点并附上述读数，`evidence` 取上面那条 PR 评论 URL（形态判据在写回脚本里自检过一次）。
+
+**停手依据**：本刀三轮真跑，已达 `openspec/changes/qm6-review-loop-budget`（#4297）定的轮次上限 ⇒ 不再续轮、
+不自动合并以外的手段放宽判据；第 3 轮六条全部有逐字处置与可重取证据，遗留三条登记在下一节。
+
 
 ## CHANGELOG 条目
 
