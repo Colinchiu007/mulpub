@@ -161,7 +161,7 @@ platforms:
     # 2026-10-18（toutiao-video-api）：视频 API 轨已实现（publish/platforms/toutiao-video.js，
     # 五步链实网抓包取证），故 has_api false→true；publishMode 仍 dom-only（PublishVideo 形状待真机验证）。
     has_api: true
-    publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
+    publishMode: api-then-dom   # 2026-10-23：API 轨从未启用过，先试 GetPublishAuth→PublishVideo
     enabled: true
   youtube:
     has_api: true
