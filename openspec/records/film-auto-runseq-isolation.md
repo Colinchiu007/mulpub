@@ -54,6 +54,8 @@ branch: film-production-identity-followup
 而 `auto-runner.js:10` 写「`<mediaRoot>/auto/<taskId>/b<N>/shot_NNN.mp4`」——**两处注释已漂移**，
 说明这块的产物布局被改过而文档没跟上，读代码的人对目录结构的第一印象就是错的。
 
+**已修**：两处注释已统一到真实布局（`auto-project.js` 的「产物落点」原本漏了批号层），并补上轮次语义。
+
 **第三个原因（本次调查的直接产物）**：我最初**误判**了 auto 模式的风险形态，
 以为它与手动出片同源、照搬「批次分镜集指纹」即可。实跑后发现**前提不成立**：
 自动模式的 `project.shots` 是**活状态**（`updateShot` 可改提示词/参考图/时长），

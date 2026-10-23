@@ -68,8 +68,9 @@
 
 | 文件 | 改动 |
 |---|---|
-| `services/film-engineering/auto-runner.js` | `autoRunIdFor` 带 `runSeq`；2 个调用点透传 `project.runSeq` |
+| `services/film-engineering/auto-runner.js` | `autoRunIdFor` 带 `runSeq`；2 个调用点透传 `project.runSeq`；头部注释补轮次语义 |
 | `ipc-handlers/film-engineering-auto.js` | `runIdFor` 闭包透传 `project.runSeq` |
+| `services/film-engineering/auto-project.js` | **仅注释**：头部「产物落点」原写作 `auto/<taskId>/shot_NNN.mp4`，与 `auto-runner.js` 的 `auto/<taskId>/b<N>/shot_NNN.mp4` **说法不一致**——读代码的人对产物布局的第一印象就是错的。已统一并补轮次说明 |
 | `services/film-engineering/auto-runner.test.js` | 新增 4 条用例 |
 
 **不改手动出片路径**（其 `prod-<taskId>-<fp10>-b<N>` 语义与本 change 正交）。
