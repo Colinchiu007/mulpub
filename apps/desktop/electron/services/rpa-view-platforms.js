@@ -484,6 +484,15 @@ const platformsMixin = {
           for (const cand of sel.publish_btn || []) {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
+          // 2026-10-23 真机：视频号发布页会弹出「切换视频号」遮挡层（按钮 取消/切换/我知道了），
+          // 不解掉它，发布点击只会打到遮罩 ⇒ 日志有 publishing 但实际未提交（用户核对创作者中心无新内容）。
+          if (platform === 'tencent_video') {
+            try {
+              const dm = await win.webContents.executeJavaScript('(function(){var w=["取消","我知道了"];var els=[...document.querySelectorAll("button,a,span,div")];for(var i=0;i<els.length;i++){var s=(els[i].innerText||"").trim();if(w.indexOf(s)>=0&&els[i].getClientRects().length>0){els[i].click();return s}}return ""})()', true)
+              log.info('RpaView', '[tencent_video] pre-publish modal dismiss: ' + (dm || 'none'))
+            } catch (_e) { /* 无弹窗不阻塞 */ }
+            await this._sleep(600)
+          }
           if (!publishSelector) throw new Error('publish btn not found')
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
@@ -1356,10 +1365,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个
     // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、
     // 图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，
-    // 首个 input[type=file] 恒为视频通道——图片传进去必失败）
-    // 2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被
-    // 清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件
-    // （参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
+    // 首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
@@ -1367,11 +1373,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         selectors: {
           ...config.selectors,
           file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
-          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」
-          // 后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的
-          // `article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后
-          // **再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，
-          // 封面通道在此为空是正确表达，不是省略。
+          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」；后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的；`article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后；**再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，；封面通道在此为空是正确表达，不是省略。
           cover_input: [],
           drag_area: '#rc-tabs-0-panel-2 div[class^="_dragger-content_"], div[class*="dragger-content"]',
         },
@@ -1383,9 +1385,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     })
   },
 
-  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：
-  // 此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，
-  // 而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
+  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：；此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，；而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
   async _publish_toutiao (win, article) {
     return require('@multi-publish/rpa-engine/src/toutiao-direct-bridge')
       .publishToutiao({
