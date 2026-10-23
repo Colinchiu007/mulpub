@@ -394,6 +394,20 @@ const platformsMixin = {
           // 视频号：必须走纯 CDP（_setFileInput 的 JS fallback 对 file input 必抛）
           await (platform === 'tencent_video' ? require('./toutiao-cover').setFileViaCdp(win, article.cover_path, coverSel) : this._setFileInput(win, article.cover_path, coverSel))
         } catch (coverError) {
+          // wujieCoverFallback：视频号封面输入框在 .wujie_iframe 的 shadowRoot 内，主文档查不到。
+          if (platform === 'tencent_video' && article.cover_path) {
+            try {
+              const _cp = require('path').resolve(article.cover_path)
+              const _cb = require('fs').readFileSync(_cp)
+              if (_cb.length <= 900 * 1024) {
+                const _b64 = _cb.toString('base64')
+                const _nm = require('path').basename(_cp)
+                const _ex = '(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return {ok:false,why:"no-shadow"};var ins=[].slice.call(h.shadowRoot.querySelectorAll(\'input[type="file"]\'));if(!ins.length)return {ok:false,why:"no-input"};var p=null;for(var i=0;i<ins.length;i++){var a=String(ins[i].getAttribute("accept")||"");if(a.indexOf("image")>=0||a.indexOf("jpg")>=0||a.indexOf("png")>=0){p=ins[i];break}}if(!p)p=ins[ins.length-1];var b=atob("' + _b64 + '");var u=new Uint8Array(b.length);for(var j=0;j<b.length;j++)u[j]=b.charCodeAt(j);var f=new File([u],' + JSON.stringify(_nm) + ',{type:"image/jpeg"});var d=new DataTransfer();d.items.add(f);var w=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"files");if(w&&w.set){w.set.call(p,d.files)}else{p.files=d.files}p.dispatchEvent(new Event("change",{bubbles:true}));return {ok:true,n:f.size,total:ins.length}})()'
+                const _r = await win.webContents.executeJavaScript(_ex, true)
+                log.info('RpaView', 'wujie-cover: ' + JSON.stringify(_r))
+              }
+            } catch (_eWC) { log.warn('RpaView', 'wujie-cover failed: ' + String((_eWC && _eWC.message) || '').slice(0, 80)) }
+          }
           if (platform !== 'baijiahao' || !sel.cover_input || sel.cover_input.length === 0) throw coverError
           await require('./toutiao-cover').setFileViaCdp(win, article.cover_path, sel.cover_input[0]) // 纯 CDP：_setFileInput 的 JS fallback 对 file input 必抛（FileList 只读），视频号封面曾因此 Script failed to execute
         }
