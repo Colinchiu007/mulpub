@@ -37,9 +37,15 @@
         :reference-images="referenceImages"
         :reference-audios="referenceAudios"
         :gallery-images="galleryImages"
+        :videos="referenceVideos"
         :max-images="maxImages"
         :max-audios="maxAudios"
+        :max-videos="maxVideos"
+        :supports-reference-video="supportsReferenceVideo"
         @pick-frame="pickFrame"
+        @pick-videos="pickVideos"
+        @drop-videos="pushVideos"
+        @remove-video="(i) => referenceVideos.splice(i, 1)"
         @pick-images="pickImages"
         @pick-audios="pickAudios"
         @pick-gallery="pickGallery"
@@ -53,26 +59,15 @@
         @remove-gallery="(i) => galleryImages.splice(i, 1)"
       />
 
-      <div class="form-group">
-        <label>{{ $t('create.story2video.ui.quickOutputProfileLabel') }}</label>
-        <UiSelect v-model="profile" :options="profileOptions" testid="quick-profile" />
-      </div>
-
-      <div class="form-group">
-        <label>{{ $t('create.story2video.ui.quickDurationLabel') }}</label>
-        <UiSelect v-model="seconds" :options="secondsOptions" testid="quick-seconds" />
-      </div>
-
-      <div class="form-group">
-        <label>{{ $t('create.story2video.ui.quickSeedLabel') }}</label>
-        <input v-model="seedInput" type="number" class="form-input" data-testid="quick-seed" />
-        <p class="text-muted quick-hint">{{ $t('create.story2video.ui.quickSeedHint') }}</p>
-      </div>
-
-      <div class="form-group" v-if="sizeOptions.length > 0">
-        <label>{{ $t('create.story2video.ui.quickResolutionLabel') }}</label>
-        <UiSelect v-model="size" :options="sizeOptions" :disabled="sizeOptions.length <= 1" testid="quick-size" />
-      </div>
+      <QuickRenderParams
+        v-model:profile="profile"
+        v-model:seconds="seconds"
+        v-model:seed-input="seedInput"
+        v-model:size="size"
+        :size-options="sizeOptions"
+        :profile-options="profileOptions"
+        :cost-text="costText"
+      />
     </template>
 
     <!-- ── 图片轮播（本地 Remotion，不调 AI 视频模型） ── -->
@@ -83,6 +78,7 @@
         :reference-images="referenceImages"
         :reference-audios="referenceAudios"
         :gallery-images="galleryImages"
+        :videos="referenceVideos"
         @pick-gallery="pickGallery"
         @drop-gallery="materials.pushGallery"
         @remove-gallery="(i) => galleryImages.splice(i, 1)"
@@ -127,6 +123,7 @@
     <input ref="audioInput" data-testid="quick-audio-input" type="file" accept="audio/*" multiple style="display:none" @change="onAudiosPicked" />
     <input ref="frameInput" data-testid="quick-frame-input" type="file" accept="image/*" style="display:none" @change="onFramePicked" />
     <input ref="galleryInput" data-testid="quick-gallery-input" type="file" accept="image/*" multiple style="display:none" @change="onGalleryPicked" />
+    <input ref="videoInput" data-testid="quick-video-input" type="file" accept="video/*" style="display:none" @change="onVideosPicked" />
   </div>
 </template>
 
@@ -140,9 +137,10 @@ import { renderAiVideoCapabilities, renderStart, renderStartAiVideo, renderCance
 import { validateVideoRequest, AGNES_VIDEO_REQUEST_ERRORS } from '@multi-publish/shared-utils/src/agnes-video-request'
 import { formatUserError } from '@/utils/user-facing-error'
 import QuickRenderMaterials from './QuickRenderMaterials.vue'
+import QuickRenderParams from './QuickRenderParams.vue'
 import { useQuickRenderMaterials } from './useQuickRenderMaterials'
 import {
-  PROFILE_ASPECT_RATIO, DEFAULT_ASPECT_RATIO, SECONDS_MIN, SECONDS_MAX,
+  PROFILE_ASPECT_RATIO, DEFAULT_ASPECT_RATIO,
   DEFAULT_SECONDS, DEFAULT_PROFILE, DEFAULT_THEME,
 } from './quick-render-constants'
 
@@ -170,6 +168,7 @@ const size = ref('')
 const seedInput = ref('')
 const referenceImages = ref([])
 const referenceAudios = ref([])
+const referenceVideos = ref([])
 const galleryImages = ref([])
 const frames = ref({ first: null, last: null })
 const rendering = ref(false)
@@ -184,6 +183,7 @@ const imageInput = ref(null)
 const audioInput = ref(null)
 const frameInput = ref(null)
 const galleryInput = ref(null)
+const videoInput = ref(null)
 let pendingFrameSlot = 'first'
 
 const cleanups = []
@@ -196,12 +196,34 @@ const materials = useQuickRenderMaterials({
   referenceImages,
   referenceAudios,
   galleryImages,
+  videos: referenceVideos,
   onError: (message) => { error.value = message },
 })
 
 const isAiMode = computed(() => mode.value !== 'gallery')
 const maxImages = computed(() => (capabilities.value && capabilities.value.maxImages) || 0)
 const maxAudios = computed(() => (capabilities.value && capabilities.value.maxAudios) || 0)
+const maxVideos = computed(() => (capabilities.value && capabilities.value.maxVideos) || 0)
+const supportsReferenceVideo = computed(() => Boolean(capabilities.value && capabilities.value.supportsReferenceVideo))
+
+/**
+ * 预计成本（¥）。计费口径：输出秒数 × 档位单价 **+ 参考视频秒数 × 档位单价**
+ * （输入视频秒数与输出秒数相加计费）。参考视频时长客户端读不到（需 ffprobe）⇒
+ * 只显示输出部分，并在有参考视频时明示「其时长另计」——不显示会让用户意外多付。
+ */
+const costText = computed(() => {
+  const caps = capabilities.value
+  if (!caps || !caps.prices) return ''
+  const tier = size.value && caps.prices[size.value] !== undefined ? size.value : caps.defaultSize
+  const unit = Number(caps.prices[tier])
+  if (!Number.isFinite(unit)) return ''
+  if (unit === 0) return t('create.story2video.ui.quickCostFree', { seconds: Number(seconds.value) })
+  const output = unit * Number(seconds.value)
+  const tail = referenceVideos.value.length
+    ? t('create.story2video.ui.quickCostWithReferenceVideo')
+    : ''
+  return t('create.story2video.ui.quickCost', { amount: output.toFixed(2), unit: unit.toFixed(2), seconds: Number(seconds.value) }) + tail
+})
 
 const modes = computed(() => {
   const list = []
@@ -225,12 +247,6 @@ const profileOptions = computed(() => [
 
 const themeOptions = computed(() => STYLES.map((s) => ({ value: s.value, label: s.label })))
 
-const secondsOptions = computed(() => {
-  const out = []
-  for (let s = SECONDS_MIN; s <= SECONDS_MAX; s += 1) out.push({ value: String(s), label: `${s}s` })
-  return out
-})
-
 const sizeOptions = computed(() => {
   const caps = capabilities.value
   const sizes = caps && Array.isArray(caps.sizes) ? caps.sizes : []
@@ -242,13 +258,10 @@ const aspectRatio = computed(() => PROFILE_ASPECT_RATIO[profile.value] || DEFAUL
 /**
  * 当前模式**实际会提交**的素材（只取与该模式匹配的那一类）。
  *
- * 为什么按模式取子集而不是「一律带上」：
- * 切模式时另一类素材会留在状态里（用户可能切回来接着用），而那些素材区在当前模式下
- * **并不渲染** ⇒ 用户既看不到也删不掉。若契约按「全量素材」判，text 模式会因为
- * 残留的参考图被判「模式与媒体不匹配」⇒ **用户永久卡在无法提交**（既不能提交，
- * 也找不到地方清理）。故契约只判「本模式会提交的那部分」。
- *
- * 主进程侧仍按**实际收到的载荷**做同一条校验 ⇒ 防御有两层，且不会误伤。
+ * 为什么按模式取子集：切模式时另一类素材会留在状态里（用户可能切回来接着用），
+ * 而那些素材区在当前模式下**并不渲染** ⇒ 用户既看不到也删不掉。若契约按「全量素材」判，
+ * text 模式会因残留的参考图被判「模式与媒体不匹配」⇒ **用户永久卡在无法提交**。
+ * 主进程侧仍按**实际收到的载荷**做同一条校验 ⇒ 防御两层，且不误伤。
  */
 const effectiveMedia = computed(() => {
   if (mode.value === 'keyframe') {
@@ -263,11 +276,12 @@ const effectiveMedia = computed(() => {
     return {
       images: referenceImages.value.map((i) => i.dataUrl),
       audios: referenceAudios.value.map((a) => a.dataUrl),
+      videos: referenceVideos.value.map((v) => ({ url: v.dataUrl })),
       firstFrame: '',
       lastFrame: '',
     }
   }
-  return { images: [], audios: [], firstFrame: '', lastFrame: '' }
+  return { images: [], audios: [], videos: [], firstFrame: '', lastFrame: '' }
 })
 
 /** 当前模式与素材是否自洽（与主进程共用同一判据） */
@@ -275,6 +289,7 @@ const contract = computed(() => validateVideoRequest({
   mode: isAiMode.value ? mode.value : 'text',
   images: effectiveMedia.value.images,
   audios: effectiveMedia.value.audios,
+  videos: effectiveMedia.value.videos,
   firstFrame: effectiveMedia.value.firstFrame,
   lastFrame: effectiveMedia.value.lastFrame,
 }))
@@ -300,6 +315,8 @@ function localizeModeError (code) {
 function pickImages () { if (imageInput.value) imageInput.value.click() }
 function pickAudios () { if (audioInput.value) audioInput.value.click() }
 function pickGallery () { if (galleryInput.value) galleryInput.value.click() }
+function pickVideos () { if (videoInput.value) videoInput.value.click() }
+async function pushVideos (files) { await materials.pushVideos(files, maxVideos.value) }
 function pickFrame (slot) {
   pendingFrameSlot = slot
   if (frameInput.value) frameInput.value.click()
@@ -308,6 +325,7 @@ function pickFrame (slot) {
 async function onImagesPicked (e) { await materials.pushImages(e.target.files); e.target.value = '' }
 async function onAudiosPicked (e) { await materials.pushAudios(e.target.files); e.target.value = '' }
 async function onGalleryPicked (e) { await materials.pushGallery(e.target.files); e.target.value = '' }
+async function onVideosPicked (e) { await pushVideos(e.target.files); e.target.value = '' }
 async function onFramePicked (e) { await materials.pushFrame(pendingFrameSlot, e.target.files); e.target.value = '' }
 
 async function loadCapabilities () {
@@ -372,6 +390,7 @@ async function start () {
   if (effectiveMedia.value.lastFrame) payload.lastFrame = effectiveMedia.value.lastFrame
   if (effectiveMedia.value.images.length) payload.images = effectiveMedia.value.images
   if (effectiveMedia.value.audios.length) payload.audios = effectiveMedia.value.audios
+  if (effectiveMedia.value.videos && effectiveMedia.value.videos.length) payload.videos = effectiveMedia.value.videos
   try {
     const res = await renderStartAiVideo(payload)
     if (res && res.code === 0) {
@@ -438,11 +457,9 @@ function viewResult () {
 
 onMounted(() => {
   loadCapabilities()
-  // ⚠️ 载荷形状：preload 的 onRenderProgress 把 IPC 载荷**原样**传给回调
-  // （`(_e, p) => callback(p)`），主进程发的是 `{ percent, stage }` **对象**。
-  // 历史实现按 `(pct, stg)` 两个位置参数解构 ⇒ pct 拿到的是整个对象，
-  // 进度条渲染成 "[object Object]%"（这正是「进度条不动」的真实根因，不只是「没推进度」）。
-  // 这里按对象读取，并兼容旧的位置参数形态。
+  // ⚠️ 载荷形状：preload 把 IPC 载荷**原样**传给回调（`(_e, p) => callback(p)`），
+  // 主进程发的是 `{ percent, stage }` **对象**。历史实现按 `(pct, stg)` 两个位置参数解构
+  // ⇒ pct 拿到整个对象，进度条渲染成 "[object Object]%"（「进度条不动」的真实根因之一）。
   cleanups.push(onRenderProgress((payload) => {
     if (!rendering.value) return
     const isObject = payload && typeof payload === 'object'

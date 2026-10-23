@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest'
 
 const {
-  AGNES_VIDEO_MODELS, describeVideoModel, isKnownVideoModel, listVideoModels, outputPixelsFor,
+  AGNES_VIDEO_MODELS, describeVideoModel, isKnownVideoModel, listVideoModels, outputPixelsFor, estimateVideoCost,
 } = require('./agnes-video-models')
 
 describe('Agnes 视频模型能力描述', () => {
@@ -67,6 +67,21 @@ describe('Agnes 视频模型能力描述', () => {
   it('不支持的档位/画幅回落到默认档位与 16:9', () => {
     expect(outputPixelsFor('agnes-video-2.5-flash', '2K', '16:9')).toBe('1280x704')
     expect(outputPixelsFor('agnes-video-2.5-flash', '720P', 'auto')).toBe('1280x704')
+  })
+
+  it('成本估算：输出秒数 × 档位单价；参考视频秒数**相加**计费', () => {
+    // Flash 限时免费
+    expect(estimateVideoCost('agnes-video-2.5-flash', { seconds: 8 }).amount).toBe(0)
+    expect(estimateVideoCost('agnes-video-2.5-flash', { seconds: 8 }).free).toBe(true)
+    // 标准 2.5：8 秒 × ¥0.15 = ¥1.20
+    const plain = estimateVideoCost('agnes-video-2.5', { seconds: 8 })
+    expect(plain.amount).toBeCloseTo(1.2, 5)
+    // 加一段 3 秒参考视频 ⇒ 11 秒 × ¥0.15 = ¥1.65（输入视频秒数与输出秒数相加）
+    const withVideo = estimateVideoCost('agnes-video-2.5', { seconds: 8, inputVideoSeconds: 3 })
+    expect(withVideo.amount).toBeCloseTo(1.65, 5)
+    // 更高档位单价更高
+    expect(estimateVideoCost('agnes-video-2.5', { seconds: 8, size: '2K' }).amount)
+      .toBeGreaterThan(plain.amount)
   })
 
   it('能力描述对象被冻结，调用方无法就地改写', () => {

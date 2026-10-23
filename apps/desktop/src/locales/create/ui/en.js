@@ -38,6 +38,12 @@
         quickRetry: "Retry",
         quickStageSubmitting: "Submitting video generation task",
         quickStageCompleted: "Completed",
+        quickRefVideosLabel: "Reference video",
+        quickUploadVideo: "Click or drop a video here",
+        quickRefVideosCount: "{count} / {max} reference videos selected",
+        quickCostFree: "Free during the current promotion ({seconds}s)",
+        quickCost: "Estimated cost ¥{amount} (¥{unit}/s × {seconds}s)",
+        quickCostWithReferenceVideo: "; the reference video duration is billed separately",
         quickError: {
           modeUnsupported: "The current model does not support this generation mode",
           textDisallowsMedia: "Text-to-video mode does not accept media; switch to keyframe or reference mode",
@@ -50,6 +56,9 @@
           fileTooLarge: "Each file must be under {max}MB",
           aiWriteFailed: "AI writing failed",
           secondsOutOfRange: "Duration must be between 4 and 12 seconds",
+
+          videoLimit: "At most {max} reference videos",
+          videoNotSupported: "The current model does not support reference video",
           renderFailed: "Render failed",
           generic: "Invalid request parameters",
         },

@@ -36,6 +36,23 @@ export const DEFAULT_ASPECT_RATIO = '16:9'
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 export const MAX_AUDIO_BYTES = 10 * 1024 * 1024
 
+/**
+ * 参考视频体积上限。
+ * 参考视频时长受限（2–12 秒），短片 base64 后通常几 MB；
+ * 上限取 20MB 兼顾「够用」与「不撑爆单请求」（上游单请求 <50MB）。
+ */
+export const MAX_VIDEO_BYTES = 20 * 1024 * 1024
+
+/**
+ * 视频扩展名 → mime（用于构造 Data URI；只认常见容器格式）
+ */
+export const VIDEO_MIME_BY_EXT = Object.freeze({
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.mkv': 'video/x-matroska',
+})
+
 /** 时长可选范围（Agnes Video 2.5 要求 4–12 秒） */
 export const SECONDS_MIN = 4
 export const SECONDS_MAX = 12

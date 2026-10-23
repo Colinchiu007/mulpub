@@ -46,6 +46,28 @@
       </p>
     </div>
 
+    <div class="form-group" v-if="supportsReferenceVideo">
+      <label>{{ $t('create.story2video.ui.quickRefVideosLabel') }}</label>
+      <div
+        class="upload-zone"
+        data-testid="quick-ref-videos-zone"
+        @click="emit('pick-videos')"
+        @dragover.prevent
+        @drop.prevent="emit('drop-videos', $event.dataTransfer && $event.dataTransfer.files)"
+      >
+        <p v-if="videos.length === 0">{{ $t('create.story2video.ui.quickUploadVideo') }}</p>
+        <div v-else class="image-grid">
+          <div v-for="(vid, i) in videos" :key="i" class="image-thumb">
+            <span class="image-index">{{ i + 1 }}</span>
+            <button class="remove-btn" data-testid="quick-ref-video-remove" @click.stop="emit('remove-video', i)">×</button>
+          </div>
+        </div>
+      </div>
+      <p v-if="videos.length" class="text-muted quick-hint">
+        {{ $t('create.story2video.ui.quickRefVideosCount', { count: videos.length, max: maxVideos }) }}
+      </p>
+    </div>
+
     <div class="form-group">
       <label>{{ $t('create.story2video.ui.quickRefAudiosLabel') }}</label>
       <div
@@ -105,14 +127,18 @@ defineProps({
   referenceImages: { type: Array, required: true },
   referenceAudios: { type: Array, required: true },
   galleryImages: { type: Array, required: true },
+  videos: { type: Array, default: () => [] },
   maxImages: { type: Number, default: 0 },
   maxAudios: { type: Number, default: 0 },
+  maxVideos: { type: Number, default: 0 },
+  supportsReferenceVideo: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
   'pick-frame', 'pick-images', 'pick-audios', 'pick-gallery',
   'drop-frame', 'drop-images', 'drop-audios', 'drop-gallery',
   'remove-frame', 'remove-image', 'remove-audio', 'remove-gallery',
+  'pick-videos', 'drop-videos', 'remove-video',
 ])
 
 const frameSlots = computed(() => [

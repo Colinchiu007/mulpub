@@ -401,7 +401,7 @@ const PRESET_PROVIDERS = [
     // Agnes-AI 多模态：合并 Agnes 文字推理 / 图片生成 / 视频生成三类模型（中国站）
     id: 'agnes-multimodal', name: 'Agnes-AI', category: 'multimodal',
     base_url: 'https://api.agnes-ai.cn/v1',
-    models: ['agnes-3.0-flash', 'agnes-image-2.5-flash', 'agnes-video-2.5-flash'],
+    models: ['agnes-3.0-flash', 'agnes-image-2.5-flash', 'agnes-video-2.5-flash', 'agnes-video-2.5'],
     is_preset: 1,
     capabilities: ['llm', 'image', 'video'],
     capability_models: {
