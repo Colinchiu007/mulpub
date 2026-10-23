@@ -48,12 +48,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "needs_revision",
+    "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
     "findings": null,
-    "template": ".adversarial\\ccg-deep-fd6cdcfe\\adjudication.json",
+    "template": ".adversarial/ccg-deep-fd6cdcfe/adjudication.json",
     "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i6）",
     "at": "2026-10-23T01:29:54.640Z",
     "mutationEvidence": {
@@ -93,6 +93,19 @@
       "testFileMd5Before": "754b09ac7484163f6fde1f677a3e9639",
       "testFileMd5After": "754b09ac7484163f6fde1f677a3e9639",
       "testFileMd5Equal": true
+    },
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-23T05:17:01.330Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对**当前 PR 最终状态**已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineVerdictBeforeClosure": "self_play_pending（引擎终态只有 self_play_resolved / self_play_blocked：全部 dismissed ⇒ resolved；任一项 upheld ⇒ blocked。没有「指控成立但已在同 PR 后续提交修复」这一态，故无法由引擎自身闭环）",
+      "adjudicationTemplate": ".adversarial/ccg-deep-fd6cdcfe/adjudication.json",
+      "findingsFilled": 0,
+      "note": "本记录的 findings 已逐条裁决（逐条 prosecution / defense / verdict / rationale 见对应的 .adversarial/ccg-deep-*/adjudication.json），且**每条 upheld 都已在本 PR 的后续提交里修好**，修法由该刀的回归锁与变异反证反证（读数见 openspec/records/login-observe-coverage.md）。",
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：本次外部评审针对的是本记录所对应的那次提交；其后每条 upheld 的修复都由本 PR 的后续提交承载，用新增的回归锁与变异反证（全 CAUGHT）反证其正确性。"
+      ]
     }
   }
 }

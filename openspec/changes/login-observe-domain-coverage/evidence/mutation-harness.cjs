@@ -8,6 +8,7 @@
 // 退出码：0 = 全部 CAUGHT 且所有文件已还原；1 = 有 ESCAPED 或还原失败。
 const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 
@@ -61,24 +62,38 @@ function runTests () {
   }
 }
 
-// ── 原子备份 + finally 强制还原（第五轮 i1）──────────────────────────────
+// ── 原子备份 + finally 强制还原（第五轮 i1 / 第六轮 i4）────────────────
 // 变异直接写源文件，若脚本中途崩溃（被 kill / 磁盘满 / node 异常退出），
 // 源文件会**永久停在损坏状态**。两道保险：
-//   ① 每条变异前把该文件的**原始内容**存进内存，并另写一份 `.mutation-backup` 落盘
-//      （即使进程被强杀，备份仍在 ⇒ 人工可恢复）；
+//   ① **循环开始前**，为**每一个**将被变异的文件各落一份原始内容备份
+//      （备份写在**系统临时目录**，不在源文件同目录 —— 第六轮 i4：
+//       进程被 SIGKILL 时 finally 不会执行，备份留在源目录会变成工作树里的脏文件）；
 //   ② 整个变异循环包在 try/finally 里，finally 从备份**逐字节还原**并删除备份文件。
 // 还原后逐文件比对 md5 —— 不比对就没法说「还原了」。
 const backups = new Map()
 for (const f of originals.keys()) {
-  const p = abs(f)
-  const bk = p + '.mutation-backup'
+  const bk = path.join(os.tmpdir(), `mutation-backup-${process.pid}-${path.basename(f)}`)
   fs.writeFileSync(bk, originals.get(f), 'utf8')
   backups.set(f, bk)
 }
 
+// 变异**前**先记下测试文件的 md5（第六轮 i3：此前只算变异后的值，
+// 却在评审记录里写成「before == after」⇒ 那个 before 是**没有来源的字段**）。
+const testAbs = path.join(root, 'apps', 'desktop', testRel)
+const testMd5Before = md5(fs.readFileSync(testAbs, 'utf8'))
+
+// 整体时限（第六轮 i7）：单条变异 600s × 11 条最坏超过 110 分钟，
+// 且**没有**整体上限 ⇒ 一个卡死的 harness 能占住整台机器。超过就停并如实标记。
+const OVERALL_BUDGET_MS = 1800000
+const startedAt = Date.now()
+
 const results = []
 try {
   for (const m of MUTATIONS) {
+    if (Date.now() - startedAt > OVERALL_BUDGET_MS) {
+      results.push({ name: m.name, state: 'SKIPPED-OVERALL-BUDGET' })
+      continue
+    }
     const base = originals.get(m.file)
     if (!base.includes(m.from)) { results.push({ name: m.name, state: 'ANCHOR-NOT-FOUND' }); continue }
     let mutated = base.replace(m.from, m.to)
@@ -113,8 +128,7 @@ for (const [f, base] of originals) {
   const after = fs.readFileSync(abs(f), 'utf8')
   restore.push({ file: f, md5Before: md5(base), md5After: md5(after), equal: md5(base) === md5(after) })
 }
-const testAbs = path.join(root, 'apps', 'desktop', testRel)
-const testMd5 = md5(fs.readFileSync(testAbs, 'utf8'))
+const testMd5After = md5(fs.readFileSync(testAbs, 'utf8'))
 
 const envErrors = results.filter((r) => r.state === 'ENVIRONMENT-ERROR')
 const escaped = results.filter((r) => r.state === 'ESCAPED')
@@ -123,7 +137,9 @@ console.log('----')
 for (const r of results) console.log(`${r.state.padEnd(16)} ${r.name}${r.exitCode !== undefined ? '  (vitest exit=' + r.exitCode + ')' : ''}`)
 console.log('----')
 for (const r of restore) console.log(`restore ${r.equal ? 'MATCH' : 'MISMATCH'}  ${r.file}  ${r.md5Before}`)
-console.log(`test-md5      ${testMd5}  ${testRel}`)
+console.log(`test-md5-before ${testMd5Before}  ${testRel}`)
+console.log(`test-md5-after  ${testMd5After}  ${testRel}`)
+console.log(`overall-elapsed ${Math.round((Date.now() - startedAt) / 1000)}s (budget ${OVERALL_BUDGET_MS / 1000}s)`)
 console.log(`mutations ${results.length}  caught ${results.length - bad.length}  escaped ${escaped.length}  environment-errors ${envErrors.length}`)
 if (envErrors.length) {
   console.log('⚠ 有 ENVIRONMENT-ERROR ⇒ 本次判定**不成立**：「测不动」既不等于「变异逃逸」，也不等于「抓到了」')

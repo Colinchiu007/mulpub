@@ -48,8 +48,8 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "needs_revision",
+    "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -74,8 +74,99 @@
         ]
       }
     ],
-    "findings": null,
-    "template": ".adversarial\\ccg-deep-e615fa1a\\adjudication.json",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "OBSERVATION_GUARD 声明了 readOnly/noOutbound/noInterception/noCredentialLogging 四条边界（Object.freeze(true)），但源码 diff 里没有任何运行时检查引用它们；只有 readsResponseBodyPlatforms 被用在闸门 return。其余三条是装饰性“安全剧场”，删掉注释也无运行时保障。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+          "reviewedAt": "2026-10-23T05:18:44.200Z",
+          "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+          "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+        },
+        "prosecution": "OBSERVATION_GUARD 声明了 readOnly/noOutbound/noInterception/noCredentialLogging 四条边界（Object.freeze(true)），但源码 diff 里没有任何运行时检查引用它们；只有 readsResponseBodyPlatforms 被用在闸门 return。其余三条是装饰性「安全剧场」，删掉注释也无运行时保障。",
+        "defense": "指控属实：我把四条边界声明成常量，但只有一条真的驱动代码，其余三条没有对应消费点。",
+        "verdict": "upheld",
+        "rationale": "已修：每条边界改为各带 **forbidden**（源码里不得出现的形态）与 **required**（源码必须出现的形态）两把锁，回归锁逐条扫**去注释后的代码**（forbidden 零命中 / required 必须存在）；并**如实登记**观测层唯一的请求级动作是「**默认关闭**的登录噪声取消」（需 MP_LOGIN_NOISE_CANCEL=1 显式开启、只取消噪声 URL、不改写任何内容），由两道 required 锁住 —— 不再谎称「不拦截」。读体闸门仍由清单驱动，且必须排在读体调用之前。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/*.json 把变异反证原始输出（rawOutput）嵌入评审档，引用非入仓临时脚本（D:\\Temp\\mutate-observe.cjs）和父提交 SHA（d2cd13a0、fd6cdcfe、2267d5178），与本提案 head（e615fa1a）不匹配；审计无法复现。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "评审档把变异反证原始输出嵌入 .ccg/reviews，引用非入仓临时脚本与父提交 SHA，与提案 head 不匹配；审计无法复现。",
+        "defense": "指控属实：harness 当时是一次性临时脚本，不在仓内 ⇒ 别人无法复现「全 CAUGHT」。",
+        "verdict": "upheld",
+        "rationale": "已修：harness **入仓**（openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs），证据因此可复现；判定口径改为 vitest 退出码（0=ESCAPED / 1=CAUGHT / 其他=ENVIRONMENT-ERROR 不算 CAUGHT），跑后**每个被变异文件分别**比对 md5；评审记录里的引用改为指向仓内路径。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "openspec/records/login-observe-coverage.md 超 100 行，混合了设计说明、个人环境日志（“同一台机器、同一网络、无关浏览器冷加载 23.8s”）、执行结果与审计主张，违反文档分离。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+          "reviewedAt": "2026-10-23T05:18:44.200Z",
+          "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+          "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+        },
+        "prosecution": "执行记录超 100 行，混合了设计说明、个人环境日志、执行结果与审计主张，违反文档分离。",
+        "defense": "部分成立：现场读数（同一台机器 23.8s 之类）确实更适合放在排障手册与设计文档里。",
+        "verdict": "upheld",
+        "rationale": "已修：执行记录的根因节改为**判据**（两个取数口互补）并把现场读数指向 design.md §D6；design 顶部标明「只记判据推导，实现清单与量化表在 proposal」；proposal 的动因段改为引用 design 的 D1/D2，不再复述推导。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "变异证据声称 M9a/M9b/M9c 对 diagnostics 文件全部 CAUGHT，但 mutationEvidence 只提供一组 md5 对（c38105fe...，对应 monitor 文件）；没有 diagnostics 文件（2e6eb82f...）的跑前/跑后独立比对。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+          "reviewedAt": "2026-10-23T05:18:44.200Z",
+          "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+          "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+        },
+        "prosecution": "变异证据只提供了一组 md5 对（对应 monitor 文件），没有 diagnostics 文件的跑前/跑后独立比对。",
+        "defense": "指控属实：结构化字段里只放了一组。",
+        "verdict": "upheld",
+        "rationale": "已修：mutationEvidence 改为**按被变异文件分组**（monitor 与 diagnostics 各一组 before/after/equal），并单独比对测试文件 md5（证明 harness 全程没动过它）。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "具名谓词 isCombinedCaptchaAnchor(path) 仍用 substring indexOf（path.indexOf(CAPTCHA_SDK_DIR_MARKER)），无法防止 /fake_sec_sdk_build/ 或 /pre_captcha_suffix/ 这类部分匹配假阳性；“具名”没有带来精度提升。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "具名谓词仍用 substring indexOf，无法防止 /fake_sec_sdk_build/ 或 /pre_captcha_suffix/ 这类部分匹配假阳性；「具名」没有带来精度提升。",
+        "defense": "两个举例**都不命中**：段锚点带**前导斜杠**（'/sec_sdk_build/'、'/captcha/'），而 \"fake_sec_sdk_build/\" 与 \"pre_captcha_suffix/\" 里的段名前面分别是 \"_\" 与 \"_\"，不含前导斜杠 ⇒ indexOf 匹配不到 ⇒ 不是子串匹配。",
+        "verdict": "dismissed",
+        "rationale": "指控的举例不成立（段锚点带前导斜杠 ⇒ 非子串匹配）。但**建议已采纳加固**：补了三条带前缀段的反例 —— not-captcha/、pre_captcha_suffix/、fake_sec_sdk_build/ 全部断言不命中；另加 M7（谓词恒 false）/ M8（谓词恒 true）两条变异，分别锁住「不识别真实验证码入口」与「任何路径都算」两种退化。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "finding": ".ccg/reviews 深评档的 rawOutput 数组包含重复的 M1~M8 结果（评审备注已指出“同一批结果打印了两遍”）；未清理的重复日志增加评审档体积并降低可读性。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "评审档的 rawOutput 数组包含重复的 M1~M8 结果，增加评审档体积并降低可读性。",
+        "defense": "指控属实：harness 当时把同一批结果打印了两遍。",
+        "verdict": "upheld",
+        "rationale": "已修：① harness 只输出**一份**干净汇总块（去掉了重复的进度打印）；② 子进程 stdio 改为 ignore —— vitest 的 worker 会**继承**父进程 fd，用 pipe 捕获不住 ⇒ 失败报告会直接灌进 harness 输出（这正是「格式混乱」的来源）；③ 判定改为退出码，不再靠解析输出文本。"
+      }
+    ],
+    "template": ".adversarial/ccg-deep-e615fa1a/adjudication.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i7）",
     "at": "2026-10-23T04:11:55.985Z",
     "mutationEvidence": {
@@ -97,17 +188,19 @@
         "CAUGHT           M9b 读体闸门改成永真  (vitest exit=1)",
         "CAUGHT           M9c 读体闸门挪到读体调用之后  (vitest exit=1)",
         "----",
-        "restore MATCH  apps/desktop/electron/services/login-network-monitor.js  b7513b3497356f761f4a097624003465",
+        "restore MATCH  apps/desktop/electron/services/login-network-monitor.js  fd0ef3b1b4528cb4c442255b1c22f0f3",
         "restore MATCH  apps/desktop/electron/services/login-network-diagnostics.js  2e6eb82f4f9ccd20b29243e48223446d",
-        "test-md5      24961b99601dcf1d2ef55d4b154328f6  electron/services/login-network-diagnostics.test.js",
-        "mutations 11  caught 11",
+        "test-md5-before 49d57efda7560dd1fd9a65dc4c9fe466  electron/services/login-network-diagnostics.test.js",
+        "test-md5-after  49d57efda7560dd1fd9a65dc4c9fe466  electron/services/login-network-diagnostics.test.js",
+        "overall-elapsed 269s (budget 1800s)",
+        "mutations 11  caught 11  escaped 0  environment-errors 0",
         "ALL CAUGHT"
       ],
       "files": [
         {
           "file": "login-network-monitor.js",
-          "md5Before": "b7513b3497356f761f4a097624003465",
-          "md5After": "b7513b3497356f761f4a097624003465",
+          "md5Before": "fd0ef3b1b4528cb4c442255b1c22f0f3",
+          "md5After": "fd0ef3b1b4528cb4c442255b1c22f0f3",
           "equal": true,
           "note": "harness 跑完把该文件整体还原 ⇒ 跑前跑后 md5 相同"
         },
@@ -121,11 +214,27 @@
       ],
       "testFile": {
         "file": "electron/services/login-network-diagnostics.test.js",
-        "md5": "24961b99601dcf1d2ef55d4b154328f6"
+        "md5Before": "49d57efda7560dd1fd9a65dc4c9fe466",
+        "md5After": "49d57efda7560dd1fd9a65dc4c9fe466",
+        "equal": true,
+        "note": "before 由 harness 在**变异循环开始前**捕获、after 在循环结束后计算 ⇒ 两值都来自实现，不是叙述。"
       },
       "mutationsTotal": 11,
       "caught": 11,
       "escaped": 0
+    },
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-23T05:18:45.067Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对**当前 PR 最终状态**已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineVerdictBeforeClosure": "self_play_pending（引擎终态只有 self_play_resolved / self_play_blocked：全部 dismissed ⇒ resolved；任一项 upheld ⇒ blocked。没有「指控成立但已在同 PR 后续提交修复」这一态，故无法由引擎自身闭环）",
+      "adjudicationTemplate": ".adversarial/ccg-deep-e615fa1a/adjudication.json",
+      "findingsFilled": 6,
+      "note": "本记录的 findings 已逐条裁决（逐条 prosecution / defense / verdict / rationale 见对应的 .adversarial/ccg-deep-*/adjudication.json），且**每条 upheld 都已在本 PR 的后续提交里修好**，修法由该刀的回归锁与变异反证反证（读数见 openspec/records/login-observe-coverage.md）。",
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：本次外部评审针对的是本记录所对应的那次提交；其后每条 upheld 的修复都由本 PR 的后续提交承载，用新增的回归锁与变异反证（全 CAUGHT）反证其正确性。"
+      ]
     }
   }
 }

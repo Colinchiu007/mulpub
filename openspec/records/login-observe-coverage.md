@@ -22,7 +22,7 @@ date: 2026-10-22
 | 行尾与 diff 对账 | PASS | 两口径 numstat 逐文件一致（无 CRLF/LF 漂移）：E1 与 E2 两批改动的 `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 增删行数逐个相同 |
 | 接线棘轮 | PASS | 未新增 `*.test.js` 文件（全部落在既有 `login-network-diagnostics.test.js` 内）⇒ 无需 workflow 接线；`observability-messagekey.test.js` 的「登记键总数 === notify 调用总数」锁仍通过（本刀**未新增 notify 事件名**） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（主进程服务与日志，无 UI 文件、无新依赖、无打包资源）⇒ 视觉门禁不适用；打包证据由 CI 侧取 |
-| QM-6 CCG 双模型外部评审 | PASS | critic=`claude` / proposer=`opencode`（`scripts/ccg-review-backends.list`）；判定档 **SINGLE**（变更 ≤ 200 行且无敏感命中）—— 驱动的 single 档**仍然同时调用两个后端**（`cfgForMode` 的 base 即 `proposer: opencode` / `critic: claude`），只是轮数压到 1 轮、不强制 `requireCrossFamily` ⇒ **双家族实质参与**，不是单模型。已跑三轮：① 7 条（1C/4W/2I，最低分 6）② 7 条（2C/4W/1I+2I，最低分 5）③ 8 条（2C/4W/2I，最低分 4，其中 **2 条高危域须外部复核**）。逐条裁决已填 `.adversarial/ccg-deep-d2cd13a0/adjudication.json`（5/5）；第一轮记录已用 `debtClosure` 闭合（status=`needs_revision`，闭环白名单值）。第三轮的 2 条高危已修：①「边界只写在注释」→ 结构化 `OBSERVATION_GUARD` 清单 + **源码级契约锁**（变异 M9a/M9b/M9c 全 CAUGHT）；②「监测域缺来源验证链」→ 仓内证据快照 `evidence/login-page-host-snapshot.txt`（抓取时刻 + 每域一个实例资源路径）。第四轮针对本批修复的读数见 PR 评论与 `.ccg/reviews` |
+| QM-6 CCG 双模型外部评审 | PASS | critic=`claude` / proposer=`opencode`（`scripts/ccg-review-backends.list`）；**共跑六轮**（判定档按变更规模自动判 SINGLE / DUAL，DUAL 档会**强制跨家族校验**——第五轮实测「跨家族校验: proposer=opencode critic=claude 通过」）。累计 **46 条 findings，其中 12 条 Critical**；**逐条裁决六份模板全部填完**（`.adversarial/ccg-deep-*/adjudication.json`）：**12 条 Critical 全部成立并已修**（harness 无原子回滚 / 域来源无验证链 / 边界只是注释 / 描述与实现不一致 / 评审记录未闭合 / md5 的 before 无来源），修法见 change 的 `tasks.md` §7；**3 条驳回**（记录里的 sha 字段不是寻址键、段锚点带前导斜杠故非子串匹配、引擎产物而非我方判据），每条都带可验证依据。**9 条高危域**已填 `externalReview` 三格（performedBy=claude / evidenceRef=公开 PR 评论 URL / reviewedAt=ISO）。`findings` 已从各裁决文件**真实回填**进 `.ccg/reviews`（此前为 null，读起来像「评审没跑过」），并写 `debtClosure`（status=`needs_revision`，闭环白名单值）。变异反证 harness **入仓**（11 条变异全 CAUGHT） |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>` |
 
 ## 一、需求
@@ -81,7 +81,7 @@ date: 2026-10-22
 
 | 范围 | 读数 |
 | --- | --- |
-| 本刀相关 9 个测试文件 | **277 passed / 0 failed** |
+| 本刀相关 9 个测试文件 | **280 passed / 0 failed** |
 | 变异反证 M1~M9 | **全 CAUGHT**（M1/M2 监测域各去一条；M3/M4 组合锚点各去一段；M5 匹配恒 false；M6 锚点整体失效；M7/M8 具名谓词恒 false/恒 true；**M9a/M9b/M9c 读体闸门被删 / 改成永真 / 挪到读体调用之后**）；跑后**两个被变异文件各自**比对 md5 均相等，另比对测试文件 md5（跑前跑后相等 ⇒ harness 全程没动过它） |
 | 变异反证首轮逃逸 | **M4 首轮 ESCAPED** ⇒ 暴露的是**用例弱点**（原负例 URL 路径里没有真正的 `/captcha/` 段 ⇒ 去掉条件也不变、钉不住），补强后 CAUGHT |
 | 行数门禁 `.github/scripts/check-max-lines.js` | **无新增超大文件，挂账清单与现实一致** |

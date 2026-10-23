@@ -48,8 +48,8 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
-    "performedBy": "self-play(pending)",
+    "status": "needs_revision",
+    "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
       {
@@ -75,9 +75,114 @@
         ]
       }
     ],
-    "findings": null,
-    "template": ".adversarial\\ccg-deep-f95edb7d\\adjudication.json",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "mutation-harness.cjs 直接写入源码文件（fs.writeFileSync）并在原地执行变异，无原子回滚：若脚本中途崩溃（vitest 退出非 0/1、进程被杀、磁盘满），被变异文件（login-network-monitor.js / diagnostics.js）将永久停留在损坏状态。",
+        "highRiskDomains": [
+          "auth",
+          "datamigration"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+          "reviewedAt": "2026-10-23T05:14:27.668Z",
+          "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+          "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+        },
+        "prosecution": "harness 直接写源文件且无原子回滚 ⇒ 脚本中途崩溃（被 kill / 磁盘满 / node 异常退出）会让源文件永久停在损坏状态。",
+        "defense": "指控属实。备份确实只在初始化时写一次（且写在源文件同目录），崩溃后既没有逐字节还原的保证，残留备份还会变成工作树里的脏文件。",
+        "verdict": "upheld",
+        "rationale": "已修：① 备份改写在**系统临时目录**（不留源目录）；② 整个变异循环包在 try/finally 里，从备份**逐字节还原**并删除备份；③ 还原后**逐文件比对 md5**。已删除 CHANGELOG 里「每条变异前落一份」的描述（改为「循环开始前为每个被变异文件各落一份」）—— 描述与实现不一致本身就是这条指控的要害。读数：新版 harness 11 条变异全 CAUGHT、environment-errors 0、两个被变异文件 md5 各 MATCH。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "多个 .ccg/reviews/ 文件（如 6f610498...、20981ab9...、605307fef...、7b953a61...）的 deepReview 仍为 pending/self_play_pending，findings 为 null，note 写明“裁决尚未填写：5/5 条未定 / 6/6 条未定”。提案声称已修复 i2/i3/i4/i6，但对应评审记录未完成裁决填充，证据链断裂。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "多份 .ccg/reviews 记录仍是 pending / findings 为 null ⇒ 证据链断裂。",
+        "defense": "指控属实。本刀多次提交，每次 pre-commit 都落一份新记录，除最后一份被评审覆盖外，其余停在 pending。",
+        "verdict": "upheld",
+        "rationale": "已修：① 本 PR 引入的每一份记录都补齐裁决（prosecution / defense / verdict / rationale）与 debtClosure；② **findings 字段从对应的 .adjudication.json 真实回填**（此前为 null，读起来像「评审没跑过」）；③ 移除一份 changedLines=0 的空记录；④ 记录里的路径分隔符统一成正斜杠。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "文件 .ccg/reviews/6f610498f47a26... 记录 changedLines: 0、codeFileCount: 0，实为无内容变更的评审档案，却被计入 1775 行大变更中，膨胀仓库并混淆审计追踪。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": ".ccg/reviews/6f610498… 是 changedLines=0 的空评审档案，却混入当前 diff，给审计添噪。",
+        "defense": "指控属实。该记录由一次「暂存区为空」的 pre-commit 判定产生，没有实际评审内容。",
+        "verdict": "upheld",
+        "rationale": "已修：该空记录已从本 PR 移除（git rm），不再混入变更集。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "mutation-harness.cjs 使用 execFileSync(..., {shell: true}) 并依赖 pnpm.cmd 执行 vitest；若环境缺 pnpm/命令失效，退出码被判为 ENVIRONMENT-ERROR（≠ CAUGHT），但 harness 最终仍计为 NOT ALL CAUGHT 并退出 1，容易把环境故障误读为变异逃逸。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "harness 用 execFileSync(..., {shell: true}) 调 pnpm.cmd；环境故障会被判成 ENVIRONMENT-ERROR，最后仍计为 NOT ALL CAUGHT 并退出 1，容易把环境故障误读为变异逃逸。",
+        "defense": "指控属实。shell:true 让「命令不存在」与「用例失败」撞进同一个错误通道。",
+        "verdict": "upheld",
+        "rationale": "已修：① 去掉 shell:true，改用 **node 直接跑 vitest 的 js 入口**（仓库根 node_modules 里，pnpm 提升后的真实位置）⇒ spawn 失败与用例失败天然分开；② ENVIRONMENT-ERROR 单独计数、单独退出码（2），并明确打印「测不动既不等于逃逸、也不等于抓到」。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "OBSERVATION_GUARD.readsResponseBodyPlatforms 硬编码为 ['zhihu']，取代原先依赖 AUTH_ENDPOINT_MATCHERS[platform] 的隐式拒绝。提案未说明头条号/微信/腾讯等计时平台在新清单下是否仍被正确拒绝读体；若匹配器覆盖平台多于清单，行为已发生回归。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+          "reviewedAt": "2026-10-23T05:14:27.668Z",
+          "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+          "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+        },
+        "prosecution": "OBSERVATION_GUARD.readsResponseBodyPlatforms 硬编码为 ['zhihu']，取代了原先依赖 AUTH_ENDPOINT_MATCHERS[platform] 的隐式拒绝；若匹配器覆盖的平台多于清单，行为已发生回归但无人知晓。",
+        "defense": "指控属实：当时没有任何断言把这两个列表钉在一起。实测匹配器只有 zhihu 一个键（故当下无回归），但「当下恰好一致」不等于「被保证一致」。",
+        "verdict": "upheld",
+        "rationale": "已修：加断言 —— 读体平台清单必须与诊断层 AUTH_ENDPOINT_MATCHERS 的**键集逐字相等**（两边漂移即当场红），且所有计时平台（toutiao / wechat_mp / tencent_video）一律不在清单里。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "域来源快照 login-page-host-snapshot.txt 中刻意不入监测域的 www.douyin.com（抖音）被如实登记，但提案未在 OBSERVATION_GUARD 或代码中编码“刻意排除”的判据，仅靠文档说明，后续维护易被误删或误加。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+          "reviewedAt": "2026-10-23T05:14:27.668Z",
+          "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+          "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+        },
+        "prosecution": "刻意不入监测域的 www.douyin.com 只在文档里登记，没在代码里编码判据，后续维护易被误删或误加。",
+        "defense": "指控属实。文档不是判据：改代码的人不会去读排障手册里的一句说明。",
+        "verdict": "upheld",
+        "rationale": "已修：新增 `EXCLUDED_HOSTS = Object.freeze(['www.douyin.com'])` 并写明排除理由（抖音域不是头条号登录链路必需的域，且承载大量与登录无关的资源 ⇒ 纳入只会无谓扩大观测面），同时加断言「被排除的域不得出现在任何平台的监测域清单里（含同主域变相纳入）」。"
+      }
+    ],
+    "template": ".adversarial/ccg-deep-f95edb7d/adjudication.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
-    "at": "2026-10-23T04:42:08.342Z"
+    "at": "2026-10-23T04:42:08.342Z",
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-23T05:17:44.208Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对**当前 PR 最终状态**已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineVerdictBeforeClosure": "self_play_pending（引擎终态只有 self_play_resolved / self_play_blocked：全部 dismissed ⇒ resolved；任一项 upheld ⇒ blocked。没有「指控成立但已在同 PR 后续提交修复」这一态，故无法由引擎自身闭环）",
+      "adjudicationTemplate": ".adversarial/ccg-deep-f95edb7d/adjudication.json",
+      "findingsFilled": 6,
+      "note": "本记录的 findings 已逐条裁决（逐条 prosecution / defense / verdict / rationale 见对应的 .adversarial/ccg-deep-*/adjudication.json），且**每条 upheld 都已在本 PR 的后续提交里修好**，修法由该刀的回归锁与变异反证反证（读数见 openspec/records/login-observe-coverage.md）。",
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：本次外部评审针对的是本记录所对应的那次提交；其后每条 upheld 的修复都由本 PR 的后续提交承载，用新增的回归锁与变异反证（全 CAUGHT）反证其正确性。"
+      ]
+    }
   }
 }
