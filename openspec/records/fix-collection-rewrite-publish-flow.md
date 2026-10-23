@@ -12,13 +12,13 @@ branch: fix-collection-rewrite-publish-flow
 | 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/src/**`）+ locale + 文档 ⇒ **混合 PR**。**中途与 main 的一次合并（#4111）已如实登记**：本刀最初也自带字数区间的实现，发现 #4111 已先行落地且更完整 ⇒ **撤回重复实现**（删除 `features/collection/rewrite-word-count.js` 及其 14 例），只保留 #4111 未覆盖的部分。
 | 依赖就绪 | PASS | `pnpm install --frozen-lockfile` rc=0（1526 包）→ `ensure-electron.js` v43.7.7 就绪 → `verify-worktree-deps.js` OK（11 项解析、9 个 workspace 全指向本 worktree） |
 | 行尾对账 | PASS | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` **两口径逐文件一致**（27 个文件：评审产物 11 个、PRD 485/0、learnings 29/0、CHANGELOG 42/0、编排 composable 403/0 及其测试 211/0、作废 composable 59/0 及其测试 96/0、浮层组件 149/0、locale en 39/76 + quick-collect en 82/0 + zh 84/0 + zh 16/0、组件测试 289/0、Collection.vue 139/20、执行记录 170/0；合计 raw 3513 行 / 代码侧 12 文件 1677 行；旧口径（14 文件）：
-| TDD（RED→GREEN） | PASS | 三个新测试文件**先写后实现**：①`features/collection/rewrite-word-count.test.js` 先写 ⇒ 实跑 **RED（模块不存在，Failed to resolve import）** ⇒ 实现后 14/14；②`composables/useCollectionVideoCreation.test.js` 先写 ⇒ 实现后 10/10；③`views/Collection.rewrite-publish-flow.test.js` 先写 ⇒ 实现后 10/10。末态新增 **34 例** |
+| TDD（RED→GREEN） | PASS | 三个新测试文件**先写后实现**：①`features/collection/rewrite-word-count.test.js` 先写 ⇒ 实跑 **RED（模块不存在，Failed to resolve import）** ⇒ 实现后 14/14；②`composables/useCollectionVideoCreation.test.js` 先写 ⇒ 实现后 10/10；③`views/Collection.rewrite-publish-flow.test.js` 先写 ⇒ 实现后 10/10。末态新增 **58 例**（作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 + StageProgress 契约锁 4 + 依赖契约锁 6）|
 | 变异反证 | PASS | 5/5 **CAUGHT**（**M1 / M2 针对的是已撤回的字数区间实现**——它们证伪过「键名退回 targetWordCount」与「吞掉 min=0」两种退化，但那部分代码已随与 #4111 的合并撤回；**M3 / M4 / M5 仍在最终代码里**，其中 M3 去掉 `genreDraftId = null`、M4 退回跳页型视频创作、M5 去掉非字符串信封守卫）
-| 接线棘轮 | PASS | `node scripts/check-unwired-tests.js` rc=0 ⇒ 检查域内测试文件 **113 个**、`OK: 全部测试均已接线或按欠账登记`（无新增欠账） |
-| 静态门禁 | PASS | `node .github/scripts/check-max-lines.js` rc=0（**无新增超大文件**，挂账清单与现实一致）；`check-locale-sync.js --keys` rc=0（198 个使用中 key 均存在于 zh/en）；`check-locale-sync.js --cjk` rc=0（基线 1330、当前 1125、**无新增硬编码中文**）；`eslint` 改动文件 `--quiet` rc=0 |
+| 接线棘轮 | PASS | `node scripts/check-unwired-tests.js` rc=0 ⇒ 检查域内测试文件 **128 个**、`OK: 全部测试均已接线或按欠账登记`（无新增欠账） |
+| 静态门禁 | PASS | `node .github/scripts/check-max-lines.js` rc=0（**无新增超大文件**，挂账清单与现实一致）；`check-locale-sync.js --keys` rc=0（2249 个使用中 key 均存在于 zh/en）；`check-locale-sync.js --cjk` rc=0（基线 1330、当前 1125、**无新增硬编码中文**）；`eslint` 改动文件 `--quiet` rc=0 |
 | QM-1 打包 | **N/A（不适用，非「跑了通过」）** | 改动集 **零** `apps/desktop/electron/**`、**零** `packages/rpa-engine/**`（只动渲染层 `src/**` + locale + 文档）⇒ 按 AGENTS.md 字面规则「每次修改 `apps/desktop/electron/` 或 `packages/rpa-engine/` 下代码后必须打包」**不触发**。本行记录此格是为与「已验证」区分。**额外**（不属 QM-1，但为否证 QM-6 i2「无构建验证」而跑）：渲染层生产构建 `npx vite build` ⇒ **rc=0、built in 24.11s** |
 | QM-4 视觉 | PASS | `TEST_URL=http://127.0.0.1:5199 PIXEL_ONLY=collection node tests/visual-testing/scripts/run-pixel-tests.js` ⇒ **1/1 通过、0 失败、100%**（报告 `tests/visual-testing/reports/report-1792523798281.json`）。用**本 worktree 自起的独立 Vite**（5199，`--strictPort`，HTTP 200 实证），**不借用他人端口**（5174 已被他人占用）；**未刷新基线**。新增横幅与浮层均为**条件渲染**（截断态 / 流水线运行态），采集页默认态不渲染 ⇒ 像素不变，0.000% 差异本身即证据 |
-| QM-6 CCG 双模型外部评审 | PASS | **共跑 13 轮，全部是跨家族外部模型实跑**（合并 main 后又跑轮 12 / 轮 13：并发模型注释订正、StageProgress 契约锁、PRD 消费者清单）（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家**不同厂商**；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 **50+ 条**评审意见，**逐条填 prosecution/defense/verdict/rationale**；其中 **3 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例、i7 并发模型写进文档），其余 dismissal 均附**可复算实测证据**；各轮收口 `self_play_resolved`、blocking 空（轮 12 的记录因被取代而按先例 hand-set `cleared`，见下方「合并 main 之后的深审轮次」）。**高危面另有三次独立外部复核**（外部模型 claude 自行读代码/脚本、原文**公开于 PR 评论**）：第一次针对键名迁移（datamigration，#4114#issuecomment-6302916932）、第二次针对审计可信度与厂商独立性（auth + datamigration，#4114#issuecomment-6303677171）、第三次针对**合并 main 之后**的代码与并发/配置档案链路（auth + datamigration，#4114#issuecomment-6310698615）。**详细逐轮叙述见下方「QM-6 双家族外部评审（七轮实跑）」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
+| QM-6 CCG 双模型外部评审 | PASS | **共跑 13 轮，全部是跨家族外部模型实跑**（合并 main 后又跑轮 12 / 轮 13：并发模型注释订正、StageProgress 契约锁、PRD 消费者清单）（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家**不同厂商**；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 **50+ 条**评审意见，**逐条填 prosecution/defense/verdict/rationale**；其中 **3 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例、i7 并发模型写进文档），其余 dismissal 均附**可复算实测证据**；各轮收口 `self_play_resolved`、blocking 空（轮 12 的记录因被取代而按先例 hand-set `cleared`，见下方「合并 main 之后的深审轮次」）。**高危面另有三次独立外部复核**（外部模型 claude 自行读代码/脚本、原文**公开于 PR 评论**）：第一次针对键名迁移（datamigration，#4114#issuecomment-6302916932）、第二次针对审计可信度与厂商独立性（auth + datamigration，#4114#issuecomment-6303677171）、第三次针对**合并 main 之后**的代码与并发/配置档案链路（auth + datamigration，#4114#issuecomment-6310698615）、**第四次针对交付前最终形态**（高危面是否命中 /「成片↔文案同源」是否可达 / 分支谱系 / 本轮记录是否属实，#4114#issuecomment-6368372014）。**详细逐轮叙述见下方「QM-6 双家族外部评审（十一轮实跑；合并 main 之后另有轮 12 / 13）」与「本轮收尾 · ③」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
 | 相关测试全集 | PASS | 合并 main 后复跑：`vitest run src/features/collection src/features/publish-destination src/composables src/views/Collection*.test.js src/components/PublishDestinationModal.test.js src/views/CreateView.config-profile-handoff.test.js` ⇒ **84 文件 / 1523 用例全绿**（本 PR 自有新增 **58 例**：作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 + StageProgress 契约锁 4 + 依赖契约锁 6）
 | 文档同步 | PASS | 新增 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md`（454 行：缺陷根因 / 数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 未闭合）；订正 `01-docs/PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md`（采集页口径已被取代的四处 + 校验表上限 + 变更记录）；`CHANGELOG.md` 顶部新增 36 行条目 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）。把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红（change: `ban-record-closure-backfill-pr`）。合并前本篇不在基线上 ⇒ 走 byDesign 档，不红；main push 回读证据写在 PR 评论里，不写回本文件 |
@@ -254,7 +254,7 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
 88 份记录里 76 份已丢）⇒ 本轮把口径字段放到记录的**顶层同级键** `statsAudit`，并在
 `note` 里写明这条依据。外部复核独立确认了这条机制。
 
-#### 两起需要如实登记的运营事件
+#### 三起需要如实登记的运营事件
 
 1. **首次外部复核越权写入仓库，已完整撤回**：第一次跑外部复核时用了
    `claude -p --dangerously-skip-permissions`，该模型**修改了本仓库**——归档了**别的会话**的
@@ -297,6 +297,24 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
    属**主干侧该视图的基线抖动**，需主干侧处理（重采基线或让渲染确定化）。
    本 PR 的 QM-4 证据仍是 `collection` 视图（本地 1/1、100%），**未**用全量
    UPDATE_BASELINE 把无关视图的环境差烘进基线。
+3. **本 PR 的 CI 红了两次，两次红都**不是**本 PR 的改动引起**（如实登记）：
+   - **第一次**（run 39952385145）：`QG Changes` 红 ⇒ `check-doc-abs-paths` 的
+     「本仓基线必须与现场逐文件相等」自测红 —— 执行记录里写了两个**本机绝对路径**
+     （本机路径真实存在 ⇒ 本机绿；CI 是 ubuntu、**无盘符** ⇒ 判「超出存量基线」）。
+     处置：改写成**占位符形态**，并用 `--simulate-no-drives` 在本机复现 CI 那一档验证。
+   - **第二次**（run 40002295093）：`QG Changes` 又红，但红的是 **Gate 2b11
+     （QM-6 收口写回链）6 条子测试** ⇒ 根因在**主干**：提交 `40e1fb1ba`（#4093）给
+     `scripts/check-pr-exec-record.js` 加了 `require('./lib/exec-record-statuses')`，
+     却**没**把新模块加进 `scripts/deep-review-entry-rc.test.js` 的 `SCRIPT_CLOSURE`
+     夹具清单 ⇒ 该测试的临时仓缺模块 ⇒ 入口**加载期**就抛 `Cannot find module`。
+     **本地可复现**：把**纯 `origin/main`** 的树单独解到临时目录跑 Gate 2b11 四把锁
+     ⇒ `# pass 38 / # fail 6`，**本 PR 的任何改动都没参与** ⇒ main 级存量债。
+     处置：由另一个会话开出 **#4347**（补齐闭包 + 加机械守卫 ⑫）修好；本会话在其
+     **24 项检查全绿**、且经 `check-main-red --allow-main-red` **显式点名归因**后
+     squash 合入（`ff1d09cfb`），主干随即恢复。
+   ⇒ 教训：**「CI 红了」的第一问是「红的是谁」，不是「谁改的」** —— 门禁在每个 PR 上都跑，
+   断链的红会被记在**无辜 PR** 的账上；而本地复现的判据是**把纯主干的树单独解出来跑那几把锁**
+   （本机跑自己分支的树是**测不出来的** —— 夹具只在自己造的临时仓里崩）。
 
 ### 本轮收尾（2026-10-23）：分支谱系订正与最终形态
 
@@ -324,7 +342,8 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
 ⇒ 远端那份是**回退版**：它把主干 `publish-config-picker` 带来的「配置档案」能力在采集页上丢了
 （选了配置却静默按默认值跑 = 主干修过的同一个坑「选了等于没选」）。
 ⇒ 处置：以本地完整谱系为准 **force-push 覆盖回去**，并再次与主干对齐（合并提交 `2e4dc6bd8`，零冲突）。
-最终 PR 差集 = **45 个文件 / 6426 insertions / 178 deletions**（28 份评审产物 + 17 个业务与文档文件）。
+最终 PR 差集 = **19 个业务/文档文件**（`apps/desktop/**` 15 + 文档/台账 4）+ **三十余份评审产物**
+（`.ccg/reviews/*.json`；每轮深审收口落一份 ⇒ **刻意不写精确数**，写了必然过期）。
 
 #### ② 「成片 ↔ 文案同源」的复核结论：**不引入**（驳回，附可复算理由）
 
