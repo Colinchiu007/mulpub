@@ -190,13 +190,14 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
 | 接线棘轮 | `node scripts/check-unwired-tests.js` | `检查域内测试文件 128 个 / OK: 全部测试均已接线或按欠账登记` | 0 |
 | 执行记录 | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` | `OK: PR 携带执行记录或带原因的豁免`；`TIER-COVERAGE dual-closed total=4 external=1 external-unverified=0 self-play=1 none=0 unknown(字段缺席)=2 unrecognized=0` | 0 |
 | 记录债 | `node scripts/check-gate-record-debt.js --base-ref=origin/main --head-ref=HEAD` | `OK: 两源所有未收口的远程同步行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留、旧载体与冻结基线一致` | 0 |
-| 文档绝对路径 | `node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD --simulate-no-drives` | `PASS（改动集 origin/main..HEAD（改动 34 个 + 基线并入，扫描 592 个文件），无新增本机绝对路径）`；`本机无盘符 ⇒ 存在性核对未执行（计数判定照常执行）` —— **用 `--simulate-no-drives` 复现 CI（ubuntu、无盘符）那一档**，否则本机默认档永远测不到它 | 0 |
+| 文档绝对路径 | `node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD --simulate-no-drives` | `PASS（改动集 origin/main..HEAD，无新增本机绝对路径）`；`本机无盘符 ⇒ 存在性核对未执行（计数判定照常执行）` —— **用 `--simulate-no-drives` 复现 CI（ubuntu、无盘符）那一档**，否则本机默认档永远测不到它 | 0 |
 | ESLint | `npx eslint <改动文件> --quiet` | 无输出 | 0 |
 | 渲染层构建 | `npx vite build` | `built in 24.11s`；产物中实测命中被拆走的「快捷采集」（1 个 chunk）与新增的「视频创作」（2 个 chunk） | 0 |
 
-> **上表是本分支最终 HEAD（`0fe5c6cdf`）的实测读数**（2026-10-23 重跑）。
+> **上表是本 PR 最终 HEAD 的实测读数**（2026-10-23 重跑）。
 > 上一版读数（2210 key / 1124 CJK / 114 测试域 / dual-closed=3）对应**并入主干之前**的 HEAD ——
-> 主干前进会带着 key 数、挂账数一起动，所以**这类读数必须标明跑在哪个 HEAD 上**，否则无法复算。
+> 主干前进会带着 key 数、挂账数**以及**改动集规模一起动，所以**这类读数必须标明跑在哪个 HEAD 上**，
+> 否则无法复算（`--base=origin/main` 的两个口径里，`origin/main` 会继续前进）。
 > 采集页相关测试全集（6 个文件 / **58 例**）在最终 HEAD 上另跑一遍：`6 passed / 58 passed`。
 
 
