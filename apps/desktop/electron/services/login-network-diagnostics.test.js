@@ -781,6 +781,24 @@ describe('login-network-diagnostics — 头条号登录期观测', () => {
     expect(monitor.CAPTCHA_SDK_SEGMENT).toBe('/captcha/')
   })
 
+  it('组合锚点谓词两段缺一不可（具名谓词的优先级测试，不经 URL 解析层）', () => {
+    const monitor = require('./login-network-monitor')
+    // 两段齐备 ⇒ 命中
+    expect(monitor.isCombinedCaptchaAnchor(
+      '/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js'
+    )).toBe(true)
+    // 只有版本目录段 ⇒ 不命中（否则该目录下非验证码资源被算成组件 ⇒ 读数失真）
+    expect(monitor.isCombinedCaptchaAnchor(
+      '/obj/rc-verifycenter/sec_sdk_build/4.0.10/index.js'
+    )).toBe(false)
+    // 只有组件段 ⇒ 不命中（否则无关资源误判 ⇒ 噪声淹没真信号）
+    expect(monitor.isCombinedCaptchaAnchor(
+      '/obj/some/other/dir/captcha/index.js'
+    )).toBe(false)
+    // 空输入不得被当成命中
+    expect(monitor.isCombinedCaptchaAnchor('')).toBe(false)
+  })
+
   it('头条监测域必须覆盖真实登录页用到的风控与验证码域', () => {
     const monitor = require('./login-network-monitor')
     const hosts = monitor.monitoredHostsOf('toutiao')

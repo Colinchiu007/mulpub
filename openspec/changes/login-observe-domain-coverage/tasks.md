@@ -59,10 +59,28 @@
 
 ## 7. QM-6 外部双家族评审
 
-- [ ] 7.1 critic=claude / proposer=opencode（`scripts/deep-review.sh`）
-- [ ] 7.2 逐条裁决（`adjudication.json`）
-- [ ] 7.3 高危域填 externalReview 三格（performedBy / evidenceRef / reviewedAt）
-- [ ] 7.4 评审记录落 `self_play_resolved`
+后端对：critic=`claude` / proposer=`opencode`（`scripts/ccg-review-backends.list`）。
+判定档为 **SINGLE**（变更 ≤ 200 行且无敏感命中）—— 驱动的 single 档**仍然同时调用两个后端**
+（`cfgForMode` 的 base 即 `proposer: opencode` / `critic: claude`），只是轮数压到 1 轮、
+不强制 `requireCrossFamily` ⇒ **双家族实质参与**，不是单模型。
+
+- [x] 7.1 第一轮（针对 `d2cd13a0`）：7 条 findings（1 Critical / 4 Warning / 2 Info），最低分 6
+- [x] 7.2 第二轮（针对 `fd6cdcfe`，全量 diff）：7 条 findings（2 Critical / 4 Warning / 1 Info + 2 Info），最低分 5
+- [x] 7.3 逐条裁决（`.adversarial/ccg-deep-d2cd13a0/adjudication.json` 5/5 已填）
+- [x] 7.4 第一轮记录闭合：写 `debtClosure`、status 置闭环白名单值 `needs_revision`
+- [x] 7.5 第二轮记录附**变异原始日志与 md5 比对**（`deepReview.mutationEvidence`）——评审要求「证据而非叙述」
+- [x] 7.6 按评审发现修实现：
+  - i2（负例弱）⇒ 补真含 `/captcha/` 段的负例 + `not-captcha/` + 百分号编码变体
+  - i3（无量化说明）⇒ proposal 增补「影响面量化」表
+  - i4（常量无消费者）⇒ 测试新增常量断言
+  - i5（Info，正反馈）⇒ design §D4 保留排除理由
+  - i6（段匹配误报风险）⇒ 已驳回 + 加固反例
+  - i7（`.openspec.yaml` 元数据缺失）⇒ 补 title/tier/priority/parent/version
+  - 第二轮 i1（第一轮记录停在 pending）⇒ 已闭合第一轮记录
+  - 第二轮 i2（证据只在叙述里）⇒ 原始日志与 md5 比对已进 `.ccg/reviews`
+  - 第二轮 i3（复合 `&&` 无具名谓词）⇒ 提取 `isCombinedCaptchaAnchor(path)` + 优先级测试
+  - 第二轮 i4（隐式只读假设）⇒ 监测域清单处补**显式边界守卫**（只读/不外发/不拦截/不记凭证）
+- [x] 7.7 变异反证扩到 M1~M8（新增 M7/M8 覆盖具名谓词）⇒ **全 CAUGHT**
 
 ## 8. PR 与合并
 

@@ -19,6 +19,19 @@
 
 /**
  * 按平台的监测域（实测得来的头条号登录链路资源域）。
+ *
+ * ⚠️ **观测面的显式边界**（2026-10-22 CCG 外部评审 i4：扩大监测域清单时，
+ * 「隐式的只读假设」不够，必须写成看得见的守卫）：
+ * 本清单只决定「**哪些请求会被看见**」，**不决定**「看到什么、怎么处理」。下列四条
+ * 是硬边界，任何改动都不得放宽：
+ * 1. **只读** —— 观测层只产出「主机名 / 路径 / 耗时 / 字节数 / 状态码」这类元信息，
+ *    **永不读取响应体**（`Network.getResponseBody` 在观测层被显式禁用；
+ *    未登记匹配器的平台更是显式不读响应体）。
+ * 2. **不外发** —— 观测数据只写本机日志，**不经任何网络通道回传**。
+ * 3. **不拦截** —— 观测层只读事件，**不改写、不阻断**任何请求。
+ * 4. **不记录凭证** —— 不记录 Cookie 值、请求体、响应体；日志 URL 去 query 与 fragment。
+ * ⇒ 扩大监测域清单 = 扩大「被看见的请求集合」，**不等于**扩大数据出站面。
+ *
  * @type {Record<string, string[]>}
  */
 const PLATFORM_MONITORED_HOSTS = {
@@ -158,6 +171,28 @@ const CAPTCHA_SDK_DIR_MARKER = '/sec_sdk_build/'
 const CAPTCHA_SDK_SEGMENT = '/captcha/'
 
 /**
+ * 组合锚点判定：版本目录段与组件段**同时**出现才算验证码组件。
+ *
+ * 为什么抽成**具名谓词**（2026-10-22 CCG 外部评审 i3：复合 `&&` 直接写在返回语句里，
+ * 对后来的维护者是「哪一段是必要的、优先级如何」的隐式表达）：
+ * - 具名后，「两段缺一不可」这件事在函数名与 docstring 里自明；
+ * - 可被**单独**测试（不必经 `isCaptchaSdkUrl` 的 URL 解析层）；
+ * - 意图与实现分离，将来若要放宽或收紧，改动点唯一。
+ *
+ * @param {string} path
+ * @returns {boolean}
+ */
+function isCombinedCaptchaAnchor (path) {
+  if (!path) return false
+  const hasVersionDir = path.indexOf(CAPTCHA_SDK_DIR_MARKER) !== -1
+  const hasCaptchaSegment = path.indexOf(CAPTCHA_SDK_SEGMENT) !== -1
+  // 两段必须**同时**具备：
+  // - 只认组件段 ⇒ 任何路径带 captcha 字样的无关资源都命中 ⇒ 噪声淹没真信号；
+  // - 只认版本目录段 ⇒ 该目录下非验证码资源也被算成组件 ⇒ 灰显时刻读数失真。
+  return hasVersionDir && hasCaptchaSegment
+}
+
+/**
  * @param {string} url
  * @returns {boolean}
  */
@@ -165,7 +200,7 @@ function isCaptchaSdkUrl (url) {
   const path = pathOf(url)
   if (!path) return false
   if (CAPTCHA_SDK_MARKERS.some(function (m) { return path.indexOf(m) !== -1 })) return true
-  return path.indexOf(CAPTCHA_SDK_DIR_MARKER) !== -1 && path.indexOf(CAPTCHA_SDK_SEGMENT) !== -1
+  return isCombinedCaptchaAnchor(path)
 }
 
 /** 慢请求阈值（毫秒）：超过即认为「这一步卡了」。可经 MP_LOGIN_SLOW_REQUEST_MS 覆盖。 */
@@ -201,6 +236,7 @@ module.exports = {
   CAPTCHA_SDK_MARKERS,
   CAPTCHA_SDK_DIR_MARKER,
   CAPTCHA_SDK_SEGMENT,
+  isCombinedCaptchaAnchor,
   DEFAULT_SLOW_REQUEST_MS,
   SLOW_REQUEST_LOG_LIMIT,
   monitoredHostsOf,
