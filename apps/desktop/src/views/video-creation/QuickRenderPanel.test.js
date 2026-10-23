@@ -326,6 +326,17 @@ describe('QuickRenderPanel — 进度、结果与取消', () => {
     expect(w.emitted('view-result')[0]).toEqual(['/tmp/out.mp4'])
   })
 
+  it('AI 写稿：把生成内容填进提示词', async () => {
+    const mocks = await import('@/api/publisher')
+    mocks.aiGenerate.mockResolvedValue({ code: 0, data: { content: 'AI generated script' } })
+    mocks.modelProviderGetDefault.mockResolvedValue({ code: 0, data: { id: 'openai' } })
+    const { w } = await mountPanel()
+    await w.find('[data-testid="quick-ai-write"]').trigger('click')
+    await new Promise((r) => setTimeout(r, 20))
+    await nextTick()
+    expect(w.find('[data-testid="quick-ai-prompt"]').element.value).toBe('AI generated script')
+  })
+
   it('取消：调用 renderCancel 并如实提示远端可能仍在生成', async () => {
     const { w, mocks } = await mountPanel()
     mocks.renderStartAiVideo.mockImplementation(() => new Promise(() => {}))
