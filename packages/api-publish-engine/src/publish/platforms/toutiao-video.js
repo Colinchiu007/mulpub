@@ -198,6 +198,7 @@ class ToutiaoVideoChain {
     const fromCookie = pickCsrfToken(this.cookie)
     if (fromCookie) { this._csrf = fromCookie; return fromCookie }
     const pool = ['/mp/agw/article/wtt/list', '/profile_v4/xigua/upload-video', '/profile_v4/manage/content/video', '/xigua/api/upload/getAuthKey/', '/api/pc/feed/']
+    const _attempts = []
     for (const p of pool) {
       try {
         const res = await this.mp.request({
@@ -210,9 +211,9 @@ class ToutiaoVideoChain {
         if (this.logger) this.logger.log('toutiao csrf probe ' + p + ' status=' + res.status + ' hdrs=' + Object.keys(hdr).filter(function(k){return k.indexOf('csrf')>=0||k.indexOf('token')>=0}).join(',') + ' raw=' + String(raw).slice(0,40))
         const tok = String(raw).split(',')[1] || String(raw)
         if (tok) { this._csrf = tok; if (this.logger) this.logger.log('toutiao csrf bootstrapped from ' + p); return tok }
-      } catch (_eCsrf) { /* 换下一个候选 */ }
+      } catch (eCsrf) { _attempts.push(p + '=ERR:' + String(eCsrf && eCsrf.message || '').slice(0,60)) }
     }
-    return ''
+    throw new Error('csrf-bootstrap-failed ' + (_attempts.length ? _attempts.join(' | ') : 'no-attempts'))
   }
 
   _mpHeaders (extra) {
