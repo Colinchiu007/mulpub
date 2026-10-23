@@ -151,6 +151,27 @@ class RpaViewManager {
               log.info('RpaView', 'API publish cookie fallback from auth partition ' + fallback.partition + ' (' + fallback.count + ' cookies) platform=' + platform)
             }
             if (cookieFromPartition) cookie = cookieFromPartition
+            // 2026-10-23 实测：凭证库/分区里 cookieLen=284，但 channels.weixin.qq.com 页面 context 里 0 个 cookie
+            // ⇒ 页面必然显示未登录。故把 cookie 字符串注入浏览器 session（按 cookie 名逐条 set）。
+            try {
+              if (cookie) {
+                const { session } = require('electron')
+                const ses = session.defaultSession
+                const dom = platform === 'tencent_video' ? '.weixin.qq.com' : (platform === 'toutiao' ? '.toutiao.com' : null)
+                if (ses && dom) {
+                  let n = 0
+                  for (const seg of String(cookie).split(';')) {
+                    const i = seg.indexOf('=')
+                    if (i <= 0) continue
+                    const name = seg.slice(0, i).trim()
+                    const value = seg.slice(i + 1).trim()
+                    if (!name) continue
+                    try { await ses.cookies.set({ url: 'https://' + dom.replace(/^\./, ''), name, value, domain: dom, path: '/' }); n++ } catch (_e2) {}
+                  }
+                  log.info('RpaView', 'cookie inject -> browser session: ' + n + ' cookies platform=' + platform + ' domain=' + dom)
+                }
+              }
+            } catch (_e) { /* 注入失败不阻塞发布 */ }
           } else {
             log.warn('RpaView', 'API publish cookie fallback empty: reason=' + fallback.reason + ' probed='
               + ((fallback.probed || []).length) + ' platform=' + platform + ' accountId=' + (acctId || '(none)'))
