@@ -189,3 +189,24 @@ test('预检不得谎报：评审五条的回归锁', async (t) => {
     assert.match(db.detail, /支付未启用/);
   });
 });
+test('半配置必须红：填了凭据但开关是 none（漏第二个 --env-file 的典型形态）', async (t) => {
+  await t.test('有 WECHAT_PAY_* 但 PAYMENT_PROVIDER 未设 ⇒ FAIL，且提示查 --env-file', async () => {
+    const r = await P.runPreflight({ env: { WECHAT_PAY_APPID: 'wx1' }, skipDb: true });
+    assert.equal(r.ok, false, '不能报"通过"——那正是拆分 env 后最容易踩的坑');
+    const kind = r.checks.find((c) => c.id === 'provider-kind');
+    assert.equal(kind.status, P.FAIL);
+    assert.match(kind.detail, /--env-file/);
+    assert.match(kind.detail, /WECHAT_PAY_APPID/);
+  });
+
+  await t.test('一个凭据都没有 + none ⇒ 仍是 SKIP/通过（真的没打算启用）', async () => {
+    const r = await P.runPreflight({ env: { PAYMENT_PROVIDER: 'none' }, skipDb: true });
+    assert.equal(r.ok, true);
+    assert.equal(r.checks.find((c) => c.id === 'provider-kind').status, P.SKIP);
+  });
+
+  await t.test('只填了 NOTIFY_URL 也算半配置（任何一项有值都算）', async () => {
+    const r = await P.runPreflight({ env: { WECHAT_PAY_NOTIFY_URL: 'https://x.test/w' }, skipDb: true });
+    assert.equal(r.ok, false);
+  });
+});

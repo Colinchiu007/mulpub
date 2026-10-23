@@ -336,6 +336,9 @@ _bigfiles.txt
 # 又保证 api.env.example 仍然被跟踪（**不要**只写 api.env*，那会把模板一起忽略）。
 deploy/logto/api.env*
 !deploy/logto/api.env.example
+# 微信支付商户凭据（与上面 api.env 分开，见 deploy/payment/wechat-pay.env.example）
+deploy/payment/wechat-pay.env*
+!deploy/payment/wechat-pay.env.example
 # 与上面同理，显式写一条，避免将来 `.env` 全局规则被调整时静默露出
 deploy/logto/.env
 .coverage

@@ -126,3 +126,21 @@ test('storefront env 文件必须被 gitignore（防私钥入库）', () => {
   // 反向锁：模板必须**仍然被跟踪**。只写 `api.env*` 而不取反，会把模板一起忽略掉。
   assert.equal(ignored('deploy/logto/api.env.example'), false, 'api.env.example 被误忽略 —— 模板必须可入库');
 });
+// 支付凭据已拆到独立模板（deploy/payment/wechat-pay.env.example），与 api.env 分离。
+// 但"拆开"不能让接线锁失效：那份模板声明的键，同样必须全部被 compose 透传。
+test('deploy/payment/wechat-pay.env.example 的支付键必须与 compose 透传集合相等', () => {
+  const PAYMENT_ENV_EXAMPLE = path.join(REPO_ROOT, 'deploy/payment/wechat-pay.env.example');
+  assert.equal(fs.existsSync(PAYMENT_ENV_EXAMPLE), true, '支付模板不见了 —— 拆分后必须留下独立模板');
+
+  const declared = paymentKeysFromEnvExample(fs.readFileSync(PAYMENT_ENV_EXAMPLE, 'utf8'));
+  const passed = environmentKeysFromCompose(fs.readFileSync(COMPOSE, 'utf8'));
+
+  assert.ok(declared.size >= 10, `前提：模板至少声明 10 个支付键，实测 ${declared.size}`);
+  const missing = [...declared].filter((k) => !passed.has(k));
+  assert.deepEqual(missing, [], '以下键在模板里声明了，但 compose 没透传 ⇒ 容器读不到');
+  // 反方向：compose 不能透传模板里没有的支付键（两份清单漂移同样要红）。
+  // 只测一向等于只测一半 —— 模板少一个键时"missing 为空"，假绿。
+  const composePaymentKeys = [...passed].filter((k) => k === 'PAYMENT_PROVIDER' || k.startsWith('WECHAT_PAY_'));
+  const extra = composePaymentKeys.filter((k) => !declared.has(k));
+  assert.deepEqual(extra, [], '以下键 compose 在透传，但支付模板里没声明 ⇒ 两份清单已漂移');
+});

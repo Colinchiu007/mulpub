@@ -1,85 +1,121 @@
 ---
 record: wechat-pay-env-convention
-task: 支付凭据注入落点：补 api.env 模板支付段 + 把 api.env 加入 gitignore
+task: 支付凭据独立成文件（deploy/payment/wechat-pay.env），与 Logto 的 api.env 分离
 date: 2026-10-23
 ---
 
 # 支付凭据该注入到哪个文件
 
-## 1. 用户问的问题暴露了两个坑
+## 1. 用户的一个质疑把设计问对了
 
-用户问「凭据都在哪看、怎么注入本地 `.env`」。核对仓库后发现问题不在"怎么填"，而在**填错地方**：
+用户反问：
 
-| # | 坑 | 实测 |
-|---|---|---|
-| 1 | **生产用的不是根目录 `.env`** | 仓内既有约定是 `docker compose -f packages/api-publish-engine/docker-compose.yml --env-file deploy/logto/api.env up -d`（见 `01-docs/RUNBOOK-LOGTO-PRODUCTION.md:87`） |
-| 2 | **`deploy/logto/api.env.example` 没有支付段** | #4249 只往根目录 `.env.example` 加了支付变量，生产模板漏了 ⇒ 照模板填的人**永远看不到** `WECHAT_PAY_*` |
-| 3 | **`deploy/logto/api.env` 未被 gitignore** | `git check-ignore -v` rc=1。`.gitignore:330` 的 `.env` **只匹配名为 `.env` 的文件**，匹配不到 `api.env` |
+> `deploy/logto/api.env` 不是给第三方用户系统 Logto 用的吗？微信支付商户的信息一定要混在一起吗？不是应该有单独一个 env 文件才更合理吗？
 
-第 3 条最危险：让用户把商户私钥填进一个**没有忽略规则**的文件，等于给"私钥入库"铺好了路。
+**他是对的。** 三件事混在了一起：
 
-## 2. 改法
-
-| 文件 | 改动 |
+| 事实 | 问题 |
 |---|---|
-| `.gitignore` | 新增 `deploy/logto/api.env`，并写明为什么 `.env` 那条盖不住它 |
-| `deploy/logto/api.env.example` | 新增完整支付段（11 个变量 + 每个值的获取位置 + 证书路径的容器内语义） |
-| `.env.example`（根） | 头部加一句：**本文件供本地 node 跑用；生产/compose 用 `deploy/logto/api.env`，两份都要填** |
-| `test/payment-env-passthrough.test.js` | 新增回归锁：`git check-ignore deploy/logto/api.env` 必须命中 |
+| `deploy/logto/api.env` 其实装的是**业务 API 自己**的环境（Logto / PostgreSQL / entitlement），目录名是历史遗留 | 名字误导，让人以为它是"Logto 的配置" |
+| 上一版把微信商户凭据写进了这个文件 | 域混了：改身份认证的人手上握着商户私钥 |
+| 轮换支付密钥要动身份认证的配置文件 | 变更半径无谓放大 |
 
-## 3. 回归锁为什么放在既有文件里
+## 2. 拆分方案
 
-`payment-env-passthrough.test.js` 已经在比对 `.env.example` 与 compose 的支付键集合，属同一主题
-（"支付凭据的落点与完整性"）。放这里不必新增 CI 接线，也不会有孤儿测试的风险。
+支付凭据独立成 `deploy/payment/wechat-pay.env`（模板 `deploy/payment/wechat-pay.env.example`）。
 
-判据：
+启动时传**两个** `--env-file`（Docker Compose v2.24+ 支持多文件，后者覆盖前者；本机 v5.1.4 实测通过）：
 
-```js
-execFileSync('git', ['check-ignore', '-q', 'deploy/logto/api.env'], { cwd: root })
-// rc=0 ⇒ 命中忽略规则；1 ⇒ 未忽略（抛错即红）
+```bash
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  --env-file deploy/logto/api.env \
+  --env-file deploy/payment/wechat-pay.env \
+  up -d
 ```
 
-## 4. 判据
+| 文件 | 装什么 |
+|---|---|
+| `deploy/logto/api.env` | 业务 API 自身：`LOGTO_*` / `BUSINESS_DATABASE_URL` / `ENTITLEMENT_*` |
+| `deploy/payment/wechat-pay.env` | **只有**微信商户：`PAYMENT_PROVIDER` + 10 个 `WECHAT_PAY_*` |
+| 根 `.env.example` | 本地开发直接 `node` 跑时用（不进容器） |
 
-- `payment-env-passthrough.test.js` **6/6 通过**（原 5 例 + 新 1 例）
-- 变异：删掉 `.gitignore` 里那行 → **5 pass / 1 fail**，新用例精确变红；逐字节还原 True
-- `git check-ignore -v deploy/logto/api.env` → 命中 `.gitignore:335`
+三份模板的定位已写进各自文件头，避免下一个人再问同样的问题。
 
-## 4.5 外部评审（1 Critical + 1 High）与自查
+## 3. 拆分引入的新风险，以及怎么堵
 
-| # | 意见 | 核验 | 处置 |
-|---|---|---|---|
-| 1 | **Critical**：`assert.doesNotThrow(execFileSync(...))` 在 git 缺失时**空过** | **不成立** —— `execFileSync` 在 ENOENT / 非零退出时都会**抛**，`doesNotThrow` 会红，不会假绿 | 仍改写为 `spawnSync` + **显式退出码判定**（0 命中 / 1 未命中 / 其它或 null = 判据故障也要红），让意图无可误读 |
-| 2 | **High**：`deploy/logto/api.env` 只匹配精确文件名，`api.env~` / `.bak` / `.swp` 未覆盖 | 成立 | 改 `deploy/logto/api.env*` + `!deploy/logto/api.env.example`；另加 `deploy/logto/.env` 显式一条 |
-| 3 | Medium：`deploy/logto/.env` 只靠全局 `.env` 覆盖，脆弱 | 成立 | 显式一条 |
-| 4 | Low：模板缺「不要填真实值」横幅 | 成立 | 加两行横幅 |
+**漏传第二个 `--env-file`** 时：`PAYMENT_PROVIDER` 读不到 ⇒ 退回 `none` ⇒ 前端显示「支付通道暂未开放」。
 
-### 自查抓到一条更严重的问题（评审没提）
+而改造前的 `payment-preflight` 在 `none` 时是 **SKIP + 退出码 0** —— 这个错误会**静默通过预检**。
 
-第一版的反向断言「模板必须**不**被忽略」是**假绿**：
-`git check-ignore` **默认跳过已跟踪文件**，而 `api.env.example` 本来就是 tracked ⇒ 这条断言**永远不可能失败**。
+新增判据（`payment-preflight.js`）：
 
-加 `--no-index`（按纯模式匹配判定）才真的在测模式。变异「删掉 `!api.env.example`」在修正前 **6 pass / 0 fail**（测不出来），修正后 **5 pass / 1 fail**。
+> 若 `PAYMENT_PROVIDER=none` 但**任意一个** `WECHAT_PAY_*` 有值 ⇒ **FAIL**，
+> 文案直接点名「多半是漏了第二个 `--env-file`（deploy/payment/wechat-pay.env）」。
 
-> 又一次同型：**断言的形状对，但判据域选错，就永远红不了**。
+把"拆分带来的操作风险"变成可执行检查。
 
-### 变异反证
+## 4. gitignore（防私钥入库）
 
-| 变异 | 修正前 | 修正后 |
+```gitignore
+deploy/payment/wechat-pay.env*
+!deploy/payment/wechat-pay.env.example
+deploy/logto/api.env*
+!deploy/logto/api.env.example
+deploy/logto/.env
+```
+
+**为什么 `*` + 取反**：`api.env~` / `.bak` / `.swp` 这类编辑器备份同样含私钥；但只写 `api.env*` 会把模板一起忽略，模板就再也进不了库。
+
+实测：
+
+| 路径 | 期望 | 实测 |
 |---|---|---|
-| 收窄为 `api.env`（丢备份覆盖） | 5 pass / 1 fail | 5 pass / 1 fail |
-| 删掉 `!api.env.example` | **6 pass / 0 fail（假绿）** | 5 pass / 1 fail |
+| `deploy/payment/wechat-pay.env` | 忽略 | rc=0 |
+| `deploy/payment/wechat-pay.env~` | 忽略 | rc=0 |
+| `deploy/payment/wechat-pay.env.example` | **不忽略** | rc=1 |
+| `deploy/logto/api.env.example` | **不忽略** | rc=1 |
+
+## 5. 判据
+
+| 测试 | 例数 |
+|---|---|
+| `payment-env-passthrough.test.js` | **7**（新增：支付模板键集合 与 compose 透传集合**双向**相等；gitignore 四条） |
+| `payment-preflight.test.js` | **23**（新增 3：半配置 FAIL / 纯 none 仍 SKIP / 只填 NOTIFY_URL 也算半配置） |
+
+### 变异反证（四条，均双向）
+
+| 变异 | 结果 |
+|---|---|
+| 收窄 `.gitignore` 为 `api.env`（丢备份覆盖） | 5 pass / 1 fail |
+| 删掉模板取反 `!api.env.example` | 5 pass / 1 fail |
+| 去掉半配置检测（`if (strayKeys.length)` → `if (false)`） | 21 pass / 3 fail |
+| 支付模板少声明一个键 | 6 pass / 1 fail |
 
 均逐字节还原 True。
 
-## 5. 给用户的注入步骤（与文档一致）## 5. 给用户的注入步骤（与文档一致）
+## 6. 两条自查出来的假绿（评审都没提）
 
-1. `cp deploy/logto/api.env.example deploy/logto/api.env`（该文件已被忽略）
-2. 填 11 个支付变量 + 原有 Logto/DB 变量
-3. 证书放 `packages/api-publish-engine/config/wechat-pay/apiclient_key.pem`
-   （compose 把它 bind 到容器内 `/app/packages/api-publish-engine/config`，所以 `WECHAT_PAY_CERT_PATH` 要写**容器内路径**）
-4. `docker compose -f packages/api-publish-engine/docker-compose.yml --env-file deploy/logto/api.env up -d`
-5. 预检：`docker compose ... exec publish-api node packages/api-publish-engine/scripts/payment-preflight.js`
+| # | 假绿形态 | 修正 |
+|---|---|---|
+| 1 | 反向断言「模板必须**不**被忽略」用 `git check-ignore`（**默认跳过已跟踪文件**）⇒ 永远不可能失败 | 加 `--no-index`，按纯模式匹配判定 |
+| 2 | 集合断言只查「模板 ⊆ compose」，模板**少一个键**时 `missing` 为空 ⇒ 假绿 | 补反方向「compose 里的支付键 ⊆ 模板」 |
+
+> 同一个教训出现两次：**断言的形状对，但判据域选错，就永远红不了**。
+
+## 7. 外部评审（1 Critical + 1 High）
+
+| # | 意见 | 核验 | 处置 |
+|---|---|---|---|
+| 1 | Critical：`assert.doesNotThrow(execFileSync(...))` 在 git 缺失时**空过** | **不成立** —— `execFileSync` 在 ENOENT / 非零退出时都会**抛**，`doesNotThrow` 会红 | 仍改为 `spawnSync` + 显式退出码（0 命中 / 1 未命中 / 其它或 null = 判据故障也红） |
+| 2 | High：只匹配精确文件名，备份文件未覆盖 | 成立 | `*` + 取反 |
+| 3 | Medium：`deploy/logto/.env` 只靠全局 `.env` | 成立 | 显式一条 |
+| 4 | Low：模板缺「不要填真实值」横幅 | 成立 | 加两行横幅 |
+
+## 8. 仍未做
+
+| 项 | 阻塞 |
+|---|---|
+| E2E-1~7 真机执行 | 商户凭据填进新文件 + 商户平台回调配置 + 公网域名 |
 
 ## 远程同步
 
