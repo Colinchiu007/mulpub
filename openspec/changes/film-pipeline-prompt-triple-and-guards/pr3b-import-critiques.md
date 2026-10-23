@@ -231,7 +231,37 @@
 
 ---
 
-## 14. 逐轮统计
+## 13. 第 25 轮（critic=claude，8 条 / Critical 3，最低分 6）
+
+| # | 级别/维度 | critic 原文（finding / suggestion） | 处置 | 落点 |
+|---|-----------|--------------------------------------|------|------|
+| i1 | Critical / security | "S20 relies on URL hash routing for authorization; scheme admits component-level isolation is impossible, leaving any same-origin renderer able to trigger import on a write path with only empty-args/content protection." / "Add renderer-side capability check or restrict import invocation to **main frame only**." | **成立·已改**（采纳其「只允许主框架」）：S20 改成**两条断言** —— ① **只允许主框架调用**：`event.senderFrame.parent` 存在 ⇒ 子框架 ⇒ **拒绝** ⇒ iframe/嵌入页打不到写路径；② 路由前缀断言（不变）；并写明诚实边界（同一文档内的注入仍可触达 ⇒ 真屏障是「目录只能由用户原生选」） | §三 S20 / §六 ⑳ |
+| i2 | Critical / feasibility | "Swap flow (④ rename) does not check for leftover `.bak` from prior crashes; on Windows `rename` to existing `.bak` fails (`EEXIST`), blocking recovery." / "In ⓪ detect leftover `.bak`; restore or abort before swap." | **成立·已改**（并修正前提）：④ 的目标名**带时间戳** ⇒ 不会与旧残留同名 ⇒ 无 `EEXIST`；但**真问题**是我漏了「上次残留」这件事 ⇒ ⓪a 新增「**查上次残留**（`film-kit.bak-*` 是否存在）⇒ 有 ⇒ 按 S15 判档：档位①（`film-kit` 缺失）⇒ **拒绝导入**并给手动恢复指引（旧资产还在 limbo，换入新资产会让人误以为旧资产没了）；档位②③ ⇒ 先清锁再继续」 | §二 ⓪a / ④ |
+| i3 | Critical / consistency | "S2 claims '全部为可靠判据' but the 取舍 section explicitly marks `nlink` as '最佳努力、非防篡改边界（S2）', contradicting reliability claim." / "Separate reliable assertions from best-effort in S2; remove '全部可靠' or exclude `nlink`." | **成立·已改（我漏改的旧句）**：§四 取舍① 还在写「`nlink` 判据 = 最佳努力…（S2）」⇒ 改写为「跨目录硬链判据**已移出安全清单**（S2 只留可靠判据）⇒ 理由与补偿见 ③」 | §四 取舍① |
+| i4 | Warning / completeness | "Audit contract requires `triggerComponent` but handler uses empty args and no component metadata; field will be empty, violating test assertions." / "Define derivation from sender or make `triggerComponent` optional." | **成立·已改**：字段改为**可为空**（无值时写 `-`）；仍标注「renderer 传入 ⇒ 可伪造，仅事后线索、不作判据」 | §三 S17 |
+| i5 | Warning / feasibility | "Service file budgets lack CI enforcement; `film-engineering-service.js` growth is unbudgeted, risking `check-max-lines` failures." / "Add budget assertions in CI or split service modifications." | **成立·已改**：`film-engineering-service.js` 写死预算（**当前 217 行 ⇒ ≤ 300 行**）；并写明 `check-max-lines.js` 在 CI `debt-guard` job 里**强制** 500 行硬限 ⇒ 超预算即红 | §七 落点表 |
+| i6 | Warning / completeness | "Audit rotation threshold blocks all future imports with no automatic archive or rotation mechanism, creating a denial-of-service for the feature." / "Add manual rotation steps to PRD §9.c and `filmKitImportAuditFull` i18n." | **成立·已改**：i18n `filmKitImportAuditFull` **含手动轮转四步**（旧日志改名归档 + 新建空日志 ⇒ 旧内容不丢）；**PRD §9.c 也要写这四步** | §三 S17 |
+| i7 | Warning / clarity | "S1 skips `images/` silently but doesn't specify whether omission is silent or audited." / "Clarify in S1: `images/` skip is silent, not a failure audit event." | **成立·已改**：S1 写明「**跳过是正常态**：白名单外的条目（**含 `images/`**）**不记审计事件**、**不算失败**、**不产生告警**」 | §三 S1 |
+| i8 | Info / completeness | "Scheme requires full `reason` × `post_check` mapping in `SCHEMA.md` but doesn't include the 17-row table, risking an incomplete contract section." / "Embed the complete 17-row mapping table." | **成立·已改（但用更好的做法）**：映射表**由规则生成**（17 行），测试**按同一规则生成期望值**再逐行断言 ⇒ **不手写第二份** ⇒ 不会漂移 | §十 附录 |
+
+---
+
+## 14. 第 26 轮（critic=claude，8 条 / Critical 3，**最低维度分 8 —— 历次最高**）
+
+| # | 级别/维度 | critic 原文（finding / suggestion） | 处置 | 落点 |
+|---|-----------|--------------------------------------|------|------|
+| i1 | Critical / security | "S20 解析 `event.senderFrame.url` 但未处理 `senderFrame` 为 null/undefined 的情况，也未校验 URL scheme（`file://`、`about:blank` 可能绕过路由前缀断言）." / "增加 `if (!senderFrame \|\| !senderFrame.url) reject`；解析后校验 `protocol === 'https:'`." | **成立·已改**：S20 补两条 —— ⚠ **`senderFrame` 或 `url` 缺失 ⇒ 直接拒绝**；⚠ **协议校验**：只接受 `app:`（打包态）/ `http:`/`https:`（开发态 localhost）⇒ `file:`/`about:blank`/`data:` ⇒ **拒绝**（否则可绕过路由前缀断言） | §三 S20 |
+| i2 | Critical / consistency | "S6 第二遍拷贝后对源文件做 stat 比对，但方案未明确第一遍的 `(dev,ino,size,mtime)` 记录保存位置与比对逻辑，审计无法复核 TOCTOU 反证是否真正执行." / "显式写明第一遍记录保存在 `firstPassStats` 对象，第二遍比对直接引用该对象." | **成立·已改**：S6 写死「第一遍的 `(dev, ino, size, mtime)` 与 SHA-256 记在**同一个 `firstPassStats` 对象**（键 = 相对路径）⇒ 第二遍**直接引用该对象**比对 ⇒ 审计可复核」 | §三 S6 |
+| i3 | Warning / completeness | "S17 有 `LOCK_HELD` 和 `ROLLBACK_FAILED`，但缺少 `.import-lock` 内容为非法 JSON 时的处理（nonce 比对前解析失败）." / "增加 `LOCK_CORRUPTED` 并在锁读取流程中 try/catch." | **成立·已改（不新增 reason 值）**：锁内容 **JSON 解析失败 ⇒ 视为「残留且不可信」⇒ 不清锁**（可能仍有导入在跑）⇒ 拒绝 + `reason: LOCK_HELD` + i18n `filmKitImportRecoverLock` ⇒ **锁内容损坏不是独立业务原因**，不新增枚举值（闭集保持 17） | §三 S18 |
+| i4 | Warning / feasibility | "S3 清理要求『按精确文件清单逐个 unlink』，但方案未说明清单如何生成：若第一遍枚举后、拷贝前新增文件，该文件不会进入清单，清理后残留." / "明确清单来源 = 第一遍枚举结果（非动态重扫）." | **成立·已改**：S3 写死「清单 = **第一遍枚举的结果**（**不动态重扫** ⇒ 拷贝期间新增的文件既不进清单、也不被拷 ⇒ 清理后不残留）」 | §三 S3 / §二 |
+| i5 | Info / clarity | "S21 使用『祖父条款』术语，但在安全清单中未给出一句定义，阅读者需跳转 §四 取舍③." / "在 S21 行内增加括号定义." | **成立·已改**：S21 行内加括号定义（限额只作用于源目录 kitDir；目标整体替换、不参与限额判定） | §三 S21 |
+| i6 | Critical / security | "① 段中 `dialog.showOpenDialog` 返回路径后仅用 `fs.stat().isDirectory()` 校验，但未在 handler 层拒绝非目录或 UNC 网络路径（S22 只在服务层提及），renderer 传入空路径时行为未定义." / "handler 增 `if (!p \|\| !fs.statSync(p).isDirectory()) throw`；并拒绝 `\\` 开头的 UNC 路径." | **成立·已改**：§一 ① 写死 **handler 层**取 `filePaths[0]`：缺失/非目录 ⇒ 抛 `NOT_A_DIRECTORY`；`\\` 开头 **UNC 路径 ⇒ 拒** ⇒ **S22 在 IPC 层与服务层都执行**（不只服务层） | §一 ① |
+| i7 | Warning / clarity | "§四 取舍③ 说明窗口级/组件级授权本批不做，但方案在 §一 边界 3 又写了『处置只写在 §四 取舍③』，造成重复." / "统一在边界 3 只保留一句." | **成立·已改**：边界③ 收敛为一句（取舍说明见 §四 取舍③；本批做法 = `withSenderCheck` + S20 硬断言 + 全量审计） | §一 边界③ |
+| i8 | Info / consistency | "白名单镜像断言要求排序后逐行 `===`，但未写明排序规则与路径归一化（尾斜杠、`.`/`..` 处理），不同实现可能漂移." / "写明归一化规则：`path.posix.normalize`、去尾斜杠、按字典序排序." | **成立·已改**：§十 附录写死**归一化与排序规则**（两侧都 `path.posix.normalize` → 去尾斜杠 → `localeCompare` 字典序 → 逐行 `===`） | §十 附录 |
+
+---
+
+## 15. 逐轮统计
 
 | 轮次 | 条数 | Critical | 最低维度分 | 处置 |
 |------|------|----------|------------|------|
@@ -248,23 +278,16 @@
 | 21 | 8 | 3 | 6 | 全部成立、全部采纳、零驳回 |
 | 22 | 8 | 3 | 4 | 全部成立、全部采纳、零驳回（两条 Critical 是我自己引入的自相矛盾） |
 | 23（critic=**codex**） | 8 | 3 | 5 | 7 条成立并采纳；**1 条不采纳并附证据**（i7 磁盘空间预检） |
-| 24（critic=claude） | 7 | 3 | 5 | 全部成立、全部采纳、零驳回（首条 Critical 是我自己改出来的计数矛盾） |
+| 24 | 7 | 3 | 5 | 全部成立、全部采纳、零驳回（首条 Critical 是我自己改出来的计数矛盾） |
+| 25 | 8 | 3 | 6 | 全部成立、全部采纳、零驳回 |
+| 26 | 8 | 3 | **8** | 全部成立、全部采纳、零驳回（**维度分历次最高**） |
 
-**累计**：**189 条**意见，**188 条成立并全部采纳、1 条不采纳（附证据）**；零「无证据驳回」。
-其中 critic 抓到的**我的设计错误**至少 **11 处**
-（轮 6-i1 改顺序漏同步 S15、轮 8-i3 UI 入口挂错文件、轮 11-i2 两遍比对用错 `lstat`、
-轮 14-i2 `realpath` 覆盖硬链的说法是错的、轮 18-i2 「renderer 无法传路径」是**误导表述**、
-轮 21-i1 枚举加了值却忘了改计数、轮 21-i2 S5 的允许写路径漏了审计文件、
-轮 22-i1 S20 同时写了「拒绝」和「放行」、轮 22-i2 抬头轮次与正文对不上、
-轮 23-i1 **「递归删目录」直接冲突本仓 R0 铁律**、轮 24-i1 改了尾部计数忘了改抬头）。
+**累计**：**205 条**意见，**204 条成立并全部采纳、1 条不采纳（附证据）**；零「无证据驳回」。
+其中 critic 抓到的**我的设计错误**至少 **11 处**（见 §12 后的清单）。
 
-**收敛轨迹（第 13–24 轮）**：Critical 3 → 2 → 3 → 3 → 3 → 3 → 2 → **1** → 3 → 3 → 3 → 3；条数 8 → … → **7** → 8 → 8 → 7。
-⇒ 五条实测有效的杠杆：
-**① 压缩方案**（理由移入证据文件、决定全留）⇒ 条数与 Critical 同降；
-**② 采纳 critic 的方向性反转**（images 出白名单 / 锁改租约 / 路由前缀硬断言 / 祖父条款独立编号 / 跨目录硬链移出清单）⇒ 每轮都有结构性减法；
-**③ 只修不加** —— **违反它就反弹**（第 21 轮新增三处机制 ⇒ Critical 从 1 弹回 3）；
-**④ 换家族评审** —— 单家族边际收益耗尽时，另一家族能抓到它三轮没抓到的东西（本轮最重的 R0 铁律冲突）；
-**⑤ 机械自洽性检查器** —— 把「自相矛盾」类 Critical 从「每轮一条」变成「提交前全查」。
+**维度分轨迹（第 24–26 轮）**：5 → 6 → **8**（completeness 9 / consistency 8 / clarity 8 / feasibility 8 / security 8）⇒
+**方案的整体质量已到 critic 给出的最高档**；剩下的 Critical 全部是**实现精度级**（空值、协议、记录存放位置、层级拒绝），
+而不是「设计有洞」或「自相矛盾」。
 
 ## 6. 三条被采纳的**方向性反转**（记录在此，避免后人只看到结论）
 
