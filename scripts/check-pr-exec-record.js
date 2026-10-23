@@ -70,6 +70,17 @@ const CARRIER_RE = /^(?:openspec\/records\/[^_][^/]*\.md|\.quality-gates\.md|scr
 //   不 stage 则审查结论与门禁脱钩。属「声称同源的三处漏了第四处」。
 //   形态收得很紧：后缀必须形如 `-again-<40hex>_<14位T时间戳>`，且必须带 T 与 Z。
 const AUDIT_ARTIFACT_RE = /^\.ccg\/reviews\/(?:[0-9a-f]{40}|[0-9a-f]{64})(?:-again-[0-9a-f]{40}-(?:\d{8}T\d{6}(?:\.\d{1,3})?Z|\d{4}-\d{2}-\d{2}T\d{9}Z))?\.json$/
+
+/**
+ * 判定域上界（第 3 轮跨家族评审 i2）。本判据在**每次提交与每次 CI** 的热路径里，对变更集内
+ * 每条判定产物做同步 readFileSync + JSON.parse，原先**没有上界** ⇒ 一个夹带大量 .ccg 产物的
+ * PR 能把这段 IO 撑成任意长，而它跑在 required check 上（超时即整条红，且红因不指向任何人）。
+ * 取 64 的依据：本仓单个 PR 的判定产物实测为个位数（常态 1-3 枚，pre-commit 每笔提交各生成一枚），
+ * 64 是一个数量级以上余量；再大就该拆 PR，而不是把判据改成异步（异步会让 enforce 出口拿不到读数）。
+ * ⚠ 超界的语义是**未证实**而不是"没欠账"——见 evaluateDeepReviewDebt 里的 capped 分支。
+ * 调大这个数属"改谁来守门"，必须人工过目。
+ */
+const AUDIT_READ_CAP = 64
 // 目录级判据：落在 .ccg/reviews/ 且是 .json 就进入「该不该被扫」的讨论范围。
 // 与 AUDIT_ARTIFACT_RE（已知形态）刻意分开，是为了让「命名又变了一次」这件事可被察觉：
 // 2026-10-17 实测，0386afdfc（#3755）把判定记录从 <40hex> 换成 <stagedDiffHash=64hex>，
@@ -608,13 +619,17 @@ function main(argv) {
 /**
  * 守门面派生的存在性守卫（QM-6 i3 的可操作半边）。
  * 判据"以半张表守门"比"起不来"危险得多：空表会让每条高危面判据静默恒不命中，
+ * 所以保留**加载期抛错**（第 3 轮评审 i5 建议改成结构化 stats 出口，采纳其一半：
+ * 抛错不撤，但三条出口都带 GATE_SURFACES_INVALID 前缀 —— 裸栈读不出哪一面坏了，
+ * 加了标识符后一次 grep 就能归因；不撤的理由是消费方有决策层与判据两处，改返回值
+ * 等于要求每个调用点各自记得检查，那正是"以半张表守门"的新成法）。
  * 读起来完全像"这次改动没碰闸门"。所以这里一律 fail-closed 并点名是哪一面坏了。
  */
 function assertGateSurfaces (list) {
-  if (!Array.isArray(list)) throw new Error(`守门面清单取到 ${typeof list}（必须是数组）⇒ 单一真源被改坏或未被导出，判据拒绝以半张表守门`)
-  if (list.length === 0) throw new Error('守门面清单为空 ⇒ 高危面判据将静默恒不命中，这不是"没有高危面"，是真源断了')
+  if (!Array.isArray(list)) throw new Error(`GATE_SURFACES_INVALID 守门面清单取到 ${typeof list}（必须是数组）⇒ 单一真源被改坏或未被导出，判据拒绝以半张表守门`)
+  if (list.length === 0) throw new Error('GATE_SURFACES_INVALID 守门面清单为空 ⇒ 高危面判据将静默恒不命中，这不是"没有高危面"，是真源断了')
   const bad = list.filter((s) => !s || typeof s.prefix !== 'string' || !s.prefix)
-  if (bad.length > 0) throw new Error(`${bad.length} 条守门面条目缺 prefix ⇒ 匹配会把它当成不存在的门面上报 0 命中`)
+  if (bad.length > 0) throw new Error(`GATE_SURFACES_INVALID ${bad.length} 条守门面条目缺 prefix ⇒ 匹配会把它当成不存在的门面上报 0 命中`)
   return list
 }
 
@@ -1118,6 +1133,11 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase, existsAt) {
 
   if (involved.length === 0) return { reasons, checked: 0, transition: summarizeTransitionCheck(transitionRows, 0) }
 
+  // 超界时只扫前 AUDIT_READ_CAP 条，并把「我没看全」本身作为一条**未证实**理由出声。
+  // 关键不是截断，而是截断后不得继续报通过：空 reasons 会被读成「查过且没问题」。
+  const capped = involved.length > AUDIT_READ_CAP
+  const scanned = capped ? involved.slice(0, AUDIT_READ_CAP) : involved
+
   const unresolved = []
   const backendMismatch = []
   // ⚠ 刻意**不**要求「本次新增的 dual 产物必须带 reviewBackends」（QM-6 评审 i4 提的那条更严的口径）。
@@ -1126,7 +1146,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase, existsAt) {
   //   于是 i4 按 dismissed 处置，代价如实登记在下面那条「遗留」里：
   //   绕过通道是「生成后手动删掉 reviewBackends」，那需要改动一个已入库的 JSON，
   //   而现存的锁（判定器必写该字段 + 请求值 × performedBy 对账）把它限制在"刻意伪造"范围内。
-  for (const rel of involved) {
+  for (const rel of scanned) {
     let rec = null
     try {
       rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
@@ -1250,7 +1270,7 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase, existsAt) {
   if (onHighRisk) {
     let externalFound = 0
     let unproven = 0
-    for (const rel of involved) {
+    for (const rel of scanned) {
       let rec = null
       try {
         rec = JSON.parse(fs.readFileSync(path.join(repo, rel), 'utf8'))
@@ -1301,7 +1321,20 @@ function evaluateDeepReviewDebt (statuses, repo, readAtBase, existsAt) {
       + '\n    正解：让 pre-commit 重新生成该产物（或 sh scripts/deep-review.sh 补跑），不要手工修补 JSON。'
     )
   }
-  return { reasons, checked: involved.length, transition: summarizeTransitionCheck(transitionRows, involved.length) }
+  if (capped) {
+    reasons.push(
+      `CCG 判定域超上界（未证实）：变更集含 ${involved.length} 条判定产物，`
+      + `本判据最多核对 ${AUDIT_READ_CAP} 条，其余 ${involved.length - AUDIT_READ_CAP} 条**根本没被读过**。`
+      + `\n    这是「我看不全」，不是「没有欠账」——上面各档读数只覆盖前 ${AUDIT_READ_CAP} 条，不得据其判「已核」。`
+      + `\n    正解：把夹带的 .ccg 产物拆成多笔提交（一笔 PR 携带个位数判定产物是本仓常态），`
+      + '或确认这是有意的批量迁移后交人工复核。'
+      + '不得靠调大 AUDIT_READ_CAP 让它不红 —— 那等于把上界改成没有上界。'
+    )
+  }
+  return {
+    reasons, checked: scanned.length, capped,
+    transition: summarizeTransitionCheck(transitionRows, scanned.length),
+  }
 }
 
 /**
@@ -1385,6 +1418,6 @@ function report(r, mode) {
 //   stripCommentsForScan 把源码削成「只含代码行」的视图（引号感知剥注释 + 规范化 CRLF）
 // 生产路径只用 describeAuditWidths / auditAcceptedAltForm().description；
 // 其余导出不改变判据行为，仅为可测性存在。
-module.exports = { assertGateSurfaces, CLOSURE_EXIT_LINES, isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, repoObjectPath, makeEvidenceProbe, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, SELF_PLAY_RESOLVED_STATUS, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
+module.exports = { AUDIT_READ_CAP, assertGateSurfaces, CLOSURE_EXIT_LINES, isResolvableEvidence, isStructuredClosureNote, classifyEvidenceTier, summarizeTierCoverage, HIGH_RISK_SURFACES, isHighRiskSurface, highRiskPrefixOf, highRiskHits, expandRenames, closureCorroboration, summarizeTransitionCheck, evaluate, verdictLine, isVendored, VENDORED_SUBTREES, evidenceForm, repoObjectPath, makeEvidenceProbe, dualClosedDeepReviews, resolveHeadBranch, readExemptsOnDisk, remoteBranchSet, isPureBackfillChangeSet, evaluateDeepReviewDebt, judgeBackendMismatch, CLOSED_DEEP_REVIEW_STATUSES, SELF_PLAY_RESOLVED_STATUS, RECORDS_RE, EXEMPT_RE, CARRIER_RE, DEFAULT_THRESHOLD, AUDIT_ARTIFACT_RE, auditAcceptedWidths, auditAcceptedAltForm, describeAuditWidths, stripCommentsForScan, AUDIT_NAME_WIDTH_MIN, AUDIT_NAME_WIDTH_MAX }
 
 if (require.main === module) main(process.argv.slice(2))

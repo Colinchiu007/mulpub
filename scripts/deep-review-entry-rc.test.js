@@ -352,3 +352,40 @@ test('⑪ 驱动只刷新时间戳 ⇒ 入口侧 reason=no-new-delivery，且不
   assert.ok(!after.includes(Buffer.from('"tier"')), '不得把上一轮的闭环交付当本次产出补 tier')
   assert.strictEqual(readRec(fx.recFile).deepReview.status, 'cleared', '既有 status 不得被改写')
 })
+
+/**
+ * 闭包完整性锁（同一缺陷的第二落点）：deep-review-deps.test.js 那把锁只核它自己的
+ * ENTRY_WRITEBACK_CLOSURE_B，而本文件的 SCRIPT_CLOSURE 是**另一份手抄清单** ——
+ * 生产 require 图新增文件时那边红、这边静默（本仓记过多次：第二落点不会自己找上门）。
+ * 实测成因：check-pr-exec-record.js 新增 require ./lib/ccg-review-gate-surfaces.js 后，
+ * deps 的锁当场报 missing，本文件的清单同样缺却全绿 —— 因为假驱动那条路径不触发这次 require。
+ * 所以用同一条判据（从真实 require 图推导，不许手抄）钉住本文件的清单。
+ */
+test('SCRIPT_CLOSURE 必须由真实 require 图推出 —— 缺一个文件就是给 Cannot find module 留后门', () => {
+  const queue = ['ccg-review-writeback.js']
+  const got = new Set()
+  const seen = new Set()
+  while (queue.length) {
+    const rel = queue.shift()
+    if (seen.has(rel)) continue
+    seen.add(rel)
+    const abs = path.join(ROOT, 'scripts', rel)
+    if (!fs.existsSync(abs)) continue // 交给下面的成员断言去报缺文件
+    const src = fs.readFileSync(abs, 'utf8')
+    const re = /require\(\s*['"](\.[^'"]+)['"]\s*\)/g
+    let m
+    while ((m = re.exec(src)) !== null) {
+      const depRel = path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[1]))
+      got.add(depRel)
+      queue.push(depRel)
+    }
+  }
+  const declared = new Set(SCRIPT_CLOSURE)
+  const missing = [...got].filter((r) => !declared.has(r))
+  assert.deepStrictEqual(missing, [],
+    '夹具没登记写回器真实 require 到的文件 ⇒ 真跑时那一步会 Cannot find module 并被出口的 || say 吞成一句告警：' + JSON.stringify(missing))
+  assert.ok(got.size >= 4, '推出来的闭包规模异常（实得 ' + got.size + '）—— require 解析退化，本锁会空转')
+  for (const rel of got) {
+    assert.ok(fs.existsSync(path.join(ROOT, 'scripts', rel)), 'require 图指向不存在的文件：' + rel)
+  }
+})

@@ -448,6 +448,7 @@ const ENTRY_WRITEBACK_CLOSURE_B = [
   'check-pr-exec-record.js',
   'classify-docs-only.js',
   'lib/ccg-review-backends.js',
+  'lib/ccg-review-gate-surfaces.js',
   'lib/ccg-delivery-digest.js'
 ]
 

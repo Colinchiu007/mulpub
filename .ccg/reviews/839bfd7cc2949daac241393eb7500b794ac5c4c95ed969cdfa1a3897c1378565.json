@@ -1,0 +1,81 @@
+{
+  "sha": "cfcdf1db4292dd6e4ad950779a5dfe761b691973",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 163 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 163,
+    "fileCount": 5,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- [x] 11.1 **两张守门表缺同步机制（仅守门面轴已交付；auth/加密轴按设计不合，残差另立 11.6 未做）**（外部复核的 BLINDSPOT，比指控原条目更深，本条取代 8.7 的措辞）：`check-pr-exec-record.js::HIGH_RISK_SURFACES`（路径前缀）与 `ccg-review-decider.js::RULES.sensitivePaths`（决策层敏感路径）是两份独立清单、实测已分叉（8.5 记过一次）。后果不是\"某文件漏登记一行\"，而是**判据消费的库与判据自身可以分处两表**：`scripts/check-` 在表内、它依赖的 `scripts/lib/ccg-delivery-` 在表外 ⇒ 改库不改表，矩阵对\"改谁在守门\"始终看不见。修法要同时收敛两表口径来源，且**属改谁来守门 ⇒ 人工过目，不在 agent 自动合并授权内**；扩表必须同次重取每条前缀的已入库命中下界（写高了本地当场红）",
+      "- [x] 11.1 **守门面轴单一真源已交付（本条的 `[x]` 只覆盖守门面轴：清单收成单源 + 决策层报告命中；auth/加密轴按设计不合，扩表残差另立 11.6、机械出口另立 11.7，两条仍是 `[ ]` ⇒ 本条不构成\"两张守门表缺同步机制\"已闭合）**（外部复核的 BLINDSPOT，比指控原条目更深，本条取代 8.7 的措辞）：`check-pr-exec-record.js::HIGH_RISK_SURFACES`（路径前缀）与 `ccg-review-decider.js::RULES.sensitivePaths`（决策层敏感路径）是两份独立清单、实测已分叉（8.5 记过一次）。后果不是\"某文件漏登记一行\"，而是**判据消费的库与判据自身可以分处两表**：`scripts/check-` 在表内、它依赖的 `scripts/lib/ccg-delivery-` 在表外 ⇒ 改库不改表，矩阵对\"改谁在守门\"始终看不见。修法要同时收敛两表口径来源，且**属改谁来守门 ⇒ 人工过目，不在 agent 自动合并授权内**；扩表必须同次重取每条前缀的已入库命中下界（写高了本地当场红）",
+      "- [ ] 11.8 **本节 umbrella（第 3 轮外部评审 i1 要求把\"整体未闭合\"写成可勾的格子，而不是只写在散文 banner 里）**：闭合判据 = **11.6 与 11.7 两条同时变 `[x]`**。在此之前，11.0 / 11.1 / 11.5 的 `[x]` 一律只表示「该刀声明的交付项已落地」，**不表示** auth/加密轴已收敛、**不表示**高危面已有机械出口。加这一格的理由不是文风：只解析勾选状态的工具（`scripts/openspec-sync-check.js` 就按 `^\\s*-\\s*\\[([ xX])\\]` 逐行取）看到的是一串 `[x]`，而\"未做\"只存在于那句括号里 —— 声明与勾选在机器眼里不同源，正是本仓反复记过的过度声明形态。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "gateSurfaceHits": [
+      {
+        "prefix": "scripts/check-",
+        "count": 2,
+        "sample": [
+          "scripts/check-pr-exec-record.js",
+          "scripts/check-pr-exec-record.test.js"
+        ],
+        "why": "仓内静态门禁脚本本体 = 判据自指，实测命中 106 个（含 .github/scripts/ 40 与 apps/desktop/scripts/ 2 —— 段起点匹配的全部理由）"
+      },
+      {
+        "prefix": "scripts/deep-review",
+        "count": 2,
+        "sample": [
+          "scripts/deep-review-deps.test.js",
+          "scripts/deep-review-entry-rc.test.js"
+        ],
+        "why": "评审驱动本体（闭环值与 performedBy 由它写），实测命中 2 个受管文件"
+      }
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "839bfd7cc2949daac241393eb7500b794ac5c4c95ed969cdfa1a3897c1378565",
+  "decidedAt": "2026-10-23T18:43:49.556Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -2624,7 +2624,22 @@ test('守门面派生守卫：undefined / 空表 / 缺 prefix 一律当场抛（
   assert.throws(() => mod.assertGateSurfaces(undefined), /必须是数组/, '非数组（含整段丢失）要点名是「单一真源被改坏」')
   assert.throws(() => mod.assertGateSurfaces([]), /为空/, '空表是静默恒不命中的入口，必须拒')
   assert.throws(() => mod.assertGateSurfaces([{ why: '无前缀' }]), /缺 prefix/, '条目形状坏了要点名，不得让它变成 0 命中')
+  // 第 3 轮外部评审 i5：fail-closed 抛栈本身是对的（判据以半张表守门比起不来更危险），
+  // 但 CI 里一行裸栈读不出「哪一面坏了」，也分不清「真源整段断了」与「某条目缺 prefix」。
+  // 三条出口一律带稳定标识符：归因只需一次 grep，且三档在日志里保持不同形。
+  for (const [bad, label] of [[undefined, '非数组'], [[], '空表'], [[{ why: '无前缀' }], '缺 prefix']]) {
+    let msg = '<没有抛错>'
+    try { mod.assertGateSurfaces(bad) } catch (e) { msg = e.message }
+    assert.ok(msg.startsWith('GATE_SURFACES_INVALID'),
+      `${label} 的报错必须以稳定标识符 GATE_SURFACES_INVALID 开头，实得：${String(msg).slice(0, 44)}`)
+  }
 })
+
+// 第 3 轮 i6 的处置：不新增"定义恰好一处"那把锁。理由写在这里免得下个会话再补一遍 ——
+// 同一份模块里出现第二个 `const CLOSURE_EXIT_LINES` 是 SyntaxError，文件根本加载不了，
+// 于是该形状判据**永远抓不到它声称要防的东西**，唯一能命中它的是注释或文档里的同名行
+// （AGENTS「禁令与存在性判据必须按语义位置切」点名的假阳源）。有效的那一半已经在了：
+// 上面 refs===2 的调用点接线锁 + 常量正文必须仍含出口①②/真入口脚本名三条内容断言。
 
 test('守门面派生的调用点接线锁：清单必须经守卫进入 HIGH_RISK_SURFACES', () => {
   // 守卫是纯函数，光有它不代表调用点在用它 —— 摘掉调用点的包裹，行为锁一条都不会红。
@@ -2662,4 +2677,67 @@ test('出口文案单源锁：长版整块只许出现一次，且两处调用�
   assert.match(LINES, /deep-review\.sh/, '出口①必须指向真入口脚本名，否则读者按提示找不到那条路')
   assert.match(LINES, /ccg-review-writeback\.js/, '出口①必须写明由谁写 tier=external（即「不需要人工补字段」那条路）')
   assert.match(LINES, /② 非高危面|②/, '出口②（closureNote 档）必须在，否则高档与低高档的差别被抹平成一句话')
+})
+
+// ── 第 3 轮外部评审 i2：判定域必须有上界，且"扫不完"不得读成"没欠账" ──────
+// 判据在热路径（每次提交 + CI）里对变更集内每条判定产物做同步 readFileSync + JSON.parse。
+// 评审的担心是真的：**没有上界**时，一个夹带大量 .ccg 产物的 PR 会把这段 IO 撑成任意长。
+// 但只加上界不够——截断后若无条件返回"无欠账"，就是把「我没看全」写成「没问题」（装饰性门禁）。
+// 所以这里锁两件事：① 存在导出的上界常量（改大它是可见动作）；② 超界必须出声且不得判通过。
+function hexNames (n) {
+  const out = []
+  for (let i = 0; i < n; i++) out.push(i.toString(16).padStart(40, '0'))
+  return out
+}
+
+test('判定域超上界：必须出声为未证实，且不得读成"无欠账"', () => {
+  const CAP = mod.AUDIT_READ_CAP
+  assert.ok(Number.isInteger(CAP) && CAP > 0, `AUDIT_READ_CAP 必须是正整数，实际 ${String(CAP)}`)
+  const names = hexNames(CAP + 2)
+  const files = {}
+  for (const nm of names) files[`${nm}.json`] = { mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } }
+  const repo = withReviewRecords(files)
+  try {
+    const r = mod.evaluateDeepReviewDebt(st(names.map((nm) => ['A', `.ccg/reviews/${nm}.json`])), repo)
+    assert.strictEqual(r.capped, true, `超上界必须置 capped=true（CAP=${CAP}, 条数=${names.length}）`)
+    // checked 必须是**实际核对数**，不是集合规模：否则「checked=66」读起来像 66 条都查过，
+    // 而其中 2 条根本没被打开过（变异 M-C 把这里退回 involved.length 必须变红）。
+    assert.strictEqual(r.checked, CAP, `超上界时 checked 必须是上界本身 ${CAP}，实际 ${r.checked}`)
+    assert.ok(r.reasons.length > 0, '超上界时 reasons 不得为空——空 = 读起来像"查过且没问题"')
+    assert.match(r.reasons.join('\n'), /上界|超界|cap/i, '必须点名是"扫不完"这件事，而不是只报几条欠账')
+    assert.ok(/未证实|无法证明/.test(r.reasons.join('\n')), '必须写明这是未证实档（我没看全），不是"已核"')
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+test('判定域未超上界：行为逐字不变，且不得出现 capped 出声', () => {
+  const CAP = mod.AUDIT_READ_CAP
+  assert.ok(Number.isInteger(CAP) && CAP > 0, `前置：AUDIT_READ_CAP 必须是正整数，实际 ${String(CAP)}`)
+  // 条数写**字面量 8**，不写 Math.min(CAP, 8)：后者在 CAP 还是 undefined 时变 NaN ⇒
+  // 夹具退化成零条，"checked === names.length" 就成了 0===0 的空断言（装饰性用例的同型）。
+  const NAMES = 8
+  const names = hexNames(NAMES)
+  assert.strictEqual(names.length, NAMES, '夹具必须真的构造出 8 条，不得依赖上界取值')
+  const files = {}
+  for (const nm of names) files[`${nm}.json`] = { mode: 'dual', deepReview: { required: true, status: 'pending', performedBy: null } }
+  const repo = withReviewRecords(files)
+  try {
+    const r = mod.evaluateDeepReviewDebt(st(names.map((nm) => ['A', `.ccg/reviews/${nm}.json`])), repo)
+    assert.notStrictEqual(r.capped, true, '未超上界不得带 capped')
+    assert.ok(!/上界|超界|cap/i.test(r.reasons.join('\n')), '未超上界不得出现上界文案（否则噪声会淹掉真欠账）')
+    assert.strictEqual(r.checked, NAMES, `checked 必须等于条数 ${NAMES}，实际 ${r.checked}`)
+    assert.strictEqual(r.reasons.length, 1, `8 条全欠账必须报 1 条汇总理由，实际 ${r.reasons.length}`)
+  } finally { fs.rmSync(repo, { recursive: true, force: true }) }
+})
+
+// 第二条 IO 循环（高危面零外部证据那一处）的规模判据无法从返回值观察 ——
+// 它只在 onHighRisk 且集内一条 external 证据都没有时才走，而 capped 时本条已被
+// 「不得重复出声」的规则压掉。所以这一格只能按**形状**判：判据的性质是「这段同步 IO
+// 最多执行多少次」，形状就是它本身，不是它的输出。变异 M-E（只把这一处退回 involved）
+// 必须让本条变红。
+test('判定域上界覆盖**两处**同步 IO 循环 —— 不得留下按集合规模无界读文件的那一处', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  const bounded = (src.match(/for \(const rel of scanned\)/g) || []).length
+  const unbounded = (src.match(/for \(const rel of involved\)/g) || []).length
+  assert.strictEqual(bounded, 2, `两处 IO 循环都必须迭代有界的 scanned，实际命中 ${bounded}`)
+  assert.strictEqual(unbounded, 0, `判定产物不得再按 involved 无界扫描，残留 ${unbounded} 处`)
 })
