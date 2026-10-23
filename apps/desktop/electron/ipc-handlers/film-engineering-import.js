@@ -290,11 +290,16 @@ function registerImportHandlers (ipcMain, deps) {
   }))
 }
 
-module.exports = {
-  registerImportHandlers,
-  authorizeSender,
-  parseHashRoute,
-  writeOutcomeAudit,
-  ALLOWED_PROTOCOLS,
-  ROUTE_PREFIX,
-}
+// ⚠ 导出形态**必须与同族一致**（`film-engineering.js` / `film-engineering-auto.js` 都是
+//   「模块本身可调用 + 附带具名导出」）：`ipc-handlers/index.js` 里是
+//   `require('./film-engineering-import')(ipcMain, deps)` ⇒ 若本模块只导出**对象**，
+//   整条 IPC 注册面会在装配时抛 `TypeError: require(...) is not a function`
+//   （2026-10-23 CI 首轮抓到：本片首版就是这样 ⇒ 17 条「装配锁」用例全红；
+//   本地只跑本模块的单测**测不到**，因为它们直接 import `registerImportHandlers`）。
+module.exports = registerImportHandlers
+module.exports.registerImportHandlers = registerImportHandlers
+module.exports.authorizeSender = authorizeSender
+module.exports.parseHashRoute = parseHashRoute
+module.exports.writeOutcomeAudit = writeOutcomeAudit
+module.exports.ALLOWED_PROTOCOLS = ALLOWED_PROTOCOLS
+module.exports.ROUTE_PREFIX = ROUTE_PREFIX
