@@ -166,6 +166,22 @@ mock 的 `once` 队列是**全局计数**，它对"哪个实例拿到了第几�
 4. 同一份 composable 被多处挂载时，init 的读回是**每实例一次**的副作用 —— 用例里任何
    「先 init 再操作」的写法都会带上它，别把它当无害。
 
+### 三之二、三份产物的收口（2026-10-24，仓库所有者授权后由 agent 代为回写）
+
+本分支带三份 `mode=dual` 的评审产物，状态各不相同，**如实分别收口**：
+
+| 产物 | 引擎写回 | 现场 | 现在 | tier / evidence |
+|---|---|---|---|---|
+| `0c4d42d2…` | `error` | critic 输出被截断（JSON 不完整，28262 字符）⇒ 解析失败，**未产出 findings** | `self_play_resolved` | tier 缺席（没有外部评审出处可声明） |
+| `e9b93f3b…` | `error` | 同上（5774 字符，结尾不是 `}`）⇒ **未产出 findings** | `self_play_resolved` | tier 缺席 |
+| `68664cda…` | `self_play_pending` | **外部 critic 真跑过**（critique=claude，fingerprint 49325d0d49dcec88，3 条 Warning），逐条处置见本文 §三 | `self_play_resolved` | `tier=external` + `evidence=openspec/records/ux-audit-offline-live.md`（本记录，在变更集内可核） |
+
+口径：
+- 两份 `error` 的产物：**评审没跑成**，不是评审通过 —— findings 保持 null，引擎的 error 字段原样保留为现场；
+- 真跑过的那份：`tier=external` 的含义是「外部评审确实跑过且逐条处置在仓内可核」，
+  evidence 指向**本记录**（引擎原始产物在 gitignored 的 `.adversarial/` 下、不随提交入库）；
+- **由仓库所有者授权处理需要人判断的项后，agent 代为回写。**
+
 ## 三、QM-6 第二轮评审处置（critique=claude，fingerprint 49325d0d49dcec88，3 条 Warning）
 
 判据：**每条都先对当前 HEAD 重放一遍再定裁决**（评审读到的可能是开发途中的旧 tip，

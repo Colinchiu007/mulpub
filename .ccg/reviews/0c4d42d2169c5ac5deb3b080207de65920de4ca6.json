@@ -47,11 +47,15 @@
   },
   "deepReview": {
     "required": true,
-    "status": "error",
-    "performedBy": "claude",
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
     "findings": null,
     "error": "JSON解析失败:模型输出被截断，JSON 不完整（{ 20 个 / } 18 个，结尾无 }），共 28262 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
     "validationErrors": null,
-    "at": "2026-10-21T20:32:05.343Z"
+    "at": null,
+    "closureNote": "【第 A 轮 / 引擎基础设施层失败（模型输出被截断 ⇒ 未产出 findings）—— 由仓库所有者授权后由 agent 代为回写为 self_play_resolved】本轮 critic 启动后**输出被截断**（JSON 解析失败：模型输出被截断，JSON 不完整（{ 20 个 / } 18 个，结尾无 }），共 28262 字符）⇒ 引擎 JSON 解析失败 ⇒ **没有产出任何 findings**。\n\n本条**不是「评审通过」，是「评审没跑成」**：findings 保持 null、逐条处置不存在，本条也不声称任何外部评审结论。\n引擎侧的 error 字段原样保留（它是这一轮失败的全部现场）。\n\n同一分支的**另一轮**（外部 critic 真跑过、3 条 Warning、逐条处置在本记录 §三）已单独收口；本条只覆盖**这一轮**。\n处置依据：门禁自述的出口②（非高危面写 closureNote）；本 PR 的 `requiresExternalReview` 为空、不触高危面。\n**由仓库所有者授权处理需要人判断的项后，agent 代为回写。**",
+    "note": null,
+    "template": null,
+    "confidenceWeight": null
   }
 }
