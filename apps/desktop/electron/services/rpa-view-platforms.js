@@ -521,6 +521,21 @@ const platformsMixin = {
             try {
               const pc = await win.webContents.executeJavaScript('(function(){var host=document.querySelector(".wujie_iframe");var roots=[document];if(host&&host.shadowRoot)roots.push(host.shadowRoot);var hit=null;for(var r=0;r<roots.length&&!hit;r++){var bs=[].slice.call(roots[r].querySelectorAll("button,[class*=btn],[role=button]"));for(var i=0;i<bs.length;i++){var t=(bs[i].innerText||"").replace(/\\s+/g,"");if(t==="发表"&&!bs[i].disabled){hit=bs[i];continue}else if(t.indexOf("发表")>=0&&!hit&&!bs[i].disabled&&t.length<=6){hit=bs[i]}}}if(!hit)return "not-found";var _di=!!hit.disabled;var _cls=String(hit.className||"").slice(0,40);var _ht=String(hit.outerHTML||"").replace(/\s+/g," ").slice(0,160);hit.click();return "clicked-wujie|disabled="+_di+"|cls="+_cls+"|html="+_ht})()', true)
               log.info('RpaView', '[tencent_video] programmatic publish click: ' + pc)
+            // native-publish-click：element.click() 可信度不足（框架可能忽略），改用 Electron 原生输入事件。
+            if (String(pc).indexOf('clicked-wujie') === 0) {
+              try {
+                const _rc = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return null;var bs=[].slice.call(h.shadowRoot.querySelectorAll("button"));var t=null;for(var i=0;i<bs.length;i++){var x=(bs[i].innerText||"").replace(/\\s+/g,"");if(x==="发表"){t=bs[i];break}}if(!t)return null;var r=t.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),w:Math.round(r.width),h:Math.round(r.height),pe:getComputedStyle(t).pointerEvents}})()', true)
+                log.info('RpaView', '[tencent_video] native click rect: ' + JSON.stringify(_rc))
+                if (_rc && _rc.x > 0 && _rc.y > 0) {
+                  win.webContents.sendInputEvent({ type: 'mouseMove', x: _rc.x, y: _rc.y })
+                  await this._sleep(120)
+                  win.webContents.sendInputEvent({ type: 'mouseDown', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
+                  await this._sleep(60)
+                  win.webContents.sendInputEvent({ type: 'mouseUp', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
+                  log.info('RpaView', '[tencent_video] native click dispatched at ' + _rc.x + ',' + _rc.y)
+                }
+              } catch (_eNC) { log.warn('RpaView', '[tencent_video] native click failed: ' + String((_eNC && _eNC.message) || '').slice(0, 80)) }
+            }
             } catch (_e7) { /* 失败则继续走原点击通道 */ }
           }
           // 2026-10-23：头条曾在此被排除，导致 responses=0 无法区分'没发请求'与'没在听'。现统一开启。
