@@ -537,6 +537,13 @@ const platformsMixin = {
                   win.webContents.sendInputEvent({ type: 'mouseDown', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
                   await this._sleep(60)
                   win.webContents.sendInputEvent({ type: 'mouseUp', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
+                  // pointer-sequence：坐标点击实测未进入页面（click-probe: []），
+                  // 改用页内完整指针事件序列（pointerdown→mousedown→pointerup→mouseup→click），
+                  // 这是 React 合成事件体系唯一可靠的非坐标触发方式。
+                  try {
+                    const _seq = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return "no-shadow";var bs=[].slice.call(h.shadowRoot.querySelectorAll("button"));var t=null;for(var i=0;i<bs.length;i++){var x=(bs[i].innerText||"").replace(/\\s+/g,"");if(x==="发表"){t=bs[i];break}}if(!t)return "no-btn";var o={bubbles:true,cancelable:true,view:window,button:0,buttons:1};["pointerover","pointerenter","pointerdown","mousedown","pointerup","mouseup","click"].forEach(function(n){try{t.dispatchEvent(new (n.indexOf("pointer")===0?PointerEvent:MouseEvent)(n,o))}catch(e){}});return "sequenced:"+(t.innerText||"").replace(/\\s+/g,"")})()', true)
+                    log.info('RpaView', '[tencent_video] pointer-sequence: ' + _seq)
+                  } catch (_eSq) { log.warn('RpaView', '[tencent_video] pointer-sequence failed: ' + String((_eSq && _eSq.message) || '').slice(0, 80)) }
                   // click-probe：在页面挂捕获型监听，验证坐标点击是否真的落到文档上
                   try {
                     await win.webContents.executeJavaScript('window.__mpClickLog=[];if(!window.__mpClickHooked){window.__mpClickHooked=1;document.addEventListener("click",function(e){try{window.__mpClickLog.push(String((e.target&&e.target.tagName)||"")+"|"+String((e.target&&e.target.innerText)||"").slice(0,12))}catch(_){}},true)}', true)
