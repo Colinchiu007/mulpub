@@ -18,6 +18,19 @@
  */
 
 /**
+ * **刻意不**纳入监测域的域（2026-10-22 CCG 外部评审第五轮 i6：只写在文档里的「刻意排除」
+ * 会被后续重构误删或误加 ⇒ 必须**编码进代码**，让误改当场可查）。
+ *
+ * 快照 `evidence/login-page-host-snapshot.txt` 里出现、但**不**进监测域的域：
+ * - `www.douyin.com`（抖音域）：头条号登录页引用了它的脚本，但抖音域**不是头条号登录链路
+ *   必需的域**，且它承载大量与登录无关的资源 ⇒ 纳入只会把观测面无谓地扩大。
+ *
+ * 这条清单与监测域清单是**互斥**的两面：登录页引用了什么（证据）、
+ * 我们看哪些（覆盖面）、我们**故意不看**哪些（及其理由）。
+ */
+const EXCLUDED_HOSTS = Object.freeze(['www.douyin.com'])
+
+/**
  * 观测面的**可执行边界清单**（2026-10-22 CCG 外部评审 i1：边界只写在注释里，
  * 删掉注释就没有任何运行时保障 —— 注释不是门禁；第二轮 i1 又指出「声明成常量但
  * 没有代码消费它」同样只是装饰性安全剧场）。
@@ -278,6 +291,7 @@ const SLOW_REQUEST_LOG_LIMIT = 20
 
 module.exports = {
   PLATFORM_MONITORED_HOSTS,
+  EXCLUDED_HOSTS,
   OBSERVATION_GUARD,
   TIMING_OBSERVE_PLATFORMS,
   CAPTCHA_SDK_MARKERS,

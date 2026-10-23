@@ -862,6 +862,46 @@ describe('login-network-diagnostics — 头条号登录期观测', () => {
     // 证据必须自带抓取时刻与来源 URL，才谈得上「可复现」
     expect(txt).toMatch(/抓取时刻（UTC）：\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/)
     expect(txt).toContain('https://mp.toutiao.com/')
+    // 证据完整性：抓取内容的 SHA-256 必须写在文件里（可事后核对是否被改过）
+    expect(txt).toMatch(/SHA-256：[0-9a-f]{64}/)
+  })
+
+  // ── 2026-10-22 CCG 外部评审第五轮 i5 / i6 / i8 ──
+  it('刻意排除的域必须编码进代码（不能只写在文档里），且不得出现在任何监测域清单里', () => {
+    const monitor = require('./login-network-monitor')
+    expect(monitor.EXCLUDED_HOSTS).toContain('www.douyin.com')
+    const hosts = monitor.monitoredHostsOf('toutiao') || []
+    for (const h of monitor.EXCLUDED_HOSTS) {
+      expect(hosts).not.toContain(h)
+      // 也不得以「同主域」的形式被变相纳入
+      expect(hosts.some((x) => h.endsWith('.' + x) || x.endsWith('.' + h))).toBe(false)
+    }
+  })
+
+  it('读体平台清单必须与端点匹配器的键集逐字一致，且所有计时平台都不在清单里', () => {
+    const monitor = require('./login-network-monitor')
+    // 计时平台（只记耗时 / 只记字节数）一律不读响应体
+    for (const p of ['toutiao', 'wechat_mp', 'tencent_video']) {
+      expect(monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms, `计时平台 ${p} 不得读响应体`).not.toContain(p)
+    }
+    // 清单 ≡ 诊断层的端点匹配器键集：两边漂移 ⇒ 读体面悄悄变了却没人知道
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const src = fs.readFileSync(path.join(__dirname, 'login-network-diagnostics.js'), 'utf8')
+    const block = src.match(/AUTH_ENDPOINT_MATCHERS\s*=\s*\{([\s\S]*?)\n\}/)
+    expect(block, '解析不到 AUTH_ENDPOINT_MATCHERS 块').not.toBeNull()
+    const keys = [...block[1].matchAll(/^\s{2}(\w+):\s*\{/gm)].map((m) => m[1]).sort()
+    expect([...monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms].sort()).toEqual(keys)
+  })
+
+  it('监测域匹配必须复用同一平台编译出的正则（缓存未被破坏）', () => {
+    const monitor = require('./login-network-monitor')
+    const a = monitor.hostMatcherOf('toutiao')
+    const b = monitor.hostMatcherOf('toutiao')
+    expect(a).toBe(b) // 同一对象 ⇒ 没有重复编译
+    expect(a).toBeTruthy()
+    // 过滤面也必须稳定（每次调用返回等值内容）
+    expect(monitor.urlFiltersFor('toutiao', [])).toEqual(monitor.urlFiltersFor('toutiao', []))
   })
 
   it('头条监测域必须覆盖真实登录页用到的风控与验证码域', () => {
