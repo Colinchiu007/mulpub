@@ -479,6 +479,16 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
     const fs2 = require('fs')
     const path2 = require('path')
     const abs = path2.resolve(filePath)
+    // wujie-ready-wait：页面未初始化时 .wujie_iframe 还不存在，直接灌文件会静默失败。
+    try {
+      const readyExpr = 'new Promise(function(res){var n=0;var t=setInterval(function(){n++;var h=document.querySelector(".wujie_iframe");if(h&&h.shadowRoot){clearInterval(t);res(true)}else if(n>40){clearInterval(t);res(false)}},200)})'
+      const ready = await Promise.race([
+        win.webContents.executeJavaScript(readyExpr, true),
+        new Promise(function (res) { setTimeout(function () { res(false) }, 9000) })
+      ])
+      log.info('RpaView', 'wujie-ready-wait: ready=' + ready)
+      if (!ready) return false
+    } catch (_eR) { log.warn('RpaView', 'wujie-ready-wait failed'); return false }
     const b64 = fs2.readFileSync(abs).toString('base64')
     const name = path2.basename(abs)
     const expr = '(function(){' +
