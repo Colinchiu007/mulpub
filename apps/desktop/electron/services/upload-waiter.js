@@ -500,7 +500,10 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       'return {ok:true,w:Math.round(r.width),h:Math.round(r.height),n:f.size,publishBtnAfter:pb};' +
     '})()'
     try {
-      const r = await win.webContents.executeJavaScript(expr, true)
+      const r = await Promise.race([
+        win.webContents.executeJavaScript(expr, true),
+        new Promise(function (_res, rej) { setTimeout(function () { rej(new Error('wujie-upload timeout 20s')) }, 20000) })
+      ])
       log.info('RpaView', 'wujie-upload: ' + JSON.stringify(r))
       if (r && r.publishBtnAfter === true) { this._uploadConfirmed = true; log.info('RpaView', 'wujie-upload: publishBtnAfter=true -> upload confirmed by page') }
       return !!(r && r.ok)
