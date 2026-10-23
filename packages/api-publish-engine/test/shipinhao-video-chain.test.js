@@ -22,6 +22,7 @@ function fullRoutes () {
     { method: "PUT", match: /\/applyuploaddfs/, body: { UploadID: "UP_1" } },
     { method: "PUT", match: /\/uploadpartdfs/, body: { ETag: "ETAG_1" } },
     { method: "POST", match: /\/completepartuploaddfs/, body: { url: "https://v.qq.com/x.mp4" } },
+    { method: "POST", match: /\/post\/post_clip_video/, body: { errCode: 0, data: {} } },
     { method: "POST", match: /\/post\/post_draft/, body: { errCode: 0, data: { postId: "POST_D1" } } },
     { method: "POST", match: /\/post\/post_create/, body: { errCode: 0, data: { postId: "POST_C1" } } },
   ];
@@ -56,6 +57,7 @@ describe("publish/platforms/shipinhao-video", function () {
         "PUT /applyuploaddfs",
         "PUT /uploadpartdfs",
         "POST /completepartuploaddfs",
+        "POST /cgi-bin/mmfinderassistant-bin/post/post_clip_video",
         "POST /cgi-bin/mmfinderassistant-bin/post/post_draft",
       ]);
       // applyuploaddfs：1MB < 8MiB → 单分片，BlockSum=1

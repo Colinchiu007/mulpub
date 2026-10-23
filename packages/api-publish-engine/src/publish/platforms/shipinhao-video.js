@@ -124,6 +124,8 @@ class ShipinhaoVideoChain {
     this.cdn = opts.cdn || createHttpClient({ baseURL: opts.cdnBase || DEFAULT_CDN_BASE, timeout: opts.timeout || DEFAULT_TIMEOUT_MS, agents: opts.agents, headers })
     // 2026-10-23：平台自身用 setHost() 动态设置上传主机 ⇒ 优先用 Step1 响应里的主机，取不到才回落到 baseURL。
     this.cdnHost = ''
+    // 测试/自定义注入 cdn 客户端时不得把 URL 变成绝对地址，否则会绕过注入、打到真实域名。
+    this._cdnInjected = !!opts.cdn
     // 注入客户端（测试/自定义）时保持相对路径；真实运行时 uploadpartdfs 用逆向实证的独立主机。
     this._partHost = opts.cdn ? '' : 'https://finderassistanced.video.qq.com'
   }
@@ -170,7 +172,7 @@ class ShipinhaoVideoChain {
     }
     // 2026-10-23：逆向交叉验证（融媒宝-完整拆解 §5.8）确认三段式协议与主机就是 finderassistancea，
     // Step1 响应不含 cdnHost ⇒ 必须回落到已知主机，否则 cdnHost 为空、请求落到 baseURL ⇒ 404。
-    this.cdnHost = this.cdnHost || DEFAULT_CDN_BASE // fallback to DEFAULT_CDN_BASE
+    if (!this._cdnInjected) this.cdnHost = this.cdnHost || DEFAULT_CDN_BASE // fallback to DEFAULT_CDN_BASE
     if (this.logger && this.logger.log) this.logger.log('[shipinhao-video] cdn host = ' + this.cdnHost)
     return String(authKey)
   }
@@ -273,7 +275,59 @@ class ShipinhaoVideoChain {
       fs.closeSync(fd)
     }
     const videoInfo = await this.completeUpload(applied.uploadId, partInfos, Object.assign({}, meta, { filesize }))
+    // ⑥ post_clip_video（bundle 原文顺序：complete -> clip -> publish）
+    try { await this.clipVideo(videoInfo, Object.assign({}, meta, { filesize })) } catch (eClip) { if (this.logger) this.logger.log('post_clip_video failed: ' + (eClip && eClip.message)) }
     return { uploadId: applied.uploadId, videoInfo }
+  }
+
+  /**
+   * Step 4.5：post_clip_video（2026-10-23 逆向 bundle saveTmpPostDraft 原文）。
+   * 上传完成后、发布之前的裁剪/处理登记；缺此步平台可能认为视频未完成处理。
+   * body 字段逐字对齐 bundle：url/timeStart/cropDuration/width/height/x/y/
+   * clipOriginVideoInfo/traceInfo/targetWidth/targetHeight/type/timestamp + 埋点族。
+   */
+  async clipVideo (videoInfo, meta) {
+    const info = videoInfo || {}
+    const url = info.DownloadURL || info.downloadUrl || info.url || info.videoUrl || info.VideoUrl || ''
+    if (!url) {
+      if (this.logger) this.logger.log('post_clip_video skipped: no video url in completeUpload response')
+      return { skipped: true }
+    }
+    const ts10 = String(Date.now()).slice(0, 10)
+    const width = Number(meta.width) || 1080
+    const height = Number(meta.height) || 1920
+    const duration = Number(meta.duration) || 0
+    const fileSize = Number(meta.filesize) || 0
+    const body = {
+      url,
+      timeStart: 0,
+      cropDuration: 0,
+      height,
+      width,
+      x: 0,
+      y: 0,
+      clipOriginVideoInfo: { width, height, duration, fileSize },
+      traceInfo: { traceKey: 'FPT_' + ts10 + '_1378746213', uploadCdnStart: ts10, uploadCdnEnd: ts10 },
+      targetWidth: width,
+      targetHeight: height,
+      type: 4,
+      timestamp: String(Date.now()),
+      _log_finder_uin: null,
+      _log_finder_id: this.finderId || '',
+      rawKeyBuff: null,
+      pluginSessionId: null,
+      scene: 7,
+      reqScene: 7
+    }
+    const res = await requestWithRetry(this.api, {
+      method: 'post',
+      url: '/cgi-bin/mmfinderassistant-bin/post/post_clip_video',
+      data: body,
+      headers: { cookie: this.cookie, referer: POST_REFERER, 'Content-type': 'application/json', 'User-Agent': this.userAgent },
+    })
+    const d = res.data || {}
+    if (this.logger) this.logger.log('post_clip_video => ' + JSON.stringify(d).slice(0, 300))
+    return d
   }
 
   /** Step 5：发布（私密优先 → post_draft；正式 → post_create） */
