@@ -3,7 +3,7 @@ record: agnes-video-nonflash-reference-video
 task: 暴露非 Flash 视频模型 + 参考视频素材 + 生成成本可见
 date: 2026-10-23
 branch: agnes-video-nonflash-reference-video
-delivered_by_pr: 4344
+delivered_by_pr: 4343
 ---
 
 # 非 Flash 模型 / 参考视频 / 成本可见
