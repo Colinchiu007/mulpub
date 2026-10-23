@@ -932,6 +932,12 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         }
       } catch (_) { /* 截图失败不阻塞 */ }
     } catch (_) { /* 快照失败不阻塞 */ }
+    // 2026-10-23：视频号判据导航不生效（url 仍停在 post/create）⇒ 改用网络响应取证。
+    try {
+      const rs0 = Array.isArray(requests) ? requests : []
+      const brief = rs0.slice(-8).map((r) => String((r && r.url) || '').slice(0, 90) + ' [' + String((r && r.status) || '?') + ']')
+      log.warn('RpaView', '[' + platform + '] publish captured responses n=' + rs0.length + ' :: ' + brief.join(' | '))
+    } catch (_e) { /* 取证失败不阻塞 */ }
     log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
     return { success: false, error: 'publish verification timeout', platform, url: sanitizePublishResultUrl(finalUrl), diagnostics: summarizePublishDiagnostics(stoppedRequests, null) }
     } finally {
@@ -1349,21 +1355,17 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       publish_url: publishUrl || config.publish_url,
       ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
       // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。
-      // 2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。
-      // 小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），
-      // 填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
+      // 2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。；小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），；填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
       draftOnly: true,
     })
   },
 
-  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，
-  // getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
+  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，；getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
   async _publish_kuaishou(win, article) {
     const config = this._getPlatformConfig('kuaishou')
     const contentType = article.video_path ? 'video' : 'image'
     const publishUrl = getPublishUrl('kuaishou', contentType)
-    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个
-    // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、；图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，；首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
+    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个；（2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、；图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，；首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
@@ -1383,9 +1385,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     })
   },
 
-  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：
-  // 此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，
-  // 而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
+  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：；此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，；而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
   async _publish_toutiao (win, article) {
     return require('@multi-publish/rpa-engine/src/toutiao-direct-bridge')
       .publishToutiao({
