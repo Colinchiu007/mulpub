@@ -36,8 +36,38 @@ const SCRIPT_CLOSURE = [
   'ccg-review-backends.list',
   'lib/ccg-backends.sh',
   'lib/ccg-review-backends.js',
-  'lib/ccg-delivery-digest.js'
+  'lib/ccg-delivery-digest.js',
+  // 闭环状态词的单一真源（#4093 引入，check-pr-exec-record.js 从它取 CLOSED_DEEP_REVIEW_STATUSES）。
+  // 漏了它 ⇒ 夹具里的入口脚本 require 不到 ⇒ 「入口必须把写回步骤跑起来并出声」整组用例红
+  // （2026-10-23 实测：主干上 not ok 1/2/4/5/6/11，错误原文
+  //  `Error: Cannot find module './lib/exec-record-statuses'`）。
+  // 纪律：新增 require 闭包成员时，同一次提交里把它的**路径**也加进这份清单。
+  'lib/exec-record-statuses.js',
+  // 另一份 #4093 引入的模块：check-pr-exec-record.js 的 --audit 档取它的
+  // auditHistoricalDebt / formatText（入口第 469 行）。同样漏了它夹具也会崩。
+  'lib/exec-record-audit.js'
 ]
+
+// 机械锁：夹具的 require 闭包清单必须覆盖入口脚本**真实** require 到的每个仓内模块。
+// 为什么需要它（2026-10-23 实测）：#4093 给 check-pr-exec-record.js 引入了
+// ./lib/exec-record-statuses.js，却没把它的路径加进 SCRIPT_CLOSURE ⇒
+// 夹具里的入口脚本 require 不到 ⇒ 「入口必须把写回步骤跑起来并出声」整组用例红
+// （not ok 1/2/4/5/6/11），而主干 CI 的 `QG Changes` 作业因此在所有 PR 上红。
+// 教训：require 闭包靠人记得同步 ⇒ 必须有一条**机械**核对，否则同一个坑会再踩。
+test('夹具 require 闭包清单覆盖入口脚本真实 require 的每个仓内模块', () => {
+  const entry = fs.readFileSync(path.join(ROOT, 'scripts', 'check-pr-exec-record.js'), 'utf8')
+  // 只看相对 require 的仓内模块（./lib/... 与 ./xxx.js），忽略 node: 内置与包名
+  // 归一：require 侧可以省略 .js（`require('./lib/x')`），清单侧写全名 ⇒ 比较前统一补后缀
+  const withExt = (rel) => (/\.(js|json|cjs|mjs)$/.test(rel) ? rel : rel + '.js')
+  const required = new Set()
+  for (const m of entry.matchAll(/require\('(\.\/[^']+)'\)/g)) {
+    required.add(withExt(m[1].replace(/^\.\//, '')))
+  }
+  assert.ok(required.size > 0, '解析不到入口脚本的 require —— 锁自己失效了（形状变了就红）');
+  const missing = [...required].filter((rel) => !SCRIPT_CLOSURE.includes(rel))
+  assert.deepEqual(missing, [],
+    `入口脚本 require 了这些仓内模块，但夹具清单里没有 ⇒ 夹具跑不起来（入口在写回步骤之前就崩）：${missing.join(', ')}`)
+})
 
 const FAKE_DRIVER = `'use strict'
 // 假驱动：只复刻真引擎 ccg-deep-review.js 的**收口站点形状**（:1252-1256）——
