@@ -134,6 +134,10 @@ function normalizeAvatarUrl (raw) {
   }
   const scheme = parsed.protocol.toLowerCase()
   if (scheme !== 'http:' && scheme !== 'https:') return ''
+  // 带 userinfo 的 URL 一律拒绝（CCG 评审 i7）：`https://user:pass@host/` 的
+  // `hostname` 按 URL 规范**不含** userinfo，所以上面的主机判据看不到它 ——
+  // 而把带凭据的地址存进头像字段，等于把「不该出现的凭据」写进用户数据。
+  if (parsed.username || parsed.password) return ''
   if (!isPlausibleAvatarHost(parsed.hostname)) return ''
   return normalized
 }

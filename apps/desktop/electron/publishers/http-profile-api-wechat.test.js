@@ -217,11 +217,15 @@ describe('http-profile-api — 公众号账号资料来源', () => {
 
   // ── 体积判据按**字节**算（CCG 评审 i6）──
   it('多字节页面按字节判体积：字符数未超限但字节超限时同样不解析', async () => {
-    // 1.5M 个中文 = 1.5M 个 UTF-16 单元（< 2MB 阈值，按字符数会放行）
-    // 但 UTF-8 字节数 = 4.5MB（> 2MB 阈值）⇒ 必须被拦下。
+    // 700,000 个中文 = 700,000 个 UTF-16 单元（< 2MB 阈值，按字符数会放行）
+    // 但 UTF-8 字节数 = 2,100,000（> 2,097,152 阈值）⇒ 必须被拦下。
     // 这条用例把「判据到底按字符还是按字节」钉死：只按字符的实现会在这里产出资料。
-    const multibyte = WX_LOGIN_TEMPLATE + '字'.repeat(1_500_000)
-    expect(multibyte.length).toBeLessThan(2 * 1024 * 1024)          // 字符数未超限
+    //
+    // ⚠ 样本大小取**最小可行值**（CCG 评审第 5 轮 i2：评审建议的「1025 字符」在数学上不成立 ——
+    // 阈值本身就是 2MB，样本必须真的超过 2MB 字节才跨得过线；700,000 汉字 = 2,100,000 字节
+    // 是刚好多一点点的最小量，比早先的 1,500,000 字少一半内存占用）。
+    const multibyte = WX_LOGIN_TEMPLATE + '字'.repeat(700_000)
+    expect(multibyte.length).toBeLessThan(2 * 1024 * 1024)                     // 字符数未超限
     expect(Buffer.byteLength(multibyte, 'utf8')).toBeGreaterThan(2 * 1024 * 1024) // 字节数超限
     mockHtml(multibyte)
     const info = await api.fetchAccountInfoViaHttpApi('wechat_mp', [{ name: 'slave_sid', value: 'v' }])
@@ -289,6 +293,16 @@ describe('http-profile-api — 公众号账号资料来源', () => {
       .replace(dropStrField('head_url'), ''))
     const info = await api.fetchAccountInfoViaHttpApi('wechat_mp', [{ name: 'slave_sid', value: 'v' }])
     expect(info.avatar).toBe('https://cdn.example.com/a/b/avatar.jpg')
+  })
+
+  it('带 userinfo（user:pass@）的头像 URL 一律拒绝（凭据不该进头像字段）', async () => {
+    // `new URL(...).hostname` 按规范**不含** userinfo ⇒ 只看 hostname 看不到它，
+    // 必须显式查 username/password（CCG 评审 i7）。
+    mockHtml(WX_LOGIN_TEMPLATE
+      .replace(dropStrField('head_img'), 'head_img: "https://user:pass@cdn.example.com/a.jpg", ')
+      .replace(dropStrField('head_url'), ''))
+    const info = await api.fetchAccountInfoViaHttpApi('wechat_mp', [{ name: 'slave_sid', value: 'v' }])
+    expect('avatar' in info).toBe(false)
   })
 
   it('wechat_mp 的资料来源仍是只读 GET（不得引入有副作用的端点）', async () => {
@@ -367,7 +381,7 @@ describe('wechat-mp-profile-parser — 结构化失败原因', () => {
   })
 
   it('页面异常大 ⇒ page_too_large（按字节判，不截断）', () => {
-    const r = parse('<script>var d = { uin: "9000000001" };</script>' + '字'.repeat(1_500_000))
+    const r = parse('<script>var d = { uin: "9000000001" };</script>' + '字'.repeat(700_000))
     expect(r.reason).toBe('page_too_large')
     expect(r.platformAccountId).toBe('')
   })

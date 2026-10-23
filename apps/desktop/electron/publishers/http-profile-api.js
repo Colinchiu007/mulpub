@@ -229,6 +229,13 @@ const HTTP_PROFILE_APIS = {
           log.warn('HttpLoginChecker', 'wechat_mp: page too large, skip parse bytes=' + Buffer.byteLength(String(html || ''), 'utf8'))
         } else if (id.reason === 'identity_fields_missing' || id.reason === 'identity_fields_invalid') {
           log.warn('HttpLoginChecker', 'wechat_mp: loginpage looks signed-in but identity fields not parsed reason=' + id.reason + ' (template change?)')
+        } else if (id.reason === 'nickname_invalid') {
+          // 昵称取到了但形态不合格（超长 / 含控制字符 / 模板占位值）⇒ 账号卡上会显示空昵称。
+          // 不出声的话，用户看到的只是「名字没了」，排查时不知道是模板变了还是值不合法。
+          log.warn('HttpLoginChecker', 'wechat_mp: nickname field present but invalid (placeholder/too long/control char), nickname not produced')
+        } else if (id.reason === 'avatar_rejected_scheme') {
+          // 头像字段在但被白名单拒了（scheme 非法 / 主机不是公网形态 / 带 userinfo）⇒ 同上，出声。
+          log.warn('HttpLoginChecker', 'wechat_mp: avatar field present but rejected by url whitelist, avatar not produced')
         }
         const out = {}
         if (id.nickname) out.nickname = id.nickname
