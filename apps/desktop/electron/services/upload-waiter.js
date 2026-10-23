@@ -352,7 +352,7 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         const marked = await win.webContents.executeJavaScript('(function(){var a=[].slice.call(document.querySelectorAll("div,section"));for(var i=0;i<a.length;i++){var t=a[i].innerText||"";if(t.indexOf("上传时长")>=0||t.indexOf("添加视频")>=0||t.indexOf("点击上传")>=0){a[i].setAttribute("data-mp-drop","1");return "marked"}}return "none"})()', true)
         if (marked === 'marked') useSel = '[data-mp-drop="1"]'
       } catch (_e12) { /* 锚点失败沿用原选择器 */ }
-      const q = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, useSel })
+      const q = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector: useSel })
       if (!q || !q.nodeId) { log.warn('RpaView', 'cdp-drop: target not found ' + selector); return false }
       // rectCenter：getBoxModel 对零尺寸容器会给出空 content ⇒ x/y 变 NaN ⇒ CDP 报 Invalid parameters。
       // 改用 JS 的 getBoundingClientRect 取中心点，并在缺失时回落到视口中心。
