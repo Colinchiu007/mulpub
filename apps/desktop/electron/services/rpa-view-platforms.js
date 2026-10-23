@@ -538,6 +538,18 @@ const platformsMixin = {
                   await this._sleep(60)
                   win.webContents.sendInputEvent({ type: 'mouseUp', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
                   log.info('RpaView', '[tencent_video] native click dispatched at ' + _rc.x + ',' + _rc.y)
+                  // cdp-publish-click：sendInputEvent 用窗口坐标，getBoundingClientRect 用视口坐标；
+                  // BrowserView 有偏移时两者不等价 ⇒ 再用 CDP（视口坐标）点一次。
+                  try {
+                    const _dbg = win.webContents.debugger
+                    const _att = !_dbg.isAttached()
+                    if (_att) _dbg.attach('1.3')
+                    await _dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: _rc.x, y: _rc.y })
+                    await _dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
+                    await _dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
+                    log.info('RpaView', '[tencent_video] cdp click dispatched at ' + _rc.x + ',' + _rc.y)
+                    if (_att) { try { _dbg.detach() } catch (_e0) {} }
+                  } catch (_eCd) { log.warn('RpaView', '[tencent_video] cdp click failed: ' + String((_eCd && _eCd.message) || '').slice(0, 80)) }
                 }
               } catch (_eNC) { log.warn('RpaView', '[tencent_video] native click failed: ' + String((_eNC && _eNC.message) || '').slice(0, 80)) }
             }
