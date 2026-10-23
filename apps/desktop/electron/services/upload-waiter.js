@@ -348,6 +348,8 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         const sv = await win.webContents.executeJavaScript("(function(){var out={found:false};var seen=0;function walk(root,depth){if(!root||depth>8||seen>4000)return null;var els;try{els=root.querySelectorAll('*')}catch(e){return null}for(var i=0;i<els.length;i++){var e=els[i];seen++;var t='';try{t=e.innerText||''}catch(e2){}if(t&&(t.indexOf('上传时长')>=0||t.indexOf('添加视频')>=0||t.indexOf('点击上传')>=0)){return e}var cn='';try{cn=String(e.className||'')}catch(e3){}if(cn&&(cn.indexOf('upload')>=0||cn.indexOf('dragger')>=0||cn.indexOf('drop')>=0)){return e}if(e.shadowRoot){var r=walk(e.shadowRoot,depth+1);if(r)return r}}return null}var cands=[];function collect(root,depth){if(!root||depth>8)return;var els;try{els=root.querySelectorAll('*')}catch(e){return}for(var i=0;i<els.length;i++){var e=els[i];var t='';try{t=e.innerText||''}catch(e2){}var cn='';try{cn=String(e.className||'')}catch(e3){}var isHit=(t&&(t.indexOf('上传时长')>=0||t.indexOf('点击上传')>=0))||(cn&&(cn.indexOf('dragger')>=0||cn.indexOf('drop')>=0||cn.indexOf('upload')>=0));if(isHit){var r0=e.getBoundingClientRect();var area=r0.width*r0.height;if(area>=400&&area<=400000)cands.push({e:e,area:area})}if(e.shadowRoot)collect(e.shadowRoot,depth+1)}}collect(document,0);cands.sort(function(a,b){return a.area-b.area});var hit=cands.length?cands[0].e:walk(document,0);if(!hit)return out;hit.setAttribute('data-mp-drop','1');var r=hit.getBoundingClientRect();return {found:true,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),w:Math.round(r.width),h:Math.round(r.height),via:'shadow-scan'}})()", true)
         log.info('RpaView', 'cdp-drop: shadow-scan ' + JSON.stringify(sv))
         if (sv && sv.found && sv.w > 0 && sv.h > 0) {
+          // click-chooser-first：CDP 真鼠标点击 + 选择器拦截（isTrusted=true）
+          try { if (await this._clickThenChooser(win, sv.x, sv.y, filePath)) { log.info('RpaView', 'cdp-drop: dispatched (click-chooser) ' + filePath); return true } } catch (_eCC) {}
           const _abs2 = require('path').resolve(filePath)
           const _d = { items: [{ mimeType: 'text/plain', data: '' }], files: [_abs2], dragOperationsMask: 1 }
           for (const _t of ['dragEnter','dragOver','drop']) {
@@ -439,6 +441,39 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
    *   manualDispatchFileEvent({dom: inputDom, element: HTMLInputElement, elementKey: 'files', value: files.files, event: 'change'})
    * 即：用 HTMLInputElement.prototype 的原生 files setter 写值，再派发 change。
    */
+  /**
+   * 2026-10-24：JS 写入 files 被平台拒（isTrusted）⇒ 改用 CDP 真实鼠标点击 + 文件选择器拦截。
+   * Input.dispatchMouseEvent 是浏览器级输入，isTrusted=true，等价真人点击。
+   */
+  async _clickThenChooser (win, x, y, filePath) {
+    const path2 = require('path')
+    const dbg = win.webContents.debugger
+    let attached = false
+    try {
+      if (!dbg.isAttached()) { dbg.attach('1.3'); attached = true }
+      await dbg.sendCommand('Page.enable')
+      await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
+      const opened = new Promise((resolve) => {
+        const h = (_e, method, params) => { if (method === 'Page.fileChooserOpened') { dbg.removeListener('message', h); resolve(params) } }
+        dbg.on('message', h)
+        setTimeout(() => { try { dbg.removeListener('message', h) } catch (_e0) {} ; resolve(null) }, 6000)
+      })
+      for (const type of ['mousePressed', 'mouseReleased']) {
+        await dbg.sendCommand('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 })
+      }
+      const ev = await opened
+      if (!ev || !ev.backendNodeId) { log.warn('RpaView', 'click-chooser: no fileChooserOpened'); return false }
+      await dbg.sendCommand('DOM.setFileInputFiles', { files: [path2.resolve(filePath)], backendNodeId: ev.backendNodeId })
+      log.info('RpaView', 'click-chooser: set files via backendNodeId=' + ev.backendNodeId)
+      return true
+    } catch (eC) {
+      log.warn('RpaView', 'click-chooser failed: ' + (eC && eC.message ? eC.message.slice(0,120) : ''))
+      return false
+    } finally {
+      if (attached) { try { dbg.detach() } catch (_e1) {} }
+    }
+  },
+
   async _uploadViaWujie (win, filePath) {
     const fs2 = require('fs')
     const path2 = require('path')
