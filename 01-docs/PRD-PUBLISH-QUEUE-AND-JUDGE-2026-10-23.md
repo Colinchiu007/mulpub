@@ -325,3 +325,38 @@ https://mp.toutiao.com/mp/agw/creator_center/list         ← 作品列表（只
 
 - 只用只读端点做验证；
 - 文档/日志只写字段名与路径，不写 cookie/token 值。
+
+## 8.14 视频号上传主机探测结论（2026-10-23 19:00，实测）
+
+### 探测
+
+```
+DNS  finderassistancea.video.qq.com -> 36.155.248.44      （解析正常）
+HEAD https://finderassistancea.video.qq.com/            -> 404（根路径，正常）
+PUT  https://finderassistancea.video.qq.com/applyuploaddfs -> 404（无鉴权请求体 {}）
+```
+
+### 结论
+
+1. **主机可达**（DNS 与 TLS 均正常）⇒ 不是我方网络问题。
+2. **`/applyuploaddfs` 路径在该主机上不存在**（404 而非 401/403，说明不是鉴权拦截）。
+3. 这与 `mtm-platform-apis.md` 的端点清单一致（清单里没有 `*dfs`），
+   与《融媒宝-完整拆解》§5.8 的**字符串级对照**冲突。
+
+### 对 §5.8 的修正
+
+§5.8 的判据是「原生层二进制里出现 `finderassistancea.video.qq.com/applyuploaddfs` 字符串」。
+**字符串存在 ≠ 该路径在 2026 年仍在线**。这与任务书 §5 记录的三处同型错误一致
+（凭"名字像"/"相邻索引"/"二进制里有这个字符串"下结论）。
+
+### 因此
+
+- 不要再在 `*dfs` 路径上投入（我方 Step2–4 需要按真实抓包重写）；
+- 主机回落（`ec898dabc`）仍应保留：它把请求从 `baseURL` 拉到正确域名，属于必要但不充分；
+- **下一步必须**：真实浏览器手动上传一次，抓页面自己发出的上传请求（host + path + headers + body），
+  以它为准重写 Step 2–4。这是唯一能闭合的路径。
+
+### 已同步的产品行为
+
+无超时导致「静默挂起」的问题已修（`bfb6a0a48`，60s 默认超时）——
+上传失败会以显式错误呈现，而不是无声消失。
