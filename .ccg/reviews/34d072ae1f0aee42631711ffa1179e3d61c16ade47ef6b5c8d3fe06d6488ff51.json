@@ -1,0 +1,59 @@
+{
+  "sha": "33104c8ac9f4e852fffe96a52f6a19eef0d1b168",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1277 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1277,
+    "fileCount": 13,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "  2026-10-20 经用户显式授权（\"按你的建议 3 → 1\"）改为先给本机 vendor 驱动打补丁，让「外部复核发生过」在机械上可表达；"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "34d072ae1f0aee42631711ffa1179e3d61c16ade47ef6b5c8d3fe06d6488ff51",
+  "decidedAt": "2026-10-23T17:50:33.046Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

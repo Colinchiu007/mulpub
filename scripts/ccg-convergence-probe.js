@@ -28,6 +28,21 @@ const path = require('path');
 
 const SAMPLE = path.join(__dirname, '..', 'openspec', 'changes', 'ccg-convergence-exit', 'artifacts', 'verification-layer-sample.json');
 
+const capabilities = require('./qm6-exit-capabilities.js');
+
+/**
+ * 工具署名那一格的输入是**仓内**文件：它必须与 vendor 在不在无关。
+ * 否则 CI runner 上这一格永远是"没测"，而这恰好是三格里唯一一条两边都能复现的读数。
+ */
+const WRITEBACK = path.join(__dirname, 'ccg-review-writeback.js');
+function readWritebackSource () {
+  return fs.readFileSync(WRITEBACK, 'utf8');
+}
+/** 失明档专用：读不到就报 unknown —— 把"没读到"写成"没有出口"是本仓点名的同型错误。 */
+function safeWritebackSrc () {
+  try { return readWritebackSource() } catch { return '' }
+}
+
 /**
  * 引擎与驱动都在 vendor 目录里。
  * ⛔ 候选面**只准**来自环境变量与用户技能目录，不得回落到 `__dirname`（QM-6 外部评审 i2 命中后收紧）：
@@ -93,6 +108,8 @@ function main (argv) {
   if (!vendor) {
     process.stderr.write('[ccg-probe] rc=2 找不到 vendor 引擎（CCG_ARL_DIR / ~/.claude/skills/adversarial-review-loop/scripts 都没命中）'
       + ' —— 这是**探针失明**，不得读成"引擎没有这个问题"\n');
+    process.stderr.write('[ccg-probe] 出口能力读数（vendor 侧两格=unknown；仓内那一格仍可测）: '
+      + JSON.stringify(capabilities.readCapabilities({ driverSrc: '', writebackSrc: safeWritebackSrc() })) + '\n');
     return 2;
   }
   let driverSrc, combinedSrc, engine;
@@ -111,6 +128,17 @@ function main (argv) {
     return 2;
   }
   const cfgDefaults = readDefaults(combinedSrc);
+  let caps;
+  try {
+    caps = capabilities.readCapabilities({
+      driverSrc, writebackSrc: readWritebackSource(),
+      driverPath: vendor.driver, writebackPath: 'scripts/ccg-review-writeback.js',
+    });
+  } catch (e) { process.stderr.write('[ccg-probe] rc=2 工具署名出口取不到数：' + e.message + '\n'); return 2; }
+  const behavioral = behavioralUpheldExit(vendor.driver);
+  caps.upheldBehavioral = behavioral.upheld;
+  caps.receiptLive = behavioral.receiptLive;
+  const xcheck = capabilities.crossCheckUpheld(caps.upheld, caps.upheldBehavioral);
   const missing = Object.keys(cfgDefaults).filter((k) => cfgDefaults[k] === null || cfgDefaults[k] === undefined);
   if (missing.length) {
     process.stderr.write('[ccg-probe] rc=2 从 vendor 源码读不出默认参数：' + missing.join(',')
@@ -166,11 +194,19 @@ function main (argv) {
   if (stall1.stalled !== false) problems.push('单轮竟然能判 stall');
   if (convergedIfHigh.status !== 'converged') problems.push('第 2 轮达阈值仍不收敛，scoreThreshold 语义变了');
   if (shape.currentRoundExpr !== 'cfg.maxRounds') problems.push('驱动不再把 currentRound 报成 cfg.maxRounds（本探针结论需重估）');
+  if (!xcheck.ok) problems.push('upheld 出口两路不一致：' + xcheck.note);
+  if (caps.upheldBehavioral === 'unavailable') problems.push(
+    'vendor 在位但行为档取不到定论（require 失败 / blockingFromAdjudication 改名 / 正控不成立：'
+    + '凭证形状本机 vendor 不消费时，"带凭证仍阻断"什么也没测；receiptLive=' + caps.receiptLive + '）');
 
   // --json 档的 stdout **只能是 JSON**：任何一行结论/告警拼在后面都会让调用方 parse 失败，
   // 而失败信息（"Unexpected non-whitespace character"）读起来像"探针坏了"，不像"它多嘴了"
   // —— 本探针第一版即如此（P1 首跑红在此）。机器档把人读的行一律改道 stderr。
   if (json) {
+    readings.exitCapabilities = caps;
+    readings.upheldCrossCheck = xcheck;
+    readings.capabilitySource = { driver: vendor.driver, writeback: 'scripts/ccg-review-writeback.js' };
+    readings.conclusion = capabilities.conclusionLine(caps);
     readings.problems = problems;
     readings.verdict = problems.length ? 'DRIFT' : 'AS_EXPECTED';
     process.stdout.write(JSON.stringify(readings, null, 2) + '\n');
@@ -193,17 +229,38 @@ function main (argv) {
   process.stdout.write('[ccg-probe] ③ 单轮下 stall ⇒ stalled=' + stall1.stalled
     + (stall1.rounds ? '' : '（' + stall1.detail + '，所以 stall 出口在此层不可达）') + '\n');
   process.stdout.write('[ccg-probe] ④ 第 2 轮打到阈值 ' + needScore + ' 才 converged ⇒ status=' + convergedIfHigh.status + '\n');
+  process.stdout.write('[ccg-probe] ⑤ upheld 出口交叉验证：结构=' + caps.upheld + ' 行为=' + caps.upheldBehavioral + ' 正控(凭证是否被 vendor 消费)=' + caps.receiptLive + ' ⇒ ' + xcheck.note + '\n');
   if (problems.length) {
     process.stdout.write('[ccg-probe] 🔴 读数偏离预期：\n  - ' + problems.join('\n  - ')
       + '\n  ⇒ 出口可达性已变：#3724 tasks §8.5/§8.8 与本 change design 的结论必须重估，不得沿用。\n');
     return 1;
   }
-  process.stdout.write('[ccg-probe] 结论：验证层三个停止出口里只有 ③(maxRounds→self-play) 可达；'
-    + '而 self-play 对 crypto 项无条件计阻断 ⇒ 「深度审查闭环」在含 crypto 发现的 diff 上不可达（除非真跑多轮把分数抬到 '
-    + cfgDefaults.scoreThreshold + ' 以上）。\n');
+  process.stdout.write('[ccg-probe] 结论：验证层三个停止出口里只有 ③(maxRounds→self-play) 可达（要把分数抬到 ' + cfgDefaults.scoreThreshold + ' 才另有出口）；'
+    + capabilities.conclusionLine(caps) + '\n');
   return 0;
 }
 
-module.exports = { main, readDefaults, readVendorSources, readDriverTaskShape, locateVendor, SAMPLE };
+module.exports = { main, readDefaults, readVendorSources, readDriverTaskShape, locateVendor, behavioralUpheldExit, SAMPLE };
+/**
+ * ② 的行为档：直接调 vendor 导出的判据函数，问"填了处置凭证之后还计不计阻断"。
+ * 为什么必须有两档：结构读法（正则）测的是"那段代码长什么样"，而风险是"这条 PR 会不会被永久钉住" ——
+ * 那是**行为**问题。两档不一致时不得静默取其一（本探针因此 rc=1）。
+ * 拿不到函数（CI runner 上没有 vendor）返回 'unavailable'，**不得**当成 false。
+ */
+function behavioralUpheldExit (driverFile) {
+  try {
+    const mod = require(driverFile);
+    const fn = mod && mod.blockingFromAdjudication;
+    // 先跑正控：它证明本探针写的那份凭证**确实被 vendor 的某个分支消费**。
+    // 没有正控，"带凭证仍阻断"可能只是"我写的键没人读" —— 两种情况在 false 这个读数上完全同形
+    // （QM-6 第一轮评审 i2/i5 命中；本模块最初版就栽在这里）。
+    const receiptLive = capabilities.externalReviewReceiptLive(fn);
+    return { upheld: capabilities.upheldExitBehavioral(fn, { receiptLive }), receiptLive: receiptLive };
+  } catch (e) {
+    process.stderr.write('[ccg-probe] 行为档取不到（结构读数不受影响）：' + e.message + '\n');
+    return { upheld: 'unavailable', receiptLive: 'unavailable' };
+  }
+}
+
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
