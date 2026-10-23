@@ -36,7 +36,12 @@ const SCRIPT_CLOSURE = [
   'ccg-review-backends.list',
   'lib/ccg-backends.sh',
   'lib/ccg-review-backends.js',
-  'lib/ccg-delivery-digest.js'
+  'lib/ccg-delivery-digest.js',
+  // ↓ #4093 之后新增的两个本地依赖：入口在加载期、审计期会 require 它们。
+  //   漏抄的后果是临时仓缺模块 ⇒ 入口在**加载期**就抛 "Cannot find module"，
+  //   整批子测试同形失败（实测 Gate 2b11 在 2026-10-23 打红就是这个形态）。
+  'lib/exec-record-statuses.js',
+  'lib/exec-record-audit.js'
 ]
 
 const FAKE_DRIVER = `'use strict'
@@ -347,4 +352,38 @@ test('⑪ 驱动只刷新时间戳 ⇒ 入口侧 reason=no-new-delivery，且不
   assert.notDeepStrictEqual(after, before, '驱动确实写过（字节变了），否则这条测的是 no-write')
   assert.ok(!after.includes(Buffer.from('"tier"')), '不得把上一轮的闭环交付当本次产出补 tier')
   assert.strictEqual(readRec(fx.recFile).deepReview.status, 'cleared', '既有 status 不得被改写')
+})
+
+
+/**
+ * 夹具闭包守卫（2026-10-24）：被复制进临时仓库的脚本，其**本地** require（`./` 开头）
+ * 必须同样在 SCRIPT_CLOSURE 清单里。
+ *
+ * 动因：#4093 给 `check-pr-exec-record.js` 加了 `require('./lib/exec-record-statuses')`
+ * （加载期必执行）却没同步本清单 ⇒ 临时仓缺模块 ⇒ 入口一加载就抛
+ * `Cannot find module './lib/exec-record-statuses'` ⇒ 本文件 6 个子测试同形失败，
+ * 于是 Gate 2b11 在 changes 作业里对**每一个** PR 转红 —— 而红的原因与 PR 改的东西无关。
+ * 那个形态最坏的地方在于：报错点在夹具里、判据在别处，肉眼扫 CI 日志只会看到一串
+ * `not ok`，看不出「是清单漏了一项」。
+ *
+ * 这条断言把「加 require 就得加清单」从自觉变成机械拦截：漏了当场红，且红在
+ * 「缺哪个模块、谁 require 的」这两个可读信息上。
+ */
+test('⑫ SCRIPT_CLOSURE 覆盖被复制脚本的全部本地 require（漏抄模块 ⇒ 夹具加载期就崩）', () => {
+  const missing = []
+  for (const rel of SCRIPT_CLOSURE) {
+    if (!rel.endsWith('.js')) continue
+    const src = fs.readFileSync(path.join(ROOT, 'scripts', rel), 'utf8')
+    for (const m of src.matchAll(/require\(['"](\.\.?\/[^'"]+)['"]\)/g)) {
+      // require 里的 specifier **不带扩展名**（'./lib/foo'），而清单里带（'lib/foo.js'）——
+      // 所以不能直接比字符串：按 Node 的解析规则把 specifier 还原成**实际文件**再比。
+      const base = path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[1]))
+      const resolved = [base, base + '.js', base + '/index.js']
+        .find(cand => fs.existsSync(path.join(ROOT, 'scripts', cand)))
+      if (!resolved) { missing.push(`${rel} → ${base}（仓内找不到该文件）`); continue }
+      if (!SCRIPT_CLOSURE.includes(resolved)) missing.push(`${rel} → ${resolved}`)
+    }
+  }
+  assert.deepStrictEqual(missing, [],
+    `这些本地 require 没进 SCRIPT_CLOSURE，临时仓会缺模块并在加载期抛 Cannot find module：\n${missing.join('\n')}`)
 })
