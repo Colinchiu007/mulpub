@@ -18,7 +18,6 @@ date: 2026-10-23
 | 文档同步 / 绝对路径 | ✅ | `scripts/check-doc-abs-paths.js` 通过；worktree 路径一律写 `<仓库父目录>/...` 占位形态，仓外引擎一律写 `~/.claude/...`（Gate 12c 的教训：执行记录的取证力靠分支名与 PR 号，不靠本机绝对路径） |
 | QM-1 打包 / QM-4 视觉 / TDD | N/A | 零运行时代码、零 UI；本刀不产可测行为，实现片的 TDD 步骤逐条写在 tasks §1–§2（且刻意先写红再写码） |
 | QM-6 CCG 双模型外部评审 | 不适用（docs-only） | 判定器对纯 openspec 差量判 `skip`/`single`，机械链上不强制双模型。但本 change 是**改评审怎么算数**的方案文档，其评审归属被写进 tasks §3.2：交人工过目，不自动合并 |
-| 远程同步 | 由门禁推导 | 不事后改写：合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导 |
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` 的读数在 commit 之后取并写进 PR 正文
 - 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步 由门禁推导
 
