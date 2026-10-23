@@ -147,6 +147,9 @@ class ShipinhaoVideoChain {
       headers: this._apiHeaders(),
     })
     const d = res.data || {}
+    // 2026-10-23 诊断：平台配置对象含 cdnHost / uploadParams / envInfo.uploadVersion（见 chunk-common），
+    // 打出顶层 key 便于确认还缺哪些字段。
+    if (this.logger && this.logger.log) this.logger.log('[shipinhao-video] step1 keys: ' + Object.keys(d).join(','))
     const authKey = d.authKey || (d.data && d.data.authKey) || ''
     if (!authKey) {
       throw new ShipinhaoVideoError('shipinhao-video: upload authKey missing (cookie may be expired)', errorCode.data_error)
