@@ -26,8 +26,12 @@ const NICKNAME_MAX_LEN = 40
  * 昵称形态白名单：控制字符/HTML 片段不是昵称。
  * 判据是「不含控制字符 + 长度有界 + 非纯空白」，
  * ⛔ 不用「排除 < >」这种黑名单：真实昵称里就可能有 & 与空格，黑名单会误杀。
+ *
+ * 用 Unicode 属性转义 `\p{Cc}`（C0 + C1 控制区）而不是 `[\u0000-\u001f]` 字面量：
+ * 后者会被 ESLint 的 `no-control-regex` 判红（Gate 11 是 error 级），
+ * 而属性转义表达的是同一个意图（且把 C1 控制区一并挡住）。
  */
-const CONTROL_CHAR_RE = /[\u0000-\u001f]/
+const CONTROL_CHAR_RE = /\p{Cc}/u
 
 /** 去掉首尾空白；非字符串一律返回空串（与 account-profile.trimText 同口径） */
 function trimText (v) {
@@ -126,7 +130,7 @@ function normalizeAvatarUrl (raw) {
   if (!value || TEMPLATE_PLACEHOLDER_RE.test(value)) return ''
   let normalized = value
   if (normalized.startsWith('http://')) normalized = 'https://' + normalized.slice('http://'.length)
-  let parsed = null
+  let parsed
   try {
     parsed = new URL(normalized)
   } catch (_) {
