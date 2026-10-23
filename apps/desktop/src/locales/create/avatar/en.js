@@ -68,9 +68,6 @@ export default {
   avatarCloneVoiceHintBundled: 'Pick a recording to create it together with the avatar. It then appears under Digital human voice above; skip it to clone the avatar only.',
   avatarCloneVoiceChooseMedia: 'Choose a local audio file',
   avatarCloneVoiceSelected: 'Recording selected',
-  avatarCloneVoiceNamePlaceholder: 'Voice name',
-  avatarCloneVoiceChoose: 'Choose a local audio file',
-  avatarCloneVoiceCreated: 'Voice "{name}" created — pick it under Digital human voice above',
   // Subtitles (change: hifly-voice-subtitle-parity): Hifly only (the official
   // create_by_tts st_* family). HeyGen has no equivalent contract, so the panel
   // is not rendered at all for providers that do not support it.
