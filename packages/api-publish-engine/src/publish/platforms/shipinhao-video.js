@@ -95,7 +95,16 @@ function buildShipinhaoPostData (taskData, upload, ids) {
   const v = td.video || {}
   const vi = (upload && upload.videoInfo) || {}
   const mediaUrl = vi.url || (vi.data && vi.data.url) || ''
+  // 2026-10-24（逆向文档 §二⑦ / §三）：发布体字段族由《视频号发布链深挖》给出
+  // —— videoCover / title / description / isOriginal / locationKeyword / topic。
+  // 形状为 INFERRED（文档明示未闭合），故一律给安全默认值，不猜测嵌套结构。
+  const cover = td.cover || {}
   return {
+    title: td.title || '',
+    isOriginal: td.isOriginal === true ? 1 : 0,
+    videoCover: (cover.path || cover.url) ? { path: cover.path || '', url: cover.url || '' } : null,
+    topic: Array.isArray(td.tags) ? td.tags.join(',') : '',
+    locationKeyword: td.location || '',
     description: composeShipinhaoDescription(td),
     media: { videoId: (upload && upload.uploadId) || '', url: mediaUrl, width: v.width, height: v.height, duration: v.duration },
     location: null,
