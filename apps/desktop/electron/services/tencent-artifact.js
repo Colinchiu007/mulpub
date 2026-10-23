@@ -73,7 +73,7 @@ async function confirmPublished (win, title, opts) {
   let diag = 'url=? readyState=?'
   try {
     diag = await win.webContents.executeJavaScript('(function(){return "url="+location.href+" readyState="+document.readyState+" text="+((document.body&&document.body.innerText)||"").replace(/\\s+/g," ").slice(0,80)})()', true)
-  } catch (_e) {}
+  } catch (_e) { /* 诊断探针失败：diag 保持 'url=? readyState=?' 默认值，不影响判定 */ }
   if (log) log.warn('RpaView', '[tencent_video] artifact 诊断 ' + diag)
   const detail = 'post-list-timeout:textLen=' + lastLen
   if (log) log.warn('RpaView', '[tencent_video] artifact 未命中（' + detail + '）')
