@@ -116,7 +116,7 @@ platforms:
     # 自相矛盾，使视频号完整链（src/publish/platforms/shipinhao-video.js，
     # 分片 + Content-MD5 + post_draft/post_create 双分支，带链级测试）从未被触发。
     has_api: true
-    publishMode: dom-only   # 2026-10-23：API 轨独占任务且无可观测日志，先走 DOM 验证文字锚点拖放
+    publishMode: api-then-dom   # 2026-10-24：API 链已补 auth_data 前置（逆向文档 §二①），恢复 API 优先、失败降级 DOM
     enabled: true
   kuaishou:
     id: 35
