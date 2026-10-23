@@ -764,3 +764,33 @@ publishMode: dom-only  # 2026-10-23 为验证 DOM 拖放而临时改，之后未
 | 1 | CDN 404：比对 `X-Arguments` 原文与竞品样本（长度/字段序/base64） | 高（纯本地） |
 | 2 | 发表点击：点前打印按钮 `disabled` 与 `outerHTML` 前 200 字 | 高（一次运行） |
 | 3 | `post_create` body：文档标注 INFERRED，需抓包 | 中 |
+
+### 8.25 补记：applyuploaddfs 404 与 query 无关（2026-10-24 02:04）
+
+按竞品原文把 URL 上的 `?size=&taskid=&scene=2` **全部去掉**后重跑：
+
+```
+18:04:20  [tencent_video] using API publish engine...
+18:04:21  API publish tencent_video: 404  host=finderassistancea.video.qq.com
+```
+
+同一次运行里 step1 `helper_upload_params` 返回 `errCode:0` 并给出 `authKey`。
+
+**至此请求形态已与竞品逐项对齐**：
+
+| 项 | 竞品 | 我方 |
+| --- | --- | --- |
+| URL | `/applyuploaddfs`（无 query） | ✅ 已一致 |
+| body | `{BlockSum, BlockPartLength}` | ✅ 一致 |
+| `X-Arguments` | `apptype=251&filetype=&weixinnum=&filekey=&filesize=&taskid=&scene=2` | ✅ 逐字一致 |
+| `Authorization` | `authKey` | ✅ 一致 |
+| `Content-MD5` | `"null"` | ✅ 一致 |
+| `Referer` / `Origin` | `https://channels.weixin.qq.com/` | ✅ 一致 |
+
+**结论**：404 不可能再由「请求内容不对」解释。剩余可疑项只有两类，
+且都不在业务代码里：
+1. **出口/TLS 指纹**：CDN 对非客户端 TLS 指纹返回 404（微信 CDN 常见做法）；
+2. **账号/风控**：该 authKey 绑定的场景在服务端被拒。
+
+**因此视频号应走 DOM 链路**（上传已证实成功：`publishBtnAfter:true`），
+把「发表点击为何不发请求」作为唯一待办 —— 下一步判据：点前打印按钮 `disabled` 与 `outerHTML` 片段。
