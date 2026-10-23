@@ -195,8 +195,10 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
             log.warn('RpaView', '[' + platform + '] file inputs on page: ' + shape)
           } catch (_e9) { /* 诊断失败忽略 */ }
           // 2026-10-23：视频号页面无 input[type=file]，改走 CDP 文件选择器拦截。
-          if (platform === 'tencent_video') {
-            const chooserDone = await this._uploadViaFileChooser(win, article.video_path)
+          if (platform === 'tencent_video') { // chooserGuard
+            let chooserDone = false
+            try { chooserDone = await this._uploadViaFileChooser(win, article.video_path) }
+            catch (_e10) { log.warn('RpaView', '[tencent_video] chooser threw: ' + _e10.message) }
             if (chooserDone) {
               const ok = await this._waitForVideoUploadComplete(win, platform, 600000, { fileBytes: readVideoFileBytes(article.video_path) }).catch(() => false)
               fillReport.upload = ok ? { ok: true } : { ok: false, detail: '选择器注入后未等到上传完成信号' }
@@ -291,8 +293,10 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
     const path = require('path')
     const dbg = win.webContents.debugger
     let attachedHere = false
-    if (!dbg.isAttached()) { dbg.attach('1.3'); attachedHere = true }
     try {
+      // attachGuard（2026-10-23）：attach 必须在 try 内——发布网络捕获已附着同一 target 时
+      // attach 会抛「Another debugger is already attached」，此前它写在外面导致整轮静默。
+      if (!dbg.isAttached()) { dbg.attach('1.3'); attachedHere = true }
       await dbg.sendCommand('Page.enable')
       await dbg.sendCommand('DOM.enable')
       await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
