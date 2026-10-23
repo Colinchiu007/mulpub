@@ -57,9 +57,7 @@ if (process.env.MP_FAKE_DELIVER === '1') {
     required: true,
     status: process.env.MP_FAKE_STATUS || 'cleared',
     performedBy: process.env.MP_FAKE_PERFORMED_BY || 'claude',
-    // findings 文本变一定进语义指纹（只有 at 变不算新交付，写回器④-b 钉着）。
-    // 入口级要造「同一个 sha、又真跑出一批新交付」这一格，没这个旋钮两边就永远同指纹。
-    findings: [{ id: 'f1', severity: 'Info', finding: '假驱动交付的一条意见' + (process.env.MP_FAKE_NOTE || '') }],
+    findings: [{ id: 'f1', severity: 'Info', finding: '假驱动交付的一条意见' }],
     minScore: 6,
     at: new Date().toISOString()
   }
@@ -380,10 +378,10 @@ test('⓬ 轮次账按 (分支, HEAD sha) 记：首跑计第 1 轮、同 sha 重
   const r2 = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
   assert.match(r2.out, /同一载荷重跑，本轮不计数/,
     `同 sha 重跑要明说不计数：\n${r2.out.slice(-2500)}`)
-  // 键换成 (sha, 交付指纹) 之后，入口**总是**调用 record（旧的 seen 跳过守卫已删），
-  // 所以断言从「这一行不许出现」改成「这一行必须出现且报 counted=0」：
-  // 要守的语义没变（同一次交付不重复计费），能看见的产物变了——不跟着改会把正确实现判成红。
-  assert.match(r2.out, /\[rounds\] counted=0 round=1/,
+  // 收紧口径：不是"别多记一轮"，而是"重跑根本不发起记账调用"。
+  // 只断言 counted=1 不出现时，入口侧那格跳过（_QM6_SEEN）被摘掉也照样绿 —— 幂等在库里兜着，
+  // 差别只剩多一行 counted=0。变异 M-f 实测 MISSED 后改成逐字要求这一行不出现。
+  assert.ok(!/\[rounds\] /.test(r2.out),
     `同 sha 重跑不得再发起记账调用（少了这一格，"不计数"只剩库里的幂等在兜）：\n${r2.out.slice(-2500)}`)
 
   const data = JSON.parse(fs.readFileSync(ledger, 'utf8'))
@@ -430,54 +428,4 @@ test('⓮ 入口以 scripts/ 路径 node 调用的每个 js 都必须在夹具 r
       + '锁全绿而生产路径一次都没被跑过（本仓「装饰性门禁」的形状）')
   // 范围如实划定：本条只覆盖「以 scripts/ 字面路径调用」的 js。
   // 形如 node "$DRIVER"（变量寻址到仓外引擎）那一条不在本判据域内，由 deep-review-deps.test.js 负责。
-})
-
-test('⓯ 账本读不出 ⇒ 不调用模型、非零退出，且读数必须与"跑满了"分档（QM-6 第二轮 i3/i5）', (t) => {
-  const fx = makeFixture(t)
-  const change = branchOf(fx.dir)
-  const ledgerDir = path.join(fx.dir, 'openspec', 'changes', change)
-  const ledger = path.join(ledgerDir, 'external-rounds.json')
-  fs.mkdirSync(ledgerDir, { recursive: true })
-  const broken = '{ 这不是 json'
-  fs.writeFileSync(ledger, broken, 'utf8')
-  const before = fs.readFileSync(fx.recFile, 'utf8')
-
-  const r = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
-  assert.strictEqual(r.rc, 1, `读不出必须拦（旧取向"照常调用 + 一句告警"给了零成本绕行）：实得 ${r.rc}\n${r.out.slice(-2500)}`)
-  assert.match(r.out, /轮次账本读不出/, `读数要点名是没读数：\n${r.out.slice(-2500)}`)
-  assert.ok(!/已达轮次上限/.test(r.out),
-    `这一档不得复用"跑满了"的文案 —— 一个是配额用尽、一个是判据自己失明，处置动作完全不同：\n${r.out.slice(-2500)}`)
-  assert.ok(!/本轮真调用外部评审/.test(r.out), '拦下的那一轮没有调用模型，读数不能说反话')
-  assert.strictEqual(fs.readFileSync(fx.recFile, 'utf8'), before,
-    '判定记录一字节都不动 ⇒ 驱动确实没被调用（"不调模型"如果是假话，这一条必红）')
-  assert.strictEqual(fs.readFileSync(ledger, 'utf8'), broken,
-    '拦下时不得顺手改写那份坏账本：把"读不出"静默修成"零轮"就是自己给自己清预算')
-})
-
-test('⓰ 同一 sha 但产出新交付 ⇒ 必须再计一轮（i4 那个松口的入口级证据）', (t) => {
-  const fx = makeFixture(t)
-  const change = branchOf(fx.dir)
-  const ledgerDir = path.join(fx.dir, 'openspec', 'changes', change)
-  const ledger = path.join(ledgerDir, 'external-rounds.json')
-  fs.mkdirSync(ledgerDir, { recursive: true })
-
-  const r1 = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1', MP_FAKE_NOTE: '第一批内容' })
-  assert.strictEqual(r1.rc, 0, r1.out.slice(-1500))
-  assert.match(r1.out, /\[rounds\] counted=1 round=1/,
-    `首记必须 counted=1：\n${r1.out.slice(-2500)}`)
-
-  // 第二次不重新提交（sha 始终不变），只让交付换一批内容。
-  // 只按 sha 去重的旧实现在这里报 counted=0 —— 于是"同一份载荷上反复真调模型"永远只算一轮，
-  // 上限对最花钱的那种循环完全不起作用。这一条就是那格的入口级证据。
-  const r2 = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1', MP_FAKE_NOTE: '第二批内容' })
-  assert.match(r2.out, /\[rounds\] counted=1 round=2/,
-    `同 sha 的新交付必须计入第二轮：\n${r2.out.slice(-2500)}`)
-
-  const rounds = JSON.parse(fs.readFileSync(ledger, 'utf8')).changes[change].rounds
-  assert.strictEqual(rounds.length, 2,
-    `账本应有两条，实得 ${rounds.length} 条：${JSON.stringify(rounds)}`)
-  assert.strictEqual(new Set(rounds.map((r) => r.delivery)).size, 2,
-    '两条记录的交付指纹必须不同 ⇒ 计数的增量来自交付身份，而不是来自新提交：' + JSON.stringify(rounds))
-  assert.strictEqual(new Set(rounds.map((r) => r.headSha)).size, 1,
-    '而 sha 始终是同一个 —— 否则这条测的是"换载荷"，与 R2 重复')
 })

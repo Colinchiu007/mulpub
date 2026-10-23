@@ -1,0 +1,61 @@
+{
+  "sha": "d21b86b21a46b41951f584a465bfae9152085afb",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 678 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 678,
+    "fileCount": 10,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 13,
+    "docSensitiveContentSample": [
+      "> 动因与授权见 change 末尾「授权与顺序」，实现从 tasks §1 起。",
+      "> ⇒ 开工前提是**一次仓外引擎改动的人工授权**，并与 PR #4304 那份规格对齐（不得各建一份否证登记）。",
+      "> 自己拼 `mc.callCritic({ proposalText })`，仓内没有任何注入点 ⇒ 开工需要一次**仓外引擎改动的人工授权**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ce447d98e00d7e6a3d2d5d35ec773495d4abc08d87f737465e1a6635ae997301",
+  "decidedAt": "2026-10-23T06:55:02.810Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

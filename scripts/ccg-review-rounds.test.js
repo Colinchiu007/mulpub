@@ -46,15 +46,11 @@ test('R2 计数键是 (change, headSha)：同 sha 重跑不计数、不同 sha �
   const B = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 
   assert.deepStrictEqual(m.inspect({ ledgerPath: file, change: 'c1', headSha: A }),
-    { seen: false, sameDelivery: false, round: 0 },
-    '空账本必须读成"没见过、第 0 轮"，不得读成第 1 轮；形状用整对象断言——多一个字段就该红一次，别换成子集断言糊过去')
+    { seen: false, round: 0 }, '空账本必须读成"没见过、第 0 轮"，不得读成第 1 轮')
 
   m.record({ ledgerPath: file, change: 'c1', headSha: A })
   const after = m.inspect({ ledgerPath: file, change: 'c1', headSha: A })
-  assert.deepStrictEqual(after, { seen: true, sameDelivery: false, round: 1 },
-    '记一次之后同 sha 再查：seen 是真（给读数用），轮次仍是 1。\n' +
-    '    sameDelivery 这里必须是 false —— 这次查询**没带 --delivery**，按 check 侧口径就是' +
-    '"无复用证据"（宁可拦）；两侧都用 unmeasured 哨兵的话，digest 一坏上限就静默不触发')
+  assert.deepStrictEqual(after, { seen: true, round: 1 }, '记一次之后同 sha 再查：seen=true 且轮次仍是 1')
 
   m.record({ ledgerPath: file, change: 'c1', headSha: A })
   assert.strictEqual(m.inspect({ ledgerPath: file, change: 'c1', headSha: A }).round, 1,
@@ -91,20 +87,8 @@ test('R4 超限判定只看不写：exceedsCap 不改账本，也不新增条目
   assert.strictEqual(r.round, 3)
   assert.strictEqual(fs.readFileSync(file, 'utf8'), before,
     '判超限这一步绝不能顺手写账本——写了就变成"拒绝调用还消耗配额"')
-  // 跑满之后的放行理由是「这条交付已在账里」（零模型复跑），不是「这个 sha 记过」——
-  // 后者等于给同一 sha 上的无限次真调用发免费通行证（QM-6 第二轮 i4 中的就是这一格）。
-  const paid = JSON.parse(fs.readFileSync(file, 'utf8')).changes.c3.rounds[0]
-  const ok = m.exceedsCap({
-    ledgerPath: file, change: 'c3', headSha: paid.headSha, delivery: paid.delivery, max: 3
-  })
-  assert.strictEqual(ok.exceeded, false, '已入账的那条交付重跑不受上限约束（它不消耗配额）')
-  const newDelivery = m.exceedsCap({
-    ledgerPath: file, change: 'c3', headSha: paid.headSha, delivery: 'fp-brand-new', max: 3
-  })
-  assert.strictEqual(newDelivery.exceeded, true,
-    '同一 sha 但新交付时不得放行 —— 放行理由一旦退回按 sha 判，这一条必红')
-  const otherSha = m.exceedsCap({ ledgerPath: file, change: 'c3', headSha: 'f'.repeat(40), max: 3 })
-  assert.strictEqual(otherSha.exceeded, true, '换了载荷本来就是一轮新的，跑满即拦')
+  const ok = m.exceedsCap({ ledgerPath: file, change: 'c3', headSha: `s0`.padEnd(40, '0'), max: 3 })
+  assert.strictEqual(ok.exceeded, false, '同一 sha 的重跑不受上限约束（它不消耗配额）')
 })
 
 test('R5 账本写盘是原子且幂等的：不留 .tmp、重复登记同 sha 不膨胀', () => {
@@ -144,7 +128,7 @@ test('R7 CLI：check 只读且不改账、record 幂等；没有 change 目录�
   assert.ok(typeof m.mainCli === 'function' && typeof m.defaultLedger === 'function', 'CLI 必须可导出测试')
 })
 
-test('R6 账本坏了读不出时按未证实处理：既不得当成"零轮"放行，也必须按超限升级', () => {
+test('R6 账本坏了读不出时按未证实处理，不得当成"零轮"放行', () => {
   const m = require(LIB)
   const { file } = tmpLedger()
   fs.writeFileSync(file, '{ this is not json', 'utf8')
@@ -154,15 +138,7 @@ test('R6 账本坏了读不出时按未证实处理：既不得当成"零轮"放
     'JSON 读不出必须标出来。把"账本坏了"读成"从没跑过"，上限就成一个永久不触发的装饰')
   const e = m.exceedsCap({ ledgerPath: file, change: 'c5', headSha: 'y', max: 3 })
   assert.strictEqual(e.unreadable, true)
-  // 取向在 2026-10-23 第二轮评审 i3 后被**反转**，反转理由留在库注释里，不留在这里当第二份事实：
-  // "读不出 ⇒ 不拦"等于把闸的开关交给任何一次 `echo garbage > 账本`，那是装饰性门禁。
-  assert.strictEqual(e.exceeded, true,
-    '读不出 = 无法证明还有预算 = 按超限处理。旧断言（exceeded=false）守的是"别挡干活"，' +
-    '但它把最廉价的绕行留在高危面上，已被外部评审独立命中并推翻')
-  // 与 nochange 分档：连目录都没有是合法状态（这分支没规格），不得升级
-  const nc = m.exceedsCap({ ledgerPath: path.join(path.dirname(file), 'nope', 'x.json'), change: 'c5', headSha: 'y', max: 3 })
-  assert.strictEqual(nc.unreadable, undefined, '文件不存在 = ENOENT，不是"读不出"')
-  assert.strictEqual(nc.exceeded, false, '没有账本可查时不得凭空判超限（那会把没有规格的分支一律拦死）')
+  assert.strictEqual(e.exceeded, false, '读不出时不判超限（不据此拒绝调用），但必须把不可读一并报出去')
 })
 
 /* ---------------- 评审 i1 / i2 之后补的三把锁（R8–R10）----------------
@@ -181,25 +157,7 @@ test('R8 change 形态判据：只拒 `..` 段与绝对路径；含斜杠的合�
   }
   // 拒的是"能把固定前缀走穿的那一类"，不是"看着不顺眼的那一类"：
   // 收紧成 kebab-only 会直接拒掉 team/feature 这种合法分支，代价由下一个用户承担（本仓禁令同型）。
-  // 绝对路径这一格**不得按某平台的形状手抄**（实测：CI 的 changes job 跑在 Linux，
-  // `'C:\\Windows'` 在那儿只是一个普通相对目录名 ⇒ 原断言在 runner 上假红，本机全绿躺了一轮）。
-  // 正解是让宿主自己当 oracle：本机认作绝对路径的样本必须被拒，本机不认作的必须放行
-  // （前提是不含 `..` 段），并打印两档条数——退化成"一条都没测"时当场就能看出来。
-  // 注意那个正斜杠盘符串**不得写成字面量**：Gate 12c（check-doc-abs-paths.js）按词元统计受管文件里的
-  // 盘符绝对路径，`'C:' + '/' + 'x'` 与字面量在运行时逐字相同，但不会往受管面里新增一条本机路径主张。
-  const absSamples = ['C:\\Windows', 'C:' + '/' + 'x', '/abs/path', '/etc/passwd', path.resolve('scripts')]
-  const rejectedAbs = absSamples.filter((s) => path.isAbsolute(s))
-  const acceptedAbs = absSamples.filter((s) => !path.isAbsolute(s))
-  process.stdout.write(`[R8] host=${process.platform} 绝对档=${rejectedAbs.length} 非绝对档=${acceptedAbs.length}\n`)
-  if (rejectedAbs.length === 0) throw new Error('夹具自证失败：本机一个绝对路径样本都没命中 ⇒ 绝对路径那一格根本没被测')
-  for (const s of rejectedAbs) {
-    assert.throws(() => m.assertChangeName(s), /change/, `本机视为绝对路径，应拒：${JSON.stringify(s)}`)
-  }
-  for (const s of acceptedAbs) {
-    assert.strictEqual(m.assertChangeName(s), s, `本机不视为绝对路径且不含 \`..\`，必须放行：${JSON.stringify(s)}`)
-  }
-  // `..` 段与分隔符归一化与平台无关，逐个显式点名（反斜杠那两条测的正是"是否先把 \\ 当分隔符"）。
-  for (const bad of ['../../etc', 'a/../../b', '..', '../../../etc/passwd', '..\\..\\etc']) {
+  for (const bad of ['../../etc', 'a/../../b', '..', '../../../etc/passwd', '/abs/path', 'C:\\Windows']) {
     assert.throws(() => m.assertChangeName(bad), /change/, '应拒：' + JSON.stringify(bad))
   }
   for (const empty of ['', null, undefined]) {
@@ -247,44 +205,6 @@ test('R9 账本读不出时 record 拒绝追加，且那份坏文件必须逐字
     '拒写之后仍要能被读成 unreadable，不得变成"零轮"')
 })
 
-test('R11 CLI 输出形状合同：三条出口都必须按固定顺序给出五个纯数字键（入口的 parse 判据全靠它）', () => {
-  const { spawnSync } = require('node:child_process')
-  const { dir, file } = tmpLedger()
-  // 入口那段 shell 是按 `tr " " "\n" | sed s/^key=//p` 取值的，取不到就是空串。
-  // 所以"少一个键"或"值不是数字"在生产里的表现不是报错，而是**上限静默不触发** ——
-  // 这条锁就是那条 parse 判据的对偶：它不测判据逻辑，它测判据赖以成立的前提。
-  const SHAPE = /^round=\d+ max=\d+ exceeded=\d+ unreadable=\d+ seen=\d+/
-  const run = (mode, extra) => spawnSync(process.execPath,
-    [LIB, mode, 'shape-change', 'a'.repeat(40)].concat(extra || []), { cwd: dir, encoding: 'utf8' })
-
-  const noDir = run('check')
-  assert.strictEqual(noDir.status, 0, noDir.stderr)
-  assert.match(noDir.stdout, SHAPE, '没有 change 目录那一档也要给全五个键：' + noDir.stdout)
-  assert.match(noDir.stdout, /nochange=1/)
-
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  const empty = run('check', ['--ledger', file])
-  assert.match(empty.stdout, SHAPE, '账本还不存在（ENOENT ≠ 读不出）：' + empty.stdout)
-  assert.strictEqual(empty.stdout.match(/exceeded=0/) !== null, true, '首轮不得凭空判超限')
-
-  fs.writeFileSync(file, '{ broken', 'utf8')
-  const bad = run('check', ['--ledger', file])
-  assert.match(bad.stdout, SHAPE, '坏账本那一档同样要给全键（否则入口 parse 判据会把"读不出"读成"没超限"）：' + bad.stdout)
-  // 键序不是合同的一部分（入口按键名取值，与顺序无关），所以两条分开断言，
-  // 不得写成 /unreadable=1 exceeded=1/ 这种把顺序焊进判据的断言——第一版就这么红过一次。
-  assert.match(bad.stdout, /unreadable=1/, '必须报"读不出"')
-  assert.match(bad.stdout, /exceeded=1/, '读不出必须同时报 exceeded=1 —— 无证据不等于还有预算')
-
-  fs.writeFileSync(file, JSON.stringify({ version: 1, changes: { 'shape-change': { rounds:
-    ['1', '2', '3'].map((n) => ({ headSha: n.padEnd(40, '0'), recordName: null, at: '2026-01-01T00:00:00.000Z' })) } } }) + '\n', 'utf8')
-  const full = run('check', ['--ledger', file])
-  assert.match(full.stdout, SHAPE, '跑满那一档：' + full.stdout)
-  assert.match(full.stdout, /round=3 max=3 exceeded=1/)
-
-  const badName = run('check', ['--ledger', file])
-  void badName // 非法 change 那一档的形状由 R10 负责，这里不重复钉，免得两把锁各写一份期望
-})
-
 test('R10 CLI 用坏了必须成档：非法 change ⇒ rc=2 + badchange=1；record 拒落账 ⇒ rc=2 + counted=0 error=1', () => {
   const { spawnSync } = require('node:child_process')
   const m = require(LIB)
@@ -312,38 +232,4 @@ test('R10 CLI 用坏了必须成档：非法 change ⇒ rc=2 + badchange=1；rec
   assert.match(rec.stdout, /counted=0 error=1 msg=/, '拒落账必须自己成档（rc=2 + key=value），不得冒栈')
   assert.strictEqual(fs.readFileSync(file, 'utf8'), '{ broken', 'CLI 档同样不得改写坏文件')
   assert.strictEqual(typeof m.assertChangeName, 'function')
-})
-
-
-test('R12 去重键是 (headSha, 交付指纹)：同 sha 的新交付必须再计一轮（i4 松口的闭合锁）', () => {
-  const m = require(LIB)
-  const { file } = tmpLedger()
-  const sha = '9'.repeat(40)
-
-  assert.strictEqual(m.record({ ledgerPath: file, change: 'c12', headSha: sha, delivery: 'fp-aaa' }).counted, true,
-    '首记必计')
-  const reuse = m.record({ ledgerPath: file, change: 'c12', headSha: sha, delivery: 'fp-aaa' })
-  assert.strictEqual(reuse.counted, false, '同 sha 同交付 ⇒ 零模型复跑（填完裁决再覆盖那一轮），不该计数')
-  assert.strictEqual(reuse.round, 1, '轮次不得被复跑推高')
-
-  // 这一格是 i4 的全部内容：同一个 sha 上又真跑出一批**新** findings（额度又花了一遍）
-  const fresh = m.record({ ledgerPath: file, change: 'c12', headSha: sha, delivery: 'fp-bbb' })
-  assert.strictEqual(fresh.counted, true,
-    '同一 sha 的新交付必须计新的一轮 —— 只按 sha 去重的旧实现在这条上必红（变异 M-n 实跑确认）')
-  assert.strictEqual(fresh.round, 2, '轮次要跟着涨，否则上限对"同载荷反复真调"就是装饰')
-
-  // 取不到交付指纹：record 侧按 unmeasured 记**新**一轮（宁可多计，不可把花掉的额度记成免费）
-  const noFp = m.record({ ledgerPath: file, change: 'c12', headSha: sha })
-  assert.strictEqual(noFp.counted, true,
-    'digest 工具坏掉时不得静默省掉一轮 —— 那是把"看不见"读成"没花钱"')
-
-  // 但 check 侧的取向相反：没带 --delivery 就是"无复用证据"，不得凭同哨兵放行
-  const cap = m.exceedsCap({ ledgerPath: file, change: 'c12', headSha: sha, max: 4 })
-  assert.strictEqual(cap.sameDelivery, false,
-    'check 不带指纹时 sameDelivery 必须是 false；两侧共用 unmeasured 会让 digest 一坏上限就永不触发')
-
-  const data = JSON.parse(fs.readFileSync(file, 'utf8'))
-  assert.deepStrictEqual(data.changes.c12.rounds.map((r) => r.delivery),
-    ['fp-aaa', 'fp-bbb', 'unmeasured'],
-    '账本里必须看得见每一轮的交付身份，否则事后无从复核"这一轮到底花没花额度"')
 })

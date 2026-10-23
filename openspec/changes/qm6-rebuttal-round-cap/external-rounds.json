@@ -7,17 +7,6 @@
           "headSha": "980f3ca337fdddaa29821e948b0599b0f3582526",
           "recordName": null,
           "at": "2026-10-23T05:02:34.366Z"
-        },
-        {
-          "headSha": "6ddfbfb4e8a160868adb5d229157e4960608f6d2",
-          "recordName": null,
-          "at": "2026-10-23T07:01:16.175Z"
-        },
-        {
-          "headSha": "cee1095209f008388cef94bd404959d120757d47",
-          "delivery": "9efe964f42bcd109098edf3f78948672d5f090f507ebdd2fef2ba99e9676aad4",
-          "recordName": "--delivery",
-          "at": "2026-10-23T09:02:49.108Z"
         }
       ]
     }

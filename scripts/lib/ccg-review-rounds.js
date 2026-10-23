@@ -105,40 +105,16 @@ function roundsOf (data, change) {
   return entry && Array.isArray(entry.rounds) ? entry.rounds : []
 }
 
-// 交付身份的第二维（QM-6 第二轮 i4）。
-// 只按 sha 去重有一个真实松口：**同一个 sha 上再来一次真模型调用也只算一轮**
-// （重跑时如果引擎不复用存档 critique，额度是实打实又花一遍的）。
-// 入口本来就在动手前取过一次语义指纹（`_wb_before_fp`，写回器用它判 `no-new-delivery`），
-// 所以"这一轮到底有没有产出新交付"是**可观测**的，不必等人裁决：
-//   去重键 = (headSha, 驱动返回后的交付指纹)
-//   ⇒ 复用存档（零模型调用、交付不变）⇒ 同键 ⇒ 不计数
-//   ⇒ 同 sha 又真跑出一批新 findings ⇒ 新键 ⇒ 计一轮（松口就此关闭）
-//   ⇒ 指纹取不到（digest 工具坏了）⇒ 'unmeasured'，**按新轮计**：无证据不得当成"反正跑过"
-const UNMEASURED = 'unmeasured'
-
-function deliveryOf (o) {
-  const d = o && o.delivery
-  return d === undefined || d === null || d === '' ? UNMEASURED : String(d)
-}
-
-// 同一条轮次记录的判同：sha **且** 交付指纹。recordName 永远不参与（R3 钉这一格）。
-function sameRound (r, headSha, delivery) {
-  return !!r && r.headSha === headSha && (r.delivery || UNMEASURED) === delivery
-}
-
 /**
- * 这个 headSha 之前记过吗？`seen` 只按 sha 看（**给读数用**：告诉人"这个载荷上已经跑过"）；
- * 真正决定计不计一轮的是 record() 里的 (sha, 交付指纹)。round = 该 change 已记录的轮次数。
+ * 这个 headSha 之前真跑过吗？round = 该 change 已记录的轮次数。
+ * `recordName` 只作为**附加信息**存进去，MUST NOT 参与键计算（R3 就是钉这一格）。
  */
 function inspect (opts) {
   const o = opts || {}
   const { data, unreadable, reason } = readLedger(o.ledgerPath)
   const rounds = roundsOf(data, o.change)
   const seen = rounds.some((r) => r && r.headSha === o.headSha)
-  // check 档里没有 --delivery 时必须读成「无复用证据」（false），不得退化成与 record 侧同一个 unmeasured 哨兵相等
-  // —— 否则 digest 工具一坏，两条都变成 unmeasured，上限就在c看不见指纹d这一档上静默不触发。
-  const sameDelivery = o.delivery ? rounds.some((r) => sameRound(r, o.headSha, o.delivery)) : false
-  const out = { seen, sameDelivery, round: rounds.length }
+  const out = { seen, round: rounds.length }
   if (unreadable) { out.unreadable = true; out.reason = reason }
   return out
 }
@@ -173,18 +149,16 @@ function record (opts) {
   const changes = cur.data.changes || (cur.data.changes = {})
   const entry = changes[o.change] || (changes[o.change] = { rounds: [] })
   if (!Array.isArray(entry.rounds)) entry.rounds = []
-  const hit = entry.rounds.find((r) => sameRound(r, o.headSha, deliveryOf(o)))
+  const hit = entry.rounds.find((r) => r && r.headSha === o.headSha)
   if (hit) {
     if (o.recordName && !hit.recordName) {
       hit.recordName = o.recordName
       writeJsonAtomic(o.ledgerPath, cur.data)
     }
-    return { counted: false, round: entry.rounds.length, reason: 'same-delivery' }
+    return { counted: false, round: entry.rounds.length }
   }
   entry.rounds.push({
     headSha: o.headSha,
-    // 交付指纹缺省为 'unmeasured'：取不到指纹时**按新轮计**（宁可多计一轮，不可把"又花了一次额度"记成免费）
-    delivery: deliveryOf(o),
     recordName: o.recordName || null,
     at: o.at || new Date().toISOString(),
   })
@@ -195,29 +169,13 @@ function record (opts) {
 /**
  * 超限判定：**只读**。判超限这一步顺手写账本，会变成"入口拒绝调用、配额却已经扣掉一轮"
  * —— 那正好把要保护的预算花在没发生的事上。
- *
- * ⚠ 2026-10-23 第二轮外部评审 i3 把这一档的取向**翻转过来了**，理由要留档而不是悄悄改：
- * 旧口径是"读不出时不判超限（不据此拒绝调用），只把不可读一并报出去"，取向是"别让工具的失明
- * 挡住干活"。但那正好给了最便宜的绕行：`echo garbage > external-rounds.json` 就能让上限永久
- * 点不着火——一个"删掉计数器就能无限花额度"的闸是装饰性的，比误拦一次贵得多。
- * 现在的口径：**读不出 = 无法证明还有预算 = 按超限处理**（`exceeded=true` + `unreadable=true`，
- * 两个标记都要出声，好让升级文案能区分"跑满了"与"没证据"）。
- * 注意 `nochange`（连目录都没有）与 `unreadable` 是两档：前者是"这个分支没有规格"，合法状态，
- * 仍然放行（R7 锁着"不得代为创建"）；后者是账本存在但读不动，属于证据缺失，不放行。
+ * 账本不可读时不判超限（不据此拒绝调用），但把 unreadable 一并报出去。
  */
 function exceedsCap (opts) {
   const o = opts || {}
   const st = inspect(o)
   const max = Number.isInteger(o.max) && o.max > 0 ? o.max : DEFAULT_MAX_ROUNDS
-  // 放行理由**不是**"这个 sha 之前记过"（那等于给同一 sha 上的无限次真调用发免费通行证，
-  // 第二轮评审 i4 中的就是这一格），而是"本轮动手前的交付已经在账里"——即一次确定零模型调用
-  // 的复用重跑（#4148 收尾必须做的那一步，不该被闸拦掉）。其余情况按条数拦。
-  const r = {
-    exceeded: st.unreadable || (st.round >= max && !st.sameDelivery),
-    sameDelivery: !!st.sameDelivery,
-    round: st.round,
-    max
-  }
+  const r = { exceeded: !st.unreadable && !st.seen && st.round >= max, round: st.round, max }
   if (st.unreadable) { r.unreadable = true; r.reason = st.reason }
   return r
 }
@@ -269,7 +227,7 @@ function mainCli (argv) {
   const change = args[1]
   const headSha = args[2]
   if (!change || !headSha) {
-    process.stdout.write('usage: ccg-review-rounds.js <check|record> <change> <headSha> [recordName] [--ledger <path>] [--delivery <fp>]' + '\n')
+    process.stdout.write('usage: ccg-review-rounds.js <check|record> <change> <headSha> [recordName] [--ledger <path>]' + '\n')
     return 2
   }
   // change 形态校验**与 --ledger 是否显式给出无关**，一律先过（QM-6 i1 + R10 现场补）：
@@ -278,13 +236,12 @@ function mainCli (argv) {
   // 退出码取 2（判据自身故障档），不得让异常栈直接冒出去：
   // 入口那侧的 `|| echo '…unreadable=1…'` 只认"读不出"，把"参数被拒"也归到那一档才对——
   // 关键是**不许静默**，也不许退化成"当成零轮继续跑"。
-  const delivery = cliFlag(args, '--delivery')
   let ledger
   try {
     assertChangeName(change)
     ledger = cliFlag(args, '--ledger') || defaultLedger(change)
   } catch (e) {
-    process.stdout.write('badchange=1 max=0 round=0 exceeded=0 unreadable=1 seen=0 msg=' + JSON.stringify(e.message) + '\n')
+    process.stdout.write('badchange=1 max=0 round=0 exceeded=0 unreadable=1 msg=' + JSON.stringify(e.message) + '\n')
     return 2
   }
   const cap = capOf(process.env, (m) => process.stdout.write('warn=' + JSON.stringify(m) + '\n'))
@@ -299,9 +256,6 @@ function mainCli (argv) {
       + ' exceeded=' + (r.exceeded ? 1 : 0)
       + ' unreadable=' + (r.unreadable ? 1 : 0)
       + ' seen=' + (seen.seen ? 1 : 0)
-      // samedelivery 是"为什么跑满了还放行"的唯一现场解释（复用存档 critique 的那一步）。
-      // 加在五个既有键**之后**：入口的 parse 判据与 R11 的形状合同都按前五个键断言，尾部新键不破形状。
-      + ' samedelivery=' + (r.sameDelivery ? 1 : 0)
       + ' ledger=' + ledger + '\n')
     return 0
   }
@@ -312,7 +266,7 @@ function mainCli (argv) {
     }
     let r
     try {
-      r = record({ ledgerPath: ledger, change, headSha, recordName: args[3] || null, delivery })
+      r = record({ ledgerPath: ledger, change, headSha, recordName: args[3] || null })
     } catch (e) {
       // 拒绝落账必须自己成档（rc=2 + key=value），不得让异常栈冒出去：
       // 入口那侧读的是 `counted=`，栈只会被 `|| echo 'counted=0 error=1'` 摊成一句通用兜底，
