@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "changes": {
+    "qm6-rebuttal-round-cap": {
+      "rounds": [
+        {
+          "headSha": "980f3ca337fdddaa29821e948b0599b0f3582526",
+          "recordName": null,
+          "at": "2026-10-23T05:02:34.366Z"
+        },
+        {
+          "headSha": "6ddfbfb4e8a160868adb5d229157e4960608f6d2",
+          "recordName": null,
+          "at": "2026-10-23T07:01:16.175Z"
+        }
+      ]
+    }
+  }
+}

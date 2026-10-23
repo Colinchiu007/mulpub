@@ -1,0 +1,61 @@
+{
+  "sha": "d21b86b21a46b41951f584a465bfae9152085afb",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 912 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 912,
+    "fileCount": 10,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 16,
+    "docSensitiveContentSample": [
+      "> 动因与授权见 change 末尾「授权与顺序」，实现从 tasks §1 起。",
+      "> ⇒ 开工前提是**一次仓外引擎改动的人工授权**，并与 PR #4304 那份规格对齐（不得各建一份否证登记）。",
+      "MUST 逐条保持现状。本 change 只交付**轮次上限**（它改变\"何时停手\"）；已否证清单的规格**不在本 delta 内**—— 见 PR #4304（`qm6-zero-human-closure`）与本 change tasks §2 的留稿，它改变的是\"重复指控的成本\"，且以一次仓外授权为前提。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "842dc2554a6ea96d0b131e9023bc5a876dd41cd8f467e65e9948e01b2883756b",
+  "decidedAt": "2026-10-23T08:59:52.919Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

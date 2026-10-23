@@ -1,7 +1,24 @@
 # 提案：外部深审的「已否证清单」与「轮次上限」
 
-> ⚠ **本篇只是合同，没有实现。** 三份文件（proposal / spec delta / tasks）落地即停手，代码一格未动。
-> 动因与授权见 change 末尾「授权与顺序」，实现从 tasks §1 起。
+> **状态（2026-10-23 更新）：§1 轮次上限已落地；§2 已否证清单未开工。**
+> 本篇最初只落合同（proposal / spec delta / tasks / 记录），实现从 tasks §1 起——那一刀现在落了，
+> 所以这一行从"没有实现"改成上面这句。**决策层曾按旧措辞点名 7 个文件"范围漂移"**，那不是钩子误报，
+> 是这句话没跟着差量走（QM-6 第一轮 i3，Critical，已采纳）。
+>
+> ### §1 落点（实现片的声明范围，供决策层比对）
+> - `scripts/lib/ccg-review-rounds.js`（新增，唯一实现）
+> - `scripts/ccg-review-rounds.test.js`（新增，库侧 R1–R10）
+> - `scripts/deep-review.sh`（改：上限检查在驱动之前、落账在驱动返回之后）
+> - `scripts/deep-review-entry-rc.test.js`（改：入口级 ⓬⓭⓮ + 夹具 require 闭包补一项）
+> - `.github/workflows/quality-gate.yml`（改：Gate 2b11 登记新测试 + 纠正耗时口径注释）
+> - `openspec/changes/qm6-rebuttal-round-cap/{proposal,tasks}.md`、`specs/qm6-rebuttal-round-cap/spec.md`、
+>   `openspec/records/qm6-rebuttal-round-cap.md`（改：落账与状态）
+> - `openspec/changes/qm6-rebuttal-round-cap/external-rounds.json`（新增，轮次账本本体 = 受管可见文件）
+>
+> ### §2 未落的落点（写在这里是为了让下一个会话不必猜）
+> `rebuttals[]` 的渲染与注入**没有**任何仓内实现：前读取数 tasks §0.2 实测注入点不存在，
+> critic 的任务文本由仓外引擎 `mc.callCritic({ proposalText })` 自己拼，仓内无参数化入口
+> ⇒ 开工前提是**一次仓外引擎改动的人工授权**，并与 PR #4304 那份规格对齐（不得各建一份否证登记）。
 
 ## Why
 
