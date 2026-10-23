@@ -82,8 +82,13 @@ test('回归②墓碑：并发 PR 把已还债的条目带回挂账时只提示�
   const base = { limit: 500, growthAllowance: 200, files: { [rel]: 598 }, pruned: { [rel]: 468 } };
   const res = G.evaluate(base, {}, { [rel]: 468 });
   assert.deepEqual(res.violations, [], '僵尸条目 + 墓碑 = 已知复活，不得阻断');
-  assert.equal(res.notices.length, 1);
-  assert.match(res.notices[0], /^LEDGER_RESURRECTED: apps\/desktop\/src\/components\/LogsSettings\.vue/);
+  // notice 多了「本地无 base 基线」那条：evaluate 多了 baseInfo 参数后契约变了
+  // （这条用例没传 baseInfo ⇒ targetAudit 走「本地无 base」的可见提示档）。
+  // 断言改成「集合里有 LEDGER_RESURRECTED 那条」而不是「它在第 0 位」——
+  // 后者等于把 notice 的排列顺序钉死，而新判据本来就会往最前面插自己的提示。
+  assert.equal(res.notices.length, 2, JSON.stringify(res.notices));
+  assert.ok(res.notices.some((n) => /^LEDGER_RESURRECTED: apps\/desktop\/src\/components\/LogsSettings\.vue/.test(n)),
+    '必须仍有 LEDGER_RESURRECTED 那条：' + JSON.stringify(res.notices));
 });
 
 test('回归③墓碑取消挂账豁免：同路径重新超限仍按新增债务阻断（僵尸条目不得当免死金牌）', () => {
@@ -646,5 +651,67 @@ test('targets 重锚：允许同 PR 上调，但只允许恰好锚定当前行�
   await t.test('只降不升：为还债而下调目标永远允许', () => {
     const r = G.evaluate(mkBase({ 'a.js': 90 }), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
     assert.deepEqual(r.violations, []);
+  });
+});
+
+// base 的取法本身必须被锁住：2026-10-23 实测 PR #4337 在主干上被判
+// `TARGET_BASE_UNAVAILABLE`，而同一份代码在本机 rc=0 —— 差的就是这一个 ref。
+// 根因：CI 的 actions/checkout 默认 fetch-depth: 1，既没有 origin/main 的远程跟踪 ref、
+// 也没有父提交 ⇒ `git show origin/main:...` 必然失败 ⇒ fail-closed 规则恒红。
+// 本组用例把「取不到 base 就必须能被取到」与「四条候选全落空必须返回 null」两件事都钉住。
+test('targets 重锚审计的 base 取法：取不到 origin/main 时必须能回落到 HEAD^，四条全落空才返回 null', async (t) => {
+  const mkRepo = (prefix) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix + '-'));
+    const env = gitEnv(root);
+    gitRun(root, ['init', '-q'], env);
+    const writeBase = (targets) => {
+      fs.mkdirSync(path.join(root, '.github', 'scripts'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.github', 'scripts', 'max-lines-baseline.json'),
+        JSON.stringify({ limit: 500, growthAllowance: 200, files: {}, targets }));
+    };
+    writeBase({ 'a.js': 100 });
+    gitRun(root, ['add', '-A'], env);
+    gitRun(root, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'base'], env);
+    writeBase({ 'a.js': 120 });
+    gitRun(root, ['add', '-A'], env);
+    gitRun(root, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'bump'], env);
+    return { root, env };
+  };
+
+  await t.test('显式给的 base 优先', () => {
+    const { root, env } = mkRepo('maxlines-basepick');
+    try {
+      const r = G.readBaseTargets(root, 'HEAD^');
+      assert.ok(r, '必须取到 base');
+      assert.equal(r.ref, 'HEAD^');
+      assert.deepEqual(r.targets, { 'a.js': 100 }, '读到的是 base 那份基线，不是 HEAD 的');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  await t.test('给的 ref 取不到 ⇒ 回落到 HEAD^（CI 浅克隆/无 origin/main 的形态）', () => {
+    const { root } = mkRepo('maxlines-basefallback');
+    try {
+      const r = G.readBaseTargets(root, 'no-such-ref');
+      assert.ok(r, '必须回落到某个可取的 base，而不是返回 null 触发恒红');
+      // 断言**内容**（读到的必须是 base 那份基线），不断言落在哪个别名上：
+      // 非 merge 提交下 HEAD^1 与 HEAD^ 指向同一个提交（git 的别名），断言别名等于把实现细节钉死。
+      assert.ok(['HEAD^1', 'HEAD^'].includes(r.ref), '回落的 ref 应是 HEAD^1/HEAD^ 之一，实得 ' + r.ref);
+      assert.deepEqual(r.targets, { 'a.js': 100 });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  await t.test('四条候选全落空 ⇒ 返回 null（fail-closed，不得静默放行）', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-basenone-'));
+    const env = gitEnv(root);
+    try {
+      gitRun(root, ['init', '-q'], env);
+      fs.mkdirSync(path.join(root, '.github', 'scripts'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.github', 'scripts', 'max-lines-baseline.json'), JSON.stringify({ targets: { 'a.js': 100 } }));
+      gitRun(root, ['add', '-A'], env);
+      gitRun(root, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'only'], env);
+      // 单提交仓：HEAD^1 / HEAD^ 都不存在，origin/main 也不存在 ⇒ 四条候选全落空
+      const r = G.readBaseTargets(root, null);
+      assert.equal(r, null, '取不到 base 必须返回 null，让 targetAudit 走 fail-closed');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

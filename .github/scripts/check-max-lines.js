@@ -284,15 +284,35 @@ function targetAudit (targets, baseInfo, linesOf, violations, notices) {
   }
 }
 
-/** 从 base 提交读 targets 基线；取不到返回 null（由 targetAudit 决定 fail-closed）。 */
+/**
+ * 从 base 提交读 targets 基线；取不到返回 null（由 targetAudit 决定 fail-closed）。
+ *
+ * ⚠ base 的取法**不能假定 `origin/main` 存在** —— 那是本仓 CI 的真实形态：
+ * `actions/checkout@v4` 默认 `fetch-depth: 1` 且不建 origin/main 的远程跟踪 ref，
+ * 于是 `git show origin/main:.github/scripts/max-lines-baseline.json` 在 runner 上
+ * 必然失败 ⇒ targetAudit 永远拿不到 base ⇒ fail-closed 规则**永远红**。
+ * 实测（2026-10-23，PR #4337）：主干上判 `TARGET_BASE_UNAVAILABLE`，
+ * 而同一份代码在本机 rc=0 —— 差的就是这一个 ref。
+ *
+ * 取法（与 quality-gate.yml 的 Gate 2c3「base 必须取 merge-base」同族，回落方向是「更严」）：
+ *   ① MP_BASE_REF（调用方显式给；CI 里由 workflow 算 merge-base 后传入）
+ *   ② origin/main（本地开发的常规形态）
+ *   ③ HEAD^1（CI 的 pull_request 事件检出的是 merge ref ⇒ 第一父即 base 分支头）
+ *   ④ HEAD^（push 事件：squash 合并 = 单提交 ⇒ 上一提交即 base）
+ * 四条都取不到 ⇒ 返回 null ⇒ fail-closed（不静默放行）。
+ *
+ * @returns {{targets: object, ref: string}|null}
+ */
 function readBaseTargets (rootDir, baseRef) {
-  try {
-    const raw = execFileSync('git', ['-C', rootDir, 'show', (baseRef || 'origin/main') + ':.github/scripts/max-lines-baseline.json'], { encoding: 'utf8' });
-    const json = JSON.parse(raw);
-    return { targets: json.targets || {} };
-  } catch (e) {
-    return null;
+  const candidates = [baseRef, 'origin/main', 'HEAD^1', 'HEAD^'].filter(Boolean);
+  for (const ref of candidates) {
+    try {
+      const raw = execFileSync('git', ['-C', rootDir, 'show', ref + ':.github/scripts/max-lines-baseline.json'], { encoding: 'utf8' });
+      const json = JSON.parse(raw);
+      return { targets: json.targets || {}, ref };
+    } catch (e) { /* 该 ref 取不到 ⇒ 试下一个 */ }
   }
+  return null;
 }
 
 function evaluate(baseline, scanned, existing, testData, baseInfo) {
@@ -629,7 +649,7 @@ if (require.main === module) main();
 
 module.exports = {
   scanFiles, scanAllLines, collectOverLimit, scanTestFiles, evaluate, readBaseline, writeBaseline, gitDomain,
-  computeUpdate, pruneBaseline,
+  computeUpdate, pruneBaseline, readBaseTargets,
   DEFAULT_LIMIT, DEFAULT_GROWTH_ALLOWANCE, DEFAULT_TEST_LIMIT, DEFAULT_TEST_GROWTH_ALLOWANCE,
   SCAN_DIRS, SOURCE_EXTS, EXCLUDE, isTargetable,
 };
