@@ -36,7 +36,13 @@ const SCRIPT_CLOSURE = [
   'ccg-review-backends.list',
   'lib/ccg-backends.sh',
   'lib/ccg-review-backends.js',
-  'lib/ccg-delivery-digest.js'
+  'lib/ccg-delivery-digest.js',
+  // 2026-10-23：#4093 把 check-pr-exec-record.js 的白名单收敛到
+  // scripts/lib/exec-record-statuses.js（单一真源），但**漏把它加进本测试的复制清单**
+  // ⇒ 临时目录里的入口脚本 require('./lib/exec-record-statuses') 解析失败
+  //   （CI Windows runner 上 6 例红；本地 Linux 同样红 —— 与 OS 无关，是清单漏项）。
+  // 后果：QG Changes 这个 required check 在 main 上变红 ⇒ **全仓所有 PR 都被挡**。
+  'lib/exec-record-statuses.js'
 ]
 
 const FAKE_DRIVER = `'use strict'
