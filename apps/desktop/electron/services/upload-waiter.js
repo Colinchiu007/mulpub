@@ -118,6 +118,7 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         prevPagePercent = signal.pagePercent
         stableSince = now
       }
+      if (this._uploadConfirmed) { log.info('RpaView', '[' + platform + '] upload confirmed via publishBtnAfter, skip polling'); return true }
       const decision = decideUploadWait({
         elapsedMs: now - startedAt,
         budgetMs,
@@ -501,6 +502,7 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
     try {
       const r = await win.webContents.executeJavaScript(expr, true)
       log.info('RpaView', 'wujie-upload: ' + JSON.stringify(r))
+      if (r && r.publishBtnAfter === true) { this._uploadConfirmed = true; log.info('RpaView', 'wujie-upload: publishBtnAfter=true -> upload confirmed by page') }
       return !!(r && r.ok)
     } catch (eW) {
       log.warn('RpaView', 'wujie-upload failed: ' + (eW && eW.message ? eW.message.slice(0,120) : ''))
