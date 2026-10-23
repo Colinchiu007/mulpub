@@ -96,6 +96,16 @@
     `normalizeCollectedItem` 原文字数、`useCopyLibrary` 写库字数），回归锁 3 断言；
   - i1 / i3 驳回（附取证依据：未超限的 locale 文件不该登记账本，正确处置是别让它长过线；
     `rewriteOne` 从未导出、仓内唯一调用点已同步）。
+# [未发布] fix(门禁): 锁预算复测脚本的采样域补上 workflow 轴 —— 判据按 (workflow, jobName) 二元组成立（lock-audit-workflow-axis）
+
+- **同族残缺的第二层，上一片写进注释而没写进判据**：`scripts/lock-timing-audit.js` 只列 `WORKFLOW = 'quality-gate.yml'` 一个坐标，而 `electron-ci.yml` 的 `electron-tests` 作业跑同一批桌面 vitest。当场取证（run `39569099718` / job `119118831343`）：该作业 11 行 `[windows-file-lock]` 握手，其中 **mock=false 7 行**、max=4282ms ⇒ 它真产样本，此前一条都采不到。
+- **这一维比作业名轴更阴，值得单独一轴**：作业名漏了表现为「样本少」，workflow 漏了**照样打印得出总样本数**，且与「那个 workflow 恰好没跑」逐字同形 —— 单看读数分不清两者。所以判据必须是二元组 `isProducer(workflow, jobName)`，不是两张独立集合的笛卡尔积（`electron-tests` 在 quality-gate.yml 里必须不命中，`QG Coverage` 在 electron-ci.yml 里也必须不命中）。
+- **修法**：显式登记表 `PRODUCERS` + `isProducer` / `producerWorkflows` / `pickProducerJobs`；采集端按 workflow 逐个列 run，`by_job` 的键带上 workflow 前缀（否则同名作业并成一个数、样本来源不可归因）；覆盖不足（PARTIAL）与零样本出口都**按轴点名**，不再合并成一个总数。
+- **TDD / 反证**：先红 1 条（新锁，红因是 `缺 isProducer`）⇒ 实现后 vitest **25 passed / 0 failed**。变异 Q1-Q8 八条各自红在指名的锁上（Q1 丢 workflow 等值 / Q2 删登记表一行 / Q3 判据恒真 / Q4 写死字面量绕过登记表 / Q5 清单塌回单坐标 / Q6 丢 status 过滤 / Q7 缺坐标读成通配 / Q8 常量改名）。Q8 是**模块级**变异、四条一起红，其期望已从两条改正为两条→四条并在驱动里写明局限；定向证据由 Q1 与 Q5 承担。
+- **不对称纪律**：扩面后做过 8+8 run 定点复测（`runs_total=16 jobs=32 samples=168 ready.max=10933ms`，其中 electron-ci.yml/electron-tests 独贡 56 条）。该读数**低于**既有 provenance 的 12762ms ⇒ **不收紧预算**；定点窗口也不构成「扩面后 max 不会更高」的证据，`--runs=26` 的足量重测仍是欠账，已写进 `source` 与执行记录。
+- **过程自错两条（改正的是期望与驱动，不动断言）**：① 驱动把 vitest 全绿时不打 `Tests N failed` 段读成「不健康」，整轮误报 PROBE_BLIND；② 变异锚写 `\n` 而该文件工作副本是 **CRLF**（`i/lf w/crlf`）⇒ ANCHOR_MISS，现驱动按文件真实行尾展开锚。同族第 N 次踩行尾，所以归一化进驱动而不是靠人记。
+- **边界**：回归锁加在既有 `apps/desktop/electron/services/windows-file-lock.test.js`（已点名进 `quality-gate.yml` Gate 2b），未新增测试文件；`docs/windows-lock-budget-provenance.md` §4 第 6 条同步改写，避免「本片未扩」那句自述在扩完后仍留在原地。
+
 # [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
 
 - **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。

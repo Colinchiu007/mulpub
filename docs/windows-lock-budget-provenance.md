@@ -91,12 +91,20 @@ mock 注入（`options.spawnImpl`）的样本**一律不入台账**：假跑出�
 6. **采样域是按作业名硬枚举的，而"这个作业跑不跑该夹具"没人登记** ⇒ 新增一个跑夹具的作业族
    若不扩域，那条长尾被**系统性排除**，而脚本照报"余量充足"。实测（2026-10-20）：`QG Coverage` 也跑本夹具，
    旧域只认 `QG Desktop Shards` ⇒ **最需要大预算的那个作业根本不在样本里**。
-   正解不是"扫所有作业"（那会让样本来源无法归因），而是显式作业名集合 + **A/B 负控**：
+   正解不是"扫所有作业"（那会让样本来源无法归因），而是显式登记表 + **A/B 负控**：
    A 臂要求两族都命中，B 臂要求 `QG Static / QG Unit Tests / QG Changes / GUI Gate Result / build` 这些不跑夹具的**不命中**。
-   ⚠ **同一类残缺还有第二层，本片未扩**：脚本的 workflow 坐标只有 `quality-gate.yml`，而
-   `.github/workflows/electron-ci.yml` 的 `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron, single-worker deterministic)」，
-   `if: github.event_name != 'pull_request'` ⇒ 仅 main push 跑，且已按 `--shard` 切三片）**跑同一批桌面 vitest** ⇒ 那里也产握手行。
-   所以现存的 max 至今仍是**下界**；扩它要给采集端加第二个 workflow 轴并配同形的 A/B 负控，不在本片范围（理由见执行记录遗留 #3）。
+   **同族残缺的第二层是 workflow 轴，2026-10-21 已一并转正**（change: `lock-audit-workflow-axis`）：
+   脚本原先只列 `quality-gate.yml` 一个坐标，而 `.github/workflows/electron-ci.yml` 的 `electron-tests` 作业
+   （步骤「Unit tests (Vitest, non-Electron, single-worker deterministic)」，`if: github.event_name != 'pull_request'`
+   ⇒ 仅 main push / dispatch 跑）**跑同一批桌面 vitest**。当场复测（run `39569099718` / job `119118831343`）：
+   该作业日志里 `[windows-file-lock]` 共 **11 行**，其中 `mock=false` **7 行**、`real_max=4282ms`、`real_min=343ms`
+   ⇒ 它真产握手，此前一条都采不到。
+   这一维比作业名轴更阴，要记清它为什么值得单独一轴：**作业名漏了表现为「样本少」，workflow 漏了照样打印得出总样本数**，
+   且与「那个 workflow 恰好没跑」逐字同形 —— 单看读数分不清两者。所以判据按 `(workflow, jobName)` **二元组**成立
+   （`PRODUCERS` + `isProducer`），不是两张独立集合的笛卡尔积：`electron-tests` 这个名字在 `quality-gate.yml` 里必须**不命中**，
+   `QG Coverage` 在 `electron-ci.yml` 里也必须**不命中**，两个方向的负控都有锁。
+   **但结论的适用范围不变：现存的 max 仍是下界**（长尾只会因窗口变窄而漏看，不会因「这次没看到」被否证；
+   且扩面后尚未完成一次跨足量 run 的重测，见执行记录遗留）。
 7. **「打了几行日志」不等于「有几个样本」**：夹具只在**真跑**时记进程内台账（`options.spawnImpl` 一律不记），
    但 `console.log` 那行是**无条件**打印的 ⇒ 单元用例注入的假握手（`ready=0ms`）同样落在 CI 日志里。
    只看行数的复测会把样本量下限用假数据凑满。⇒ 握手行必须自带 `mock=true|false` 标签，

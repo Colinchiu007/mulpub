@@ -37,20 +37,45 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 
 const REPO_REMOTE = process.env.MP_AUDIT_REPO || 'Colinchiu007/mulpub';
-const WORKFLOW = 'quality-gate.yml';
-// 采样域 = **本 WORKFLOW 坐标内**真跑该夹具的作业族，不是"我以为跑的那些"。
-// 2026-10-20 对 origin/main 最近 4 趟已完成 main push 的 12 份作业日志逐个取数实测（legacy 无标签档）：
+// 采样域 = **(workflow, jobName) 二元组**上实测产真实握手行的作业族，不是「我以为跑的那些」，
+// 也不是两个独立集合的笛卡尔积。两张轴各自都会独立地漏，且漏掉的读数形状不同：
+//
+// 轴一 · 作业名（2026-10-20 实测，legacy 无标签档，origin/main 最近 4 趟已完成 main push 的 12 份日志）：
 //   QG Coverage count=44 max=17466ms > QG Desktop Shards (2/2) count=16 max=14402ms
-//   > QG Desktop Shards (1/2) count=28 max=3773ms；另单次 run 实测 22 行里 8 行是 ready=0ms 的假握手。
-// 旧值只认 Shards ⇒ 需要最大预算的那个作业根本不在域里，provenance 的 max 是**下界**，
-// 于是"余量充足"这句话有一部分来自采样域本身。负控（这些作业不产握手行，必须不匹配）
-// 由 apps/desktop/electron/services/windows-file-lock.test.js 的 A/B 那条锁住。
-// ⚠ 域还有**第二层**没扩：本脚本只列 `WORKFLOW = quality-gate.yml`，而 `electron-ci.yml` 的
-//   `electron-tests` 作业（步骤「Unit tests (Vitest, non-Electron…)」，`if: event != pull_request` ⇒ 仅 main push）
-//   跑同一批桌面 vitest ⇒ 那里也产握手行，且它按 --shard 切三片。扩它要给 api() 换 workflow 坐标并新增一条
-//   workflow 轴的 A/B，本片未做（原因与取证见 openspec/records/lock-timing-audit-coverage-domain.md 遗留 #3）。
-//   ⇒ 结论的适用范围：这里的 max 至今仍是**下界**，不是全量分布。
-const JOB_RE = /QG Desktop Shards|QG Coverage/;
+//   > QG Desktop Shards (1/2) count=28 max=3773ms。旧值只认 Shards ⇒ 需要最大预算的那个作业根本不在域里。
+// 轴二 · workflow（2026-10-21 实测，run 39569099718 / job 119118831343）：
+//   `electron-ci.yml` 的 `electron-tests` 作业里 `[windows-file-lock]` 共 11 行，
+//   其中 **mock=false 7 行**、real_max=4282ms、real_min=343ms ⇒ 它真跑本夹具并产真实握手。
+//   这一维比作业名轴更阴：作业名漏了表现为「样本少」，workflow 漏了**照样打印得出总样本数**，
+//   且与「那个 workflow 恰好没跑」逐字同形 —— 上一片把这条写成「域还有第二层没扩」的注释，
+//   就是为了让「已完整」不被读成结论；本轮把它转正为登记表的一行。
+//
+// 因此判据按配对成立：`isProducer(workflow, jobName)`。同名作业出现在别的 workflow 里不算命中
+// （`electron-tests` 只在 electron-ci.yml 存在；`QG Coverage` 只在 quality-gate.yml 存在），
+// 两个方向的负控都由 apps/desktop/electron/services/windows-file-lock.test.js 锁住。
+// ⛔ 不得退化成「扫所有 workflow / 扫所有作业」：那会让样本来源无法归因，provenance 就失去意义。
+// ⇒ 结论的适用范围：这里的 max 仍是**下界**（长尾只会因窗口变窄而漏看，不会因「这次没看到」被否证）。
+const PRODUCERS = [
+  { workflow: 'quality-gate.yml', jobRe: /QG Desktop Shards/ },
+  { workflow: 'quality-gate.yml', jobRe: /QG Coverage/ },
+  { workflow: 'electron-ci.yml', jobRe: /^electron-tests$/ },
+];
+
+/** 判定 (workflow, jobName) 这对坐标是否实测产真握手 —— 缺任一侧一律不命中（不得把 undefined 读成通配） */
+function isProducer (workflow, jobName) {
+  if (typeof workflow !== 'string' || typeof jobName !== 'string') return false;
+  return PRODUCERS.some((p) => p.workflow === workflow && p.jobRe.test(jobName));
+}
+
+/** 采集端要逐个取的 workflow 坐标（去重排序，保证每次跑的取证顺序一致） */
+function producerWorkflows () {
+  return Array.from(new Set(PRODUCERS.map((p) => p.workflow))).sort();
+}
+
+/** 从某 workflow 的 jobs 里挑出已完成且在域内的作业 */
+function pickProducerJobs (workflow, jobs) {
+  return (jobs || []).filter((j) => j && j.status === 'completed' && isProducer(workflow, j.name));
+}
 
 function argOf (name, fallback) {
   const hit = process.argv.slice(2).find((a) => a.startsWith('--' + name + '='));
@@ -150,8 +175,10 @@ function formatLegacyNotice (legacyByJob) {
 /**
  * 列出 wanted 个「main 分支、push 触发、已结束」的 run。
  * 一律**不带**服务端 event/status 过滤（见文件头第 5 条），改为客户端筛 + 翻页。
+ * `workflow` 是**坐标参数**而非模块常量：域里有几个 workflow 就要逐个列一遍，
+ * 少列一个不会报错，只会让样本悄悄来自一个更小的集合（这正是本轮修的那一维）。
  */
-function listRuns (wanted, errors) {
+function listRuns (workflow, wanted, errors) {
   const MAX_PAGES = 12;
   const picked = [];
   let pages = 0;
@@ -159,10 +186,10 @@ function listRuns (wanted, errors) {
   for (let page = 1; page <= MAX_PAGES && picked.length < wanted; page++) {
     let list;
     try {
-      list = api('repos/' + REPO_REMOTE + '/actions/workflows/' + WORKFLOW
+      list = api('repos/' + REPO_REMOTE + '/actions/workflows/' + workflow
         + '/runs?per_page=100&page=' + page);
     } catch (e) {
-      errors.push('run-list p' + page + ' ' + String(e.message).replace(/\r?\n/g, ' ').slice(0, 60));
+      errors.push('run-list ' + workflow + ' p' + page + ' ' + String(e.message).replace(/\r?\n/g, ' ').slice(0, 60));
       break;
     }
     pages += 1;
@@ -178,12 +205,25 @@ function listRuns (wanted, errors) {
 
 function collect () {
   const errors = [];
-  const listed = listRuns(RUNS, errors);
-  const runs = listed.runs;
-  if (runs.length < RUNS) {
-    errors.push('only-' + runs.length + '-of-' + RUNS + '-runs in ' + listed.pages + ' pages');
-    // 采到了东西但覆盖不足也必须出声：偏小的样本喂进 provenance，读起来像完整分布
-    console.warn('PARTIAL: 只覆盖 ' + runs.length + '/' + RUNS + ' 个 main push run（pages=' + listed.pages + '）⇒ 用这份数字回填 provenance 前先加大 --runs 或缩小结论适用范围');
+  // 按 workflow 分面记账：覆盖不足必须**点名是哪一条轴缺**，
+  // 合并总数会把「electron-ci 一个 run 都没列到」摊进「quality-gate 采了 20 个」里读成整体够用。
+  const perWorkflow = new Map();
+  const runs = [];
+  let pages = 0;
+  for (const wf of producerWorkflows()) {
+    const listed = listRuns(wf, RUNS, errors);
+    perWorkflow.set(wf, { listed: listed.runs.length, pages: listed.pages, short: listed.runs.length < RUNS });
+    pages += listed.pages;
+    for (const r of listed.runs) runs.push(Object.assign({}, r, { workflow: wf }));
+    if (listed.runs.length < RUNS) {
+      errors.push('only-' + listed.runs.length + '-of-' + RUNS + '-runs ' + wf + ' in ' + listed.pages + ' pages');
+    }
+  }
+  const shortWorkflows = producerWorkflows().filter((wf) => perWorkflow.get(wf).short);
+  if (shortWorkflows.length) {
+    const detail = shortWorkflows.map((wf) => wf + '=' + perWorkflow.get(wf).listed + '/' + RUNS).join(' ');
+    console.warn('PARTIAL: 覆盖不足的 workflow 轴 ⇒ ' + detail
+      + '（pages 合计=' + pages + '）⇒ 用这份数字回填 provenance 前先加大 --runs 或缩小结论适用范围');
   }
 
   const ready = [];
@@ -196,10 +236,9 @@ function collect () {
     let jobsResp;
     try { jobsResp = api('repos/' + REPO_REMOTE + '/actions/runs/' + run.id + '/jobs'); }
     catch (e) { errors.push('jobs ' + run.id); continue; }
-    const shards = (jobsResp.jobs || [])
-      .filter((j) => JOB_RE.test(j.name) && j.status === 'completed');
-    if (!shards.length) errors.push('no-shard-job ' + run.id);
-    for (const job of shards) {
+    const shardJobs = pickProducerJobs(run.workflow, jobsResp.jobs);
+    if (!shardJobs.length) errors.push('no-producer-job run=' + run.id + ' wf=' + run.workflow);
+    for (const job of shardJobs) {
       let body = '';
       try {
         body = gh(['api', '--allow-escape-sequences',
@@ -216,27 +255,30 @@ function collect () {
       // 无标签行必须**在 n===0 的早退之前**按作业累加：标签上线前的那一整趟复测里，
       // 每个作业都是 n===0，而那恰恰是本次改动动因（旧采样域排掉了尾部最大的作业）唯一的现场来源。
       if (got.legacy > 0) {
-        const prev = legacyByJob.get(job.name) || { count: 0, max: 0 };
-        legacyByJob.set(job.name, { count: prev.count + got.legacy, max: Math.max(prev.max, got.legacyMax) });
+        const key = run.workflow + '/' + job.name;
+        const prev = legacyByJob.get(key) || { count: 0, max: 0 };
+        legacyByJob.set(key, { count: prev.count + got.legacy, max: Math.max(prev.max, got.legacyMax) });
       }
       if (n === 0) {
         // 分档出声：同样本为 0，"全是 mock 假握手"与"这个作业压根没跑夹具"是两件事，
         // 后者意味着采样域漂了（前者的成因见测试里那条「标记不等于效果」）。
-        errors.push('no-sample job=' + job.id + ' mock=' + got.mock + ' legacy=' + got.legacy);
+        errors.push('no-sample job=' + job.id + ' wf=' + run.workflow + ' mock=' + got.mock + ' legacy=' + got.legacy);
         continue;
       }
       jobs += 1;
-      byJob.set(job.name, (byJob.get(job.name) || 0) + n);
+      // 键里带 workflow 坐标：同名作业分属两个 workflow 时，「样本来自哪个坐标」必须仍然可读，
+      // 否则 by_job 里的一个数会被读成「这个作业名贡献的」而分不清来源。
+      byJob.set(run.workflow + '/' + job.name, (byJob.get(run.workflow + '/' + job.name) || 0) + n);
       // 逐 run 留痕：这个工具要跑几分钟，没有中间现场就分不清"还在采"与"被杀了"
       //（2026-10-01 实测：--runs=26 一次以 rc=1 退出且 stdout/stderr 全空，无法归因）
-      console.error('[lock-timing-audit] run=' + run.id + ' job=' + job.id
+      console.error('[lock-timing-audit] run=' + run.id + ' wf=' + run.workflow + ' job=' + job.id
         + ' samples+=' + n + ' mock+=' + got.mock + ' legacy+=' + got.legacy
         + ' total=' + ready.length);
     }
   }
   ready.sort((a, b) => a - b);
   return {
-    ready, runCount: runs.length, jobs, pages: listed.pages, errors,
+    ready, runCount: runs.length, jobs, pages, errors, shortWorkflows,
     mockLines, legacyLines, byJob: Object.fromEntries(byJob),
     legacyByJob: Object.fromEntries(legacyByJob),
   };
@@ -260,6 +302,7 @@ function main () {
   let legacyLines = 0;
   let byJob = {};
   let legacyByJob = {};
+  let shortWorkflows = [];
 
   const manual = argOf('max-ready', null);
 
@@ -271,6 +314,7 @@ function main () {
     const got = collect();
     ready = got.ready; runCount = got.runCount; jobs = got.jobs; errors = got.errors;
     pages = got.pages;
+    shortWorkflows = got.shortWorkflows;
     mockLines = got.mockLines; legacyLines = got.legacyLines; byJob = got.byJob;
     legacyByJob = got.legacyByJob;
   }
@@ -284,8 +328,11 @@ function main () {
     const cause = legacyNotice || 'NO_SAMPLES：一条握手样本都没采到 ⇒ 探针坐标可能过期'
       + '（workflow 名 / job 名 / status 字段 / 代理 / ANSI 拒答 / gh 登录态 / 服务端过滤截断）';
     console.error(cause);
-    console.error('       MP_AUDIT_REPO=' + REPO_REMOTE + ' pages=' + pages
-      + ' runs=' + runCount + ' mock_lines=' + mockLines + ' legacy_lines=' + legacyLines
+    // 坐标必须整域打印：只印一个 workflow 名会把「另一个坐标坏了」读成「整域都没跑」，
+    // 而两者的修法相反（前者查那个 workflow 的 job 名，后者查 gh 登录态/代理）。
+    console.error('       MP_AUDIT_REPO=' + REPO_REMOTE + ' domain=' + producerWorkflows().join(',')
+      + ' pages=' + pages + ' runs_total=' + runCount
+      + ' mock_lines=' + mockLines + ' legacy_lines=' + legacyLines
       + ' errors=' + errors.slice(0, 8).join(' , '));
     process.exitCode = 3;
     return;
@@ -308,7 +355,9 @@ function main () {
     console.log(JSON.stringify(provenance, null, 2));
   } else {
     const p50 = ready[Math.floor(ready.length / 2)];
-    console.log('[lock-timing-audit] pages=' + pages + ' runs=' + runCount + ' jobs=' + jobs
+    console.log('[lock-timing-audit] domain=' + producerWorkflows().join(',')
+      + (shortWorkflows.length ? ' SHORT(' + shortWorkflows.join(',') + ')' : '')
+      + ' pages=' + pages + ' runs_total=' + runCount + ' jobs=' + jobs
       + ' samples=' + ready.length + ' mock_lines=' + mockLines + ' legacy_lines=' + legacyLines
       + ' by_job=' + JSON.stringify(byJob)
       + ' ready.p50=' + p50 + 'ms ready.max=' + maxObservedReadyMs
@@ -330,4 +379,7 @@ function main () {
 
 if (require.main === module) main();
 
-module.exports = { collect, collectFromLog, formatLegacyNotice, loadBudget, JOB_RE };
+module.exports = {
+  collect, collectFromLog, formatLegacyNotice, loadBudget,
+  PRODUCERS, isProducer, producerWorkflows, pickProducerJobs,
+};
