@@ -51,7 +51,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "self_play_resolved",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
@@ -135,6 +135,7 @@
       }
     ],
     "note": "自扮演裁决：5 条指控成立或需外部复核",
-    "at": "2026-10-21T23:46:39.305Z"
+    "at": "2026-10-21T23:46:39.305Z",
+    "closureNote": "第 1 轮自扮演裁决：i1 已修（锁 7 从 CASES 解析选择器、解析不到即红，再要求 Dashboard.vue 模板 class=\"…\" 属性里真有该类名，apps/desktop/src/components/dead-components.test.js:181,:185；探针汇总出声、missed>0 非零码退出，scripts/dead-components-contract-mutate.js:138）；i2 已修（判据域按 it 块界定——变异 C9「把 tpl 换成硬编码常量（indexOf 恒 -1、守卫恒绿、两个子串都还在）」现被同文件 :122-132 的反向守卫断言抓住，不再被文件级双子串判据放过）；i3 已修（PRD §5 重写为十一条口径，tasks 3.1 改终态 11 条、3.3 改 CAUGHT=10/10 并写明 5→8→10 来源）；i4 已修（记录 §四之二 显式补「未被收敛的那些条目没有逐条处置记录」这一口径；①②经核实为误判未按建议动手，③日期改成同源的 2026-10-21 并注明时区来路）；i5 已修（const RUNNER = process.platform === \"win32\" ? \"pnpm.cmd\" : \"pnpm\"，同文件 :147）。逐条依据见 openspec/records/ux-audit-dead-components-retire.md。"
   }
 }

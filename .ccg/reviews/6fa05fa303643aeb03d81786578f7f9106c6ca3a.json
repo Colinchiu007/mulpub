@@ -47,7 +47,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "self_play_resolved",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
@@ -129,6 +129,7 @@
       }
     ],
     "note": "自扮演裁决：4 条指控成立或需外部复核",
-    "at": "2026-10-21T22:28:42.774Z"
+    "at": "2026-10-21T22:28:42.774Z",
+    "closureNote": "第 1 轮自扮演裁决：i1 已修（按形状验：同一行含 findComponent(TrialBanner) 与 toBe(false)）；i2 已修（注释优先：先整块剥 HTML 注释与 /* */（含跨行）、再剥整行 // 、最后剥行尾 // （要求 // 前是空白），并补 4 条直接测 code() 本体的用例）；i3 已修（探针改指向 .stat-label 并加锁）；i4 已修（finally 还原后独立读回比对 md5、不一致打 RESTORE_MISMATCH 置 restoreFailed、rc=4 出声，并为 SIGINT/SIGTERM/SIGHUP 注册 restoreActive）。逐条依据见 openspec/records/ux-audit-dead-components-retire.md。"
   }
 }

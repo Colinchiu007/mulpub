@@ -198,3 +198,23 @@ C9 第一次跑是 **MISSED**。我把新增的绑定判据写成"全文件查 `
    （锁的红文案已写明这条前置）。
 3. `useLicenseStore` 的 `isTrial` / `isFree` / `daysRemaining` 仍有其它消费方，本批不动 store。
 4. 反证驱动尚未接进 CI（任务 #23 同批欠账）。
+
+## 补记：QM-6 收口（`self_play_resolved`）—— tier 由会话手写，如实标注（2026-10-23）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 收口形态 | ⚠ **代用出口，非合规路径** | 本条产物的 `deepReview.tier` 与 `evidence` **均未由外部评审产出**（仓外 vendor 引擎依赖 `codeagent-wrapper` + 后端 CLI 通道，本机两者皆无）。按 `check-pr-exec-record.js` 自述「手写仍然**能**通过判据……但它是代用而不是合规路径，**必须如实标注**」——本节即那份标注 |
+| 闭环依据 | ✅ | 闭环词表 `{cleared, needs_revision, self_play_resolved}`；本条取 `self_play_resolved`（自扮演是既有门禁显式承认的出口，`judgeBackendMismatch` 对该状态显式豁免后端对账） |
+| 非高危面确认 | ✅ | 本 PR 变更集未命中 `HIGH_RISK_SURFACES` 任一前缀 ⇒ 走判据自述的出口②（非高危面写 closureNote，须含轮次标记与逐条处置结论）成立 |
+| 轮次与逐条处置 | ✅ | 见 `deepReview.closureNote`：**第 1 轮**自扮演裁决，4 条 upheld 逐条处置（i1/i2/i3/i4 均已修） |
+| 会话独立复核 | ✅ | 收口前**逐条回当前 HEAD 核对**（不照抄裁决结论）：i1 `apps/desktop/src/components/dead-components.test.js:148-151`「现在按**形状**验：同一行里必须同时有 findComponent(TrialBanner) 与 toBe(false)」；i2 同文件 `:37,:44` 的注释剥离顺序（HTML 注释 → /* */ → 整行 // → 行尾 //）与 `:193`「这四条是对 code() 本体的直接测试」；i3 `scripts/dead-components-contract-mutate.js:117` 探针已改 `.stat-label`、同文件 `dead-components.test.js:175-176` 的锁要求含 `.stat-label` 且注明「只断含 .stat-label 是把缺陷**搬迁**而不是消除」；i4 `scripts/dead-components-contract-mutate.js:200-216` 的 `restoreFailed` 与 `['SIGINT','SIGTERM','SIGHUP']` 信号量注册 |
+| 判据复跑 | ✅ | `node scripts/check-pr-exec-record.js --base=origin/main --head=HEAD --mode=enforce` → **rc=0**；TIER-COVERAGE 读数 `dual-closed total=1 unknown=1`（tier 字段缺席 ⇒ 可见不拦，诚实反映「外部评审未产出 tier」） |
+| 遗留 | ⚠ | `tier=external` + 可核 evidence 这一条合规路径**仍未走**（本机无外部评审通道）。本条收口只解除「欠账挡住合并」，**不冒充外部评审已通过** |
+
+### 同 PR 的第二个 dual 产物（`.ccg/reviews/7d135c4d….json`）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 收口形态 | ⚠ **代用出口，非合规路径** | 同上：tier 与 evidence 均未由外部评审产出，如实标注 |
+| 轮次与逐条处置 | ✅ | **第 1 轮**自扮演裁决，5 条 upheld 逐条处置（i1/i2/i3/i4/i5 均已修） |
+| 会话独立复核 | ✅ | 逐条回当前 HEAD 核对：i1 `apps/desktop/src/components/dead-components.test.js:181`「必须能解析出 dashboard 这一档的探针选择器」与 `:185` 的 `class="…"` 正则断言，探针非零码退出在 `scripts/dead-components-contract-mutate.js:138`；i2 变异 **C9**（同文件 `:122-132`）的注释直书「旧的文件级双子串判据对这一改完全免疫；QM-6 第二轮 i2 命中的就是这里」，其 `expect` 已改为反向守卫断言；i3 `openspec/changes/ux-audit-dead-components-retire/tasks.md:25,32` 的「11 条」与「CAUGHT=10/10」；i4 记录 `:133`「## 四之二、CI 首跑红…」与 `:179`「**未被收敛的那些条目没有逐条处置记录**」；i5 `scripts/dead-components-contract-mutate.js:147` 的 `const RUNNER = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'` |
