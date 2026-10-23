@@ -352,3 +352,64 @@ CI run 40008328046 的 `QG Changes` 35 步全绿（含 `Gate 2b11`），但同�
 变异 15 → 18 → 21 → **23** 条，本机指名红 22、M-r 一条仍属构造性不可反证。
 本轮改动集另含一个新文件（`scripts/lib/deep-review-fixture-closure.js`）：
 `scripts/*.js` 那条 ignore 不覆盖 `scripts/lib/`，`git check-ignore --no-index` 回显为空确认过。
+
+## 第六次落账：§3 按证据打勾 + 主干拿到了同一种病的另一版修法（2026-10-24）
+
+本轮改动集**只含两份文档**（`openspec/changes/qm6-rebuttal-round-cap/tasks.md` 与本文件）：
+判据、实现、测试、workflow 一行没动。勾 §3 之前逐条重取证据，不复用上轮的话术：
+
+- **§3.2 的证据本体**：在 merge-base `05597f42e` 上重跑 `git diff <merge-base> HEAD -- scripts/check-pr-exec-record.js`
+  ⇒ 字节数 `0`。这条是"本 PR 没改变什么算闭合"的判据来源，不是对 PR 正文的转述。
+- **§3.1 / §3.3**：记录文件在库（`git ls-files` 命中），三轮处置块与五次红成因块都在；
+  PR 正文含「本 PR 不改变"什么算闭合"」与「不为它开任何后门」，后者 `grep -c` = 1。
+- **没把"八轮"改成"三轮"**：§3.1 原文那句"八轮读数"是立项时的设想值，实测跑到第三轮就按合同停手交人工。
+  条目里保留原文，只在勾里写清实测三轮——演进链在 §5/§6/§7 各自块里，不在这里改历史。
+
+最终 head `b9c8e8416`（run `40015689599`）的 CI 逐步骤读数：`QG Changes` job `120627044820`
+**35 步全 success**；`QG Static` job `120628604026` **30 步全 success**。
+`QG Coverage` job `120628603943` 取数时 `in_progress`，聚合作业 `Gate Result` 因此**尚未生成**——
+这一格如实记为「未取到」，不得读成「已通过」；它的回读点只写 PR 评论，不写回仓库文件。
+
+第六次红**不是我这侧的红，是主干的**，但它改变了本片能否落地这件事。主干在本 PR 在飞期间拿到
+`ff1d09cfb`（PR **#4347**，另一个会话独立修的**同一种病**：入口用例把脚本清单手抄进夹具、
+上游给 `check-pr-exec-record.js` 加了本地 require 却没同步清单 ⇒ 临时仓缺模块 ⇒ Gate 2b11 对**每个** PR 转红）。
+两版修法机制不同：那一刀把**手抄清单补全**并新增一条 `⑫` 断言"清单必须覆盖被复制脚本的全部本地 require"；
+本刀（§第五次红那节）**删掉手抄清单**，改由 `scripts/lib/deep-review-fixture-closure.js` 现走 require 图。
+两套改动落在同一文件同一区域 ⇒ `gh pr view 4297 --json mergeable` 现读 **`CONFLICTING` / `DIRTY`**
+（`git merge-tree --write-tree origin/main b9c8e8416` 当场 `CONFLICT (content): scripts/deep-review-entry-rc.test.js`）。
+
+**这一格只靠散文说不清，所以做了可重跑的探针**（一次性脚本在仓库外，把主干那份
+`check-pr-exec-record.js` 与它新引的两个 lib 按主干 blob 放进临时 scripts 根，再跑我这把派生函数）：
+
+```
+派生闭包 (12 项): … deep-review.sh, … lib/ccg-delivery-digest.js,
+  lib/ccg-review-backends.js, lib/ccg-review-rounds.js, lib/exec-record-audit.js, lib/exec-record-statuses.js
+unresolved=[]
+  主干手抄补的 lib/ccg-delivery-digest.js  ⇒ 我的派生清单里有? YES
+  主干手抄补的 lib/exec-record-statuses.js ⇒ 我的派生清单里有? YES
+  主干手抄补的 lib/exec-record-audit.js    ⇒ 我的派生清单里有? YES
+```
+
+同一条探针**没有那两个 lib 文件在场**时的第一次跑还额外读出一件事：`unresolved` 里恰好是这两项
+（`check-pr-exec-record.js → lib/exec-record-audit` / `→ lib/exec-record-statuses`），
+而入口闭包的消费方对 `unresolved.length > 0` 是**抛错**的——所以派生机制对"缺件"不是沉默，是当场出声。
+结论：我这侧的派生清单**自动包含** #4347 手抄补上的那两项，那条 `⑫` 守卫要防的"抄漏"在派生机制里没有对应物
+（清单不再是人写的，就没有"漏抄"这个动作）。但这句是**论证，不是授权**。
+
+为什么这件事不由我顺手做掉：解这条冲突的两种写法都动到一条**刚进主干的锁**——
+要么 rebase 后保留我这侧实现（那 `⑫` 那条 test 在派生清单上恒真，删它=撤销别人那一刀，留它=留一条恒真断言），
+要么把 #4347 那 40 行摘掉。两条都属 AGENTS 说的"改谁来守门"，且本片本来一律人工过目。
+可执行的两条出口与各自代价：
+
+- **出口 A（结构性收敛）**：`git rebase origin/main`，冲突区保留派生实现 + **同时保留**那条 `⑫` test
+  （它对派生清单恒真，但它是主干历史上的一次交付，删它得单独裁决）。
+  代价两条必须一起知道：① rebase 换 HEAD sha ⇒ `.ccg/reviews/<内容寻址名>.json` 作废，
+  要按"软重置重投"配方重新生成判定产物；② 轮次账本键是 (分支, HEAD sha, 交付指纹)，
+  新 sha 上第 4 轮会被判超限——那正是本片希望的终态（交人工），不是要绕的障碍。
+- **出口 B（先让主干那版生效）**：本 PR 挂起，等 #4347 那版在主干跑一段、确认 Gate 2b11 转绿后再决定
+  派生实现要不要另开一刀替换手抄清单。代价：手抄清单继续存在，"下一次加 require 又漏抄"的风险
+  只靠那条 `⑫` 守着（它确实守着，但它守的是"记得抄"，我这把守的是"不需要抄"）。
+
+交人工清单由四条变**五条**：① 本片的 QM-6 收口路径（三轮用满、命中高危前缀 ⇒ 只认人工）；
+② `tasks §2` 需要的 vendor 授权；③ `MP_QM6_MAX_ROUNDS` 天花板与 `assertChangeName` 是否下沉进 `defaultLedger`；
+④ 与同链在飞刀的顺序；⑤ **新增**：上面这条冲突的出口 A / B 选择（删或留一条主干刚合入的锁）。
