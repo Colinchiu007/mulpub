@@ -36,6 +36,7 @@ const chooseAvatarCloneMedia = vi.hoisted(() => vi.fn())
 const addAvatarClone = vi.hoisted(() => vi.fn())
 const deleteAvatarClone = vi.hoisted(() => vi.fn())
 const renameAvatarClone = vi.hoisted(() => vi.fn())
+const getTtsVoiceCloneRequirements = vi.hoisted(() => vi.fn())
 
 const getAvatarCatalog = vi.hoisted(() => vi.fn())
 const getAvatarVoiceCatalog = vi.hoisted(() => vi.fn())
@@ -61,6 +62,16 @@ vi.mock('@/api/avatar-clone', () => ({
   addAvatarClone,
   deleteAvatarClone,
   renameAvatarClone,
+}))
+
+// change: digital-human-multiprovider —— 声音克隆能力探测走这个 API
+vi.mock('@/api/tts-voice-clone', () => ({
+  listTtsVoiceClones: vi.fn(async () => ({ code: 0, data: { voices: [] } })),
+  addTtsVoiceClone: vi.fn(),
+  chooseTtsVoiceCloneSamples: vi.fn(),
+  deleteTtsVoiceClone: vi.fn(),
+  renameTtsVoiceClone: vi.fn(),
+  getTtsVoiceCloneRequirements,
 }))
 
 vi.mock('@/api/publisher', () => ({
@@ -132,6 +143,7 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
     addAvatarClone.mockReset()
     deleteAvatarClone.mockReset()
     renameAvatarClone.mockReset()
+    getTtsVoiceCloneRequirements.mockReset()
     listAvatarClones.mockResolvedValue({ code: 0, data: { avatars: [] } })
     getAvatarCatalog.mockReset()
     getAvatarVoiceCatalog.mockReset()
@@ -365,6 +377,58 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
       expect(w.vm.avatarVoiceId).toBe('')
       // 克隆列表按 provider 分段，必须带新 providerId 重拉
       expect(listAvatarClones).toHaveBeenCalledWith({ providerId: 'hifly' })
+      w.unmount()
+    })
+  })
+
+  // ── change: digital-human-multiprovider：声音克隆能力提示 ────────────
+
+  describe('声音克隆能力提示', () => {
+    it('服务商支持克隆声音 ⇒ 显示引导去配音面板克隆', async () => {
+      getTtsVoiceCloneRequirements.mockResolvedValue({
+        code: 0,
+        data: { type: 'user_clone', clone: { enabled: true, entry: 'desktop_upload' } },
+      })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
+      await new Promise((r) => setTimeout(r, 0))
+      await nextTick()
+
+      expect(w.vm.avatarVoiceCloneSupported).toBe(true)
+      const hint = w.find('[data-testid="avatar-clone-voice-hint"]')
+      expect(hint.exists()).toBe(true)
+      // 渲染出的应是 locale 值而不是 key 本身
+      expect(hint.text()).not.toBe('avatarCloneVoiceHint')
+      expect(hint.text().length).toBeGreaterThan(0)
+      w.unmount()
+    })
+
+    it('服务商不支持克隆声音 ⇒ 明确告知只能用现成音色（不谎称支持）', async () => {
+      getTtsVoiceCloneRequirements.mockResolvedValue({
+        code: 0,
+        data: { type: 'provider_personal_slot', clone: { enabled: false } },
+      })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
+      await new Promise((r) => setTimeout(r, 0))
+      await nextTick()
+
+      expect(w.vm.avatarVoiceCloneSupported).toBe(false)
+      const hint = w.find('[data-testid="avatar-clone-voice-hint"]')
+      expect(hint.text()).not.toBe('avatarCloneVoiceUnsupported')
+      w.unmount()
+    })
+
+    it('探测失败（IPC 不可用）⇒ 保守显示不支持', async () => {
+      getTtsVoiceCloneRequirements.mockResolvedValue({ code: -1, message: 'TTS_VOICE_CLONE_API_UNAVAILABLE' })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await new Promise((r) => setTimeout(r, 0))
+      await nextTick()
+
+      expect(w.vm.avatarVoiceCloneSupported).toBe(false)
       w.unmount()
     })
   })

@@ -1,0 +1,61 @@
+{
+  "sha": "e5e510aa9517f0c36d9336c267078de699b798f6",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 164 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 164,
+    "fileCount": 10,
+    "codeFileCount": 7,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "**未擅自 `--update` 抬基线**（AGENTS：属「改谁来守门」，必须人工过目）。",
+      "已在上一轮获两次同型授权，但本轮不重复打扰，留给本次 PR 由用户过目。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "52ee5bd25c2e98a1adb369a79daa2526d83d7b5449ff7812fe2ca2c9df526c3d",
+  "decidedAt": "2026-10-23T05:57:06.486Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：不触及判据本体、.github/workflows、凭证/登录态。\n改动集中在 tts-voice-catalog 能力声明 + 克隆面板能力提示。\n\n自我审查已覆盖的关键点：\n1. hifly 声音克隆能力声明依据官方文档（voice/create + voice_type=8），\n   测试锁定三家（heygen/hifly/未知模型 fail closed）。\n2. 能力探测走 IPC 而非渲染端直判（目录在主进程 + 要看 Key 是否可用），\n   失败保守判 false（不谎称支持）；测试锁定三种态。\n3. 探测时机从 selectPipeline 移到 loadS2VProviders（provider 定下之后）——\n   第一版放在 selectPipeline 被测试当场抓出（那时 providerId 还是空）。\n4. 不重复造声音上传入口（样本存储在配音面板已存在），只加能力提示。\n\n回归证据：16 个相关测试文件 362/362 全绿；\nmax-lines / locale(keys+cjk) / no-brand-residue / doc-abs-paths / r3(18) / font-size 全过。"
+  }
+}

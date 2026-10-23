@@ -105,4 +105,45 @@ describe('TTS 音色能力目录', () => {
       reason: 'model_not_whitelisted',
     })
   })
+
+  // ── change: digital-human-multiprovider ──────────────────────────────
+  // 数字人 provider 也走 TTS 音色目录：形象克隆与声音克隆在用户眼里是
+  // 「一个数字人」的两半，若目录不声明克隆能力，UI 的音色克隆面板
+  // （S2vConfigPanels 的 s2v-voice-clone-toggle）对这两家根本不渲染，
+  // 用户看不到「能给数字人配自己的声音」这个入口。
+
+  it('两家数字人 provider 都声明声音克隆能力（heygen + hifly）', () => {
+    for (const [providerId, model] of [['heygen', 'heygen-video'], ['hifly', 'hifly-video']]) {
+      expect(getVoiceCapability(providerId, model)).toMatchObject({
+        providerId,
+        model,
+        type: CAPABILITY_TYPES.USER_CLONE,
+        canListVoices: true,
+        clone: { enabled: true, entry: 'desktop_upload', implementation: 'adapter_implemented' },
+      })
+    }
+  })
+
+  it('数字人 provider 的克隆能力与其形象克隆能力同源（避免只声明一半）', () => {
+    // 两家都实现了形象克隆四件套 + 声音克隆，目录必须两边都认；
+    // 只认一边会让用户「克隆了形象却发现配不了自己的声音」。
+    const dhProviders = ['heygen', 'hifly']
+    for (const providerId of dhProviders) {
+      const model = `${providerId}-video`
+      const capability = getVoiceCapability(providerId, model)
+      expect(capability.clone?.enabled).toBe(true)
+      expect(capability.clone?.entry).toBe('desktop_upload')
+    }
+  })
+
+  it('未知数字人模型 fail closed（不得因为带 video 字样就放行）', () => {
+    expect(getVoiceCapability('heygen', 'heygen-video-v3')).toMatchObject({
+      type: CAPABILITY_TYPES.UNSUPPORTED,
+      canListVoices: false,
+    })
+    expect(getVoiceCapability('hifly', 'unknown')).toMatchObject({
+      type: CAPABILITY_TYPES.UNSUPPORTED,
+      canListVoices: false,
+    })
+  })
 })

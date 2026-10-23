@@ -270,6 +270,7 @@
               :creating="avatarCloneCreating"
               :create-error="avatarCloneCreateError"
               :invalid-key-of="avatarCloneInvalidKey"
+              :voice-clone-supported="avatarVoiceCloneSupported"
               @ack-notice="avatarCloneNoticeAcked = true"
               @update:nameDraft="val => (avatarCloneNameDraft = val)"
               @create="type => createAvatarClone(type)"
@@ -1183,6 +1184,8 @@ export default {
       // 注意 avatarProviderOptions 是 computed（见 computed 区），不在此处声明。
       avatarProviderId: '',
       avatarProviderSwitched: false,
+      // 当前服务商是否支持克隆声音（probeAvatarVoiceCloneSupport 探测，拿不到保守 false）
+      avatarVoiceCloneSupported: false,
       // 带文案进入（/create?draft=xxx 预填成功）：非文案型流水线在选择列表中灰显不可选
       textPrefilledFromDraft: false,
       // 配置
@@ -2136,6 +2139,27 @@ export default {
     },
 
     /**
+     * 探测当前数字人服务商是否支持克隆声音（change: digital-human-multiprovider）。
+     *
+     * 能力目录（tts-voice-catalog）在主进程，且「支持克隆」还要看该 provider 是否
+     * 已配置可用 Key，故走 IPC 拿 requirements 是唯一权威来源。拿不到时保守判
+     * false——显示「不支持」比谎称支持好（用户点了才发现不能克隆更糟）。
+     */
+    async probeAvatarVoiceCloneSupport(providerId, model) {
+      if (!providerId) { this.avatarVoiceCloneSupported = false; return }
+      try {
+        const { getTtsVoiceCloneRequirements } = await import('@/api/tts-voice-clone')
+        const result = await getTtsVoiceCloneRequirements({ providerId, model: model || `${providerId}-video` })
+        const capability = result && result.code === 0 ? result.data : null
+        this.avatarVoiceCloneSupported = Boolean(
+          capability && capability.type === 'user_clone' && capability.clone && capability.clone.enabled === true
+        )
+      } catch (_) {
+        this.avatarVoiceCloneSupported = false
+      }
+    },
+
+    /**
      * 切换数字人服务商：重拉形象/音色/克隆列表。
      *
      * 三份列表都按 provider 分段，只重拉一份会出现「新服务商的形象 +
@@ -2156,6 +2180,8 @@ export default {
       // 两份列表独立容错：形象目录失败不连带克隆列表也不刷新
       try { await this.loadAvatarCatalog() } catch (_) { /* 失败由 avatarError 呈现 */ }
       await this.loadAvatarClones({ providerId })
+      // 两家的声音克隆能力可能不同（hifly 有、第三方未必有），必须重探测
+      await this.probeAvatarVoiceCloneSupport(providerId)
     },
     /**
      * 错误文案：composable 存的是「locale key 或原始错误码」，这里翻译成人话。
@@ -2393,6 +2419,7 @@ export default {
         this.avatarClonesLoadedOnce = true
         this.loadAvatarClones({ providerId: this.avatarProviderId })
       }
+      // 声音克隆能力探测在 loadS2VProviders 里 provider 定下后进行（见该处注释）
       // 选中编排流水线时执行生效上限（默认 10000，可被运营中心 storyTextLimit 覆盖）码点截断
       // （含带文案预填场景：预填时不截断，选中时统一截断+提示）
       if (this.isOrchestratedPipeline(p?.name)) this.enforceStory2VideoTextLimit()
@@ -3599,6 +3626,12 @@ export default {
         }
         if (!this.avatarProviderId && this.avatarProviderOptions.length > 0) {
           this.avatarProviderId = this.avatarProviderOptions[0].id
+        }
+        // provider 定下后再探测声音克隆能力：放在这里而不是 selectPipeline 里，
+        // 是因为那时 avatarProviderId 可能还是空（provider 列表异步拉），
+        // 探测会拿到空 provider 而保守判「不支持」。
+        if (this.isAvatarPipeline && this.avatarProviderId) {
+          this.probeAvatarVoiceCloneSupport(this.avatarProviderId)
         }
         // 视频生成器与图片对齐（2026-08-12 审查 M2）：陈旧 provider 清空（含 videoModel），
         // 未显式选择时默认取模型设置里 video 能力的默认 provider（2026-10-18 起同源修复）。

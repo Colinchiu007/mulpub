@@ -54,6 +54,11 @@ export default {
   avatarCloneDeleteConfirm: 'This avatar can no longer be used after deletion. Delete it?',
   avatarCloneEmpty: 'No cloned avatars yet',
   avatarCloneEmptyHint: 'Upload a photo or a video to clone a reusable digital human avatar',
+  // change: digital-human-multiprovider — voice clone entry hint.
+  // The voice clone UI lives in "Voiceover → Voice copy / clone" (S2vConfigPanels);
+  // this only tells the user that the current provider supports their own voice.
+  avatarCloneVoiceHint: 'This provider also supports cloning your own voice: upload a recording under "Voice copy / clone" next to Digital human voice, then pick it here.',
+  avatarCloneVoiceUnsupported: 'The current provider does not support voice cloning; only its built-in voices are available.',
   avatarCloneCreating: 'Creating cloned avatar…',
   avatarCloneChooseMedia: 'Select {media}',
   avatarCloneErrInvalidArgs: 'Invalid arguments',
