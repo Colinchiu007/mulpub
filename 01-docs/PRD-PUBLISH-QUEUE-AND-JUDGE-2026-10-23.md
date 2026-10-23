@@ -671,3 +671,41 @@ document.body.children.length
 
 - **跨日后日志换文件**（`app-YYYY-MM-DD.log`），旧文件不再写入——采样脚本必须按日期取当日文件，否则会"看不到新日志"。
 - 测试发布间隔由启动参数 `MP_PUBLISH_MIN_INTERVAL_MS` 控制，当前按用户要求用 **330000（5 分半）**。
+
+## 8.24 竞品视频号上传实现的真实形态（2026-10-24 01:10）
+
+### 竞品原文（`shipinghaoRun` 注入脚本）
+
+```js
+const shadowm = document.querySelector('.wujie_iframe')
+const videoDom = shadowm.shadowRoot.querySelector('.upload')
+const inputDom = videoDom.querySelector('input[type="file"]')
+manualDispatchFileEvent({ dom: inputDom, element: HTMLInputElement,
+                          elementKey: 'files', value: files.files, event: 'change' })
+// title: input[placeholder="概括视频主要内容，字数建议6-16个字符"]
+// desc : .input-editor
+// tag  : .quick-btns > .finder-tag-wrap.btn
+```
+
+### 关键结论（此前误判）
+
+`.wujie_iframe` 是**竞品自己的微前端外壳**（wujie 框架的宿主标签），**不是视频号页面的组成部分**。
+竞品把 `channels.weixin.qq.com` 装进自己的 wujie 容器，因此能在自己的 shadowRoot 里查元素。
+
+我方是**直接加载平台页**（`win.loadURL`），不存在 `.wujie_iframe`：
+- `pierce` 树里找不到 `class` 含 `wujie_iframe` 的节点（实测）；
+- 因此该选择器**不能照搬**。
+
+### 可照搬的部分
+
+| 竞品做法 | 是否可照搬 |
+| --- | --- |
+| `HTMLInputElement.prototype.files` 原生 setter + `change` | ✅ 已照搬（`06d3e9d50`） |
+| 先定位容器再取 `input[type=file]` | ✅ 思路可照搬，选择器须换成本页真实结构 |
+| `.wujie_iframe` / `.upload` 选择器 | ❌ 竞品外壳专有，本页不存在 |
+| 字节经 IPC 传入页面（`read-file-buffer`） | ⚠️ 可行但 1MB+ 会卡渲染进程（`eaafd1183` 实测卡死） |
+
+### 下一步（若继续）
+
+必须先**枚举本页真实的 shadow host**：在页面里 `Array.from(document.querySelectorAll('*')).filter(e=>e.shadowRoot).map(e=>e.tagName+'.'+e.className)`
+——这一步能把"上传区到底挂在哪层"一次性问清；在拿到该清单之前，任何选择器都是猜。
