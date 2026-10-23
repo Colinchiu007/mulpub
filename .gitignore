@@ -329,10 +329,15 @@ _bigfiles.txt
 # Environment
 .env
 .env.local
-# 业务 API 的真实环境文件（`docker compose --env-file deploy/logto/api.env`）。
-# ⛔ 里面会有微信商户私钥 / APIv3 密钥，**绝不能入库**。
-# 注意上面 `.env` 只匹配名为 `.env` 的文件，匹配不到 `api.env` —— 2026-10-23 实测它当时未被忽略。
-deploy/logto/api.env
+# 业务 API 的真实环境文件（docker compose --env-file deploy/logto/api.env）。
+# ⛔ 里面会有微信商户私钥 / APIv3 密钥，绝不能入库。
+# 注意上面 `.env` 只匹配名为 `.env` 的文件，匹配不到 api.env —— 2026-10-23 实测它当时未被忽略。
+# 用 `api.env*` + 取反模板：既覆盖 api.env~ / api.env.bak / api.env.swp 这类编辑器备份，
+# 又保证 api.env.example 仍然被跟踪（**不要**只写 api.env*，那会把模板一起忽略）。
+deploy/logto/api.env*
+!deploy/logto/api.env.example
+# 与上面同理，显式写一条，避免将来 `.env` 全局规则被调整时静默露出
+deploy/logto/.env
 .coverage
 
 # coverage annotate output

@@ -104,11 +104,25 @@ test('支付环境变量必须被 docker-compose 透传进容器', async (t) => 
 // **只匹配名为 `.env` 的文件，匹配不到 `api.env`** —— 2026-10-23 实测它当时确实未被忽略。
 // 一旦有人 `git add -A`，私钥就进了仓库。这条锁把"它必须被忽略"变成可执行判据。
 test('storefront env 文件必须被 gitignore（防私钥入库）', () => {
-  const { execFileSync } = require('node:child_process');
+  const { spawnSync } = require('node:child_process');
   const path = require('node:path');
   const root = path.resolve(__dirname, '../../..');
-  assert.doesNotThrow(() => {
-    // git check-ignore 返回 0 表示"命中忽略规则"；1 表示未忽略（会抛）
-    execFileSync('git', ['check-ignore', '-q', 'deploy/logto/api.env'], { cwd: root, stdio: 'pipe' });
-  }, 'deploy/logto/api.env 未被 .gitignore 忽略 —— 商户私钥会随 git add -A 入库');
+  // 用 spawnSync 读**显式退出码**，不依赖"有没有抛"：
+  //   0 = 命中忽略规则
+  //   1 = 未命中（要红）
+  //   其它/  null（git 缺失、非 git 仓库）= 判据自身故障，也要红 —— 不能把失明读成通过
+  const ignored = (file) => {
+    // --no-index 不可省：默认模式下 git 会**跳过已跟踪文件**，于是「模板没被忽略」这条断言
+    // 永远不可能失败（模板本来就是 tracked）—— 那是假绿。--no-index 按纯模式匹配判定。
+    const r = spawnSync('git', ['check-ignore', '--no-index', '-q', file], { cwd: root, encoding: 'utf8' });
+    if (r.error || r.status === null) throw new Error(`git 不可用，无法判定 ${file} 是否被忽略：${r.error && r.error.message}`);
+    if (r.status !== 0 && r.status !== 1) throw new Error(`git check-ignore 异常退出 ${r.status}：${r.stderr}`);
+    return r.status === 0;
+  };
+
+  assert.equal(ignored('deploy/logto/api.env'), true, 'deploy/logto/api.env 未被忽略 —— 商户私钥会随 git add -A 入库');
+  // 编辑器备份同样不能入库（api.env~ / api.env.bak / api.env.swp）
+  assert.equal(ignored('deploy/logto/api.env~'), true, '编辑器备份文件未被忽略');
+  // 反向锁：模板必须**仍然被跟踪**。只写 `api.env*` 而不取反，会把模板一起忽略掉。
+  assert.equal(ignored('deploy/logto/api.env.example'), false, 'api.env.example 被误忽略 —— 模板必须可入库');
 });

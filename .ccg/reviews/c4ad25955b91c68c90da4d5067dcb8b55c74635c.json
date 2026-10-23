@@ -1,0 +1,64 @@
+{
+  "sha": "c4ad25955b91c68c90da4d5067dcb8b55c74635c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 15 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
+  "stats": {
+    "changedLines": 15,
+    "fileCount": 6,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "task: 支付凭据注入落点：补 api.env 模板支付段 + 把 api.env 加入 gitignore",
+      "# 支付凭据该注入到哪个文件",
+      "用户问「凭据都在哪看、怎么注入本地 `.env`」。核对仓库后发现问题不在\"怎么填\"，而在**填错地方**："
+    ],
+    "ccgSensitiveContentHits": 4,
+    "ccgSensitiveContentSample": [
+      "  \"reason\": \"变更 15 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处\",",
+      "      \"task: 支付凭据注入落点：补 api.env 模板支付段 + 把 api.env 加入 gitignore\",",
+      "      \"# 支付凭据该注入到哪个文件\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-23T01:40:21.245Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

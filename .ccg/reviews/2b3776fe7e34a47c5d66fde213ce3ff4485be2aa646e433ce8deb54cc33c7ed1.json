@@ -1,0 +1,61 @@
+{
+  "sha": "c4ad25955b91c68c90da4d5067dcb8b55c74635c",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 24 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 24,
+    "fileCount": 5,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 7,
+    "ccgSensitiveContentSample": [
+      "  \"reason\": \"变更 15 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处\",",
+      "      \"task: 支付凭据注入落点：补 api.env 模板支付段 + 把 api.env 加入 gitignore\",",
+      "      \"# 支付凭据该注入到哪个文件\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2b3776fe7e34a47c5d66fde213ce3ff4485be2aa646e433ce8deb54cc33c7ed1",
+  "decidedAt": "2026-10-23T01:47:55.399Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
