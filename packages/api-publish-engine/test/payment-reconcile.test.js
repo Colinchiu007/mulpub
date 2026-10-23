@@ -72,16 +72,55 @@ test('payment-reconcile：只读硬锁', async (t) => {
     }
   });
 
-  await t.test('每条判据只绑两个参数：起始时间 + LIMIT', async () => {
+  // 2026-10-23 生产回归：旧实现是「统一绑两个参数，用不用随缘」，而
+  // entitlement-without-paid-order 与 stuck-processing 的 SQL 只写了 $2、没写 $1。
+  // PostgreSQL 对没出现的占位符无法推断类型 ⇒
+  //   could not determine data type of parameter $1
+  // 整条 SQL 直接失败，对账一条都跑不出来。当时单元测试全绿，
+  // 因为假 client 把参数数组原样收下、从不校验。
+  await t.test('每条判据的占位符必须从 $1 连续编号，且与 params 声明一致', async () => {
     const client = makeClient();
     await R.runReconcile({ client, limit: 7 });
     const checkCalls = client.calls.filter((c) => !c.sql.includes('to_regclass'));
     assert.equal(checkCalls.length, R.CHECKS.length);
+
     for (const call of checkCalls) {
-      assert.equal(call.params.length, 2);
-      assert.ok(call.params[0] instanceof Date, '参数1 必须是 Date（不会把字符串拼进 SQL）');
-      assert.equal(call.params[1], 7);
+      const check = R.CHECKS.find((c) => c.sql === call.sql);
+      assert.ok(check, '每次查询都必须能对应回某个判据');
+
+      const nums = [...new Set([...check.sql.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])))]
+        .sort((a, b) => a - b);
+      assert.deepEqual(
+        nums,
+        Array.from({ length: check.params.length }, (_, i) => i + 1),
+        `${check.id} 的占位符必须从 $1 连续编号（PG 不允许绑未出现的占位符）`,
+      );
+
+      assert.equal(call.params.length, check.params.length, `${check.id} 绑定个数必须等于 params 声明`);
+      check.params.forEach((name, index) => {
+        if (name === 'since') {
+          assert.ok(call.params[index] instanceof Date, 'since 必须是 Date（不会把字符串拼进 SQL）');
+        } else {
+          assert.equal(call.params[index], 7, 'limit 必须原样传 --limit');
+        }
+      });
     }
+  });
+
+  await t.test('严格假 client：占位符个数与绑定个数不等就当场红', async () => {
+    const strict = {
+      async end () {},
+      async query (sql, params = []) {
+        const nums = [...new Set([...String(sql).matchAll(/\$(\d+)/g)].map((m) => Number(m[1])))];
+        assert.equal(
+          params.length,
+          nums.length,
+          `SQL 用了 ${nums.length} 个占位符却绑了 ${params.length} 个参数：${String(sql).trim().slice(0, 50)}…`,
+        );
+        return { rows: sql.includes('to_regclass') ? [SCHEMA_ROW] : [] };
+      },
+    };
+    await R.runReconcile({ client: strict });
   });
 });
 
