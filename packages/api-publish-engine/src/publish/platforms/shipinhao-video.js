@@ -176,7 +176,16 @@ class ShipinhaoVideoChain {
   }
 
   /** Step 2：申请上传（applyuploaddfs），返回 UploadID */
+  /** 2026-10-23（蚁小二 shipinhaoPublishVideo）：taskid 是现场生成的 GUID，缺失时 X-Arguments 会带空值。 */
+  _ensureTaskId (meta) {
+    if (meta && !meta.taskid) {
+      try { meta.taskid = require('crypto').randomUUID() } catch (_e0) { meta.taskid = String(Date.now()) + Math.random().toString(16).slice(2) }
+    }
+    return meta && meta.taskid
+  },
+
   async applyUpload (meta) {
+    this._ensureTaskId(meta)
     const parts = chunkTotal(meta.filesize)
     const payload = {
       BlockSum: parts.length,
