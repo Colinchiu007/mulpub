@@ -125,7 +125,7 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
       const store = createStore()
       const service = createService({ store, userDataPath: userDataDir })
       await service.createClone({ name: '形象', type: 'photo', media: imageMedia(), sourceKind: 'bogus' })
-      const registry = store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)
+      const registry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
       expect(registry.avatars[0].sourceKind).toBe('self')
     })
   })
@@ -149,7 +149,7 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
         deletionState: 'active',
       })
 
-      const registry = store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)
+      const registry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
       expect(registry.avatars).toHaveLength(1)
       expect(registry.avatars[0].sampleStorage.sampleCount).toBe(1)
 
@@ -175,7 +175,7 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
 
       expect(result.code).toBe(-1)
       expect(result.message).toBe('AVATAR_CLONE_PROVIDER_UNAVAILABLE')
-      expect(store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)).toBeUndefined()
+      expect(store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)).toBeUndefined()
 
       const auditLog = path.resolve(userDataDir, 'audit', 'avatar-voice-clone.log')
       const events = nodeFs.readFileSync(auditLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
@@ -211,7 +211,7 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
       expect(result.code).toBe(-1)
       expect(result.message).toBe('AVATAR_CLONE_STORAGE_UNAVAILABLE')
       expect(deleteSpy).toHaveBeenCalledWith({ avatarId: 'av-9' })
-      expect(store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)).toBeUndefined()
+      expect(store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)).toBeUndefined()
     })
 
     it('重复 id：补偿删远端并报 DUPLICATE_ID', async () => {
@@ -223,7 +223,7 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
 
       expect(result.code).toBe(-1)
       expect(result.message).toBe('AVATAR_CLONE_DUPLICATE_ID')
-      const registry = store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)
+      const registry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
       expect(registry.avatars).toHaveLength(1)
     })
   })
@@ -255,7 +255,7 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
       const service = createService({ store, userDataPath: userDataDir })
       await service.createClone({ name: 'x', type: 'photo', media: imageMedia() })
 
-      const key = `avatar-clones:v1:${ownerHash(OWNER_A)}`
+      const key = `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`
       const registry = store.getValue(OWNER_A, key)
       registry.avatars[0].trainingState = 'failed'
       store.setUserSetting(key, registry, OWNER_A)
@@ -266,7 +266,7 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
 
     it('registry 形状非法 ⇒ 视为空（不猜测不合并）', async () => {
       const store = createStore()
-      store.setUserSetting(`avatar-clones:v1:${ownerHash(OWNER_A)}`, { bogus: true }, OWNER_A)
+      store.setUserSetting(`avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`, { bogus: true }, OWNER_A)
       const service = createService({ store, userDataPath: userDataDir })
       const list = await service.listClones({})
       expect(list.data.avatars).toEqual([])
@@ -280,14 +280,14 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
       const store = createStore()
       const service = createService({ store, userDataPath: userDataDir })
       await service.createClone({ name: 'x', type: 'photo', media: imageMedia() })
-      const registry = store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)
+      const registry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
       const sampleDir = path.resolve(userDataDir, registry.avatars[0].sampleStorage.relativeDir)
       expect(nodeFs.existsSync(sampleDir)).toBe(true)
 
       const result = await service.deleteClone({ avatarId: 'av-1' })
       expect(result.code).toBe(0)
       expect(result.data).toMatchObject({ deleted: true, remoteDeleted: true })
-      expect(store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`).avatars).toHaveLength(0)
+      expect(store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`).avatars).toHaveLength(0)
       expect(nodeFs.existsSync(sampleDir)).toBe(false)
     })
 
@@ -296,14 +296,14 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
       const manager = createManager({ deleteAvatar: () => ({ code: -1, message: 'boom' }) })
       const service = createService({ store, manager, userDataPath: userDataDir })
       await service.createClone({ name: 'x', type: 'photo', media: imageMedia() })
-      const registry = store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)
+      const registry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
       const sampleDir = path.resolve(userDataDir, registry.avatars[0].sampleStorage.relativeDir)
 
       const result = await service.deleteClone({ avatarId: 'av-1' })
       expect(result.code).toBe(0)
       expect(result.data).toMatchObject({ deleted: false, remoteDeleted: false, pending: true })
 
-      const after = store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)
+      const after = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
       expect(after.avatars).toHaveLength(1)
       expect(after.avatars[0].deletionState).toBe('pending')
       // 样本必须保留（下次重试要用）
@@ -328,7 +328,7 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
       const result = await service.refreshTrainingState({ avatarId: 'av-1' })
       expect(result.data.avatar.trainingState).toBe('completed')
 
-      const registry = store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)
+      const registry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
       expect(registry.avatars[0].trainingState).toBe('completed')
     })
 
@@ -350,8 +350,88 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
 
       const result = await service.refreshTrainingState({ avatarId: 'av-1' })
       expect(result.code).toBe(-1)
-      const registry = store.getValue(OWNER_A, `avatar-clones:v1:${ownerHash(OWNER_A)}`)
+      const registry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
       expect(registry.avatars[0].trainingState).toBe('training')
+    })
+  })
+
+  // ── change: digital-human-multiprovider：provider 隔离 ──────────────
+
+  describe('provider 隔离（registry 键与样本目录按 providerId 分段）', () => {
+    it('两家 provider 的克隆写进各自 registry，不串库', async () => {
+      const store = createStore()
+      const service = createService({ store, userDataPath: userDataDir })
+
+      await service.createClone({ name: 'HeyGen 形象', type: 'photo', media: imageMedia(), providerId: 'heygen' })
+      await service.createClone({ name: '飞影形象', type: 'photo', media: imageMedia(), providerId: 'hifly' })
+
+      const heygenRegistry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
+      const hiflyRegistry = store.getValue(OWNER_A, `avatar-clones:v1:hifly:${ownerHash(OWNER_A)}`)
+
+      expect(heygenRegistry.avatars).toHaveLength(1)
+      expect(heygenRegistry.avatars[0].name).toBe('HeyGen 形象')
+      expect(hiflyRegistry.avatars).toHaveLength(1)
+      expect(hiflyRegistry.avatars[0].name).toBe('飞影形象')
+    })
+
+    it('样本目录按 providerId 分段：两家的 storageId 不落在同一目录', async () => {
+      const store = createStore()
+      const service = createService({ store, userDataPath: userDataDir })
+
+      await service.createClone({ name: 'A', type: 'photo', media: imageMedia(), providerId: 'heygen' })
+      await service.createClone({ name: 'B', type: 'photo', media: imageMedia(), providerId: 'hifly' })
+
+      // 从 registry 读（_toPublic 只回 sampleCount，不含 relativeDir）
+      const hg = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`).avatars[0]
+      const hf = store.getValue(OWNER_A, `avatar-clones:v1:hifly:${ownerHash(OWNER_A)}`).avatars[0]
+
+      expect(hg.sampleStorage.relativeDir).toContain('avatar-clone-samples/heygen/')
+      expect(hf.sampleStorage.relativeDir).toContain('avatar-clone-samples/hifly/')
+      // 两家 storageId 相同也不冲突（目录不同）—— 且样本真的各自落盘
+      expect(hg.sampleStorage.relativeDir).not.toBe(hf.sampleStorage.relativeDir)
+      expect(nodeFs.existsSync(path.resolve(userDataDir, hg.sampleStorage.relativeDir))).toBe(true)
+      expect(nodeFs.existsSync(path.resolve(userDataDir, hf.sampleStorage.relativeDir))).toBe(true)
+    })
+
+    it('未传 providerId ⇒ 回落默认（不因缺参把 registry 键写成 undefined）', async () => {
+      const store = createStore()
+      const service = createService({ store, userDataPath: userDataDir })
+      await service.createClone({ name: 'x', type: 'photo', media: imageMedia() })
+
+      const registry = store.getValue(OWNER_A, `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`)
+      expect(registry.avatars).toHaveLength(1)
+      expect(store.getValue(OWNER_A, `avatar-clones:v1:undefined:${ownerHash(OWNER_A)}`)).toBeUndefined()
+    })
+
+    it('老 3 段样本目录仍判合法（升级前已克隆的用户不被误标「素材已缺失」）', async () => {
+      const store = createStore()
+      const service = createService({ store, userDataPath: userDataDir })
+      const legacyDir = `avatar-clone-samples/${ownerHash(OWNER_A)}/legacy-storage`
+      store.setUserSetting(
+        `avatar-clones:v1:heygen:${ownerHash(OWNER_A)}`,
+        {
+          version: 1,
+          ownerHash: ownerHash(OWNER_A),
+          avatars: [{
+            id: 'av-legacy',
+            name: '老形象',
+            source: 'user_clone',
+            sourceKind: 'self',
+            mediaType: 'image',
+            trainingState: 'completed',
+            deletionState: 'active',
+            createdAt: Date.now(),
+            auditSeq: 1,
+            attestation: { acknowledgedAt: Date.now() },
+            sampleStorage: { relativeDir: legacyDir, sampleCount: 1, mediaType: 'image' },
+          }],
+        },
+        OWNER_A
+      )
+
+      const result = await service.listClones()
+      expect(result.code).toBe(0)
+      expect(result.data.avatars[0].invalidReason).toBeUndefined()
     })
   })
 

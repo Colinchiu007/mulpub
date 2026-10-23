@@ -51,13 +51,25 @@ function makePipeline (aiGenerator, opts = {}) {
   return { get: (type) => executors.get(type), optimizeVideoPromptsBatch }
 }
 
-/** 带 getProvider 的 manager：heygen 可用，agnes-video 也可用（模拟真实双配置） */
+/**
+ * 带 getProvider/listProviders 的 manager（模拟真实双配置）。
+ *
+ * change: digital-human-multiprovider —— provider 解析改为 capability 驱动，
+ * 因此夹具必须提供 listProviders 与 capabilities 声明，否则解析返回 null。
+ * agnes-video 是通用文生视频（无 digital_human capability），用于验证
+ * 「数字人不会落到通用视频模型上」。
+ */
 function makeManager (overrides = {}) {
+  const heygen = { id: 'heygen', category: 'video', capabilities: ['video', 'digital_human'], models: ['heygen-video'] }
+  const agnesVideo = { id: 'agnes-video', category: 'video', capabilities: ['video'], models: ['agnes-video-v2.0'] }
+  const providers = overrides.providers || [heygen, agnesVideo]
+  const { providers: _drop, ...rest } = overrides
   return {
     getDefault: (type) => (type === 'video' ? { id: 'agnes-video', models: ['agnes-video-v2.0'] } : (type === 'llm' ? { id: 'agnes-llm', models: ['agnes-2.0-flash'] } : null)),
-    getProvider: (id) => (id === 'heygen' ? { id: 'heygen', category: 'video', models: ['heygen-video'] } : null),
+    getProvider: (id) => providers.find((p) => p.id === id) || null,
+    listProviders: () => providers.map((p) => ({ ...p })),
     callAdapter: vi.fn(async () => ({ code: 0, data: { taskId: 't1' } })),
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -93,6 +105,26 @@ describe('数字人分支（avatar-spokesperson）', () => {
 
     it('manager 缺失 → null', () => {
       expect(resolveDigitalHumanProvider(null, {})).toBeNull()
+    })
+
+    // ── change: digital-human-multiprovider ──
+    it('多家数字人 provider 时按 capability 解析，不写死 heygen', () => {
+      const manager = makeManager({
+        providers: [
+          { id: 'heygen', category: 'video', capabilities: ['video', 'digital_human'], models: ['heygen-video'] },
+          { id: 'hifly', category: 'video', capabilities: ['video', 'digital_human'], models: ['hifly-video'] },
+        ],
+        getDefault: () => ({ id: 'hifly' }),
+      })
+      const result = resolveDigitalHumanProvider(makeAi(manager), {})
+      expect(result.providerId).toBe('hifly')
+    })
+
+    it('一家都没声明 digital_human ⇒ null（不回落通用视频模型）', () => {
+      const manager = makeManager({ providers: [
+        { id: 'kling', category: 'video', capabilities: ['video'], models: ['kling-v1'] },
+      ] })
+      expect(resolveDigitalHumanProvider(makeAi(manager), {})).toBeNull()
     })
   })
 

@@ -39,11 +39,20 @@ const renameAvatarClone = vi.hoisted(() => vi.fn())
 
 const getAvatarCatalog = vi.hoisted(() => vi.fn())
 const getAvatarVoiceCatalog = vi.hoisted(() => vi.fn())
+const modelProviderList = vi.hoisted(() => vi.fn())
+const modelProviderGetDefault = vi.hoisted(() => vi.fn())
 
 vi.mock('@/api/avatar-catalog', () => ({
   getAvatarCatalog,
   getAvatarVoiceCatalog,
   invalidateAvatarCatalog: vi.fn(),
+}))
+
+// change: digital-human-multiprovider —— 数字人服务商下拉的数据源。
+// 默认只返 heygen（带 digital_human capability）；kling 不带，用来验证筛选。
+vi.mock('@/api/model-providers', () => ({
+  modelProviderList,
+  modelProviderGetDefault,
 }))
 
 vi.mock('@/api/avatar-clone', () => ({
@@ -126,8 +135,20 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
     listAvatarClones.mockResolvedValue({ code: 0, data: { avatars: [] } })
     getAvatarCatalog.mockReset()
     getAvatarVoiceCatalog.mockReset()
+    modelProviderList.mockReset()
+    modelProviderGetDefault.mockReset()
     getAvatarCatalog.mockResolvedValue({ code: 0, data: { avatars: [{ id: 'ava-1', name: '小雅' }, { id: 'ava-2', name: '小博' }] } })
     getAvatarVoiceCatalog.mockResolvedValue({ code: 0, data: { voices: [{ id: 'voice-1', name: '甜美女声' }] } })
+    // video 列表里只有 heygen 带 digital_human capability；kling 是通用文生视频。
+    // data 直接是数组，且要求 enabled + is_configured 双 true（与 CreateView 的 enabledProviders 一致）。
+    modelProviderList.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: 'heygen', name: 'HeyGen', category: 'video', capabilities: ['video', 'digital_human'], enabled: true, is_configured: true },
+        { id: 'kling', name: 'Kling', category: 'video', capabilities: ['video'], enabled: true, is_configured: true },
+      ],
+    })
+    modelProviderGetDefault.mockResolvedValue({ code: 0, data: { id: 'heygen' } })
     const { resetAvatarCatalogForTest } = await import('./video-creation/composables/useAvatarCatalog')
     resetAvatarCatalogForTest()
     // 克隆列表同样是模块级单例：不复位会让上一条的列表残留进下一条
@@ -206,7 +227,9 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
 
     await w.find('[data-testid="avatar-clone-delete-cl-1"]').trigger('click')
     await nextTick()
-    expect(deleteAvatarClone).toHaveBeenCalledWith({ avatarId: 'cl-1' })
+    expect(deleteAvatarClone).toHaveBeenCalled()
+    // providerId 由当前选中的服务商带入（空串 = 未解析出 provider，主进程回落默认）
+    expect(deleteAvatarClone.mock.calls[0][0]).toMatchObject({ avatarId: 'cl-1' })
     w.unmount()
   })
 
@@ -301,5 +324,48 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
     expect(rendered).not.toBe('avatarCloneErrDuplicate')
     expect(rendered.length).toBeGreaterThan(0)
     w.unmount()
+  })
+
+  // ── change: digital-human-multiprovider：服务商切换 ──────────────────
+
+  describe('数字人服务商切换', () => {
+    it('下拉只列声明了 digital_human 能力的 provider', async () => {
+      getAvatarCatalog.mockResolvedValue({ code: 0, data: { avatars: [{ id: 'ava-1', name: '小雅' }] } })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await new Promise((r) => setTimeout(r, 0))
+      await nextTick()
+
+      // 本用例只配了 heygen（夹具里 kling 无 digital_human capability）
+      expect(w.vm.avatarProviderOptions.map((p) => p.id)).toEqual(['heygen'])
+      expect(w.vm.avatarProviderId).toBe('heygen')
+      // 只有一家时下拉禁用（切换无意义，避免用户点了没反应）
+      expect(w.find('[data-testid="avatar-provider-select"]').attributes('disabled')).toBeDefined()
+      w.unmount()
+    })
+
+    it('切换服务商：清空已选形象/音色 + 重拉克隆列表并带上新 providerId', async () => {
+      listAvatarClones.mockResolvedValue({ code: 0, data: { avatars: [] } })
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await new Promise((r) => setTimeout(r, 0))
+      await nextTick()
+
+      w.vm.avatarId = 'ava-1'
+      w.vm.avatarVoiceId = 'voice-1'
+      listAvatarClones.mockClear()
+
+      await w.vm.switchAvatarProvider('hifly')
+      await new Promise((r) => setTimeout(r, 0))
+      await nextTick()
+
+      expect(w.vm.avatarProviderId).toBe('hifly')
+      // 两家 id 同形，留着旧值等于让用户误选另一家的资源
+      expect(w.vm.avatarId).toBe('')
+      expect(w.vm.avatarVoiceId).toBe('')
+      // 克隆列表按 provider 分段，必须带新 providerId 重拉
+      expect(listAvatarClones).toHaveBeenCalledWith({ providerId: 'hifly' })
+      w.unmount()
+    })
   })
 })

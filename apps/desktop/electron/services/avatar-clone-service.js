@@ -49,9 +49,21 @@ const {
   normalizeIdRequest,
   normalizeRenameRequest,
   normalizeTrainingState,
+  buildRegistryKey,
+  buildSampleRelativeDir,
 } = require('./avatar-clone-registry')
+const { RegistryLock } = require('./avatar-clone-lock')
+const { helpers } = require('./avatar-clone-helpers')
 
+/**
+ * 默认数字人 provider（仅作「未显式指定时的兜底」）。
+ *
+ * change: digital-human-multiprovider —— 真正的 provider 由 IPC 层按当前选中
+ * 的数字化服务商解析后传入（见 ipc-handlers/avatar-clone.js），本常量只兜底。
+ */
 const AVATAR_CLONE_PROVIDER = 'heygen'
+/** registry 键与样本目录的默认 provider 段（与上一行同值，语义上区分用途） */
+const DEFAULT_DIGITAL_HUMAN_PROVIDER = AVATAR_CLONE_PROVIDER
 const AVATAR_CLONE_REGISTRY_VERSION = 1
 const SAMPLE_STORAGE_DIRECTORY = 'avatar-clone-samples'
 const AUDIT_LOG_DIRECTORY = 'audit'
@@ -121,7 +133,8 @@ class AvatarCloneService {
     this._now = typeof deps.now === 'function' ? deps.now : () => Date.now()
     this._setTimeout = typeof deps.setTimeout === 'function' ? deps.setTimeout : setTimeout
     this._clearTimeout = typeof deps.clearTimeout === 'function' ? deps.clearTimeout : clearTimeout
-    this._registryLocks = new Map()
+    // registry 写锁：按 key 串行化 read-modify-write（实现在 avatar-clone-lock）
+    this._locks = new RegistryLock()
     this._selections = new AvatarCloneSelectionStore({
       fs: this._fs,
       createToken: typeof deps.createSelectionToken === 'function' ? deps.createSelectionToken : crypto.randomUUID,
@@ -171,7 +184,8 @@ class AvatarCloneService {
       sampleStorageStatusOf: (sampleStorage) => this._sampleStorageStatus(owner, sampleStorage),
       toPublic: (avatar) => this._toPublic(avatar),
     })
-    return success({ providerId: AVATAR_CLONE_PROVIDER, avatars })
+    // 回显本次实际用的 provider（调用方据此知道列表属于哪家，不靠猜）
+    return success({ providerId: owner.providerId, avatars })
   }
 
   /**
@@ -318,8 +332,9 @@ class AvatarCloneService {
 
   // ── registry ────────────────────────────────────────────────────────
 
+  /** registry 存储键（键/目录的分段规则见 avatar-clone-registry 的两个 build* 纯函数） */
   _registryKey (owner) {
-    return `avatar-clones:v${AVATAR_CLONE_REGISTRY_VERSION}:${owner.hash}`
+    return buildRegistryKey(owner, AVATAR_CLONE_REGISTRY_VERSION, DEFAULT_DIGITAL_HUMAN_PROVIDER)
   }
 
   _readRegistry (owner) {
@@ -356,30 +371,25 @@ class AvatarCloneService {
   }
 
   async _withRegistryLock (owner, work) {
-    const key = this._registryKey(owner)
-    const previous = this._registryLocks.get(key) || Promise.resolve()
-    let release
-    const gate = new Promise((resolve) => { release = resolve })
-    this._registryLocks.set(key, previous.then(() => gate))
-    await previous.catch(() => {})
-    try {
-      return await work()
-    } finally {
-      release()
-      if (this._registryLocks.get(key) === previous.then(() => gate)) {
-        this._registryLocks.delete(key)
-      }
-    }
+    return this._locks.run(this._registryKey(owner), work)
   }
 
   // ── owner / store ───────────────────────────────────────────────────
 
-  _captureOwner () {
+  /**
+   * 捕获当前账号（owner）并绑定数字人 provider。
+   *
+   * change: digital-human-multiprovider —— owner 带上 `providerId`：
+   * registry 键与样本目录都按 provider 分段，两家服务商的克隆产物不串库。
+   * providerId 由 IPC 层按当前选中的数字人 provider 传入。
+   */
+  _captureOwner (providerId) {
     if (!this._store || typeof this._store.getOwnerSubject !== 'function') return null
     let subject
     try { subject = this._store.getOwnerSubject() } catch (_) { return null }
     if (typeof subject !== 'string' || !subject) return null
-    return { subject, hash: crypto.createHash('sha256').update(subject).digest('hex').slice(0, 32) }
+    const provider = typeof providerId === 'string' && providerId.trim() ? providerId.trim() : DEFAULT_DIGITAL_HUMAN_PROVIDER
+    return { subject, providerId: provider, hash: crypto.createHash('sha256').update(subject).digest('hex').slice(0, 32) }
   }
 
   _hasUserSettings () {
@@ -391,9 +401,10 @@ class AvatarCloneService {
   _createSampleStorageDescriptor (owner) {
     const storageId = safeIdentifier(this._createStorageId(), 128)
     if (!storageId) return null
+    // 目录与 registry 键同构分段（同一套规则，抽在 registry 模块当纯函数）
     return {
       storageId,
-      relativeDir: `${SAMPLE_STORAGE_DIRECTORY}/${owner.hash}/${storageId}`,
+      relativeDir: buildSampleRelativeDir(owner, storageId, SAMPLE_STORAGE_DIRECTORY, DEFAULT_DIGITAL_HUMAN_PROVIDER),
     }
   }
 
@@ -421,50 +432,8 @@ class AvatarCloneService {
     return this._now() - avatar.createdAt > DELETE_RETRY_TTL_MS
   }
 
-  // ── 工具 ────────────────────────────────────────────────────────────
-
-  _resolveUserDataPath () {
-    let userDataPath = this._userDataPath
-    if (userDataPath === null && this._getUserDataPath) {
-      try { userDataPath = this._getUserDataPath() } catch (_) { userDataPath = null }
-    }
-    if (userDataPath === null && this._app && typeof this._app.getPath === 'function') {
-      try { userDataPath = this._app.getPath('userData') } catch (_) { userDataPath = null }
-    }
-    if (typeof userDataPath !== 'string' || !userDataPath || userDataPath.length > 4096 || hasControlCharacter(userDataPath) || !path.isAbsolute(userDataPath)) {
-      return null
-    }
-    return path.resolve(userDataPath)
-  }
-
-  _errorDetail (error) {
-    if (!error) return 'unknown'
-    return String(error.message || error.code || error).slice(0, 300)
-  }
-
-  _toPublic (avatar) {
-    const out = {
-      id: avatar.id,
-      name: avatar.name,
-      source: avatar.source,
-      sourceKind: avatar.sourceKind,
-      mediaType: avatar.mediaType,
-      trainingState: avatar.trainingState === undefined ? TRAINING_STATES.TRAINING : avatar.trainingState,
-      deletionState: avatar.deletionState === undefined ? DELETE_STATES.ACTIVE : avatar.deletionState,
-      createdAt: avatar.createdAt,
-      sampleCount: avatar.sampleStorage ? avatar.sampleStorage.sampleCount : 0,
-    }
-    if (avatar.invalidReason) out.invalidReason = avatar.invalidReason
-    return out
-
-  }
-
-  /** 素材扩展名白名单（图片/视频；非法扩展名在入参归一阶段就被拒） */
-  _safeExtension (fileName) {
-    if (typeof fileName !== 'string') return null
-    const ext = path.extname(fileName).toLowerCase()
-    return AVATAR_MEDIA_EXTENSIONS.includes(ext) ? ext : null
-  }
+  // ── 工具方法（_resolveUserDataPath / _errorDetail / _toPublic / _safeExtension）──
+  // 实现在 avatar-clone-helpers.js（prototype mixin，与 heygen-clone 同型拆分）
 
   /**
    * 公共方法的统一前置：归一入参 → 取 owner → 查 store 可用。
@@ -477,7 +446,9 @@ class AvatarCloneService {
   _guard (normalize, input) {
     const request = normalize(input)
     if (!request) return { ok: false, response: failure('AVATAR_CLONE_INVALID_ARGUMENTS') }
-    const owner = this._captureOwner()
+    // providerId 由 IPC 层按当前选中的数字人服务商解析后随请求传入；
+    // 缺失时回落默认值（_captureOwner 内部兜底）。
+    const owner = this._captureOwner(request.providerId)
     if (!owner) return { ok: false, response: failure('AVATAR_OWNER_UNAVAILABLE') }
     if (!this._hasUserSettings()) return { ok: false, response: failure('AVATAR_CLONE_STORE_UNAVAILABLE') }
     return { ok: true, request, owner }
@@ -485,13 +456,25 @@ class AvatarCloneService {
 
   // ── 入参归一：纯函数在 avatar-clone-registry，这里直接调，不包薄层 ──
 
+  /**
+   * 取本次请求的数字人 provider。
+   *
+   * change: digital-human-multiprovider —— 由 IPC 层透传（用户在下拉里选的那家），
+   * 不再写死 heygen。`input` 允许缺省：只读入口常被无参调用，回落默认而不是判负。
+   */
   _normalizeRequest (input) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) return null
-    return { providerId: AVATAR_CLONE_PROVIDER }
+    const providerId = input && typeof input === 'object' && !Array.isArray(input)
+      && typeof input.providerId === 'string' && input.providerId.trim()
+      ? input.providerId.trim()
+      : AVATAR_CLONE_PROVIDER
+    return { providerId }
   }
 }
 
 // 导出面刻意收敛：外部（IPC handler）只消费 AvatarCloneService。
 // 训练轮询/删除重试等策略常量若被测试或别处需要，应从 avatar-clone-registry 取
 // ——那里是同族的纯常量真源，避免两处各写一份。
+// 工具方法挂到原型上（拆出以满足 max-lines，见 avatar-clone-helpers.js 头注）
+Object.assign(AvatarCloneService.prototype, helpers)
+
 module.exports = { AvatarCloneService }

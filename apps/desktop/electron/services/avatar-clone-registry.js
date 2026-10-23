@@ -73,20 +73,72 @@ function normalizeSourceKind (value) {
   return Object.prototype.hasOwnProperty.call(SOURCE_PRIORITY, value) ? value : null
 }
 
+/**
+ * 样本目录形状校验。
+ *
+ * 目录形态（change: digital-human-multiprovider 起支持两种，按 provider 分段）：
+ *   avatar-clone-samples/<providerId>/<ownerHash>/<storageId>   （4 段，新）
+ *   avatar-clone-samples/<ownerHash>/<storageId>               （3 段，老数据）
+ *
+ * 两种都放行是为了让**升级前已克隆的用户仍能看到自己的形象**（老 registry 不迁移，
+ * 但已落盘的样本不该被判定成「本地素材已缺失」而误导用户）。
+ *
+ * 安全要点不变：前缀必须精确、每一段都过 safeIdentifier（不许 `..`、绝对路径、
+ * 空段），否则等于把任意文件读取开给调用方。
+ */
 function isSafeSampleStorage (value, ownerHash) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const allowed = new Set(['relativeDir', 'sampleCount', 'mediaType'])
   if (Object.keys(value).some((key) => !allowed.has(key))) return false
   if (typeof value.relativeDir !== 'string') return false
   const segments = value.relativeDir.split('/')
-  if (
-    segments.length !== 3 ||
-    segments[0] !== 'avatar-clone-samples' ||
-    segments[1] !== ownerHash ||
-    safeIdentifier(segments[2], 128) === null
-  ) return false
+  if (segments[0] !== 'avatar-clone-samples') return false
+  if (segments.length !== 3 && segments.length !== 4) return false
+  // 4 段形态：第 2 段是 providerId，第 3 段才是 ownerHash
+  const hashIndex = segments.length === 4 ? 2 : 1
+  if (segments[hashIndex] !== ownerHash) return false
+  if (safeIdentifier(segments[hashIndex + 1], 128) === null) return false
+  if (segments.length === 4 && safeIdentifier(segments[1], 128) === null) return false
   if (!Number.isInteger(value.sampleCount) || value.sampleCount < 1) return false
   return value.mediaType === 'image' || value.mediaType === 'video'
+}
+
+/**
+ * 构造 registry 存储键。
+ *
+ * change: digital-human-multiprovider —— 补 `providerId` 段：
+ * 两家数字人服务商的克隆 id **同形同键**（都是 avatar/look id），不区分 provider
+ * 时 HeyGen 与飞影的克隆形象会写进同一份 registry，用户切换 provider 后
+ * 看到的是另一家的失效 id（选了要到 generate 阶段才炸）。
+ *
+ * 老数据（无 providerId 段）自然失效：用户重新克隆即可，不做迁移——
+ * 迁移要把「这条记录属于哪家」猜出来，而老 registry 里没存这个信息。
+ *
+ * @param {{hash: string, providerId?: string}} owner
+ * @param {number} version
+ * @param {string} defaultProvider 未显式指定时的兜底
+ * @returns {string}
+ */
+function buildRegistryKey (owner, version, defaultProvider) {
+  const provider = owner && owner.providerId ? String(owner.providerId) : defaultProvider
+  return `avatar-clones:v${version}:${provider}:${owner.hash}`
+}
+
+/**
+ * 构造样本目录相对路径（与 registry 键同构地按 provider 分段）。
+ *
+ * 抽成纯函数的理由：它与 buildRegistryKey 必须**同一种分段规则**，
+ * 两处各写一遍就会漂移（实测过：storage 按 3 段拼、registry 记 4 段，
+ * 表现是「registry 写成功但 existsSync 为 false」的幽灵故障）。
+ *
+ * @param {{hash: string, providerId?: string}} owner
+ * @param {string} storageId
+ * @param {string} root 样本根目录名
+ * @param {string} defaultProvider
+ */
+function buildSampleRelativeDir (owner, storageId, root, defaultProvider) {
+  const provider = owner && owner.providerId ? String(owner.providerId) : defaultProvider
+  return `${root}/${provider}/${owner.hash}/${storageId}`
 }
 
 /**
@@ -194,7 +246,10 @@ function normalizeCreateRequest (input, safeExtension) {
   const allowed = mediaType === 'image' ? AVATAR_IMAGE_EXTENSIONS : AVATAR_VIDEO_EXTENSIONS
   if (!allowed.includes(ext)) return null
   const sourceKind = normalizeSourceKind(input.sourceKind) || 'self'
-  return { name, type, mediaType, media: input.media, sourceKind }
+  // change: digital-human-multiprovider —— 透传 providerId：registry 键与样本目录
+  // 都按它分段，两家数字人服务商的克隆产物才不会串库。非空字符串才认。
+  const providerId = typeof input.providerId === 'string' && input.providerId.trim() ? input.providerId.trim() : null
+  return { name, type, mediaType, media: input.media, sourceKind, providerId }
 }
 
 /**
@@ -218,7 +273,9 @@ function normalizeIdRequest (input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   const avatarId = safeIdentifier(input.avatarId, MAX_AVATAR_ID_LENGTH)
   if (!avatarId) return null
-  return { avatarId }
+  // 同 normalizeCreateRequest：删除/重命名也要知道动的是哪家的 registry
+  const providerId = typeof input.providerId === 'string' && input.providerId.trim() ? input.providerId.trim() : null
+  return { avatarId, providerId }
 }
 
 function normalizeRenameRequest (input) {
@@ -243,6 +300,8 @@ module.exports = {
   safeIdentifier,
   safeDisplayName,
   normalizeSourceKind,
+  buildRegistryKey,
+  buildSampleRelativeDir,
   isSafeSampleStorage,
   isSafeAvatarClone,
   isSafeAvatarCloneRegistry,

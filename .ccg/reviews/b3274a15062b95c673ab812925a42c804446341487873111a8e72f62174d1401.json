@@ -1,0 +1,61 @@
+{
+  "sha": "9adf66fd067a90c73498f6f23e1ca184c9e3f262",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2008 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2008,
+    "fileCount": 29,
+    "codeFileCount": 24,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 13,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 债务基线 | ✅ 经人工授权 | `modelProviderRequireFanOut` 65 → 66，**经用户明确授权**（理由见下） |",
+      "**授权**：已向用户明示增量构成与三个选项，用户选择「授权抬到 66，理由写进 PR」。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b3274a15062b95c673ab812925a42c804446341487873111a8e72f62174d1401",
+  "decidedAt": "2026-10-23T01:40:59.917Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定（2026-10-23T01:40:59Z），未跑 deep-review。\n\n本 commit 是「数字人 provider 多供应商化」，不涉及高危面：\n不动判据本体（.github/workflows、scripts 的判据文件）、不动凭证/登录态。\n改动集中在 apps/desktop/electron/services（新增 hifly adapter + provider 能力解析）。\n\n自我审查已覆盖的关键风险点（逐条给结论）：\n1. 飞影 status 是整数枚举而非字符串 —— 已按官方文档修正为 STATUS_MAP[1..4]，\n   未知值兜底 processing（不谎称完成）；测试锁定 4 个整数值 + 未知值兜底。\n2. 素材必须两步上传（create_upload_url → PUT）—— adapter 内封装，\n   测试断言 PUT 不发 Authorization（预签名 URL 自带凭证）。\n3. 删除类响应只认 code===0 —— 不拿 data 真值判（#4194 踩过），测试锁定。\n4. 克隆 registry 键补 providerId 段防两家串库 —— 4 例回归测试锁定，\n   含「老 3 段目录仍判合法」（升级前已克隆的用户不被误标素材缺失）。\n5. isSafeSampleStorage 与新目录形态冲突导致 registry 写入被拒 —— 已修，\n   并补「registry 写成功 + existsSync 为 true」双向断言。\n6. 前端切换服务商必须清空已选形象/音色 + 重拉三份列表 —— 2 例测试锁定。\n\n回归证据：17 个相关测试文件 333/333 全绿；\nmax-lines / debt-budget（经人工授权抬 fanOut 65→66）/ no-brand-residue /\nsame-type-risk-locks(18) / font-size / locale(keys+cjk) 全部通过。"
+  }
+}

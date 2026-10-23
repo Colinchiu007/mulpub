@@ -21,12 +21,16 @@
  */
 
 const { hasUsableApiKey, canUseWithoutApiKey } = require('./model-provider-manager')
+const { resolveDigitalHumanProviderId } = require('./digital-human-provider')
 
 const PIPELINE_MODEL_REQUIREMENTS_MISSING = 'PIPELINE_MODEL_REQUIREMENTS_MISSING'
 
 /**
- * 数字人流水线的机器名与 provider（与 videogen-stages.js 的
- * AVATAR_PIPELINE / DIGITAL_HUMAN_PROVIDER 保持一致，避免两处漂移）。
+ * 数字人流水线的机器名与**默认** provider。
+ *
+ * change: digital-human-multiprovider —— 真正的 provider 解析统一走
+ * ./digital-human-provider（capability 驱动），本常量只作兜底，
+ * 不再与 videogen-stages.js 各自维护一份（那正是两处漂移的根因）。
  */
 const DIGITAL_HUMAN_PIPELINE = 'avatar-spokesperson'
 const DIGITAL_HUMAN_PROVIDER = 'heygen'
@@ -249,9 +253,8 @@ function checkDigitalHumanRequirements (modelProviderManager, params) {
         : '启动被拦截：该克隆数字人形象在 HeyGen 侧已不存在，请删除本地记录后重新创建。',
     }
   }
-  // provider 可用性：显式 videoProvider 优先，否则固定 HeyGen
-  const explicit = nonEmptyString(params.videoProvider)
-  const providerId = explicit || DIGITAL_HUMAN_PROVIDER
+  // provider 可用性：显式 videoProvider > capability 解析（change: digital-human-multiprovider）
+  const providerId = resolveDigitalHumanProviderId(modelProviderManager, params) || DIGITAL_HUMAN_PROVIDER
   const provider = typeof modelProviderManager.getProviderWithKey === 'function'
     ? modelProviderManager.getProviderWithKey(providerId)
     : null
