@@ -188,6 +188,31 @@ class ToutiaoVideoChain {
     return cookieValue(this.cookie, 'uid_tt') || String(this._uidFallback || '')
   }
 
+  /**
+   * 2026-10-24：写接口需要 x-csrf-token；cookie 里没有 xigua_csrf_token 时按字节系通用做法自举：
+   * HEAD 一个写域路径并带 x-secsdk-csrf-request:1，从响应头 x-ware-csrf-token 取（形如 v1,v2 ⇒ 取第二段）。
+   * 失败只记录不抛错——真正的判定仍由平台响应决定。
+   */
+  async ensureCsrf () {
+    if (this._csrf) return this._csrf
+    const fromCookie = pickCsrfToken(this.cookie)
+    if (fromCookie) { this._csrf = fromCookie; return fromCookie }
+    const pool = ['/mp/agw/article/wtt/list', '/profile_v4/xigua/upload-video', '/api/pc/feed/']
+    for (const p of pool) {
+      try {
+        const res = await this.mp.request({
+          method: 'head', url: p,
+          headers: { Cookie: this.cookie, 'User-Agent': this.userAgent, Referer: this.mpBase + '/profile_v4/xigua/upload-video', Origin: this.mpBase, 'x-secsdk-csrf-request': '1', 'x-secsdk-csrf-version': '1.2.7' },
+          validateStatus: (st) => st >= 200 && st < 500,
+        })
+        const raw = (res.headers && (res.headers['x-ware-csrf-token'] || res.headers['x-csrf-token'])) || ''
+        const tok = String(raw).split(',')[1] || String(raw)
+        if (tok) { this._csrf = tok; if (this.logger) this.logger.log('toutiao csrf bootstrapped from ' + p); return tok }
+      } catch (_eCsrf) { /* 换下一个候选 */ }
+    }
+    return ''
+  }
+
   _mpHeaders (extra) {
     const h = {
       Cookie: this.cookie,
@@ -198,7 +223,7 @@ class ToutiaoVideoChain {
     // 写接口必须带 CSRF 头（2026-10-19 真机实证）：头名与 cookie 来源、
     // 以及「不带 / 用错 cookie 一律 403 invalid csrf token」的对照证据，
     // 全部写在 `toutiao-video-publish.js#pickCsrfToken` 的注释里（单一事实源）。
-    const csrf = pickCsrfToken(this.cookie)
+    const csrf = this._csrf || pickCsrfToken(this.cookie)
     if (csrf) h[CSRF_HEADER] = csrf
     return Object.assign(h, extra || {})
   }
@@ -342,6 +367,7 @@ class ToutiaoVideoChain {
    * （旧实现按 `status===0 && data.item_id` 判定，字段名是错的 —— 头像是 PascalCase 的 `ItemId`。）
    */
   async publish (postData) {
+    await this.ensureCsrf()
     const res = await this.mp.request({
       method: 'post', url: PUBLISH_PATH,
       data: JSON.stringify(postData), maxBodyLength: Infinity,
