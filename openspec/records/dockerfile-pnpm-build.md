@@ -93,3 +93,18 @@ RUN pnpm --filter @multi-publish/api-publish-engine deploy --legacy --prod --ign
 | --- | --- |
 
 - 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅ | 远程同步（本 PR）
+
+## 8. 连带修好的既有契约测试
+
+`test/logto-deploy-contract.test.js` 里有两条断言锁着 **npm 时代**的 Dockerfile 形状：
+
+| 原断言 | 问题 | 改为 |
+|---|---|---|
+| `/COPY package\.json package-lock\.json/` | `package-lock.json` 2026-08-13 已删除，这条只有靠 Dockerfile 里那行残留才成立 | `/COPY package\.json pnpm-lock\.yaml pnpm-workspace\.yaml/` |
+| `/--workspace @multi-publish\/api-publish-engine/` | pnpm 用 `--filter`，没有 `--workspace` | `/--filter @multi-publish\/api-publish-engine/` |
+
+两条都保留了原意（"deps 阶段确实拷入依赖清单""确实针对本工作区安装"），只是把清单从 npm 的两件换成 pnpm 的三件。
+
+**这一条也是 CI 抓到的**：本地只跑新增的 7 例是绿的，`QG Unit Tests` 跑到契约测试才红 —— 说明"只跑自己新写的测试"不足以证明没破坏别处。
+
+另有一处 Dockerfile 回退：runner 阶段原本想把 `package.json` 也从 `pnpm deploy` 产物（`--from=deps`）拷，但契约测试的 staging 只处理**本地** `COPY`（正则排除 `--from=`），导致 require 链找不到 package.json。改回从仓库拷 —— 与原 Dockerfile 行为一致，运行时不需要 deploy 改写后的清单。

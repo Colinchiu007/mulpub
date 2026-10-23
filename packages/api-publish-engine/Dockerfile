@@ -34,7 +34,7 @@ COPY --chown=publishapi:publishapi packages/api-publish-engine/src ./packages/ap
 COPY --chown=publishapi:publishapi packages/api-publish-engine/upload ./packages/api-publish-engine/upload
 COPY --chown=publishapi:publishapi packages/api-publish-engine/bin ./packages/api-publish-engine/bin
 COPY --chown=publishapi:publishapi packages/api-publish-engine/scripts ./packages/api-publish-engine/scripts
-COPY --from=deps --chown=publishapi:publishapi /prod/api/package.json ./packages/api-publish-engine/package.json
+COPY --chown=publishapi:publishapi packages/api-publish-engine/package.json ./packages/api-publish-engine/package.json
 COPY --chown=publishapi:publishapi migrations/postgresql ./migrations/postgresql
 WORKDIR /app/packages/api-publish-engine
 USER publishapi
