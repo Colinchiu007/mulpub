@@ -469,7 +469,7 @@ const platformsMixin = {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
           if (!publishSelector) throw new Error('publish btn not found')
-          networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
+          networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
           // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
           // 第二次点击才 `_e.resolve()` 唤醒 `case 1` 执行 `doPublish` ⇒ 必须连点两次（间隔留给 state 写入）。
