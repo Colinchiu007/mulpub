@@ -23,6 +23,7 @@ const http = require('http')
 const { promisify } = require('util')
 const { spawn } = require('child_process')
 const { findFfmpeg } = require('./media-tool-paths')
+const { resolveConcreteVoiceId } = require('./tts-voice-id')
 const { needsUserInputMessage, runContentPolicyImageRetry, createContentPolicyAudit } = require('./story2video-image-retry')
 const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
 
@@ -1035,9 +1036,7 @@ class AssetGenerator {
     const runtimeOptions = opts && opts.providerRunContext ? { providerRunContext: opts.providerRunContext } : undefined
     try {
       const selectedVoice = firstNonEmptyString(opts?.voice_id, opts?.voiceId)
-      const voiceId = selectedVoice && !['default', 'male', 'female-soft'].includes(selectedVoice)
-        ? selectedVoice
-        : undefined
+      const voiceId = resolveConcreteVoiceId(selectedVoice)
       // MiMo 克隆音色（mimo-clone-<uuid>）：无远端 voice_id，需读取本地样本
       // 注入 cloneSampleData（data:{mime};base64,...），adapter 自动切 voiceclone 模型。
       const isMimoClone = String(provider).toLowerCase() === 'mimo-tts'
@@ -1222,7 +1221,8 @@ class AssetGenerator {
    * @private
    */
   async _tryEdgeTTS (text, audioPath, opts) {
-    const voice = opts?.voice_id || 'zh-CN-XiaoxiaoNeural'
+    // 占位音色名会被 edge-tts 拒绝（Invalid voice 'default'）⇒ 静默降级为无声；详见 tts-voice-id.js
+    const voice = resolveConcreteVoiceId(opts?.voice_id || opts?.voiceId) || 'zh-CN-XiaoxiaoNeural'
     // 截取前 200 个字符
     const cleanText = (text || '').slice(0, 200)
     if (!cleanText) return null

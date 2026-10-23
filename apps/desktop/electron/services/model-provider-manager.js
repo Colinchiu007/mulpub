@@ -38,24 +38,24 @@ function withCallTimeout (promise, timeoutMs, providerId, method) {
   })
 }
 
-// 这些适配器只允许在回环地址且无凭据时直连，避免把无 API Key 的配置变成远程请求通道。
-const LOCAL_NO_KEY_PROVIDER_IDS = new Set(['piper', 'local-diffusion', 'comfyui'])
+// 免 API Key 的判据：本地预置（base_url 留空 = 适配器默认地址在回环）或**显式**指向回环地址的 provider。
+// 空 base_url 不算回环 —— 它表示「用适配器自带的默认地址」，而那个默认地址**可能是远端**（如 heygen）。
+const LOCAL_NO_KEY_PROVIDER_IDS = new Set(['piper', 'local-diffusion', 'comfyui', 'local-whisper'])
 
 function isLoopbackBaseUrl (value) {
   if (value === undefined || value === null || String(value).trim() === '') return true
   try {
     const url = new URL(String(value))
     const host = url.hostname.toLowerCase()
-    return (url.protocol === 'http:' || url.protocol === 'https:') &&
-      (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]')
-  } catch (_) {
-    return false
-  }
+    return (url.protocol === 'http:' || url.protocol === 'https:') && (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]')
+  } catch (_) { return false }
 }
 
 function canUseWithoutApiKey (provider) {
-  return Boolean(provider && LOCAL_NO_KEY_PROVIDER_IDS.has(provider.id) &&
-    isLoopbackBaseUrl(provider.base_url))
+  if (!provider) return false
+  if (LOCAL_NO_KEY_PROVIDER_IDS.has(provider.id)) return isLoopbackBaseUrl(provider.base_url)
+  const url = provider.base_url
+  return url !== undefined && url !== null && String(url).trim() !== '' && isLoopbackBaseUrl(url)
 }
 
 function hasUsableApiKey (apiKey) {

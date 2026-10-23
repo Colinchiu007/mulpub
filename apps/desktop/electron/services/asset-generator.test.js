@@ -74,6 +74,7 @@ const {
   resolveImageSize,
   escapeDrawtextText,
 } = require('./asset-generator')
+const { PLACEHOLDER_VOICE_IDS, resolveConcreteVoiceId } = require('./tts-voice-id')
 
 // 辅助：从 mockSpawn.mock.calls 中找 python 调用
 function findPythonSpawn() {
@@ -434,5 +435,51 @@ describe('夹具不得对同 realm 的第三方模块谎报文件系统（#2794 
     expect(captured.filter((line) => line.includes('Downloading Electron binary'))).toEqual([])
     expect(thrown).toBeNull()
     expect(realFs.existsSync(String(value))).toBe(true)
+  })
+})
+
+// 2026-10-23 实测补：edge-tts 路径没有过滤「未指定音色」的占位值。
+// 上游 story2video-stages.js 取音色时的兜底是字符串 'default'
+// （firstDefined(params.voiceId, stage.options?.voiceId, 'default')），
+// provider 路径早就把占位值过滤掉，但 edge-tts 路径原样透传 ⇒ edge-tts 抛
+// `ValueError: Invalid voice 'default'` ⇒ TTS 静默降级为 3 秒静音，
+// **成片完全没有旁白**且界面侧看不出异常。
+describe('TTS 音色占位值不得当成真实音色名透传（2026-10-23）', () => {
+  it('resolveConcreteVoiceId 把 default/male/female-soft 一律判为「未指定」', () => {
+    expect(resolveConcreteVoiceId('default')).toBeNull()
+    expect(resolveConcreteVoiceId('male')).toBeNull()
+    expect(resolveConcreteVoiceId('female-soft')).toBeNull()
+    expect(resolveConcreteVoiceId('')).toBeNull()
+    expect(resolveConcreteVoiceId('   ')).toBeNull()
+    expect(resolveConcreteVoiceId(null)).toBeNull()
+    expect(resolveConcreteVoiceId(undefined)).toBeNull()
+    // 真实音色名原样保留
+    expect(resolveConcreteVoiceId('zh-CN-XiaoxiaoNeural')).toBe('zh-CN-XiaoxiaoNeural')
+    expect(resolveConcreteVoiceId(' mimo-clone-1234 ')).toBe('mimo-clone-1234')
+  })
+
+  it('占位值集合是单一事实源（provider 路径与 edge-tts 路径共用）', () => {
+    expect([...PLACEHOLDER_VOICE_IDS].sort()).toEqual(['default', 'female-soft', 'male'])
+  })
+
+  it('edge-tts 路径遇到 voice_id=default 时必须回落到真实音色名而不是把 default 传给 edge-tts', async () => {
+    const gen = new AssetGenerator({ outputDir: TTS_SANDBOX })
+    const originalSpawnImpl = mockSpawn.getMockImplementation()
+    mockSpawn.mockImplementation((cmd, args, opts) => {
+      const proc = new EventEmitter()
+      setTimeout(() => proc.emit('exit', 1), 0)
+      return proc
+    })
+    try {
+      await gen.generateTTS('测试文本', { voice_id: 'default', index: 0 })
+      const call = mockSpawn.mock.calls.find(c => Array.isArray(c[1]) && c[1].some(a => String(a).includes('zh-CN-XiaoxiaoNeural')))
+      expect(call).toBeTruthy()
+      // 传给 edge-tts 的音色名不得是占位值
+      const voiceArg = call[1].find(a => typeof a === 'string' && a.startsWith('zh-CN-'))
+      expect(voiceArg).toBe('zh-CN-XiaoxiaoNeural')
+      expect(call[1]).not.toContain('default')
+    } finally {
+      mockSpawn.mockImplementation(originalSpawnImpl)
+    }
   })
 })
