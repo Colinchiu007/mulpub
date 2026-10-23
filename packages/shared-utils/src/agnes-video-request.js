@@ -1,10 +1,26 @@
 // @ts-check
 'use strict'
 /**
- * agnes-video-request.js — AI 视频生成请求的「模式 ↔ 媒体」契约（渲染层与主进程共用）
+ * agnes-video-request — AI 视频生成请求的「模式 ↔ 媒体」契约（渲染层与主进程共用）
  *
- * 为什么放在 shared-utils：Agnes Video 2.5 的模式规则（text / keyframe / reference 各自
- * 接受什么、禁止什么）是**同一个约束的三处实现**：
+ * ## 两份同源副本
+ *
+ * 本模块在仓库里有两份**逐行同源**的副本，只差模块包装：
+ *   · `agnes-video-request.js`        —— CommonJS，主进程（Electron）用
+ *   · `agnes-video-request.browser.js` —— ESM，渲染进程（浏览器）用
+ *
+ * 浏览器不能执行 `module.exports`：渲染层具名 import CJS 版时，vite dev server
+ * 会在**运行时**抛 `does not provide an export named ...`，整页渲染失败；
+ * 而 `vite build` / `vitest` / `tsc` **全是绿的**（各自由 rollup commonjs 插件、
+ * vite-node interop、非类型检查兜底），只有跑 dev server 的视觉回归会红。
+ * 故渲染层消费 ESM 孪生版并在 `apps/desktop/vite.config.js` 的 `resolve.alias` 登记；
+ * 未登记时由 `scripts/check-renderer-cjs-boundary.js` 静态拦下。
+ * 两侧漂移由 `__tests__/agnes-video-request-parity.test.js` 锁定。
+ *
+ * ## 为什么放在 shared-utils
+ *
+ * Agnes Video 2.5 的模式规则（text / keyframe / reference 各自接受什么、禁止什么）
+ * 是**同一个约束的三处实现**：
  *   ① 渲染层：提交前拦截并给出可读提示（用户体验）
  *   ② 主进程 IPC：入参形状校验（少一次无谓往返）
  *   ③ 适配器：最终语义校验（服务端拒收前的最后一道）
