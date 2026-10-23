@@ -499,12 +499,13 @@ const platformsMixin = {
           for (const cand of sel.publish_btn || []) {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
+          if (!publishSelector && platform === 'tencent_video') publishSelector = 'body' // wujie-publish-click：按钮在 shadowRoot 内
           if (!publishSelector) throw new Error('publish btn not found')
           // programmatic publish click（2026-10-23：视频号遮挡层会被 React 持续重建，坐标点击必被拦）。
           // 直接对按钮元素调用 click()，不经过命中测试，因此不受遮挡影响。
           if (platform === 'tencent_video') {
             try {
-              const pc = await win.webContents.executeJavaScript('(function(){var bs=[].slice.call(document.querySelectorAll("button,[class*=btn],[role=button]"));var want=["发表","发布"];for(var w=0;w<want.length;w++){for(var i=0;i<bs.length;i++){var t=(bs[i].innerText||"").trim();if(t!==want[w])continue;if(bs[i].disabled)continue;try{bs[i].click()}catch(e){}return "clicked:"+t}}return "not-found"})()', true)
+              const pc = await win.webContents.executeJavaScript('(function(){var host=document.querySelector(".wujie_iframe");var roots=[document];if(host&&host.shadowRoot)roots.push(host.shadowRoot);var hit=null;for(var r=0;r<roots.length&&!hit;r++){var bs=[].slice.call(roots[r].querySelectorAll("button,[class*=btn],[role=button]"));for(var i=0;i<bs.length;i++){var t=(bs[i].innerText||"").replace(/\\s+/g,"");if(t.indexOf("发表")>=0){hit=bs[i];break}}}if(!hit)return "not-found";hit.click();return "clicked-wujie"})()', true)
               log.info('RpaView', '[tencent_video] programmatic publish click: ' + pc)
             } catch (_e7) { /* 失败则继续走原点击通道 */ }
           }
