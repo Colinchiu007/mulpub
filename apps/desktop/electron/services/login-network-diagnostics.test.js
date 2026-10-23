@@ -761,10 +761,24 @@ describe('login-network-diagnostics — 头条号登录期观测', () => {
     expect(monitor.isCaptchaSdkUrl(
       'https://lf-rc1.yhgfb-cn-static.com/obj/some/other/dir/captcha/index.js'
     )).toBe(false)
-    // 查询串里出现标记 → 不算
+    // 同上形态的更狠一档：段名带前缀（`not-captcha/`）**不含前导斜杠** ⇒ 段匹配不是子串匹配
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/some/not-captcha/index.js'
+    )).toBe(false)
+    // 百分号编码变体：`pathOf` 取 `new URL(url).pathname`，**不解码** `%2F` ⇒ 编码后的段不算
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/%63aptcha/index.js'
+    )).toBe(false)
+    // 查询串里出现标记 → 不算（既有约束，不得因新增组合锚点而丢失）
     expect(monitor.isCaptchaSdkUrl(
       'https://lf-rc1.yhgfb-cn-static.com/a.js?x=sec_sdk_build/captcha'
     )).toBe(false)
+  })
+
+  it('组合锚点的两段常量必须是预期的版本目录段与组件段（防常量被悄悄改宽）', () => {
+    const monitor = require('./login-network-monitor')
+    expect(monitor.CAPTCHA_SDK_DIR_MARKER).toBe('/sec_sdk_build/')
+    expect(monitor.CAPTCHA_SDK_SEGMENT).toBe('/captcha/')
   })
 
   it('头条监测域必须覆盖真实登录页用到的风控与验证码域', () => {
