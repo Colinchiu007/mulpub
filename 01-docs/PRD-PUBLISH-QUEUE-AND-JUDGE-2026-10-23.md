@@ -595,3 +595,36 @@ document.body.children.length
 ### 结论
 
 浏览器上传器**不是不可达**——它只是"元素还没找到"。这是本轮最实质的进展。
+
+## 8.22 2026-10-23 全天逆向成果的落地评估（逐条）
+
+对当日 7 个提交、31 个文件逐条评估「能否直接用于我方发布链」：
+
+### 已落地
+
+| 成果 | 落地方式 | 提交 |
+| --- | --- | --- |
+| 视频号 ⑥ `post_clip_video`（body 契约） | 新增 `clipVideo()`，在 `completeUpload` 之后、`publish` 之前调用；字段逐字对齐 bundle `saveTmpPostDraft` | `ac483a0e2` |
+| 视频号 ⑤ `TransFlag/PartInfo` | 此前已有；本次回归测试确认 | — |
+
+### 不能直接用（附原因）
+
+| 成果 | 原因 |
+| --- | --- |
+| 视频号 ⑦ `finderNewLifeCreate` 作为"发布提交端点" | **与 bundle 原文冲突**：`finderNewLifeCreate` 是 `platformNames.ShiPinHao` 的**页面 URL**；真正提交是 `post_create`/`post_draft`（见 8.19）。本次未采纳 |
+| 今日头条 40 条端点 | 视频发布仍是 `ugc/publish/video/v4/commit`、`v1/get_token`、`xigua/api/upload/PublishVideo`、`getAuthKey` —— **只有 URL，没有 body 契约**（文档 §5 自述"body 契约未闭合"）。我方头条的卡点是 `responses=0`（点击不产生请求），不是缺 URL |
+| 抖音 X-Bogus（sign4 + jsvmp） | 实现完整、可自检，但我方抖音**已通过 DOM 发布成功**，不属于"剩余平台"；留作后续 API 化储备 |
+| 百度 verifyToken | 我方不做百度 |
+| view-xhs-template 模板引擎 | 内容生产侧（AI 写作→产图），与发布链无关 |
+| 定时发布 / 草稿三跳 | 产品能力，非本次目标 |
+
+### 一条反向收获（测试隔离）
+
+本次改 ⑥ 时发现既有缺陷：`cdnHost` 回落成**绝对 URL** 后，注入的假 HTTP 客户端被绕过，
+单测实际打到了 `finderassistancea.video.qq.com`（返回 404）——违反"测试零外发"。
+修法：`_cdnInjected` 为真时保持相对路径。修复后 `shipinhao-video-chain` 7/7 通过。
+
+### 判据复述
+
+> **二进制内可见 ≠ 运行时被调用 ≠ 服务端接受**；
+> 本次 ⑦ 的"端点"结论就是一次典型误标（页面 URL 被写成了提交端点）。
