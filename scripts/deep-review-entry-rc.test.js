@@ -36,7 +36,8 @@ const SCRIPT_CLOSURE = [
   'ccg-review-backends.list',
   'lib/ccg-backends.sh',
   'lib/ccg-review-backends.js',
-  'lib/ccg-delivery-digest.js'
+  'lib/ccg-delivery-digest.js',
+  'lib/exec-record-statuses.js'
 ]
 
 const FAKE_DRIVER = `'use strict'
