@@ -168,7 +168,7 @@
         "rationale": "已修：新增 `EXCLUDED_HOSTS = Object.freeze(['www.douyin.com'])` 并写明排除理由（抖音域不是头条号登录链路必需的域，且承载大量与登录无关的资源 ⇒ 纳入只会无谓扩大观测面），同时加断言「被排除的域不得出现在任何平台的监测域清单里（含同主域变相纳入）」。"
       }
     ],
-    "template": ".adversarial/ccg-deep-f95edb7d/adjudication.json",
+    "template": "openspec/changes/login-observe-domain-coverage/adjudications/round5-f95edb7d.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
     "at": "2026-10-23T04:42:08.342Z",
     "debtClosure": {
@@ -183,6 +183,7 @@
       "residualNotClosed": [
         "本次闭环**不等于**对最终 diff 的一次全新评审：本次外部评审针对的是本记录所对应的那次提交；其后每条 upheld 的修复都由本 PR 的后续提交承载，用新增的回归锁与变异反证（全 CAUGHT）反证其正确性。"
       ]
-    }
+    },
+    "templateOriginal": ".adversarial/ccg-deep-f95edb7d/adjudication.json"
   }
 }

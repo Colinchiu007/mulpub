@@ -238,6 +238,12 @@ const CAPTCHA_SDK_SEGMENT = '/captcha/'
  * - 可被**单独**测试（不必经 `isCaptchaSdkUrl` 的 URL 解析层）；
  * - 意图与实现分离，将来若要放宽或收紧，改动点唯一。
  *
+ * ⭐ **形式化规格**：`openspec/changes/login-observe-domain-coverage/specs/desktop-logging/spec.md`
+ * 的「**图形验证码组件的判定 MUST 覆盖真实链路上出现过的路径形态**」Requirement，
+ * 其中「判定 MUST 是**组合锚点**（版本目录段与组件段**同时**出现）」是**强制约束**，
+ * 并附「只满足组合锚点其中一段的不算组件」「版本目录下但非验证码资源的不算组件」两条场景。
+ * 本谓词是该 Requirement 的**唯一实现点** ⇒ 改动它等于改动规格，须同步 spec.md。
+ *
  * @param {string} path
  * @returns {boolean}
  */

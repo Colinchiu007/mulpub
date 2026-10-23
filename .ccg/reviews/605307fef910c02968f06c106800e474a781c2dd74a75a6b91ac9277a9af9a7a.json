@@ -166,11 +166,11 @@
         "rationale": "已修：① harness 只输出**一份**干净汇总块（去掉了重复的进度打印）；② 子进程 stdio 改为 ignore —— vitest 的 worker 会**继承**父进程 fd，用 pipe 捕获不住 ⇒ 失败报告会直接灌进 harness 输出（这正是「格式混乱」的来源）；③ 判定改为退出码，不再靠解析输出文本。"
       }
     ],
-    "template": ".adversarial/ccg-deep-e615fa1a/adjudication.json",
+    "template": "openspec/changes/login-observe-domain-coverage/adjudications/round4-e615fa1a.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i7）",
     "at": "2026-10-23T04:11:55.985Z",
     "mutationEvidence": {
-      "note": "变异反证的**原始输出**与 md5 逐一比对（第四轮 i2：证据应进 .ccg/reviews 且**可复现**；第四轮 i4：md5 必须**按被变异文件分别**给；第四轮 i7：只嵌一份干净汇总块，别把同一批结果打两遍）。",
+      "note": "变异反证的**原始输出**与 md5 逐一比对；harness **已入仓**（此前引用仓外临时脚本 ⇒ 审计无法复现），输出只保留**一份干净汇总块**（此前同一批结果打印两遍）。",
       "harness": "openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs（**已入仓**，可复现）",
       "command": "node openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs .",
       "exitCodeSemantics": "判定口径 = vitest 退出码：0 = 全绿 ⇒ ESCAPED；1 = 有用例失败 ⇒ CAUGHT；其他退出码 = 环境问题（命令缺失 / runner 故障）⇒ ENVIRONMENT-ERROR，**不算 CAUGHT**。",
@@ -217,7 +217,7 @@
         "md5Before": "49d57efda7560dd1fd9a65dc4c9fe466",
         "md5After": "49d57efda7560dd1fd9a65dc4c9fe466",
         "equal": true,
-        "note": "before 由 harness 在**变异循环开始前**捕获、after 在循环结束后计算 ⇒ 两值都来自实现，不是叙述。"
+        "note": "before 由 harness 在**变异循环开始前**捕获、after 在循环结束后计算 ⇒ 两值都来自实现。"
       },
       "mutationsTotal": 11,
       "caught": 11,
@@ -235,6 +235,7 @@
       "residualNotClosed": [
         "本次闭环**不等于**对最终 diff 的一次全新评审：本次外部评审针对的是本记录所对应的那次提交；其后每条 upheld 的修复都由本 PR 的后续提交承载，用新增的回归锁与变异反证（全 CAUGHT）反证其正确性。"
       ]
-    }
+    },
+    "templateOriginal": ".adversarial/ccg-deep-e615fa1a/adjudication.json"
   }
 }

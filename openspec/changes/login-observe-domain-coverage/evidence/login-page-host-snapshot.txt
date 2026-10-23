@@ -31,6 +31,6 @@ lf3-short.ibytedapm.com                        /slardar/fe/sdk-web/browser.cn.js
 lf6-cdn-tos.bytegoofy.com                      /obj/goofy/secsdk/secsdk-lastest.umd.js
 mon.zijieapi.com                               /monitor_browser/collect/batch/?biz_id=web_bdms_cn
 mp.toutiao.com                                 /gf/exclusive?enter_from=menu\
-www.douyin.com                                 /falcon/webcast_openpc/pages/streamingtool_download/index.html\
+www.douyin.com                                 /falcon/webcast_openpc/pages/streamingtool_download/index.html\   [excluded-by-design：刻意不入监测域，见 EXCLUDED_HOSTS 与其排除理由]
 
 # host-count=14

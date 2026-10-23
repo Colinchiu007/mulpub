@@ -125,7 +125,7 @@
         "rationale": "部分采纳并已修：① proposal 的动因段改为**引用** design 的 D1/D2，不再复述推导；② design 顶部标明本文件只记判据推导、实现清单与量化表在 proposal；③ 执行记录瘦身（现场读数归位到 design §D6），同一批读数不再在两处各写一遍。"
       }
     ],
-    "template": ".adversarial/ccg-deep-e0125d38/adjudication.json",
+    "template": "openspec/changes/login-observe-domain-coverage/adjudications/round6-e0125d38.json",
     "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5）",
     "at": "2026-10-23T05:00:31.965Z",
     "debtClosure": {
@@ -140,6 +140,7 @@
       "residualNotClosed": [
         "本次闭环**不等于**对最终 diff 的一次全新评审：本次外部评审针对的是本记录所对应的那次提交；其后每条 upheld 的修复都由本 PR 的后续提交承载，用新增的回归锁与变异反证（全 CAUGHT）反证其正确性。"
       ]
-    }
+    },
+    "templateOriginal": ".adversarial/ccg-deep-e0125d38/adjudication.json"
   }
 }

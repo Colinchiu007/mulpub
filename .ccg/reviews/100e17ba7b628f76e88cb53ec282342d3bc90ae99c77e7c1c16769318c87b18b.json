@@ -52,47 +52,125 @@
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
-    "findings": null,
-    "template": ".adversarial/ccg-deep-fd6cdcfe/adjudication.json",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/7b953... embeds deepReview.status=self_play_pending with 5 undecided adjudication items (i1,i2,i3,i4,i6); missing i5; proposal must not advance until terminal.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "新增监测域 yhgfb-cn-static.com / bytetos.com 无来源验证链；仅引用「实际登录页 HTML 静态引用」，无抓包或签名证据，存在误信任外部域风险。",
+        "defense": "指控属实：当时域来源只存在于评审对话里，仓内没有任何可复现的证据。",
+        "verdict": "upheld",
+        "rationale": "已修：域来源做成**仓内可复现证据** evidence/login-page-host-snapshot.txt（抓取时刻 + 抓取命令 + 抓取内容 SHA-256 + 静态引用的 14 个主机名及每域一个实例资源路径），并加用例断言该证据必须在仓内。域清单仍是**字面量白名单**，非动态拼接。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Mutation M4 initially ESCAPED due to weak negative case (other-captcha/@latest/captcha.js lacking true /captcha/ segment); counter-example set was insufficient at design time.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": ".ccg/reviews/*.json 把变异反证原始输出嵌入评审档，引用非入仓临时脚本与父提交 SHA，与提案 head 不匹配；审计无法复现。",
+        "defense": "指控属实：harness 当时是一次性临时脚本，不在仓内 ⇒ 别人无法复现「全 CAUGHT」。",
+        "verdict": "upheld",
+        "rationale": "已修：harness **入仓**（evidence/mutation-harness.cjs）；判定口径改为 vitest 退出码，跑后**每个被变异文件分别**比对 md5；评审记录里的引用改为指向仓内路径。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "isCaptchaSdkUrl uses compound && without named predicate; precedence and intent are implicit for future maintainers.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "isCaptchaSdkUrl 用复合 && 而无具名谓词，优先级与意图对后来维护者是隐式的。",
+        "defense": "指控属实。",
+        "verdict": "upheld",
+        "rationale": "已修：抽出具名谓词 isCombinedCaptchaAnchor(path)，并补**优先级测试**（不经 URL 解析层直接断言两段缺一不可与空输入不命中）。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "New monitored hosts expand observation surface but rely on implicit read-only assumption rather than explicit guard.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "新增监测域扩大观测面，但依赖隐式的只读假设而非显式守卫。",
+        "defense": "指控属实。",
+        "verdict": "upheld",
+        "rationale": "已修：监测域清单处补**显式边界守卫**，并把每条边界升级为**带 forbidden/required 锁**的结构化清单（回归锁逐条扫去注释后的代码）；如实登记观测层唯一的请求级动作是「默认关闭的登录噪声取消」。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": ".ccg/reviews note lists 5 items (i1,i2,i3,i4,i6) explicitly skipping i5; record is inconsistent.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": ".ccg/reviews note 只列 5 项（i1/i2/i3/i4/i6）显式跳过 i5，记录不一致。",
+        "defense": "指控属实：引擎产出 7 条、待裁决只有 5 条（i5/i7 是 Info 级不进裁决清单），但记录里没解释这个差别，读的人会以为漏了一条。",
+        "verdict": "upheld",
+        "rationale": "已修：在第一轮记录的 debtClosure 里加 `noteOnItemNumbering` 字段，写明「引擎产出 7 条、其中 i5 与 i7 为 Info 级 ⇒ 待裁决清单只列非 Info 的 5 条；**i5 不是被跳过**，它是『D4 正确排除 sdk-glue.js』的正反馈」。"
+      }
+    ],
+    "template": "openspec/changes/login-observe-domain-coverage/adjudications/round2-fd6cdcfe.json",
     "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i6）",
     "at": "2026-10-23T01:29:54.640Z",
     "mutationEvidence": {
-      "note": "变异反证的**原始输出**与 md5 逐一比对（外部评审第二轮 i2：证据应进 .ccg/reviews，而不是只留叙述）。harness 逐条把实现改坏 → 断言对应用例必须变红 → 跑后把源文件还原并比对 md5。",
-      "harness": "D:\\Temp\\mutate-observe.cjs（一次性脚本，不入仓；其锚点与本记录同源：登录网络监测模块）",
-      "command": "node mutate-observe.cjs <worktree> apps/desktop/electron/services/login-network-monitor.js electron/services/login-network-diagnostics.test.js",
+      "note": "变异反证的**原始输出**与 md5 逐一比对；harness **已入仓**（此前引用仓外临时脚本 ⇒ 审计无法复现），输出只保留**一份干净汇总块**（此前同一批结果打印两遍）。",
+      "harness": "openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs（**已入仓**，可复现）",
+      "command": "node openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs .",
       "rawOutput": [
         "----",
-        "CAUGHT           M1 监测域去掉 yhgfb-cn-static.com（该域请求进不了过滤面 ⇒ 观测全盲）",
-        "CAUGHT           M2 监测域去掉 bytetos.com（风控 glue 域观测全盲）",
-        "CAUGHT           M3 组合锚点去掉 /captcha/ 段（sec_sdk_build 目录下任意资源都算验证码组件 ⇒ 读数失真）",
-        "CAUGHT           M4 组合锚点去掉 /sec_sdk_build/ 段（任何带 captcha 段的资源都算 ⇒ 噪声淹没真信号）",
-        "CAUGHT           M5 监测域匹配恒 false（头条号观测面整体失效）",
-        "CAUGHT           M6 真实验证码入口锚点整体失效（退回只认老的两个单段锚点）",
-        "CAUGHT           M7 具名组合谓词恒 false（真实验证码入口不再被识别）",
-        "CAUGHT           M8 具名组合谓词恒 true（任何路径都算验证码组件 ⇒ 噪声淹没真信号）",
+        "CAUGHT           M1 监测域去掉 yhgfb-cn-static.com  (vitest exit=1)",
+        "CAUGHT           M2 监测域去掉 bytetos.com  (vitest exit=1)",
+        "CAUGHT           M3 组合锚点去掉 captcha 段  (vitest exit=1)",
+        "CAUGHT           M4 组合锚点去掉版本目录段  (vitest exit=1)",
+        "CAUGHT           M5 监测域匹配恒 false  (vitest exit=1)",
+        "CAUGHT           M6 验证码入口锚点整体失效  (vitest exit=1)",
+        "CAUGHT           M7 具名组合谓词恒 false  (vitest exit=1)",
+        "CAUGHT           M8 具名组合谓词恒 true  (vitest exit=1)",
+        "CAUGHT           M9a 删掉读体闸门（边界退化成纯注释）  (vitest exit=1)",
+        "CAUGHT           M9b 读体闸门改成永真  (vitest exit=1)",
+        "CAUGHT           M9c 读体闸门挪到读体调用之后  (vitest exit=1)",
         "----",
-        "source-file: login-network-monitor.js",
-        "test-file  : login-network-diagnostics.test.js",
-        "restore md5 MATCH",
-        "md5-before: c38105fe08803d6b38452750cdd4bced",
-        "md5-after : c38105fe08803d6b38452750cdd4bced",
-        "md5-equal : true",
-        "test-md5-before: 754b09ac7484163f6fde1f677a3e9639",
-        "test-md5-after : 754b09ac7484163f6fde1f677a3e9639",
-        "test-md5-equal : true",
-        "mutations : 8  caught: 8  escaped: 0",
+        "restore MATCH  apps/desktop/electron/services/login-network-monitor.js  fd0ef3b1b4528cb4c442255b1c22f0f3",
+        "restore MATCH  apps/desktop/electron/services/login-network-diagnostics.js  2e6eb82f4f9ccd20b29243e48223446d",
+        "test-md5-before 49d57efda7560dd1fd9a65dc4c9fe466  electron/services/login-network-diagnostics.test.js",
+        "test-md5-after  49d57efda7560dd1fd9a65dc4c9fe466  electron/services/login-network-diagnostics.test.js",
+        "overall-elapsed 269s (budget 1800s)",
+        "mutations 11  caught 11  escaped 0  environment-errors 0",
         "ALL CAUGHT"
       ],
       "md5Before": "c38105fe08803d6b38452750cdd4bced",
       "md5After": "c38105fe08803d6b38452750cdd4bced",
       "md5Equal": true,
-      "mutationsTotal": 8,
-      "caught": 8,
+      "mutationsTotal": 11,
+      "caught": 11,
       "escaped": 0,
       "firstRoundEscapeAndFix": "M4 首轮 ESCAPED 暴露的是**用例弱点**（负例 URL 里没有真正的 `/captcha/` 段），不是实现弱点；补强该负例后 M4 ⇒ CAUGHT，并新增 M7（具名谓词恒 false）/M8（具名谓词恒 true）覆盖本轮提取的具名谓词。",
       "testFileMd5Before": "754b09ac7484163f6fde1f677a3e9639",
       "testFileMd5After": "754b09ac7484163f6fde1f677a3e9639",
-      "testFileMd5Equal": true
+      "testFileMd5Equal": true,
+      "files": [
+        {
+          "file": "login-network-monitor.js",
+          "md5Before": "fd0ef3b1b4528cb4c442255b1c22f0f3",
+          "md5After": "fd0ef3b1b4528cb4c442255b1c22f0f3",
+          "equal": true,
+          "note": "harness 跑完把该文件整体还原 ⇒ 跑前跑后 md5 相同"
+        },
+        {
+          "file": "login-network-diagnostics.js",
+          "md5Before": "2e6eb82f4f9ccd20b29243e48223446d",
+          "md5After": "2e6eb82f4f9ccd20b29243e48223446d",
+          "equal": true,
+          "note": "harness 跑完把该文件整体还原 ⇒ 跑前跑后 md5 相同"
+        }
+      ],
+      "testFile": {
+        "file": "electron/services/login-network-diagnostics.test.js",
+        "md5Before": "49d57efda7560dd1fd9a65dc4c9fe466",
+        "md5After": "49d57efda7560dd1fd9a65dc4c9fe466",
+        "equal": true,
+        "note": "before 由 harness 在**变异循环开始前**捕获、after 在循环结束后计算 ⇒ 两值都来自实现。"
+      }
     },
     "debtClosure": {
       "closedBy": "agent(Lead)",
@@ -106,6 +184,8 @@
       "residualNotClosed": [
         "本次闭环**不等于**对最终 diff 的一次全新评审：本次外部评审针对的是本记录所对应的那次提交；其后每条 upheld 的修复都由本 PR 的后续提交承载，用新增的回归锁与变异反证（全 CAUGHT）反证其正确性。"
       ]
-    }
+    },
+    "templateOriginal": ".adversarial/ccg-deep-fd6cdcfe/adjudication.json",
+    "deepReviewNote": "findings 由 .adversarial 裁决文件真实回填"
   }
 }

@@ -22,7 +22,7 @@ date: 2026-10-22
 | 行尾与 diff 对账 | PASS | 两口径 numstat 逐文件一致（无 CRLF/LF 漂移）：E1 与 E2 两批改动的 `git diff --cached --numstat` 与 `--ignore-cr-at-eol --numstat` 增删行数逐个相同 |
 | 接线棘轮 | PASS | 未新增 `*.test.js` 文件（全部落在既有 `login-network-diagnostics.test.js` 内）⇒ 无需 workflow 接线；`observability-messagekey.test.js` 的「登记键总数 === notify 调用总数」锁仍通过（本刀**未新增 notify 事件名**） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（主进程服务与日志，无 UI 文件、无新依赖、无打包资源）⇒ 视觉门禁不适用；打包证据由 CI 侧取 |
-| QM-6 CCG 双模型外部评审 | PASS | critic=`claude` / proposer=`opencode`（`scripts/ccg-review-backends.list`）；**共跑六轮**（判定档按变更规模自动判 SINGLE / DUAL，DUAL 档会**强制跨家族校验**——第五轮实测「跨家族校验: proposer=opencode critic=claude 通过」）。累计 **46 条 findings，其中 12 条 Critical**；**逐条裁决六份模板全部填完**（`.adversarial/ccg-deep-*/adjudication.json`）：**12 条 Critical 全部成立并已修**（harness 无原子回滚 / 域来源无验证链 / 边界只是注释 / 描述与实现不一致 / 评审记录未闭合 / md5 的 before 无来源），修法见 change 的 `tasks.md` §7；**3 条驳回**（记录里的 sha 字段不是寻址键、段锚点带前导斜杠故非子串匹配、引擎产物而非我方判据），每条都带可验证依据。**9 条高危域**已填 `externalReview` 三格（performedBy=claude / evidenceRef=公开 PR 评论 URL / reviewedAt=ISO）。`findings` 已从各裁决文件**真实回填**进 `.ccg/reviews`（此前为 null，读起来像「评审没跑过」），并写 `debtClosure`（status=`needs_revision`，闭环白名单值）。变异反证 harness **入仓**（11 条变异全 CAUGHT） |
+| QM-6 CCG 双模型外部评审 | PASS | critic=`claude` / proposer=`opencode`（`scripts/ccg-review-backends.list`）；**共跑七轮**（判定档按变更规模自动判 SINGLE / DUAL，DUAL 档会**强制跨家族校验**——第五、六轮实测「跨家族校验: proposer=opencode critic=claude 通过」）。累计 **54 条 findings，其中 15 条 Critical**；**七份裁决模板全部填完**，且**纳入版本管理**（`openspec/changes/login-observe-domain-coverage/adjudications/round1..7-*.json`，每份带 `sourcePath` 与 `ingestedInto`）—— `.adversarial/` 不受版本管理，不入仓则「已修」在仓内没有可核来源（第七轮 i3）。**12+3 条 Critical 全部成立并已修**（harness 无原子回滚 / 域来源无验证链 / 边界只是注释 / 描述与实现不一致 / 评审记录未闭合 / md5 的 before 无来源 / 裁决未入仓 / findings 未回填），修法见 change 的 `tasks.md` §7；**驳回**的每条都带可验证依据。**9 条高危域**已填 `externalReview` 三格（performedBy=claude / evidenceRef=公开 PR 评论 URL / reviewedAt=ISO）。`findings` 已从裁决文件**真实回填**进 `.ccg/reviews`（此前为 null，读起来像「评审没跑过」），并写 `debtClosure`（status=`needs_revision`，闭环白名单值）。变异反证 harness **入仓**（11 条变异全 CAUGHT） |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>` |
 
 ## 一、需求
@@ -98,6 +98,13 @@ date: 2026-10-22
 - **域来源快照里有一个域刻意不在监测域清单内**：`www.douyin.com`（抖音域，登录页引用了它的脚本）。
   刻意**不**纳入：抖音域不是头条号登录链路必需的域，且它承载大量与登录无关的资源，
   纳入会把观测面无谓地扩大。快照如实列出它，便于后续复核时看到这条**已知且已裁决**的差异。
+- **最终 diff 未再经过一轮全新的外部评审（如实登记）**：第七轮外部评审针对的是提交 `865f5ce3` 的 diff；
+  其后的提交只改了三类东西 —— **审计产物**（七份裁决入仓、评审记录闭合与 findings 回填、变异证据统一）、
+  **注释与标签**（具名谓词的规格引用、快照的 `[excluded-by-design]` 标注）、**文档去重**（proposal 改为单向引用 design）。
+  **实现逻辑一行未改**（相关测试读数不变）⇒ 第七轮的评审结论仍适用；但严格说，
+  「对最终 diff 的一次全新评审」这一格是空的，此处不以「七轮已跑」冒充它。
+- **每次提交都会新落一份评审记录**（pre-commit 的判定产物按 diff 内容寻址写入），
+  闭合它需要再一次提交（纯审计产物 ⇒ 判定器判 SKIP、不再落新记录）⇒ 本刀的收口是两个提交。
 - **43MB 背景视频不受益于缓存复用**（206 分段响应不入 Chromium 磁盘缓存）——那是上一刀已登记的遗留。
 - **第一轮外部评审针对的是 `d2cd13a0` 的 diff**，i2/i3/i4 三处修复由本 PR 随后的提交承载；
   用新增的回归锁（泛化反例 ×5、常量断言、具名谓词优先级）与变异反证 M1~M8 全 CAUGHT 反证其正确性。
