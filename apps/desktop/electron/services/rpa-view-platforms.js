@@ -932,6 +932,16 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         }
       } catch (_) { /* 截图失败不阻塞 */ }
     } catch (_) { /* 快照失败不阻塞 */ }
+    // 2026-10-23：视频号判据导航不生效（url 仍停在 post/create）⇒ 改用网络响应取证与判定。
+    let netOk = null
+    try {
+      const rs0 = Array.isArray(requests) ? requests : []
+      const brief = rs0.slice(-8).map((r) => String((r && (r.endpoint || r.url)) || '').slice(0, 90) + ' [' + String((r && r.status) || '?') + ']')
+      log.warn('RpaView', '[' + platform + '] publish captured responses n=' + rs0.length + ' :: ' + brief.join(' | '))
+      netOk = rs0.find((r) => { const ep = String((r && r.endpoint) || ''); return r && Number(r.status) >= 200 && Number(r.status) < 300 && /(publish|submit|create)/i.test(ep) && !/(media|upload|chunk|part|authkey|getauth)/i.test(ep) }) || null
+      if (netOk) log.warn('RpaView', '[' + platform + '] publish 响应证据命中 endpoint=' + String(netOk.endpoint).slice(0, 120) + ' status=' + netOk.status)
+    } catch (_e) { /* 取证失败不阻塞 */ }
+    if (netOk) log.warn('RpaView', '[' + platform + '] 检测到发布类端点 2xx，但用户核对创作者中心无新内容 ⇒ 不作为成功证据（仅记录）')
     log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
     return { success: false, error: 'publish verification timeout', platform, url: sanitizePublishResultUrl(finalUrl), diagnostics: summarizePublishDiagnostics(stoppedRequests, null) }
     } finally {
@@ -1329,9 +1339,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     // 本轮拿到真机 DOM 证据（Playwright + 真实账号 cookie 打开
     // `publish/publish?from=menu&target=video` 并真实上传 mp4）后，视频链已可实现：
     //   `input.upload-input`（可见）→ 标题 `input.d-text`（placeholder=填写标题会有更多赞哦）
-    //   → 正文 `div.tiptap.ProseMirror` → **不点「发布笔记」**（真机为 DIV 按钮），
-    //   靠平台自动草稿保存落到草稿箱（图文模式 2026-09-29 已采用同一策略）。
-    // 守卫：合并后的选择器仍拿不到 file_input ⇒ 上传无从发生 ⇒ 绝不静默降级成草稿。
+    //   → 正文 `div.tiptap.ProseMirror` → **不点「发布笔记」**（真机为 DIV 按钮），；  靠平台自动草稿保存落到草稿箱（图文模式 2026-09-29 已采用同一策略）。；守卫：合并后的选择器仍拿不到 file_input ⇒ 上传无从发生 ⇒ 绝不静默降级成草稿。
     const videoFileInputs = (config.selectors && config.selectors.file_input) || []
     if (contentType === 'video') {
       log.info('RpaView', '[xiaohongshu] video draft-only：填内容后等平台自动存草稿，不点发布')
@@ -1341,29 +1349,23 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       }
     }
     const publishUrl = getPublishUrl('xiaohongshu', contentType)
-    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input accept 全是视频格式）；
-    // 图文须先点「上传图文」tab（switchImageTab hook，参考产品 renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
+    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input accept 全是视频格式）；图文须先点「上传图文」tab（switchImageTab hook，参考产品 renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
     const isImageMode = contentType === 'image'
     return this._publish_generic(win, article, 'xiaohongshu', {
       ...config,
       publish_url: publishUrl || config.publish_url,
       ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
-      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。
-      // 2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。
-      // 小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），
-      // 填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
+      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。；2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。；小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），；填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
       draftOnly: true,
     })
   },
 
-  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，
-  // getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
+  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，；getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
   async _publish_kuaishou(win, article) {
     const config = this._getPlatformConfig('kuaishou')
     const contentType = article.video_path ? 'video' : 'image'
     const publishUrl = getPublishUrl('kuaishou', contentType)
-    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个
-    // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、；图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，；首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
+    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个；（2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、；图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，；首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
@@ -1383,9 +1385,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     })
   },
 
-  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：
-  // 此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，
-  // 而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
+  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：；此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，；而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
   async _publish_toutiao (win, article) {
     return require('@multi-publish/rpa-engine/src/toutiao-direct-bridge')
       .publishToutiao({
