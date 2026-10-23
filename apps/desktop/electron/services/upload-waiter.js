@@ -358,7 +358,14 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       const c = box.model.content
       const x = (c[0] + c[2] + c[4] + c[6]) / 4
       const y = (c[1] + c[3] + c[5] + c[7]) / 4
-      const data = { items: [], files: [path.resolve(filePath)], dragOperationsMask: 1 }
+      // 2026-10-23：CDP 报 `Invalid parameters` —— dragData.items 不能是空数组，
+      // 必须至少一项；文件本体走 files（绝对路径）。
+      const _abs = path.resolve(filePath)
+      const data = {
+        items: [{ mimeType: 'text/uri-list', data: 'file:///' + _abs.replace(/\\/g, '/'), title: path.basename(filePath), baseURL: '' }],
+        files: [_abs],
+        dragOperationsMask: 1
+      }
       for (const type of ['dragEnter', 'dragOver', 'drop']) {
         await dbg.sendCommand('Input.dispatchDragEvent', { type, x, y, data })
       }
