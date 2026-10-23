@@ -346,7 +346,13 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       if (!dbg.isAttached()) { dbg.attach('1.3'); attached = true }
       await dbg.sendCommand('DOM.enable')
       const doc = await dbg.sendCommand('DOM.getDocument', { depth: -1 })
-      const q = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector })
+      // 文字锚点（2026-10-23 截图）：上传区里有「上传时长8小时内…」/「添加视频」，比类名稳。
+      let useSel = selector
+      try {
+        const marked = await win.webContents.executeJavaScript('(function(){var a=[].slice.call(document.querySelectorAll("div,section"));for(var i=0;i<a.length;i++){var t=a[i].innerText||"";if(t.indexOf("上传时长")>=0||t.indexOf("添加视频")>=0||t.indexOf("点击上传")>=0){a[i].setAttribute("data-mp-drop","1");return "marked"}}return "none"})()', true)
+        if (marked === 'marked') useSel = '[data-mp-drop="1"]'
+      } catch (_e12) { /* 锚点失败沿用原选择器 */ }
+      const q = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, useSel })
       if (!q || !q.nodeId) { log.warn('RpaView', 'cdp-drop: target not found ' + selector); return false }
       const box = await dbg.sendCommand('DOM.getBoxModel', { nodeId: q.nodeId })
       const c = box.model.content
