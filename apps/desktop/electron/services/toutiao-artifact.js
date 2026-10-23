@@ -94,8 +94,15 @@ async function probeWorksPage (win, title, opts) {
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, intervalMs))
     try {
-      const hit = await win.webContents.executeJavaScript(
-        '(function(){var t=(document.body&&document.body.innerText)||"";return t.indexOf(' + JSON.stringify(want) + ')>=0})()', true)
+        // 2026-10-23：作品页可能渲染在子 iframe（与视频号同型）⇒ 逐 frame 匹配标题
+        const fw = (win.webContents.mainFrame && win.webContents.mainFrame.framesInSubtree) || [{ executeJavaScript: (c) => win.webContents.executeJavaScript(c, true) }]
+        let hit = false
+        for (const fr of fw) {
+          try {
+            const r = await fr.executeJavaScript('(function(){var t=((document.body&&(document.body.innerText||document.body.textContent))||"");return {hit:t.indexOf(' + JSON.stringify(want) + ')>=0,len:t.length}})()')
+            if (r === true || (r && r.hit === true)) hit = true
+          } catch (_e) { /* 跨域 frame 跳过 */ }
+        }
       if (hit) return { ok: true, detail: 'works-page-hit' }
     } catch (_e) { /* 继续轮询 */ }
   }
