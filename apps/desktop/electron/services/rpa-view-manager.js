@@ -156,7 +156,8 @@ class RpaViewManager {
             try {
               if (cookie) { // 2026-10-23：注入是页面登录的来源（停用后上传卡死）⇒ 必须保留；正确方向是注入到账号自己的 partition，而不是 defaultSession
                 const { session } = require('electron')
-                const ses = session.defaultSession
+                const _pn = (typeof fallback !== 'undefined' && fallback && fallback.partition) ? String(fallback.partition) : ''
+                const ses = _pn ? session.fromPartition(_pn) : session.defaultSession
                 const dom = platform === 'tencent_video' ? '.weixin.qq.com' : (platform === 'toutiao' ? '.toutiao.com' : null)
                 if (ses && dom) {
                   let n = 0
