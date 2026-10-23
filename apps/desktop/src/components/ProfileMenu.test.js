@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import fs from 'node:fs'
 
@@ -56,13 +56,24 @@ describe('ProfileMenu', () => {
     expect(wrapper.text()).toContain('memberCenter.signOut')
   })
 
-  it('菜单点击会员中心跳转路由并关闭菜单', async () => {
+  // 2026-10-23 缺陷回归：会员中心入口**不得**自己 router.push。
+  // 裸 push 只改路由、不改活动标签 ⇒ 当前标签是外部网页时，会员中心页面渲染在
+  // 外部网页的原生 WebContentsView 背后（永远压在 DOM 之上，CSS z-index 无效）
+  // ⇒ 用户表现为「点了会员中心，界面没有任何反应」。
+  // 正解：把「去会员中心」交回宿主（侧边栏）的唯一可见导航范式 onNavClick 处理。
+  it('菜单点击会员中心：交回宿主做可见导航（不自行 router.push）并关闭菜单', async () => {
     await mountMenu()
     await wrapper.get('[data-testid="mp-profile"]').trigger('click')
     await wrapper.get('[data-testid="profile-menu-member"]').trigger('click')
-    expect(push).toHaveBeenCalledWith('/member-center')
+
+    expect(wrapper.emitted('navigate')).toBeTruthy()
+    expect(wrapper.emitted('navigate')[0]).toEqual(['/member-center'])
+    // 不得自行 push（那是本缺陷的形态）
+    expect(push).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="profile-menu-panel"]').exists()).toBe(false)
   })
+
+
 
   it('菜单点击切换账号与退出登录调用对应操作', async () => {
     await mountMenu()

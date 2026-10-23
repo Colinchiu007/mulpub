@@ -109,7 +109,7 @@ resumeEmbeddedViews: (owner) => ipcRenderer.invoke('page-manager:resume-embedded
 | onCloseTab ElMessageBox | 居中模态确认框 | ✅ 同类 | 本次修复（owner `tab-close-confirm`） |
 | ProfileMenu | 侧边栏容器内下拉 | ❌ 不越过内嵌视图区域（x≥sidebarWidth 之外） | 无需处理 |
 | BackToTop | 右下角瞬时按钮 | ⚠️ 会被盖住 | 残余限制（见 §6） |
-| PipelineBackgroundToast | 右下 toast | ⚠️ 会被盖住 | 残余限制（见 §6） |
+| PipelineBackgroundToast | **居中** toast（`fixed top:50% left:50%`，2026-10-23 通查订正：原文写「右下 toast」与实现不符） | ⚠️ 会被盖住 | 残余限制（见 §6） |
 | UpdateNotification | 浮层通知 | ⚠️ 会被盖住 | 残余限制（见 §6） |
 | ElMessage / ElNotification（全局） | 顶部/角落短暂浮层 | ⚠️ 会被盖住 | 残余限制（见 §6） |
 | PublishProgressPanel（2026-09-28 新增，publish-progress-ux） | 右下角非模态常驻浮动卡/胶囊（发布进度） | ⚠️ 会被盖住 | **显式不接入**（非模态：无遮罩、不阻塞交互、无交互闭环；与 §6 同类，负向测试锁 `PublishProgressPanel.test.js` 断言源码不出现 suspendEmbeddedViewsForOverlay；若未来加模态确认须按 §8 接入） |
@@ -135,6 +135,13 @@ resumeEmbeddedViews: (owner) => ipcRenderer.invoke('page-manager:resume-embedded
 - [ ] 人工验证：外部网页标签活动时点设置/升级/关标签确认，弹窗完整可见可交互，关闭后网页归位
 
 ## 8. 防复发措施
+
+0. **与「应用内页面可见性」合同并列（2026-10-23 补充）**：本 PRD 治理的是**应用级模态浮层**；
+   **应用内页面（路由页）**由 `01-docs/PRD-APP-ROUTE-NAV-VISIBILITY-2026-10-23.md` 治理
+   （当前实现：`apps/desktop/src/layouts/MpSidebar.vue` 的 `onNavClick(to)`；PR #4209 正在把它收敛为 `composables/useVisibleNavigation.js`）。
+   两者的分野：浮层要的是「原生图层让位」（`suspend`/`release`）；路由页要的是
+   「活动标签回到首页虚拟标签」（切标签）。**只治理其一，另一半必然漏** ——
+   2026-10-23 的「点了会员中心没反应」正是本 PRD 范围外的那一半。
 
 1. **审查清单**（已并入 `.quality-gates.md` QM-2 检查项）：新增应用级模态浮层（DOM `position: fixed` 遮罩/居中弹窗、ElMessageBox.confirm 阻塞交互的）时，必须接入 `useEmbeddedViewSuspension` 并在 `overlay-view-suspension.test.js` 登记 owner；
 2. 修改 `WebviewManager` 可见性链路（`setVisible` / `_repositionAll` / `setShellMode`）时必须跑 `overlay-view-suspension.test.js` + `shell-mode-6b.test.js` 全量；

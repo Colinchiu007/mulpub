@@ -311,6 +311,7 @@ import ResultSegmentEditor from './video-creation/ResultSegmentEditor.vue'
 import ResultSegmentJumpBar from './video-creation/ResultSegmentJumpBar.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { getAppLocale } from '@/i18n'
+import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { STORY2VIDEO_NOTIFICATION_KEYS, formatBgmSkippedNotification, formatStory2VideoNotification, getStory2VideoNotificationUiText, resolveStory2VideoNotification } from '@/story2video/story2video-notifications'
 import { getTtsVoiceCatalog } from '@/api/tts-voice-catalog'
 import {
@@ -357,6 +358,18 @@ import {
   pipelinePauseRun,
   videoProcess,
 } from '@/api/publisher'
+
+// 「故事讲述」异步完成通知模态的浮层互斥 owner（2026-10-23）。
+//
+// 为什么需要：这个通知模态**不是被用户点击打开的**，而是被后台生成任务的完成回调打开
+// （场景视频/图片/字幕/配音生成返回后）。生成耗时以分钟计，期间用户完全可能切到
+// 自媒体账号创作者中心这类外部网页标签 —— 外部网页由主进程 WebContentsView 承载，
+// 是永远压在 DOM 之上、CSS z-index 无效的原生图层 ⇒ 模态会整块被盖住，
+// 用户看不到「生成完成」信号（切回首页标签才发现）。
+//
+// 修复：打开前挂起内嵌视图（让原生图层让位），关闭时释放。owner 必须唯一 ——
+// 复用他人的 owner 会让引用计数互相吞掉释放。
+const STORY2VIDEO_NOTIFICATION_OVERLAY_OWNER = 'story2video-notification-dialog'
 
 export default {
   name: 'ResultView',
@@ -454,6 +467,9 @@ export default {
   },
   // 测试/异常兜底：组件被销毁且守卫仍挂起时，取消导航，防止 next 悬挂。
   unmounted () {
+    // 卸载兜底：通知模态开着时组件被销毁（父级 v-if 掉了），visible 不会经过 false
+    // ⇒ 必须在这里释放挂起，否则残留挂起计数会让内嵌视图永久隐藏（AGENTS 浮层互斥合同）
+    releaseEmbeddedViewsForOverlay(STORY2VIDEO_NOTIFICATION_OVERLAY_OWNER)
     if (typeof this.pendingLeaveNext === 'function') {
       this.pendingLeaveNext(false)
       this.pendingLeaveNext = null
@@ -927,9 +943,17 @@ export default {
     showStory2VideoNotification(notification = {}) {
       const resolved = resolveStory2VideoNotification(notification)
       this.story2videoNotificationDialog = { visible: true, messageKey: resolved.key, messageParams: resolved.params }
+      // 挂起内嵌视图：**不 await** —— 模态先出现（可见性优先），原生图层晚一帧隐藏，
+      // 用户只看到模态浮现，不会看到「页面先消失再弹模态」的闪烁。
+      // 顺序安全：suspend / resume 走同一条 renderer→main 通道，Electron 保序投递；
+      // 且 composable 的 owner 记账（activeOwners.add / delete）是同步的 ⇒ 不会出现
+      // 「释放先到、挂起后到」导致内嵌视图永久隐藏的竞态。
+      // 挂起失败由 composable 内部降级（返回 false、不抛错），不打断本流程。
+      suspendEmbeddedViewsForOverlay(STORY2VIDEO_NOTIFICATION_OVERLAY_OWNER)
     },
-    closeStory2VideoNotificationDialog() {
+    async closeStory2VideoNotificationDialog() {
       this.story2videoNotificationDialog.visible = false
+      await releaseEmbeddedViewsForOverlay(STORY2VIDEO_NOTIFICATION_OVERLAY_OWNER)
     },
     showStory2VideoOperationFailure() {
       this.showStory2VideoNotification({ messageKey: STORY2VIDEO_NOTIFICATION_KEYS.OPERATION_FAILED })
