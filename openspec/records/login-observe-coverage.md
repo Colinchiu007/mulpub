@@ -33,25 +33,23 @@ date: 2026-10-22
 ⇒ 该域的失败请求 / HTTP≥400 / 慢请求**一条都不记**，灰显时刻读数**缺失**。
 本刀只补这个缺口。
 
-## 二、根因（实测，非推测）
+## 二、根因（判据；现场读数见 `design.md` §D6）
+
+上一刀的监测域清单取数口是**运行时的请求流**（首屏加载触发的域），
+而图形验证码组件是**点「发送验证码」之后才按需加载**的 ⇒ 首屏观测抓不到它。
+换一个**互补**的取数口——抓 `https://mp.toutiao.com/` 的**登录页 HTML 静态引用**——立刻看到漏的两条：
+承载真实验证码入口的「验证码中心」域与「风控 glue」域。
 
 | 取数口 | 能看到 | 看不到 |
 | --- | --- | --- |
 | 运行时的请求流（上一刀） | 首屏加载触发的域 | 页面引用但**尚未被请求**的域（验证码组件正在其中） |
 | 登录页 HTML 的静态引用（本刀） | 页面引用的一切域 | 纯运行时动态拼接、无静态引用的域 |
 
-⇒ 两个取数口**互补，缺一不可**。上一刀只用了第一个。
-
-现场读数（2026-10-22 22:00 前后）：
-
-| 观测点 | 读数 | 归属 |
-| --- | --- | --- |
-| 字节自家埋点脚本 | **仍是 504**，首包 **16.68s**；**外部网络同样 504** | 字节侧，通用 |
-| 登录页整体（应用日志两次） | **48.9s / 56.3s** | — |
-| 同一台机器、同一网络、**无关浏览器**独立 profile 冷加载 | **23.8s** | 应用比浏览器慢一倍以上 ⇒ 差值是本仓造成的（上一刀已修） |
-| 登录页本体 `mp.toutiao.com` | 首包 **0.149s** | 页面本体不慢 |
-| 真实验证码入口（**77,476 B**） | 冷时首包 **2.65 ~ 2.96s**；命中边缘后 **0.13s** | 高度**间歇** ⇒ 这正是「灰显几秒」的来源 |
-| 同链路其它资源 | 190KB→1.35s、100KB→0.60s、520KB→2.16s | 耗时与**体积不成比例** ⇒ 瓶颈在连接建立/转发路径，不在带宽 |
+⇒ 两个取数口**互补，缺一不可**；上一刀只用了第一个。
+域来源的可复现证据（抓取时刻 + 抓取内容 SHA-256 + 每域一个实例资源路径）见
+`openspec/changes/login-observe-domain-coverage/evidence/login-page-host-snapshot.txt`；
+现场读数（504 首包 16.68s、外部网络同样 504、登录页 48.9/56.3s、浏览器对照 23.8s、
+真实验证码入口冷 2.65~2.96s / 命中边缘 0.13s）见 `design.md` §D6。
 
 ## 三、实现
 
@@ -59,8 +57,9 @@ date: 2026-10-22
 | --- | --- |
 | `apps/desktop/electron/services/login-network-monitor.js` | 监测域 +2（`yhgfb-cn-static.com` / `bytetos.com`）；验证码判定新增**组合锚点**并抽成具名谓词 `isCombinedCaptchaAnchor(path)`；新增**结构化边界清单** `OBSERVATION_GUARD`（只读 / 不外发 / 不拦截 / 不记凭证 + 读体平台清单）；监测域清单处补边界注释并指向域来源证据 |
 | `apps/desktop/electron/services/login-network-diagnostics.js` | 读体闸门改为**由 `OBSERVATION_GUARD.readsResponseBodyPlatforms` 驱动**（此前是「`AUTH_ENDPOINT_MATCHERS[platform]` 有没有」内嵌判断；边界由注释保证 ⇒ 删注释就无保障） |
-| `apps/desktop/electron/services/login-network-diagnostics.test.js` | +7 组用例：真实入口命中（rc1/rc2）、域覆盖双向断言、泛化反例 ×5、常量断言、具名谓词优先级、**边界清单可执行性 + 源码级契约锁（闸门必须存在、必须由清单驱动、必须排在读体调用之前）**、**域来源证据必须在仓内** |
-| `openspec/changes/login-observe-domain-coverage/evidence/login-page-host-snapshot.txt` | **域来源的可复现证据**：抓取时刻 + 抓取 URL + 登录页静态引用的 14 个主机名及每个域的一个实例资源路径 |
+| `apps/desktop/electron/services/login-network-diagnostics.test.js` | 用例扩到 **+8 组**：真实入口命中（rc1/rc2）、域覆盖双向断言、泛化反例 ×8（含 `not-captcha/` / `pre_captcha_suffix/` / `fake_sec_sdk_build/` 三种带前缀段）、常量断言、具名谓词优先级、**每条边界各有 forbidden/required 锁的逐条扫描（扫的是去注释后的代码）**、域来源证据必须在仓内 |
+| `openspec/changes/login-observe-domain-coverage/evidence/login-page-host-snapshot.txt` | **域来源的可复现证据**：抓取时刻 + 抓取命令 + 抓取内容 **SHA-256** + 登录页静态引用的 14 个主机名及每个域的一个实例资源路径 |
+| `openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs` | **变异反证的可复现载体（入仓）**：11 条变异（实现文件 8 条 + 读体闸门 3 条），判定口径 = vitest 退出码（0=ESCAPED / 1=CAUGHT / 其他=环境问题**不算** CAUGHT），跑后**每个被变异文件分别**比对 md5 |
 | `apps/desktop/electron/services/login-network-diagnostics.test.js` | +5 组用例：真实入口命中（rc1/rc2）、域覆盖双向断言、泛化反例 ×5、常量断言、具名谓词优先级 |
 | `01-docs/PRD-LOGIN-SLOT-REUSE-2026-10-21.md` | §5.5 监测域与形态补正；新增 §5.6「观测面覆盖补正」（动因 / 判据三行对照表 / 不做什么） |
 | `01-docs/TROUBLESHOOT-TOUTIAO-LOGIN-SLOW-2026-10-21.md` | §1.1 复测读数（把「谁的锅」再拆细一层）；§3.2 标注清单已于 2026-10-22 补正（10 → **12 条**），域清单**仍不进仓内文档**；§五 改为「应用侧已做的三件事」 |
@@ -75,7 +74,7 @@ date: 2026-10-22
 | 泛化不得发生（缺段 / 跨段 / 前缀段 / 编码变体 / 查询串） | 同组 5 条反例 |
 | 监测域覆盖真实验证码与风控域，且过滤面同步 | 「头条监测域必须覆盖真实登录页用到的风控与验证码域」 |
 | 常量不得被悄悄改宽 | 「组合锚点的两段常量必须是预期的版本目录段与组件段」 |
-| 观测层四条边界必须以**可执行清单**存在，读体闸门由清单驱动且排在读体调用之前 | 「观测层的四条边界必须以可执行清单存在…」+ **源码级契约锁**（锚点用代码形态，删掉闸门只剩注释 ⇒ 当场红）；变异 M9a/M9b/M9c 三种退化全 CAUGHT |
+| 观测层四条边界必须以**可执行清单**存在，读体闸门由清单驱动且排在读体调用之前 | 「观测层的每条边界都必须有可执行锁…」—— 逐条扫**去注释后的代码**：forbidden 形态零命中、required 形态必须存在；变异 M9a/M9b/M9c 三种退化全 CAUGHT |
 | 监测域的**来源证据**必须在仓内 | 「监测域的来源证据必须在仓内…」—— 断言 `evidence/login-page-host-snapshot.txt` 存在、含两个新增域、含真实验证码入口形态 `sec_sdk_build`、含抓取时刻与来源 URL |
 
 ### 4.1 测试读数（Fresh）

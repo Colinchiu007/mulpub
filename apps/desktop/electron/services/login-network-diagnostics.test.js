@@ -765,6 +765,14 @@ describe('login-network-diagnostics — 头条号登录期观测', () => {
     expect(monitor.isCaptchaSdkUrl(
       'https://lf-rc1.yhgfb-cn-static.com/obj/some/not-captcha/index.js'
     )).toBe(false)
+    // 同上：段名带后缀（`pre_captcha_suffix/`）也不含前导斜杠 ⇒ 不命中
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/pre_captcha_suffix/index.js'
+    )).toBe(false)
+    // 同上：版本目录段带前缀（`fake_sec_sdk_build/`）⇒ 段锚点带前导斜杠 ⇒ 不命中
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/fake_sec_sdk_build/captcha/index.js'
+    )).toBe(false)
     // 百分号编码变体：`pathOf` 取 `new URL(url).pathname`，**不解码** `%2F` ⇒ 编码后的段不算
     expect(monitor.isCaptchaSdkUrl(
       'https://lf-rc1.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/%63aptcha/index.js'
@@ -800,26 +808,41 @@ describe('login-network-diagnostics — 头条号登录期观测', () => {
   })
 
   // ── 2026-10-22 CCG 外部评审第三轮 i1：边界写在注释里不算门禁 ──
-  it('观测层的四条边界必须以可执行清单存在，且读体闸门由清单驱动并排在读体调用之前', () => {
+  it('观测层的每条边界都必须有可执行锁：forbidden 形态零命中、required 形态必须存在', () => {
     const monitor = require('./login-network-monitor')
     const g = monitor.OBSERVATION_GUARD
-    expect(g.readOnly).toBe(true)
-    expect(g.noOutbound).toBe(true)
-    expect(g.noInterception).toBe(true)
-    expect(g.noCredentialLogging).toBe(true)
     // 头条号**不得**在读体平台清单里（计时层平台永不读响应体）
     expect(g.readsResponseBodyPlatforms).not.toContain('toutiao')
 
     const fs = require('node:fs')
     const path = require('node:path')
-    const src = fs.readFileSync(path.join(__dirname, 'login-network-diagnostics.js'), 'utf8')
-    // 锚点用**代码形态**（带 `monitor.` 前缀），不能用注释里也出现的那串字面量 ——
-    // 否则「把闸门代码删掉、只留注释」也会被判成闸门还在。
-    const guardIdx = src.indexOf('monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms.indexOf')
-    // 读体的实际 CDP 调用锚点用带引号的命令名（注释里出现的是裸名，不会误命中）
-    const readIdx = src.indexOf("'Network.getResponseBody'")
-    expect(guardIdx).toBeGreaterThan(-1) // 闸门代码必须存在
-    expect(readIdx).toBeGreaterThan(guardIdx) // 且必须排在读体调用之前
+    const raw = fs.readFileSync(path.join(__dirname, 'login-network-diagnostics.js'), 'utf8')
+    // 扫「代码」而不是「注释」：注释里出现 forbidden 形态是正常的（说明为什么禁），
+    // 所以先把整行注释剔掉，只留可执行代码。
+    const code = raw.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+
+    const keys = ['readOnly', 'noOutbound', 'noCredentialLogging', 'responseBodyGated', 'noiseCancelGated']
+    for (const k of keys) {
+      const spec = g[k]
+      expect(spec, `边界 ${k} 缺失`).toBeTruthy()
+      expect(typeof spec.why, `边界 ${k} 必须写明它约束的是什么`).toBe('string')
+      const forbidden = spec.forbidden || []
+      const required = spec.required || []
+      // 每条边界至少要有一把锁，否则就是**装饰性声明**（评审第三轮 i1 的原话）
+      expect(forbidden.length + required.length, `边界 ${k} 没有任何锁`).toBeGreaterThan(0)
+      for (const re of forbidden) {
+        expect(code.match(re), `边界 ${k} 被违反：源码命中禁止形态 ${re}`).toBeNull()
+      }
+      for (const re of required) {
+        expect(code.match(re), `边界 ${k} 的必要形态 ${re} 不存在`).not.toBeNull()
+      }
+    }
+
+    // 读体闸门必须**排在**读体调用之前（顺序锁：闸门被挪到调用之后就失效了）
+    const guardIdx = code.indexOf('monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms.indexOf')
+    const readIdx = code.indexOf("'Network.getResponseBody'")
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(readIdx).toBeGreaterThan(guardIdx)
   })
 
   it('监测域的来源证据必须在仓内（域清单不是拍脑袋来的）', () => {

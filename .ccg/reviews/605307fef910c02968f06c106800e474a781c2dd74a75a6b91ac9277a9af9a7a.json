@@ -77,6 +77,55 @@
     "findings": null,
     "template": ".adversarial\\ccg-deep-e615fa1a\\adjudication.json",
     "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i7）",
-    "at": "2026-10-23T04:11:55.985Z"
+    "at": "2026-10-23T04:11:55.985Z",
+    "mutationEvidence": {
+      "note": "变异反证的**原始输出**与 md5 逐一比对（第四轮 i2：证据应进 .ccg/reviews 且**可复现**；第四轮 i4：md5 必须**按被变异文件分别**给；第四轮 i7：只嵌一份干净汇总块，别把同一批结果打两遍）。",
+      "harness": "openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs（**已入仓**，可复现）",
+      "command": "node openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs .",
+      "exitCodeSemantics": "判定口径 = vitest 退出码：0 = 全绿 ⇒ ESCAPED；1 = 有用例失败 ⇒ CAUGHT；其他退出码 = 环境问题（命令缺失 / runner 故障）⇒ ENVIRONMENT-ERROR，**不算 CAUGHT**。",
+      "rawOutput": [
+        "----",
+        "CAUGHT           M1 监测域去掉 yhgfb-cn-static.com  (vitest exit=1)",
+        "CAUGHT           M2 监测域去掉 bytetos.com  (vitest exit=1)",
+        "CAUGHT           M3 组合锚点去掉 captcha 段  (vitest exit=1)",
+        "CAUGHT           M4 组合锚点去掉版本目录段  (vitest exit=1)",
+        "CAUGHT           M5 监测域匹配恒 false  (vitest exit=1)",
+        "CAUGHT           M6 验证码入口锚点整体失效  (vitest exit=1)",
+        "CAUGHT           M7 具名组合谓词恒 false  (vitest exit=1)",
+        "CAUGHT           M8 具名组合谓词恒 true  (vitest exit=1)",
+        "CAUGHT           M9a 删掉读体闸门（边界退化成纯注释）  (vitest exit=1)",
+        "CAUGHT           M9b 读体闸门改成永真  (vitest exit=1)",
+        "CAUGHT           M9c 读体闸门挪到读体调用之后  (vitest exit=1)",
+        "----",
+        "restore MATCH  apps/desktop/electron/services/login-network-monitor.js  b7513b3497356f761f4a097624003465",
+        "restore MATCH  apps/desktop/electron/services/login-network-diagnostics.js  2e6eb82f4f9ccd20b29243e48223446d",
+        "test-md5      24961b99601dcf1d2ef55d4b154328f6  electron/services/login-network-diagnostics.test.js",
+        "mutations 11  caught 11",
+        "ALL CAUGHT"
+      ],
+      "files": [
+        {
+          "file": "login-network-monitor.js",
+          "md5Before": "b7513b3497356f761f4a097624003465",
+          "md5After": "b7513b3497356f761f4a097624003465",
+          "equal": true,
+          "note": "harness 跑完把该文件整体还原 ⇒ 跑前跑后 md5 相同"
+        },
+        {
+          "file": "login-network-diagnostics.js",
+          "md5Before": "2e6eb82f4f9ccd20b29243e48223446d",
+          "md5After": "2e6eb82f4f9ccd20b29243e48223446d",
+          "equal": true,
+          "note": "harness 跑完把该文件整体还原 ⇒ 跑前跑后 md5 相同"
+        }
+      ],
+      "testFile": {
+        "file": "electron/services/login-network-diagnostics.test.js",
+        "md5": "24961b99601dcf1d2ef55d4b154328f6"
+      },
+      "mutationsTotal": 11,
+      "caught": 11,
+      "escaped": 0
+    }
   }
 }

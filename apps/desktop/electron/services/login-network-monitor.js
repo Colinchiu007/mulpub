@@ -19,17 +19,19 @@
 
 /**
  * 观测面的**可执行边界清单**（2026-10-22 CCG 外部评审 i1：边界只写在注释里，
- * 删掉注释就没有任何运行时保障 —— 注释不是门禁）。
+ * 删掉注释就没有任何运行时保障 —— 注释不是门禁；第二轮 i1 又指出「声明成常量但
+ * 没有代码消费它」同样只是装饰性安全剧场）。
  *
- * 这份清单是「哪些平台允许读响应体」的**单一真源**：诊断层的闸门由它驱动，
- * 回归锁直接断言它 ⇒ 「只读 / 不外发 / 不拦截 / 不记凭证」四条从散文变成可执行约束。
+ * 因此每条边界都带**两种可执行约束**，回归锁逐条扫源码验证：
+ * - `forbidden`：源码（去注释后）**不得**出现的形态；
+ * - `required`：源码**必须**出现的形态。
+ * 声明与锁**同源**（都在这份清单里），改一处即改两处。
  *
- * - `readOnly` / `noOutbound` / `noInterception` / `noCredentialLogging`：
- *   四条边界的**声明位**。它们不各自带运行时分支（观测层本就没有出站与拦截路径），
- *   真正的强制点是回归锁：断言诊断层源码里 `getResponseBody` 的调用**排在**
- *   `readsResponseBodyPlatforms` 闸门**之后**，且该闸门由本清单驱动。
- * - `readsResponseBodyPlatforms`：**只有登记在册的平台才允许读响应体**。
- *   头条号不在册 ⇒ 计时层平台在任何分支都不碰响应体。
+ * ⚠️ 如实登记：观测层**唯一的请求级动作**是 `attachLoginPageNoiseCancel`
+ * ——它①**默认关闭**（需 `MP_LOGIN_NOISE_CANCEL=1` 显式开启）②只取消
+ * `LOGIN_NOISE_FILTERS` 里的噪声 URL ③**不改写**任何请求或响应内容。
+ * 这条不是「不拦截」，而是「带闸门的、默认关闭的噪声取消」，
+ * 由 `noiseCancelGated` 两条 `required` 锁住。
  *
  * ⚠️ 域来源证据（外部评审 i2：新增监测域要有来源验证链）：
  * `openspec/changes/login-observe-domain-coverage/evidence/login-page-host-snapshot.txt`
@@ -38,10 +40,26 @@
  * 不是动态拼接或从响应里学来的。
  */
 const OBSERVATION_GUARD = Object.freeze({
-  readOnly: true,
-  noOutbound: true,
-  noInterception: true,
-  noCredentialLogging: true,
+  readOnly: Object.freeze({
+    forbidden: Object.freeze([/\bfilterResponseData\b/, /\bredirectURL\b/]),
+    why: '观测层只读事件：不改写请求或响应的任何内容'
+  }),
+  noOutbound: Object.freeze({
+    forbidden: Object.freeze([/\bfetch\s*\(/, /\bnet\.request\b/, /\bhttps?\.request\s*\(/]),
+    why: '观测数据只写本机日志：观测层不得发起任何网络请求'
+  }),
+  noCredentialLogging: Object.freeze({
+    forbidden: Object.freeze([/\bcookie\b/i, /\bauthorization\b/i, /\bset-cookie\b/i]),
+    why: '不记录 Cookie / 授权头等凭证值'
+  }),
+  responseBodyGated: Object.freeze({
+    required: Object.freeze([/monitor\.OBSERVATION_GUARD\.readsResponseBodyPlatforms\.indexOf/]),
+    why: '读响应体必须过「已登记平台」闸门；闸门代码必须存在且排在读体调用之前'
+  }),
+  noiseCancelGated: Object.freeze({
+    required: Object.freeze([/MP_LOGIN_NOISE_CANCEL !== '1'/, /\bisLoginPageNoiseUrl\b/]),
+    why: '观测层唯一的请求级动作是「默认关闭的登录噪声取消」，且只取消噪声 URL'
+  }),
   readsResponseBodyPlatforms: Object.freeze(['zhihu'])
 })
 
