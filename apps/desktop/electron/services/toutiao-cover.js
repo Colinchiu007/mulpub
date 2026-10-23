@@ -73,6 +73,13 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
     await sleep(500)
   }
   if (!nextClicked) {
+    // 2026-10-23 取证：下一步不可点时，dump 弹窗内全部控件与其禁用态，判断它在等什么。
+    if (log) {
+      try {
+        const shape = await win.webContents.executeJavaScript('(function(){var dlg=document.querySelector("[class*=modal],[class*=dialog],[role=dialog]");var root=dlg||document;var bs=[].slice.call(root.querySelectorAll("button,div[role=button],span,a")).filter(function(e){return e.getClientRects().length>0}).map(function(e){return ((e.innerText||"").trim().slice(0,8))+"[dis="+(!!e.disabled)+"]"});var uniq=[...new Set(bs)].slice(0,16).join("/");var txt=(root.innerText||"").replace(/\s+/g," ").slice(0,120);return uniq+" :: "+txt})()', true).catch(() => '')
+        log.warn('RpaView', '[' + platform + '] cover dialog shape: ' + shape)
+      } catch (_e) { /* 取证失败不阻塞 */ }
+    }
     if (log) log.warn('RpaView', '[' + platform + '] cover dialog: 下一步 never became clickable (解析超时)')
     await closeCoverDialog(win, log, platform)
     return { ok: false, step: 'no-next' }
