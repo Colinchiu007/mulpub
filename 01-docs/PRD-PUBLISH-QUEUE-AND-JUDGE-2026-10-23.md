@@ -360,3 +360,29 @@ PUT  https://finderassistancea.video.qq.com/applyuploaddfs -> 404（无鉴权请
 
 无超时导致「静默挂起」的问题已修（`bfb6a0a48`，60s 默认超时）——
 上传失败会以显式错误呈现，而不是无声消失。
+
+## 8.15 视频号端点探针矩阵（2026-10-23 19:06，无鉴权请求实测）
+
+| # | 目标 | 方法 | 结果 | 判读 |
+| --- | --- | --- | --- | --- |
+| 1 | `finderassistancea.video.qq.com/applyuploaddfs` | POST/PUT `{}` | **404** | 路径不存在 |
+| 2 | `finderassistanced.video.qq.com/applyuploaddfs` | POST `{}` | **404** | 路径不存在 |
+| 3 | `finder.video.qq.com/applyuploaddfs` | POST `{}` | 无效状态行 | 非 HTTP/1.1 或需特定协议 |
+| 4 | `channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/helper/helper_upload_params` | POST `{}` | **200** + `{"errCode":300330,"errMsg":"request failed"}` | **端点存在**，300330 = 未登录/会话无效 |
+| 5 | `channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/post/post_create` | POST `{}` | **200** | 端点存在 |
+
+### 判读
+
+1. **API 宿是 `channels.weixin.qq.com`**（4/5 命中，且 300330 是明确的鉴权错误码而非 404）。
+2. **视频 CDN 宿上不存在 `*dfs` 路径**（1/2 皆 404）⇒ 我方 Step2–4 的路径形状在 2026 年已失效。
+3. 因此 `applyuploaddfs` 不是"主机写错"，而是**该协议段已下线/迁移**。
+
+### 下一步的唯一闭合动作
+
+在真实浏览器会话里手动上传一个视频并抓包，记录页面自己发出的**上传请求**（host + path + method + headers + body 前 200 字节），
+以它为准重写 Step2–4。**在此之前不要再改主机或路径常量**。
+
+### 产品提示（对用户可见）
+
+当上传阶段拿不到「视频已附上」的证据时，界面应明确提示：
+「视频未能上传成功，请重试或改用网页端发布」，而不是继续走发布并报「缺少作品 ID」。
