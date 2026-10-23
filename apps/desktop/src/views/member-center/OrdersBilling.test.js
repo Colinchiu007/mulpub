@@ -77,12 +77,20 @@ describe('OrdersBilling', () => {
     expect(invokeMock).toHaveBeenCalledTimes(1) // 只有列表那一次：弹窗初始未打开
 
     await wrapper.get(`[data-testid="order-continue-${ORDER_PENDING.id}"]`).trigger('click')
-    // defineAsyncComponent 需要两轮微任务才解析出弹窗，之后它才会在 start() 里发下单请求
-    await flushPromises()
-    await flushPromises()
+    // 弹窗是 defineAsyncComponent：它的 chunk 要加载 + transform 完才挂载，挂载后
+    // watch(immediate) 才会发下单请求。这段耗时依赖 runner 负载（Windows CI 上会多出
+    // 好几轮事件循环），写死「两轮微任务」等于把 runner 速度写进断言。
+    // 实测 2026-10-23 主干 7718f8987 绿 → 98558636e 红，而两次之间源码零改动
+    // （差异只有 max-lines 基线 JSON 与一份执行记录）⇒ 这是 flake 而非回归。
+    // 改用仓内既有范式 vi.waitFor：等条件成立，而不是猜事件循环转了几轮。
+    await vi.waitFor(() => {
+      expect(
+        invokeMock.mock.calls.some(([method]) => method === 'wechatPayCreateOrder'),
+        '点「继续支付」必须发起复用下单请求'
+      ).toBe(true)
+    }, { timeout: 10000, interval: 50 })
 
     const orderCall = invokeMock.mock.calls.find(([method]) => method === 'wechatPayCreateOrder')
-    expect(orderCall, '点「继续支付」必须发起复用下单请求').toBeTruthy()
     expect(orderCall[1]).toEqual({ plan: 'pro', period: 'year', orderId: ORDER_PENDING.id })
   })
 
