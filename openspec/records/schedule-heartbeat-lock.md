@@ -17,7 +17,7 @@ date: 2026-10-23
 | 防止再次发生（QM-5 ⑤） | ✅ | ① 心跳作业**自己也是被同一判据守的定时作业**，且它的名字必须由 Gate 2b13 的名单不变量兜住 ⇒ 两把锁互咬（m14 实测：把名单里的名字改掉，本刀 H12 与上一刀 T7 **同时红**，各红各的、不互相顶罪）；② "存在性 ≠ 活性"这一维从散文教训变成机械判据（四档出口 + 三档退出码 + 域为空单列），下一个加定时作业的人不需要记得任何事，漏跑会被日巡检点名；③ 周期由被描述物自己给，判据与夹具里都没有第二份作业名枚举；④ 出处 `HEARTBEAT_PROVENANCE` 带 `remeasure` 命令字符串与逐作业样本量，monthly 明确进 `unmeasuredKinds`（31 天是保守上界、无实测样本），"量过一次之后没人再量"这一类由 H10 钉住；⑤ 行为锁每次 PR 跑（Gate 2b14）、线上读数每日跑——分档理由与预算依据写进 workflow 头部注释，不靠临场判断；⑥ 接线判据一律"剥注释 + 匹配执行体完整形态"，这条从散文变成 m12 这条实测红过的变异 |
 | 行尾与 diff 对账 | ✅ | 四处 CRLF 面改动（`ci-failure-handler.yml`、`quality-gate.yml`、`.gitignore`、`scripts/gate-timeout-registry.json`）全部用"按当场 eol 逐行写回"的脚本插入，未统一回写；脚本先算 cr/lf 并要求"每个 CR 紧跟一个 LF"，不合预期直接拒绝动手（本仓第 4 次孤立 CR 的成因就是给末行补结尾 CR）。净差量：`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **逐文件相等**（handler 1/0、quality-gate 13/0、.gitignore 3/0、loader 27/0、registry 1/0），删除数 0；五份档当场读作 `i/lf w/crlf attr/text=auto`。新建四个文件（workflow、判据、锁、驱动）写成 LF——同仓既有惯例（新建 JS/MD 多为 LF），且 H12 读 workflow 时先 `.replace(/\r\n/g,'\n')` 再匹配，否则同一份文件在"检出成 CRLF 的机器"上会假红。一处**自己制造又自己修掉**的假损坏：给 registry 插格时忘了行尾逗号，`JSON.parse` 当场抛（脚本是"先写盘再 parse"，顺序错了）——修法是补逗号并让驱动对 `.json` 靶子加一道"变异后必须仍可 parse"（m19 的 drop-line 走的就是这条） |
 | QM-1 打包 / QM-4 视觉 | N/A | 差量文件集实测只有 `.github/workflows/{schedule-heartbeat,ci-failure-handler,quality-gate}.yml`、`scripts/check-schedule-{heartbeat,failure-watch}{,.test,.mutation}.js`、`scripts/gate-timeout-registry.json`、`.gitignore`、`openspec/` 四件与本记录 —— 不触 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件 |
-| QM-6 CCG 双模型外部评审 | PENDING | 本笔命中 `.github/workflows/` 与 `scripts/check-` **两个高危面前缀** ⇒ 按收口矩阵只认 `tier=external` + 可核 `evidence`。跑完把轮次、逐条处置与出处写在本节下方（引用坐标要能一句话重取） |
+| QM-6 CCG 双模型外部评审 | **一轮真外部交付 + 逐条裁决，已闭合** | head `ef736ed7`、基线 origin/main（引擎打印差量 1723 行）、critic=`claude` 真跑并交付 **7 条**问题、proposer=`opencode`（跨家族校验通过）；进入裁决 4 条（i1-i4），**高危域需外部复核 0 条**（本轮 `requiresExternalReview=[]`）。逐条 prosecution/defense/verdict/rationale 公开副本：`PR #4305#issuecomment-6357346843`；裁决全部 **dismissed** 且每条给可重取反证（i1：按判定器自身配方重跑 `git diff --no-textconv --no-ext-diff --no-renames 451320a14 ef736ed7 -- . :(exclude).ccg`＝85872 字节，其 sha256 与产物文件名逐字相等 ⇒ "键未与当前 diff 对齐"被否证；i2：空域与 limit 档的读数在判定词/退出码/明细三处都不同，`--limit 0` 根本构造不出来；i3：registry 实测是 **CRLF**（cr=34/lf=34），"目标是 LF 故未触发"的前提不成立，而 m19 正是在该文件上 CAUGHT；i4：出处日期每次随读数打印，按日历强制时效会把锁自己变成 aging 引信）。终跑 `♻ 复用存档 critique（7 条）+ 已填完的裁决 —— 跳过模型调用` ⇒ `✅ 自扮演裁决未发现阻断项`，产物由**工具自己**写成 `status=self_play_resolved / blocking=[] / performedBy=self-play` |
 | 远程同步 | 由门禁推导 | 不手写状态词、不为收口另开 PR |
 
 ### 现场读数（全部当场重取，活数）
@@ -33,7 +33,12 @@ date: 2026-10-23
 - workflow 结构：`[workflow-structure] files=17 violations=0`；步骤 fail-fast：`含 ≥2 条受管命令的 run 步骤：43 个 … OK`
 - 未接线测试：`检查域内测试文件 128 个 … OK: 全部测试均已接线或按欠账登记`（新锁经 Gate 2b14 接上；`.mutation.js` 不在扫描域，追踪证据由上一刀的 T9 那类锁与本记录承担）
 - 预算注册表：`check-coverage-budget.js` ⇒ `OK 全部 25 格与注册表同源、都满足规则①，且清单棘轮通过`，本格读作 `schedule-heartbeat.yml#schedule-heartbeat [seeded] timeout=10 需≥0 余量=10 分 samples=0 collected=2026-10-23 age_days=0`；它的锁 `# tests 26 / pass 26 / fail 0`
-- 其余本机门禁：`spec-purpose 扫描 154 份主规格，违规 0`｜`openspec-sync OK: 387 tasks, 98 active changes, 243 archives`｜`spec-mirror pass 8`｜`microtask-spin 扫描 1627 个测试文件，0 处自旋`｜`egress-guard 测试面=18 已接守卫=14 欠账=4/4 PASS`｜`text-encoding 无新增损坏（存量 2 个历史 .ccg 归档文件已登记）`｜`changelog-growth PASS base 598→head 598`｜`gate-record-debt OK`｜`qm5-rows OK（检查域内记录 352，未登记缺行 0）`｜`doc-abs-paths PASS（counts=1161 files=561，本 PR 净增 0）`｜`no-brand-residue PASS（12022 个 tracked 文件）`
+- 其余本机门禁（各跑一次、逐个 rc=0）：`spec-purpose 扫描 154 份主规格，违规 0`｜`openspec-sync OK: 387 tasks, 98 active changes, 243 archives`｜`spec-mirror pass 8`｜`microtask-spin 扫描 1627 个测试文件，0 处自旋`｜`egress-guard 测试面=18 已接守卫=14 欠账=4/4 PASS`｜`text-encoding 无新增损坏（存量 2 个历史 .ccg 归档文件已登记）`｜`changelog-growth PASS base 598→head 598`｜`gate-record-debt OK`｜`qm5-rows OK（检查域内记录 352，未登记缺行 0）`｜`doc-abs-paths PASS（counts=1161 files=561，本 PR 净增 0）`｜`no-brand-residue PASS（12022 个 tracked 文件）`
+- QM-6 第一轮（真外部 critic=claude）：`♻ 复用存档 critique（7 条）+ 已填完的裁决 —— 跳过模型调用` ⇒ `✅ 自扮演裁决未发现阻断项`；
+  产物由工具写成 `status=self_play_resolved blocking=[] performedBy=self-play findings=4`；
+  写回工具在场拒写并出声：`[ccg-review-writeback] 未写回 reason=backend-mismatch spoke=closed-status|findings-present|nonempty-findings detail=performedBy="self-play" 期望 "claude"`
+- 收口判据（本地 enforce）：`TIER-COVERAGE dual-closed total=1 external=1 external-unverified=0 self-play=0 none=0 unknown=0 unrecognized=0`、
+  `TRANSITION-CHECK 转变=无转变 扫描域=1 已核对=0 无出处=0 未证实=0`、`OK: 本 PR 携带执行记录或带原因的豁免` ⇒ rc=0
 - 阈值依据的取数命令（可重跑，也写进 `HEARTBEAT_PROVENANCE.remeasure`）：
   `gh api "repos/<repo>/actions/workflows/<file>/runs?per_page=100" --jq "[.workflow_runs[]|select(.status==\"completed\")|.created_at]"`；
   2026-10-23 实测：cleanup 20 样本 / 最大间隔 1.04× / 最大漂移 +5.68h；dep-audit 4 / 1.00× / +5.13h；sidecar 4 / 1.00× / +2.45h；clock-shift 2 / 1.00× / +3.15h
@@ -55,10 +60,46 @@ date: 2026-10-23
    留给下一次；本刀的处置是"把自己那一格由 H12 守住"，并把这条按现坐标登记在此。
 7. **预算那格还是 `seeded/samples=0`**：第一次真跑后 30 天内（`seededGraceDays`）必须用 `scripts/gate-timeout-sample.js` 重采并如实升级，
    否则 `SEEDED_EXPIRED` 会自己红——这是设计好的引信，不是待办的装饰品。
+8. **评审链的互斥（本刀新量到的第二个门牌号）**：`tier=external` 由工具署名这件事，只要收口来自自扮演出口就拿不到 ——
+   本刀的现场是 `reason=backend-mismatch`（`performedBy="self-play"` 期望 `"claude"`），#4234 的现场是 `reason=not-closed`（有 upheld ⇒ `self_play_blocked`）。
+   两条合起来说明"署名者必须等于 critic"这一格与"第三档出口"结构性互斥，不是某一次的偶发。另立一刀处理（改的是"谁来守门"，须人工过目）。
+9. **drop-line 锚点的声明期检查未加**（QM-6 第一轮 i3 指向的加固方向）：现在靠运行期计数闸兜住
+   （"删掉的行数不是 1 就 PROBLEM + 立即还原"，`check-schedule-heartbeat.mutation.js` 的 drop-line 分支），
+   出声是一条变异之后而不是零条。不随本刀改的理由写在 i3 的裁决里：评审已在本 head 上跑完，动代码会让结论与产物脱钩。
+10. **provenance 没有时效判据**（QM-6 第一轮 i4 指向的那一半）：`measuredAt` 每次随读数打印，但没有任何东西在"过期"时出声。
+    要补必须**同一次**补上"谁来重采"的执行体（`gate-timeout-sample.js` 的同类），否则只是给锁装日历引信而不接雷管。
 
 ## QM-6 处置（跑完后逐条写在这里；本轮跑的是哪条链、后端是谁、存档在哪，都要写清）
 
-PENDING
+### 第一轮（也是唯一一轮真外部交付）：head `ef736ed7`，critic=`claude`
+
+- 链：`sh scripts/deep-review.sh`（决策层命中内容寻址键 `b80b75da`，未用 `--critic` 覆盖 ⇒ 后端取仓内清单 `scripts/ccg-review-backends.list`）。
+- 存档：`.adversarial/ccg-deep-ef736ed7/`（`critique-v1.md` / `adjudication.json` / `family-snapshot.json`）。
+  ⚠ 该目录被 `.gitignore` 忽略 ⇒ 克隆主干的人读不到这三份；逐条裁决的**公开副本**在
+  `PR #4305#issuecomment-6357346843`（critic 原文 7 条未改写 + 4 条裁决全文），出处不靠本机路径成立。
+- 裁决 4 条全部 `dismissed`，每条的 defense 都给的是**可重取的命令或现场读数**，不是形容词；逐条内容与本行上方表格一致。
+- `requiresExternalReview=[]` ⇒ 本轮没有高危域标签（指控文本没触发 `auth`/`crypto` 那一族正则），
+  所以"外部复核三格"那条形成本轮未遇到；遇到的时候按 #4234 的先例填 `performedBy/evidenceRef/reviewedAt`。
+
+### 工具署名那一格：本轮**实测拿不到**，且拿不到的原因与既有记录不同
+
+`scripts/ccg-review-writeback.js` 在场拒写并出声：
+
+```
+[ccg-review-writeback] 未写回 reason=backend-mismatch
+  spoke=closed-status|findings-present|nonempty-findings
+  detail=performedBy="self-play" 期望 "claude"
+```
+
+也就是说：**五条合取里前三条都成立了**（闭环 status / findings 非空 / 动手前后都变了），挡它的是"署名者必须等于清单里的 critic"这一条 ——
+而收口来自引擎第三档出口（自扮演裁决），署名只能是 `self-play`。这与 #4234 记下的 `reason=not-closed`（有 upheld ⇒ `self_play_blocked` ⇒ 拒写）
+是**同一堵墙的第二个门牌号**：那一刀卡在"状态不闭合"，这一刀四条全 dismissed、状态闭合，仍然卡在"署名不是外部后端"。
+合起来就是：**只要收口走自扮演出口，`tier=external` 就永远由不了工具**，无论裁决结果如何。
+这一条已单独立刀（见遗留 8），本 PR 的处置是：`tier`/`evidence`/`closureNote` 三格由会话**按事实手写**并在 closureNote 里逐字声明，
+`status`/`blocking`/`findings`/`externallyReviewed` 保持工具写的那一档不动（改这三格就是把工具的结论换成我的话）。
+
+手写的那三格描述的是什么，写清楚以免被读成自证清白：**critic=claude 确实真跑了这份载荷**（评论第一部分就是它交付的 7 条原文），
+所以 `tier=external` 指的是"载荷被外部模型审过"这件事；裁决那一档是自扮演，产物里 `performedBy=self-play` 原样保留，没有冒充外部裁决。
 
 ## CHANGELOG 条目
 

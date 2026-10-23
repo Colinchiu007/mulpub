@@ -88,10 +88,13 @@
 
 ## 6. 收尾
 
-- [ ] 6.1 执行记录 `openspec/records/schedule-heartbeat-lock.md`：QM-5 ①②④⑤ + 行尾两口径 numstat + 现场读数 + `## CHANGELOG 条目`
-- [ ] 6.2 QM-6：命中 `.github/workflows/` 与 `scripts/check-` 高危面前缀 ⇒ 按矩阵取 `tier=external` + 可核 `evidence`；
-      拿不到工具署名时按先例人工闭环并在记录里明写"由会话手写"（不得冒充工具产物）
-- [ ] 6.3 本机门禁批跑（含 `check-record-qm5-rows` / `check-gate-record-debt` / `check-doc-abs-paths` / `--mode=enforce`）
+- [x] 6.1 执行记录 `openspec/records/schedule-heartbeat-lock.md`：QM-5 ①②④⑤ + 行尾两口径 numstat + 现场读数 + `## CHANGELOG 条目`
+- [x] 6.2 QM-6：命中 `.github/workflows/` 与 `scripts/check-` 高危面前缀 ⇒ 按矩阵取 `tier=external` + 可核 `evidence`；
+      **实测拿不到工具署名**（`reason=backend-mismatch`，见记录 QM-6 节），按 #4234 先例人工闭环：
+      公开出处 `PR #4305#issuecomment-6357346843`，`tier`/`evidence`/`closureNote` 由会话手写并在产物里逐字声明，
+      `status`/`blocking`/`findings`/`performedBy` 保持工具写的那一档不动
+- [x] 6.3 本机门禁批跑（`check-record-qm5-rows` / `check-gate-record-debt` / `check-doc-abs-paths` / `--mode=enforce` 全 rc=0，
+      enforce 首行 `TIER-COVERAGE dual-closed total=1 external=1 external-unverified=0`）
 - [ ] 6.4 合并后回读该 merge SHA 的 `quality-gate.yml` push run，读数写进 PR 评论；再按 R1–R7 清 worktree
 - [ ] 6.5 首次真跑成功后，把 `schedule-heartbeat` 自己的第一条心跳 run 号补进 PR 评论（证明判据在真环境读得动 GitHub API，
       而不只是在假数据里绿），并把 `gate-timeout-registry.json` 那格按 `gate-timeout-sample.js` 重采升级
