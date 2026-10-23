@@ -529,7 +529,7 @@ const platformsMixin = {
             // native-publish-click：element.click() 可信度不足（框架可能忽略），改用 Electron 原生输入事件。
             if (String(pc).indexOf('clicked-wujie') === 0) {
               try {
-                const _rc = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return null;var bs=[].slice.call(h.shadowRoot.querySelectorAll("button"));var t=null;for(var i=0;i<bs.length;i++){var x=(bs[i].innerText||"").replace(/\\s+/g,"");if(x==="发表"){t=bs[i];break}}if(!t)return null;var r=t.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),w:Math.round(r.width),h:Math.round(r.height),pe:getComputedStyle(t).pointerEvents}})()', true)
+                const _rc = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return null;var bs=[].slice.call(h.shadowRoot.querySelectorAll("button"));var t=null;for(var i=0;i<bs.length;i++){var x=(bs[i].innerText||"").replace(/\\s+/g,"");if(x==="发表"){t=bs[i];break}}if(!t)return null;t.scrollIntoView({block:"center",inline:"center"});var r=t.getBoundingClientRect();return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),w:Math.round(r.width),h:Math.round(r.height),pe:getComputedStyle(t).pointerEvents}})()', true)
                 log.info('RpaView', '[tencent_video] native click rect: ' + JSON.stringify(_rc))
                 if (_rc && _rc.x > 0 && _rc.y > 0) {
                   win.webContents.sendInputEvent({ type: 'mouseMove', x: _rc.x, y: _rc.y })
