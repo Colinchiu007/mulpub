@@ -839,3 +839,50 @@ publishMode: dom-only  # 2026-10-23 为验证 DOM 拖放而临时改，之后未
 | 1 | 只保留 `_wujieClick`，跳过后续 `_click(publishSelector)` 回落 | 回落可能点到别的 primary 按钮，把状态搞乱 |
 | 2 | 点前打印按钮 `getBoundingClientRect()` 与 `pointer-events` 计算样式 | 判断是否被遮罩（此前已知有遮挡层会被 React 重建） |
 | 3 | 用 CDP `Input.dispatchMouseEvent` 在按钮中心真点一次 | 绕开 `element.click()` 的可信度问题 |
+
+### 8.27 系统性缺陷：58 处 `executeJavaScript`，仅 4 处有超时（2026-10-24 02:34）
+
+#### 实测
+
+```
+rpa-view-platforms.js + upload-waiter.js
+executeJavaScript 调用总数：58
+带 Promise.race 超时：4
+```
+
+#### 后果
+
+RPA 链路上任何一处 `executeJavaScript` 在页面忙/导航中时都可能**永不 resolve**，
+表现为「整轮任务从某一步开始完全没有日志，直到超时预算耗尽」。
+今晚实际遇到的静默点（每一个都对应一处无界调用）：
+
+| 时间 | 静默位置 |
+| --- | --- |
+| 01:01 | `wujie-upload`（base64 注入）→ 已加 20s |
+| 01:27 | `shadow-hosts` 探针 → 已加 6s |
+| 02:29 | `wujie-ready-wait` → 已加 9s |
+| 02:33 | 上传之后、封面之前（`_click` / 描述填写）→ **仍无界** |
+
+#### 正确修法（下一次动手就做这个）
+
+1. 在 `rpa-view-platforms.js` 顶部加统一助手：
+
+```js
+function safeEval (win, expr, ms, label) {
+  const t = ms || 5000
+  return Promise.race([
+    win.webContents.executeJavaScript(expr, true),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('eval-timeout ' + t + 'ms ' + (label || ''))), t)),
+  ])
+}
+```
+
+2. 把 **视频号热路径**（上传 → 封面 → 标题/描述 → 发表点击 → 验证）的每一处
+   `executeJavaScript` 换成 `safeEval(win, expr, 5000, '<步骤名>')`；
+3. 其余平台按同法分批替换，不要求一次改完；
+4. 回归锁：`scripts/check-no-unbounded-eval.js` —— 扫描上述两个文件，
+   凡 `executeJavaScript` 未出现在 `Promise.race` 或 `safeEval(...)` 内即报错，
+   白名单只允许 `safeEval` 定义本身。
+
+**为什么必须机械化**：今晚同一个坑以四种不同形态出现（base64 注入、探针、ready-wait、_click），
+每次都是「加了超时就好了」，但每次都要等一次静默失败才发现——靠人工发现必然漏。
