@@ -35,6 +35,30 @@ function hasScheduleTrigger (body) {
   return false
 }
 
+/**
+ * 收集 `schedule:` 块**之内**的 cron 原串（不做第二份手抄清单：周期必须由被描述物自己给）。
+ * 两条判据合取才收：缩进必须深于 `schedule:` 那行（出了块就停），且该行必须命中 CRON_ITEM。
+ * 只按"文件里有 cron: 字样"收集会把别的上下文（示例、写进 env 的表）当成一次定时声明，
+ * 于是周期被推错——所以消费方 `check-schedule-heartbeat.js` 的夹具里必须有一条块外 cron 反例。
+ * 每行按真实块扫描，`hasScheduleTrigger` 的 4 行窗口判据保持原样不动（本文件只做增量）。
+ */
+function cronsUnderSchedule (body) {
+  const lines = body.split('\n')
+  const out = []
+  for (let i = 0; i < lines.length; i++) {
+    if (!SCHED_LINE.test(lines[i])) continue
+    const schedIndent = lines[i].match(/^[ \t]*/)[0].length
+    for (let k = i + 1; k < lines.length; k++) {
+      const l = lines[k]
+      if (/^[ \t]*$/.test(l)) continue
+      if (l.match(/^[ \t]*/)[0].length <= schedIndent) break
+      if (!CRON_ITEM.test(l)) continue
+      out.push(l.slice(l.indexOf('cron:') + 5).replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, ''))
+    }
+  }
+  return out
+}
+
 function loadWorkflows (root) {
   const dir = path.join(root, '.github', 'workflows')
   let names
@@ -54,6 +78,9 @@ function loadWorkflows (root) {
       // 所以再要一个**紧邻的 cron 列表项**做合取条件 —— 形状判据永远配一条反例夹具（T12）。
       scheduled: hasScheduleTrigger(body),
       hasCron: /cron[:]/.test(body),
+      // 增量字段（schedule-heartbeat-lock）：`scheduled` 为真而这里为空 ⇒ 消费方必须判"取不到数"，
+      // 不得当成"没有定时作业"。语义只增不改：上面两个布尔与 runList 的口径逐字不变。
+      crons: cronsUnderSchedule(body),
       runList: (() => {
         const m = body.match(/^[ \t]{4,}workflows[:][ \t]*\[([^\]]*)\]/m)
         if (!m) return null

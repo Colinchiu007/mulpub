@@ -1,0 +1,61 @@
+{
+  "sha": "451320a146e92030102299f1a0f789c131304aab",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1064 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1064,
+    "fileCount": 14,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "  --jq '[.workflow_runs[]|select(.status==\"completed\")|.created_at]'   # 自己算间隔",
+      "| runner | `ubuntu-latest` + `gh`（runner 自带） | API 采集走 `gh api`，凭 `GITHUB_TOKEN`（`actions: read`）；不落任何密钥 |",
+      "> \"某条定时作业一次都没跑\"这一整类失败仍然无人出声。落点与预算由用户 2026-10-23 授权 agent 自定。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b80b75da2456a1b55ef95926bc40a36dcfcf093bca9bcb10ced05ad11519ffce",
+  "decidedAt": "2026-10-23T03:49:22.034Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

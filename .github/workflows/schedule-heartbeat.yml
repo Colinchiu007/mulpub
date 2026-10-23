@@ -1,0 +1,62 @@
+name: 定时作业心跳巡检
+
+# 类级欠账「定时作业根本没有 run」的常驻控制（change: schedule-heartbeat-lock）。
+# 上一刀（PR #4234，Gate 2b13）把"有 run 且失败"接进了报警，但那条通道走 `workflow_run`，
+# 而 `workflow_run` **只在有 run 完成时**才触发。于是四种成因全都表现为
+# "Actions 页面一片空白而没有任何东西出声"：cron 写错（GitHub 根本不排）、作业被删/禁用而定义还在、
+# runner 长期排队永不 completed、仓库迁移后 run 列表与声明错位。
+# 本作业量的不是"有没有报错"，而是"上一次真的跑过没有"，并把
+# 没跑过（NEVER_RAN）/ 跑迟了（LATE）/ 我不知道（SCANNER_FAULT）分成三个可区分出口。
+#
+# 为什么只挂 schedule 不挂 pull_request：判据要读 GitHub API（Actions run 历史），
+# PR 侧既读不到稳定的 schedule 历史，又会把"基础设施健康"耦合进合并判定。
+# 结构性后果是"迟到在 PR 里不被拦，只在日巡检里出声"，所以每次 PR 仍跑它的行为锁
+# （quality-gate.yml Gate 2b14，夹具正/负控 + 接线锁，零出站）——保证判据本体不被拆掉；
+# 本作业负责"真的读一次线上数据"。
+#
+# 未接进 required checks：这条是巡检而非合入门禁，红了指向"有人去看那条定时作业"，
+# 不指向"这个 PR 不许合"（与 时钟位移引信巡检 同一档）。
+on:
+  schedule:
+    # 每天 04:30 UTC：晚于 cleanup(03:23) 与 dep-audit(03:00 周一)，早于 sidecar(22:10)
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  schedule-heartbeat:
+    name: 定时作业心跳巡检
+    runs-on: ubuntu-latest
+    # 预算依据：4 条作业 × 一次 `gh api` 读 100 条 run，本机实测判据本体（注入式、不打网络）秒级；
+    # 线上一次采集给 20s 硬上限（scripts/check-schedule-heartbeat.js 的 COLLECT_TIMEOUT_MS），
+    # 挂死必须落 SCANNER_FAULT 而不是静默跳过。冷启动与 checkout 按余量算。
+    timeout-minutes: 10
+    env:
+      # 判据把 repo 拼进 API 路径，取不到时 fail closed（rc=2 并点名原因），不猜。
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 判据本体只用 node 内置模块（无 Install deps 这一步是刻意的：它同时是 changes 作业的约束，
+      # 让"只改工作流/只改文档"的 PR 也能跑得起这套锁）。
+      - name: 心跳判据（读线上 run 历史，逐条出声）
+        shell: bash
+        run: node scripts/check-schedule-heartbeat.js --explain
+
+      - name: 行为锁（夹具正/负控 + 接线锁 + 采集器形状，零出站）
+        shell: bash
+        run: node --test scripts/check-schedule-heartbeat.test.js
