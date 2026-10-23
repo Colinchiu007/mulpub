@@ -157,6 +157,7 @@ class ShipinhaoVideoChain {
     // 2026-10-23 平台自身代码（finder-helper-web chunk-common）用 setHost() 动态设上传主机，
     // 说明主机不是常量。此处在 Step1 响应里尝试取主机；取不到则沿用 baseURL（行为不变）。
     this._step1Keys = Object.keys(d).join(',')
+    try { this._step1Body = JSON.stringify(d).slice(0, 400) } catch (_e) { this._step1Body = '' }
     const rawHost = String(d.cdnHost || d.host || d.uploadHost || (d.data && (d.data.cdnHost || d.data.host || d.data.uploadHost)) || '').trim()
     if (rawHost) {
       const withScheme = /^https?:/i.test(rawHost) ? rawHost : 'https://' + rawHost.replace(/^\/+/, '')
@@ -186,7 +187,7 @@ class ShipinhaoVideoChain {
       res = await requestWithRetry(this.cdn, { method: 'put', url: this.cdnHost + '/applyuploaddfs', data: payload, headers })
     } catch (e) {
       // 2026-10-23 诊断：应用日志只收主进程 logger 输出，console 不可见 ⇒ 把上下文塞进错误信息。
-      if (e && typeof e.message === 'string') e.message += ' [host=' + (this.cdnHost || '(baseURL)') + ' step1Keys=' + (this._step1Keys || 'n/a') + ']'
+      if (e && typeof e.message === 'string') e.message += ' [host=' + (this.cdnHost || '(baseURL)') + ' step1Keys=' + (this._step1Keys || 'n/a') + ' step1Body=' + (this._step1Body || '') + ']'
       throw e
     }
     const d = res.data || {}
