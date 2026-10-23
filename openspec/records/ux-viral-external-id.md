@@ -61,6 +61,21 @@ QM-1 打包态启动现场：`[ERROR] sqlite-wrapper all() error: no such column
 
 变更规模由 `ccg-review-decider.js` 判定；若判 `mode=dual` 且落到 `self_play_blocked`（引擎口径：`verdict=upheld` 一律计阻断，与本条是否已修完无关），按本仓既有口径**转人工、不手写 status**。外部 critic 本轮若有交付，原件与裁决一律复制进 `.ccg/reviews/` 留证。
 
+### 7.1 本条产物的收口（2026-10-23，仓库所有者授权后由 agent 代为回写）
+
+`.ccg/reviews/734ea0bc….json` 判 `mode=dual`（变更 200 行 + 敏感内容 3 处），本轮 critic 启动后 **exit 1**
+（wrapper 日志已被删除，现场只剩 `exit 1 [claude]` 一行）⇒ **未产出任何 findings**。
+
+处置走门禁自述的**出口②**（非高危面写 `closureNote`）：
+- 本 PR 不触高危面（无 `.github/workflows/`、无 `scripts/check-`、无凭证/登录态面）；
+- 出口①（补跑 `sh scripts/deep-review.sh` 做真外部评审）在本机不可达 —— 仓外后端 claude/opencode 在本机既未安装也不可运行；
+- 缺陷本身已由**比评审更硬的证据**覆盖：真 sqlite 建表路径的 e2e 用例（`creator-wiring.e2e.test.js` 改为自建表、走真 DDL）
+  与 `creator-schema.test.js` 的 schema 探测断言，直接钉住「预检查的那一列由谁建」这一根因。
+
+⇒ 该产物 status 由 `error` 回写为 `self_play_resolved`，**`tier` 刻意保持缺席**（没有外部评审出处可声明，
+写成任何值都是把「没跑成」说成「跑过了」），`findings` 保持 `null`，`error` 字段原样保留为现场。
+**由仓库所有者授权处理需要人判断的项后，agent 代为回写。**
+
 ## 8. 遗留（不假装闭合）
 
 1. 「预检/探测类 SQL 必须先探 schema」目前靠代码约定 + 单测，没有静态门禁禁止"未探列就查新列"的写法；要机械化属新门禁，需人工批准。
