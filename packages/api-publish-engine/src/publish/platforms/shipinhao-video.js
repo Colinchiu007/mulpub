@@ -154,7 +154,7 @@ class ShipinhaoVideoChain {
     if (this.logger && this.logger.log) this.logger.log('[shipinhao-video] step1 keys: ' + Object.keys(d).join(','))
     const authKey = d.authKey || (d.data && d.data.authKey) || ''
     if (!authKey) {
-      throw new ShipinhaoVideoError('shipinhao-video: upload authKey missing (cookie may be expired) [cookieLen=' + String(this.cookie || '').length + ' step1Keys=' + Object.keys(d || {}).join(',') + ' step1Body=' + (() => { try { return JSON.stringify(d).slice(0, 240) } catch (_e) { return '' } })() + ']', errorCode.data_error)
+      throw new ShipinhaoVideoError('shipinhao-video: upload authKey missing (cookie may be expired) [cookieLen=' + String(this.cookie || '').length + ' finderId=' + String(this.finderId || '(empty)') + ' step1Keys=' + Object.keys(d || {}).join(',') + ' step1Body=' + (() => { try { return JSON.stringify(d).slice(0, 240) } catch (_e) { return '' } })() + ']', errorCode.data_error)
     }
     // 2026-10-23 平台自身代码（finder-helper-web chunk-common）用 setHost() 动态设上传主机，
     // 说明主机不是常量。此处在 Step1 响应里尝试取主机；取不到则沿用 baseURL（行为不变）。
