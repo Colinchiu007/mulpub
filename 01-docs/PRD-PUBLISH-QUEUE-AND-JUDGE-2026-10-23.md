@@ -548,3 +548,50 @@ PUT  https://finderassistancea.video.qq.com/applyuploaddfs -> 404（无鉴权请
 
 `createIsolatedWorld` 对 `micro/content/post/create` 是否可注入（跨域策略）；
 若不可注入，则浏览器上传器这条路在本机**不可达**，只能走 API。
+
+## 8.21 跨帧注入已验证成功（2026-10-23 21:10，真机）
+
+### 实测日志
+
+```
+21:10:38  [tencent_video] uploading file...
+21:10:53  frame-scan: frames=2
+            https://channels.weixin.qq.com/platform/post/create
+            https://channels.weixin.qq.com/micro/content/post/create
+21:11:01  cdp-drop: target not found [class*=upload],...
+```
+
+### 判读（三分支已收敛到一支）
+
+| 分支 | 判据 | 本次结果 |
+| --- | --- | --- |
+| 帧不可见 | 无 `frames=` 行 | ❌ 不成立——打印出 2 帧 |
+| 注入被拒 | `frame-scan: inject failed …` | ❌ 不成立——无该行 |
+| **注入成功但未命中** | 有 `frames=`、无 `hit` | ✅ **就是这一支** |
+
+⇒ `Page.createIsolatedWorld` + `Runtime.evaluate` 在 `micro/content/post/create` 帧内**可以执行**；
+`pierce`/`querySelector` 那条路（8.20 表 1/2）确实无效，但**跨帧 JS 这条路是通的**。
+
+### 剩余唯一问题：锚点不准
+
+脚本在帧内按以下三类条件找元素，均未命中：
+
+1. 可见文字含「上传时长」/「添加视频」/「点击上传」；
+2. class 含 `upload` / `dragger` / `drop` / `uploader`；
+3. 任意 `div,section,span,button`。
+
+### 下一步（一步即可定位）
+
+在帧内打印诊断而非只返回布尔：
+
+```
+body.innerText.slice(0,300)      // 页面到底渲染了什么
+document.querySelectorAll('input[type=file]').length
+document.body.children.length
+```
+
+据此重选锚点；若 `innerText` 为空 ⇒ 该帧尚未完成渲染，应在 `uploading file...` 之后**等待帧内出现非空 body** 再扫描。
+
+### 结论
+
+浏览器上传器**不是不可达**——它只是"元素还没找到"。这是本轮最实质的进展。
