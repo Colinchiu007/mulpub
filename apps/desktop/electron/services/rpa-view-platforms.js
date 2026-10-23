@@ -500,7 +500,8 @@ const platformsMixin = {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
           if (!publishSelector) throw new Error('publish btn not found')
-          networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
+          // 2026-10-23：头条曾在此被排除，导致 responses=0 无法区分'没发请求'与'没在听'。现统一开启。
+          networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
           // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
           // 第二次点击才 `_e.resolve()` 唤醒 `case 1` 执行 `doPublish` ⇒ 必须连点两次（间隔留给 state 写入）。
@@ -1227,7 +1228,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     }
 
     // Mass send / Free publish（群发/发布；wechat-mp-publish-track）。正判据（消灭「点了就算成功」）：
-    // 确认前挂 masssend XHR 监听 + 点击后轮询页面成功提示，至少一条成立才算成功，双缺失 fail-closed。
     if (article.massSend || article.freePublish) {
       const isMass = article.massSend
       const actionLabel = isMass ? '群发' : '发布'
