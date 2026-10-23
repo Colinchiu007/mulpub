@@ -36,6 +36,10 @@ const {
 } = require('./rpa-publish-id-extract')
 // 2026-09-29 二次拆分：导航/等待类 helper（mixin 片段）——继续压 rpa-view-platforms.js 行数
 const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigation-helpers')
+// 2026-10-23 四次拆分：发布诊断取证纯函数 → rpa-view-publish-diagnostics.js
+// （行数门禁点名还账：rpa-view-platforms.js 目标 1484 行、容差 0；#4276 加了 14 行后越界，
+//   令债务熔断检查在所有后续 PR 上转红。此处只搬移不改行为）
+const { readVisibleEditorToast, summarizePublishDiagnostics, parsePublishResponseEvidence } = require('./rpa-view-publish-diagnostics')
 // 2026-10 三次拆分：视频上传等待循环（v4 自适应轮询，publish-progress-dup-upload）
 const { uploadWaiterMixin, readVideoFileBytes } = require('./upload-waiter')
 const { artifactsHelpers } = require('./rpa-view-artifacts')
@@ -57,40 +61,6 @@ const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou', 'toutiao']
  * @param {object} win BrowserWindow
  * @returns {Promise<string>} 可见提示文本；无则空串（绝不抛）
  */
-async function readVisibleEditorToast (win) {
-  const { buildVisibleToastScript } = require('./wechat-mp-draft-mediaid')
-  const { TOAST_SELECTORS } = require('./wechat-mp-dom-guard')
-  try {
-    const t = await win.webContents.executeJavaScript(buildVisibleToastScript(TOAST_SELECTORS))
-    return String(t == null ? '' : t)
-  } catch (_) {
-    return ''
-  }
-}
-
-function summarizePublishDiagnostics (records, artifact) {
-  const source = Array.isArray(records) ? records : []
-  const responses = source.slice(-20).map(record => ({
-    endpoint: sanitizeDiagnosticEndpoint(record?.endpoint || record?.url),
-    status: Number.isFinite(Number(record?.status)) ? Number(record.status) : 0,
-    mimeType: String(record?.mimeType || '').split(';')[0].slice(0, 160),
-  }))
-  return {
-    responseCount: source.length,
-    responses,
-    artifactFound: Boolean(artifact && normalizePublishId(artifact.postId)),
-  }
-}
-
-function parsePublishResponseEvidence (body, response) {
-  const status = Number(response?.status)
-  if (!Number.isFinite(status) || status < 200 || status >= 300) return null
-  if (!/(?:publish|submit|create|commit|release)/i.test(String(response?.endpoint || ''))) return null
-  const publishIds = extractPublishIdsFromResponseBody(body, { endpoint: String(response?.url || response?.endpoint || '') })
-  return publishIds.length > 0 ? { publishIds } : null
-}
-
-
 // draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）；
 // 判据本体/三条红线/不变量见该模块头部注释，本文件只留薄调用点（它自己也是零增长的点名还账文件）。
 const draftOnlyConfirm = require('./draft-only-confirm')
