@@ -1,0 +1,61 @@
+{
+  "sha": "a19e8e9af0837a64eb325c089b59ad8fc0ffa255",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "| S20 | **写路径的 sender 路由断言（硬）**：`film-engineering:import-kit` 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，**`pathname` 恒为 `/` ⇒ 不参与判断**）—— **解析口径写死**：`new URL(url).hash` ⇒ 去前导 `#` ⇒ 取 `?` 之前的部分 ⇒ 去尾斜杠 ⇒ 与前缀 `/film-engineering` 比较；**`hash` 缺失/为空 ⇒ 判为「解析不出」** ⇒ 放行 + 审计警告（fail-open）；测试必须覆盖「`pathname=/` + `hash` 有路由」「`hash` 缺失」两种形态⇒ 路由**前缀**须为 `/film-engineering`（**三个标签页都在这条路由下** ⇒ **不会误伤合法调用**）⇒ 不命中 ⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：该断言只能判到「调用方**当前在**影视工程路由」，**判不到组件**（SPA 同一文档承载三标签页）⇒ **组件级授权仍不做**；⚠ URL 里解析不出路由（某些打包形态无 hash）⇒ **放行 + 审计警告**（fail-open，避免误伤）；⚠ **另一道不依赖 URL 的屏障**：handler **入参为空**、路径只能来自原生对话框 ⇒ 任意可信渲染进程**无法指定替换内容** |",
+      "| S20 | **写路径的 sender 路由断言（硬）**：`film-engineering:import-kit` 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，**`pathname` 恒为 `/` ⇒ 不参与判断**）—— **解析口径写死**：`new URL(url).hash` ⇒ 去前导 `#` ⇒ 取 `?` 之前的部分 ⇒ 去尾斜杠 ⇒ 与前缀 `/film-engineering` 比较；**`hash` 缺失/为空 ⇒ 判为「解析不出」** ⇒ **拒绝**（`UNAUTHORIZED_SENDER`）—— **写路径不 fail-open**（只读通道才保留 fail-open）；测试必须覆盖「`pathname=/` + `hash` 有路由」「`hash` 缺失」两种形态⇒ 路由**前缀**须为 `/film-engineering`（**三个标签页都在这条路由下** ⇒ **不会误伤合法调用**）⇒ 不命中 ⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：该断言只能判到「调用方**当前在**影视工程路由」，**判不到组件**（SPA 同一文档承载三标签页）⇒ **组件级授权仍不做**；⚠ URL 里解析不出路由（某些打包形态无 hash）⇒ **放行 + 审计警告**（fail-open，避免误伤）；⚠ **另一道不依赖 URL 的屏障**：handler **入参为空**、路径只能来自原生对话框 ⇒ 任意可信渲染进程**无法指定替换内容** |",
+      "**取舍（写进 `SCHEMA.md`，防被误读为遗漏）**：① `nlink` 判据 = **最佳努力、非防篡改边界**（S2）；② 崩溃残留三档恢复路径（S15）；③ 窗口级/组件级授权**不在本批** —— 本批做 `withSenderCheck` + **S20 的 sender 路由前缀硬断言**（路由不在 `/film-engineering` ⇒ 拒绝；**前缀**匹配 ⇒ 三个标签页都放行、**不误伤合法调用**），但**组件级授权做不了也不假装做**（同一文档承载三标签页，路由判不出组件）；缓解四层（受信来源 / **路由前缀断言** / **目录只能由用户原生选**（入参不含路径 ⇒ 无法指定替换内容）/ 严格校验不落盘 + 全量审计），信任域内的越权**由审计可见**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "dce7e2531762274eb52604f245d2f10adc19594fe967ca16293bb7a24f390302",
+  "decidedAt": "2026-10-23T00:08:07.360Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
