@@ -355,8 +355,10 @@ CI run 40008328046 的 `QG Changes` 35 步全绿（含 `Gate 2b11`），但同�
 
 ## 第六次落账：§3 按证据打勾 + 主干拿到了同一种病的另一版修法（2026-10-24）
 
-本轮改动集**只含两份文档**（`openspec/changes/qm6-rebuttal-round-cap/tasks.md` 与本文件）：
-判据、实现、测试、workflow 一行没动。勾 §3 之前逐条重取证据，不复用上轮的话术：
+本轮**我写的**改动只有两份文档（`openspec/changes/qm6-rebuttal-round-cap/tasks.md` 与本文件）：
+判据、实现、测试、workflow 一行没动。提交里还有第三个文件——pre-commit 钩子**自动入库**的判定产物
+`.ccg/reviews/<内容寻址名>.json`（docs-only 判 `SKIP`，非手写），所以"改动集只含两份文档"这种写法
+在 `git show --stat` 面前是假的，按"我写的 / 机器附带的"拆开说。勾 §3 之前逐条重取证据，不复用上轮的话术：
 
 - **§3.2 的证据本体**：在 merge-base `05597f42e` 上重跑 `git diff <merge-base> HEAD -- scripts/check-pr-exec-record.js`
   ⇒ 字节数 `0`。这条是"本 PR 没改变什么算闭合"的判据来源，不是对 PR 正文的转述。
