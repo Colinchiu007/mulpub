@@ -237,3 +237,49 @@ uploading file...   →   uploading file...   →   uploading file...
 
 当上传步骤未获得「视频已附上」的证据时，应提示用户：
 「视频未能上传成功，请重试或改用网页端发布」，而不是继续走发布流程并报「缺少作品 ID」。
+
+## 8.12 与逆向成果对照：视频号端点集差异（2026-10-23）
+
+### 成果侧（`mtm-platform-apis.md` L468–495，498 端点清单中的视频号部分）
+
+```
+/cgi-bin/mmfinderassistant-bin/auth/auth_data
+/cgi-bin/mmfinderassistant-bin/helper/helper_upload_params
+/cgi-bin/mmfinderassistant-bin/helper/helper_parse_mp_link
+/cgi-bin/mmfinderassistant-bin/post/post_create
+/cgi-bin/mmfinderassistant-bin/post/post_list
+/cgi-bin/mmfinderassistant-bin/post/get-finder-post-trace-key
+/cgi-bin/mmfinderassistant-bin/statistic/post_list
+```
+
+### 我方现状（`packages/api-publish-engine/src/publish/platforms/shipinhao-video.js`）
+
+| 步骤 | 我方实现 | 成果里是否存在 |
+| --- | --- | --- |
+| Step1 取 authKey | `helper/helper_upload_params` | ✅ 存在（同一端点） |
+| Step2 申请上传 | `PUT {cdn}/applyuploaddfs` | ❌ **清单里没有** |
+| Step3 分片 | `{cdn}/uploadpartdfs` | ❌ 没有 |
+| Step4 完成 | `{cdn}/completepartuploaddfs` | ❌ 没有 |
+| Step5 发布 | `post_create` / `post_draft` | ✅ 存在 |
+
+### 推论
+
+1. `helper_upload_params` 的响应里**没有 `cdnHost`**（真机日志 `step1Keys=errCode,errMsg,data`，`data` 仅含
+   `authKey/uin/appType/videoFileType/...`），而三条 `*dfs` 路径在任一候选主机上均 404。
+   ⇒ **我方假设的上传协议形状很可能不成立**，不是"主机写错"，是"路径不存在"。
+2. 成果清单是参考产品实际调用过的端点集合，`*dfs` 一条都没有 ⇒ 参考产品**不做自拼 `applyuploaddfs`**。
+
+### 可立即改进的一项（不需要新逆向）
+
+`post/post_list` 是**只读**端点，可作为发布校验口。当前校验走作品页（SPA 懒加载，实测
+`works-page-timeout`），改用它可以把"作品是否出现"变成一次结构化查询。
+
+### 下一步（需要一次页面侧证据）
+
+在真实浏览器会话里**手动上传一个视频**并抓包，读出页面自己发出的上传请求（host + path + 请求头），
+以它为准重写 Step2–4；**不要再用 `applyuploaddfs` 这个猜测**。
+
+### 红线遵守
+
+- 只使用只读端点做验证（`post_list` / `auth_data`）；
+- 不在日志/文档中写入任何 cookie、authKey、token 值（本文只写字段名）。
