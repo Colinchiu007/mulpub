@@ -1,3 +1,17 @@
+# [未发布] feat(视频创作): 快速渲染接入 Agnes Video 2.5 Flash 全能力（文生 / 首尾帧 / 参考素材）+ 真实进度
+
+- feat(视频创作): 快速渲染的 AI 视频能力从「只有文生视频」扩为三模式——**文生视频**（`mode=text`）、**首尾帧**（`mode=keyframe`，首帧/尾帧至少一个）、**参考素材**（`mode=reference`，参考图 ≤5 / 参考音频 ≤3）。动因：`agnes-multimodal` 适配器**早已完整实现** Agnes Video 2.5 Flash 协议（首尾帧、参考图、参考音频、seconds、aspect_ratio、seed），但链路三层都在丢弃这些参数（`generateSceneVideo` 只传 6 个字段、IPC 契约只有 `{ prompt }`、渲染层无入口）⇒ 模型已具备的能力在产品上**一个都不可见**。
+- feat(视频创作): 参数区补齐——**时长 4–12 秒**、**随机种子**（0 是合法值，不再被当作空值丢弃）、**分辨率档位**（按模型能力，单档位时控件禁用）、**输出平台 → 画幅映射**（6 平台 → 6 个合法 `aspect_ratio`）。其中「输出平台」此前在 AI 视频路径上**完全失效**（选了 YouTube 横屏也出竖屏，因为它压根没传进 IPC）——本次一并修掉。
+- fix(视频创作): AI 视频**进度条失真**的两层根因一并修复：① 主进程此前只在提交前推一次进度、轮询期间无回调；② **载荷形状不匹配**——preload 的 `onRenderProgress` 把 IPC 载荷原样传给回调（对象 `{ percent, stage }`），而渲染层按 `(pct, stg)` 两个位置参数解构 ⇒ `pct` 拿到整个对象。现改为按对象读取，并区分「排队中 / 生成中」（服务端原始状态 `queued` / `in_progress`，归一化后两者都是 `processing`）。**百分比如实透传服务端 `progress`，不伪造连续增长**（服务端只有 10 / 100 两档）。
+- refactor(视频创作): `generateSceneVideo` 及其依赖（`downloadVideoToFile` / `probeVideoFile` / `pickFrameCountForSceneDuration` / `MAX_VIDEO_FILE_BYTES`）抽到新模块 `electron/services/scene-video-generator.js`。动因是**硬约束**：`story2video-stages.js` 在「点名还账」清单里（target=4081、容差 0）且当时正好 4081 行 ⇒ **加一行即主干变红、全仓 PR 被挡**；抽出后该文件降到 3906 行（债已还，target 条目保持不动）。`CreateView.vue` 同样净减 109 行（5528 → 5419）。
+- refactor(视频创作): 快速渲染视图抽成独立组件 `src/views/video-creation/QuickRenderPanel.vue`（+ `QuickRenderMaterials.vue` + `useQuickRenderMaterials.js` + `quick-render-constants.js`）。三个新文件全部 < 500 行，避免 `NEW_OVER_LIMIT`；素材区与参数判据与渲染逻辑分离，改判据不会漏改渲染。
+- feat(视频创作): 能力描述收敛为**单一真源** `electron/services/adapters/agnes-video-models.js`（按模型 ID 给出尺寸档位 / 素材上限 / 是否支持参考视频 / 合法画幅），**未知模型保守回落**（只支持文生视频）。判据落在**模型的能力属性**上而非「providerId 名单」——名单判据对新增对象默认不成立：将来换一个讲同一套协议的 provider，不必记得去改任何中央名单。
+- feat(视频创作): 模式 ↔ 媒体契约收敛到 `packages/shared-utils/src/agnes-video-request.js`，**渲染层与主进程共用同一判据**（text 禁媒体 / keyframe 至少一首尾帧且禁参考素材 / reference 至少一类素材且禁首尾帧）。违规返回**领域码**（如 `keyframe-requires-frame`），渲染层据此取本地化文案，**不把英文码原样透给用户**。
+- fix(视频创作): 服务端必然拒收的参数在**客户端**拦下（`size` 非 720P、参考图 >5、参考音频 >3、参考视频不受支持、时长越界、画幅非白名单），省掉一次白跑的请求；【取消】如实提示「已停止等待，远端任务可能仍在生成」（上游未公开任务取消端点，`renderCancel` 只取消本地 Remotion 渲染）。
+- i18n: 新增文案全部走 `create.story2video.ui.quick*`（zh/en 成对）；渲染端**零新增硬编码中文**（CJK 门禁按 file+content 增量比对基线，新文件里的中文即视为新增硬编码）。
+- docs(视频创作): PRD 增补 §3.1.42（模式集合 / 能力判据 / 参数区 / 素材上限 / 进度载荷形状 / 取消语义 / 模块归属 / 验收边界）；openspec change `agnes-video-flash-quick-render` 承载 proposal / design / spec delta / tasks。
+- **明确不做**：参考视频（Flash 服务端硬拒 `videos is not supported`，需非 Flash 模型 + 公网素材托管，另立 change）；`n > 1`（服务端仅支持 1）；`width/height/fps/num_frames` 直传；`negative_prompt`（2.5 Flash 拒收该字段）。
+
 # fix(gate): QM-6 入口夹具漏抄新模块导致 Gate 2b11 对所有 PR 转红（fix-qm6-entry-fixture-closure）
 
 - 修一处**与改动无关却让所有 PR 变红**的断链：#4093 给 QM-6 写回入口加了新依赖

@@ -20,8 +20,6 @@
 
 const { execFile } = require('child_process');
 const fs = require('fs');
-const http = require('http');
-const https = require('https');
 const os = require('os');
 const path = require('path');
 const { alignScenes } = require('./subtitle-align-service')
@@ -40,6 +38,9 @@ const { deriveStory2VideoAspectRatio } = require('./story2video-text-config');
 const { promptOptimizationMetaOf: pickPromptOptimizationMetaOf, optimizeItemPrompt } = require('./story2video-prompt-meta');
 const { resolveProviderDefaultModel } = require('./model-provider-manager');
 const { getProviderRunContext } = require('./provider-run-context');
+// 单场景 AI 视频生成（提交/轮询/下载/校验）已抽到独立模块：
+// story2video-stages.js 在「点名还账」天花板清单里（容差 0），加行即打红主干 ⇒ 抽出还债。
+const { generateSceneVideo } = require('./scene-video-generator');
 const modelCallScheduler = require('./model-call-scheduler');
 // 克隆音色前置守卫/失败聚合（2026-10-18）：判定、文案与去重逻辑收敛在独立模块，本文件只留调用点。
 const { isClonedVoiceUnavailableMessage, summarizeAssetFailures, resolveVoiceCloneGuard, buildVoiceCloneAggregateError } = require('./story2video-voice-guard');
@@ -78,9 +79,6 @@ const PROMPT_TRANSLATION_BATCH_TIMEOUT_MS = 25000;
 const PROMPT_TRANSLATION_FINALIZATION_TIMEOUT_MS = 60000;
 
 const MAX_ASSET_CONCURRENCY = 8;
-// 视频下载大小上限（与 story2video-paths MEDIA_RULES.video 一致：512MB）
-const MAX_VIDEO_FILE_BYTES = 512 * 1024 * 1024;
-
 function normalizeAssetConcurrency(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 3;
@@ -666,16 +664,6 @@ function clampVideoSelection (scenes, entries, config) {
   return { selected: selected.slice(0, maxScenes), ratio }
 }
 
-/** 场景估算时长 → 视频生成帧数档位（24fps 近似，满足 8n+1 规则的保守取值）。 */
-function pickFrameCountForSceneDuration (durationSeconds) {
-  const d = Number(durationSeconds)
-  if (!Number.isFinite(d) || d <= 0) return 121
-  if (d <= 5) return 121
-  if (d <= 8) return 201
-  if (d <= 10) return 241
-  return 441
-}
-
 function parseOutputSize (value) {
   const size = String(value || '').trim()
   const match = /^(\d{2,4})x(\d{2,4})$/.exec(size)
@@ -732,152 +720,6 @@ function resolveVideoSize (params, stage) {
   return { width, height }
 }
 
-/**
- * 下载视频到本地。守卫（2026-08-11 W5）：仅 http/https、重定向 ≤5 跳、流式写入按字节上限截断。
- * @param {string} url
- * @param {string} dest
- * @param {object} [options] - { maxBytes?, maxRedirects? }
- */
-function downloadVideoToFile (url, dest, options = {}) {
-  const maxBytes = Number.isFinite(Number(options.maxBytes)) && Number(options.maxBytes) > 0 ? Number(options.maxBytes) : Infinity
-  const maxRedirects = Number.isFinite(Number(options.maxRedirects)) ? Number(options.maxRedirects) : 5
-  const follow = (currentUrl, redirectsLeft) => new Promise((resolve, reject) => {
-    if (!/^https?:/i.test(currentUrl)) {
-      reject(new Error('视频下载仅允许 http/https 协议'))
-      return
-    }
-    const protocol = /^https:/i.test(currentUrl) ? https : http
-    const request = protocol.get(currentUrl, (response) => {
-      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        response.resume()
-        if (redirectsLeft <= 0) {
-          reject(new Error('视频下载重定向次数超过上限'))
-          return
-        }
-        follow(String(response.headers.location), redirectsLeft - 1).then(resolve, reject)
-        return
-      }
-      if (response.statusCode !== 200) {
-        response.resume()
-        reject(new Error('视频下载失败，HTTP ' + response.statusCode))
-        return
-      }
-      let written = 0
-      let aborted = false
-      const stream = fs.createWriteStream(dest)
-      response.on('data', (chunk) => {
-        written += chunk.length
-        if (written > maxBytes) {
-          aborted = true
-          response.destroy()
-          stream.destroy()
-          fs.unlink(dest, () => {})
-          reject(new Error('视频下载超过大小上限'))
-          return
-        }
-        stream.write(chunk)
-      })
-      response.on('end', () => {
-        if (aborted) return
-        stream.end(() => stream.close(() => resolve(dest)))
-      })
-      stream.on('error', (error) => {
-        fs.unlink(dest, () => {})
-        reject(error)
-      })
-    })
-    request.on('error', reject)
-  })
-  return follow(url, maxRedirects)
-}
-
-/**
- * 单场景 AI 视频生成：generateVideo 提交 → getVideoStatus 轮询（≤10 分钟）→ 下载落盘。
- * 与 videogen-stages GENERATE 阶段同一契约（复用 provider 适配器能力）。
- */
-async function generateSceneVideo ({ manager, providerId, model, prompt, index, seconds, size, fps, runDir, pollIntervalMs, providerRunContext }) {
-  const frameRate = Number(fps) > 0 ? Number(fps) : 24
-  const pollInterval = Number.isFinite(Number(pollIntervalMs)) && Number(pollIntervalMs) > 0 ? Number(pollIntervalMs) : 10000
-  const numFrames = pickFrameCountForSceneDuration(seconds)
-  const submitParams = {
-    prompt,
-    model: model || undefined,
-    width: size.width,
-    height: size.height,
-    numFrames,
-    frameRate,
-    num_frames: numFrames,
-    frame_rate: frameRate,
-  }
-  const submit = providerRunContext
-    ? await manager.callAdapter(providerId, 'generateVideo', submitParams, { providerRunContext })
-    : await manager.callAdapter(providerId, 'generateVideo', submitParams)
-  if (submit && submit.code !== 0) {
-    return { success: false, error: (submit && submit.message) || ('视频生成调用失败（provider: ' + providerId + '）') }
-  }
-  const data = submit && submit.data
-  // 适配器外层 code=0 但内层可能返回 { code: -1, message }（如 MiniMax 特殊套餐的 Missing task_id），
-  // 此时 data.taskId 为空，必须透传适配器的真实错误消息，避免吞成「视频生成未返回任务 ID」。
-  if (data && typeof data === 'object' && (Number(data.code) < 0 || data.success === false)) {
-    return { success: false, error: (data.message || data.error || '视频生成失败（provider: ' + providerId + '）') }
-  }
-  const taskId = data && (data.taskId || data.videoId)
-  if (!taskId) {
-    return { success: false, error: '视频生成未返回任务 ID' + (data && data.message ? '：' + data.message : '') }
-  }
-  const pollDeadline = Date.now() + 10 * 60 * 1000
-  let videoUrl = null
-  let pollError = ''
-  while (Date.now() < pollDeadline) {
-    await sleep(pollInterval)
-    const statusParams = { videoId: taskId, taskId }
-    const status = providerRunContext
-      ? await manager.callAdapter(providerId, 'getVideoStatus', statusParams, { providerRunContext })
-      : await manager.callAdapter(providerId, 'getVideoStatus', statusParams)
-    // provider 显式报错（code<0 / success=false，无 URL）视为终止态，避免空转整轮 10 分钟（2026-08-11 W3）
-    if (status && (Number(status.code) < 0 || status.success === false)) {
-      pollError = (status && status.message) || '视频生成任务失败（provider: ' + providerId + '）'
-      break
-    }
-    const url = status && (status.videoUrl || status.url || (status.data && (status.data.videoUrl || status.data.url)))
-    if (url) { videoUrl = url; break }
-    const state = status && (status.status || (status.data && status.data.status)) || ''
-    if (['failed', 'error', 'cancelled'].includes(String(state).toLowerCase())) {
-      pollError = '视频生成任务状态为 ' + String(state) + '（provider: ' + providerId + '）'
-      break
-    }
-  }
-  if (!videoUrl) {
-    return { success: false, error: pollError || '视频生成超时或失败（provider: ' + providerId + '）' }
-  }
-  fs.mkdirSync(runDir, { recursive: true })
-  const dest = path.join(runDir, 'scene_video_' + String(index).padStart(3, '0') + '.mp4')
-  await downloadVideoToFile(videoUrl, dest, { maxBytes: MAX_VIDEO_FILE_BYTES })
-  // 下载后校验：非空文件 + ffprobe 可解码，避免 HTML 错误页/截断文件伪装 mp4 拖到 compose 才暴露（2026-08-11 W4）
-  if (!(fs.existsSync(dest) && fs.statSync(dest).size > 0)) {
-    fs.unlink(dest, () => {})
-    return { success: false, error: '视频下载结果为空或不可用' }
-  }
-  try {
-    await probeVideoFile(dest)
-  } catch (probeError) {
-    fs.unlink(dest, () => {})
-    return {
-      success: false,
-      error: '视频文件无法解码（' + (probeError && probeError.message ? probeError.message : String(probeError)).slice(0, 120) + '）',
-    }
-  }
-  return { success: true, path: dest }
-}
-
-/** 用捆绑 ffprobe 校验视频可解码（存在视频流即可；损坏文件快速失败）。 */
-async function probeVideoFile (videoPath) {
-  const { findFfprobe } = require('./media-tool-paths')
-  const ffprobe = findFfprobe()
-  if (!ffprobe) return
-  await runTool(ffprobe, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', videoPath])
-}
-
 /** 用捆绑 ffprobe 校验音频可解码且时长 > 0。TTS 返回 200 OK + 空体等损坏音频
  *  会被合成前防线拦截，避免逃逸到 concat 阶段触发 "matches no streams"。
  *  2026-09-13 fix-tts-empty-audio-escape */
@@ -908,23 +750,6 @@ async function probeAudioFile (audioPath) {
     // Only reject on confirmed 0-duration damage; all other probe errors pass.
     if (e && e.message && e.message.includes('0 duration')) throw e
   }
-}
-
-function runTool (binary, args) {
-  return new Promise((resolve, reject) => {
-    execFile(binary, args, { timeout: 30000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(String(stderr || error.message).slice(0, 1200)))
-        return
-      }
-      const output = String(stdout || '').trim()
-      if (!output.includes('video')) {
-        reject(new Error('视频文件缺少视频流'))
-        return
-      }
-      resolve(output)
-    })
-  })
 }
 
 /**
