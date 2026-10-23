@@ -283,3 +283,45 @@ uploading file...   →   uploading file...   →   uploading file...
 
 - 只使用只读端点做验证（`post_list` / `auth_data`）；
 - 不在日志/文档中写入任何 cookie、authKey、token 值（本文只写字段名）。
+
+## 8.13 与逆向成果对照：今日头条视频发布端点（2026-10-23）
+
+### 成果侧（`mtm-platform-apis.md` L296–363）
+
+```
+https://mp.toutiao.com/ugc/publish/video/v1/get_token/     ← 取上传/发布令牌
+https://mp.toutiao.com/ugc/publish/video/v4/commit/       ← 提交发布
+https://mp.toutiao.com/profile_v4/xigua/upload-video      ← 发布页
+https://mp.toutiao.com/mp/agw/creator_center/list         ← 作品列表（只读）
+```
+
+### 我方（`packages/api-publish-engine/src/publish/platforms/toutiao-video-publish.js`）
+
+```
+/xigua/api/upload/GetPublishAuth
+/xigua/api/upload/PublishVideo
+/ixigua/api/upload/GetPosterList/
+```
+
+我方这套是**从前端 bundle 逐字抄的**（文件头注释引用了 `a.ZP.requestJsonNew("/xigua/api/upload/PublishVideo", Y, !0)`），
+成果那套是**参考产品运行期实际调用的**。两者并存说明平台有新/旧两条链。
+
+### 现状与判据
+
+| 事实 | 含义 |
+| --- | --- |
+| RPA 轨：`exact 发布 click: clicked` → `NO_DIALOG` → **无 publish 请求** → 无作品 | 点击未触发提交 |
+| RPA 轨：两段式恢复后（移除多余首点）仍然 `responses=0` | 两段式假设**也未成立** |
+| API 轨：`GetPublishAuth` / `PublishVideo` 未被使用（运行时走了 RPA） | API 轨在头条上**没有启用** |
+
+### 下一步（按判据强度排序）
+
+1. **优先试成果里的 `ugc/publish/video/v4/commit/` 链**：它来自参考产品的真实调用集合，
+   比我方从 bundle 推断的 `PublishVideo` 更可信。
+2. 校验一律用只读端点 `mp/agw/creator_center/list`（已在 `toutiao-artifact.js` 的 `LIST_ENDPOINTS` 中）。
+3. **不要再用「多点几次」的方式尝试**：两段式与精确点击两条路都已证伪。
+
+### 红线
+
+- 只用只读端点做验证；
+- 文档/日志只写字段名与路径，不写 cookie/token 值。
