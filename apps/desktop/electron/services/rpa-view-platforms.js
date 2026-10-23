@@ -335,7 +335,11 @@ const platformsMixin = {
         }
       }
     } else if (platform === 'tencent_video' && article.video_path) {
-      const tr = await require('./tencent-video-frame').fillTencentVideo(win, article, { log, platform }); fillReport.title = { ok: tr.ok }; fillReport.content = { ok: tr.ok, frameStep: tr.step }
+      const tr = await Promise.race([
+        require('./tencent-video-frame').fillTencentVideo(win, article, { log, platform }),
+        new Promise(function (res) { setTimeout(function () { res({ ok: false, reason: 'fill-timeout-45s' }) }, 45000) })
+      ]);
+      if (tr && tr.reason === 'fill-timeout-45s') log.warn('RpaView', '[tencent_video] fillTencentVideo timeout 45s, continuing'); fillReport.title = { ok: tr.ok }; fillReport.content = { ok: tr.ok, frameStep: tr.step }
     } else if (article.title) {
       log.warn('RpaView', '[' + platform + '] title field not found (no title_input nor editor candidate), title skipped')
       fillReport.title = { ok: false, error: 'title field not found (no selector matched)' }
