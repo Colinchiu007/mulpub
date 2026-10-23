@@ -20,7 +20,11 @@ date: 2026-10-23
 | 受管文档绝对路径 | ✅ | 本 change 四份文档 + 本记录**零**绝对路径（自检 `grep -naE '[A-Za-z]:[\\/]'` 空命中）。当场跑 `scripts/check-doc-abs-paths.js` 报的那 1 个文件是 `.ccg/evidence-ccg-deep-8e315f3b-multi-account/proposal-v1.md`——**并发会话留在共享根的未跟踪产物，不在本 PR 改动集内**，未触碰、未加白名单、未调账本 |
 | 接线棘轮 | N/A | 本 PR 不含测试文件；实现片的接线要求写在 `tasks.md` §2.5（含 `changes` 作业零依赖与 base blob 可读两条硬前置） |
 | QM-1 打包 / QM-4 视觉 | N/A | 纯文档 |
-| QM-6 CCG 双模型外部评审 | PENDING | 按用户既有偏好"评审打在方案上"，设计阶段深审在 PR 开出后跑 `sh scripts/deep-review.sh`（载荷是已提交 diff），逐条处置与轮次读数贴在本 PR 评论 |
+| QM-6 CCG 双模型外部评审 | ✅ 第 1 轮已跑并逐条处置 | `sh scripts/deep-review.sh`（载荷 = 本 change 已提交 diff，基点 `b9100fb0`）：critic=`claude` / proposer=`opencode`（取自 `scripts/ccg-review-backends.list`）。产物 **8 条**（2 Critical / 4 Warning / 2 Info），维度最低分 **4**；引擎收敛为 `status=self_play_pending`，写回器如实拒写（`reason=not-closed`，**未伪造 `tier`**）。逐条取证与处置表在 design §10；本 PR 因 `docs-only` 被判 `mode=single`，不产生 dual 欠账，评审价值全部落在**合同被改对的 8 处**上 |
+| 第 1 轮改了什么（可核对的落点） | ✅ | i1 ⇒ 新增第三档 `rebuttal-face-absent` + 前置条件写进判据（spec 场景、design §4.2b、tasks 3.1/M-D1g）；i2 ⇒ `hits` 与 `reasons` 禁止派生 + 解耦锁（design §5.2、tasks 2.1/M-D3k）；i3 ⇒ 与**上一条运行账**对账（design §5.4b、spec 判据 5、tasks 2.3⑤/M-D3m）；i4 ⇒ `REPLAY-SCOPE` 常态打印 + 空选择集落未证实（design §7、spec 判据 7）；i5 ⇒ 录制期 `git cat-file -e` 自证、死条目不得进分母（spec 判据 6、tasks 2.2/M-D3l）；i6 ⇒ `probe:self-test` 下限从评审建议的 `≥1` 改为 **≥2 且两形态各异**（tasks 2.4b/M-D3o）；i7 ⇒ `judgment-replay-runs.json` 的 `schemaVersion` + 字段闭集（spec 第 4 条）；i8 ⇒ tasks 0.2 补"谁停、怎么退"四格 |
+| 不照抄评审实现的四条（防把闸门关小） | ✅ | i1 的方向（`dangling` 是拦不是放）、i2 的约束（本设计不以文案为输入）、i3 的哈希链字面形态（链只证顺序不证内容）、i6 的 `≥1`（恒红探针也满足）。自查口径：新增四档全部是"未证实 ⇒ 不拦但必须出声且计数"，**没有一档把已有拦截改成放行** |
+| 该判定产物为何保持未闭合（如实，不假装） | ⚠ 已知欠账 | 本提交因 `docs-only` 被判 **`mode=single`**，而收口矩阵**只对 `mode=dual` 生效**（`evaluateDeepReviewDebt` 对 single 直接 `continue`）⇒ 这条 `self_play_pending` 产物**不在任何拦截面上**，CI 不会因为它红。这不是本片造成的，是 AGENTS QM-6 段已登记的 8.5 那一格（"改判据本体的小改动被判 single 时，凭一条 pending 记录即可通过"）。本片把它**原样保留并点名**，不借它冒充"QM-6 已闭合" |
+| 评审的裁决模板本身不在可审面 | ⚠ 已知缺口 | 引擎把待填模板写在 `.adversarial/ccg-deep-<sha>/adjudication.json`，而 `.gitignore:490` 整目录不收 ⇒ prosecution/defense/verdict 的**原始载体不进 git**。本片把结论落成 design §10 的表（受管、可 diff），不留一份只有本机知道的模板。该缺口属第 5 刀（评审证据面持久化）范围，本 change 不做 |
 | 人工过目 | 需 | 本 change 改的是"什么算闭合"（#4297 的 spec 里明文留议的那第 1 条），属"谁来守门" ⇒ **不自动合并** |
 
 | 远程同步 | 由门禁同步推导 |

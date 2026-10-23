@@ -21,13 +21,33 @@
 | kind | 必填凭证 | 判据动作 |
 | --- | --- | --- |
 | `code-fix` | `redThenGreen{lock,case,red{rc,matched},green{rc,matched}}` | `green.rc` MUST 由判据**当场重跑**得出，MUST NOT 采信记录里的值；**拿不到可跑环境时 MUST 落第三档 `rerun-unavailable` 并按未证实处理**（见下方"重跑不是免费的"）；`red` 一侧采信但 MUST 计入 `manualFields` 读数 |
-| `false-positive` | `rebuttalRef{fingerprint}` | 该 `fingerprint` MUST 在同一记录的 `rebuttals[]` 中存在；不存在 ⇒ `dangling-rebuttal-ref`，一律拦 |
+| `false-positive` | `rebuttalRef{fingerprint}` | 该 `fingerprint` MUST 在同一记录的 `rebuttals[]` 中存在；不存在 ⇒ `dangling-rebuttal-ref`，一律拦。**但 `rebuttals[]` 这一面本身不可得时 MUST NOT 走这条**，见下方「缺席面不得被读成悬空」 |
 | `deferred` | `task{change,line}` | `line` 取该行**去掉前后空白后的逐字内容**（MUST NOT 存行号，指针型字段在追加型载体上结构上必然过期），且该行在 `openspec/changes/<change>/tasks.md` 中存在**且未被勾选** |
 | `unsupported` / `accepted-risk` | — | 非高危面出声；高危面**拦** |
 
 **两件事不得混为一谈**：`dangling-rebuttal-ref` 是**形状**判据（引用悬空在任何面都拦，因为它意味着记录自相矛盾）；
 "`false-positive` 能不能当高危面 Critical 的**收口出口**"是另一条，按 design §3 的顺序在第 4 刀之前只出声。
 把两者写成一条，会让"引用合法但高危面不认这个出口"与"引用根本不存在"在读数里同形。
+
+**但悬空判据自己有一个必须先解决的前置**（第 1 轮评审 i1 命中，且它比评审说的形态更危险）：
+今天主干上**没有任何产物写过 `rebuttals[]`**（生产方是还在飞的 #4297）。若 `dangling-rebuttal-ref` 无条件生效，
+实现者只有两条路，**两条都是本 change 要消灭的形状**：
+
+- 照字面拦 ⇒ 每一个合法的 `false-positive` 都成悬空，**"评审发现问题时高危面没有出口"这条原病被复刻一遍**；
+- 为了让它不拦而写"没有 `rebuttals[]` 就跳过检查" ⇒ 这条判据**永久 no-op**，而日志读起来完全像"已核对且无悬空"
+  （装饰性门禁）。评审建议的"推迟到 #4297 固化后再开"其实只是第二条路换了个说法。
+
+正解是**再开一档，与 `resolution` 自身的三态同构**，三条都要有独立计数：
+
+| 现场 | 档 | 动作 |
+| --- | --- | --- |
+| 记录里 `rebuttals` 键整段缺席 | `rebuttal-face-absent` | **不拦、必须出声、计数进 `RESOLUTION-CENSUS`** |
+| `rebuttals` 存在，指纹没命中 | `dangling-rebuttal-ref` | 一律拦 |
+| `rebuttals` 存在且命中 | 已核 | 通过 |
+
+转前置条件 MUST 写在判据里而不是靠人记：**只有当 #4297 合并、且普查工具当场读到 ≥1 条带 `rebuttals[]` 的产物之后**，
+`dangling-rebuttal-ref` 才有资格从"不拦"变"拦"；`rebuttal-face-absent` 计数归零是这件事的现场证据
+（归零之前把它转拦，就是在用一条没有生产方的规则拦人。该前置条件同时写在 tasks 3.1。）
 
 **重跑不是免费的**（本仓既有约束的直接后果，不是新发明）：AGENTS 明文
 「接进 `changes` 作业的锁**只能 require node 内置模块**」，而该作业**不装依赖**——
@@ -65,6 +85,13 @@ MUST 进语料覆盖差分并被点名）。`deferred` MUST NOT 指向一条已�
 - **WHEN** `resolution.task.line` 在 `tasks.md` 里存在但那一行是 `[x]`
 - **THEN** MUST 拦并说明"deferred 的语义是本刀不做，已勾选表示已做，两者互斥"
 
+#### Scenario: 生产方还没出现时不得把合法引用判成悬空
+
+- **WHEN** 一条 `false-positive` 带着 `rebuttalRef`，而该记录的 `rebuttals` 键整段不存在（#4297 尚未合并的现场态）
+- **THEN** MUST 落 `rebuttal-face-absent` 档：不拦、出声、计数进 `RESOLUTION-CENSUS`
+- **AND** MUST NOT 落 `dangling-rebuttal-ref`（那会把"出口为空"这个本 change 要修的病复刻一遍）
+- **AND** MUST NOT 因为"没东西可查"而静默跳过整条判据（那读起来完全像"已核对且无悬空"）
+
 ### Requirement: 判据回归语料必须只可追加，且新判据的命中集必须是旧判据命中集的超集
 
 系统 SHALL 维护 `scripts/qm6-judgment-corpus.jsonl`：每条是一个**真实历史案例**的输入面
@@ -73,18 +100,42 @@ MUST 进语料覆盖差分并被点名）。`deferred` MUST NOT 指向一条已�
 判据 `scripts/check-qm6-judgment-regression.js` MUST 对每条语料把**两版实现各真跑一遍**
 （旧版从 PR base 的 blob 读源码注入执行；新版取当前工作树），并要求 `hits_new ⊇ hits_old`。
 
-四条不可破：
+七条不可破（第 1–4 条为初稿，第 5 条由第 1 轮外部评审 i3 补，第 6 条由 i5 补，第 7 条由 i4 补）：
 
 1. **存输入面，不存结论**。比对靠重放，不靠快照相等——否则任何文案改动都全量红，
    那条锁会在两周内被放宽（本仓对"快照型判据"的失败形态有先例）。
 2. **命中集由判据自己产出**，MUST NOT 由重放器从散文 `reasons` 里猜。判据侧今天只返回
    `{reasons: string[]}`，因此 MUST 新增**并行**的结构化出口 `hits: string[]`，
    其取值为一个**封闭常量登记表**（`QJ_RULES`，导出）里的规则 id；`reasons` 文案 MUST NOT 因此改动。
+   `hits` MUST 与 `reasons` **无派生关系**——在每条规则触发的同一处 `push`，
+   MUST NOT 事后从 `reasons` 文本反推（反推就是把"文案漂移"接进判据，第 1 轮评审 i2 担心的正是这个落点）。
    决策层已有结构化命中面（`stats` 的 `sensitivePathHits` / `plannedPathHits` 与 `mode`），MUST 直接复用，
    MUST NOT 另造一份。
 3. **收紧永远放行**：`hits_new ⊃ hits_old` 不红。只有"旧命中、新不命中"才是变宽。
 4. **读不到按未证实，不得读成没有变宽**：某条语料的产物或 blob 取不到 ⇒ 计入 `unverified` 并在读数行点名；
    `registered=0` 或 `corpus-cases=0` ⇒ 退出码 MUST 落"判据自身故障"档（2），MUST NOT 落 0。
+5. **`hits_old` 与 `coverage` 都不可被就地改写**（i3：只可追加在"整条重写并同步改小期望值"面前是纯约定）。
+   判据 MUST 把每次运行的 `(corpusSha256, registered, corpus-cases, 各维度覆盖数合计)` 追加进
+   `openspec/changes/<change>/judgment-replay-runs.json`，并在本次运行里与**上一条运行账**对账：
+   本次读到的语料哈希与上一条记录不一致、或覆盖合计低于上一条 ⇒ 红并点名两次的哈希。
+   **只读当前文件、不和上一账比**，等于把"改语料"这件事完全交给自觉。
+6. **录制侧必须先自证能重放，不得录进注定 `unverified` 的条目**（i5）。
+   一条 blob 取不到的语料会**永久**落未证实档，而它照样把 `corpus-cases` 分母抬高——
+   于是"扫到 N 条语料"这句读数从此含死条目，而下一条判据把它当覆盖。硬约束三条：
+   ① 录制脚本 MUST 在写入前对每条案例跑 `git cat-file -e <base blob>`，
+   ② 不可读 ⇒ **拒绝录入**并以非零码收场、逐条点名 PR 号（不得静默跳过——跳过和"没有可录的"必须可区分），
+   ③ 每次录制打印 `RECORD-ATTEMPTED=<n> REJECTED-UNREPLAYABLE=<n> WRITTEN=<n>`，
+      且 `WRITTEN=0` 而 `RECORD-ATTEMPTED>0` ⇒ 非零退出。
+7. **选择集读数必须常态打印**（i4 的成立那一半：成本随语料规模走，而选择集依赖命中读数）。
+   判据每次运行 MUST 无条件打印 `REPLAY-SCOPE full|selected=<n> hit-dimensions=<逗号清单>`，
+   而不是只在降级时打 `DEGRADED(...)`。理由：只在降级时打印，等于"平时没人知道自己跑的是哪一档"，
+   而下一次会话会把选择集误当成全量来引用覆盖率结论（本仓「局部绿不等于整体绿」同型）。
+
+#### Scenario: 就地改写语料期望值必须被运行账抓到
+
+- **WHEN** 有人不把 `hits_old` 里的某个 id 删掉，而是同时把 `coverage` 与条数改小，使超集判据平凡成立
+- **THEN** `corpusSha256` 与上一条运行账不符 ⇒ MUST 红并打印两个哈希
+- **AND** 若该文件的 git 历史里这一行是本次改动集带来的，MUST 在红文案里直接点名"语料期望值被同一次改动重写"
 
 #### Scenario: 改窄守门面前缀必须当场红并点名一条真实案例
 
@@ -126,6 +177,29 @@ MUST 进语料覆盖差分并被点名）。`deferred` MUST NOT 指向一条已�
 - **WHEN** 新增一个守门维度但没有任何语料行使过它
 - **THEN** MUST 红并说明该维度需要至少一条真实案例，MUST NOT 允许把它记成"已登记"
 
+### Requirement: 探测器自身的可审计痕迹必须是一个维度，且明文声明它不参与放行
+
+D3 的判据本体 `scripts/check-qm6-judgment-regression.js` 落在 `scripts/check-` 高危面上，因此它守别人、
+守不了自己——这条自指**不假装已闭合**。系统 SHALL 把它做成语料覆盖面的一个具名维度 `probe:self-test`，
+并规定：
+
+1. 该维度 MUST 有 **≥ 2 条**真实案例，且两条形态缺一不可：一条**能触发变宽检出**
+   （历史上确有"旧命中、新不命中"的那次），一条**在合规改动上正确地不报错**（防把探针改成恒红也算"有痕迹"）。
+   一条下限写 1 是不够的：单条形态对"探针只在一种输入下工作"完全失明。
+2. 该维度 MUST NOT 参与任何放行判据（它答的是"这台探测器被重放过"，不是"改动是对的"）。
+   红文案与 spec 都必须把这句写出来——**不写，下一个会话就会把它当收口资格用**。
+3. 该维度计数下降 MUST 红，与普通维度同判据（否则"痕迹"本身可以被静默删掉）。
+
+#### Scenario: 只留一条形态的自测维度必须被拒
+
+- **WHEN** `probe:self-test` 只覆盖到"能检出变宽"那一条，缺"合规改动不报错"那条
+- **THEN** MUST 红并点名缺哪条形态，MUST NOT 因"该维度计数 > 0"而放行
+
+#### Scenario: 不得把可审计痕迹读成收口资格
+
+- **WHEN** 某条高危面记录的收口判据试图以"probe:self-test 已覆盖"替代 `tier=external`
+- **THEN** MUST 拦，并打印该维度在合同里被明文排除于放行资格之外
+
 ### Requirement: 顺序锁——转拦必须依赖探测器已有可核读数
 
 第 1 刀在高危面上把 `unsupported` / `accepted-risk` 由"出声"改为"拦"的那段逻辑，MUST 读取
@@ -136,10 +210,37 @@ MUST NOT 因"读数缺失"而**同时**丢掉出声（那等于顺序锁与探�
 落点选该路径而非 `.ccg/` 或 `scripts/` 的理由是实测约束：pre-commit 暂存判定记录用的 glob 是
 `:(glob).ccg/reviews/*.json`，其中 `*` 不跨 `/` ⇒ 放子目录的账不随 PR 入库，会变成"只有本机知道"的第二份事实。
 
+**这个账的形状由 spec 持有**（第 1 轮评审 i7：文件名定了、内容结构没定，而顺序锁读的正是内容）。
+最小字段闭集，缺任一 ⇒ 按未证实处理：
+
+```
+schemaVersion: 1          // 换代只由人改这个数；读不到已知版本一律未证实
+runs: [{
+  at:            "<ISO>",
+  headSha:       "<本次被重放的提交>",
+  corpusSha256:  "<语料文件内容摘要>",
+  registered:    <QJ_RULES 条数>,
+  corpusCases:   <语料条数>,
+  unverified:    <blob 或产物取不到的条数>,
+  scope:         "full" | "selected",
+  hitDimensions: ["<与 REPLAY-SCOPE 行同源展开>"],
+  coverageTotals: { "<维度键>": <合计> }   // 键 MUST NOT 是记录名
+}]
+```
+
+三条约束：`runs` **只可追加**（与语料同判据，就地改写由 `corpusSha256` / `coverageTotals` 对账暴露）；
+`schemaVersion` 不认识 ⇒ 未证实，**MUST NOT 按 v1 的字段布局猜读**；语料与本文件的摘要都进账，
+否则"上一账"自己可以无痕替换——那等于给防改宽的探测器留了一个没守卫的后门。
+
 #### Scenario: 探测器没跑过时不得静默降级
 
 - **WHEN** `judgment-replay-runs.json` 不存在
 - **THEN** MUST 打印 `probe-unverified` 并保持出声档；MUST NOT 打印"已转拦"或"无需拦截"
+
+#### Scenario: 账本版本不认识时不得按上一版猜
+
+- **WHEN** 该文件的 `schemaVersion` 是判据不认识的数
+- **THEN** MUST 落 `probe-unverified` 并维持出声档，MUST NOT 用已知版本去解析未知结构
 
 ### Requirement: 本 change 不改变"谁算高危面"，也不改闭环闭集
 
