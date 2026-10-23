@@ -486,3 +486,30 @@ PUT  https://finderassistancea.video.qq.com/applyuploaddfs -> 404（无鉴权请
 
 当 `responses=0` 且无作品 ID 时，提示语应为：
 「发布未提交成功，请重试或改用网页端发布」，而不是笼统的「缺少作品 ID」。
+
+## 8.19 逆向文档与 bundle 实证的三处冲突（2026-10-23 20:30）
+
+对《视频号发布链深挖-浏览器上传器》逐条与 `refproduct/main-dist-index.cjs` 原文核对，发现三处必须以代码为准：
+
+| # | 文档写法 | bundle 原文 | 采信与理由 |
+| --- | --- | --- | --- |
+| 1 | ⑤ `completepartuploaddfs` = **PUT** | `W = .../completepartuploaddfs?UploadID=${enc}`；`yield $http$1.post(W, K, {...})` | **POST**。文档表格把方法写错，代码是可执行证据 |
+| 2 | ⑦ 发布提交 = **`finderNewLifeCreate`**（当作端点） | `platformNames.ShiPinHao → "https://channels.weixin.qq.com/platform/post/finderNewLifeCreate"`，是**页面 URL**；真正的提交是 `post_${pubType==1?'create':'draft'}` | **`post_create` / `post_draft`**；`finderNewLifeCreate` 只是发布页地址 |
+| 3 | ⑥ `post_clip_video` 只是"新增一跳" | 有完整 body：`url / timeStart / cropDuration / width / height / x / y / clipOriginVideoInfo{width,height,duration,fileSize} / traceInfo{traceKey,uploadCdnStart,uploadCdnEnd} / targetWidth / targetHeight / type:4 / timestamp / _log_finder_uin / _log_finder_id / rawKeyBuff / pluginSessionId / scene:7 / reqScene:7`，header `referer: .../platform/post/create` | **body 可直接实现**；我方当前链**缺此步** |
+
+### 判据纪律
+
+1. **逆向文档是二手材料，bundle 是一手证据**——两者冲突时以能跑的代码为准；
+2. 方法名（GET/POST/PUT）必须回原文核对 `$http.*` 调用，不能只看文档表格；
+3. 凡是"端点"结论，要区分 **HTTP 端点** 与 **页面 URL**（后者不能当接口调用）。
+
+### 对实现的直接影响
+
+- 已按 (1) 把 `completepartuploaddfs` 回退为 POST（`b0e4d413d`）；
+- (2) 说明我方 `post_create` 的选择是对的，无需改动；
+- (3) 是**真实缺口**：上传完成后、发布之前应调用 `post_clip_video`，否则平台可能认为视频未完成处理。
+
+### 仍未闭合
+
+- `post_clip_video` 的 `url` 取自 `completepartuploaddfs` 返回体的哪个字段（候选：`DownloadURL` / `VideoUrl`）——需真机响应确认；
+- ⑦ 的 `videoCover/title/description/isOriginal/locationKeyword` 归属为 **INFERRED**，未在原文中逐个定位到 `post_create` 的 body 构造处。
