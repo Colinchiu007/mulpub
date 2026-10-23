@@ -184,14 +184,21 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
 
 | 门禁 | 命令 | 读数 | rc |
 |---|---|---|---|
-| locale 键存在 | `node .github/scripts/check-locale-sync.js --keys` | `key existence check PASS（2210 个使用中的 key 均存在于 zh/en）` | 0 |
-| 渲染端硬编码中文 | `node .github/scripts/check-locale-sync.js --cjk` | `CJK scan PASS（基线 1330 条，当前 1124 条，无新增硬编码）` | 0 |
-| 逐文件行数 | `node .github/scripts/check-max-lines.js` | `无新增超大文件，挂账清单与现实一致`（limit=500 / growthAllowance=200 / 超限文件=95 / 挂账=95 / 测试超限=13 / 测试挂账=12） | 0 |
-| 接线棘轮 | `node scripts/check-unwired-tests.js` | `检查域内测试文件 114 个 / OK: 全部测试均已接线或按欠账登记` | 0 |
-| 执行记录 | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` | `OK: PR 携带执行记录或带原因的豁免`；`TIER-COVERAGE dual-closed total=3 … self-play=1 … unknown(字段缺席)=2 … unrecognized=0` | 0 |
+| locale 键存在 | `node .github/scripts/check-locale-sync.js --keys` | `key existence check PASS（2249 个使用中的 key 均存在于 zh/en）` | 0 |
+| 渲染端硬编码中文 | `node .github/scripts/check-locale-sync.js --cjk` | `CJK scan PASS（基线 1330 条，当前 1125 条，无新增硬编码）` | 0 |
+| 逐文件行数 | `node .github/scripts/check-max-lines.js` | `无新增超大文件，挂账清单与现实一致`（limit=500 / growthAllowance=200 / 超限文件=94 / 挂账=94 / 测试超限=13 / 测试挂账=12） | 0 |
+| 接线棘轮 | `node scripts/check-unwired-tests.js` | `检查域内测试文件 128 个 / OK: 全部测试均已接线或按欠账登记` | 0 |
+| 执行记录 | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` | `OK: PR 携带执行记录或带原因的豁免`；`TIER-COVERAGE dual-closed total=4 external=1 external-unverified=0 self-play=1 none=0 unknown(字段缺席)=2 unrecognized=0` | 0 |
 | 记录债 | `node scripts/check-gate-record-debt.js --base-ref=origin/main --head-ref=HEAD` | `OK: 两源所有未收口的远程同步行均已登记，清单无陈旧项、记录标题无重复、记录文件登记字段无残留、旧载体与冻结基线一致` | 0 |
+| 文档绝对路径 | `node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD --simulate-no-drives` | `PASS（改动集 origin/main..HEAD（改动 34 个 + 基线并入，扫描 592 个文件），无新增本机绝对路径）`；`本机无盘符 ⇒ 存在性核对未执行（计数判定照常执行）` —— **用 `--simulate-no-drives` 复现 CI（ubuntu、无盘符）那一档**，否则本机默认档永远测不到它 | 0 |
 | ESLint | `npx eslint <改动文件> --quiet` | 无输出 | 0 |
 | 渲染层构建 | `npx vite build` | `built in 24.11s`；产物中实测命中被拆走的「快捷采集」（1 个 chunk）与新增的「视频创作」（2 个 chunk） | 0 |
+
+> **上表是本分支最终 HEAD（`0fe5c6cdf`）的实测读数**（2026-10-23 重跑）。
+> 上一版读数（2210 key / 1124 CJK / 114 测试域 / dual-closed=3）对应**并入主干之前**的 HEAD ——
+> 主干前进会带着 key 数、挂账数一起动，所以**这类读数必须标明跑在哪个 HEAD 上**，否则无法复算。
+> 采集页相关测试全集（6 个文件 / **58 例**）在最终 HEAD 上另跑一遍：`6 passed / 58 passed`。
+
 
 **locale 拆分后的各文件行数**（逐文件门禁 500 行硬限的对照值）：
 `locales/collection/zh.js` = **442**、`locales/collection/en.js` = **441**、
