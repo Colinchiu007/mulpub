@@ -290,6 +290,12 @@ export default {
       publisherLabel: '运营人',
       notSet: '未设置',
       noData: '暂无数据',
+      // 账号资料（昵称/头像/粉丝）缺失时的提示（2026-10-22）：
+      // 用户看到灰色通用头像时无法判断「平台没设头像」还是「我们没取到」，
+      // 故明确告知「可点验证重新获取」，并把按钮名写进文案（与卡片上的按钮逐字一致）。
+      avatarMissing: '未获取到账号头像',
+      avatarMissingHint: '未获取到账号头像，点「验证」可重新获取账号资料',
+      followersMissingHint: '未获取到粉丝数，点「验证」可重新获取账号资料',
       unnamedAccount: '未命名账号',
       statusLoggedIn: '已登录',
       statusExpired: '已失效',
