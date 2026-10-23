@@ -37,6 +37,57 @@
 出处：`01-analysis/两边竞品风控方式对照.md` L170
 
 - 竞品视频号链：本地 `createSign("SHA256")`（私信链）+ `QiehaoSm3` 文件哈希（上传校验）。
+> ✅ **2026-10-23 更正（撤销此前的错误结论）**：上表主机**有效**。
+>
+> 此前曾据一次直连探测判定「三个主机全 404 / 已失效」，**该结论作废**：那次探测**未携带**
+> `Authorization`（Step-1 下发的 authKey）与 `X-Arguments` 头，服务器返回 404 / `Parse Error` 属**探测方法无效**。
+>
+> **反证（竞品代码原文）**：`00-vendor-originals/refproduct/main-dist-index.cjs`：
+> ```js
+> $http.put("https://finderassistancea.video.qq.com/applyuploaddfs", K, { headers: W })
+> // W["X-Arguments"] = apptype=251&filetype=…&weixinnum=…&filekey=…&filesize=…&taskid=…&scene=2
+> ```
+> 其 `X-Arguments` 与本项目 `buildXArguments` 逐字一致 ⇒ 主机与鉴权头配套使用即可。
+>
+> 落地：PR #4309（`tv-host-final`）把 apply/complete 指回 `finderassistancea`、part 指向 `finderassistanced`。
+>
+> **方法论**：探测受鉴权保护的接口时，缺头返回的 404 **不能**用来证明端点不存在。 目的：把 `D:\Data\reverse-two-competitors` 里**可直接落地**的结论抽成一张表，避免再次出现「凭我们自己的代码猜方向」。
+> 每条都注明出处文件与行号，便于复核。
+
+## 1. 平台发布档（决定走 API 还是 DOM/RPA）
+
+出处：`01-analysis/derived/平台能力矩阵.md` L34–44
+
+| 平台 | key | 竞品发布档 | 本项目当前 | 结论 |
+| --- | --- | --- | --- | --- |
+| 抖音 | `douyin` | **API** | RPA/DOM（已达成） | 结果达成，档位不同 |
+| 小红书 | `xiaohongshu` | DOM/RPA | RPA（草稿箱已达成） | 一致 |
+| **视频号** | `tencent_video` | **API** | API（失败在传输层）→ 回退 RPA | **应修 API 轨** |
+| **今日头条** | `toutiao` | **DOM/RPA** | RPA（失败在提交） | **不应切 API** |
+| 快手 | `kuaishou` | API | — | — |
+| 哔哩哔哩 | `bilibili` | API | — | — |
+| 百家号 | `baijiahao` | API | — | — |
+| 微信公众号 / 知乎 / 微博 | — | DOM/RPA | — | — |
+
+**推论**：视频号的问题必须用 API 轨解决；把头条视频导向 API 是方向错误（平台自己也回 `竖版视频暂不支持 API 发布`）。
+
+## 2. 视频号三段式上传：三步主机不同
+
+出处：`01-analysis/融媒宝-完整拆解.md` §5.8 对照表
+
+| 步骤 | 竞品原生层主机 |
+| --- | --- |
+| `applyuploaddfs` | `finderassistancea.video.qq.com` |
+| `uploadpartdfs` | **`finderassistanced.video.qq.com`** |
+| `completepartuploaddfs` | `finderassistancea.video.qq.com` |
+
+**本项目改前**：三步共用一个 `baseURL` ⇒ 与实证不符。已按此改为分步主机（PR #4299）。
+
+## 3. 视频号签名：纯本地，不走第三方签名
+
+出处：`01-analysis/两边竞品风控方式对照.md` L170
+
+- 竞品视频号链：本地 `createSign("SHA256")`（私信链）+ `QiehaoSm3` 文件哈希（上传校验）。
 > ⛔ **2026-10-23 实测更正（务必先读）**：上表三个主机**已失效**。直连探测结果：
 > `PUT finderassistancea/applyuploaddfs` → **404**、`PUT finderassistanced/uploadpartdfs` → **404**、
 > `POST finderassistancea/completepartuploaddfs` → **404**；而 `finder.video.qq.com` → `Parse Error: Expected HTTP/`。
