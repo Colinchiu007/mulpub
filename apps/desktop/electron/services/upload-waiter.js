@@ -308,6 +308,28 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       // attach 会抛「Another debugger is already attached」，此前它写在外面导致整轮静默。
       if (!dbg.isAttached()) { dbg.attach('1.3'); attachedHere = true }
       await dbg.sendCommand('Page.enable')
+      // deep-input：在 pierce 后的节点树里找 input[type=file]（含 shadow root），直接 setFileInputFiles。
+      try {
+        const deepDoc = await dbg.sendCommand('DOM.getDocument', { depth: -1, pierce: true })
+        let _inputNodeId = 0
+        const walkDeep = (n) => {
+          if (!n || _inputNodeId) return
+          if (n.nodeName === 'INPUT') {
+            const a = n.attributes || []
+            for (let i = 0; i < a.length; i += 2) { if (a[i] === 'type' && String(a[i+1]).toLowerCase() === 'file') { _inputNodeId = n.nodeId; return } }
+          }
+          const kids = [].concat(n.children || [], n.shadowRoots || [])
+          for (const k of kids) walkDeep(k)
+        }
+        walkDeep(deepDoc.root)
+        if (_inputNodeId) {
+          await dbg.sendCommand('DOM.setFileInputFiles', { files: [require('path').resolve(filePath)], nodeId: _inputNodeId })
+          log.info('RpaView', 'cdp-drop: deep-input setFileInputFiles ok nodeId=' + _inputNodeId)
+          try { dbg.detach() } catch (_eD) {}
+          return true
+        }
+        log.info('RpaView', 'cdp-drop: deep-input found no file input')
+      } catch (eD) { log.warn('RpaView', 'cdp-drop: deep-input failed ' + (eD && eD.message ? eD.message.slice(0,80) : '')) }
       // shadow-scan：上传区不在普通 DOM（主帧只出页头、编辑器 iframe 恒空），改递归穿透 shadowRoot。
       try {
         const sv = await win.webContents.executeJavaScript("(function(){var out={found:false};var seen=0;function walk(root,depth){if(!root||depth>8||seen>4000)return null;var els;try{els=root.querySelectorAll('*')}catch(e){return null}for(var i=0;i<els.length;i++){var e=els[i];seen++;var t='';try{t=e.innerText||''}catch(e2){}if(t&&(t.indexOf('上传时长')>=0||t.indexOf('添加视频')>=0||t.indexOf('点击上传')>=0)){return e}var cn='';try{cn=String(e.className||'')}catch(e3){}if(cn&&(cn.indexOf('upload')>=0||cn.indexOf('dragger')>=0||cn.indexOf('drop')>=0)){return e}if(e.shadowRoot){var r=walk(e.shadowRoot,depth+1);if(r)return r}}return null}var hit=walk(document,0);if(!hit)return out;hit.setAttribute('data-mp-drop','1');var r=hit.getBoundingClientRect();return {found:true,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),w:Math.round(r.width),h:Math.round(r.height),via:'shadow-scan'}})()", true)
