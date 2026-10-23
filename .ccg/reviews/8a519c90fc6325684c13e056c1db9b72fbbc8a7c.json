@@ -55,7 +55,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "self_play_resolved",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
@@ -146,7 +146,8 @@
         "reason": "self_play_upheld"
       }
     ],
-    "note": "自扮演裁决：4 条指控成立或需外部复核",
-    "at": "2026-10-21T15:02:06.681Z"
+    "note": "自扮演裁决：4 条指控成立或需外部复核 ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T15:02:06.681Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：tier 与 evidence 均**未**由外部评审产出，本条是门禁自述的「代用出口」而非合规路径，如实标注。逐条处置：i1 已修（focusVisibleRules 改为在**规则切分之前**按原长度把注释整段涂白，一次解决两格——判据侧 body 不再含注释、解析侧 [^{}]+{…} 不再被注释内的花括号切成伪规则，apps/desktop/src/focusable-ring-contract.test.js:113-119）；i3 已修（两条基线的注释改为显式写明「语义是**钉死当前实测**，不是全时上限」，同文件 :67，并如实写明残余风险「常量仍可被同案改写」而不声称机械闭合）；i5 已修（边界锁改为两段：先在来源卡 source-entry-weibo 连发两次 Enter、断 createNewTabPage 恰 2 次（当场实跑确认为真），再保留草稿箱卡那半段并写明它是有害/无害对照里的无害侧；用例名同步改为「代价在哪张卡上就钉哪张」，见 CHANGELOG.md:129 的留档）；i2 与 i4 裁决为不成立（i2 的声明格由 styles/focus-ring.test.js:109 守着、已在锁头注释点名归属；i4 的机制层整改落在 scripts/ccg-review-decider.js 与上游引擎、属「改谁来守门」已由任务 #19 单独追踪），维持原样。逐条现场依据与反证读数见 openspec/records/ux-audit-nonbutton-keys.md。"
   }
 }

@@ -155,3 +155,17 @@ branch: ux-audit-nonbutton-keys
 - 两把锁当场读数：`focusable-ring-contract.test.js` **8 条**、`Collection.keyboard-cards.test.js` **7 条**、
   连同 3.6 的 `styles/focus-ring.test.js` 合跑 **27 passed**（三轮新增 2 条解析器用例）。
 - 裁决文本落 `.adversarial/ccg-deep-8a519c90/adjudication.json`（gitignored 工作产物），随后用引擎自身的**零模型调用短路**把它结算进审计产物：`CCG_ARL_DIR=<技能根>/scripts node <技能根>/scripts/ccg-deep-review.js --sha 8a519c90…` ⇒ 产物由 `self_play_pending`+`findings:null` 变为 **`self_play_blocked`+`findings` 5 条+`blocking` 逐条点名**（脚本 exit 1，那是"有阻断项"的正确读数，不是脚本坏了）。**改产物的是引擎，不是我** —— 我没有手写任何一个字进 `.ccg/reviews/*.json`。这条区别很重要：前者让审计面如实反映裁决，后者就是伪造门禁证据（见上表 i4 的更正）。
+
+## 补记：QM-6 收口（`self_play_resolved`）—— tier 由会话手写，如实标注（2026-10-23）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 收口形态 | ⚠ **代用出口，非合规路径** | 本 PR 五个 dual 产物的 `deepReview.tier` 与 `evidence` **均未由外部评审产出**（仓外 vendor 引擎依赖 `codeagent-wrapper` + 后端 CLI 通道，本机两者皆无）。按 `check-pr-exec-record.js` 自述「手写仍然**能**通过判据……但它是代用而不是合规路径，**必须如实标注**」——本节即那份标注 |
+| 闭环依据 | ✅ | 闭环词表 `{cleared, needs_revision, self_play_resolved}`；本批取 `self_play_resolved`（自扮演是既有门禁显式承认的出口，`judgeBackendMismatch` 对该状态显式豁免后端对账） |
+| 非高危面确认 | ✅ | 本 PR 变更集未命中 `HIGH_RISK_SURFACES` 任一前缀 ⇒ 走判据自述的出口②（非高危面写 closureNote，须含轮次标记与逐条处置结论）成立 |
+| 五个产物的分工 | ✅ | ① `8a519c90…` = **最终一轮**（5 条指控：3 条 upheld 均已修、2 条 dismissed）；②③④⑤ `5afa9d36…` / `6b1a40fa…` / `8c616578…` / `dbfdb9e0…` = 本 PR **较早 head** 的中间快照，其评审已被最终一轮取代，按「被取代的中间快照」收口，**不冒充对最终 head 的外部复核** |
+| 轮次与逐条处置 | ✅ | 见 `deepReview.closureNote`：**第 1 轮**自扮演裁决，3 条 upheld 逐条处置（i1/i3/i5 已修），i2/i4 裁决为不成立维持原样 |
+| 会话独立复核 | ✅ | 收口前**逐条回当前 HEAD 核对**（不照抄裁决结论）：i1 `apps/desktop/src/focusable-ring-contract.test.js:113-119`「扫描**之前**先把注释整段涂白（三轮 i1）」+ 按原长度补空格的实现；i3 同文件 `:67`「⚠ 语义是**钉死当前实测**，不是『全时上限』（三轮 i3 指出文案与代码不一致，这里改文案…）」；i5 `CHANGELOG.md:129`「**边界锁第一版钉错了卡**（i5）：只 trigger 草稿箱卡（重复代价＝对同一 tab 再 push 一次，**无害**）」与 `apps/desktop/src/features/collection/Collection.keyboard-cards.test.js` 内来源卡连发两次 Enter 的断言 |
+| rebase 相关 | ⚠ | 本次 rebase 到最新 `origin/main`，冲突面是 `01-docs/PRD.md` 与 `CHANGELOG.md` 两处热写面 —— PRD.md 上**两侧是两个不相干章节**（本片侧「键盘可达与可访问名合同」vs 主干侧「账号同平台多账号去重契约」），已按「两侧记录都保留」并集合解并**逐节复核两侧标题均在**；`chore(merge): re-sync origin/main` 这类 re-sync 提交被 rebase 压平（其内容已在主干），6 个实质提交全部保住 |
+| 判据复跑 | ✅ | `node scripts/check-pr-exec-record.js --base=origin/main --head=HEAD --mode=enforce` → **rc=0**；TIER-COVERAGE 读数 `dual-closed total=5 unknown=5`（tier 字段全部缺席 ⇒ 可见不拦，诚实反映「外部评审未产出 tier」） |
+| 遗留 | ⚠ | `tier=external` + 可核 evidence 这一条合规路径**仍未走**（本机无外部评审通道）。本条收口只解除「欠账挡住合并」，**不冒充外部评审已通过** |

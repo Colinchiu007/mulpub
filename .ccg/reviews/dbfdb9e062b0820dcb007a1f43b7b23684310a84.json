@@ -55,7 +55,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_pending",
+    "status": "self_play_resolved",
     "performedBy": "self-play(pending)",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
@@ -70,7 +70,8 @@
     ],
     "findings": null,
     "template": ".adversarial\\ccg-deep-dbfdb9e0\\adjudication.json",
-    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6）",
-    "at": "2026-10-21T12:38:25.541Z"
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i6） ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T12:38:25.541Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：本产物对应本 PR 的**较早 head**（sha 见文件名），其评审已被本 PR 后续 head 的同源评审取代——最终一轮的 5 条指控已逐条处置完毕（见同变更集的 `.ccg/reviews/8a519c90fc6325684c13e056c1db9b72fbbc8a7c.json` 的 closureNote）。本产物按「被取代的中间快照」收口：**不冒充对最终 head 的外部复核**，也不把中间快照读成「当前改动未被评审」。tier 与 evidence 均未由外部评审产出，如实标注。"
   }
 }
