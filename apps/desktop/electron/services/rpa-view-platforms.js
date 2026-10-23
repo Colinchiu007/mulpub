@@ -935,7 +935,7 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
     // 2026-10-23：视频号判据导航不生效（url 仍停在 post/create）⇒ 改用网络响应取证。
     try {
       const rs0 = Array.isArray(requests) ? requests : []
-      const brief = rs0.slice(-8).map((r) => String((r && r.url) || '').slice(0, 90) + ' [' + String((r && r.status) || '?') + ']')
+      const brief = rs0.slice(-8).map((r) => String((r && (r.endpoint || r.url)) || '').slice(0, 90) + ' [' + String((r && r.status) || '?') + ']')
       log.warn('RpaView', '[' + platform + '] publish captured responses n=' + rs0.length + ' :: ' + brief.join(' | '))
     } catch (_e) { /* 取证失败不阻塞 */ }
     log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
