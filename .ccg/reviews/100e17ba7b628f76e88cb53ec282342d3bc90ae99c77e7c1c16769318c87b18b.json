@@ -61,14 +61,6 @@
       "harness": "D:\\Temp\\mutate-observe.cjs（一次性脚本，不入仓；其锚点与本记录同源：登录网络监测模块）",
       "command": "node mutate-observe.cjs <worktree> apps/desktop/electron/services/login-network-monitor.js electron/services/login-network-diagnostics.test.js",
       "rawOutput": [
-        "CAUGHT   M1 监测域去掉 yhgfb-cn-static.com（该域请求进不了过滤面 ⇒ 观测全盲）",
-        "CAUGHT   M2 监测域去掉 bytetos.com（风控 glue 域观测全盲）",
-        "CAUGHT   M3 组合锚点去掉 /captcha/ 段（sec_sdk_build 目录下任意资源都算验证码组件 ⇒ 读数失真）",
-        "CAUGHT   M4 组合锚点去掉 /sec_sdk_build/ 段（任何带 captcha 段的资源都算 ⇒ 噪声淹没真信号）",
-        "CAUGHT   M5 监测域匹配恒 false（头条号观测面整体失效）",
-        "CAUGHT   M6 真实验证码入口锚点整体失效（退回只认老的两个单段锚点）",
-        "CAUGHT   M7 具名组合谓词恒 false（真实验证码入口不再被识别）",
-        "CAUGHT   M8 具名组合谓词恒 true（任何路径都算验证码组件 ⇒ 噪声淹没真信号）",
         "----",
         "CAUGHT           M1 监测域去掉 yhgfb-cn-static.com（该域请求进不了过滤面 ⇒ 观测全盲）",
         "CAUGHT           M2 监测域去掉 bytetos.com（风控 glue 域观测全盲）",
@@ -80,20 +72,27 @@
         "CAUGHT           M8 具名组合谓词恒 true（任何路径都算验证码组件 ⇒ 噪声淹没真信号）",
         "----",
         "source-file: login-network-monitor.js",
+        "test-file  : login-network-diagnostics.test.js",
         "restore md5 MATCH",
-        "md5-before: 3a418b534dc8e7a1187b5568e760d6ad",
-        "md5-after : 3a418b534dc8e7a1187b5568e760d6ad",
+        "md5-before: c38105fe08803d6b38452750cdd4bced",
+        "md5-after : c38105fe08803d6b38452750cdd4bced",
         "md5-equal : true",
+        "test-md5-before: 754b09ac7484163f6fde1f677a3e9639",
+        "test-md5-after : 754b09ac7484163f6fde1f677a3e9639",
+        "test-md5-equal : true",
         "mutations : 8  caught: 8  escaped: 0",
         "ALL CAUGHT"
       ],
-      "md5Before": "3a418b534dc8e7a1187b5568e760d6ad",
-      "md5After": "3a418b534dc8e7a1187b5568e760d6ad",
+      "md5Before": "c38105fe08803d6b38452750cdd4bced",
+      "md5After": "c38105fe08803d6b38452750cdd4bced",
       "md5Equal": true,
       "mutationsTotal": 8,
       "caught": 8,
       "escaped": 0,
-      "firstRoundEscapeAndFix": "M4 首轮 ESCAPED 暴露的是**用例弱点**（负例 URL 里没有真正的 `/captcha/` 段），不是实现弱点；补强该负例后 M4 ⇒ CAUGHT，并新增 M7（具名谓词恒 false）/M8（具名谓词恒 true）覆盖本轮提取的具名谓词。"
+      "firstRoundEscapeAndFix": "M4 首轮 ESCAPED 暴露的是**用例弱点**（负例 URL 里没有真正的 `/captcha/` 段），不是实现弱点；补强该负例后 M4 ⇒ CAUGHT，并新增 M7（具名谓词恒 false）/M8（具名谓词恒 true）覆盖本轮提取的具名谓词。",
+      "testFileMd5Before": "754b09ac7484163f6fde1f677a3e9639",
+      "testFileMd5After": "754b09ac7484163f6fde1f677a3e9639",
+      "testFileMd5Equal": true
     }
   }
 }

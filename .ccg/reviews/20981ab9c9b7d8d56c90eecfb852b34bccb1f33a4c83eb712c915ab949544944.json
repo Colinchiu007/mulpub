@@ -48,10 +48,78 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "domains": [
+          "auth",
+          "crypto"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-632ff9ec\\adjudication.json",
+    "note": "裁决尚未填写：6/6 条未定（i1, i2, i3, i4, i5, i8）",
+    "at": "2026-10-23T03:39:10.537Z",
+    "mutationEvidence": {
+      "note": "变异反证的**原始输出**与 md5 逐一比对（外部评审第二轮 i2：证据应进 .ccg/reviews，而不是只留叙述）。harness 逐条把实现改坏 → 断言对应用例必须变红 → 跑后把源文件还原并比对 md5。输出已去重（第三轮 i8：此前同一批结果打印了两遍，格式混乱）。",
+      "harness": "一次性脚本，不入仓；锚点与被测实现同源（登录网络监测模块 / 登录网络诊断模块）",
+      "rawOutput": [
+        "----",
+        "CAUGHT           M1 监测域去掉 yhgfb-cn-static.com（该域请求进不了过滤面 ⇒ 观测全盲）",
+        "CAUGHT           M2 监测域去掉 bytetos.com（风控 glue 域观测全盲）",
+        "CAUGHT           M3 组合锚点去掉 /captcha/ 段（sec_sdk_build 目录下任意资源都算验证码组件 ⇒ 读数失真）",
+        "CAUGHT           M4 组合锚点去掉 /sec_sdk_build/ 段（任何带 captcha 段的资源都算 ⇒ 噪声淹没真信号）",
+        "CAUGHT           M5 监测域匹配恒 false（头条号观测面整体失效）",
+        "CAUGHT           M6 真实验证码入口锚点整体失效（退回只认老的两个单段锚点）",
+        "CAUGHT           M7 具名组合谓词恒 false（真实验证码入口不再被识别）",
+        "CAUGHT           M8 具名组合谓词恒 true（任何路径都算验证码组件 ⇒ 噪声淹没真信号）",
+        "----",
+        "source-file: login-network-monitor.js",
+        "test-file  : login-network-diagnostics.test.js",
+        "restore md5 MATCH",
+        "md5-before: c38105fe08803d6b38452750cdd4bced",
+        "md5-after : c38105fe08803d6b38452750cdd4bced",
+        "md5-equal : true",
+        "test-md5-before: 754b09ac7484163f6fde1f677a3e9639",
+        "test-md5-after : 754b09ac7484163f6fde1f677a3e9639",
+        "test-md5-equal : true",
+        "mutations : 8  caught: 8  escaped: 0",
+        "ALL CAUGHT",
+        "----",
+        "CAUGHT           M9a 删掉读体闸门那一行（边界退化成纯注释）",
+        "CAUGHT           M9b 闸门改成永真（读体闸门形同虚设）",
+        "CAUGHT           M9c 闸门放到读体调用之后（顺序倒置 ⇒ 计时层也能读体）",
+        "----",
+        "source-file: login-network-diagnostics.js",
+        "md5-before: 2e6eb82f4f9ccd20b29243e48223446d",
+        "md5-after : 2e6eb82f4f9ccd20b29243e48223446d",
+        "md5-equal : true",
+        "ALL CAUGHT"
+      ],
+      "md5Before": "c38105fe08803d6b38452750cdd4bced",
+      "md5After": "c38105fe08803d6b38452750cdd4bced",
+      "md5Equal": true,
+      "testFileMd5Before": "754b09ac7484163f6fde1f677a3e9639",
+      "testFileMd5After": "754b09ac7484163f6fde1f677a3e9639",
+      "testFileMd5Equal": true,
+      "mutationsTotal": 11,
+      "caught": 11,
+      "escaped": 0,
+      "scope": "M1~M8 变异对象 = 实现文件 `login-network-monitor.js`；M9a/M9b/M9c 变异对象 = `login-network-diagnostics.js` 的**读体闸门那一行**（删掉 / 改成永真 / 挪到读体调用之后）。第三轮 i8 指「md5 比对仅覆盖单文件」：现**两个被变异文件各自**比对 md5，并额外比对**测试文件**的 md5（跑前跑后相等 ⇒ harness 全程没动过它）。",
+      "firstRoundEscapeAndFix": "M4 首轮 ESCAPED 暴露的是**用例弱点**（负例 URL 里没有真正的 `/captcha/` 段），不是实现弱点；补强该负例后 M4 ⇒ CAUGHT，并新增 M7（具名谓词恒 false）/M8（具名谓词恒 true）覆盖本轮提取的具名谓词。",
+      "gateMutations": "M9a/M9b/M9c 全部 CAUGHT ⇒ 外部评审第三轮 i1「边界只写在注释、删掉就没有运行时保障」已由**源码级契约锁**钉住（闸门代码必须存在、必须由 OBSERVATION_GUARD 驱动、且必须排在读体调用之前）。"
+    }
   }
 }

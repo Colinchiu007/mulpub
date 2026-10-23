@@ -799,6 +799,48 @@ describe('login-network-diagnostics — 头条号登录期观测', () => {
     expect(monitor.isCombinedCaptchaAnchor('')).toBe(false)
   })
 
+  // ── 2026-10-22 CCG 外部评审第三轮 i1：边界写在注释里不算门禁 ──
+  it('观测层的四条边界必须以可执行清单存在，且读体闸门由清单驱动并排在读体调用之前', () => {
+    const monitor = require('./login-network-monitor')
+    const g = monitor.OBSERVATION_GUARD
+    expect(g.readOnly).toBe(true)
+    expect(g.noOutbound).toBe(true)
+    expect(g.noInterception).toBe(true)
+    expect(g.noCredentialLogging).toBe(true)
+    // 头条号**不得**在读体平台清单里（计时层平台永不读响应体）
+    expect(g.readsResponseBodyPlatforms).not.toContain('toutiao')
+
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const src = fs.readFileSync(path.join(__dirname, 'login-network-diagnostics.js'), 'utf8')
+    // 锚点用**代码形态**（带 `monitor.` 前缀），不能用注释里也出现的那串字面量 ——
+    // 否则「把闸门代码删掉、只留注释」也会被判成闸门还在。
+    const guardIdx = src.indexOf('monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms.indexOf')
+    // 读体的实际 CDP 调用锚点用带引号的命令名（注释里出现的是裸名，不会误命中）
+    const readIdx = src.indexOf("'Network.getResponseBody'")
+    expect(guardIdx).toBeGreaterThan(-1) // 闸门代码必须存在
+    expect(readIdx).toBeGreaterThan(guardIdx) // 且必须排在读体调用之前
+  })
+
+  it('监测域的来源证据必须在仓内（域清单不是拍脑袋来的）', () => {
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const p = path.join(
+      __dirname, '..', '..', '..', '..',
+      'openspec', 'changes', 'login-observe-domain-coverage', 'evidence', 'login-page-host-snapshot.txt'
+    )
+    expect(fs.existsSync(p)).toBe(true)
+    const txt = fs.readFileSync(p, 'utf8')
+    // 本刀新增的两条必须能在证据里找到实例
+    expect(txt).toContain('yhgfb-cn-static.com')
+    expect(txt).toContain('bytetos.com')
+    // 真实生效的验证码入口形态必须在证据里
+    expect(txt).toContain('sec_sdk_build')
+    // 证据必须自带抓取时刻与来源 URL，才谈得上「可复现」
+    expect(txt).toMatch(/抓取时刻（UTC）：\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/)
+    expect(txt).toContain('https://mp.toutiao.com/')
+  })
+
   it('头条监测域必须覆盖真实登录页用到的风控与验证码域', () => {
     const monitor = require('./login-network-monitor')
     const hosts = monitor.monitoredHostsOf('toutiao')

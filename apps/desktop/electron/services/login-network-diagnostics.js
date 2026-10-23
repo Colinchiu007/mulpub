@@ -326,10 +326,12 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
       if (timingPlatform && requestId && timingByRequestId.has(requestId)) {
         timingByRequestId.get(requestId).status = response && typeof response.status === 'number' ? response.status : null
       }
-      // 隐私边界：**只有登记了端点匹配器的平台才读响应体**（2026-10-21 CCG 外部评审 i2：
-      // 此前这条边界只由「匹配器为空 ⇒ matchesAuthEndpoint 恒 false」隐式保证，
-      // 读的人看不出「计时层平台永不读体」是刻意的）。这里改成显式闸门：
-      // 未登记匹配器的平台（头条号等计时平台）**在任何分支都不碰 getResponseBody**。
+      // 隐私边界：**只有 OBSERVATION_GUARD.readsResponseBodyPlatforms 登记的平台才读响应体**
+      // （2026-10-21 CCG 外部评审 i2 把它从「隐式保证」改成显式闸门；
+      //  2026-10-22 CCG 外部评审 i1 再把闸门本身改为**由清单驱动**——
+      //  边界写在注释里不算门禁，删掉注释就没有任何运行时保障）。
+      // 未登记的平台（头条号等计时平台）**在任何分支都不碰 getResponseBody**。
+      if (monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms.indexOf(platform) === -1) return
       if (!AUTH_ENDPOINT_MATCHERS[platform]) return
       if (!matchesAuthEndpoint(platform, url)) return
 

@@ -18,6 +18,34 @@
  */
 
 /**
+ * 观测面的**可执行边界清单**（2026-10-22 CCG 外部评审 i1：边界只写在注释里，
+ * 删掉注释就没有任何运行时保障 —— 注释不是门禁）。
+ *
+ * 这份清单是「哪些平台允许读响应体」的**单一真源**：诊断层的闸门由它驱动，
+ * 回归锁直接断言它 ⇒ 「只读 / 不外发 / 不拦截 / 不记凭证」四条从散文变成可执行约束。
+ *
+ * - `readOnly` / `noOutbound` / `noInterception` / `noCredentialLogging`：
+ *   四条边界的**声明位**。它们不各自带运行时分支（观测层本就没有出站与拦截路径），
+ *   真正的强制点是回归锁：断言诊断层源码里 `getResponseBody` 的调用**排在**
+ *   `readsResponseBodyPlatforms` 闸门**之后**，且该闸门由本清单驱动。
+ * - `readsResponseBodyPlatforms`：**只有登记在册的平台才允许读响应体**。
+ *   头条号不在册 ⇒ 计时层平台在任何分支都不碰响应体。
+ *
+ * ⚠️ 域来源证据（外部评审 i2：新增监测域要有来源验证链）：
+ * `openspec/changes/login-observe-domain-coverage/evidence/login-page-host-snapshot.txt`
+ * 记录了登录页静态引用的域快照（抓取时刻 + 每个域的一个实例资源路径），
+ * 与本模块的 `PLATFORM_MONITORED_HOSTS` 逐条对照。域清单是**字面量数组**（白名单），
+ * 不是动态拼接或从响应里学来的。
+ */
+const OBSERVATION_GUARD = Object.freeze({
+  readOnly: true,
+  noOutbound: true,
+  noInterception: true,
+  noCredentialLogging: true,
+  readsResponseBodyPlatforms: Object.freeze(['zhihu'])
+})
+
+/**
  * 按平台的监测域（实测得来的头条号登录链路资源域）。
  *
  * ⚠️ **观测面的显式边界**（2026-10-22 CCG 外部评审 i4：扩大监测域清单时，
@@ -232,6 +260,7 @@ const SLOW_REQUEST_LOG_LIMIT = 20
 
 module.exports = {
   PLATFORM_MONITORED_HOSTS,
+  OBSERVATION_GUARD,
   TIMING_OBSERVE_PLATFORMS,
   CAPTCHA_SDK_MARKERS,
   CAPTCHA_SDK_DIR_MARKER,
