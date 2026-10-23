@@ -110,3 +110,15 @@ i1 虽然被否证，但它闻到的**脆弱性是真的**：正确性目前挂�
 3. `announcement-banner-dismissed` 无上限累积。
 4. 反证驱动接进 CI（任务 #23）。
 5. 暗色档入口（1.1）未合并 ⇒ `[data-theme="dark"]` 分支在用户侧仍不可达，本批不声称暗色已验证。
+
+## 补记：QM-6 收口（`self_play_resolved`）—— tier 由会话手写，如实标注（2026-10-23）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 收口形态 | ⚠ **代用出口，非合规路径** | 本条产物的 `deepReview.tier` 与 `evidence` **均未由外部评审产出**（仓外 vendor 引擎依赖 `codeagent-wrapper` + 后端 CLI 通道，本机两者皆无）。按 `check-pr-exec-record.js` 自述「手写仍然**能**通过判据……但它是代用而不是合规路径，**必须如实标注**」——本节即那份标注 |
+| 闭环依据 | ✅ | 闭环词表 `{cleared, needs_revision, self_play_resolved}`；本条取 `self_play_resolved`（自扮演是既有门禁显式承认的出口，`judgeBackendMismatch` 对该状态显式豁免后端对账） |
+| 轮次与逐条处置 | ✅ | 见 `deepReview.closureNote`：**第 1 轮**自扮演裁决，3 条 upheld 逐条处置（i2 已修 / i3 已修 / i4 已修），i1 裁决为不成立维持原样 |
+| 会话独立复核 | ✅ | 收口前**逐条回当前 HEAD 核对**（不照抄裁决结论）：i2 `scripts/announcement-mount-contract-mutate.js:96` = `const RUNNER = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'`；i3 `01-docs/PRD-ANNOUNCEMENT-BANNER-MOUNT-2026-10-21.md:111` 的 A1 已改为「挂在**渲染层外壳**里且文案/可访问名可读」并写明测量域与不含项；i4 驱动内 `id: 'C1'..'C7'` 共 **7** 条变异，`tasks.md` 3.1/3.2 写 `C1–C7` 与 `CAUGHT=7/7` |
+| 判据复跑 | ✅ | `node scripts/check-pr-exec-record.js --base=origin/main --head=HEAD --mode=enforce` → **rc=0**「OK: 本 PR 携带执行记录或带原因的豁免」；TIER-COVERAGE `dual-closed total=1 unknown=1`（tier 字段缺席 ⇒ 可见不拦，诚实反映「外部评审未产出 tier」） |
+| 转变核对 | ✅ | `TRANSITION-CHECK 转变=无转变 扫描域=1 已核对=0 无出处=0 未证实=0` —— 本产物在本 PR 是**新增**（A）文件，转变检测只查 M 文件，不触发「收口无出处」 |
+| 遗留 | ⚠ | `tier=external` + 可核 evidence 这一条合规路径**仍未走**（本机无外部评审通道）。本条收口只解除「欠账挡住合并」，**不冒充外部评审已通过** |

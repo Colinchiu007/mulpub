@@ -51,7 +51,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "self_play_resolved",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [],
@@ -114,7 +114,8 @@
         "reason": "self_play_upheld"
       }
     ],
-    "note": "自扮演裁决：3 条指控成立或需外部复核",
-    "at": "2026-10-21T23:20:59.611Z"
+    "note": "自扮演裁决：3 条指控成立或需外部复核 ｜ 2026-10-23 会话复核 3 条 upheld 逐条处置后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T23:20:59.611Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：tier 与 evidence 均**未**由外部评审产出，本条是门禁自述的「代用出口」而非合规路径，如实标注。逐条处置：i2 已修（驱动改为 `const RUNNER = process.platform === \"win32\" ? \"pnpm.cmd\" : \"pnpm\"`，scripts/announcement-mount-contract-mutate.js:96，注释写明为何不能只在这台机器上成立；同型缺陷的另外三个 contract-mutate 驱动统一留到任务 #23 接线那次收敛）；i3 已修（PRD A1 改写为「挂在渲染层外壳且文案/可访问名可读」并显式写出测量域与不含项，指向 §8.1 与 design D6；未把「可见」谎报为无条件为真）；i4 已修（design D5 按脚本 7 条逐条回写、tasks.md 改 C1–C7 与 CAUGHT=7/7，并在 D5 末尾加「清单以脚本 MUTATIONS 为准」的防漂移锚）。i1 裁决为不成立，维持原样。逐条现场依据与反证读数见 openspec/records/ux-audit-announcement-mount.md 的处置表。"
   }
 }
