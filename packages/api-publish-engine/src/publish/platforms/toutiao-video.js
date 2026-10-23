@@ -369,6 +369,7 @@ class ToutiaoVideoChain {
    * （旧实现按 `status===0 && data.item_id` 判定，字段名是错的 —— 头像是 PascalCase 的 `ItemId`。）
    */
   async publish (postData) {
+    if (this.logger) { try { this.logger.log('toutiao cookieNames=' + String(this.cookie||'').split(';').map(function(x){return x.split('=')[0].trim()}).filter(Boolean).join(',')) } catch (_eN) {} }
     await this.ensureCsrf()
     const res = await this.mp.request({
       method: 'post', url: PUBLISH_PATH,
