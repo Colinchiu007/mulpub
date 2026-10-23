@@ -477,6 +477,14 @@ const platformsMixin = {
       while (!retry.isDone('publish')) {
         let networkCapture = null
         try {
+          // dismiss switch-account modal（2026-10-23 实测：视频号发布页出现「切换视频号」弹窗，
+          // 发布点击被它挡住 ⇒ 判定 timeout、0 发布请求）。发布前先点 取消/我知道了。
+          if (platform === 'tencent_video') {
+            try {
+              const d = await win.webContents.executeJavaScript('(function(){var ms=[].slice.call(document.querySelectorAll("[class*=modal],[class*=dialog],[role=dialog]"));for(var i=0;i<ms.length;i++){var t=(ms[i].innerText||"").trim();if(t.indexOf("切换视频号")<0)continue;var bs=[].slice.call(ms[i].querySelectorAll("button,[class*=btn]"));for(var j=0;j<bs.length;j++){var x=(bs[j].innerText||"").trim();if(x==="取消"||x==="我知道了"){bs[j].click();return "dismissed:"+x}}}return "none"})()', true)
+              log.info('RpaView', '[tencent_video] switch-account modal: ' + d)
+            } catch (_e6) { /* 关弹窗失败不阻塞 */ }
+          }
           this._emitProgress(platform,'publishing...',85)
           const rp = (isApiTrack(config) && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
           // 按优先级依次尝试所有发布按钮候选，任一可见即用（页面改版后首个候选可能失效）
@@ -1342,9 +1350,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     const config = this._getPlatformConfig('xiaohongshu', article)
     const contentType = article.video_path ? 'video' : 'image'
     // 2026-10-18 video-publish-4：小红书视频只落到平台草稿箱（用户硬约束）。
-    // 旧实现是 `if (contentType === 'video') return buildXhsVideoRefusal(win)` —— 直接拒绝。
     // 本轮拿到真机 DOM 证据（Playwright + 真实账号 cookie 打开
-    // `publish/publish?from=menu&target=video` 并真实上传 mp4）后，视频链已可实现：
     //   `input.upload-input`（可见）→ 标题 `input.d-text`（placeholder=填写标题会有更多赞哦）
     //   → 正文 `div.tiptap.ProseMirror` → **不点「发布笔记」**（真机为 DIV 按钮），；  靠平台自动草稿保存落到草稿箱（图文模式 2026-09-29 已采用同一策略）。；守卫：合并后的选择器仍拿不到 file_input ⇒ 上传无从发生 ⇒ 绝不静默降级成草稿。
     const videoFileInputs = (config.selectors && config.selectors.file_input) || []
@@ -1356,23 +1362,19 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       }
     }
     const publishUrl = getPublishUrl('xiaohongshu', contentType)
-    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input accept 全是视频格式）；图文须先点「上传图文」tab（switchImageTab hook，参考产品 renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
     const isImageMode = contentType === 'image'
     return this._publish_generic(win, article, 'xiaohongshu', {
       ...config,
       publish_url: publishUrl || config.publish_url,
       ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
-      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。；2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。；小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），；填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
       draftOnly: true,
     })
   },
 
-  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，；getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
   async _publish_kuaishou(win, article) {
     const config = this._getPlatformConfig('kuaishou')
     const contentType = article.video_path ? 'video' : 'image'
     const publishUrl = getPublishUrl('kuaishou', contentType)
-    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个；（2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、；图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，；首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
@@ -1380,7 +1382,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         selectors: {
           ...config.selectors,
           file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
-          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」；后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的；`article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后；**再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，；封面通道在此为空是正确表达，不是省略。
           cover_input: [],
           drag_area: '#rc-tabs-0-panel-2 div[class^="_dragger-content_"], div[class*="dragger-content"]',
         },
@@ -1414,7 +1415,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     this._emitProgress('zhihu','waiting for editor...',15)
     if (!(await this._waitForElement(win,'.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title',15000)))
       { log.warn('RpaView', '[zhihu] editor not loaded url=' + win.webContents.getURL()); return {success:false,error:'zhihu: editor not loaded',platform:'zhihu'} }
-    // 正文编辑器就绪等待（实测 .public-DraftEditor-content 命中；Draft.js 挂载晚于标题框）
     await this._waitForElement(win,'.public-DraftEditor-content, .DraftEditor-root, [contenteditable="true"]',10000)
     if (article.title) {
       this._emitProgress('zhihu','filling title...',30)
