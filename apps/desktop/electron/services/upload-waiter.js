@@ -416,7 +416,50 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
    * 2026-10-23：视频号上传区是**纯拖拽区**（点击不弹原生选择器，实测两次 no fileChooserOpened）。
    * 用 CDP Input.dispatchDragEvent 把真实文件路径拖进去（dragData.files 支持绝对路径）。
    */
+  /**
+   * 2026-10-24（竞品 shipinghaoRun 逐字对照）：视频号页面是 wujie 微前端，
+   * 上传框在 document.querySelector('.wujie_iframe').shadowRoot 内：
+   *   const videoDom = shadowm.shadowRoot.querySelector('.upload')
+   *   const inputDom = videoDom.querySelector('input[type="file"]')
+   *   manualDispatchFileEvent({dom: inputDom, element: HTMLInputElement, elementKey: 'files', value: files.files, event: 'change'})
+   * 即：用 HTMLInputElement.prototype 的原生 files setter 写值，再派发 change。
+   */
+  async _uploadViaWujie (win, filePath) {
+    const fs2 = require('fs')
+    const path2 = require('path')
+    const abs = path2.resolve(filePath)
+    const b64 = fs2.readFileSync(abs).toString('base64')
+    const name = path2.basename(abs)
+    const expr = '(function(){' +
+      'var host=document.querySelector(".wujie_iframe");' +
+      'if(!host||!host.shadowRoot)return {ok:false,why:"no-wujie-shadow"};' +
+      'var up=host.shadowRoot.querySelector(".upload");' +
+      'if(!up)return {ok:false,why:"no-upload"};' +
+      'var input=up.querySelector(\'input[type="file"]\');' +
+      'if(!input)return {ok:false,why:"no-input"};' +
+      'var bin=atob("' + b64 + '");var arr=new Uint8Array(bin.length);' +
+      'for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);' +
+      'var f=new File([arr],' + JSON.stringify(name) + ',{type:"video/mp4"});' +
+      'var dt=new DataTransfer();dt.items.add(f);' +
+      'var d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"files");' +
+      'if(d&&d.set){d.set.call(input,dt.files)}else{input.files=dt.files}' +
+      'input.dispatchEvent(new Event("change",{bubbles:true}));' +
+      'var r=up.getBoundingClientRect();' +
+      'return {ok:true,w:Math.round(r.width),h:Math.round(r.height),n:f.size};' +
+    '})()'
+    try {
+      const r = await win.webContents.executeJavaScript(expr, true)
+      log.info('RpaView', 'wujie-upload: ' + JSON.stringify(r))
+      return !!(r && r.ok)
+    } catch (eW) {
+      log.warn('RpaView', 'wujie-upload failed: ' + (eW && eW.message ? eW.message.slice(0,120) : ''))
+      return false
+    }
+  },
+
   async _dropViaCdp (win, filePath, selector) {
+    // wujie-first：竞品实现优先（.wujie_iframe.shadowRoot .upload input[type=file]）
+    try { if (await this._uploadViaWujie(win, filePath)) { log.info('RpaView', 'cdp-drop: wujie-first succeeded, skip CDP paths'); return true } } catch (_eWf) {}
     const path = require('path')
     const dbg = win.webContents.debugger
     let attached = false
