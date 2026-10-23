@@ -24,6 +24,29 @@
 `externalReview` 一类的形状判据若需要「后端名与本轮 critic 一致」这一条，MUST 复用本 Requirement 的第 3 条口径，
 MUST NOT 在别处再抄一份比较逻辑。
 
+缺件名 ⇒ 处置 MUST 由**一张表**持有（`scripts/ccg-review-writeback.js::DECLINE_REASONS`），MUST NOT 散在 if 链里
+—— 散了之后规格与实现互不认账（外部深审 i3）。本表与那张常量表由 `ccg-review-writeback.test.js` 的同文锁逐名对账：
+
+| 缺件名 | 处置 | 为什么是这一档 |
+| --- | --- | --- |
+| （无缺件） | 写 `tier=external` + `evidence=delivery@<摘要>` | 唯一升级为外部证据的路径 |
+| `before-state-missing` / `no-write` / `no-new-delivery` | 一字不写 | 这条**不是本次产出**的；写它就是拿历史产物顶替（条件 ④ 存在的全部理由） |
+| `record-unreadable` / `write-failed` | 一字不写 | 读不到或写不动时，任何"补齐"都是在猜 |
+| `not-closed` / `empty-findings` / `backend-mismatch` | 只在**内存里**按 `buildDeepReviewInit()` 补初值供判定，MUST NOT 升 `external`、MUST NOT 改 `status`，且 **MUST NOT 落盘**（落盘与三条「拒写时文件逐字节不变」的用例直接矛盾，而那三条在 CI 上跑；第 4 轮外部深审 i2 把这格从"待裁决"改判成"措辞问题"，裁决与依据见 design §14） | 本次确有交付而条件不满足；不补就让"跑过评审"的产物比"什么都没做"的少两个键 |
+| `missing-record-path` / `record-path-out-of-domain` | **抛错**，且在任何 IO 之前终止 | 定位键断了不是"条件不满足"，静默返回会被读成"评审没跑" |
+| `dry-run`（**不是缺件**：旗标 --dry，五条全齐但本轮不落盘） | 一字不写，但打印**将写什么**（`tier=external` + `evidence=delivery@`），入口随后按动手前快照还原并做字节对账 | 旗标的语义是"给人看它本来会写什么"。名字仍 MUST 登记（`NON_DECLINE_OUTCOMES`）——否则只认表名的消费者会撞上一个两张表之间都没出处的 reason |
+
+⚠ 第三档（补初值）**今天在盘面上是 no-op**：初值只用于判定、MUST NOT 落盘（落盘与三条在 CI 上跑的
+「拒绝写入 ⇒ 既有产物逐字节不变」用例直接矛盾）。
+**这里先前写错了一次成因，留痕**：原文说「要区分『补过初值未升级』与『字段整段消失』就得落盘」，
+第 7 轮外部深审 i1 逼着重测后否证了它 —— 区分不成立的真因在判据的映射里，不在落不落盘：
+`check-pr-exec-record.js` 的 `classifyEvidenceTier` 对 `!dr`、`tier` 键缺席、`tier=null/undefined`
+与 `tier='unknown'` **一律回 `unknown`**，且这一映射已被该文件里"丙 classifyEvidenceTier"那条闭集四档锁
+逐形状钉住（空对象与 tier='unknown' 同档）。⇒ 补不补初值，判据读出来都是同一个词。
+所以本条 Requirement 里那条 AND 已从"区分这两种形态"**改成判据真的给得出的三档区分**
+（`none` 自称未评审 / `unknown` 字段缺席或初值 / `unrecognized` 值不在闭集），
+"补过初值与整段消失要分档"这件事没有被抹掉，而是登记成 **tasks 8.9**（改的是判据本体，属"谁来守门"）。
+
 写回器 MUST NOT 依赖 `CLOSED_DEEP_REVIEW_STATUSES` 的当前内容而不设防：
 它 SHALL 有一条**冻结快照**用例断言该闭集逐项相等；闭集变动 MUST 同次改快照并走评审，
 **MUST NOT** 出现"改判据即静默改了生产者"。
@@ -116,4 +139,6 @@ MUST NOT 让"跑过评审"的记录比"什么都没做"的记录更差（后者�
 #### Scenario: 缺键补齐而非静默丢字段
 - **WHEN** 记录 `deepReview` 有 `status`/`performedBy`/`findings` 而无 `tier` 键
 - **THEN** 写回器 MUST 先按统一口径补 `tier` 初值，再按五条件决定是否升 `external`
-- **AND** 判据对该条 MUST 能区分「补过初值未升级」与「字段整段消失」两种形态
+- **AND** 判据对该条 MUST 能区分 `none`（自称未评审）/ `unknown`（字段缺席**或**补过的初值）/
+  `unrecognized`（字段在而值不在闭集）三档；其中「补过初值未升级」与「字段整段消失」今天**同归 `unknown`**，
+  要真分档 MUST 改 `classifyEvidenceTier` 本身 —— 该欠账登记在 tasks 8.9，MUST NOT 把它读成"已区分"

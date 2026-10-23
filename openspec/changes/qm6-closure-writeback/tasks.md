@@ -110,6 +110,25 @@
   入库后为 1；因此若直接加条目并写「命中 1 个」下界，本地会红在 `owned >= want` 那条对账上——这是"下界声明必须取自已入库事实"的现场，
   不要靠把声明写成无下界来绕过（`check-pr-exec-record.test.js` 会把无声明条目原样打印出来，绕过是看得见的）。
 
+- [ ] 8.8 **`assertRecordPathScope` 只查两格，更强的"父两级必须是 `.ccg/reviews`"没做**（外部深审第 3 轮 i4 要求"实现或正式登记，不得静默放宽"——本条就是那份正式登记）：
+      现判据 = 路径段不含 `..` 且 basename 以 `.json` 结尾。加第三格的前提是**先迁那 8 个写记录形状夹具的测试文件**到生产同形的
+      `<repo>/.ccg/reviews/<name>.json`（它们现在写 `<tmp>/rec.json`），否则一条判据会把别人的测试全数判红——
+      **这个数估错过**：前几处文档一直写"约 30 处"，那是**没量过的估数**。第 6 轮 i8 之后当场实测（2026-10-23）：
+      写记录形状夹具的文件 **8 个**、含字面量 rec.json 的 **3 个**、提到 .ccg/reviews 的测试文件 **7 个**（三个口径答三个问题）。
+      重取命令（活数，别抄上面这三个数）：
+      `grep -rlE 'writeFileSync\([^)]*rec' scripts/*.test.js | wc -l`（8）／
+      `grep -rl 'rec[.]json' scripts/ | wc -l`（3）／
+      `grep -rl '[.]ccg/reviews' scripts/*.test.js | wc -l`（7）
+      那是"改谁来守门"的另一半，不在本片顺手做。第 3 轮实测里这条已经收窄过一次（首版按三格实现后主干测试红，见 §12 的 i2 行）。
+- [ ] 8.9 **「补过初值未升级」与「字段整段消失」在判据里同归 `unknown`**（第 7 轮外部深审 i1 实测确立，取代本 change 先前那句"要区分就得落盘"）：
+      `classifyEvidenceTier` 对 `!dr` / 键缺席 / `tier=null|undefined` / `tier="unknown"` 一律回 `unknown`，
+      而这一映射被 `check-pr-exec-record.test.js` 的"丙 classifyEvidenceTier"闭集四档锁**逐形状钉住** ⇒ 写回器
+      补不补初值，判据读出来是同一个词。真分档要改判据本体（新增一档或让 `unknown` 细分），后果是主干 178 篇
+      「已闭环但 tier 整段缺席」的存量读数会集体换档 —— 属"谁来守门"，人工过目，不在本片动。
+      重取当前映射的方式不是手写探针，而是跑那把已有的锁（改映射即红）：
+      `node --test --test-name-pattern="丙 classifyEvidenceTier" scripts/check-pr-exec-record.test.js`
+
+
 ## 9. 跨家族那一轮（critic=codex，8 条 / Critical 3 / 最低分 4）产生的新工项
 
 > 处置正文见 design §7。这一轮是**换后端**跑成的：护栏只对 `BACKEND_INPUT_LIMIT` 表内后端生效（表里只有 opencode），
@@ -147,3 +166,77 @@
 - [ ] 11.3 **本仓证据形态的 `url` 档比引擎侧宽**（深审 i3 顺带量到的真实差，不随 i3 被 dismiss 一起消失）：`evidenceForm` 认 `https://github.com/<o>/<r>/pull/<n>` 之后**跟任意非空白**（含 `?x=1`、含没有评论 id 的光秃 PR 地址），而引擎的 `EXTERNAL_EVIDENCE_RE` 要求整串以 `#issuecomment-<数字>` 结尾。今天两把判据分属不同字段（`deepReview.evidence` 与 `items[].externalReview.evidenceRef`），推不出一条假的收口；但"指向一整条 PR"与"指向一条具体评论"的可核度不是一回事。二选一并写明理由：① 收紧本仓 `url` 档到要求 `#issuecomment-` 加数字（先量主干既有合规写法会不会被误杀，会误杀就走"先登记再收窄"）；② 保持宽，但在记录里点名这条宽度差已被对账（即本条）。parity 锁的前提仍是对端制品先入库（见 0.1 读数）
 - [ ] 11.4 0.1c 的正解仍在这一格：`sh scripts/plan-review.sh <方案文件>` 重落一条 `layer=plan` 产物，让 `plannedFiles` 覆盖 survey 切片与 Gate 2b10/2b11；**做完当场记下"范围漂移"告警是否仍报**（#4151 开发期第 6 笔提交的 pre-commit 日志逐字报过「8 个文件不在方案声明范围内」）。那条读数写进收尾评论而不是文档——它是运行态读数，不是规格
 - [ ] 11.5 **自扮演出口与写回器合取③结构互斥（本轮实测出来的，原判据设计没预料到这一格）**：引擎 `finalizeAdjudication` 写 `performedBy: "self-play"`，写回器要求 `performedBy === expectedCritic` ⇒ 凡经自扮演收口的记录**永远**拿不到 `tier=external`。这不是"想办法让它成立"的噪声——自扮演收口本来就不是外部评审，盖上 external 才是造假。真问题在另一头：**高危面上的记录若只能经自扮演收口，就没有任何机械出口**（`closureNote` 在高档不够格，`tier=external` 又写不出来）。三个候选落点（都属改谁来守门，须人工过目，本片一个都不动）：① 合取③承认"记录级 `performedBy=self-play`，但 `externallyReviewed[]` 里有与本轮 critic 同名且带公开 URL 的条目"这一形态；② 引擎在外部复核解除高危项时把记录级 `performedBy` 写成 critic 而非 self-play（改的是仓外引擎，本仓不可写）；③ 维持现状，明文接受"自扮演收口一律 `tier=self-play`，高危面必须走真外部收敛那一档"
+
+## 12. 第三刀的交付账（2026-10-22，两代实现分叉之后）
+
+> **先记账一件事**：本片原分支（`28789e591`）与主干上 #4151 落地的那代实现**不是同一代**
+> （函数名、返回形状、测试夹具形态都不同）。把原分支整取过去会**静默删掉主干 1767 行**
+> （实测：`git diff --numstat origin/main` 在我那版工作树上是 added=2469 deleted=1767）。
+> 做法因此改成：分支指针移回 `origin/main`，只重放主干**确实没有**的那些格；
+> 判据是逐文件查「主干自 merge-base 以来除了 #4151 还有谁碰过它」（`git log <mb>..origin/main -- <f>`）。
+> 原分支整体留在标签 `retire/qm6-closure-writeback-20261022b` 上，未删。
+
+| 项 | 落点 | 现场读数 |
+| --- | --- | --- |
+| 1.2 反向负控（no-op ⇒ 1.1 红） | 本代落点改成 `ccg-review-writeback.test.js` 的档位断言 + 变异 N4 | **上一代那条 `M1 ran=140` 已作废**：它挂的 `8.1b §1.1 契约锁`这个测试名在重建后的 `check-pr-exec-record.test.js` 里**根本不存在**（`grep -c "§1.1"` = 0），锚点 `atomicReplace(recordPath, ...)` 也不在主干那代实现里。本代用 N4（`dr.tier = 'external'` 改 `'internal'`）实测 `ran=3 reds=2 hit=2/2`；**N4 第一次跑是 NOT-CAUGHT**——测试名写着「写 tier=external」而正文只断 `spoke`+`wrote`，已补 `res.tier`/`res.evidence` 两条断言后复跑转绿 |
+| 1.3 变异反证 | 一次性变异驱动第二代 `mutation-driver-r3`（未入库；动手前断言"工作树 EOL 归一后 == HEAD blob"，还原后按原始字节 md5 自证） | **本代实跑 `total=12 caught=12 not=0`**（分两跑：`--ids=N1..N8` → `total=8 caught=8`；`--ids=N9..N12` → `total=4 caught=4`；逐行 `ran>0` 且 `hit=n/n` 按测试名匹配）。两条必须一起说：① 第一代 M1–M8 的锚点在本代树上**逐条实测命中 0**（`git cat-file blob HEAD:<f>` 对照，LF/CRLF 两形态都为 0），所以旧那组数不是"换个写法还能引用"的东西；② 第一跑在 N11 处被外层 10 分钟超时打断，`exit 0` 被留在工作树上——按 `git checkout HEAD -- scripts/deep-review.sh`（精确到这一个文件）还原 + `bash -n` 复验后才复跑，这正是"驱动的还原基线可以是脏的"那一条的现场 |
+| 1.3b 第二代变异覆盖到哪一格（如实划界） | 同上 | N1 作用域判据 / N2 dry 落盘 / N3 处置表少一名 / N4 档位 / N5 后端比对 / N6 字节未变 / N7 指纹比对 / N8 只验一半 / N9 入口不透传 `--dry` / N10 dry 不做字节对账 / N11 把评审 rc 洗成 0 / N12 探针恒报导出缺失。**没被测到的一格**：`dry-restore=mismatch` 支路（需并发写者，本机无夹具）——所以 N10 抓的是"把对账改成恒假"，不是"改成像没对账" |
+| vendor 验证层按严重度出终态（用户授权） | 仓外 `ccg-deep-review.js` + 本仓探针第 ⑤ 格 | `node scripts/ccg-convergence-probe.js` ⇒ `capable=true 三形状={"withCritical":null,"warnOnly":"cleared","empty":"cleared"}`，rc=0。**第 3 轮 i3 之后摘掉了 `highOnly` 那一格**：vendor `model-call.js:191` 的 `SEVERITY_WHITELIST=['Critical','Warning','Info']`，白名单外的 severity 让那次评审当场失败 ⇒ `High` 出现 0 次，留着那条分支就是给不可达状态编放行规则。白名单内容由 P9 用断言钉死（读不到 `model-call.js` 一律红、不得 skip），漂移由测试抓、不由死分支猜 |
+| 能力漂移档 | `ccg-convergence-probe.test.js` P9 | 格 A 函数级 false、格 B require 不动 ⇒ rc=2 点名「探针失明」、格 C 本机在位 ⇒ rc=0、格 D 摘掉导出 ⇒ rc=1 点名「严重度」+ A/B 对照回 0；9/9 绿 |
+| i1/i5 `--writeback-dry` | `scripts/deep-review.sh`（`WB_DRY`/`_wb_snap`/还原 + 还原后哈希对账）+ `ccg-review-writeback.js`（`--dry`）+ 入口级锁 `deep-review-entry-rc.test.js` ⑫ | 打印将写的 `delivery@` 之后按动手前快照还原产物，并**再算一次哈希与动手前逐字比对**：`dry-restore=verified sha256=<12>`；不等则 `mismatch` 打出两侧哈希且**保留快照不删**。⑫ 真跑 `sh scripts/deep-review.sh --writeback-dry`，含"不带旗标同一场景必须真的落盘（tier=external）"的反向对照——原先只有 `applyWriteback({dry:true})` 的注入路径，"入口根本没传 `--dry`"那一格对全绿夹具结构性免疫 |
+| i2 作用域判据 | `assertRecordPathScope` | **收窄为两格**（`..` 段 / 非 `.json`），"父两级必须是 `.ccg/reviews`"那格没做：它要求 8 个写记录形状夹具的测试文件（当场实测，命令见 8.8）先迁到生产同形的目录，那是另一件该做的事，登记在下表待办，不在本片顺手改测试 |
+| i3 处置表 | 本规格那张表 + `DECLINE_REASONS` + 同文锁 | 表与常量逐名对账（缺一名即红）；normalize-only 落盘与否的分叉**不擅自裁决**，见 `design.md` §12 |
+| 主干已有、本片不再重放 | `scripts/ccg-review-writeback.js` 五条件 / `--print-fingerprint` / 入口 `run_driver_with_writeback` / `ccg-delivery-digest` 两份规范化 / entry-rc 的 CI 态桩 | 主干 #4151 已带；本片只加它没有的格，避免"以新盖旧" |
+
+**本片没做完、已点名的**：① 跨仓 parity 锁（主干完全没有，原分支那份依赖 `canonicalize` 之外的旧导出，需按主干 API 重写再接线）；
+② normalize-only 落盘的那一格（等人工裁决两代读法）；③ 夹具把记录迁进 `.ccg/reviews/` 以支撑更强的作用域判据；
+④ 本 PR 自己的 QM-6 收口读数 —— 必须由**最终那一笔**上的 `sh scripts/deep-review.sh` 产出，见执行记录。
+
+## 13. 第 3 轮外部深审（跑在 `083599b94`，判定记录 `550a0208…`）的逐条处置
+
+> 现场：critic=claude 交付 8 条（Critical 2 / Warning 3 / Info 3）、最低维度分 4 ⇒ `status=self_play`，
+> 裁决模板 5 条待填、其中 1 条高危域（crypto）必须外部复核。未填裁决时入口打印
+> `裁决未填写 … 状态记为 self_play_pending`，写回器打印 `未写回 reason=not-closed spoke=- detail=status="self_play_pending"`，
+> `DR_RC=0`。**这条拒绝本身就是 §7.2 的反向证据**：五条件不齐 ⇒ 一个字都不写，且点名缺哪一条。
+
+| 意见 | 处置 | 依据 |
+| --- | --- | --- |
+| i1 Critical「判定记录 `sha` 指向 `85dc44ddc` 而非本提案 head，属假冒来源；应按 head 重新生成并删除」 | **否证其定性，保留其观察** | 记录顶层 `sha` 是 pre-commit 时的 HEAD（=父提交），由 `ccg-review-decider.js` 的注释写明；记录**名**才是内容键 `stagedDiffHash`，本轮入口就是靠它命中的（日志第 1、13 行）。"按实际 head 生成"不可执行——新提交的 sha 那一刻还不存在。真实缺口是"产物与提交的配对无人校验"，已有编号：tasks 8.6 |
+| i2 Critical「§12 把上一代变异读数当交付证据」 | **成立，已修** | 见上表 1.2 / 1.3 / 1.3b 三行：旧数作废、第二代 N1–N12 真跑、并如实记下第一跑被打断与还原过程 |
+| i3 Warning「`readSeverityCapability` 测 `highOnly`，但白名单没有 High ⇒ 不可达被报成可达」 | **采纳问题、换修法** | 不给白名单加档（那是改模型的输出合同），改为摘掉 vendor 里 High 那一格 + 探针收为三形状 + P9 钉住白名单内容。验证层今天的可达终态只有 `cleared`；`needs_revision` 只由决策层出 |
+| i4 Warning「更强的作用域判据被推迟，不得静默放宽」 | **正式登记** | tasks 8.8（编号项，不再只写在交付表里） |
+| i5 Warning「dry 还原只看 `cp` 返回码，无法证明逐字节不变」 | **已修 + 补锁** | 哈希对账 + `verified/mismatch` 两档出声 + 快照留痕；入口级 ⑫ 真跑（含反向对照）。未锁那一格点名交出：`mismatch` 支路需并发写者，本机无夹具 |
+| i6 Info「规格里 normalize-only 那格没标 PENDING-ARBITRATION」 | **已修** | 该行现显式标 `PENDING-ARBITRATION` 并指 `design.md` §12.3 |
+| i7 Info「design §12.2 引 1724 份产物 converged=0，没给 ref，快照不可重现」 | **已修，并纠正我自己的口径混用** | 当场重测（`origin/main@96ef1b2e2`，`.ccg/reviews` 下 json 1836 份）：`"status": "converged"` **0 份**、`"stoppedBy": "converged"` **3 份**（那 3 份 status 已是 cleared，出自决策层）。我原先那句"converged 出现 0 次"把两种口径写成了一句话——可达性论证只依赖前者，现已按字段分别写清并附命令 |
+| i8 Info「§12 要求重跑 P9 变异，但 deep-review 默认 `timeout-minutes: 5`，没给预算」 | **前提不成立，如实回答** | 变异重跑是**本机一次性驱动、不入库、不进 CI**，与 `QG Changes` 那 5 分钟作业预算无关（`grep -n "timeout-minutes" .github/workflows/quality-gate.yml` 在 changes 作业上确实读到 5，但跑的是各锁自身：探针在 Gate 2b6、entry-rc 在第 618 行的清单里）。代价归属写进遗留 5：这条反证只能靠人重跑——i2 正是被这个代价打中的 |
+
+本机本轮读数（最终提交前取，提交后仍会变的就是记录名）：writeback + probe `# tests 35 / pass 35 / fail 0`；
+⑫ 单跑 `# tests 1 / pass 1`；entry-rc **全套 11 条在 ⑫ 修正后未重跑**（正则修正前 10 pass / 1 fail，红的就是新加那条），
+整套交 CI 的 `QG Changes`（该文件在 workflow 第 618 行的清单里）回读——不据此声称本机已绿。
+
+## 14. 第 4 轮外部深审（`ebe10ff8e`）产生的工项
+
+- [x] 14.1 i1 处置：`vendorRoots()` 单点 + `require` 前 realpath 许可根判定 + P9 格 E 行为锁（详见 design §14 表 i1 行）
+- [x] 14.2 i2 裁决：规格那格改成「只在内存补初值、MUST NOT 落盘」，理由是与三条 CI 上的"逐字节不变"用例相左（不是偏好）
+- [ ] 14.3 **符号链接那一格没有本机锁**：许可根内 symlink 逃逸只能由能造 symlink 的环境实测（CI ubuntu）。本机跑不出这一形态，不得把 realpath 判定写成"已防住符号链接"。修法：在 CI 上加一条夹具（`ln -s` 指向根外文件 ⇒ 探针必须 rc=2）
+- [ ] 14.4 i5 的并发窗口：要真锁住需要一个"两个写者对同一 `$REC`"的入口级夹具。本机无该夹具 ⇒ `dry-restore=mismatch` 支路无执行体，已点名（不得因为 N10 变红就认为对账被验证过——N10 测的是"恒假那条路被走到"，不是"并发被检测"）
+- [ ] 14.5 本片 QM-6 收口仍未闭合：连跑两轮各含 Critical（2 / 3 条）。机械出口只有一条——**一轮零 Critical 的评审**由验证层写 `cleared`，写回器据此补 `tier=external`。做不到就是 11.5 的同一格，交人工，不手写、不借道 `closureNote`（本 PR 命中高危面前缀，那一档不够格）
+
+## 15. 第 5 轮外部深审（`95d13f431`）产生的工项
+
+- [x] 15.1 i2 处置：`decline(name, …)` 助手成为拒写唯一出口，名字不在 `DECLINE_REASONS` 内**当场抛** ⇒ 规格那句「处置由一张表持有」第一次在实现侧有执行体（不只是对账用例）
+- [x] 15.2 i6 处置：探针把 `vendor.engine` 的 realpath 一并纳入许可根判定（`readVendorSources` 会读它）
+- [x] 15.3 i7 处置：删掉根内判定里那条恒不单独起作用的等值式（判据不留"看着像防住了"的分支）
+- [ ] 15.4 i3 指出的"根内恶意文件"这一格归 **tasks 8.2（引擎 vendoring / 字节锚点）**，不在本刀顺手做；本刀 MUST NOT 把 realpath 判定写成"已防住恶意制品"
+- [ ] 15.5 收口：见 14.5。四轮读数（Critical 2/3/3、最低分 4→4→3）已写进 design §15.1 —— 引用时现跑，别抄数
+
+## 16. 第 8 轮外部深审（`3d997f45f`）产生的工项
+
+- [x] 16.1 i5 处置：动手前快照加 `trap ... EXIT` 清理（幂等、不改退出码）。**无行为锁**并写明原因：
+  唯一可观察结果是 TMPDIR 少一个文件，共享目录上做计数断言不稳；rc 由 ⑧ 守、内容对账由 ⑫ 守（实测 `2/2 pass`）
+- [ ] 16.2 **收口顺序裁决（交人工）**：八轮之后剩余 Critical 全是"要求把 realpath/白名单当安全边界"（真解 = tasks 8.2 字节锚点）
+  与事实错误两类。要继续追零 Critical，正解是先做 8.2 再回来跑收口；本刀到此停手，不靠多跑几轮碰运气
+- [ ] 16.3 八轮读数是活数（Critical 2/3/3/3/3/4、security 2→6→4），**引用前现跑**：
+  现场文件在 `.adversarial/ccg-deep-<HEAD 短 sha>/critique-v1.md`（注意那个 `<sha8>` 是 HEAD 短 sha，不是记录名前 8 位），
+  逐轮汇总见 design §15.1 / §17.3 / §18 —— 三张表都是当次实跑的快照，不得当定律引用，也不得在此建常驻判据
+  （把一次性测量变成守门规则，正是第 7 轮 i5 被我拒掉的那类做法）

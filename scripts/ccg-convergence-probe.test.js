@@ -180,8 +180,10 @@ test('P6 探针只能 require node 内置模块（Gate 2b5 所在的 changes 作
 
 test('P7 候选面 MUST NOT 含仓库自身（i2：否则任何 PR 放两个同名文件就能让 CI 执行它的代码）', () => {
   const src = fs.readFileSync(PROBE, 'utf8');
-  const body = src.slice(src.indexOf('function locateVendor'), src.indexOf('function readDefaults'));
-  assert.ok(body.length > 40, 'locateVendor 函数体必须被截到（锚点失效时不得让本条静默通过）：' + body.length);
+  // 测量域跟着实现搬家（第 4 轮 i1 把候选根抽成 vendorRoots 单点，供 realpath 复核复用）：
+  // 锚点若还钉在 locateVendor 上，这张锁会**绿着不再测量**它声称的那件事。
+  const body = src.slice(src.indexOf('function vendorRoots'), src.indexOf('function readDefaults'));
+  assert.ok(body.length > 40, 'vendorRoots + locateVendor 函数体必须被截到（锚点失效时不得让本条静默通过）：' + body.length);
   assert.ok(!/__dirname/.test(body), '候选面里出现 __dirname 就等于把仓库目录当 vendor —— 探针会 require() 一份由 PR 作者控制的代码');
   assert.match(body, /process\.env\.CCG_ARL_DIR/, '候选必须来自显式环境变量');
   assert.match(body, /USERPROFILE/, '候选必须来自用户技能目录（HOME 或 USERPROFILE）');
@@ -214,4 +216,136 @@ test('P8 判据本体的 gitignore 放行必须是"最后命中的那条规则"�
   assert.strictEqual(r.status, 0, 'check-ignore 取不到读数（rc=' + r.status + '）⇒ 判据失明，不得当成通过：' + r.stderr);
   assert.ok(out.includes(':!scripts/ccg-convergence-probe.js'),
     '最后命中的规则必须是放行规则；命中 scripts/*.js 说明有人把忽略规则挪到了放行规则之后，本体将不会入库：' + out);
+});
+
+test('P9 ⑤ 严重度出口三档不得混：函数级不在位=false / 本机在位=0 / require 不动=2(失明) / 摘掉导出=1(漂移)', () => {
+  // 这一档测的是 change: qm6-closure-writeback 打的 vendor 补丁。三档混掉的后果各不相同：
+  // 把"没补丁"读成"探针坏了" ⇒ 没人去重打；把"读不到"读成"没补丁" ⇒ 技能升级后被当成补丁被撤，
+  // 而真相是探针瞎了。所以每一格都必须指名自己那一档。
+  // 引擎桩只需导出探针开头检查的那两个函数 ⇒ 本格的"失明档"在任何机器都可跑（补丁检查排在
+  // readDefaults 之前，所以桩里不需要抄 vendor 的默认参数文本）。
+  const ENGINE_STUB = 'module.exports = { convergenceDecision: function () { return { stop: true, status: "self_play", reason: "selfPlay", minScore: 3 }; }, '
+    + 'isStalled: function () { return { stalled: false, rounds: 1 }; } };\n';
+
+  function makeStubDir (driverBody) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-stub-'));
+    const scripts = path.join(dir, 'scripts');
+    fs.mkdirSync(scripts, { recursive: true });
+    fs.writeFileSync(path.join(scripts, 'engine.js'), ENGINE_STUB, 'utf8');
+    fs.writeFileSync(path.join(scripts, 'ccg-deep-review.js'), driverBody, 'utf8');
+    return { dir, scripts };
+  }
+
+  // 格 A（任何机器）：驱动能 require 但没导出 ⇒ capable=false，且必须说清为什么
+  const a = makeStubDir('module.exports = { blockingFromAdjudication: function () {} };\n');
+  try {
+    // 桩目录必须**以 CCG_ARL_DIR 的身份**被认成许可根，否则 readSeverityCapability 会在
+    // realpath 那一格先拒绝加载（那是第 4 轮 i1 新加的判定），测不到"没导出"这一档。
+    const prevArl = process.env.CCG_ARL_DIR;
+    process.env.CCG_ARL_DIR = a.dir;
+    let cap;
+    try {
+      cap = probe.readSeverityCapability({ engine: path.join(a.scripts, 'engine.js'), driver: path.join(a.scripts, 'ccg-deep-review.js') });
+    } finally {
+      if (prevArl === undefined) delete process.env.CCG_ARL_DIR; else process.env.CCG_ARL_DIR = prevArl;
+    }
+    assert.strictEqual(cap.capable, false, '没导出的桩必须判 false：' + JSON.stringify(cap));
+    assert.match(cap.why, /没导出 verificationSeverityVerdict/, '原因必须点名缺哪个导出：' + cap.why);
+  } finally { fs.rmSync(a.dir, { recursive: true, force: true }); }
+
+  // 格 B（任何机器）：驱动 require 不动 ⇒ 探针 rc=2 + 失明文案 + 不吐半截 JSON（**不得**读成"补丁不在"）
+  const b = makeStubDir("throw new Error('fixture: require 故意失败');\n");
+  try {
+    const r = runProbe({ CCG_ARL_DIR: b.dir }, ['--json']);
+    assert.strictEqual(r.rc, 2, '驱动 require 不动 ⇒ 必须 rc=2（失明档），不得与"没补丁"的 1 混档：rc=' + r.rc + ' err=' + r.err);
+    assert.match(r.err, /探针失明/, '失明文案必须把"读不到"与"补丁不在"分开：' + r.err);
+    assert.strictEqual(r.out.trim(), '', '失明档不得吐半截 JSON：' + r.out);
+  } finally { fs.rmSync(b.dir, { recursive: true, force: true }); }
+
+  // 格 E（任何机器）：许可根**外**的驱动文件 ⇒ 探针拒绝加载，按失明档（capable=null）出声，
+  // 不得读成"补丁不在"（false）。这一格守的是第 4 轮 i1 那条：解析认 A 根、加载前不复核。
+  {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-outside-'));
+    const fakeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-root-'));
+    const prevArl = process.env.CCG_ARL_DIR;
+    try {
+      fs.writeFileSync(path.join(outside, 'ccg-deep-review.js'), 'module.exports = { verificationSeverityVerdict: function () { return "cleared"; } };\n', 'utf8');
+      fs.mkdirSync(path.join(fakeRoot, 'scripts'), { recursive: true });
+      // engine.js 必须在根内**真实存在**：i6 之后探针也复核 engine 的 realpath，
+      // 缺文件会先撞上 ENOENT 那一档，测不到"根外驱动被拒绝"这一格（本条刚被当场暴露过一次）。
+      fs.writeFileSync(path.join(fakeRoot, 'scripts', 'engine.js'), '// fixture engine\n', 'utf8');
+      process.env.CCG_ARL_DIR = fakeRoot;
+      const cap = probe.readSeverityCapability({
+        engine: path.join(fakeRoot, 'scripts', 'engine.js'),
+        driver: path.join(outside, 'ccg-deep-review.js'),
+      });
+      assert.strictEqual(cap.capable, null, '根外驱动必须是**失明**（null），不是漂移（false）：' + JSON.stringify(cap));
+      assert.match(cap.blind, /不在许可根内/, '原因必须点名是"拒绝加载"而不是"require 失败"：' + cap.blind);
+      assert.ok(!('cases' in cap), '拒绝加载时不得已经调用过那个函数（cases 缺席才证明没执行）');
+    } finally {
+      if (prevArl === undefined) delete process.env.CCG_ARL_DIR; else process.env.CCG_ARL_DIR = prevArl;
+      fs.rmSync(outside, { recursive: true, force: true });
+      fs.rmSync(fakeRoot, { recursive: true, force: true });
+    }
+  }
+
+  if (!found) {
+    console.log('[ccg-probe-test] P9：本机没有 vendor 引擎 ⇒ 格 C/D（本机在位=0 与摘导出=1 的 A/B 对照）不适用，已如实出声');
+    return;
+  }
+
+  // 格 C：本机打了补丁 ⇒ rc=0 且 JSON 把 ⑤ 的读数交出来
+  const capReal = probe.readSeverityCapability(found);
+  assert.strictEqual(capReal.capable, true, '本机 vendor 应含补丁 ⇒ capable=true，实际 ' + JSON.stringify(capReal)
+    + '；若本机从没打过补丁，这句红的正解是重打补丁（design §11），不是放宽本仓闭集');
+  assert.deepStrictEqual(capReal.cases,
+    { withCritical: null, warnOnly: 'cleared', empty: 'cleared' },
+    '三个形状各有归属：有 Critical 交回三档 / 只有 Warning 或零条 ⇒ cleared。'
+    + '⛔ 这里刻意**没有** highOnly：白名单产不出 High（下一条断言钉住），留着它就是给不可达状态编放行规则（外部深审 i3）');
+
+  // 白名单内容必须逐字钉住（i3 的另一半）：验证层"无 Critical 即 cleared"的简化**依赖**这条前提。
+  // 上游一旦往白名单里加严重度（例如 High），本仓闭集里 needs_revision 该由谁出就得重估——
+  // 那是一次真红，不是注释里的一句提醒。读不到 model-call.js 一律红（不得 skip：
+  // "读不到"与"没有漂移"在静默跳过下完全同形）。
+  const mc = path.join(path.dirname(found.engine), 'model-call.js')
+  let mcSrc = ''
+  try { mcSrc = fs.readFileSync(mc, 'utf8') } catch (e) {
+    assert.fail('读不到 vendor 的 model-call.js（' + mc + '：' + e.message
+      + '）⇒ 无从确认严重度白名单，探针⑤ 的前提未证实。不得当成通过。')
+  }
+  const wl = /SEVERITY_WHITELIST\s*=\s*\[([^\]]*)\]/.exec(mcSrc)
+  assert.ok(wl, 'model-call.js 里找不到 SEVERITY_WHITELIST 常量 ⇒ 上游改了写法，本文件的三形状前提需重估')
+  assert.deepStrictEqual(
+    wl[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean),
+    ['Critical', 'Warning', 'Info'],
+    '严重度白名单变了 ⇒ 验证层按严重度出终态的覆盖面必须重算（加新档要同步决定它出哪个闭合词）')
+  const rc0 = runProbe({ CCG_ARL_DIR: path.dirname(found.engine) }, ['--json']);
+  assert.strictEqual(rc0.rc, 0, '补丁在位 ⇒ rc=0：' + rc0.err + rc0.out);
+  assert.strictEqual(JSON.parse(rc0.out).severityCapability.capable, true, 'JSON 档必须交出 ⑤ 的读数');
+
+  // 格 D（漂移档，带 A/B 对照）：整目录复制后只摘掉导出 ⇒ rc=1 且点名"严重度"；换回原样 ⇒ rc=0
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-drift-'));
+  try {
+    const scripts = path.join(dir, 'scripts');
+    fs.mkdirSync(scripts, { recursive: true });
+    const vendorScripts = path.dirname(found.engine);
+    for (const f of fs.readdirSync(vendorScripts)) {
+      const s = path.join(vendorScripts, f);
+      if (fs.statSync(s).isFile()) fs.copyFileSync(s, path.join(scripts, f));
+    }
+    const patched = fs.readFileSync(path.join(scripts, 'ccg-deep-review.js'), 'utf8');
+    const unpatched = patched.replace(', verificationSeverityVerdict };', ' };');
+    assert.notStrictEqual(unpatched, patched, '夹具必须真的摘掉导出，否则下面那句 rc=1 是环境噪声');
+    fs.writeFileSync(path.join(scripts, 'ccg-deep-review.js'), unpatched, 'utf8');
+    const r1 = runProbe({ CCG_ARL_DIR: dir }, ['--json']);
+    assert.strictEqual(r1.rc, 1, '补丁不在位 ⇒ 必须 rc=1（漂移），不得是 0 也不得是失明的 2：rc=' + r1.rc + ' err=' + r1.err);
+    const j1 = JSON.parse(r1.out);
+    assert.strictEqual(j1.severityCapability.capable, false, 'JSON 要如实报 capable=false：' + r1.out);
+    assert.ok(j1.problems.some((p) => /严重度/.test(p)), '漂移原因必须点名"按严重度出终态"这一档：' + JSON.stringify(j1.problems));
+    assert.match(r1.err, /读数偏离预期/);
+    // A/B 对照：同一目录只把驱动换回打过补丁的那份 ⇒ 必须回到 0
+    fs.writeFileSync(path.join(scripts, 'ccg-deep-review.js'), patched, 'utf8');
+    const r0 = runProbe({ CCG_ARL_DIR: dir }, ['--json']);
+    assert.strictEqual(r0.rc, 0, 'A/B 对照：换回补丁那份必须回到 0，否则上一条红不能归因：' + r0.err + r0.out);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

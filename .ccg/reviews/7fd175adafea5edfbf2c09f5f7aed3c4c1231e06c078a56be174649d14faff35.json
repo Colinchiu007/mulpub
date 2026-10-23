@@ -1,0 +1,60 @@
+{
+  "sha": "71a61e540ea5acd66b6dfdeec631ead9e90f9ee3",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 563 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 563,
+    "fileCount": 10,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| vendor 验证层按严重度出终态（用户授权） | 仓外 `ccg-deep-review.js` + 本仓探针第 ⑤ 格 | `node scripts/ccg-convergence-probe.js` ⇒ `capable=true 三形状={\"withCritical\":null,\"warnOnly\":\"cleared\",\"empty\":\"cleared\"}`，rc=0。**第 3 轮 i3 之后摘掉了 `highOnly` 那一格**：vendor `model-call.js:191` 的 `SEVERITY_WHITELIST=['Critical','Warning','Info']`，白名单外的 severity 让那次评审当场失败 ⇒ `High` 出现 0 次，留着那条分支就是给不可达状态编放行规则。白名单内容由 P9 用断言钉死（读不到 `model-call.js` 一律红、不得 skip），漂移由测试抓、不由死分支猜 |",
+      "| vendor 侧改动（用户授权） | ✅ | 仓外 `ccg-deep-review.js` 验证层按严重度出终态；备份 `ccg-deep-review.js.bak-severity`；`node --check` 通过。**第 3 轮 i3 后又摘掉了 High 那一格**：vendor `model-call.js:191` 的 `SEVERITY_WHITELIST = ['Critical','Warning','Info']`，白名单外的 severity 让那次评审当场失败 ⇒ `High` 出现 0 次，给不可达状态编放行规则就是把\"不可达\"写成\"可达\" |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7fd175adafea5edfbf2c09f5f7aed3c4c1231e06c078a56be174649d14faff35",
+  "decidedAt": "2026-10-23T01:45:33.218Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

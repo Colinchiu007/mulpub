@@ -91,6 +91,10 @@ test('五条件齐备：写 tier=external + delivery@ 摘要，并逐条打点',
   assert.deepStrictEqual(res.spoke.slice().sort(), ['backend-matches', 'closed-status', 'delivery-changed', 'findings-present', 'nonempty-findings'],
     `五条各打各的读数，实得 ${JSON.stringify(res.spoke)}`)
   assert.strictEqual(res.wrote, true, `应写回，实得 reason=${res.reason} detail=${res.detail || '-'}`)
+  // 测试名写的是「写 tier=external」，那这两条就必须真的断——第二代变异驱动 N4（把档位改成
+  // internal）实测只红了「盘里内容」那一条，这一条照样绿：名字比断言宽。
+  assert.strictEqual(res.tier, 'external', `返回值必须交出档位，实得 ${JSON.stringify(res.tier)}`)
+  assert.match(res.evidence, /^delivery@[0-9a-f]{64}$/, `返回值必须交出将落盘的摘要：${res.evidence}`)
 })
 
 test('写进盘里的内容：只有 tier/evidence 两个键变，既有字段逐字不动', () => {
@@ -385,4 +389,86 @@ test('④-g 真跑一次 lib 的指纹出口：入口就是用它取动手前指
     assert.strictEqual(String(r.stdout).trim(), c.beforeFingerprint,
       'shell 侧拿到的指纹必须与判据用的是同一份实现算出来的（否则 ④ 的两边永远不等）')
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+// ── §12 外部深审 i1 / i2 / i3 的处置锁（2026-10-22，重放在主干那代之上） ──────────────
+test('§12a dry：五条件齐备但本轮不落盘，打印将写的 evidence，既有字节逐字不变（i1）', () => {
+  withDelivery(deliveredRecord({ status: 'pending' }), deliveredRecord(), (file, beforeBytes) => {
+    const keep = fs.readFileSync(file)
+    const res = mod().applyWriteback({ recordPath: file, beforeBytes, expectedCritic: 'claude', dry: true })
+    assert.strictEqual(res.wrote, false, 'dry 档绝不落盘')
+    assert.strictEqual(res.reason, 'dry-run', `应点名 dry-run，实得 ${res.reason}`)
+    assert.match(res.evidence, /^delivery@[0-9a-f]{64}$/, 'dry 也要把**将写什么**交出来，否则无从核对')
+    assert.strictEqual(res.action, 'external', 'dry 的语义是"这一轮本来会走 external 那一档"，不是降级')
+    assert.deepStrictEqual(fs.readFileSync(file), keep, 'dry 之后盘上字节必须逐字不变（返回 false 不等于没动文件）')
+  })
+})
+
+test('§12b 作用域判据：.. 段与非 .json 一律在任何 IO 之前抛错，既有文件一个字节都不动（i2）', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `mp-wbdom-${process.pid}-`))
+  try {
+    // 诱饵就放在临时目录里，用一个真实存在、可解析、但不是判定产物的 JSON ——
+    // i2 的原始主张是"REC 里塞 .. 就能任意读写"，这条负控把"写错位置"那一半真的拦下来给人看。
+    const decoy = path.join(dir, 'package.json')
+    fs.writeFileSync(decoy, JSON.stringify({ name: 'multi-publish', version: '0.0.0' }), 'utf8')
+    const keep = fs.readFileSync(decoy)
+    for (const bad of ['../../etc/passwd.json', 'rec.txt', 'a/../b/rec.json']) {
+      assert.throws(() => mod().applyWriteback({ recordPath: bad, beforeBytes: Buffer.from('{}'), expectedCritic: 'claude' }),
+        /missing-record-path|record-path-out-of-domain/, `${JSON.stringify(bad)} 必须被拒在 IO 之前`)
+    }
+    // 作用域**内**但不是判定产物的那份 JSON：不抛错，走 record-unreadable 的拒绝路径，一个字节都不写 ——
+    // 这一格才是 i2 里"任意文件被改写"那半的真实答案（拦它的是五条件本身，不是路径形状）。
+    const inside = mod().applyWriteback({ recordPath: decoy, beforeBytes: Buffer.from('{}'), expectedCritic: 'claude' })
+    assert.strictEqual(inside.wrote, false, `诱饵必须被判未写回，实得 ${JSON.stringify(inside)}`)
+    assert.strictEqual(inside.reason, 'record-unreadable', `应点名「读不出判定产物」，实得 ${inside.reason}`)
+    assert.deepStrictEqual(fs.readFileSync(decoy), keep, '诱饵文件必须逐字不变')
+    assert.deepStrictEqual(fs.readFileSync(path.join(dir, 'package.json')), keep, '按文件名给的路径同样不得被写')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('§12c 真实产物命名必须逐条通过作用域判据（规模下界，防「判据只对自己的夹具成立」）', () => {
+  const dir = path.join(__dirname, '..', '.ccg', 'reviews')
+  const names = fs.readdirSync(dir).filter((n) => n.endsWith('.json'))
+  assert.ok(names.length >= 100, `真实产物面必须有规模（实得 ${names.length}），否则这条锁什么都没看`)
+  const bad = names.filter((n) => {
+    try { mod().assertRecordPathScope('.ccg/reviews/' + n); return false } catch { return true }
+  })
+  assert.deepStrictEqual(bad, [],
+    `这些主干真实产物名会被作用域判据误杀，而入口递下来的正是这个形状：${bad.slice(0, 5).join(', ')}`)
+  console.log(`[ccg-review-writeback-test] §12c 现场：真实产物 ${names.length} 条全部通过作用域判据`)
+})
+
+test('§12d 规格那张处置表与 DECLINE_REASONS 逐名同文（i3：一张表，不散在 if 链里）', () => {
+  const specFile = path.join(__dirname, '..', 'openspec', 'changes', 'qm6-closure-writeback',
+    'specs', 'qm6-closure-writeback', 'spec.md')
+  const lines = fs.readFileSync(specFile, 'utf8').split(/\r?\n/)
+  const h = lines.findIndex((l) => /^\|\s*缺件名/.test(l))
+  if (h < 0) throw new Error('规格里那张处置表的表头找不到（以 "| 缺件名" 起头）⇒ 本条判据失明，不得当成通过')
+  const fromSpec = new Set()
+  let rows = 0
+  for (let i = h + 2; i < lines.length && /^\|/.test(lines[i]); i++) {
+    rows++
+    const firstCol = lines[i].split('|')[1] || ''
+    for (const m of firstCol.matchAll(/`([a-z-]+)`/g)) fromSpec.add(m[1])
+  }
+  assert.ok(rows >= 5, `表格行数不足（实得 ${rows}）⇒ 表被改坏，本条要同步`)
+  const inCode = new Set(mod().DECLINE_REASONS)
+  // 非缺件那一档也必须进同一把锁（第 6 轮 i3）：只比 DECLINE_REASONS 的话，
+  // `dry-run` 这类"名字确实会出现在输出里、但不是缺件"的出口就从两张表之间漏掉。
+  const outcomes = new Set(mod().NON_DECLINE_OUTCOMES)
+  assert.ok(outcomes.has('dry-run'), 'dry-run 必须登记在 NON_DECLINE_OUTCOMES 里：' + JSON.stringify([...outcomes]))
+  const throws = new Set(['missing-record-path', 'record-path-out-of-domain'])
+  for (const n of throws) assert.ok(fromSpec.has(n), `规格的抛错档必须点名 ${n}`)
+  const diff = [...fromSpec].filter((n) => !inCode.has(n) && !throws.has(n) && !outcomes.has(n))
+  const missing = [...inCode].filter((n) => !fromSpec.has(n))
+  assert.deepStrictEqual(diff, [], `规格里有而代码没有的缺件名：${diff.join(
+)}`)
+  assert.deepStrictEqual(missing, [], `代码里会出声而规格没写的缺件名：${missing.join(
+)}`)
+  assert.ok(inCode.size >= 8, `DECLINE_REASONS 规模异常（${inCode.size}）`)
+  const notSpeced = [...inCode, ...outcomes].filter((n) => !fromSpec.has(n))
+  assert.deepStrictEqual(notSpeced, [], `代码会出声而规格没写的名：${notSpeced.join(', ')}`)
+  console.log(`[ccg-review-writeback-test] §12d 现场：规格 ${fromSpec.size} 名 / 拒写 ${inCode.size} 名 + 非拒写出口 ${outcomes.size} 名 + 抛错 2 名，逐名对账通过`)
 })

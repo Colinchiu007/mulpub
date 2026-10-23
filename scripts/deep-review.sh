@@ -57,6 +57,10 @@ cd "$ROOT" || exit 2
 FORCE=0
 DRY=0
 CHECK_DEPS=0
+# 写回 dry 开关（--writeback-dry，外部深审 i1）：与 DRY/CHECK_DEPS 同批声明，
+# 否则没传该旗标时 set -u 会直接中止整个脚本。
+WB_DRY=0
+WB_DRY_ARGS=""
 # 后端覆盖：旗标 > 环境变量 > 清单文件。空串按「没配」处理（CI 表达式里 VAR="" 是常态，
 # 把它判成故障会把所有 PR 打红），但非空且不合法的名字一律早退（见 resolve_review_backends）。
 CRITIC_ARG=""
@@ -68,6 +72,10 @@ while [ $# -gt 0 ]; do
     --force) FORCE=1 ;;
     --dry-run) DRY=1 ;;
     --check-deps) CHECK_DEPS=1 ;;
+    # 排障用显式旗标（外部深审 i1）：写回器只打印"将写什么"，随后按动手前快照**还原判定产物**
+    # ⇒ 本轮净效果 = 不改产物。做成旗标而不是 env：env 关掉什么都不留痕，下一个读到 `tier`
+    # 缺席的人无法区分"没交付"与"有人关了开关"（本仓对 pre-commit 也做过同一否决）。
+    --writeback-dry) WB_DRY=1; WB_DRY_ARGS="--dry" ;;
     --critic|--proposer)
       _v="${2:-}"
       case "$_v" in
@@ -83,7 +91,7 @@ while [ $# -gt 0 ]; do
       sed -n '2,/^set -u/{/^set -u/!p}' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *)
-      say "✗ 未知旗标：$1（本入口只认 --force / --dry-run / --check-deps / --critic <名> / --proposer <名> / --help）"
+      say "✗ 未知旗标：$1（本入口只认 --force / --dry-run / --check-deps / --writeback-dry / --critic <名> / --proposer <名> / --help）"
       say "  参数不得静默忽略：静默忽略会让「我传了」与「传进去了」在产物上完全同形。"
       exit 2 ;;
   esac
@@ -870,6 +878,26 @@ fi
 #   把它接成 `exit $?` 会把"评审失败"原地变成"评审成功"。
 #   行为锁：scripts/deep-review-entry-rc.test.js 用假驱动分别跑 rc=0/1/2 三档断言逐字相等。
 run_driver_with_writeback() {
+  # 动手前的字节快照（外部深审 i1 / i5）：除了给写回器判"本次驱动到底写过这条记录没有"，
+  # 还供 `--writeback-dry` 在打印完"将写什么"之后**还原判定产物** —— 少了这份基线，
+  # dry 档就只能"不写自己的那一笔"，而驱动那一跳的改写会留在盘上，与旗标的字面承诺相反。
+  # 快照建不起来时**在跑驱动之前**就把后果说清：事后再说"没有基线"已经无法补救。
+  _wb_snap="$(mktemp 2>/dev/null || echo '')"
+  # 回收不能只排在函数末尾那一句。进程被信号打断时那一句根本到不了 —— 本机就实测过一次：
+  # 外层命令 10 分钟上限把评审杀掉，快照永久漏在 TMPDIR 里。而它恰恰是"dry 档到底改没改产物"
+  # 的唯一现场，漏了不只是脏盘，下次想对账已经没有底本。
+  # trap 挂在 EXIT 上、rm -f 幂等 ⇒ 正常路径仍由函数末尾那句负责，这里只兜"被杀"那一档；
+  # EXIT trap 不改写退出码（`exit $_wb_rc` 仍是权威），所以「写回是旁路、不改评审 rc」那条合同不动。
+  # ⚠ 这一档没有行为锁：它唯一的可观察结果是"TMPDIR 里少一个临时文件"，而共享 TMPDIR 上做文件数
+  #   断言本身不稳（别的进程也在写）。rc 那一半由 ⑧（信号终止）守，快照内容对账由 ⑫ 守。
+  trap '[ -n "${_wb_snap:-}" ] && rm -f "$_wb_snap" || true' EXIT
+  _wb_had_rec=0
+  if [ -z "$_wb_snap" ]; then
+    say "⚠ before-unspecified：建不起动手前快照 ⇒ ④ 无从证明，写回器会拒绝补齐 tier/evidence"
+    say "  后果：驱动照跑，但它对判定产物的改写**没有可比对的基线**。本次结论只在终端输出与 .adversarial/ 现场里。"
+  elif [ -f "$REC" ] && cp "$REC" "$_wb_snap" 2>/dev/null; then
+    _wb_had_rec=1
+  fi
   # 动手前的字节哈希只能在这里取：写回器要据此判断"本次驱动到底写过这条记录没有"。
   # 口径必须与判据侧一致（原始字节 sha256，与本脚本内容寻址段用的 sha256sum 同形），
   # 两侧不同形时 no-write 那一格会永久点不到火 —— 见 ccg-review-writeback.test.js ④-a2。
@@ -881,8 +909,38 @@ run_driver_with_writeback() {
   node "$DRIVER" "$@"
   _wb_rc=$?
   node scripts/ccg-review-writeback.js \
-    --record="$REC" --expected-critic="$RB_CRITIC" --before-sha256="$_wb_before" --before-fingerprint="$_wb_before_fp" \
+    --record="$REC" --expected-critic="$RB_CRITIC" --before-sha256="$_wb_before" --before-fingerprint="$_wb_before_fp" $WB_DRY_ARGS \
     || say "⚠ 写回器自身未能运行（它不改评审 rc）—— 本次 tier/evidence 不会被补齐，需人工核对记录。"
+  if [ "$WB_DRY" -eq 1 ]; then
+    # 还原必须排在写回器打印**之后**：先把"它将写什么"打出来，再把产物退回动手前 ——
+    # 顺序反了就只能打印内存里的值，而那正是"看起来核对过、其实没核对"的形状。
+    _wb_keep_snap=0
+    if [ "$_wb_had_rec" = "1" ] && cp "$_wb_snap" "$REC" 2>/dev/null; then
+      # ⛔ "cp 返回 0" 不等于"盘上就是动手前那份"（外部深审第 3 轮 i5，Security 轴）。
+      #   还原这一步与写回器打印之间没有任何屏障：同一 worktree 里另一个评审（或另一个会话的
+      #   pre-commit）可以在这之后改写 $REC，此时 cp 照旧成功、"已还原"照旧打印，
+      #   而 dry 档的字面承诺（不改产物）已经不成立。判据只能取**字节对账**：
+      #   还原后再算一次哈希，与驱动跑之前那次（$_wb_before）逐字相等才算。
+      _wb_after="$(sha256sum < "$REC" 2>/dev/null | cut -d' ' -f1)"
+      if [ -n "$_wb_after" ] && [ -n "$_wb_before" ] && [ "$_wb_after" = "$_wb_before" ]; then
+        say "ℹ 本轮带 --writeback-dry：上面那行就是它将写的值；已按动手前快照还原判定产物，"
+        say "  dry-restore=verified sha256=${_wb_after:0:12}（还原后字节与动手前逐字相同 ⇒ 本轮净效果不改产物）。"
+      else
+        say "⚠ dry-restore=mismatch：还原后再算的哈希与动手前不等（前=${_wb_before:-读不出} 后=${_wb_after:-读不出}）"
+        say "  ⇒ 「dry 不改产物」这句**没有成立**。快照留在 $_wb_snap 供人工比对，本次不删。"
+        _wb_keep_snap=1
+      fi
+    else
+      say "⚠ 本轮带 --writeback-dry 但还原不了判定产物（动手前没有该记录，或快照没建起来）"
+      say "  ⇒ 驱动那一跳的改写会留在盘上。这不是「评审失败」，是 dry 档在这条路径上给不出逐字不变。"
+    fi
+  fi
+  # 对账不过时**不得**把唯一现场删掉：那时快照是"还原到底还原成了什么"的唯一可比对象。
+  if [ "${_wb_keep_snap:-0}" = "1" ]; then
+    say "  快照留痕：$_wb_snap"
+  elif [ -n "$_wb_snap" ]; then
+    rm -f "$_wb_snap"
+  fi
   exit "$_wb_rc"
 }
 
