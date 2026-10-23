@@ -441,3 +441,48 @@ PUT  https://finderassistancea.video.qq.com/applyuploaddfs -> 404（无鉴权请
 - 蚁小二（`yx-slices-v2.txt`）给出的是**纯 API 三段式**，不含浏览器上传器实现；
 - 融媒宝（DLL 字符串）同样只有 URL；
 - ⇒ 浏览器上传器这条路**没有逆向成果可直接复用**，只能靠页面自身证据（截图/日志/锚点）推导。
+
+## 8.18 今日头条：上传成功、点击不提交（2026-10-23 20:17 实证）
+
+### 完整日志序列（账号 `45261bb5`）
+
+```
+20:14:42  uploading file...
+20:17:09  file uploaded                 ✅ 上传成功（约 2.5 分钟）
+20:17:17  publishing...
+20:17:20  confirm dialog probe: NO_DIALOG   ✅ 平台未拒绝
+20:17:30  verifying...
+20:17:56  artifact 未命中：no-endpoint-hit / works-page-timeout
+20:18:10  publish signal lacked platform ID; endpoint=.../manage/content/video responses=0
+20:18:10  publish failed: 发布结果缺少平台作品 ID
+```
+
+### 判读
+
+| 环节 | 结论 |
+| --- | --- |
+| 上传 | ✅ 正常（`file uploaded`），排除文件/封面上传问题 |
+| 账号 | ✅ 平台不拒绝（`NO_DIALOG`），排除资质问题 |
+| **提交** | ❌ `responses=0` —— 点击后**没有产生任何发布请求** |
+| 作品 | ❌ 视频列表 0 条 |
+
+⇒ 阻塞点被收敛为唯一一处：**点击动作没有触发页面的提交逻辑**。
+
+### 已证伪的两条假设
+
+| 假设 | 做法 | 结果 |
+| --- | --- | --- |
+| 点击目标不对 | 按文本精确点「发布」 | `clicked` 但无请求 |
+| 需要两段式点击 | 移除多余首点、保留原两段式 | 仍 `responses=0` |
+
+### 下一步（两条，按成本排序）
+
+1. **启用 API 轨**：`config/platforms.yaml` 的 `toutiao.publishMode` 由 `dom-only` 改为 `api-then-dom`
+   （该平台 `has_api: true`，适配器已有 `GetPublishAuth` → `PublishVideo` 链，但**此前从未执行过**）。
+   注：配置在应用启动时读取，**改完必须重启**才生效。
+2. **抓一次真实提交请求**：在浏览器里人工点一次发布，记录请求体，再按形状实现。
+
+### 产品提示
+
+当 `responses=0` 且无作品 ID 时，提示语应为：
+「发布未提交成功，请重试或改用网页端发布」，而不是笼统的「缺少作品 ID」。
