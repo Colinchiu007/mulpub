@@ -480,6 +480,13 @@ const platformsMixin = {
           this._emitProgress(platform,'publishing...',85)
           const rp = (isApiTrack(config) && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
           // 按优先级依次尝试所有发布按钮候选，任一可见即用（页面改版后首个候选可能失效）
+          // 2026-10-23 真机：pubBtn=4 时首个候选可能是标签页/预览键 ⇒ 先按文本精确点一次「发布」。
+          if (platform === 'toutiao') {
+            try {
+              const hit = await win.webContents.executeJavaScript('(function(){var bs=[].slice.call(document.querySelectorAll("button"));var t=null;for(var i=0;i<bs.length;i++){if((bs[i].innerText||"").trim()==="发布"){t=bs[i];break}}if(!t)return "not-found";if(t.disabled)return "disabled";t.click();return "clicked"})()', true)
+              log.info('RpaView', '[toutiao] exact 发布 click: ' + hit)
+            } catch (_e5) { /* 精确点击失败不影响后续候选 */ }
+          }
           let publishSelector = null
           for (const cand of sel.publish_btn || []) {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
@@ -1385,7 +1392,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     })
   },
 
-  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：；此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，；而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
   async _publish_toutiao (win, article) {
     return require('@multi-publish/rpa-engine/src/toutiao-direct-bridge')
       .publishToutiao({
@@ -1402,7 +1408,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
 
   async _publish_zhihu(win, article) {
     this._emitProgress('zhihu','navigating to write page...',5)
-    // 2026-09-29 图文发布修复（实测取证）：www.zhihu.com/creator/write 落地页与；.WriteIndex-titleInput 等选择器失配（15s 超时全灭）；zhuanlan.zhihu.com/write；实测选择器全命中（LABEL.WriteIndex-titleInput 包 TEXTAREA.Input +；.public-DraftEditor-content[contenteditable] + 发布 button）。
     await this._navigateAndWait(win,'https://zhuanlan.zhihu.com/write')
     if (win.webContents.getURL().includes('signin')||win.webContents.getURL().includes('login'))
       { log.warn('RpaView', '[zhihu] not logged in url=' + win.webContents.getURL()); return {success:false,error:'zhihu not logged in',platform:'zhihu'} }
@@ -1414,7 +1419,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     if (article.title) {
       this._emitProgress('zhihu','filling title...',30)
       try {
-        // 2026-09-29 修复：.WriteIndex-titleInput 是 LABEL wrapper（Input-wrapper--multiline），；旧实现 ti.textContent=标题 写在 label 上、真实输入框从未收到值。；正解：定位 wrapper 内部 textarea/input，用原生 value setter + input/change 事件。
         const tj = JSON.stringify(article.title)
         await win.webContents.executeJavaScript("(function(){var w=document.querySelector('.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title');var ti=w?w.querySelector('textarea, input'):null;if(!ti)ti=document.querySelector('textarea[placeholder*=\"标题\"], input[placeholder*=\"标题\"]');if(!ti)return false;ti.focus();var proto=ti.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;var d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(ti,"+tj+");else ti.value="+tj+";ti.dispatchEvent(new Event('input',{bubbles:true}));ti.dispatchEvent(new Event('change',{bubbles:true}));return true;})()")
       } catch(e) { log.warn('RpaView','zhihu title: '+e.message) }
@@ -1422,7 +1426,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     if (article.content) {
       this._emitProgress('zhihu','filling content...',50)
       try {
-        // 2026-09-29 修复：Draft.js 不接受 innerHTML 直写容器（.DraftEditor-root 是容器非；contenteditable，实测 innerHTML 写入后框架状态为空、发布出空文）；也不接受；execCommand 合成分块。正解（实测取证）：JS focus .public-DraftEditor-content →；CDP Input.insertText 可信注入（框架收到真实 beforeinput 并入状态）。；内容格式：发布页编辑器是 Quill（content-type=html），article.content 到达时已被；规范化为 HTML（<p>…</p>）；Draft.js 是纯文本编辑器，注入前先在页面内转纯文本；（<p> 段落 → \n\n 分隔，textContent 保留段内换行）。
         const plainContent = await win.webContents.executeJavaScript('(function(){var html=' + JSON.stringify(String(article.content)) + ';if(!/<[a-z][\\s\\S]*>/i.test(html))return html;try{var doc=new DOMParser().parseFromString(html,\'text/html\');var paras=[...doc.querySelectorAll(\'p,div,h1,h2,h3,h4,li,blockquote,pre\')];if(paras.length>0)return paras.map(function(p){return p.textContent.trim()}).filter(Boolean).join(\'\\n\\n\');return doc.body.textContent}catch(e){return html.replace(/<[^>]+>/g,\'\')}})()')
         const focused = await win.webContents.executeJavaScript('(function(){var ed=document.querySelector(\'.public-DraftEditor-content, [contenteditable="true"]\');if(!ed)return false;ed.focus();return document.activeElement===ed})()')
         if (focused) {
@@ -1456,7 +1459,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       }
       await this._click(win,pubBtn)
       this._emitProgress('zhihu','verifying...',95)
-      // 2026-10-15 报障修复（「显示成功但没有真实发布」）：知乎发布是**两段式** —— 首次点；「发布」只落成草稿并跳到 /p/<id>/edit，该页需再点一次才真发布；旧判据 `/\/p\/\d+/`；恰好命中草稿编辑页 ⇒ 假成功（真机 2026-10-15T12:40:19Z→22Z）。确认逻辑见模块。
       const confirm = await zhihuPublishState.confirmZhihuPublished({
         readUrl: () => win.webContents.getURL(),
         waitForElement: (sel,ms) => this._waitForElement(win,sel,ms),
@@ -1478,5 +1480,4 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
   },
 }
 
-// 合并抽出的 mixin（后写者胜：uploadWaiterMixin v4 须居 navigationHelpers 之后；artifactsHelpers 无键冲突）
 module.exports = Object.assign(platformsMixin, navigationHelpers, uploadWaiterMixin, artifactsHelpers)
