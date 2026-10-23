@@ -468,6 +468,15 @@ const platformsMixin = {
           for (const cand of sel.publish_btn || []) {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
+          // 2026-10-23 真机：视频号发布页会弹出「切换视频号」遮挡层（按钮 取消/切换/我知道了），
+          // 不解掉它，发布点击只会打到遮罩 ⇒ 日志有 publishing 但实际未提交（用户核对创作者中心无新内容）。
+          if (platform === 'tencent_video') {
+            try {
+              const dm = await win.webContents.executeJavaScript('(function(){var w=["取消","我知道了"];var els=[...document.querySelectorAll("button,a,span,div")];for(var i=0;i<els.length;i++){var s=(els[i].innerText||"").trim();if(w.indexOf(s)>=0&&els[i].getClientRects().length>0){els[i].click();return s}}return ""})()', true)
+              log.info('RpaView', '[tencent_video] pre-publish modal dismiss: ' + (dm || 'none'))
+            } catch (_e) { /* 无弹窗不阻塞 */ }
+            await this._sleep(600)
+          }
           if (!publishSelector) throw new Error('publish btn not found')
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
