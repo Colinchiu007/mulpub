@@ -188,7 +188,15 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         this._emitProgress(platform, 'uploading file...', 25)
         // 逐候选定位文件输入（上传落地页常有多个 input[type=file]，首个未必负责视频）
         const fileSel = await this._resolveSelector(win, inputs, 15000, 3000)
-        if (!fileSel) { if (!retry.retry('file_upload')) break; await this._sleep(2000); continue }
+        if (!fileSel) {
+          // 2026-10-23 诊断：视频号上传卡在重试循环且未进入 _setFileInput ⇒ 打印页面真实 input。
+          try {
+            const shape = await win.webContents.executeJavaScript('(function(){var a=[].slice.call(document.querySelectorAll("input[type=file]"));return a.map(function(e){return (e.accept||"-")+"|"+(e.className||"").toString().slice(0,24)}).join(" ; ")||"NONE"})()', true)
+            log.warn('RpaView', '[' + platform + '] file inputs on page: ' + shape)
+          } catch (_e9) { /* 诊断失败忽略 */ }
+          if (!retry.retry('file_upload')) break
+          await this._sleep(2000); continue
+        }
         await this._setFileInput(win, article.video_path, fileSel)
         // tencent drop fallback（2026-10-23 截图取证）：视频号发布页的上传区是拖拽区，
         // CDP/DataTransfer 设 input 后页面仍是空框（截图 evidence），必须再走 DragEvent drop。
