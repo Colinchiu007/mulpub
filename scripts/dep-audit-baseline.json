@@ -365,6 +365,19 @@
       ],
       "decision": "not-exploitable",
       "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "module": "zod",
+      "severity": "high",
+      "patched": ">=4.6.6",
+      "targetVersion": "4.6.6",
+      "roots": [
+        "zod"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-23 新公告（GHSA-mrhx-c7xc-m3w5 = CVE-2023-54404，CWE-770 资源未限流）：zod 在校验**超大受限集合**时（如 z.array().max(N) 遇到外部可控的超大数组）会耗尽内存，影响面仅可用性（机密性/完整性均不受影响），CVSS v4 = AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H，EPSS 0.35%（27 百分位）。本仓 zod@4.3.6 由 packages/remotion-composer 的依赖链**精确锁定**（zod-to-json-schema@3.25.2、@remotion/media@4.0.484 等以 zod: 4.3.6 精确引入），该包 package.json 不直接声明 zod。本仓 zod 校验对象是内部生成的渲染参数与配置，不接受外部直接投递超大集合 ⇒ 触发面窄；但修复版本 zod>=4.6.6 已发布，刷新 lockfile 需连带回归 remotion-composer 的渲染/构建链，单独排期。动作 = pnpm 升级 zod 至 >=4.6.6 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
     }
   ]
 }
