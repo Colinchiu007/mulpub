@@ -133,14 +133,24 @@ branch: fix-collection-rewrite-publish-flow
 - **i3 / i5（轮 10）**：审计要「不读提案正文」就能独立核对两个口径、且要能分辨引擎输出与人工插值 ⇒ **已实现**：13 份产物新增**自填** `deepReview.statsAudit`（`scope` / `codeFileCount` / `codeTotalLines` / `allFileCount` / `allTotalLines` / 两条可粘贴的 numstat 复算命令 / `authoredBy`）与三个角色标记（`findingsAuthoredBy` / `closureAuthoredBy` / `statsAudit.authoredBy`）；**引擎写回的 `stats` 与 `findings` 一字未改**。
 - **i7（轮 10）**：「不要只靠 UI 禁用标志做并发控制」⇒ **已实现**：`startPipelineRun` 入口**显式终止前一轮 run**（`pipelineCancelRun(prevRunId)` + 清 `videoRunId`），把「启动 ⇒ 其它 run 一定不在跑」写死在编排边界上（编排层管理的是外部进程，只丢响应会让前一个 run 在后台空转）。
 
-**两次独立外部复核（高危面解除证据，均公开留痕）**：
+**四次独立外部复核（高危面解除证据，均公开留痕）**：
 
 | 次 | 针对 | 外部模型 | 结论 | 公开位置 |
 |---|---|---|---|---|
 | 1 | 键名契约迁移（datamigration，i7） | claude 2.1.303（自行读代码，不参考本仓既有评审记录） | **不破坏**、**不需要向后兼容**：引擎真实键名 `wordCountRange`（`rewrite-engine-core.js:641-646` / `:668-709` / `:131-132`）、`targetWordCount` 在活跃代码中已无收发方、Python 侧是独立契约（`service.py:292-296`、`models.py:172-174`）且桌面端不经该路径 | PR #4114 评论 [#issuecomment-6302916932](https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6302916932) |
 | 2 | 审计可信度 + 消费者清单 + 厂商独立性（auth / datamigration，i1 / i3 / i4） | claude 2.1.303（自行读脚本与代码） | ① 自扮演裁决 + 门禁允许的手写收口「与仓库脚本一致」，属**治理层改进**，**不阻断本 PR**（`CLOSED_DEEP_REVIEW_STATUSES:732-736` 含 `self_play_resolved`，且本 PR `pathHits=0`）；② 全仓穷举 `targetWordCount` **无引擎消费方**；③ `claude`/`opencode` 为**不同厂商**（`backends.list:14-15`、`backends.js:47-52`） | PR #4114 评论 [#issuecomment-6303677171](https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171) |
+| 3 | **合并 main 之后**的代码 + 深审引擎判据源码（auth / datamigration） | claude 2.1.303（隔离只读副本 + 工具白名单只给 Read/Grep/Glob） | A 组「部分成立」、B 组「成立」、C 组「成立」；给出两处可落地细化（`statsAudit` 补 `engineWrittenFields` / `agentWrittenFields`；`cancel` 失败时旧 run 无可见指示） | PR #4114 评论 [#issuecomment-6310698615](https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615) |
+| 4 | **交付前最终形态**：高危面是否命中 / 「成片↔文案同源」是否可达 / 分支谱系分水岭 / 本轮记录是否属实 | claude 2.1.303（**隔离只读副本**：本分支 HEAD 的 `git archive` 快照，工具白名单只给 Read/Grep/Glob） | 四问**全部成立**：① 46 个改动文件对 8 条高危前缀**零命中**，新增配置档案模块是业务配置解析、不涉鉴权/凭证；② 「成片↔文案同源」**不可达**（runId 身份守卫三处 + 成片路径清空两处 + `isGenVideoResultReady`）；③ 配置档案模块在且被调用；④ 本轮记录段落无虚构证据、无夸大。**并抓到本刀自己的两个过期行号**（见下） | PR #4114 评论 [#issuecomment-6368372014](https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6368372014)（正文 sha256 `ab3c8acb77efa5ca5b8b0f45575a07dd3a547e50efa36bc194002c865060958b`，`gh api` 取回正文即可重算核对） |
 
-> 第二次外部复核员在其运行时刻读到产物的 `externalReview` 三格仍为 `null`、本评论尚未发布，故它**如实**判「独立外部复核不成立」。该前提已由本刀消解：三格已填、两次原文均公开留痕、并写入产物的 `externallyReviewed` 与 `closureNote`。**如实登记，不回避这条否定性观察。**
+> 第二次外部复核员在其运行时刻读到产物的 `externalReview` 三格仍为 `null`、本评论尚未发布，故它**如实**判「独立外部复核不成立」。该前提已由本刀消解：三格已填、四次原文均公开留痕、并写入产物的 `externallyReviewed` 与 `closureNote`。**如实登记，不回避这条否定性观察。**
+
+> **第四次外部复核抓到了本刀自己的错（如实登记）**：本刀在执行记录里引用
+> `useCollectionVideoCreation.js:298`（`startVideoCreation`）与 `:395`（`retryVideoCreation`）——
+> 那两个行号是按**一版已被驳回并回退**的本地改动算的。外部复核读到的是 `:288`，
+> 与本刀自己写的 `:298` **不一致** ⇒ 是**外部复核**发现了本刀的记录错误。
+> 已订正为 `:288` / `:376`（以 `Select-String` 实读为准），并把该订正写进公开评论。
+> ⇒ 这正是外部复核在本仓的作用：**在独立环境里重算一遍本刀声称的事实**，而不是替本刀找活干。
+
 
 **其余 dismissal 的证据类型**（每条都给了可复算读数，不是「看起来没问题」）：
 
@@ -316,12 +326,36 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
 1. **过期响应被 runId 身份挡住**（不是靠时间顺序猜）：`useGenVideoRunTracking.js:68`（请求前）、
    `:71`（await 之后）、`:94`（推送快照）三处都是 `runId.value !== id` ⇒ 旧 run 的完成回调
    **不可能**落到新 run 的状态上。
-2. **新一轮启动会清空成片路径**：`useCollectionVideoCreation.js:298`（`startVideoCreation`）与
-   `:395`（`retryVideoCreation`）都把 `videoCompletedVideoPath` 置空 ⇒ 成片缺失时
+2. **新一轮启动会清空成片路径**：`useCollectionVideoCreation.js:288`（`startVideoCreation`）与
+   `:376`（`retryVideoCreation`）都把 `videoCompletedVideoPath` 置空 ⇒ 成片缺失时
    `isGenVideoResultReady`（`features/hot-topics/gen-video-view-model.js:47-48`）为假
-   ⇒ **发布出口不可达**（按钮灰显、`publishVideoResult` 首行即返回）。
+   ⇒ **发布出口不可达**（按钮灰显、`publishVideoResult`（`:428`）首行即返回）。
 
 ⇒ 结论：**不构成缺陷**（驳回）。若将来引入「后台重试 / 多路并行」形态（多条 run 各自存活），
 上述第 1 条的 runId 身份守卫不再足够，那时才需要每条 run 独立取消句柄 + 文案按 run 绑定 —— 属**另一种产品形态**，
 已在 composable 头注释的「并发模型」段写明，不在本刀范围。
+
+#### ③ 第 4 次独立外部复核与判定记录收口（2026-10-23）
+
+- **执行环境**：本分支 HEAD 的 `git archive` 快照（临时目录里的**只读副本**），工具白名单**只给
+  Read / Grep / Glob**（Write / Edit / NotebookEdit / Bash 显式禁用）——「只读」靠**执行环境隔离**，
+  不靠提示词声明（这是本刀第一次外部复核越权写入仓库之后写进记录的纪律）。
+- **外部模型**：`claude 2.1.303`；四问**全部「成立」**，**没有新缺陷**，但**抓到本刀自己的两个过期行号**（见上）。
+- **公开留痕**：PR #4114 评论
+  [#issuecomment-6368372014](https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6368372014)
+  （创建于 `2026-10-23T15:24:16Z`，正文 sha256
+  `ab3c8acb77efa5ca5b8b0f45575a07dd3a547e50efa36bc194002c865060958b`，
+  可由 `gh api repos/Colinchiu007/mulpub/issues/comments/6368372014` 取回正文后重算核对）。
+- **本刀唯一一条欠账的收口**：`.ccg/reviews/e768b04c…json`（mode=dual，status=pending）——
+  它是**合并主干那次提交**的记录（差集 = 主干的 521 个文件 / 21603 行，**不是本 PR 的代码**）。
+  按仓库既有先例（`1a739484b…` / `88bec26a…`）手写收口：
+  `status=cleared`、`tier=external` + `evidence=<上面那条评论 URL>`（可核形态）、
+  `findings` 逐条写出 **3 条裁决**（i1 高危面零命中 / i2 合并未把本 PR 改动混进主干高危域文件 /
+  i3 成片↔文案同源不可达；三条全部 **dismissed**，各附可复算行号与外部复核出处）、
+  `closureNote` 含轮次标记与逐条处置结论、`clearedBy` / `clearedAt` / `clearedReason` 如实写明；
+  **引擎原值 `status=pending` 保留在 `engineStatusBeforeClear`**，`stats` 一字未改。
+- **门禁读数**：`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce`
+  ⇒ `OK: 本 PR 携带执行记录或带原因的豁免`（exit 0）；`TIER-COVERAGE dual-closed total=4 external=1
+  external-unverified=0 self-play=1 none=0 unknown(字段缺席)=2 unrecognized=0`。
+
 
