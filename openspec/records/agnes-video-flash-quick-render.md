@@ -7,7 +7,18 @@ branch: agnes-video-flash-quick-render
 
 # 快速渲染接入 Agnes Video 2.5 Flash 全能力
 
-| 远程同步 | 由门禁推导 |
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 变更类型与隔离 | 通过 | 运行时代码变更；独立克隆 + 裸分支 `agnes-video-flash-quick-render`；未在共享主目录落盘 |
+| 第一性原因（QM-5 ①） | 通过 | 能力不可见的根因是**参数在三层被丢**：流水线层 `generateSceneVideo` 只传 6 字段、契约层 IPC 只收 `{prompt}`、渲染层无入口 |
+| 逃逸分析（QM-5 ②） | 通过 | 既有单测只断言「调用了 `renderStartAiVideo`」与「返回本地路径」，**没有任何一条断言参数透传** ⇒ 参数被丢弃无人发现；「输出平台失效」同样无人断言 |
+| 修复 + 回归保护（QM-5 ④） | 通过 | 新增 `scene-video-generator.test.js`（10）/ `agnes-video-models.test.js`（8）/ `QuickRenderPanel.test.js`（19）+ 扩展 `agnes-multimodal.test.js`（+6）/`render.test.js`（+6）：分别锁「有值才写键」「能力驱动上限」「profile→画幅映射」「领域码本地化」 |
+| 防止再次发生（QM-5 ⑤） | 通过 | 判据收敛到三处单一真源（模型能力表 / 模式契约 / 请求体构造），新增 provider 只需声明能力，**不必改中央名单** |
+| 行尾与 diff 对账 | 通过 | 两口径 numstat 一致；本 PR 无行尾改动（纯 LF） |
+| 接线棘轮 | 通过 | 新增 `*.test.js` 三支由 vitest 默认发现（`apps/desktop` 的 `test` 脚本 = `vitest run`，无白名单接线机制）；已实跑全绿 |
+| QM-1 打包 / QM-4 视觉 | 部分 | QM-1 未执行（沙箱无 Electron 打包环境）；QM-4 核实「快速渲染」**不在像素判定域**（`base-screenshots/` 无 create-quick 基线，`check-visual-coverage.js` 通过）⇒ 改 UI 不撞 Gate 7b 的 0px 判定；workflows 套件的截图步骤由 CI 的 QG Visual job 实跑 |
+| QM-6 CCG 双模型外部评审 | **未执行** | 本机无 `codeagent-wrapper` ⇒ 如实记「未执行」，**不以自审冒充通过** |
+| 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`） |
 
 ## 1. 这次做的是什么事
 
