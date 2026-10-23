@@ -537,6 +537,21 @@ const platformsMixin = {
                   win.webContents.sendInputEvent({ type: 'mouseDown', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
                   await this._sleep(60)
                   win.webContents.sendInputEvent({ type: 'mouseUp', x: _rc.x, y: _rc.y, button: 'left', clickCount: 1 })
+                  // frame-publish-click：wujie 的 shadowRoot 是同步副本，事件到不了真实上下文。
+                  // 改为遍历所有子帧，在各帧自己的执行上下文里找「发表」并派发完整指针序列。
+                  try {
+                    const _frames = (win.webContents.mainFrame && win.webContents.mainFrame.framesInSubtree) ? win.webContents.mainFrame.framesInSubtree : [win.webContents.mainFrame]
+                    log.info('RpaView', '[tencent_video] frame-publish: frames=' + _frames.length)
+                    for (const _f of _frames) {
+                      try {
+                        const _r = await Promise.race([
+                          _f.executeJavaScript("(function(){var bs=[].slice.call(document.querySelectorAll(\"button\"));var t=null;for(var i=0;i<bs.length;i++){var x=(bs[i].innerText||\"\").replace(/\\\\s+/g,\"\");if(x===\"发表\"){t=bs[i];break}}if(!t)return \"no-btn\";var o={bubbles:true,cancelable:true,composed:true,view:window,button:0,buttons:1};[\"pointerover\",\"pointerenter\",\"pointerdown\",\"mousedown\",\"pointerup\",\"mouseup\",\"click\"].forEach(function(n){try{t.dispatchEvent(new (n.indexOf(\"pointer\")===0?PointerEvent:MouseEvent)(n,o))}catch(e){}});return \"sequenced:\"+(t.innerText||\"\").replace(/\\\\s+/g,\"\")})()", true),
+                          new Promise(function (res) { setTimeout(function () { res('timeout') }, 5000) })
+                        ])
+                        if (_r && String(_r).indexOf('sequenced') === 0) { log.info('RpaView', '[tencent_video] frame-publish: ' + String(_r) + ' @ ' + String(_f.url || '').slice(0, 60)); break }
+                      } catch (_eF) {}
+                    }
+                  } catch (_eFP) { log.warn('RpaView', '[tencent_video] frame-publish failed: ' + String((_eFP && _eFP.message) || '').slice(0, 80)) }
                   // pointer-sequence：坐标点击实测未进入页面（click-probe: []），
                   // 改用页内完整指针事件序列（pointerdown→mousedown→pointerup→mouseup→click），
                   // 这是 React 合成事件体系唯一可靠的非坐标触发方式。
