@@ -78,3 +78,5 @@ sync_backfill_owner: none-derived-from-trunk
   1. `useCollectionBatchPublish.js` 3 处 `notify.error(String((e && e.message) \|\| e))` —— 兜底是**异常对象本身**而非 locale 键，直接套 `userFacingErrorMessage` 会在认不出时显示 `[object Object]`；正解要先定「批量发布的失败文案是否统一取 `collection.batch.*`」，属产品裁决，不在本刀顺手改。
   2. 页面内**错误行**（`error.value = (res && res.message) \|\| t(…)`，如 `PersonalFormDialog.vue`、`ViralFormDialog.vue`、`FeishuSettingsTab.vue`、`ZhihuSettingsTab.vue`、`PodcastScriptEntry.vue` 等）—— 本刀的棘轮只覆盖 toast（`ElMessage.*`）。要不要把「一切用户可见的错误文本都经分类器」立为契约，是范围决定而非遗漏；若立，棘轮判据需扩到赋值表达式与 `.value` 绑定两类形态，并先量一次存量。
 - 首页文案、品牌称谓、遥测隐私等既有产品待决项与本批无关，未据此改动任何显示文案。
+
+| 远程同步 | 由门禁推导 |
