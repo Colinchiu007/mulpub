@@ -6,10 +6,16 @@
 #   type              — 旧字段（article/mixed），保留兼容
 #   category          — 语言分类（中文/海外）
 #   content_category  — 内容类型分类（VIDEO/IMAGE_TEXT/MIXED），对应 PRD F9 PlatformCategory
+#
+# ⚠️ 平台标识 = 本文件的一级键（如 `wechat_mp:` / `tencent_video:`），**不是**某个 id 字段。
+#    运行时由 `packages/shared-utils/src/platform-config.js` 把一级键写回 `cfg.id`，
+#    本文件里写任何 id 字段都会被覆盖且无人读取，故已全部移除（2026-10-23）。
+#    需要「厂商平台 ID」（导入数据指标矩阵/分类树用）时，查
+#    `scripts/import-platform-metric-matrix.js` 的 `SUPPORTED_PLATFORMS` 常量。
+#    ⚠️ 特别提醒：`tencent_video` = 视频号 = 厂商 53，**不是** 21（21 是腾讯视频）。
 
 platforms:
   wechat_mp:
-    id: 1
     name: 微信公众号
     type: article
     icon: 💬
@@ -25,7 +31,6 @@ platforms:
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   zhihu:
-    id: 12
     name: 知乎
     type: article
     icon: ❓
@@ -75,7 +80,6 @@ platforms:
     max_content: 5000
     enabled: true
   xiaohongshu:
-    id: 51
     name: 小红书
     type: mixed
     icon: 📕
@@ -96,7 +100,6 @@ platforms:
   # id 因存量数据/账号绑定/历史记录兼容无法改名，**新增代码请勿据 id 推断平台归属**。
   # 频率策略表里 `tencent_video` 同样指视频号；腾讯视频（v.qq.com）未接入。
   tencent_video:
-    id: 21
     name: 视频号
     type: mixed
     icon: ▶
@@ -119,7 +122,6 @@ platforms:
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   kuaishou:
-    id: 35
     name: 快手
     type: mixed
     icon: 🎬
@@ -144,7 +146,6 @@ platforms:
     publishMode: api-then-dom   # W3 §5.4 快手 API 发布链入波（签名页未就绪/不支持时可降级 DOM）
     enabled: true
   toutiao:
-    id: 3
     name: 今日头条
     type: article
     icon: 📰
@@ -186,7 +187,6 @@ platforms:
     max_content: 2200
     enabled: true
   bilibili:
-    id: 23
     name: 哔哩哔哩
     type: mixed
     icon: 📺
@@ -204,7 +204,6 @@ platforms:
     publishMode: api-then-dom   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   baijiahao:
-    id: 4
     name: 百家号
     type: mixed
     icon: 📖
@@ -235,7 +234,6 @@ platforms:
     max_content: 280
     enabled: true
   instagram:
-    id: 103
     name: Instagram
     type: mixed
     icon: 📷
@@ -251,7 +249,6 @@ platforms:
     publishMode: dom-only   # W1 §5.1 三态总闸：api-only|api-then-dom|dom-only
     enabled: true
   facebook:
-    id: 104
     name: Facebook
     type: mixed
     icon: 👍
