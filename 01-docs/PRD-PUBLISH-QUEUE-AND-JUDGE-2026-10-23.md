@@ -628,3 +628,46 @@ document.body.children.length
 
 > **二进制内可见 ≠ 运行时被调用 ≠ 服务端接受**；
 > 本次 ⑦ 的"端点"结论就是一次典型误标（页面 URL 被写成了提交端点）。
+
+## 8.23 视频号与头条：路径穷举结论（2026-10-24 00:45）
+
+### 视频号 · 七条路径全部实测
+
+| # | 路径 | 代码位置 | 结果 |
+| --- | --- | --- | --- |
+| 1 | 主文档 `DOM.querySelector` | `_dropViaCdp` | ❌ `target not found` |
+| 2 | `DOM.getDocument({pierce:true})` | 同上 | ❌ 只穿 shadow，不穿 iframe |
+| 3 | `Page.createIsolatedWorld` + `Runtime.evaluate` | 帧扫描 | ✅ 可注入；编辑器帧 `kids=0`（恒空） |
+| 4 | **Shadow DOM 递归扫描** | `shadow-scan` | ✅ `found:true`（1266×763 外壳；改最小面积后仍待验） |
+| 5 | `Input.dispatchDragEvent` + `files` | `_dropViaCdp` | ❌ 页面不认（`upload-complete signal not detected`） |
+| 6 | 穿透树 `DOM.setFileInputFiles` | `deep-input` | ✅ `ok nodeId=2951`，❌ 页面不认 |
+| 7 | HTTP `applyuploaddfs` | `shipinhao-video.js` | ❌ 404（`finderassistancea` 与 `finderassistanced` 均 404） |
+
+**判据**：第 4 条证明"能看见上传区"，第 5/6 条证明"能发事件/能设值"，但页面始终不产生预览与 URL；
+第 7 条证明 API 上传端点在本机不可用。⇒ **本机环境下两条路都不可达**，不是再改几行能解决。
+
+### 今日头条 · API 链已跑到 publish
+
+```
+00:08:17  视频已上传，正在提交
+00:08:17  正在上传本地封面
+00:08:18  封面已获上传授权
+00:08:18  封面已上传并登记
+00:08:18  API publish toutiao: missing csrf token
+```
+
+- 上传、封面两步**完全成功**，只差写接口的 `x-csrf-token`；
+- 我方 `pickCsrfToken` 只读 cookie `xigua_csrf_token`，登录态里没有该键；
+- 已加自举（HEAD + `x-secsdk-csrf-request:1` → 读 `x-ware-csrf-token`）与逐候选诊断，待验证。
+
+### 产品提示要求
+
+| 场景 | 提示 |
+| --- | --- |
+| 视频号上传无预览 | 「视频未能上传成功，请重试或改用网页端发布」 |
+| 头条缺 CSRF | 「发布提交缺少安全令牌，请重新登录后重试」 |
+
+### 运维经验
+
+- **跨日后日志换文件**（`app-YYYY-MM-DD.log`），旧文件不再写入——采样脚本必须按日期取当日文件，否则会"看不到新日志"。
+- 测试发布间隔由启动参数 `MP_PUBLISH_MIN_INTERVAL_MS` 控制，当前按用户要求用 **330000（5 分半）**。
