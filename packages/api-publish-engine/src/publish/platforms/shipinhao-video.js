@@ -153,6 +153,29 @@ class ShipinhaoVideoChain {
     return { cookie: this.cookie, referer: referer || API_REFERER, Accept: 'application/json, text/plain, */*' }
   }
 
+  /**
+   * Step 0（逆向文档《视频号发布链深挖》§二① + §五.1）：auth_data 前置鉴权。
+   * 文档原话：「上传前三跳不能省……直接打 applyuploaddfs 可能缺 helper_upload_params 的前置参数」。
+   * 失败不阻断（返回 null），仅记录状态码，便于判断 404 是否由此而来。
+   */
+  async authData () {
+    try {
+      const res = await requestWithRetry(this.api, {
+        method: 'post',
+        url: '/cgi-bin/mmfinderassistant-bin/auth/auth_data',
+        data: { timestamp: getTimeStamp(13), _log_finder_id: this.finderId, rawKeyBuff: null },
+        headers: this._apiHeaders(API_REFERER),
+        validateStatus: (x) => x >= 200 && x < 500,
+      })
+      const d = res && res.data
+      this.logger.log('shipinhao auth_data: status=' + (res && res.status) + ' errCode=' + (d && d.errCode) + ' errMsg=' + (d && d.errMsg))
+      return d || null
+    } catch (eA) {
+      this.logger.log('shipinhao auth_data failed: ' + String(eA && eA.message || '').slice(0, 120))
+      return null
+    }
+  }
+
   /** Step 1：获取上传鉴权（返回的 authKey 作为后续 CDN 请求的 Authorization） */
   async getUploadAuthKey () {
     const res = await requestWithRetry(this.api, {
@@ -373,6 +396,7 @@ class ShipinhaoVideoChain {
     }
     const taskid = opts.taskid || ('T' + getTimeStamp(10))
     const filekey = taskData.video.path.split(/[\\/]/).pop()
+    await this.authData() // Step 0（逆向文档 §二①：先 auth_data 再 helper_upload_params）
     const authKey = await this.getUploadAuthKey()
     const meta = { authKey, filetype: taskData.video.filetype || 'mp4', filekey, taskid }
     const { uploadId, videoInfo } = await this.uploadVideo(taskData.video.path, meta, opts.onProgress)
