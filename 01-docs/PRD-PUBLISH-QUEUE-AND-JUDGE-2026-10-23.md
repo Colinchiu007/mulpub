@@ -140,3 +140,67 @@ publish:batch
 
 - 成功唯一判据：**作品列表出现新作品**（用户可见）；
 - `publishing...`、`CONFIRMED_IN_MODAL`、HTTP 2xx **均不作为成功证据**。
+
+## 8.9 今日头条：平台侧「账号信息未完善」拒绝发布（2026-10-23 实证）
+
+### 证据
+
+```
+09:03:37  [toutiao] publishing...
+09:03:37  [toutiao] exact 发布 click: clicked          ← 点击确实落到了「发布」
+09:03:40  [toutiao] confirm dialog probe: MODAL_NO_MATCH:
+          「账号信息未完善 - 账号信息未完善，暂时不能进行发布文章、视频等权益操作，请完善后重试」
+          buttons = [取消] [去完善]
+09:03:40  url 仍为 .../xigua/upload-video，发布请求 0 条
+```
+
+### 结论
+
+| 环节 | 状态 |
+| --- | --- |
+| 视频上传 | ✅ |
+| 标题写入 | ✅ `hasTitle=true` |
+| 封面 | ✅ 已改为走 `cover_input`（弹窗不再出现） |
+| 发布点击 | ✅ `clicked` |
+| **平台受理** | ❌ **账号信息未完善** |
+
+⇒ 这不是代码缺陷，而是**账号资质**问题。代码侧能做的已全部走通。
+
+### 处置
+
+1. 该账号需在头条创作后台补齐资料/资质后重试；
+2. 或改用已有发布权益的账号（本仓已用 `45261bb5` 做对照）；
+3. 提示文字建议（产品侧）：当检测到页面出现「账号信息未完善」时，向用户显式提示
+   「请先到该平台后台完善账号信息后重试」，而不是笼统报「缺少作品 ID」。
+
+## 8.10 视频号：账号选择与「切换视频号」弹窗（2026-10-23 实证）
+
+### 账号
+
+| 账号 | 判定 | 说明 |
+| --- | --- | --- |
+| `0891817b` | ❌ 失效 | 分区仅 4 条 cookie、cookie 库为空；`errCode 300334/300342` 全部来自它 |
+| `ccfe6492` | ✅ 有效 | `CHECK_LOGIN_SUCCESS_HTTP_API`、`valid=true`、`status=active` |
+
+### 换对账号后的进展
+
+```
+API 轨：Step1 helper_upload_params → errCode:0 + authKey ✅
+        applyuploaddfs → 404（host=(baseURL)）
+RPA 轨：进入 /platform/post/create ✅
+        desc filled readback=189 ✅
+        short title filled readback=16 ✅
+        发布被「切换视频号」弹窗遮挡 ❌
+```
+
+### 修复
+
+- 发布前检测含「切换视频号」的弹窗并点 `取消` / `我知道了`（`9ee055e77`），日志输出
+  `[tencent_video] switch-account modal: dismissed:取消|none`。
+- apply 的 404：Step1 响应体只含 `authKey/uin/appType/fileTypes`，**不含 `cdnHost`** ⇒
+  真实上传主机需从页面 `envInfo` 读取，不能依赖固定常量。
+
+### 数据校验
+
+- 成功唯一判据：**平台作品列表出现该作品**；
+- `publishing...`、`clicked`、HTTP 2xx 均不作为成功证据。
