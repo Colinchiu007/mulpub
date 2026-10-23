@@ -167,3 +167,28 @@ phase-failed error="竖版视频暂不支持 API 发布，请使用 RPA 发布"
 4. **验收只认用户可见结果**：创作者中心 / 作品列表 / 草稿箱。HTTP 2xx、`publishing...` 日志、确认弹窗点击**都不构成发布成功证据**。
 
 **反例（必须记住）**：曾以「捕获到 3 条 HTTP 201」推断发布成功，用户核对创作者中心与草稿箱**均为空**，证明该推断错误。2xx 只能证明「某个请求被受理」，不能证明「作品已发布」。
+
+## 8.5 视频号 API 链：与竞品实现的逐项对照（2026-10-23）
+
+竞品实现取自 `00-vendor-originals/refproduct/main-dist-index.cjs`（压缩代码，以下为原文摘录）。
+
+| 步骤 | 竞品 | 本项目 | 一致性 |
+| --- | --- | --- | --- |
+| 1 取鉴权 | `POST channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/helper/helper_upload_params`，body `{timestamp,_log_finder_id,rawKeyBuff}` | 同 | ✅ |
+| 2 申请上传 | `PUT finderassistancea.video.qq.com/applyuploaddfs`，`X-Arguments: apptype=251&filetype&weixinnum&filekey&filesize&taskid&scene=2` | 同 | ✅ |
+| 3 分片 | `PUT finderassistanced.video.qq.com/uploadpartdfs?PartNumber&UploadID`，`scene=0` | 同 | ✅ |
+| 4 完成 | `POST finderassistancea.video.qq.com/completepartuploaddfs?UploadID`，body `{TransFlag:'0_0',PartInfo}`，`scene=2` | 同 | ✅ |
+| 5a 视频登记 | `POST .../post/post_clip_video`，body 含 `clipOriginVideoInfo{width,height,duration,fileSize}`、`traceInfo{traceKey,uploadCdnStart,uploadCdnEnd}`、`targetWidth/targetHeight`、`type:4`、`scene:7` | **缺** | ❌ |
+| 5b 发布 | `POST .../post/post_create` 或 `post_draft` | 同 | ✅ |
+
+### 数据校验（本条链路的判定口径）
+
+- Step1 成功判据：`errCode===0` 且 `data.authKey` 非空；**响应不含 `cdnHost`**（实测），故主机必须用常量。
+- Step2/4 成功判据：HTTP 2xx 且响应可 JSON 解析；失败时错误信息须带 `[host=…]` 以便归因。
+- Step3 成功判据：每片 2xx；分片大小 8 MiB。
+- Step5 成功判据：`errCode===0` 且返回体含 `postId/contentId/id` 之一；**仅有 2xx 不算成功**（见 8.1/8.4）。
+
+### 待验证与后续
+
+- 2026-10-23 13:52 起验证「主机修正后 Step5 是否可直接成功」。
+- 若 Step5 因缺少视频登记而失败，则补 `post_clip_video`：其 `traceInfo` 需记录上传开始/结束时间戳（`getTimeStamp(10)`），`targetWidth/Height` 在竖版时按 `width<=height` 分支取 1080 或 1920 上限。
