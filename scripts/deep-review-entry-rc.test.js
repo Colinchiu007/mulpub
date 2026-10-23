@@ -36,7 +36,11 @@ const SCRIPT_CLOSURE = [
   'ccg-review-backends.list',
   'lib/ccg-backends.sh',
   'lib/ccg-review-backends.js',
-  'lib/ccg-delivery-digest.js'
+  'lib/ccg-delivery-digest.js',
+  // 守门面清单的单一真源：check-pr-exec-record.js 的 require 闭包成员。
+  // 漏了它 ⇒ 夹具里的入口脚本 require 不到 ⇒ 入口在「写回步骤」之前就崩，
+  // 表现为「入口必须把写回步骤跑起来并出声」红，而真正的原因是模块缺失。
+  'lib/ccg-review-gate-surfaces.js'
 ]
 
 const FAKE_DRIVER = `'use strict'
