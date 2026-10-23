@@ -192,7 +192,12 @@ class ShipinhaoVideoChain {
     }
     let res
     try {
-      res = await requestWithRetry(this.cdn, { method: 'put', url: this.cdnHost + '/applyuploaddfs', data: payload, headers })
+      // 2026-10-23（蚁小二 yx-slices-v2 L10-11 逐字对照）：参考产品的 URL 带
+      // ?size=&taskid=&scene=2 三个查询参数；我方此前完全没有 query ⇒ 网关按 query 路由返回 404。
+      const _taskId = (meta && (meta.taskid || meta.taskId)) || String(Date.now())
+      const _uploadUrl = this.cdnHost + '/applyuploaddfs?size=' + encodeURIComponent(String(meta.filesize || ''))
+        + '&taskid=' + encodeURIComponent(String(_taskId)) + '&scene=2'
+      res = await requestWithRetry(this.cdn, { method: 'put', url: _uploadUrl, data: payload, headers })
     } catch (e) {
       // 2026-10-23 诊断：应用日志只收主进程 logger 输出，console 不可见 ⇒ 把上下文塞进错误信息。
       if (e && typeof e.message === 'string') e.message += ' [host=' + (this.cdnHost || '(baseURL)') + ' step1Keys=' + (this._step1Keys || 'n/a') + ' step1Body=' + (this._step1Body || '') + ']'
