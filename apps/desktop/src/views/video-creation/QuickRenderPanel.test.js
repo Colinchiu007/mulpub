@@ -369,3 +369,45 @@ describe('QuickRenderPanel — 进度、结果与取消', () => {
     expect(cuts[0].animation).toBe('ken-burns')
   })
 })
+
+/**
+ * 拖拽上传路径的接线（2026-10-24 补）
+ *
+ * 背景：素材区的**拖拽**分支（`@drop-images` / `@drop-audios` / `@drop-gallery` /
+ * `@drop-frame` / `@remove-frame`）曾直接写成裸标识符（`@drop-gallery="pushGallery"`），
+ * 而 `pushGallery` 等五个只存在于 `useQuickRenderMaterials()` 的返回值里
+ * —— 组件作用域**没有**这些名字 ⇒ Vue 渲染期就报
+ * 「Property "pushGallery" was accessed during render but is not defined on instance」，
+ * 事件真正触发时则是 `TypeError: pushGallery is not a function`。
+ *
+ * 为什么没被测出来：既有用例只走**隐藏 input 的 change**（那条路经 `onGalleryPicked`
+ * 调 `materials.pushGallery`，是通的）⇒ 拖拽分支零覆盖 ⇒ 缺陷长期隐身。
+ */
+describe('QuickRenderPanel — 拖拽上传路径的接线', () => {
+  it('模板不得引用未定义的标识符（拖拽/移除绑定必须指向 composable）', async () => {
+    const warns = []
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args) => {
+      warns.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '))
+    })
+    try {
+      await mountPanel()
+    } finally {
+      spy.mockRestore()
+    }
+    const undef = warns.filter((msg) => /was accessed during render but is not defined/.test(msg))
+    expect(undef, `模板引用了未定义的标识符：\n${undef.join('\n')}`).toEqual([])
+  })
+
+  it('拖拽上传图库素材会真的进列（drop 事件绑定必须可用）', async () => {
+    const { w } = await mountPanel()
+    await w.find('[data-testid="quick-mode-gallery"]').trigger('click')
+    await nextTick()
+    const mats = w.findComponent({ name: 'QuickRenderMaterials' })
+    expect(mats.exists()).toBe(true)
+    await mats.vm.$emit('drop-gallery', [makeFile('dropped.png', 'image/png')])
+    await vi.waitFor(() => {
+      expect(w.find('[data-testid="quick-gallery-zone"]').findAll('.image-thumb').length).toBeGreaterThanOrEqual(1)
+    }, { timeout: 3000, interval: 20 })
+    w.unmount()
+  })
+})
