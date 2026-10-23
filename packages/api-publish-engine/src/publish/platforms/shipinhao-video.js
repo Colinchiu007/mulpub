@@ -30,6 +30,11 @@ const DEFAULT_API_BASE = 'https://channels.weixin.qq.com'
 // `ReplaceHost="https://finder.video.qq.com"`），实测该主机可达（返回 protobuf 业务错误而非 404）。
 // 保留旧主机作为**最后兜底**：若新主机在部分网络不可达，仍可回落读取 envInfo.cdnHostList。
 const CDN_HOST_CANDIDATES = ['https://finder.video.qq.com', 'https://finderassistancea.video.qq.com']
+// 2026-10-23 逆向实证（融媒宝-完整拆解 §5.8 对照表）：三段式三步用的**主机不同**，
+// 竞品原生层：applyuploaddfs / completepartuploaddfs → finderassistancea；uploadpartdfs → finderassistanced。
+// 此前本项目三步共用同一 baseURL，与实证不符。
+const RE_HOST_APPLY = 'https://finderassistancea.video.qq.com'
+const RE_HOST_PART = 'https://finderassistanced.video.qq.com'
 const DEFAULT_CDN_BASE = CDN_HOST_CANDIDATES[0]
 const API_REFERER = 'https://channels.weixin.qq.com'
 const POST_REFERER = 'https://channels.weixin.qq.com/platform/post/create'
@@ -119,6 +124,9 @@ class ShipinhaoVideoChain {
     this.logger = opts.logger || console
     const headers = { 'User-Agent': this.userAgent }
     this.api = opts.api || createHttpClient({ baseURL: opts.apiBase || DEFAULT_API_BASE, timeout: opts.timeout, agents: opts.agents, headers })
+    // 注入了 cdn 客户端（测试/自定义）时用相对路径；真实运行时用逆向实证的分步主机。
+    this.hostApply = opts.cdn ? '' : RE_HOST_APPLY
+    this.hostPart = opts.cdn ? '' : RE_HOST_PART
     this.cdn = opts.cdn || createHttpClient({ baseURL: opts.cdnBase || DEFAULT_CDN_BASE, timeout: opts.timeout, agents: opts.agents, headers })
   }
 
@@ -167,7 +175,7 @@ class ShipinhaoVideoChain {
       Referer: UPLOAD_REFERER,
       Origin: DEFAULT_API_BASE + '/',
     }
-    const res = await requestWithRetry(this.cdn, { method: 'put', url: '/applyuploaddfs', data: payload, headers })
+    const res = await requestWithRetry(this.cdn, { method: 'put', url: this.hostApply + '/applyuploaddfs', data: payload, headers })
     const d = res.data || {}
     const uploadId = d.UploadID || (d.data && d.data.UploadID) || ''
     if (!uploadId) {
@@ -187,7 +195,7 @@ class ShipinhaoVideoChain {
       Origin: DEFAULT_API_BASE,
       'User-Agent': this.userAgent,
     }
-    const url = '/uploadpartdfs?PartNumber=' + partNumber + '&UploadID=' + encodeURIComponent(uploadId)
+    const url = this.hostPart + '/uploadpartdfs?PartNumber=' + partNumber + '&UploadID=' + encodeURIComponent(uploadId)
     const res = await requestWithRetry(this.cdn, { method: 'put', url, data: buf, headers })
     const d = res.data || {}
     return { etag: d.ETag, partNumber, raw: d }
@@ -203,7 +211,7 @@ class ShipinhaoVideoChain {
       Origin: DEFAULT_API_BASE,
       'User-Agent': this.userAgent,
     }
-    const url = '/completepartuploaddfs?UploadID=' + encodeURIComponent(uploadId)
+    const url = this.hostApply + '/completepartuploaddfs?UploadID=' + encodeURIComponent(uploadId)
     const res = await requestWithRetry(this.cdn, { method: 'post', url, data: { TransFlag: '0_0', PartInfo: partInfos }, headers })
     return res.data || {}
   }
