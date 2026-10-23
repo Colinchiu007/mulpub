@@ -460,7 +460,8 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       'if(d&&d.set){d.set.call(input,dt.files)}else{input.files=dt.files}' +
       'input.dispatchEvent(new Event("change",{bubbles:true}));' +
       'var r=up.getBoundingClientRect();' +
-      'return {ok:true,w:Math.round(r.width),h:Math.round(r.height),n:f.size};' +
+      'var pb=[].slice.call(host.shadowRoot.querySelectorAll("button")).some(function(b){return (b.innerText||"").indexOf("发表")>=0});' +
+      'return {ok:true,w:Math.round(r.width),h:Math.round(r.height),n:f.size,publishBtnAfter:pb};' +
     '})()'
     try {
       const r = await win.webContents.executeJavaScript(expr, true)
