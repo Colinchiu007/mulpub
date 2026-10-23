@@ -3,6 +3,7 @@ record: agnes-video-flash-quick-render
 task: 快速渲染接入 Agnes Video 2.5 Flash 全能力（文生 / 首尾帧 / 参考素材 + 真实进度）
 date: 2026-10-23
 branch: agnes-video-flash-quick-render
+delivered_by_pr: 4342
 ---
 
 # 快速渲染接入 Agnes Video 2.5 Flash 全能力
