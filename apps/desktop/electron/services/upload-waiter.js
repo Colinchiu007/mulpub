@@ -478,7 +478,8 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       const _hosts = await win.webContents.executeJavaScript("(function(){var out=[];var all=document.querySelectorAll('*');for(var i=0;i<all.length&&out.length<12;i++){var e=all[i];if(e.shadowRoot){out.push((e.tagName||'')+'.'+String(e.className||'').slice(0,40)+'#'+(e.id||''))}}return out})()", true)
       log.info('RpaView', 'shadow-hosts: ' + JSON.stringify(_hosts))
     } catch (_eH) { log.warn('RpaView', 'shadow-hosts probe failed') }
-    // wujie-first 已移除：base64 注入会卡住渲染进程（2026-10-24 01:02 实测）
+    // wujie-first restored（2026-10-24 01:04 实测 ok:true, n=255745）：竞品选择器在本页有效。
+    try { if (await this._uploadViaWujie(win, filePath)) { log.info('RpaView', 'cdp-drop: wujie-first ok'); return true } } catch (_eWf) {}
     const path = require('path')
     const dbg = win.webContents.debugger
     let attached = false
