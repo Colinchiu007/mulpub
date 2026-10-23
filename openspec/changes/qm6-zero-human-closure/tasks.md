@@ -31,6 +31,17 @@
   连样本数一起写。不得引用"约 8 秒"那句未带样本量的旧话。
 - [ ] 0.4 **确认 #4261 已合并**（D3 的守门面维度取其单源）。未合并即停在 §0，不开 §2——
   在旧基线上写 D3 会造出第二份守门面清单，正是本 change 要消灭的形状。
+- [ ] 0.5 **本片自己后续每轮深审都会撞的那个坑（本轮实测，登记不认领）**：
+  `scripts/plan-review.sh` 的产物目录 slug **只由方案文件的 basename + critic 决定**，不带所在目录
+  （入口自己的红文案承认：2026-10-10 那次修复加了 critic，没加目录维度）。
+  后果：本仓每个 change 的方案文件都叫 `design.md` ⇒ **任意两个 change 的决策层评审现场互相覆盖**。
+  实测撞上的不是历史残留，是并发会话**当天 11:15** 刚落的 `.adversarial/ccg-plan-design-claude/`
+  （里面是 `oss-b1-rpa-hardening` 的评审产物）。本轮的规避方式如实记：在 `.adversarial/`（已 gitignore）里
+  放一份**唯一命名且 `cmp` 逐字节相同**的副本作载荷，不动任何受管文件——这是绕行，不是修复。
+  ⛔ 不得用 `MP_ALLOW_PLAN_COLLISION=1` 知情放行把别人的评审现场覆盖掉。
+  **正解属评审链那一侧**（slug 加目录维度 + 一条"同 slug 不同内容必须出声"的行为锁，形状同
+  [[qm6-review-loop-budget-slice]] 的"计数不得挂记录名"），**不在本片**：本 change 只交付第 1/3 刀规格，
+  且那条改的是"评审如何算数"，须单独裁决。所以这里只登记，勾它等于越界。
 
 ## 1. 示踪弹：先让"高危面 Critical 无机械出口"这件事变红
 
@@ -75,6 +86,7 @@
   夹具必须**同时含一条 base blob 不可读的案例**（例如只留一个提交的仓），断言它被拒且计数进 `REJECTED-UNREPLAYABLE`。
   变异反证：M-D3d 让 `recordedBy` 缺 `ref` ⇒ 红；M-D3e 把 `cases=0` 的出口改成 exit 0 ⇒ 红；
   **M-D3l 摘掉 `cat-file -e` 自证 ⇒ "不可读案例被拒"那条 MUST 红**。
+  **M-D3t 把语料行的必填字段闭集放宽成"读得到就用" ⇒ "缺字段逐字段点名"那条必须红**（跨家族 i7）。
 - [ ] 2.3 **差分判据** `scripts/check-qm6-judgment-regression.js`：`hits_new ⊇ hits_old`；
   读不到 ⇒ `unverified` 单列；`registered=0 || corpus-cases=0` ⇒ rc=2（**自身故障档与发现变宽档 rc=1 必须分档**）；
   首行打印 `JUDGMENT-RULES registered=<n> corpus-cases=<n> checked=<n> widened=<n> unverified=<n>`。
@@ -87,12 +99,21 @@
   ② **选择集常态打印**（i4 成立的那一半）：每次运行无条件打 `REPLAY-SCOPE full|selected=<n> hit-dimensions=<清单>`，
      **不得只在降级时打**——只在降级时打印等于"平时没人知道自己跑的是哪一档"，下个会话会把选择集当全量引用。
   ③ **空选择集不得读成通过**：守门面命中 > 0 而选择集为 0 ⇒ `unverified` 档并 rc=2，不是"无事发生"。
+  **退出码与合并的关系必须写死**（第 2 轮跨家族 i4：「未证实」此前是一句没有后果的话）：
+  `0` 允许 / `1` 发现变宽 ⇒ 拦 / `2` 判据自身故障与**一切未证实形态**（规则表空、语料空、blob 取不到、
+  账本锚点对不上、`GIT-PROBE` 行缺失）⇒ **同样拦**。对齐 AGENTS「`check-main-red` 四个非零档一律不得合并」那条口径。
+  **账本必须锚回 git，不得锚回它自己**（跨家族 i2——我第 1 轮否证别人哈希链的那句话对自己同样成立）：
+  每条运行账记 `corpusBlob = git rev-parse <headSha>:scripts/qm6-judgment-corpus.jsonl`，
+  判据取回该 blob **重算摘要**与账上比对；取不到或不符 ⇒ `ledger-anchor-unverified`，MUST NOT 读成"账本一致"。
   测试目标：新文件 `check-qm6-judgment-regression.test.js` —— ① 正控：喂一份"把某前缀改窄"的判据副本 MUST 红并点名语料 id 与 `source.pr`；
   ② 收紧 MUST 绿；③ 语料缺失/为空 MUST rc=2 且 MUST 仍打印那行；④ 一条产物不可读 ⇒ 落 `unverified` 不落 `widened`；
   ⑤ **重写语料期望值**（把 `hits_old` 与 `coverage` 一起改小）MUST 因上账对账变红——
   这一条是 ① 的全部意义，缺它则 ① 只是文档；⑥ 命中 > 0 而选择集 = 0 ⇒ rc=2。
   变异反证：M-D3f 把超集判据改成"集合相等" ⇒ 收紧被误红、指名红；M-D3g 把 `unverified` 并进 `widened` ⇒ 红；
   M-D3h 让空语料返回 rc=0 ⇒ 红；**M-D3m 摘掉上账对账（只读当前文件）⇒ ⑤ 红**；
+  **M-D3q 让 `corpusSha256` 采信账本里写的数而不现场重算 ⇒ "整本账连摘要一起重写必须红"那条红**（跨家族 i2）；
+  **M-D3r 摘掉 `GIT-PROBE` 那行 ⇒ "缺这一行按 rc=2 处理"必须红**（跨家族 i6）；
+  **M-D3s 把 rc=2 写成"允许合并" ⇒ 退出码表那条断言必须红**（跨家族 i4：「未证实」必须是有后果的档位）；
   **M-D3n 把 `REPLAY-SCOPE` 移回只在降级分支打印 ⇒ ⑥ 与打印断言红**。
 - [ ] 2.4 **覆盖计数棘轮** `scripts/qm6-judgment-coverage-ratchet.js`：三判据（维度覆盖数不降 / 新维度初始 > 0 / 总条数不降）
   各一条独立红文案。键**不得**含判定记录名（§0/#4297 约束）。
@@ -127,18 +148,26 @@
   ⚠ **`false-positive` 那条今天没有生产方**（第 1 轮评审 i1）：`rebuttals[]` 由还在飞的 #4297 提供，
   主干上现存产物**一条都没写过这个键**。照字面实现"引用必须命中"只有两种落点，两种都是本 change 要消灭的形状——
   拦死所有合法 `false-positive`（复刻"出口为空"这条原病），或"没这个键就跳过"（判据永久 no-op 而日志像已核对）。
-  所以 MUST 三档分开，且每档独立计数：
-  `rebuttals` 整段缺席 ⇒ `rebuttal-face-absent`（不拦、出声）；存在而未命中 ⇒ `dangling-rebuttal-ref`（拦）；命中 ⇒ 已核。
+  所以 MUST 分档，且每档独立计数：
+  `rebuttals` 整段缺席**且 base 侧也没有** ⇒ `rebuttal-face-absent`（不拦、出声）；
+  **base 侧有、head 侧消失 ⇒ `rebuttal-face-removed`（一律拦，且不受 face-absent 的转拦前置约束）**；
+  存在而未命中 ⇒ `dangling-rebuttal-ref`（拦）；命中 ⇒ 已核。
+  ⚠ 第四档是**第 2 轮跨家族 i1 抓出来的、我第 1 轮修法自己开的绕过**：只看"当下有没有那个键"
+  ⇒ 删掉键就整条关掉悬空检查，而日志与"生产方还没出现"逐字同形。
+  判据必须问 base——**删除是动作，缺位不是**；手法沿用仓库里已有的 base→head 转变检测，不是新概念。
   **转拦前置写在判据里、不靠人记**：`rebuttal-face-absent` 计数归零（即现场真读到 ≥1 条带 `rebuttals[]` 的产物）
   之前，不得把悬空档从"不拦"改"拦"。
-  读数行 `RESOLUTION-CENSUS closed=<n> absent=<n> unrecognized=<n> face-absent=<n> dangling-ref=<n> manual-fields=<n> rerun-unavailable=<n>`，
-  **七个数一个都不能省**——省掉任何一个，"没跑"与"跑了且零命中"就同形。
+  读数行 `RESOLUTION-CENSUS closed=<n> absent=<n> unrecognized=<n> face-absent=<n> face-removed=<n> dangling-ref=<n> manual-fields=<n> rerun-unavailable=<n>`，
+  **八个数一个都不能省**——省掉任何一个，"没跑"与"跑了且零命中"就同形。
   测试目标：`check-pr-exec-record.test.js` 新增 describe（每档一正一负 + 三态各一 + 绿侧重跑行为锁 +
   **`rebuttals` 缺席那格必须绿而 `rebuttals` 存在未命中那格必须红**，这两格是 i1 的正反控）；
   `false-positive` 那条 MUST 注入**真 `rebuttals[]` 判据**（由 #4297 提供）而非手搓形状——拿不到即 fail-loud，不得 skip。
   变异反证：M-D1a 把 `unrecognized` 并进 `absent` ⇒ 红；M-D1b 让绿侧采信记录里的 `rc` ⇒ 指名红；
   M-D1c 允许 `deferred` 指向已勾行 ⇒ 红；M-D1d 悬空 `rebuttalRef` 放行 ⇒ 红；
   **M-D1g 摘掉 `face-absent` 分档（让缺席也走悬空判据）⇒ "缺席那格必须绿"那条 MUST 红**。
+  **M-D1h（第 2 轮跨家族 i1 的正反控）：把"base 侧有 `rebuttals`、head 侧被删"的产物喂进去 ⇒
+  MUST 落 `rebuttal-face-removed` 那条红**；反向一格：base 与 head 都没有该键 ⇒ MUST 绿
+  （两档一旦混起来，"删保护"和"还没生产方"在读数里逐字同形，那是本 change 要拦的同型错误）。
 - [ ] 3.2 **普查侧可见**：`ccg-artifact-shape-survey.js` 增 `resolution` 分档交叉表
   （`kind × 是否高危面`），并保留一条"该表为空 ⇒ 出声"的判据。锁：`ccg-artifact-shape-survey.test.js` 扩展。
 - [ ] 3.3 **禁止跨档互转**：同一 `finding.id` 在两版记录间从 `code-fix` 变 `false-positive`（或反）⇒ 点名并进覆盖差分。

@@ -41,13 +41,22 @@
 
 | 现场 | 档 | 动作 |
 | --- | --- | --- |
-| 记录里 `rebuttals` 键整段缺席 | `rebuttal-face-absent` | **不拦、必须出声、计数进 `RESOLUTION-CENSUS`** |
+| 记录里 `rebuttals` 键整段缺席，**且 base 侧也没有** | `rebuttal-face-absent` | **不拦、必须出声、计数进 `RESOLUTION-CENSUS`** |
+| `rebuttals` 在 base 侧存在、head 侧消失 | `rebuttal-face-removed` | **一律拦**（这是删保护，不是"还没有生产方"） |
 | `rebuttals` 存在，指纹没命中 | `dangling-rebuttal-ref` | 一律拦 |
 | `rebuttals` 存在且命中 | 已核 | 通过 |
+
+**第四档是第 2 轮跨家族评审 i1 补进来的，它堵的是第 1 轮修法自己开的洞**：
+只按"当下有没有 `rebuttals` 键"分档 ⇒ 任何人**删掉那个键**就能把悬空检查整条关掉，
+而日志读起来与"生产方还没出现"**逐字同形**。所以判据必须问 base：
+`absent`（从来没出现过）与 `removed`（出现过又被删）是两回事，后者是收口动作的撤销，不是缺位。
+这条与本仓"转变检测"的既有形状一致（`check-pr-exec-record.js` 的 base→head 跃迁就是同一手法），
+**不是**为这一档新造的概念。
 
 转前置条件 MUST 写在判据里而不是靠人记：**只有当 #4297 合并、且普查工具当场读到 ≥1 条带 `rebuttals[]` 的产物之后**，
 `dangling-rebuttal-ref` 才有资格从"不拦"变"拦"；`rebuttal-face-absent` 计数归零是这件事的现场证据
 （归零之前把它转拦，就是在用一条没有生产方的规则拦人。该前置条件同时写在 tasks 3.1。）
+而 `rebuttal-face-removed` **不受这个前置约束**——它判的是"删除"这个动作，今天就能成立。
 
 **重跑不是免费的**（本仓既有约束的直接后果，不是新发明）：AGENTS 明文
 「接进 `changes` 作业的锁**只能 require node 内置模块**」，而该作业**不装依赖**——
@@ -87,10 +96,17 @@ MUST 进语料覆盖差分并被点名）。`deferred` MUST NOT 指向一条已�
 
 #### Scenario: 生产方还没出现时不得把合法引用判成悬空
 
-- **WHEN** 一条 `false-positive` 带着 `rebuttalRef`，而该记录的 `rebuttals` 键整段不存在（#4297 尚未合并的现场态）
+- **WHEN** 一条 `false-positive` 带着 `rebuttalRef`，而该记录的 `rebuttals` 键整段不存在、base 侧也不存在（#4297 尚未合并的现场态）
 - **THEN** MUST 落 `rebuttal-face-absent` 档：不拦、出声、计数进 `RESOLUTION-CENSUS`
 - **AND** MUST NOT 落 `dangling-rebuttal-ref`（那会把"出口为空"这个本 change 要修的病复刻一遍）
 - **AND** MUST NOT 因为"没东西可查"而静默跳过整条判据（那读起来完全像"已核对且无悬空"）
+
+#### Scenario: 删掉 rebuttals 键不是"生产方还没出现"
+
+- **WHEN** base 侧那篇产物有 `rebuttals`（哪怕为空数组），head 侧这一键**消失**了
+- **THEN** MUST 落 `rebuttal-face-removed` 并拦，红文案点名"这是删除保护动作，不是缺位"
+- **AND** MUST NOT 落 `rebuttal-face-absent` —— 两档逐字同形就等于把悬空检查交给被评审者一键关闭
+- **AND** 这一档**不等** #4297 合并、**不受** face-absent 转拦前置约束（它判的是"删除"这个动作）
 
 ### Requirement: 判据回归语料必须只可追加，且新判据的命中集必须是旧判据命中集的超集
 
@@ -100,7 +116,8 @@ MUST 进语料覆盖差分并被点名）。`deferred` MUST NOT 指向一条已�
 判据 `scripts/check-qm6-judgment-regression.js` MUST 对每条语料把**两版实现各真跑一遍**
 （旧版从 PR base 的 blob 读源码注入执行；新版取当前工作树），并要求 `hits_new ⊇ hits_old`。
 
-七条不可破（第 1–4 条为初稿，第 5 条由第 1 轮外部评审 i3 补，第 6 条由 i5 补，第 7 条由 i4 补）：
+九条不可破（第 1–4 条为初稿；5 由第 1 轮 i3 补、6 由 i5 补、7 由 i4 补；
+8 由第 2 轮跨家族 i4/i6 补、9 由第 2 轮跨家族 i7 补）：
 
 1. **存输入面，不存结论**。比对靠重放，不靠快照相等——否则任何文案改动都全量红，
    那条锁会在两周内被放宽（本仓对"快照型判据"的失败形态有先例）。
@@ -119,6 +136,14 @@ MUST 进语料覆盖差分并被点名）。`deferred` MUST NOT 指向一条已�
    `openspec/changes/<change>/judgment-replay-runs.json`，并在本次运行里与**上一条运行账**对账：
    本次读到的语料哈希与上一条记录不一致、或覆盖合计低于上一条 ⇒ 红并点名两次的哈希。
    **只读当前文件、不和上一账比**，等于把"改语料"这件事完全交给自觉。
+   ⚠ 但**哈希必须是判据自己算的，不得采信账本里写的那个数**（第 2 轮跨家族评审 i2：
+   账本里的 `corpusSha256` 若只是被填进去的字段，那么整本账连这个字段一起重写照样自洽——
+   把上一轮用来否证别人的"链只证顺序不证内容"原样还给了这条设计）。三条硬约束：
+   ① 判据 MUST 对**当前语料文件字节**现场重算摘要；
+   ② 每条运行账 MUST 记 `corpusBlob = git rev-parse <headSha>:scripts/qm6-judgment-corpus.jsonl`，
+   判据 MUST 用 `git show <记录里的 headSha>:<该路径>` 取回那个提交上的语料 blob 再算一次，与账本记的比对
+   （**把账本锚回 git 对象**，而不是锚回它自己——git 对象不可就地改写，而 JSON 账本可以）；
+   ③ 两条任一取不到 ⇒ 落 `ledger-anchor-unverified` 档并出声，MUST NOT 读成"账本一致"。
 6. **录制侧必须先自证能重放，不得录进注定 `unverified` 的条目**（i5）。
    一条 blob 取不到的语料会**永久**落未证实档，而它照样把 `corpus-cases` 分母抬高——
    于是"扫到 N 条语料"这句读数从此含死条目，而下一条判据把它当覆盖。硬约束三条：
@@ -136,6 +161,46 @@ MUST 进语料覆盖差分并被点名）。`deferred` MUST NOT 指向一条已�
 - **WHEN** 有人不把 `hits_old` 里的某个 id 删掉，而是同时把 `coverage` 与条数改小，使超集判据平凡成立
 - **THEN** `corpusSha256` 与上一条运行账不符 ⇒ MUST 红并打印两个哈希
 - **AND** 若该文件的 git 历史里这一行是本次改动集带来的，MUST 在红文案里直接点名"语料期望值被同一次改动重写"
+
+8. **退出码语义必须先定，否则"未证实"是一句没有后果的话**（第 2 轮跨家族评审 i4 / i6）。
+   本判据只有三档退出码，且**每一档对"能不能合并"的答案都必须写出来**——
+   评审 i4 抓的正是这个：`registered=0` 判"未证实"，而"未证实拦不拦合并"没定义，
+   那未证实就成了一个可以照常通过的档位。
+
+   | 退出码 | 含义 | 对合并 |
+   | --- | --- | --- |
+   | 0 | 全部语料已重放，无变宽 | 允许（其余 required 照旧） |
+   | 1 | 发现变宽（`widened > 0`） | **拦** |
+   | 2 | 判据自身故障 / **未证实**（规则表为空、语料为空、blob 取不到、git 取证失败、账本锚点对不上） | **拦** |
+
+   **git 取证失败一律落 2，不得降级为"这一条没查到所以不算数"**（i6）：本判据的红文案要求点名
+   `source.pr`、"本次改动集带来的那一行"等 git 事实，取证通道坏掉时这些点名全部不可用，
+   此时的正确姿态是"我不知道"并拦，而不是"我没找到问题"并放行。
+   判据 MUST 打印 `GIT-PROBE ok|failed=<原因>` 一行，缺这一行按 2 处理。
+9. **语料单行的字段闭集由 spec 持有**（第 2 轮跨家族评审 i7：`runs` 账的形状定义了，语料行的没定，
+   而 Scenario 里到处引用 `source.pr` / `surface` / base 判据哈希——没有字段闭集，录制器与判据
+   会各写一份读法，漂移时表现为"这条语料没命中"而不是"读不到"）。单行最小闭集：
+
+   ```
+   id, source{pr,merge,base,record}, input{statuses,headBranch,branchSource,
+     remoteBranches,artifacts[],staged{files,proposal}},
+   recorded{judge, hits{exec,decider}, recordedBy[]}, coverage{}, corpusLineSha
+   ```
+
+   缺任一必填字段 ⇒ 该条计入 `unverified` 并**逐字段点名**（不得整条静默跳过）；
+   出现表外字段 ⇒ 出声为 `unknown-field`（那是录制器与判据开始漂移的第一信号），但不拦。
+   `corpusLineSha` 是这一行自身的规范化摘要，供 `ledger-anchor` 那一格逐条比对——
+   **整本账的粒度太粗，挡不住"只改一条最关键的案例"**。
+
+#### Scenario: 未证实不得照常通过
+
+- **WHEN** `QJ_RULES` 为空、或某条语料的 base blob 取不到
+- **THEN** 退出码 MUST 是 2（不是 0），且 `GIT-PROBE` / `registered=` 行必须出现在输出里
+
+#### Scenario: git 取证通道坏了不能读成"没发现问题"
+
+- **WHEN** 红文案要点的 `source.pr` 拿不到（`git log --grep` 失败）
+- **THEN** MUST 落 2 并打印失败原因，MUST NOT 打印"本次未发现变宽"
 
 #### Scenario: 改窄守门面前缀必须当场红并点名一条真实案例
 
@@ -177,7 +242,7 @@ MUST 进语料覆盖差分并被点名）。`deferred` MUST NOT 指向一条已�
 - **WHEN** 新增一个守门维度但没有任何语料行使过它
 - **THEN** MUST 红并说明该维度需要至少一条真实案例，MUST NOT 允许把它记成"已登记"
 
-### Requirement: 探测器自身的可审计痕迹必须是一个维度，且明文声明它不参与放行
+### Requirement: 探测器自身的可审计痕迹必须是一个维度，且必须区分「不参与收口资格」与「仍参与拦截」
 
 D3 的判据本体 `scripts/check-qm6-judgment-regression.js` 落在 `scripts/check-` 高危面上，因此它守别人、
 守不了自己——这条自指**不假装已闭合**。系统 SHALL 把它做成语料覆盖面的一个具名维度 `probe:self-test`，
@@ -186,9 +251,18 @@ D3 的判据本体 `scripts/check-qm6-judgment-regression.js` 落在 `scripts/ch
 1. 该维度 MUST 有 **≥ 2 条**真实案例，且两条形态缺一不可：一条**能触发变宽检出**
    （历史上确有"旧命中、新不命中"的那次），一条**在合规改动上正确地不报错**（防把探针改成恒红也算"有痕迹"）。
    一条下限写 1 是不够的：单条形态对"探针只在一种输入下工作"完全失明。
-2. 该维度 MUST NOT 参与任何放行判据（它答的是"这台探测器被重放过"，不是"改动是对的"）。
-   红文案与 spec 都必须把这句写出来——**不写，下一个会话就会把它当收口资格用**。
-3. 该维度计数下降 MUST 红，与普通维度同判据（否则"痕迹"本身可以被静默删掉）。
+2. **术语必须先拆开，否则本条自相矛盾**（第 2 轮跨家族评审 i5 命中，它说得对）。本 spec 里"放行"曾经同时
+   指两件不同的事，而这两件事在本维度上**答案相反**：
+
+   - **收口资格**（closure eligibility）：能不能当高危面 Critical 的**出处**、能不能替代 `tier=external`。
+     `probe:self-test` **MUST NOT 参与这一维** —— 它答的是"这台探测器被重放过"，不是"改动是对的"。
+   - **拦截**（blocking）：这条维度的读数变化要不要让 `Gate Result` 变红。
+     `probe:self-test` **参与这一维**（见第 3 条，计数下降仍红）。
+
+   红文案与文档 MUST 用这两个词，MUST NOT 再写"不参与任何放行判据"这种一句话就把两维混掉的措辞——
+   混掉的后果是下一个会话要么拿它当收口资格，要么"反正不参与放行"把它整条摘掉。
+3. 该维度**计数下降 MUST 拦**（红），与普通维度同判据（否则"痕迹"本身可以被静默删掉）；
+   但它**不构成收口资格**：一条 PR 即便该维度读数完好，也仍需要 `tier=external` 或第 1 刀的处置凭证才能闭合高危面。
 
 #### Scenario: 只留一条形态的自测维度必须被拒
 
