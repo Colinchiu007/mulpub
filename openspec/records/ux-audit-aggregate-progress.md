@@ -107,3 +107,5 @@ sync_backfill_owner: none-derived-from-trunk
 - 驱动自己把出口写在报错里：「把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info」。**下一步因此是"降低单次输出体量"而不是"修后端"**——与本日早先记的 `codeagent-wrapper` argv 缺陷、`opencode` IP 拦截是**不同层的故障**：它们被更内层的一行硬编码盖住了——`~/.qoder-cn/skills/adversarial-review-loop/scripts/model-call.js:11` 的 `DEFAULT_WRAPPER` 把**另一台机器、另一个用户**的 `codeagent-wrapper.exe` 绝对路径写死 ⇒ `spawnSync … ENOENT`，而 `ccg-deep-review.js` 三处调用点都直接用该常量、**没有 env 或旗标可覆盖**。本机已改为按 `os.homedir()` 解析并保留原字面量作兜底候选（备份在临时目录、`node --check` 通过、解析结果 `exists=true`）。该修正落在**技能脚本**而不是本仓，属于工具环境修复，须随本记录一并知会人工。
 - 对本 PR 的含义**不变**：`status=error` 不在闭环白名单 ⇒ `Gate Result` 照旧红、照旧**不合并**。变化在于：这不再是"通道不存在"，而是"通道能通、单次评审需要收窄输出范围"——那是**可继续推进**的状态，不是死路。
 - **归因纪律**：一天之内我把 QM-6 不可用先后归成 argv 缺陷、IP 拦截、CCG 未装、shell 用错、幻影变量、两把键——**六条各自只覆盖一层**，而每一层的报错文案都在把自己写成终局。可复用口径：链式故障一律**先读最内层系统级错误码**（ENOENT / EACCES 优先于任何业务文案），并把"哪一层已确认通了"写成清单而不是结论句。
+
+| 远程同步 | 由门禁推导 |
