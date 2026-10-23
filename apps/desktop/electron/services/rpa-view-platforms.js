@@ -292,6 +292,20 @@ const platformsMixin = {
     // 仅在有视频时调用：纯图文本就不该要求上传链存在（也让只 mock 图片链路的用例不受牵连）。
     if (article.video_path) {
       log.info('RpaView', '[' + platform + '] file input selectorCount=' + (sel.file_input ? sel.file_input.length : 0))
+      // 2026-10-23 真机：头条停在西瓜上传页且「添加视频」仍可点 ⇒ 文件从未附加。
+      // 该页 file input 只在点「添加视频」后才出现，故先点它再走通用上传。
+      if (platform === 'toutiao') {
+        try {
+          // 2026-10-23 真机：首次调用返回 NO_BTN —— 页面尚未渲染出该按钮，必须轮询等待
+          let clicked = 'NO_BTN'
+          for (let t = 0; t < 10 && clicked !== 'CLICKED'; t += 1) {
+          clicked = await win.webContents.executeJavaScript('(function(){var es=[].slice.call(document.querySelectorAll("button,div,span,a")).filter(function(e){return /添加视频|上传视频/.test((e.innerText||""))&&e.getClientRects().length});if(es.length){es[0].click();return "CLICKED"}return "NO_BTN"})()', true)
+            if (clicked !== 'CLICKED') await this._sleep(1500)
+          }
+          log.info('RpaView', '[toutiao] add-video ' + clicked)
+          if (clicked === 'CLICKED') await this._sleep(1500)
+        } catch (_e) { /* 无按钮时不阻塞主流程 */ }
+      }
       await this._runVideoUpload(win, article, platform, sel, fillReport, retry)
     }
 
