@@ -481,7 +481,7 @@ const platformsMixin = {
           // 发布点击被它挡住 ⇒ 判定 timeout、0 发布请求）。发布前先点 取消/我知道了。
           if (platform === 'tencent_video') {
             try {
-              const d = await win.webContents.executeJavaScript('(function(){var ms=[].slice.call(document.querySelectorAll("[class*=modal],[class*=dialog],[role=dialog]"));for(var i=0;i<ms.length;i++){var t=(ms[i].innerText||"").trim();if(t.indexOf("切换视频号")<0)continue;var bs=[].slice.call(ms[i].querySelectorAll("button,[class*=btn]"));for(var j=0;j<bs.length;j++){var x=(bs[j].innerText||"").trim();if(x==="取消"||x==="我知道了"){bs[j].click();return "dismissed:"+x}}}return "none"})()', true)
+              const d = await win.webContents.executeJavaScript('(function(){var ms=[].slice.call(document.querySelectorAll("[class*=modal],[class*=dialog],[role=dialog],[class*=mask],[class*=backdrop]"));var hit=0;for(var i=0;i<ms.length;i++){var t=(ms[i].innerText||"").trim();if(t.indexOf("切换视频号")<0)continue;var bs=[].slice.call(ms[i].querySelectorAll("button,[class*=btn]"));for(var j=0;j<bs.length;j++){var x=(bs[j].innerText||"").trim();if(x==="取消"||x==="我知道了"){try{bs[j].click()}catch(e){}break}}try{ms[i].style.display="none";ms[i].style.visibility="hidden";ms[i].style.pointerEvents="none"}catch(e){}hit++}return hit?("hidden:"+hit):"none"})()', true)
               log.info('RpaView', '[tencent_video] switch-account modal: ' + d)
             } catch (_e6) { /* 关弹窗失败不阻塞 */ }
           }
