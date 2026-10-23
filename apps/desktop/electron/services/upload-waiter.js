@@ -308,6 +308,30 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       // attach 会抛「Another debugger is already attached」，此前它写在外面导致整轮静默。
       if (!dbg.isAttached()) { dbg.attach('1.3'); attachedHere = true }
       await dbg.sendCommand('Page.enable')
+      // frame-scan：pierce/querySelector 对 iframe 无效，改用 createIsolatedWorld + Runtime.evaluate 在每帧内定位。
+      try {
+        const ft2 = await dbg.sendCommand('Page.getFrameTree')
+        const flat2 = []
+        const walk2 = (n) => { if(!n) return; flat2.push(n.frame); if(n.childFrames) n.childFrames.forEach(walk2) }
+        walk2(ft2.frameTree)
+        for (const f of flat2) {
+          if (!f || !f.id) continue
+          try {
+            const w2 = await dbg.sendCommand('Page.createIsolatedWorld', { frameId: f.id, worldName: 'mp-drop' })
+            const ev = await dbg.sendCommand('Runtime.evaluate', { contextId: w2.executionContextId, expression: "(function(){  var els=[].slice.call(document.querySelectorAll('div,section,span,button'));  var hit=null;  for(var i=0;i<els.length;i++){var e=els[i];var t=(e.innerText||'');if(t&&(t.indexOf('上传时长')>=0||t.indexOf('添加视频')>=0||t.indexOf('点击上传')>=0)){hit=e;break}}  if(!hit){var c=[].slice.call(document.querySelectorAll('[class*=upload],[class*=dragger],[class*=drop],[class*=uploader]'));if(c.length){hit=c[0]}}  if(!hit) return {found:false};  hit.setAttribute('data-mp-drop','1');  var r=hit.getBoundingClientRect();  return {found:true,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),w:Math.round(r.width),h:Math.round(r.height)};})()", returnByValue: true })
+            const rv = ev && ev.result && ev.result.value
+            if (rv && rv.found && rv.w > 0 && rv.h > 0) {
+              log.info('RpaView', 'cdp-drop: frame-scan hit ' + String(f.url||'').slice(0,60) + ' ' + JSON.stringify(rv))
+              await dbg.sendCommand('Input.dispatchDragEvent', { type: 'dragEnter', x: rv.x, y: rv.y, data: { items: [{ mimeType: 'text/plain', data: '' }], files: [require('path').resolve(filePath)], dragOperationsMask: 1 } })
+              await dbg.sendCommand('Input.dispatchDragEvent', { type: 'dragOver', x: rv.x, y: rv.y, data: { items: [{ mimeType: 'text/plain', data: '' }], files: [require('path').resolve(filePath)], dragOperationsMask: 1 } })
+              await dbg.sendCommand('Input.dispatchDragEvent', { type: 'drop', x: rv.x, y: rv.y, data: { items: [{ mimeType: 'text/plain', data: '' }], files: [require('path').resolve(filePath)], dragOperationsMask: 1 } })
+              log.info('RpaView', 'cdp-drop: dispatched (frame-scan) ' + filePath)
+              try { dbg.detach() } catch (e0) {}
+              return true
+            }
+          } catch (_e16) { /* 该帧不可注入 */ }
+        }
+      } catch (_e17) { /* 无 frame tree */ }
       await dbg.sendCommand('DOM.enable')
       await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
       const opened = new Promise((resolve) => {
