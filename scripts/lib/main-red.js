@@ -145,6 +145,29 @@ function judge (input = {}) {
     prUnknown: prUnknown.size, mainUnknown: mainUnknown.size, prPending: prPending.size, mainPending: mainPending.size,
   })
 
+  // ⛔ 基线太旧 ⇒ 不可归因（2026-10-22 真机暴露，Critical）。
+  //    `pickBaseline` 的 too-stale 档返回的 rows 是**全绿**的——它确实找到了绿基线，
+  //    只是落后 tip 太远。所以只看 rows 的话 judge 会判 OK，`maxStale` 就成了装饰。
+  //    现场形态：`baseline=98e94bc3b staleness=4 baseKind=too-stale` 却给了 `verdict=OK exit=0`。
+  //    必须在差集之前单独拦一档：这一版虽然绿，但不能代表「主干现在是绿的」。
+  //    与 mainMoved 档同族（都是「基准不可用 ⇒ 未证实」），且同样**不报新增红**
+  //    （基准都不可用了，差集无从算起）。
+  const baseKind = typeof input.mainBaselineKind === 'string' ? input.mainBaselineKind : ''
+  if (baseKind === 'too-stale') {
+    return {
+      verdict: VERDICTS.INCOMPLETE, code: 3,
+      reason: '主干基线太旧（落后 ' + (input.mainBaselineStaleness == null ? '?' : input.mainBaselineStaleness)
+        + ' 个提交，超过 maxStale），本次读数不可归因，按未证实处理。'
+        + ' 找到的那一版虽然是绿的，但离当前 tip 太远，不能代表「主干现在是不是绿的」；'
+        + ' 要判绿请把 maxStale 调大或等主干出现更近的完整结论。',
+      newRed: [], inherited: [], uncertain: [],
+      mainFail: [...mainFail].sort(),
+      // `newRed=na`：差集**未计算**（基准不可用），不得被下游读成「零新增红」
+      newRedComputed: false,
+      counts: counts(0, 0),
+    }
+  }
+
   if (prRows.length === 0) {
     // 第八轮 i1/i2：主干红是**既成事实**，不因 PR 侧取不到读数而降级成「无从判定」——那样操作者只会
     // 去等 runner，永远不会知道要有人修 main（第四轮 i2 是同一格换了个入口）。顺序本身就是判据：
