@@ -104,14 +104,14 @@
 `reason` 闭集（**18 值**，服务端只回这些值，枚举写在 `SCHEMA.md`，**测试可逐个断言**）：
 `VALIDATION_ERROR` / `NOT_A_DIRECTORY` / `PATH_ESCAPE` / `SYMLINK_REJECTED` / `HARDLINK_REJECTED` /
 `HIDDEN_NAME_REJECTED` / `EXT_NOT_ALLOWED` / `MAGIC_MISMATCH` / `SIZE_EXCEEDED` / `PARENT_NOT_WRITABLE` /
-`LOCK_CREATE_FAILED` / `SWAP_FAILED` / `ROLLBACK_FAILED` / `CANCELLED` / `UNAUTHORIZED_SENDER` / `SOURCE_OVERLAPS_TARGET`（源目录与目标路径重叠）/
+`LOCK_CREATE_FAILED` / `SWAP_FAILED` / `ROLLBACK_FAILED` / `CANCELLED` / `UNAUTHORIZED_SENDER`（sender 未过授权硬断言）/ `SOURCE_OVERLAPS_TARGET`（源目录与目标路径重叠）/
 `AUDIT_UNAVAILABLE`（审计不可写 / 已超阈值 ⇒ 拒绝写入并拒绝导入）/ `LOCK_HELD`（租约有效 ⇒ 拒入；或档位① 需手动恢复）（**18 值**）。
 
-i18n 键（`filmEngineering.auto.*`，zh/en 成对，**共 12 键**）：`filmKitImport`（入口）/ `filmKitImportHint`（说明会替换当前资产）/ `filmKitImportConfirm`（**确认框**：说明「将替换当前资产」+ 确认/取消）/
+i18n 键（`filmEngineering.filmKitImport.*`，zh/en 成对，**共 20 键**）：`entry`（入口）/ `hint`（说明会替换当前资产）/ `confirmTitle`（**确认框标题**）/ `confirm`（**确认框正文**：说明「将替换当前资产」）/ `importing`（**导入中标题**）/ `importingHint`（**导入中提示**：不可中断 + 勿关应用）/
 `filmKitImporting`（**必须写明「不可中断」+ 恢复说明**）/ `filmKitImportSuccess`（带镜数/场景数占位）/ `filmKitImportFailed`（带 `reason` 占位）/
 `filmKitImportCancelled`（取消**不**算失败）/ `filmKitImportRecover`（回滚也失败的兜底，带 `.bak` 路径占位）/
 `filmKitImportRecoverLock`（**存在未完成的导入** ⇒ 手动删 `userData/.import-lock` 的步骤 + 锁路径与年龄）/ `filmKitImportRecoverMissing`（**崩在 ④ 后⑤ 前**：`film-kit` 缺失 ⇒ 手动 rename `.bak` 恢复）/ `filmKitImportRecoverBak`（**有锁 + `.bak` 残留**：`film-kit` 已是新的 ⇒ 可安全删 `.bak`）/
-`filmKitImportAuditFull`（审计日志已满 ⇒ 请手动轮转）。**文案全文写进 PRD §9.c**（本方案只定键与语义，不定文案）；**`images/` 被排除**与**祖父条款（限额只管源目录）**这两件事**不单独做 i18n 键**（用户不会主动问「为什么我的 images 没进来」）⇒ 但**在 PRD §9.c 里写明这两条**，以便客服/文档可解释。
+`auditFull`（审计日志已满 ⇒ 请手动轮转）+ **失败原因桶 6 键** `reason.VALIDATION` / `reason.LOCK` / `reason.AUDIT` / `reason.SWAP` / `reason.PERM` / `reason.UNAUTHORIZED`（`failed` 的 `{reason}` 占位填**本地化后的桶文案**，不把裸 code 甩给用户）；「确认 / 取消」两按钮复用 `common.confirm` / `common.cancel`（不另计键）。**文案全文写进 PRD §9.c**（本方案只定键与语义，不定文案）；**`images/` 被排除**与**祖父条款（限额只管源目录）**这两件事**不单独做 i18n 键**（用户不会主动问「为什么我的 images 没进来」）⇒ 但**在 PRD §9.c 里写明这两条**，以便客服/文档可解释。
 
 ## 六、验收判据（TDD-RED，`kit-import.test.js`）
 
@@ -127,12 +127,13 @@ i18n 键（`filmEngineering.auto.*`，zh/en 成对，**共 12 键**）：`filmKi
 
 | 层 | 文件 |
 |----|------|
-| 服务（新建） | `services/film-engineering/kit-import.js`（**编排 + 导出面**，≤ 120 行）/ `kit-import-scan.js`（白名单 + 两遍扫描 + 哈希，≤ 250 行）/ `kit-import-swap.js`（拷贝 + 换入 + 回滚 + **精确清单清理**，≤ 250 行）/ `kit-import-lock.js`（锁 + 租约 + nonce 认领 + 清锁，≤ 150 行）/ `kit-import-audit.js`（审计追加 + 轮转判定，≤ 150 行）—— **每个文件都在 `check-max-lines` 的 500 行硬限内**（括号内是**自留预算**；**每个新文件都逐个受 `check-max-lines.js` 的 500 行硬限约束**（CI `debt-guard` job 逐文件检查）⇒ 超限即红）**测试按模块分文件（`kit-import-scan.test.js` 等） |
+| 服务（新建） | `services/film-engineering/kit-import.js`（**编排 + 导出面**，**315 行**）/ `kit-import-scan.js`（白名单 + 两遍扫描 + 哈希，**339 行**）/ `kit-import-swap.js`（拷贝 + 换入 + 回滚 + **精确清单清理**，**341 行**）/ `kit-import-lock.js`（锁 + 租约 + nonce 认领 + 清锁，**185 行**）/ `kit-import-audit.js`（审计追加 + 轮转判定，**177 行**）—— **每个文件都在 `check-max-lines` 的 500 行硬限内**（括号内是**实测行数**；`check-max-lines.js` 在 CI `debt-guard` job 里**逐文件强制** ⇒ 超限即红）**测试按模块分文件（`kit-import-scan.test.js` 等） |
 | 服务（新建） | `services/film-engineering/kit-mirror-check.js` + `kit-mirror-check.test.js`（白名单镜像断言）+ `kit-schema-contract.test.js`（**第二道自动化断言**：解析 `SCHEMA.md` ⇒ 断言审计字段 / `reason` 枚举 / 恢复路径小节存在且非空） |
 | 服务（改） | `film-engineering-service.js`（**当前 217 行 ⇒ 预算 ≤ 300 行**；改动内容：缓存失效方法 + 读 `.import-lock` + **有锁时抛可识别错误**；⚠ 失效必须**同时重置 `_kit`/`_loadError`/`_shotLibrary`/`_scriptAdapter` 四个字段** —— `_loadError` 是**失败缓存**，漏重置会让旧失败永久存活） |
 | IPC（**新建**） | `ipc-handlers/film-engineering-import.js`（注册 `film-engineering:import-kit`：`withSenderCheck` + **入参为空** + `isDirectory` + 审计 + dialog 在这一层；⚠ **不塞进 `film-engineering-auto.js`** —— 该文件已 **446 行**、`check-max-lines` 硬限 **500**；写路径与只读分文件也与 D19 同向）+ `ipc-handlers/index.js`（多一行 `require` 接线） |
 | preload / 渲染端 | `preload/access-control.js`（`PUBLIC_METHODS` 加 `filmEngineering.importKit`）+ `preload/film-engineering.js`（通道 + API）/ `src/api/electron-bridge.js` + **`src/views/FilmEngineeringView.vue`（「**项目案例**」标签顶部入口 —— ⚠ **不是** `film-auto/FilmAutoPanel.vue`：那是「自动」标签的**只读规划区**，写操作不入只读区） |
-| i18n / 测试 / 文档 | `locales/film-engineering/{zh,en}.js`（§五 12 键）/ `kit-import.test.js`（§六 A/B 组 21 条 + C 组 2 条 + win32 专项 3 条）/ `film-kit/SCHEMA.md`（**新增「导入契约」小节**：白名单/形状/魔数/枚举/审计/恢复/取舍/祖父条款）+ `PRD-FILM-PIPELINE-V2`（§9.c）+ 本文件 + `pr3b-import-critiques.md` + `pr3b-import-review-record.md` + `tasks.md` + 执行记录 |
+| 渲染端（新建） | `src/composables/useFilmKitImport.js`（导入状态 + 失败原因分桶 + 恢复指引；⚠ 从 `useFilmEngineering.js` **拆出** —— 留在那里会把它顶过 500 行硬限）+ `src/components/FilmKitImportBar.vue`（入口条 + 确认框 + 不可中断模态 + 恢复告警；⚠ 从 `FilmEngineeringView.vue` **拆出** —— 那个文件已挂在 605+200 的挂账天花板上） |
+| i18n / 测试 / 文档 | `locales/film-engineering/{zh,en}.js`（§五 20 键）/ `kit-import.test.js`（§六 A/B 组 21 条 + C 组 2 条 + win32 专项 3 条）/ `film-kit/SCHEMA.md`（**新增「导入契约」小节**：白名单/形状/魔数/枚举/审计/恢复/取舍/祖父条款）+ `PRD-FILM-PIPELINE-V2`（§9.c）+ 本文件 + `pr3b-import-critiques.md` + `pr3b-import-review-record.md` + `tasks.md` + 执行记录 |
 
 ## 八、明确不做
 

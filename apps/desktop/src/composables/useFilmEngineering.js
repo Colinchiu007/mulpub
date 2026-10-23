@@ -13,7 +13,7 @@
  * 依赖 window.electronAPI.filmEngineering（Electron 窗口）；浏览器直开 Vite 时静默降级。
  * 所有 IPC 返回统一信封 { code, data?, message? }，code === 0 为成功。
  */
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { formatUserError } from '@/utils/user-facing-error'
 import { writeClipboard } from '@/utils/clipboard'
@@ -445,6 +445,9 @@ export function useFilmEngineering () {
     notifySuccess('filmEngineering.copiedShot', { message: ok ? t('filmEngineering.copiedShot') + ' ' + (index + 1) + ' ' + t('filmEngineering.promptCopied') : t('filmEngineering.copyFailed') })
     return ok
   }
+
+  // ⚠ 资产导入（PR-3b · F-J 写路径）**已拆到 `@/composables/useFilmKitImport`** ——
+  //   导入是独立写路径，留在本 composable 会把文件顶过 `check-max-lines` 的 500 行硬限。
 
   async function refreshAll () {
     const ok = await loadStatus()

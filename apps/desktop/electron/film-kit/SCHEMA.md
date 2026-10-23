@@ -25,20 +25,24 @@
 
 ## 文件清单
 
-| 文件 | 必填 | 说明 |
-|------|------|------|
-| `film-manifest.json` | ✅ | 电影元数据 + 162 场景树 |
-| `shot-library.json` | ✅ | 153 个分镜（每场景代表性真实提示词） |
-| `reference-registry.json` | ✅ | token → 参考素材索引（332 条，100% 解析） |
-| `prompt-doctrine.json` | ✅ | 提示词架构（v7：11 blocks / 14 rules / 2 recipes / 8 失败台账 / 10 glossary，中英双语） |
-| `shot-grammar.json` | v7 增强 | 镜头语言枚举（10 景别 / 12 运镜 / 8 机位 / 6 光线 / 8 特效 / 3 情绪档 / 4 时长档） |
-| `compliance-checklist.json` | v7 增强 | 剧本合规审核清单（12 条，blocker 5 / warn 7） |
-| `palette.json` | v7 增强 | 剧组色盘（4 主色 + 2 扩展色 + 情绪色彩映射 + 漂移治理四步） |
-| `prompts/tasks/<task>/{zh,en}/{system,user}.md` | v7 增强 | 任务化中英成对提示词库（目录即契约，4 个任务 × 2 语种 × 2 文件） |
-| `prompt-doctrine.zh.md` | 否 | 方法论文档（人类可读版，随包交付） |
-| `images/` | 否 | 精选参考图（4 角色定妆 + 6 场景缩略，512px webp）+ `images-manifest.json` |
+| 文件 | 必填 | 导入 | 说明 |
+|------|------|------|------|
+| `film-manifest.json` | ✅ | ✅ | 电影元数据 + 162 场景树 |
+| `shot-library.json` | ✅ | ✅ | 153 个分镜（每场景代表性真实提示词） |
+| `reference-registry.json` | ✅ | ✅ | token → 参考素材索引（332 条，100% 解析） |
+| `prompt-doctrine.json` | ✅ | ✅ | 提示词架构（v7：11 blocks / 14 rules / 2 recipes / 8 失败台账 / 10 glossary，中英双语） |
+| `shot-grammar.json` | v7 增强 | ✅ | 镜头语言枚举（10 景别 / 12 运镜 / 8 机位 / 6 光线 / 8 特效 / 3 情绪档 / 4 时长档） |
+| `compliance-checklist.json` | v7 增强 | ✅ | 剧本合规审核清单（12 条，blocker 5 / warn 7） |
+| `palette.json` | v7 增强 | ✅ | 剧组色盘（4 主色 + 2 扩展色 + 情绪色彩映射 + 漂移治理四步） |
+| `prompts/tasks/**` | v7 增强 | ✅ | 任务化中英成对提示词库（目录即契约；实际形状 `prompts/tasks/<task>/{zh,en}/{system,user}.md`，4 个任务 × 2 语种 × 2 文件） |
+| `prompt-doctrine.zh.md` | 否 | ✅ | 方法论文档（人类可读版，随包交付） |
+| `images/` | 否 | ❌ | 精选参考图（4 角色定妆 + 6 场景缩略，512px webp）+ `images-manifest.json`；**无消费方 ⇒ 不在导入白名单** |
 
 体积目标：< 6MB（当前约 2.8MB；v7 新增文本资产合计 < 60KB）。
+
+**导入白名单** = 上表「导入」列标 ✅ 的行（**9 项**）。
+**排除项清单**：`images/`（**全仓无消费方** ⇒ 不导入、不校验、不进镜像表；随包资产里的它**不受影响**）。
+**镜像断言的归一化与排序**（`kit-mirror-check.js`）：代码白名单与本表都走 `path.posix.normalize` → 去尾斜杠 → **按字典序（`localeCompare`）排序** → 再逐行 `===` ⇒ 不同实现不会漂移。
 
 ## 一、film-manifest.json
 
@@ -348,7 +352,97 @@ prompts/tasks/<task>/en/user.md
 - 所有图片统一 `512px` 最长边 webp（q82），单张 < 20KB，合计 < 120KB。
 - 角色图按 `ROKO / JAXX / LULU / REIN` 优先，缺失时取其他 character 条目兜底。
 
-## 十一、生成与重建
+## 十一、导入契约（PR-3b · F-J 资产导入写路径）
+
+> 本节是**用户导入自己的资产包**时的契约（`kit-import.js` 实现）。
+> ⚠ **本文件不用于运行时解析**（首节声明）：运行时代码**禁止**解析它做判据；
+> `kit-mirror-check.js` / `kit-schema-contract.test.js` 是**构建期/测试期工具**（不在运行路径上）⇒ 不违反该声明。
+> `SCHEMA.md` 是**提交进仓的普通文件**（不是生成物）⇒ CI「检出 ⇒ 跑测试」顺序天然成立。
+
+### 11.1 白名单与形状
+
+- **白名单**：见上表「导入」列（9 项）；**唯一真源 = 代码**（`kit-import.js` 的 `WHITELIST_PATTERNS` 导出），
+  本表是它的**人读镜像** ⇒ `kit-mirror-check.js` 逐行 `===` 断言（归一化 + 字典序规则见上节）。
+- **深度**：`prompts/tasks/**` 的**基准 = `prompts/tasks`**（代码常量 `BASE_PROMPT_PATH`）⇒ 恰 **3 层**
+  （`<task>/<lang>/<file>`），少一层即拒。
+- **隐藏名**：**候选路径**的任何组件以 `.` 开头 ⇒ 拒（`.` / `..` 由**枚举阶段先跳过**，不计入层数）。
+- **扩展名**：根文件 ∈ `{json}`；`prompts/tasks/**` ∈ `{md}`。
+- **白名单外**的条目（**含 `images/`**）**不拷入、不记审计事件、不算失败**（跳过是正常态）。
+
+### 11.2 链、越界与魔数
+
+- **软链/断链** ⇒ 拒（`SYMLINK_REJECTED`）；**`realpath` 越出源目录** ⇒ 拒（`PATH_ESCAPE`）。
+- **同目录硬链**：`(dev, ino)` 相同 ⇒ 拒（`HARDLINK_REJECTED`）—— **与 `nlink` 无关**，任何文件系统都成立。
+- ⚠ **跨目录硬链 = 非防篡改边界**：`nlink` 在 FAT/exFAT/网络盘恒为 1 ⇒ 跨目录硬链**永远漏判**
+  ⇒ 审计行固定记 `hardlink_check=best-effort`（**不虚报已防护**）；本机主人对目标文件本就有读权限
+  ⇒ 该维度是**防误含**措施，不是安全边界。
+- **魔数**：`*.json` 头须 `{` / `[`（去 BOM/空白）⇒ 不匹配即拒（`MAGIC_MISMATCH`），**不写盘**。
+
+### 11.3 体积上限
+
+单文件 **32 MB**、整包 **256 MB**（`MAX_KIT_FILE_BYTES` / `MAX_KIT_TOTAL_BYTES`；**数值以代码导出为唯一真源**）。
+**祖父条款**：上限**仅作用于用户选定的源目录**（kitDir）；目标 `userData/film-kit` 在成功时**整体替换**、**不参与**上限判定。
+
+### 11.4 失败原因闭集（18 值）
+
+`VALIDATION_ERROR` / `NOT_A_DIRECTORY` / `PATH_ESCAPE` / `SYMLINK_REJECTED` / `HARDLINK_REJECTED` /
+`HIDDEN_NAME_REJECTED` / `EXT_NOT_ALLOWED` / `MAGIC_MISMATCH` / `SIZE_EXCEEDED` / `PARENT_NOT_WRITABLE` /
+`LOCK_CREATE_FAILED` / `SWAP_FAILED` / `ROLLBACK_FAILED` / `CANCELLED` / `UNAUTHORIZED_SENDER` /
+`SOURCE_OVERLAPS_TARGET` / `AUDIT_UNAVAILABLE` / `LOCK_HELD`。
+
+### 11.5 审计契约
+
+- 文件 `userData/film-kit-import.log`（与目标 kit **同父**）。
+- **行格式**：UTC ISO8601 时间戳 + **制表符分隔** + UTF-8 + `\n`（本节给一行**示例行**供测试断言）。
+- **字段（顺序固定）**：时间 / sender URL / sender 路由 / 触发组件 / 所选目录 / 结果 / reason /
+  post_check / recovery_state / 恢复路径（空值一律写 `-`）。
+- **写入时机**：每次 IPC 调用**两条**（`开始` + 结果）；**写入失败 ⇒ 拒绝导入**（审计不可静默丢失）。
+- **保留**：单文件追加；**> 10,000 行或 > 10 MB ⇒ 拒绝写入并拒绝新的导入**（**不追加、不截断** ⇒ 旧内容不丢）。
+  **阈值判法**：大小以 `fs.stat` 读（追加前一次）；行数**启动时一次计数 + 之后按追加增量累加**（不每次全量读）。
+- **权限**：可追加、不可改写（`fs.open({flags:'a'})`）；**互斥**由 `.import-lock` 的独占创建（`wx`）实现
+  ⇒ 第二个导入进程建锁失败即拒（`LOCK_CREATE_FAILED`），不会行间交错。
+- ⚠ **诚实边界**：审计防「**静默**」，**不防恶意篡改**（本机主人能改自己的文件）。
+
+**示例行**（`SCHEMA.md` 供测试断言；制表符分隔）：
+
+```
+2026-10-23T08:00:00.000Z	app://localhost/#/film-engineering	/film-engineering	FilmEngineeringView	D:/my-kit	ok	-	PASS	-	-
+```
+
+### 11.6 `reason` × `post_check` × `recovery_state` 对应表（**由规则生成**）
+
+- `post_check=PASS` ⇔ 导入成功且 staging 严格校验通过；
+- `post_check=FAIL_WITH_RECOVERY` ⇔ 发生回滚或留有残留 ⇒ `recovery_state` 按下列三档填；
+- `post_check` 不出现 ⇔ 导入在换入前被拒（`reason` 直接给出原因，无恢复动作）。
+
+| recovery_state | 含义 | 恢复动作 |
+|-----------------|------|----------|
+| `PRE_SWAP` | **换入前**失败（kit **仍是旧的**、`.bak` 未动、锁在） | 确认没有导入在进行后手动删除锁文件 |
+| `MISSING_KIT` | 崩在 ③ 后 ④ 前（`film-kit` 缺失、`.bak` = 旧 kit） | 手动把 `.bak` 改名回 `film-kit` |
+| `BAK_LEFT` | 崩在 ④ 后 ⑤ 前，或 ⑤ 删 `.bak` 自身失败（`film-kit` = 新的、`.bak` = 旧 kit） | 可安全删除 `.bak` |
+| `LOCK_LEFT` | 崩在 ⑤ 后 ⑥ 前，或 ⑥ 删锁自身失败（只剩锁） | 手动删除锁文件 |
+
+⇒ 契约测试**按同一规则生成期望值**再逐行断言（**不手写第二份** ⇒ 不会漂移）。
+
+### 11.7 崩溃残留的三档恢复（全部**显式手动恢复**，无自动清理）
+
+① `film-kit` 缺失 + `.bak` = 旧 kit ⇒ **必须手动 rename 恢复**（导入器会拒绝并给恢复路径）；
+② `film-kit` = 新的 + `.bak` = 旧 kit ⇒ 锁可自动清（租约过期）⇒ **提示可安全删 `.bak`**；
+③ `film-kit` = 新的 + 无 `.bak` + 只剩锁 ⇒ 锁可自动清 ⇒ 资产已就位。
+**清锁条件 = 租约过期 ∧ `film-kit` 存在**（owner 已被判定死亡 ⇒ 不会永久卡在 `LOCK_HELD`）。
+
+### 11.8 取舍（写明以免被误读为遗漏）
+
+① **禁止递归删除目录**（本仓 **R0 铁律**：目录删除一律拒绝、`safe-delete.js` 不接目录）—— staging/`.bak` 的清理
+一律**按精确清单逐个 `unlink`** + **按深度从深到浅逐个 `rmdir` 空目录**（不递归）；
+② **不做磁盘空间预检** —— ENOSPC 发生在**拷贝阶段** ⇒ 导入失败 + 按清单清 staging + **旧 kit 未动**
+⇒ 只是失败得晚一点，**不产生损坏**；
+③ **跨目录硬链非防篡改边界**（见 11.2）；
+④ **窗口级/组件级授权不在本批** —— 只做 `withSenderCheck` + **sender 授权硬断言**
+（只允许主框架 + 路由前缀 `/film-engineering` + 协议白名单）+ 全量审计；**目录只能由用户在原生对话框里选**
+（renderer 不能指定替换内容）。
+
+## 十二、生成与重建
 
 导入脚本位于 `scripts/film-engineering/`，该目录下只有一个 `.py`（脚本名保留了历史命名，
 含旧项目代号 —— 它不随包、不在去品牌范围内，故未改名；本文档不写它的字面量以免随包泄漏）。

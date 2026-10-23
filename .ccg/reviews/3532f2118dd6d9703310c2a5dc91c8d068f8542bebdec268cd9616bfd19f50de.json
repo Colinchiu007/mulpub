@@ -1,0 +1,61 @@
+{
+  "sha": "c17cc3ebd51254a4e4829d67f670dcd0c3a7f594",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 3488 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 3488,
+    "fileCount": 34,
+    "codeFileCount": 29,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 11,
+    "docSensitiveContentSample": [
+      "| 1 | 「项目案例」标签**顶部**的「导入我的影视工程资产」按钮 | — | 按钮不可用时（未登录）说明未授权 |",
+      "| 来源未授权 | 子框架 / 路由前缀不匹配 / 协议不在白名单 | `UNAUTHORIZED_SENDER` | 「调用来源未授权」 |",
+      "审计防「静默」不防恶意篡改；组件级授权做不了（同文档承载三个标签页）。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3532f2118dd6d9703310c2a5dc91c8d068f8542bebdec268cd9616bfd19f50de",
+  "decidedAt": "2026-10-23T07:52:12.256Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

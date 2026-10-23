@@ -726,6 +726,135 @@ split → scene_context（已有）
 | M-42 | **无 kit 时逐镜不写方法论字段**：不传 kit ⇒ 逐镜**不出现** `promptVars` / `promptMissing` / `promptRenderHash` | 合成 | `auto-plan.test.js` |
 | M-43 | **stale 与 assetsIncomplete 不并列**：`stale === true` ⇒ 面板**只显示**「资产已变」，不并列「资产不完整」（后者说的是**规划时**的事） | 合成 | `FilmAutoPanel.test.js` + `film-engineering-auto.test.js` |
 
+### 9.c 资产导入（写路径）· 功能与验收（PR-3b · F-J）
+
+> 方案与决策清单：`openspec/changes/film-pipeline-prompt-triple-and-guards/pr3b-import-design.md`；
+> 逐轮评审证据：同目录 `pr3b-import-critiques.md`。
+> ⚠ 本节是**写路径**（会整体替换用户当前资产）⇒ 与 §9.b（只读接线）**分节**，不合并。
+
+#### 9.c.1 目标与范围
+
+用户可以导入**自己的一份**完整影视工程资产包；导入后「自动」标签的规划基于**用户的资产**而非随包 min 版。
+
+- **整体替换**，不做增量/合并/差分。
+- 目标位置：`userData/film-kit`（与随包 `electron/film-kit` 同级，回退链首级）。
+- 来源：**只有本机本地目录**（原生对话框选出来的）；压缩包 / 网络路径 / 扫盘一律不做。
+- 本批**不做** `images/`（全仓无消费方 ⇒ 零价值却多一套校验面）；排除项清单写在 `SCHEMA.md`「文件清单」表。
+
+#### 9.c.2 用户流程（七步，逐段可断言）
+
+| 步 | 用户看到 | 系统做什么 | 失败时 |
+|----|----------|------------|--------|
+| 1 | 「项目案例」标签**顶部**的「导入我的影视工程资产」按钮 | — | 按钮不可用时（未登录）说明未授权 |
+| 2 | **确认框**（说明「整体替换、不可撤销」） | 等用户点确认 | 用户点取消 ⇒ **不算失败**，无错误提示 |
+| 3 | 操作系统**目录选择框** | 取 `filePaths[0]` | 取消 ⇒ `cancelled`；非目录 / UNC ⇒ 拒 |
+| 4 | 「正在导入…」**不可中断模态** | 严格校验源目录 → 审计「开始」行 → 建锁 → 两遍扫描 + 拷贝（逐文件哈希对账）→ staging 再校验 | 失败 ⇒ 旧 kit **逐字未变** |
+| 5 | 同上 | 清缓存 → 旧 kit 改名 `.bak-<时间戳>` → staging 改名 `film-kit`（同卷原子） | 换入失败 ⇒ 回滚；回滚也失败 ⇒ 保留 `.bak` 并给恢复路径 |
+| 6 | 同上 | 删 `.bak` → 删锁 → 审计结果行 | — |
+| 7 | 成功 toast / 失败 toast + 恢复指引告警 | 刷新分镜库与状态 | 见 9.c.6 |
+
+#### 9.c.3 数据校验（判据 → 触发 → 失败原因 → 用户看到什么）
+
+| 判据 | 触发条件 | 失败原因（`reason`） | 用户看到 |
+|------|----------|----------------------|----------|
+| 必填齐备 | 缺 `film-manifest/shot-library/reference-registry/prompt-doctrine` 任一 | `VALIDATION_ERROR` | 「所选目录不符合资产要求」 |
+| v7 增强齐备 | 缺 `shot-grammar/compliance-checklist/palette/prompts/tasks` 任一 | `VALIDATION_ERROR` | 同上 |
+| 目录形状 | `prompts/tasks` 下**不是** 3 层（基准 `prompts/tasks`） | `EXT_NOT_ALLOWED` / `VALIDATION_ERROR` | 同上 |
+| 隐藏名 | **候选路径**任一组件以 `.` 开头（`.`/`..` 枚举阶段先跳过） | `HIDDEN_NAME_REJECTED` | 同上 |
+| 扩展名 | 根文件非 `.json`；`prompts/tasks/**` 非 `.md` | `EXT_NOT_ALLOWED` | 同上 |
+| 软链 / 断链 | 白名单条目是软链，或软链指向不存在的目标 | `SYMLINK_REJECTED` | 同上 |
+| 越界 | `realpath` 落在源目录之外 | `PATH_ESCAPE` | 同上 |
+| 同目录硬链 | 同目录内两条目 `(dev, ino)` 相同 | `HARDLINK_REJECTED` | 同上 |
+| 魔数 | `*.json` 头不是 `{`/`[`（去 BOM/空白） | `MAGIC_MISMATCH` | 同上 |
+| 单文件体积 | > **32 MB** | `SIZE_EXCEEDED` | 同上 |
+| 整包体积 | > **256 MB** | `SIZE_EXCEEDED` | 同上 |
+| 源/目标重叠 | 源目录等于、包含或被包含于目标路径（`film-kit` / `staging-*` / `.bak-*` / `.import-lock` / 审计文件） | `SOURCE_OVERLAPS_TARGET` | 同上 |
+| 源不是目录 | 选中的不是目录 | `NOT_A_DIRECTORY` | 同上 |
+| 目标不可写 | 父目录不可写 / 建 staging 失败 | `PARENT_NOT_WRITABLE` | 「目标目录不可写」 |
+| 审计不可写 | 审计父目录不可写 / 追加失败 | `AUDIT_UNAVAILABLE` | 「审计日志不可写或已满」 |
+| 审计超限 | 审计文件 > 10,000 行或 > 10 MB | `AUDIT_UNAVAILABLE` | 同上（附**手动轮转四步**） |
+| 有导入在跑 | 锁存在且**租约有效**（mtime ≤ 60 秒） | `LOCK_HELD` | 「已有导入正在进行，或上一次导入的锁还没清理」 |
+| 锁内容损坏 | 锁文件不是合法 JSON | `LOCK_HELD` | 同上（**不清锁**） |
+| 残留未恢复 | 存在 `.bak-*` 且 `film-kit` **缺失** | `VALIDATION_ERROR` + `recoveryState=MISSING_KIT` | 「上次导入未完成（当前资产缺失）」+ 恢复路径 |
+| 换入失败 | staging→`film-kit` 改名失败 | `SWAP_FAILED` | 「替换资产时出错（当前资产未受影响）」 |
+| 回滚失败 | `.bak` 改名回 `film-kit` 也失败 | `ROLLBACK_FAILED` + `recoveryState=BAK_LEFT` | 「替换资产时出错」+ **旧资产路径** |
+| 来源未授权 | 子框架 / 路由前缀不匹配 / 协议不在白名单 | `UNAUTHORIZED_SENDER` | 「调用来源未授权」 |
+
+**两条哈希对账（TOCTOU）**：① 第二遍拷出的**副本 SHA-256** == 第一遍记录的**源 SHA-256**；
+② 拷贝完成后**再次 `stat` 源文件**，其 `(dev, ino, size, mtime)` 与第一遍记录一致 ⇒ 任一不符即拒。
+
+**诚实边界（写进界面与文档）**：跨目录硬链在 FAT/exFAT/网络盘**检测不到**（`nlink` 恒为 1）⇒ 非防篡改边界；
+审计防「静默」不防恶意篡改；组件级授权做不了（同文档承载三个标签页）。
+
+#### 9.c.4 交互逻辑
+
+| 元素 | 行为 |
+|------|------|
+| 入口按钮 | 「项目案例」标签顶部；**导入中禁用**；`filmEngineering.filmKitImport.entry` |
+| 入口旁说明 | 一行灰字：`filmEngineering.filmKitImport.hint` |
+| 确认框 | 点入口 ⇒ 弹；**必须用户点「确认」才继续**（注入脚本无法代点）；「取消」关闭且**不触发**导入 |
+| 导入中模态 | **无关闭按钮 / 点遮罩不关 / ESC 不关 / 没有取消按钮**；文案「导入过程中不可中断，请勿关闭应用」 |
+| 失败 toast | 「导入失败：{原因}」；原因按 6 个桶本地化（VALIDATION / LOCK / AUDIT / SWAP / PERM / UNAUTHORIZED） |
+| 恢复指引告警 | 失败后在入口下方常驻 `el-alert`（warning，不自动关）：失败原因 + **可执行的恢复步骤**（按 `recoveryState` 选文案） |
+| 成功 toast | 「导入完成（N 个文件）」并**自动刷新**分镜库 / 状态 / 方法论 |
+| 取消 | **不算失败**：无错误提示、无告警 |
+
+#### 9.c.5 显示项
+
+| 显示项 | 来源 | 备注 |
+|--------|------|------|
+| 导入入口按钮 | 渲染端 | 位于「项目案例」标签顶部（`FilmEngineeringView.vue`），**不在**「自动」标签（那是只读规划区） |
+| 入口说明文字 | 渲染端 | 一行灰字，说明「整体替换，不是合并」 |
+| 确认框 | 渲染端 | 标题 + 正文 + 取消/确认两按钮 |
+| 导入中模态 | 渲染端 | 标题 + 「勿关闭应用」提示；**无取消** |
+| 失败 toast | 主进程错误信封 → 渲染端本地化 | `errorCode` = `reason` 闭集值 |
+| 恢复指引告警 | 主进程回传 `recoveryState` + `recoveryPath` | 按档位选文案 |
+| 成功 toast（含文件数） | 主进程回传 `fileCount` | — |
+| 导入后的分镜库 / 状态 | 服务端缓存失效后重读 | 导入成功后自动刷新 |
+
+#### 9.c.6 提示文字全量（`filmEngineering.filmKitImport.*`，zh/en 成对，**20 键**）
+
+| 键 | zh | en |
+|----|----|----|
+| `entry` | 导入我的影视工程资产 | Import my film engineering assets |
+| `hint` | 用你自己的资产包替换当前影视工程资产（整体替换，不是合并） | Replace the current film engineering assets with your own asset package (wholesale, not merged) |
+| `confirmTitle` | 确认导入影视工程资产 | Confirm asset import |
+| `confirm` | 导入将整体替换当前的影视工程资产（分镜库 / 提示词方法论 / 任务库），旧资产不可自动找回。要继续吗？ | Importing replaces the current film engineering assets (shot library / prompt doctrine / task library) as a whole; the old ones cannot be restored automatically. Continue? |
+| `importing` | 正在导入… | Importing… |
+| `importingHint` | 导入过程中不可中断，请勿关闭应用。若应用被强制关闭，下次导入会自动清理残留锁。 | The import cannot be interrupted — please do not close the app. If the app is force-quit, the next import will clean up the leftover lock automatically. |
+| `success` | 导入完成（{count} 个文件） | Import finished ({count} files) |
+| `failed` | 导入失败：{reason} | Import failed: {reason} |
+| `cancelled` | 已取消导入 | Import cancelled |
+| `recover` | 导入回滚失败，旧资产在 {path}，请手动恢复 | Import rollback failed; the old assets are at {path} — please restore them manually |
+| `recoverLock` | 存在未完成的导入。若确认当前没有导入在进行，请手动删除锁文件：{path} | An unfinished import is present. If no import is running, delete the lock file manually: {path} |
+| `recoverMissing` | 上次导入未完成（当前资产缺失）。请把备份目录 {path} 手动改回 film-kit 后再试 | The last import did not finish (current assets are missing). Rename the backup directory {path} back to film-kit, then retry |
+| `recoverBak` | 上次导入留下了备份目录 {path}，可安全删除 | The last import left a backup directory {path} — it is safe to delete |
+| `auditFull` | 审计日志已满，请手动轮转：把 film-kit-import.log 改名为带时间戳的备份，再新建同名空文件 | The audit log is full; please rotate it manually: rename film-kit-import.log to a timestamped backup and create a new empty file with the same name |
+| `reason.VALIDATION` | 所选目录不符合资产要求 | the selected directory does not meet the asset requirements |
+| `reason.LOCK` | 已有导入正在进行，或上一次导入的锁还没清理 | an import is already running, or the previous import's lock was not cleaned up |
+| `reason.AUDIT` | 审计日志不可写或已满 | the audit log is not writable or is full |
+| `reason.SWAP` | 替换资产时出错（当前资产未受影响） | something went wrong while replacing the assets (current assets are unaffected) |
+| `reason.PERM` | 目标目录不可写 | the target directory is not writable |
+| `reason.UNAUTHORIZED` | 调用来源未授权 | the caller is not authorized |
+
+（「确认 / 取消」两按钮复用 `common.confirm` / `common.cancel`，不另计键。）
+
+#### 9.c.7 验收判据（26 条）
+
+**A 组（4 条，原 `tasks.md`）**：① 严格模式校验失败 ⇒ 不落盘；② 成功 ⇒ `userData/film-kit` 齐备 + service 缓存已失效；③ 含符号链接 ⇒ 拒；④ 换入中途失败 ⇒ 无半份 kit、旧 kit 逐字未变。
+
+**B 组（17 条）**：⑤ 白名单外文件不被拷入（且不递归进入其子目录）；⑥ 超限 ⇒ 拒且未开始拷；⑦ 没写到 staging/.bak/.import-lock/审计文件 之外；⑧ 换入失败后旧 kit 逐字未变；⑨ 相对路径越界或绝对路径 ⇒ 拒、没写到 staging 之外；⑩ 硬链接 ⇒ 拒（同目录 `(dev,ino)` 相同 ⇒ 拒；跨目录靠 `nlink>1` ⇒ 最佳努力，不构成防篡改保证）；⑪ 隐藏名（含目录名）或 `prompts/tasks/` 深度不符 ⇒ 拒；⑫ 回滚本身失败 ⇒ `.bak` 仍在 + 报错带出恢复路径；⑬ 导入中 `_ensureKit()` 抛可识别错误、不读盘，标记先置后删且 `.import-lock` 同生命周期；⑭ 代码白名单集合 == `SCHEMA.md` 文件清单表**标 ✅ 行**解析集合（排序后逐行 `===`）；⑮ `.json` 魔数不匹配 ⇒ 拒且不写盘；⑯ 父目录不可写或锁文件建不出来 ⇒ 立即退出、旧 kit 逐字未动；⑰ 存在 `.import-lock` ⇒ service 抛可识别错误、导入也拒绝（**不自动清锁**）⇒ 恢复靠手动删锁；⑱ `images/` 不在导入白名单 ⇒ 目标目录里**没有** `images/`（镜像表里也没有 `images/*` 行）；⑲ 可选资产缺失（`prompt-doctrine.zh.md` 不存在）⇒ 导入照常成功；⑳ sender URL 与其 hash 路由段写入审计行（**不作为拒绝依据**）；㉑ 两条对账同时成立（副本哈希 == 源哈希；拷贝后源文件 `(dev,ino,size,mtime)` 未变）⇒ 任一不符即拒。
+
+**C 组（2 条，契约/镜像）**：㉒ `kit-mirror-check.test.js`：代码白名单 == `SCHEMA.md` 标 ✅ 行（归一化 + 字典序后逐行 `===`），且 `images/` 落在**排除项清单**；㉓ `kit-schema-contract.test.js`：`SCHEMA.md`「导入契约」小节存在且**非空**（审计字段 / reason 枚举 / 恢复档位 / 取舍），小节缺失 ⇒ **失败不跳过**。
+
+**win32 专项（3 条）**：① 硬链判定的**可断言部分**：同目录 `(dev,ino)` 相同 ⇒ 拒（**不断言 `nlink>1`**，该维度已声明无判据）⇒ 改为断言审计字段 `hardlink_check=best-effort`；② NTFS 的 `.` / `..` **不得**被当成合法目录项（`basename === "." || basename === ".."` ⇒ 枚举阶段跳过且**不计入层数**）；③ `ERROR_ACCESS_DENIED` 的重试分级：A 类（`copyFile`）套指数退避、B 类（目录 `rename`）只做一次立即重试、审计追加**不重试**。
+
+#### 9.c.8 明确不做
+
+❌ 增量/合并/差分（整体替换）· ❌ 导入历史/多版本 · ❌ 导出 · ❌ 压缩包/网络来源/扫盘 ·
+❌ 写 kit 之外的路径 · ❌ 导入 `images/` · ❌ `images-manifest.json` 契约 ·
+❌ 自动清理陈旧锁（只按**进程存活**判定）· ❌ 窗口级/组件级授权 · ❌ 磁盘空间预检（失败形态已知且安全）。
+
 ## 十、明确不做
 
 见 OpenSpec `proposal.md` §六（D-1 ~ D-13）。本 PRD 不重复列举，只强调三条最容易被误认为"漏做"的：

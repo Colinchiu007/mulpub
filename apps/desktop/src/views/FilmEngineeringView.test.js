@@ -307,3 +307,12 @@ describe('FilmEngineeringView 全量出片 · 批次上下文（付费前核对�
     expect(after).toContain('8s')
   })
 })
+
+describe('FilmEngineeringView 资产导入（PR-3b · F-J）', () => {
+  it('顶部挂载了资产导入入口组件（非只读规划区）', async () => {
+    const wrapper = mountView()
+    await nextTick()
+    expect(wrapper.findComponent({ name: 'FilmKitImportBar' }).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="fe-kit-import-bar"]').exists()).toBe(true)
+  })
+})

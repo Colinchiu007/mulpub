@@ -18,6 +18,8 @@ const path = require('path')
 const { loadFilmKitChain } = require('./kit-loader')
 const { ShotLibrary } = require('./shot-library')
 const { ScriptAdapter } = require('./script-adapt')
+const { readLockState, clearLock } = require('./kit-import-lock')
+const { AuditWriter } = require('./kit-import-audit')
 
 const DEFAULT_KIT_DIR = path.join(__dirname, '..', '..', 'film-kit')
 const MAX_GENERATE_BATCH = 20
@@ -42,12 +44,96 @@ class FilmEngineeringService {
     this._loadError = null
     this._shotLibrary = null
     this._scriptAdapter = null
+    /**
+     * 「导入中」标记（PR-3b F-J 资产导入）。
+     * ⚠ **真源是落盘锁** `userData/.import-lock`（S11/S18）：内存标记只是**加速判据**；
+     *   **进程重启后按锁重建** ⇒ 不会「重启 ⇒ 标记丢失 ⇒ 静默回落随包 kit」。
+     */
+    this._importInProgress = false
+    /** 目标 kit 的父目录（userData）—— 锁与审计文件都在这里 */
+    this.userDataDir = this.userDataKitDir ? path.dirname(this.userDataKitDir) : null
+    this._initImportState()
+  }
+
+  /**
+   * 初始化导入状态：读落盘锁 ⇒ 有锁 ⇒ 置标记（**按锁重建**）。
+   * 租约已过期 ⇒ 视为崩溃残留 ⇒ 自动清锁（仅当目标 kit 在位）并写一行审计。
+   * @private
+   */
+  _initImportState () {
+    if (!this.userDataDir) return
+    let state
+    try {
+      state = readLockState({ userDataDir: this.userDataDir })
+    } catch (_e) {
+      return
+    }
+    if (!state.exists) return
+    this._importInProgress = true
+    if (state.parseError) return // 锁内容不可解析 ⇒ 不清锁（可能仍有导入在跑）
+    if (state.leaseValid) return // 租约有效 ⇒ 有导入在跑 ⇒ 保持标记
+    // 租约已过期 ⇒ 崩溃残留 ⇒ 若目标 kit 在位则可自动清锁
+    const kitDir = this.userDataKitDir
+    if (!kitDir || !fs.existsSync(kitDir)) return
+    const cleared = clearLock({ userDataDir: this.userDataDir })
+    if (!cleared.ok) return
+    this._importInProgress = false
+    try {
+      const audit = new AuditWriter({ userDataDir: this.userDataDir })
+      audit.countLines()
+      audit.append({
+        time: new Date().toISOString(),
+        senderUrl: null,
+        senderRoute: null,
+        triggerComponent: null,
+        sourceDir: null,
+        result: 'failed',
+        reason: 'LOCK_HELD',
+        postCheck: 'FAIL_WITH_RECOVERY',
+        recoveryState: 'LOCK_LEFT',
+        recoveryPath: null,
+      })
+    } catch (_e) {
+      // 审计写失败不影响自愈结果（标记已清、锁已清）
+    }
+  }
+
+  /**
+   * 置「导入中」标记（导入编排层调用；S11/S12）。
+   * @param {boolean} on
+   */
+  setImportInProgress (on) {
+    this._importInProgress = !!on
+  }
+
+  /** 导入状态（渲染端可查；用于展示「导入中」禁用态） */
+  getImportState () {
+    return { inProgress: !!this._importInProgress }
+  }
+
+  /**
+   * 失效 kit 缓存（导入换入后调用；S12）。
+   * ⚠ **必须同时重置 `_kit` / `_loadError` / `_shotLibrary` / `_scriptAdapter` 四个字段** ——
+   *   `_loadError` 是**失败缓存**，漏重置会让旧失败永久存活（读盘失败一次 ⇒ 之后永远失败）。
+   */
+  invalidateKitCache () {
+    this._kit = null
+    this._loadError = null
+    this._shotLibrary = null
+    this._scriptAdapter = null
   }
 
   /** 懒加载 kit（失败缓存，fail-closed） */
   _ensureKit () {
     if (this._kit) return this._kit
     if (this._loadError) throw this._loadError
+    // PR-3b F-J：导入中 ⇒ **绝不从磁盘重读 kit**（S11）
+    // ⇒ 抛**可识别**错误，不静默回落到随包 min 版（那会让用户刚导入的资产被悄悄换掉）。
+    if (this._importInProgress) {
+      const err = new Error('FILM_KIT_IMPORT_IN_PROGRESS: 影视工程资产正在导入，请稍后再试')
+      err.code = 'FILM_KIT_IMPORT_IN_PROGRESS'
+      throw err
+    }
     // 两级回退链（任务 3.2）：userData 全量优先，损坏回退 asar 精简包（错误可见非静默）
     const dirs = []
     if (this.userDataKitDir) dirs.push({ dir: this.userDataKitDir, label: 'userData-full' })
@@ -225,7 +311,7 @@ class FilmEngineeringService {
   }
 
   _ensure () {
-    const kit = this._ensureKit()
+    this._ensureKit()
     return this._shotLibrary
   }
 }
