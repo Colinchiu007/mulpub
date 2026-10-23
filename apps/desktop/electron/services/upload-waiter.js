@@ -202,7 +202,7 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
             // dropViaCdpGuard：视频号上传区是纯拖拽区（点击不弹原生选择器），改用 CDP 真实拖放。
             if (!chooserDone && typeof this._dropViaCdp === 'function') {
               let dropped2 = false
-              try { dropped2 = await this._dropViaCdp(win, article.video_path, '[class*=upload],[class*=dragger],[class*=drop],div[class*=empty]') }
+              try { dropped2 = await this._dropViaCdp(win, article.video_path, '[class*=upload],[class*=dragger],[class*=drop],div[class*=empty],[class*=uploader],[class*=add]') }
               catch (_e11) { log.warn('RpaView', '[tencent_video] cdp-drop threw: ' + _e11.message) }
               if (dropped2) {
                 const ok2 = await this._waitForVideoUploadComplete(win, platform, 600000, { fileBytes: readVideoFileBytes(article.video_path) }).catch(() => false)
@@ -345,7 +345,8 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
     try {
       if (!dbg.isAttached()) { dbg.attach('1.3'); attached = true }
       await dbg.sendCommand('DOM.enable')
-      const doc = await dbg.sendCommand('DOM.getDocument', { depth: -1 })
+      // pierce: true —— 视频号发布页的上传区在 iframe(micro/content/post/create) 内，主文档查不到。
+      const doc = await dbg.sendCommand('DOM.getDocument', { depth: -1, pierce: true })
       // 文字锚点（2026-10-23 截图）：上传区里有「上传时长8小时内…」/「添加视频」，比类名稳。
       let useSel = selector
       try {
