@@ -49,7 +49,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "self_play_resolved",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
@@ -157,7 +157,8 @@
         "reason": "self_play_upheld"
       }
     ],
-    "note": "自扮演裁决：5 条指控成立或需外部复核",
-    "at": "2026-10-21T18:57:23.499Z"
+    "note": "自扮演裁决：5 条指控成立或需外部复核 ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T18:57:23.499Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：tier 与 evidence 均**未**由外部评审产出，本条是门禁自述的「代用出口」而非合规路径，如实标注。逐条处置：i1 已修（判据新增逐会话兜底 R5b，退回 session.createdAt，apps/desktop/src/utils/publish-progress-staleness.js:59 与 :75，配 4 条用例，变异 M15/M17 实测变红）；i2 已修（相位清单提到中立模块 apps/desktop/src/utils/publish-phases.js，判据与 store 同 import，附结构锁与逐相位判别式行为锁，M3/M16 实测变红）；i3 已修（核对还原移入 finally、核对失败 exit 4 中止、探针自身抛错单列 PROBE_BLIND，scripts/publish-staleness-contract-mutate.js:200-206）；i4 已修（补 2 条从真 store 出发的取证用例，并把全部字段类型假设落成 PRD 输入契约表，01-docs/PRD-PUBLISH-PROGRESS-STALENESS-2026-10-21.md）；i7 已修（新增假时钟用例：最小化态挂载后断计时器计数、推进 7 分钟后断胶囊文本走到「已 10 分钟」，apps/desktop/src/components/PublishProgressPanel.test.js 内 22 处假时钟断言，M9/M10 守住）。i5/i6 裁决为不成立，维持原样。逐条现场依据与反证读数见 openspec/records/ux-audit-progress-watchdog.md 的处置表。"
   }
 }

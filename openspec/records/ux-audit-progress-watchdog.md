@@ -96,3 +96,15 @@ M15 CAUGHT  摘掉 running 会话兜底          red=5
 M16 CAUGHT  判据自带第二份终态清单          red=1（结构锁）
 M17 CAUGHT  兜底误写成全局参与 max          red=11（徽标/时间路径/胶囊全线红）
 ```
+
+## 补记：QM-6 收口（`self_play_resolved`）—— tier 由会话手写，如实标注（2026-10-23）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 收口形态 | ⚠ **代用出口，非合规路径** | 本条产物的 `deepReview.tier` 与 `evidence` **均未由外部评审产出**（仓外 vendor 引擎依赖 `codeagent-wrapper` + 后端 CLI 通道，本机两者皆无）。按 `check-pr-exec-record.js` 自述「手写仍然**能**通过判据……但它是代用而不是合规路径，**必须如实标注**」——本节即那份标注 |
+| 闭环依据 | ✅ | 闭环词表 `{cleared, needs_revision, self_play_resolved}`；本条取 `self_play_resolved`（自扮演是既有门禁显式承认的出口，`judgeBackendMismatch` 对该状态显式豁免后端对账） |
+| 非高危面确认 | ✅ | 本 PR 变更集未命中 `HIGH_RISK_SURFACES` 任一前缀（`.github/workflows/` / `scripts/check-` / `scripts/ccg-review-` / 凭证与登录态面等）⇒ 走判据自述的出口②「非高危面写 closureNote（须含轮次标记与逐条处置结论）」成立 |
+| 轮次与逐条处置 | ✅ | 见 `deepReview.closureNote`：**第 1 轮**自扮演裁决，5 条 upheld 逐条处置（i1/i2/i3/i4/i7 均已修），i5/i6 裁决为不成立维持原样 |
+| 会话独立复核 | ✅ | 收口前**逐条回当前 HEAD 核对**（不照抄裁决结论）：i1 `apps/desktop/src/utils/publish-progress-staleness.js:59` 的逐会话 `session.createdAt` 兜底与 :75 的「不是全局取 max」注释；i2 `apps/desktop/src/utils/publish-phases.js` 存在且文件头注明「QM-6 i2」；i3 `scripts/publish-staleness-contract-mutate.js:200-206` 的 `PROBE_BLIND` 分档与「还原放进 finally」；i4 PRD 内有输入契约表；i7 `apps/desktop/src/components/PublishProgressPanel.test.js` 有 **22** 处假时钟断言（`useFakeTimers` / `advanceTimersByTime`） |
+| 判据复跑 | ✅ | `node scripts/check-pr-exec-record.js --base=origin/main --head=HEAD --mode=enforce` → **rc=0**；TIER-COVERAGE 读数 `dual-closed total=1 unknown=1`（tier 字段缺席 ⇒ 可见不拦，诚实反映「外部评审未产出 tier」） |
+| 遗留 | ⚠ | `tier=external` + 可核 evidence 这一条合规路径**仍未走**（本机无外部评审通道）。本条收口只解除「欠账挡住合并」，**不冒充外部评审已通过** |
