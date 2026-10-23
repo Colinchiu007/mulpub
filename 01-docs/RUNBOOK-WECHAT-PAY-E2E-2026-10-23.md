@@ -438,3 +438,97 @@ PAYMENT_PROVIDER=none   # 然后重启服务
 | E2E-7 | 打包版全流程 | ⬜ | | | |
 
 **七条全绿 = 支付功能可以对外。** 有一条红就不算交付完成。
+
+---
+
+## 9. 桌面端构建与购买流程验收（2026-10-23 实测）
+
+> 这一节回答的是「会员中心 → 选套餐 → 购买」到底能不能用。
+> 结论先说：**代码、IPC、弹窗、价目、订单页都已实现并在 main 上**（#4187 / #4219，2026-10-22 落地），
+> 16 个前端测试全绿。真正缺的是**本机构建** —— 本机 `%LOCALAPPDATA%\Programs\Multi-Publish`
+> 与 `multi-publish` 两个目录都是空的，共享根也没有 `dist-electron`。
+
+### 9.1 先确认"是不是真的没实现"
+
+按这个顺序查，能一步定位问题在哪一层：
+
+| 层 | 查什么 | 本次结果 |
+|---|---|---|
+| 视图 | `apps/desktop/src/views/member-center/Subscription.vue` 有没有购买按钮 | 有，4 个（standard/pro × 月/年），`data-testid=purchase-<plan>-<period>` |
+| 弹窗 | `apps/desktop/src/components/WeChatPayDialog.vue` | 有，8 态状态机 |
+| IPC | `electron/ipc-handlers/wechat-pay.js` | 有 3 条：`wechat-pay:create-order` / `order-status` / `list-orders` |
+| 桥接 | `electron/preload/wechat-pay.js` | 有，暴露 `wechatPayCreateOrder` 等 |
+| 价目 | `electron/services/identity/entitlement-service.js` 请求 `GET /api/v1/plans` | 有（scope `profile:read`） |
+| 订单页 | `views/member-center/OrdersBilling.vue` | 有，含「继续支付」复用同一订单号 |
+| 测试 | `pnpm exec vitest run src/components/WeChatPayDialog.test.js src/views/member-center/OrdersBilling.test.js` | **16/16 通过** |
+
+**判据**：只要上面任一层缺失，才是「没实现」；全都在而用户看不到，就是「没构建」或「跑的是旧包」。
+
+### 9.2 构建：必须用 `build:dir`，不能用 `electron-builder --dir`
+
+```powershell
+cd apps/desktop
+pnpm run build:dir          # = build:preload + build:paginator + vite build + electron-builder --dir
+```
+
+⛔ **不要**只跑 `pnpm exec electron-builder --win --x64 --dir`：
+
+- 它**会成功退出**（exit 0），产物也有 `Multi-Publish.exe`；
+- 但 `apps/desktop/dist`（Vite 渲染层产物）如果不存在，asar 里就只有 `node_modules` 里的几个 html，
+  **打开是白屏/无 UI**；
+- 构建日志里唯一线索是 `• file source doesn't exist  from=...\dist\fonts`。
+
+验证产物真的带界面：
+
+```powershell
+pnpm exec asar list dist-electron/win-unpacked/resources/app.asar | Select-String '\\dist\\index.html'
+```
+
+必须能列出 `\dist\index.html`。
+
+### 9.3 启动验证：`ELECTRON_RUN_AS_NODE` 会让应用静默退出
+
+2026-10-23 实测踩到：直接 `Start-Process` 启动，12 秒内进程退出、**stderr 与 stdout 全空**、
+退出码 0 —— 与「启动干净」完全同形，但应用根本没起来。
+
+根因：父 shell 环境里带着 `ELECTRON_RUN_AS_NODE=1`，Electron 二进制会以**纯 Node 模式**启动并立即退出。
+
+```powershell
+$env:ELECTRON_RUN_AS_NODE     # 本次实测为 1
+```
+
+判据（缺一不可）：
+
+1. 启动前记录同名进程数，结束后必须相等（只杀自己起的 PID，不按名字批量杀）；
+2. **必须断言"窗口期内仍存活"**，提前退出即 FAIL，不得只看 stderr；
+3. 子进程 env 必须显式剔除 `ELECTRON_RUN_AS_NODE`（见 `scripts/lib/qm1-child-env.js` 的 `buildChildEnv()`）。
+
+### 9.4 购买流程人工验收（对应用户可见文案）
+
+前置：桌面端已登录（未登录时购买区**不渲染** —— `canPurchase = isAuthenticated`）。
+
+| # | 操作 | 期望显示 | 失败时看哪里 |
+|---|---|---|---|
+| 1 | 侧边栏进「会员中心」→「订阅」 | 顶部当前套餐卡；下方「选择套餐」四个按钮，显示 real 价格（来自 `/api/v1/plans`） | 价格显示「暂不可用」⇒ 主进程取价失败，查 `entitlement-service` 日志 |
+| 2 | 点「标准版 · 月付」 | 弹窗进入 `loading`，随即显示二维码 | 停在 `loading` ⇒ `wechat-pay:create-order` 报错 |
+| 3 | 观察二维码 | 是**图片**（SVG data URL），不是一团 `weixin://` 文本 | 出现文本 ⇒ preload 桥接没接上 |
+| 4 | 微信扫码 | 微信显示收款方「北京美学家商贸中心（个体工商户）」+ 金额 | 报「商户号异常」⇒ 商户平台配置问题 |
+| 5 | 支付成功 | 弹窗转 `polling` → `paid`，提示已开通；会员权益即时刷新 | 一直 `polling` ⇒ 回调没到，查 `identity_webhook_events` 与容器日志 |
+| 6 | 关弹窗，看「订单与账单」 | 该订单一行：订单号/套餐/金额/状态=已支付 | 没有行 ⇒ `wechat-pay:list-orders` 失败 |
+| 7 | 再点同一套餐购买 | 生成**新**订单号（不复用已支付订单） | 复用 ⇒ 订单号生成逻辑被改坏 |
+
+服务端配套核对（在 ECS 上，发布目录内）：
+
+```bash
+docker compose -p multi-publish-shadow -f compose.yml exec -T publish-api node scripts/payment-preflight.js
+docker compose -p multi-publish-shadow -f compose.yml exec -T publish-api node scripts/payment-reconcile.js
+```
+
+### 9.5 本次已验证到的边界（不要过度解读）
+
+- ✅ 微信**接受**我们的签名：真实调用下单接口返回 `weixin://wxpay/bizpayurl?pr=...`；
+- ✅ 回调**能到达**并被验签、解密（日志 `POST /api/v1/webhooks/payment 200`，UA `Mozilla/4.0`）；
+- ⚠️ 用**手工下单的测试单**付款会得到 `PAYMENT_ORDER_NOT_FOUND`（数据库里没这单），这是**预期**：
+  该路径只用于验证通道，不产生订单/权益；
+- ⏳ 「从会员中心下单 → 支付 → 权益到账」三表联动（`identity_orders` / `identity_webhook_events` /
+  `identity_subscriptions`）仍需真机走一遍 §9.4。
