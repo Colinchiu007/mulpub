@@ -500,6 +500,14 @@ const platformsMixin = {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
           if (!publishSelector) throw new Error('publish btn not found')
+          // programmatic publish click（2026-10-23：视频号遮挡层会被 React 持续重建，坐标点击必被拦）。
+          // 直接对按钮元素调用 click()，不经过命中测试，因此不受遮挡影响。
+          if (platform === 'tencent_video') {
+            try {
+              const pc = await win.webContents.executeJavaScript('(function(){var bs=[].slice.call(document.querySelectorAll("button,[class*=btn],[role=button]"));var want=["发表","发布"];for(var w=0;w<want.length;w++){for(var i=0;i<bs.length;i++){var t=(bs[i].innerText||"").trim();if(t!==want[w])continue;if(bs[i].disabled)continue;try{bs[i].click()}catch(e){}return "clicked:"+t}}return "not-found"})()', true)
+              log.info('RpaView', '[tencent_video] programmatic publish click: ' + pc)
+            } catch (_e7) { /* 失败则继续走原点击通道 */ }
+          }
           // 2026-10-23：头条曾在此被排除，导致 responses=0 无法区分'没发请求'与'没在听'。现统一开启。
           networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
@@ -1190,7 +1198,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
 
     // Cover（2026-10-12 修复）：此前**完全没有这一步** —— 公众号封面是必填项，缺了它不是
     // 「封面丢了」而是「草稿本身不完整」，而保存草稿只看 appmsgid，缺封面的草稿仍会记 success。
-    // 生效判据（CDN 链接 / 预览背景图 / img 递增）与失败文案都在 wechat-mp-cover.js 内。
     const cover = await require('./wechat-mp-cover').applyWechatMpCover(this, win, article.cover_path)
     if (!cover.ok) return { success:false, error:cover.error, platform:'wechat_mp' }
 
@@ -1203,12 +1210,8 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       await win.webContents.executeJavaScript("(function(){let cb=document.querySelector('.weui-desktop-btn_wrp .weui-desktop-checkbox input, input#js_agree');if(cb&&!cb.checked){cb.click()}})()")
     } catch(e) { log.warn('RpaView','wechat_mp agree: '+e.message) }
 
-    // Save draft — mediaId 采集与失败文案整体下沉 wechat-mp-draft-mediaid.js（wxmp-draft-mediaid-fix，判据见 PRD §13/§14）：
-    // 补「XHR 响应体 appMsgId」第三条通道（新版后台 URL 不跳转，旧判据只认 URL/响应 URL ⇒ mediaId 恒空），
-    // 「平台提示」改为只读可见节点（innerText 对 display:none 照样返回文本，实测取证）。
     this._emitProgress('wechat_mp','saving draft...',70)
     const draftMediaId = require('./wechat-mp-draft-mediaid')
-    // saveWechatMpDraft 成功路径必返回 mediaId（字符串，可能为空串）；失败路径已在函数内 return
     const saved = await draftMediaId.saveWechatMpDraft(this, win).catch((e) => {
       log.warn('RpaView','wechat_mp save: '+e.message+' url='+win.webContents.getURL()+' title='+win.webContents.getTitle())
       return { ok: false, error: '微信公众号草稿保存失败：' + e.message }
@@ -1217,7 +1220,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     const mediaId = saved.mediaId || ''
 
     if (!mediaId) {
-      // wxmp-unconfirmed-save（2026-10-18）：先分「保存没被确认」与「保存成功但采集不到 mediaId」
       // 两种处境，再决定文案。现场读成后者会把用户引向错误方向（找媒体 ID）。
       if (saved.saved === false) {
         log.warn('RpaView', '[wechat_mp] save draft NOT confirmed by platform (saved=false, no mediaId) url=' + win.webContents.getURL())
@@ -1227,7 +1229,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       return { success:false, error: draftMediaId.describeSaveFailure(await readVisibleEditorToast(win), '微信公众号草稿保存结果无法验证：缺少媒体 ID'), platform:'wechat_mp' }
     }
 
-    // Mass send / Free publish（群发/发布；wechat-mp-publish-track）。正判据（消灭「点了就算成功」）：
     if (article.massSend || article.freePublish) {
       const isMass = article.massSend
       const actionLabel = isMass ? '群发' : '发布'
@@ -1264,7 +1265,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     return { success:true, url:win.webContents.getURL()||'', platform:'wechat_mp' }
   },
 
-  // ========== P2-D: youtube — multi-step wizard ==========
   async _publish_youtube(win, article) {
     this._emitProgress('youtube','navigating to Studio...',5)
     await this._navigateAndWait(win,'https://studio.youtube.com/',3000)
