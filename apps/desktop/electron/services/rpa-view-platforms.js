@@ -489,7 +489,7 @@ const platformsMixin = {
           const rp = (isApiTrack(config) && config.success_patterns.length>0) ? this._waitForResponse(win,config.success_patterns,60000) : null
           // 按优先级依次尝试所有发布按钮候选，任一可见即用（页面改版后首个候选可能失效）
           // 2026-10-23 真机：pubBtn=4 时首个候选可能是标签页/预览键 ⇒ 先按文本精确点一次「发布」。
-          if (platform === 'toutiao') {
+          if (false && platform === 'toutiao') { // 2026-10-23 停用：头条发布是两段式，额外首点会打乱配对
             try {
               const hit = await win.webContents.executeJavaScript('(function(){var bs=[].slice.call(document.querySelectorAll("button"));var t=null;for(var i=0;i<bs.length;i++){if((bs[i].innerText||"").trim()==="发布"){t=bs[i];break}}if(!t)return "not-found";if(t.disabled)return "disabled";t.click();return "clicked"})()', true)
               log.info('RpaView', '[toutiao] exact 发布 click: ' + hit)
