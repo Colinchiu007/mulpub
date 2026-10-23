@@ -468,8 +468,17 @@ const platformsMixin = {
           for (const cand of sel.publish_btn || []) {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
+          // 2026-10-23 真机：视频号发布页会弹出「切换视频号」遮挡层（按钮 取消/切换/我知道了），
+          // 不解掉它，发布点击只会打到遮罩 ⇒ 日志有 publishing 但实际未提交（用户核对创作者中心无新内容）。
+          if (platform === 'tencent_video') {
+            try {
+              const dm = await win.webContents.executeJavaScript('(function(){var w=["取消","我知道了"];var els=[...document.querySelectorAll("button,a,span,div")];for(var i=0;i<els.length;i++){var s=(els[i].innerText||"").trim();if(w.indexOf(s)>=0&&els[i].getClientRects().length>0){els[i].click();return s}}return ""})()', true)
+              log.info('RpaView', '[tencent_video] pre-publish modal dismiss: ' + (dm || 'none'))
+            } catch (_e) { /* 无弹窗不阻塞 */ }
+            await this._sleep(600)
+          }
           if (!publishSelector) throw new Error('publish btn not found')
-          networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
+          networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
           // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
           // 第二次点击才 `_e.resolve()` 唤醒 `case 1` 执行 `doPublish` ⇒ 必须连点两次（间隔留给 state 写入）。
@@ -819,6 +828,13 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       }
       const diagnostics = summarizePublishDiagnostics(stoppedRequests, artifact)
       if (!postId) {
+        // 2026-10-23 用户地面真相：头条作品列表无新内容 ⇒ 发布未真正提交。
+        // 此处补打发布期捕获到的请求（METHOD/端点/状态），用于区分「没发出去」与「发出去了但没回 ID」。
+        try {
+          const recs = (networkCapture && Array.isArray(networkCapture.records)) ? networkCapture.records : []
+          const brief = recs.slice(-10).map((r) => String((r && r.endpoint) || '').slice(0, 80) + ' [' + String((r && r.status) || '?') + ']')
+          log.warn('RpaView', '[' + platform + '] publish captured n=' + recs.length + ' :: ' + brief.join(' | '))
+        } catch (_e) { /* 取证失败不阻塞 */ }
         log.warn('RpaView', '[' + platform + '] publish signal lacked platform ID; endpoint=' + sanitizeDiagnosticEndpoint(currentUrl) + ' responses=' + stoppedRequests.length)
         return { success: false, error: '发布结果缺少平台作品 ID', platform, url: sanitizePublishResultUrl(currentUrl), diagnostics }
       }
