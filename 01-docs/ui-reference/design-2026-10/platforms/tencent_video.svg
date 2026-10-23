@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 平台品牌图标 · 单色 24×24 · 品牌色 #FA9D3B
+     手工绘制的示意标，非官方矢量：开源图标集合无微信视频号图标
+     （shipinhao/channels/wechat-channels/weixin 在 icon-park、thesvg、simple-icons 实测全部 not_found）。
+     造型为「圆环 + 播放三角」示意，不代表官方标的确切轮廓。
+     色值已取证：#FA9D3B 实测自 channels.weixin.qq.com 页面样式。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FA9D3B"><path fill-rule="evenodd" d="M12 2.8a9.2 9.2 0 1 0 0 18.4a9.2 9.2 0 1 0 0-18.4ZM12 5a7 7 0 1 1 0 14a7 7 0 1 1 0-14Z"/><path d="M10.2 8.8l5.6 3.2l-5.6 3.2Z"/></svg>

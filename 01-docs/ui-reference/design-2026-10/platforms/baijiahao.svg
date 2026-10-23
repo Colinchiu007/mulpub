@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 平台品牌图标 · 单色 24×24 · 品牌色 #3855D5
+     手工绘制的示意标，非官方矢量：开源图标集合无百家号图标
+     （baijiahao/baijia 在 simple-icons、icon-park、thesvg、arcticons 实测全部 not_found）。
+     造型取其核心识别元素「百」字（顶横 + 日框）。
+     色值已取证：#3855D5 实测自官方登录页（baijiahao.baidu.com → /builder/theme/bjh/login，
+     页面标题「百家号」）渲染后 DOM 的 computed style，187 个元素命中、为最高频饱和色；
+     次高频为 #2E82FF（百度系蓝）×9。静态 HTML 抓不到该色——页面是纯 JS 壳，
+     只有 theme-color #000000，必须真渲染。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#3855D5"><path d="M3 3.6h18v2.6H3Z"/><path fill-rule="evenodd" d="M5.4 8.2h13.2v12.4H5.4ZM7.8 10.6h8.4v2.8H7.8ZM7.8 15.4h8.4v2.8H7.8Z"/></svg>

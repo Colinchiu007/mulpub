@@ -305,6 +305,9 @@ gen_*.py
 # 进库理由：视觉改动的评审需要「肉眼可证」的同源对照，文字报告无法替代；
 # 体积控制：全量 387 张（48MB）按仓库约定留在 gitignored 的 screenshots/ 下不入库。
 !01-docs/assets/ui-visual-audit-2026-10-20/*.png
+# UI 设计定稿截图（01-docs/ui-reference/design-2026-10）：与 mp-live-20260724 同性质
+# （UI 参考截图），设计稿需离线可读故放行。
+!01-docs/ui-reference/design-2026-10/screenshots/*.png
 # 产品品牌资产（非测试产物）：侧边栏左上角品牌 Logo，打包时必须随源码入库
 !apps/desktop/src/assets/brand/*.png
 
