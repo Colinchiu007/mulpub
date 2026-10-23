@@ -19,7 +19,7 @@
             alt="cover"
             draggable="false"
             @load="onImageLoad"
-          >
+            loading="eager" decoding="async">
           <div
             v-if="previewUrl && imgNatural"
             class="crop-box"

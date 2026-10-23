@@ -52,8 +52,7 @@
               <img
                 class="sas-thumb"
                 :src="urls[candidate.path]"
-                :alt="candidateLabel(candidate)"
-              />
+                :alt="candidateLabel(candidate)" loading="lazy" decoding="async"/>
               <span class="sas-zoom-overlay" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                   <circle cx="11" cy="11" r="7"></circle>
@@ -118,8 +117,7 @@
             class="sas-preview-media"
             :src="previewUrl"
             :alt="previewLabel"
-            data-testid="sas-preview-image"
-          />
+            data-testid="sas-preview-image" loading="eager" decoding="async"/>
           <video
             v-else-if="preview && preview.candidate.kind === 'video'"
             class="sas-preview-media"

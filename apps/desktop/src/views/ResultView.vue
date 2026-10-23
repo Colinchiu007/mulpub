@@ -284,7 +284,7 @@
 
   <UiModal :visible="sceneMaterialPreview.visible" :title="sceneMaterialPreview.title" size="xl" @close="closeSceneMaterialPreview">
     <div class="scene-material-preview-body">
-      <img v-if="!sceneMaterialPreview.kind.includes('video') && sceneMaterialPreview.url" :src="sceneMaterialPreview.url" :alt="sceneMaterialPreview.label" />
+      <img v-if="!sceneMaterialPreview.kind.includes('video') && sceneMaterialPreview.url" :src="sceneMaterialPreview.url" :alt="sceneMaterialPreview.label" loading="eager" decoding="async"/>
       <video v-else-if="sceneMaterialPreview.kind.includes('video') && sceneMaterialPreview.url" :src="sceneMaterialPreview.url" controls autoplay @error="closeSceneMaterialPreview"></video>
       <p v-if="!sceneMaterialPreview.url" class="scene-material-preview-empty">{{ sceneMaterialPreview.label }}</p>
     </div>

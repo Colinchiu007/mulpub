@@ -16,7 +16,7 @@
         :src="dataUrl"
         :alt="t('publishPage.coverPreview.title')"
         @load="onImageLoad"
-      >
+        loading="eager" decoding="async">
       <div v-else class="cover-preview-empty">{{ error || t('publishPage.coverPreview.unavailable') }}</div>
       <p v-if="meta" class="cover-preview-meta">{{ meta }}</p>
     </div>

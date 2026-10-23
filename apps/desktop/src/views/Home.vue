@@ -130,7 +130,7 @@
       <h3 class="mp-home-section-title">{{ t('home.supportedPlatforms') }}</h3>
       <div class="mp-home-platform-list">
         <span v-for="p in platforms" :key="p.id" class="mp-home-platform-tag">
-          <img v-if="p.iconUrl" :src="p.iconUrl" class="home-platform-icon" :alt="p.label" width="18" height="18">
+          <img v-if="p.iconUrl" :src="p.iconUrl" class="home-platform-icon" :alt="p.label" width="18" height="18" loading="lazy" decoding="async">
           <span v-else class="home-platform-glyph" aria-hidden="true">{{ p.label.slice(0, 1) }}</span> {{ p.label }}
         </span>
       </div>

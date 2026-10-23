@@ -6,8 +6,7 @@
         class="mp-sidebar-logo"
         :src="brandLogoUrl"
         :alt="t('sidebar.brandLogoAlt')"
-        data-testid="mp-sidebar-logo"
-      />
+        data-testid="mp-sidebar-logo" loading="eager" decoding="async"/>
       <span
         v-if="version"
         class="mp-sidebar-version"

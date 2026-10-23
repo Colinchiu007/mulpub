@@ -56,7 +56,7 @@
             :class="{ selected: scene.selectedTakeId === take.id }"
             @click="selectTake(scene.id, take.id)"
           >
-            <img :src="take.thumbnail || take.url" :alt="'Take ' + take.id" class="take-image" />
+            <img :src="take.thumbnail || take.url" :alt="'Take ' + take.id" class="take-image" loading="lazy" decoding="async"/>
             <div class="take-meta">
               <div v-if="take.prompt" class="take-prompt">{{ take.prompt }}</div>
               <div class="take-stats">

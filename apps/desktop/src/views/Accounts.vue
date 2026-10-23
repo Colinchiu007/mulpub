@@ -184,7 +184,7 @@
             :data-testid="`platform-filter-${item.id}`"
             @click="setPlatformFilter(item.id)"
           >
-            <img v-if="isPlatformIconUrl(platformIcon(item.id))" :src="platformIcon(item.id)" class="platform-filter-icon-img mp-platform-icon" :alt="platformLabel(item.id)" width="20" height="20">
+            <img v-if="isPlatformIconUrl(platformIcon(item.id))" :src="platformIcon(item.id)" class="platform-filter-icon-img mp-platform-icon" :alt="platformLabel(item.id)" width="20" height="20" loading="lazy" decoding="async">
 <span v-else class="platform-filter-icon">{{ platformIcon(item.id) }}</span>
             <span>{{ platformLabel(item.id) }}</span>
             <strong>{{ item.count }}</strong>
@@ -627,7 +627,7 @@ function platformIcon (id) {
   return (platformLabel(id) || '?').slice(0, 1)
 }
 
-/** 判断图标值是否为图片 URL（需要以 <img> 渲染） */
+/** 判断图标值是否为图片 URL（需要以 <img loading="lazy" decoding="async"> 渲染） */
 
 const OWNER_FIELD_KEYS = ['owner', 'owner_name', 'ownerName', 'account_owner', 'accountOwner', '负责人']
 const PUBLISHER_FIELD_KEYS = ['publisher', 'publisher_name', 'publisherName', 'operator', 'operator_name', 'operatorName', 'publishers', '发布人']

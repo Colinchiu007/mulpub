@@ -1,0 +1,76 @@
+{
+  "sha": "e4241a47c567b07f58977cc34f2c005191543fc5",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 267 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 267,
+    "fileCount": 31,
+    "codeFileCount": 27,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "1. **宽高占位（CLS）本批不做**。`width`/`height` 属性决定浏览器为图片预留的盒子比例，给错了图片会被拉伸；本仓封面/缩略图的真实比例是动态的，正确解法是容器 `aspect-ratio` 或按原图尺寸写属性 —— **那会改变渲染结果**，必须由 CI 的同源基线来判，不能拿 `--update-baseline` 消化。已在审计清单上保留为 4.8 的剩余半边。",
+      "- 视觉零变化：`loading`/`decoding` 不改盒子的尺寸、裁剪与占位。也正因像素门禁对本批**结构性失明**，不能用它当通过证据；**宽高占位（CLS）那半边本批刻意不做** —— `width`/`height` 给错会让图片被拉伸，而本仓封面比例是动态的，正确解法会改变渲染结果，必须由 CI 同源基线判，不许用 `--update-baseline` 消化。",
+      "| QM-6 双模型 | 未跑（本批性质判断见 §五） | 变更集是 37 个属性的机械添加 + 一条新锁，无状态机/无持久化/无鉴权；但按 AGENTS.md 的 M+ 判据它是否必须跑由 `ccg-review-decider.js` 说了算，见 §五 的现场读数 |"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"1. **宽高占位（CLS）本批不做**。`width`/`height` 属性决定浏览器为图片预留的盒子比例，给错了图片会被拉伸；本仓封面/缩略图的真实比例是动态的，正确解法是容器 `aspect-ratio` 或按原图尺寸写属性 —— **那会改变渲染结果**，必须由 CI 的同源基线来判，不能拿 `--update-baseline` 消化。已在审计清单上保留为 4.8 的剩余半边。\",",
+      "      \"- 视觉零变化：`loading`/`decoding` 不改盒子的尺寸、裁剪与占位。也正因像素门禁对本批**结构性失明**，不能用它当通过证据；**宽高占位（CLS）那半边本批刻意不做** —— `width`/`height` 给错会让图片被拉伸，而本仓封面比例是动态的，正确解法会改变渲染结果，必须由 CI 同源基线判，不许用 `--update-baseline` 消化。\",",
+      "      \"| QM-6 双模型 | 未跑（本批性质判断见 §五） | 变更集是 37 个属性的机械添加 + 一条新锁，无状态机/无持久化/无鉴权；但按 AGENTS.md 的 M+ 判据它是否必须跑由 `ccg-review-decider.js` 说了算，见 §五 的现场读数 |\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T12:51:35.094Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-e4241a47\\adjudication.json",
+    "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i6） ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T12:54:23.155Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：本产物对应本 PR 的**较早 head**（sha 见文件名），其评审已被本 PR 后续 head 的同源评审取代——最终一轮的 6 条指控已逐条处置完毕（见同变更集的 `.ccg/reviews/1c43d93d5740cb1bb8d3fe264a5cc861a10bf010.json` 的 closureNote）。本产物按「被取代的中间快照」收口：**不冒充对最终 head 的外部复核**，也不把中间快照读成「当前改动未被评审」。tier 与 evidence 均未由外部评审产出，如实标注。"
+  }
+}

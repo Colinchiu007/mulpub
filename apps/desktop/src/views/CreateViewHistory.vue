@@ -147,7 +147,7 @@
 
           <div class="history-card-main">
             <div class="history-thumbnail" :class="{ 'is-empty': !item.thumbnailUrl }" data-testid="history-thumbnail">
-              <img v-if="item.thumbnailUrl" :src="item.thumbnailUrl" :alt="historyTitle(item)" @error="onThumbnailError(item)" />
+              <img v-if="item.thumbnailUrl" :src="item.thumbnailUrl" :alt="historyTitle(item)" @error="onThumbnailError(item)" loading="lazy" decoding="async"/>
               <span v-else>{{ tr('notGenerated') }}</span>
             </div>
             <div class="history-card-copy">

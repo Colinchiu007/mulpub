@@ -5,7 +5,7 @@
     :alt="displayLabel"
     :class="['pi', 'pi-img', sizeClass]"
     :title="displayLabel"
-  >
+    loading="lazy" decoding="async">
   <div
     v-else
     :class="['pi', sizeClass]"

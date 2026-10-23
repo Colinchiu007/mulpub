@@ -20,7 +20,7 @@
           :alt="row.label"
           width="20"
           height="20"
-        >
+          loading="lazy" decoding="async">
         <span v-else class="cloud-digest-platform-icon" aria-hidden="true">{{ row.icon || row.initial }}</span>
         <span class="cloud-digest-platform-name">{{ row.label }}</span>
         <strong class="cloud-digest-platform-count">{{ row.count }}</strong>

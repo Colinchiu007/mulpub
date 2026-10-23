@@ -13,8 +13,7 @@
           :key="i"
           :src="take.thumbnail || take.url || take"
           class="take-thumb"
-          :alt="'Take ' + (i + 1)"
-        />
+          :alt="'Take ' + (i + 1)" loading="lazy" decoding="async"/>
         <span v-if="takes.length > 3" class="take-more">+{{ takes.length - 3 }}</span>
       </div>
     </div>

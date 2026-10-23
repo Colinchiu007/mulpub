@@ -1,0 +1,173 @@
+{
+  "sha": "1c43d93d5740cb1bb8d3fe264a5cc861a10bf010",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 552 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 552,
+    "fileCount": 34,
+    "codeFileCount": 28,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "| eager 白名单口径 | **三条，且授权粒度是「一张图」**：① 单例、不滚动的应用外壳（全局侧栏 logo）；② 用户这次操作**刚点开/正要编辑的那张图本身**（封面预览弹窗、裁剪器输入、素材预览面、候选素材灯箱大图）；③ **本地内容的预览** —— src 是 `FileReader` 的 data URL 或 `URL.createObjectURL(file)`，数据已在内存，lazy 不省一个字节、只推迟可见（③ 允许出现在 v-for 里，因为\"每选一张就立刻要看到那一张\"）。**反向清单（同样重要）**：**远程**列表/网格缩略图一律 lazy，即便它在首屏 —— 含壳层里 v-for 出来的小图标（标签栏 16px 平台图标就是这条的实测落点，它不是\"外壳单例\"）；20px 的图标晚一帧出现不改变用户对\"页面好了没有\"的判断，而几十张封面同时下请求会 |",
+      "| 白名单治理 | `EAGER_ALLOWLIST` 是**逐张**条目清单 `{file, match, reason}`：`match` 是那张 `<img>` 开标签里唯一可辨的特征串（优先 `data-testid`/`class`，其次 `:src` 表达式）。第一版按**文件**授权 ⇒ 已在名单上的文件再新增一个毫无理由的 eager，\"未授权\"和\"陈旧\"两条断言全部放行（评审 i3），与标题「eager 逐条给理由」不符。三条判据缺一不可：未被任何条目覆盖的 eager ⇒ 红；条目不再覆盖任何 eager ⇒ 陈旧红（留着就是永久豁免）；**同一张 eager 被两条条目同时命中 ⇒ 红**（锚点互相认领就等于没逐张授权）。理由不得是空话词表（`以后再说/先这样/顺手/都行/随便/默认值`）里的写法，且必须点名三条口径之一；该词表本身由 fixture 观测（仓里没有空话理由 ⇒ 存量观测不到这个守卫） |",
+      "1. **宽高占位（CLS）本批不做**。`width`/`height` 属性决定浏览器为图片预留的盒子比例，给错了图片会被拉伸；本仓封面/缩略图的真实比例是动态的，正确解法是容器 `aspect-ratio` 或按原图尺寸写属性 —— **那会改变渲染结果**，必须由 CI 的同源基线来判，不能拿 `--update-baseline` 消化。已在审计清单上保留为 4.8 的剩余半边。"
+    ],
+    "ccgSensitiveContentHits": 9,
+    "ccgSensitiveContentSample": [
+      "      \"1. **宽高占位（CLS）本批不做**。`width`/`height` 属性决定浏览器为图片预留的盒子比例，给错了图片会被拉伸；本仓封面/缩略图的真实比例是动态的，正确解法是容器 `aspect-ratio` 或按原图尺寸写属性 —— **那会改变渲染结果**，必须由 CI 的同源基线来判，不能拿 `--update-baseline` 消化。已在审计清单上保留为 4.8 的剩余半边。\",",
+      "      \"- 视觉零变化：`loading`/`decoding` 不改盒子的尺寸、裁剪与占位。也正因像素门禁对本批**结构性失明**，不能用它当通过证据；**宽高占位（CLS）那半边本批刻意不做** —— `width`/`height` 给错会让图片被拉伸，而本仓封面比例是动态的，正确解法会改变渲染结果，必须由 CI 同源基线判，不许用 `--update-baseline` 消化。\",",
+      "      \"| QM-6 双模型 | 未跑（本批性质判断见 §五） | 变更集是 37 个属性的机械添加 + 一条新锁，无状态机/无持久化/无鉴权；但按 AGENTS.md 的 M+ 判据它是否必须跑由 `ccg-review-decider.js` 说了算，见 §五 的现场读数 |\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T13:56:00.426Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "涂白只覆盖 HTML 注释、<script>/<style> 块与插值 {{ }}，不覆盖「其它元素属性值里的 <img> 字面量」（例如 :title=t('x',{example:'<img src=y>'}) 这类 i18n/提示串）和 v-pre 文本。扫描器 indexOf('<img') 会在这些位置造出伪站点：若伪站点被 readOpenTag 按普通开标签解析，会报「未声明 loading」的假红；若其引号区间吞掉后续真实 <img> 的 `>`，还会静默漏扫真实站点。PRD 自己把「注释/插值里的示例」列为必须涂白的理由，属性值正是同一误报类的第 4 个漏网点，与 PRD「不涂白会把示例当成站点 ⇒ 误报」的自我声明不一致。",
+        "highRiskDomains": [],
+        "prosecution": "（finding 原文即最强指控，见 critique-v1.md 本条）",
+        "defense": "（第二轮整改已在本工作区当场取证：AST 化 / covers / 233 行 / 文档读数重取）",
+        "verdict": "upheld",
+        "rationale": "指控成立且已结构性消解：判据层原本用 indexOf(<img) 在裸文本上找站点，涂白只覆盖注释/script/style/插值，属性值里的字面量确实会造伪站点或吞掉真实站点的 >。第二轮把整层解析换成 @vue/compiler-sfc 模板 AST（当场核实：grep attrTokens|readOpenTag|blankOutNonTemplate 命中 0 次，import parse from @vue/compiler-sfc 在位），伪站点这一类不再可能产生——站点只能来自 AST 节点。新增用例「AST 边界：注释/插值/属性值里的 <img> 字面量不制造站点」钉成 fixture，变异 M8（解析退回在文本里找 <img）指名红。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "EAGER_ALLOWLIST 的条目 {file:'views/CreateView.vue', match:':src=\"img.preview\"'} 同时命中该文件里两个不同的 <img>（pipelineImages 与 quickImages 两个 v-for 块，diff 第 80 行与第 365 行，两个站点都是 eager）。这违反条目自身声明的「match 必须是该文件内唯一可辨的特征串」；而 doubleCovered 断言只防「两条目 → 一张图」，防不了「一条目 → 多张图」。后果是：以后在 CreateView 再新增一个同样 :src=img.preview 的无理由 eager，会被这条旧锚点静默授权、不红——正是 i3/M9 要消灭的「文件级豁免」降一档的形态，逐张授权粒度在本批已内建松懈。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "（finding 原文即最强指控，见 critique-v1.md 本条）",
+        "defense": "（第二轮整改已在本工作区当场取证：AST 化 / covers / 233 行 / 文档读数重取）",
+        "verdict": "upheld",
+        "rationale": "指控成立并已修：授权清单每条新增 covers 字段，判据断言「该锚点实际覆盖的 eager 站点数 == covers」，多一张少一张都红——这正是\"一条目→多张图\"原本防不住的那一格（旧 doubleCovered 只防\"两条目→一张图\"）。现场：views/CreateView.vue 的 :src=\"img.preview\" 现登记 covers:2，理由点名「管线图与快图两个 v-for 块各一张」。高危域标记 auth 是敏感分类器在属性名/文档散文上的误报（本批无任何鉴权代码），如实记下不改判据。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "锁内手写 attrTokens/readOpenTag/blankOutNonTemplate 在裸文本上重新实现 HTML 模板解析；而本批自己已经依赖 @vue/compiler-sfc 做编译核验。M5（涂白）、M6（自闭合）、M7（含 > 的属性值）、M11（属性名出现在别处属性值里）四道变异存在的唯一原因就是这层手写解析脆弱——每次发现一个新坑就补一条 fixture 加一道变异，解析复杂度在螺旋上升，而不是从根上消解解析。",
+        "highRiskDomains": [],
+        "prosecution": "（finding 原文即最强指控，见 critique-v1.md 本条）",
+        "defense": "（第二轮整改已在本工作区当场取证：AST 化 / covers / 233 行 / 文档读数重取）",
+        "verdict": "upheld",
+        "rationale": "指控成立：手写 attrTokens/readOpenTag/blankOutNonTemplate 是在裸文本上重造 HTML 解析，M5/M6/M7/M11 四道变异的存在本身就是这层脆弱性的账单。已按本条建议从根上消解——站点与属性一律取自模板 AST，自造解析器整体删除（命中 0 次）。删除后变异集重排为 M1–M13，原\"解析自身\"那一格由两条 fixture 用例承接（AST 边界 + 声明形态口径），不再靠\"每发现一个坑补一道变异\"的螺旋。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "PRD 验收锚点写明「check-max-lines（新锁 <300 行）」，且执行记录 §四 声称「静态门禁 check-max-lines … 全 PASS」；但 diff 显示新增的 apps/desktop/src/img-loading-contract.test.js 是 303 行（@@ -0,0 +1,303 @@），超过自己锚点声明的 300 行上限。无论真门槛是多少，PRD 锚点与交付产物数字互相矛盾，记录的 PASS 无法成立。",
+        "highRiskDomains": [],
+        "prosecution": "（finding 原文即最强指控，见 critique-v1.md 本条）",
+        "defense": "（第二轮整改已在本工作区当场取证：AST 化 / covers / 233 行 / 文档读数重取）",
+        "verdict": "upheld",
+        "rationale": "部分成立、归因需纠正：交付物 303 行确实超过 PRD 自锚点写的 <300。但\"执行记录声称 check-max-lines 全 PASS 无法成立\"这一句经当场重跑被否证——`.github/scripts/check-max-lines.js` 的真实档位是 limit=500 / testLimit=1500，该锁两档都不到，PASS 是真的（当场读数：超限文件=95 挂账=95，无新增超大文件）。所以缺陷不是谎报，而是 PRD 写了一条比机器门禁更严、却没有任何机器在看的自定数字：自锚点不会变红，只在人回头看时成立。AST 化删掉自造解析层后实测 233 行（wc -l），锚点与产物重新对上。教训：写进验收锚点的数字必须能一句话重取，且要么有门禁看它、要么标明\"仅自述\"。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "CHANGELOG 顶部「验证」段仍写「新锁 5 条（控制跑 collected=5 red=0）…（八道变异 COUNTERPROOF=ALL_CAUGHT）」，而同一 changelog 末尾已写「反证从 8 道扩到 12 道，控制跑 collected=6 red=0」，提交集里锁文件实际是 6 个 it 块、驱动里 MUTANTS 数组是 12 项。旗舰文档的最终态数字（5 条 / 8 道）与提交集（6 条 / 12 道）不同源，读者按顶部段落核对门禁会得到错误读数——正是本仓反复记录的同型「声称与提交集不同源」。",
+        "highRiskDomains": [],
+        "prosecution": "（finding 原文即最强指控，见 critique-v1.md 本条）",
+        "defense": "（第二轮整改已在本工作区当场取证：AST 化 / covers / 233 行 / 文档读数重取）",
+        "verdict": "upheld",
+        "rationale": "指控成立并已修：CHANGELOG 顶部验证段仍写 5 条/八道变异，与提交集（锁 6 个 it、驱动 13 项 MUTANTS）不同源。现改为当场重取的读数（[BASE] rc=0 collected=6 red=0；M1–M13 ALL_CAUGHT），并补「条数是当日读数，验收以门禁现场通过数为准」。Vue 解析器核验数字重取为全量改动集 files=26 BAD=0（含第二轮新增两处 .vue）。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "提案记录（i6 处置）自称「本轮改为对最终 head 重跑 decider 并提交与 head 同源的那份」，但本 diff 新增的两份 .ccg/reviews/*.json 分别是 sha=50e1cb5d（267 行早期暂存快照）与 sha=e4241a47c（deepReview.status=self_play_pending、note「裁决尚未填写：4/4 条未定」），而最终 head 是 1c43d93d5，其对应的 1c43d93d5….json 审核产物在 git status 里仍是 untracked、不在提交集。即 artifact 与最终 head 再一次不同源（正是 i6 声讨的形状），且同提交内 artifact 的「4/4 未定」与 record 五-D 的「8 条逐条处置」互相矛盾。",
+        "highRiskDomains": [],
+        "prosecution": "（finding 原文即最强指控，见 critique-v1.md 本条）",
+        "defense": "（第二轮整改已在本工作区当场取证：AST 化 / covers / 233 行 / 文档读数重取）",
+        "verdict": "upheld",
+        "rationale": "指控成立：本 PR 此前提交的两份产物分别记 sha=50e1cb5d（267 行早期快照）与 e4241a47c（self_play_pending、4/4 未定），而最终 head 是 1c43d93d5，其同源产物当时仍 untracked——即 i6 自己声讨的形状在同一 PR 里复发。本轮改为提交与最终 head 同源的产物（pre-commit 按新 head 落）。一处做不到如实写（**本句原先写「引擎无\"只结算已填裁决\"入口」，已被当场否证并更正**：引擎有 --sha 短路，走「复用存档 critique + 已填裁决 ⇒ 跳过模型调用」，见 finalizeAdjudication；本会话已实跑该短路，产物由 self_play_pending+findings:null 变为 self_play_blocked+findings 已填+blocking 点名。改产物的是引擎，不是手写）。真正拿不到闭合态的原因是：任何 upheld 都计阻断、高危域无论 verdict 都计阻断 ⇒ self_play 出口只能到 self_play_blocked，不在 check-pr-exec-record 的闭合态集合内；闭合需外部复核或人工判 needs_revision/cleared（任务 #19）。不把手写 findings 冒充成已裁决。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：6 条指控成立或需外部复核 ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T15:02:07.649Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：tier 与 evidence 均**未**由外部评审产出，本条是门禁自述的「代用出口」而非合规路径，如实标注。逐条处置：i1 已修（解析层整层换成 @vue/compiler-sfc 的模板 AST，站点与属性一律取自 AST、自造解析器整体删除，apps/desktop/src/img-loading-contract.test.js:13,:31）；i2 已修（授权清单每条新增 covers 字段，判据断言「该锚点实际覆盖的 eager 站点数 == covers」，多一张少一张都红，同文件 :48,:60-61）；i3 已修（自造解析器删除后变异集重排为 M1–M13，原「解析自身」那一格由两条 fixture 用例承担，同文件 :13 的结构性答案）；i4 已修（交付物 303 行超 PRD 自锚点 <300 的部分已修；「check-max-lines 全 PASS 无法成立」一句经当场重跑被否证——该锁两档都不到，PASS 是真的，纠正已写进记录）；i5 已修（CHANGELOG 顶部验证段改为当场重取的读数并补「条数是当日读数，验收以门禁现场通过数为准」，openspec/records/ux-audit-img-lazy.md:17 记 `[BASE] rc=0 collected=6 red=0` 与 13 道变异 ALL_CAUGHT）；i6 已修（本 PR 此前提交的两份产物分别记 50e1cb5d 与 e4241a47c、与最终 head 不同源，本轮改为提交与最终 head 同源的产物）。逐条现场依据与反证读数见 openspec/records/ux-audit-img-lazy.md。**另注**：本产物对应 rebase 前的 head 1c43d93d5；本次 rebase 只有一处冲突（AccountManagementCard.vue 的头像 div：主干侧新增 title/aria-label、本片侧新增 img 的 loading/decoding），已按「两侧记录都保留」消解，PR 自身改动集的其余部分逐字不变。"
+  }
+}

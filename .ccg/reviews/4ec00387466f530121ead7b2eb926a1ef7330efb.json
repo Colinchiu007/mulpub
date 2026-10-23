@@ -1,0 +1,67 @@
+{
+  "sha": "4ec00387466f530121ead7b2eb926a1ef7330efb",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 511 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 511,
+    "fileCount": 35,
+    "codeFileCount": 28,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 15,
+    "docSensitiveContentHits": 14,
+    "docSensitiveContentSample": [
+      "| eager 白名单口径 | **三条，且授权粒度是「一张图」**：① 单例、不滚动的应用外壳（全局侧栏 logo）；② 用户这次操作**刚点开/正要编辑的那张图本身**（封面预览弹窗、裁剪器输入、素材预览面、候选素材灯箱大图）；③ **本地内容的预览** —— src 是 `FileReader` 的 data URL 或 `URL.createObjectURL(file)`，数据已在内存，lazy 不省一个字节、只推迟可见（③ 允许出现在 v-for 里，因为\"每选一张就立刻要看到那一张\"）。**反向清单（同样重要）**：**远程**列表/网格缩略图一律 lazy，即便它在首屏 —— 含壳层里 v-for 出来的小图标（标签栏 16px 平台图标就是这条的实测落点，它不是\"外壳单例\"）；20px 的图标晚一帧出现不改变用户对\"页面好了没有\"的判断，而几十张封面同时下请求会 |",
+      "| 白名单治理 | `EAGER_ALLOWLIST` 是**逐张**条目清单 `{file, match, reason}`：`match` 是那张 `<img>` 开标签里唯一可辨的特征串（优先 `data-testid`/`class`，其次 `:src` 表达式）。第一版按**文件**授权 ⇒ 已在名单上的文件再新增一个毫无理由的 eager，\"未授权\"和\"陈旧\"两条断言全部放行（评审 i3），与标题「eager 逐条给理由」不符。三条判据缺一不可：未被任何条目覆盖的 eager ⇒ 红；条目不再覆盖任何 eager ⇒ 陈旧红（留着就是永久豁免）；**同一张 eager 被两条条目同时命中 ⇒ 红**（锚点互相认领就等于没逐张授权）。理由不得是空话词表（`以后再说/先这样/顺手/都行/随便/默认值`）里的写法，且必须点名三条口径之一；该词表本身由 fixture 观测（仓里没有空话理由 ⇒ 存量观测不到这个守卫） |",
+      "1. **宽高占位（CLS）本批不做**。`width`/`height` 属性决定浏览器为图片预留的盒子比例，给错了图片会被拉伸；本仓封面/缩略图的真实比例是动态的，正确解法是容器 `aspect-ratio` 或按原图尺寸写属性 —— **那会改变渲染结果**，必须由 CI 的同源基线来判，不能拿 `--update-baseline` 消化。已在审计清单上保留为 4.8 的剩余半边。"
+    ],
+    "ccgSensitiveContentHits": 17,
+    "ccgSensitiveContentSample": [
+      "      \"| eager 白名单口径 | **三条，且授权粒度是「一张图」**：① 单例、不滚动的应用外壳（全局侧栏 logo）；② 用户这次操作**刚点开/正要编辑的那张图本身**（封面预览弹窗、裁剪器输入、素材预览面、候选素材灯箱大图）；③ **本地内容的预览** —— src 是 `FileReader` 的 data URL 或 `URL.createObjectURL(file)`，数据已在内存，lazy 不省一个字节、只推迟可见（③ 允许出现在 v-for 里，因为\\\"每选一张就立刻要看到那一张\\\"）。**反向清单（同样重要）**：**远程**列表/网格缩略图一律 lazy，即便它在首屏 —— 含壳层里 v-for 出来的小图标（标签栏 16px 平台图标就是这条的实测落点，它不是\\\"外壳单例\\\"）；20px 的图标晚一帧出现不改变用户对\\\"页面好了没有\\\"的判断，而几十张封面同时下请求会 |\",",
+      "      \"| 白名单治理 | `EAGER_ALLOWLIST` 是**逐张**条目清单 `{file, match, reason}`：`match` 是那张 `<img>` 开标签里唯一可辨的特征串（优先 `data-testid`/`class`，其次 `:src` 表达式）。第一版按**文件**授权 ⇒ 已在名单上的文件再新增一个毫无理由的 eager，\\\"未授权\\\"和\\\"陈旧\\\"两条断言全部放行（评审 i3），与标题「eager 逐条给理由」不符。三条判据缺一不可：未被任何条目覆盖的 eager ⇒ 红；条目不再覆盖任何 eager ⇒ 陈旧红（留着就是永久豁免）；**同一张 eager 被两条条目同时命中 ⇒ 红**（锚点互相认领就等于没逐张授权）。理由不得是空话词表（`以后再说/先这样/顺手/都行/随便/默认值`）里的写法，且必须点名三条口径之一；该词表本身由 fixture 观测（仓里没有空话理由 ⇒ 存量观测不到这个守卫） |\",",
+      "      \"1. **宽高占位（CLS）本批不做**。`width`/`height` 属性决定浏览器为图片预留的盒子比例，给错了图片会被拉伸；本仓封面/缩略图的真实比例是动态的，正确解法是容器 `aspect-ratio` 或按原图尺寸写属性 —— **那会改变渲染结果**，必须由 CI 的同源基线来判，不能拿 `--update-baseline` 消化。已在审计清单上保留为 4.8 的剩余半边。\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T15:54:31.039Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "JSON解析失败:模型输出被截断，JSON 不完整：括号计数恰好配平（12/12，那是已闭合的内层对象），但结尾不是 }——真正被砍断的是最后一个字符串，共 6162 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
+    "validationErrors": null,
+    "at": "2026-10-21T15:58:32.632Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：本产物对应本 PR 的**较早 head**（sha 见文件名），其评审已被本 PR 后续 head 的同源评审取代——最终一轮的 6 条指控已逐条处置完毕（见同变更集的 `.ccg/reviews/1c43d93d5740cb1bb8d3fe264a5cc861a10bf010.json` 的 closureNote）。本产物按「被取代的中间快照」收口：**不冒充对最终 head 的外部复核**，也不把中间快照读成「当前改动未被评审」。tier 与 evidence 均未由外部评审产出，如实标注。",
+    "note": " ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。"
+  }
+}

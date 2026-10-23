@@ -38,7 +38,7 @@
                   class="publish-type-platform-icon"
                   :title="platform.label"
                   aria-hidden="true"
-                ><img v-if="platform.iconUrl" :src="platform.iconUrl" :alt="platform.label" class="publish-type-platform-icon-img" width="16" height="16"><span v-else>{{ platform.icon }}</span></span>
+                ><img v-if="platform.iconUrl" :src="platform.iconUrl" :alt="platform.label" class="publish-type-platform-icon-img" width="16" height="16" loading="lazy" decoding="async"><span v-else>{{ platform.icon }}</span></span>
                 <span v-if="option.platforms.length > 7" class="publish-type-platform-more">+{{ option.platforms.length - 7 }}</span>
               </span>
             </button>

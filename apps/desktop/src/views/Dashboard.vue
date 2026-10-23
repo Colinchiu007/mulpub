@@ -184,7 +184,7 @@
       <div v-else class="cohere-card-grid dash-grid-280">
         <div v-for="item in platformData" :key="item.platform" class="cohere-card">
           <div class="card-top">
-            <div class="card-icon"><img v-if="isPlatformIconUrl(platformIcon(item.platform))" :src="platformIcon(item.platform)" class="mp-platform-icon" :alt="platformName(item.platform)" width="24" height="24"><span v-else>{{ platformIcon(item.platform) }}</span></div>
+            <div class="card-icon"><img v-if="isPlatformIconUrl(platformIcon(item.platform))" :src="platformIcon(item.platform)" class="mp-platform-icon" :alt="platformName(item.platform)" width="24" height="24" loading="lazy" decoding="async"><span v-else>{{ platformIcon(item.platform) }}</span></div>
             <div class="card-info">
               <div class="card-platform">{{ platformName(item.platform) }}</div>
               <div v-if="!item.error" class="card-meta">

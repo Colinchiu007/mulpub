@@ -19,7 +19,7 @@
     @keydown.enter.prevent="$emit('open')"
     @keydown.space.prevent="$emit('open')"
   >
-    <img class="cover-thumbnail__img" :src="dataUrl" alt="" draggable="false">
+    <img class="cover-thumbnail__img" :src="dataUrl" alt="" draggable="false" loading="eager" decoding="async">
     <span class="cover-thumbnail__zoom" aria-hidden="true">
       <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6">
         <circle cx="6.6" cy="6.6" r="4.4" /><path d="M10 10l3.4 3.4M4.6 6.6h4M6.6 4.6v4" />

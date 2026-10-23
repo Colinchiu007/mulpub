@@ -22,7 +22,7 @@
         >
       </label>
       <span class="platform-chip">
-        <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-icon-img mp-platform-icon" :alt="platformLabel" width="24" height="24" aria-hidden="true">
+        <img v-if="isPlatformIconUrl(platformIcon)" :src="platformIcon" class="platform-icon-img mp-platform-icon" :alt="platformLabel" width="24" height="24" aria-hidden="true" loading="lazy" decoding="async">
 <span v-else class="platform-icon" aria-hidden="true">{{ platformIcon }}</span>
         {{ platformLabel }}
       </span>
@@ -47,7 +47,7 @@
         :title="avatarHint"
         :aria-label="avatarHint || undefined"
       >
-        <img v-if="showAvatar" :src="account.avatar || account.avatar_url" alt="" @error="avatarBroken = true">
+        <img v-if="showAvatar" :src="account.avatar || account.avatar_url" alt="" @error="avatarBroken = true" loading="lazy" decoding="async">
         <UserFilled v-else />
         <!-- 失效态：状态文字直接压在头像上（头像即状态载体），头像旁不再重复出徽章 -->
         <span
