@@ -82,13 +82,8 @@ test('回归②墓碑：并发 PR 把已还债的条目带回挂账时只提示�
   const base = { limit: 500, growthAllowance: 200, files: { [rel]: 598 }, pruned: { [rel]: 468 } };
   const res = G.evaluate(base, {}, { [rel]: 468 });
   assert.deepEqual(res.violations, [], '僵尸条目 + 墓碑 = 已知复活，不得阻断');
-  // notice 多了「本地无 base 基线」那条：evaluate 多了 baseInfo 参数后契约变了
-  // （这条用例没传 baseInfo ⇒ targetAudit 走「本地无 base」的可见提示档）。
-  // 断言改成「集合里有 LEDGER_RESURRECTED 那条」而不是「它在第 0 位」——
-  // 后者等于把 notice 的排列顺序钉死，而新判据本来就会往最前面插自己的提示。
-  assert.equal(res.notices.length, 2, JSON.stringify(res.notices));
-  assert.ok(res.notices.some((n) => /^LEDGER_RESURRECTED: apps\/desktop\/src\/components\/LogsSettings\.vue/.test(n)),
-    '必须仍有 LEDGER_RESURRECTED 那条：' + JSON.stringify(res.notices));
+  assert.equal(res.notices.length, 1, JSON.stringify(res.notices));
+  assert.match(res.notices[0], /^LEDGER_RESURRECTED: apps\/desktop\/src\/components\/LogsSettings\.vue/);
 });
 
 test('回归③墓碑取消挂账豁免：同路径重新超限仍按新增债务阻断（僵尸条目不得当免死金牌）', () => {
@@ -714,4 +709,45 @@ test('targets 重锚审计的 base 取法：取不到 origin/main 时必须能�
       assert.equal(r, null, '取不到 base 必须返回 null，让 targetAudit 走 fail-closed');
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
+});
+
+
+// ⚠ 2026-10-23 实测踩到并修掉的一个洞：base 审计的 fail-closed 那条 violation，
+// 曾经会落到**每一条合成夹具**上（CI 里 GITHUB_ACTIONS=true ⇒ 推 violation 而不是 notice）
+// ⇒ 整个测试文件在 CI 红、本机全绿（not ok 1「新代码阻断：超限且未挂账 → NEW_OVER_LIMIT」，2 !== 1）。
+// 三档语义必须分清：undefined = 调用方没要求审计 / null = 要求了但取不到 base / 对象 = base 读到了。
+test('base 审计的三档语义：夹具不污染、真跑取不到 base 才 fail-closed', async (t) => {
+  const OLD_ENV = process.env.GITHUB_ACTIONS;
+  process.env.GITHUB_ACTIONS = 'true'; // 模拟 CI：fail-closed 那条才会推 violation
+  try {
+    await t.test('合成夹具（不传 baseInfo）⇒ 无 violation、无 base 相关 notice', () => {
+      const base = { limit: 500, growthAllowance: 200, files: {} };
+      const r = G.evaluate(base, { 'packages/a/big.js': 640 });
+      assert.deepEqual(r.violations.map((v) => v.split(':')[0]), ['NEW_OVER_LIMIT'],
+        '只应有 NEW_OVER_LIMIT 一条，不得混进 base 审计的违规：' + JSON.stringify(r.violations));
+      assert.ok(!r.notices.some((n) => /base/.test(n)), '夹具不得收到 base 相关 notice：' + JSON.stringify(r.notices));
+    });
+
+    await t.test('显式要求审计但取不到 base（baseInfo=null）⇒ CI 内 fail-closed', () => {
+      const base = { limit: 500, growthAllowance: 200, files: {} };
+      const r = G.evaluate(base, { 'packages/a/big.js': 640 }, { 'packages/a/big.js': 640 }, null, null);
+      assert.ok(r.violations.some((v) => v.startsWith('TARGET_BASE_UNAVAILABLE')),
+        '取不到 base 必须 fail-closed：' + JSON.stringify(r.violations));
+    });
+
+    await t.test('base 读到了 ⇒ 正常做三条判据，不出 TARGET_BASE_UNAVAILABLE', () => {
+      // 读数方向：evaluate 收到的 baseline 是**本次改动后的**基线（targets=新值 800），
+      // baseInfo.targets 是**改动前**的 base（targets=旧值 700）⇒ 「上调」= 800 > 700。
+      // 而文件实际只有 640 行（并未超过旧目标 700）⇒ 落在 TARGET_BUMP_UNJUSTIFIED 那一格。
+      const base = { limit: 500, growthAllowance: 200, files: {}, targets: { 'packages/a/big.js': 800 } };
+      const r = G.evaluate(base, { 'packages/a/big.js': 640 }, { 'packages/a/big.js': 640 }, null, { targets: { 'packages/a/big.js': 700 } });
+      assert.ok(!r.violations.some((v) => v.startsWith('TARGET_BASE_UNAVAILABLE')),
+        'base 读到时不得报取不到 base：' + JSON.stringify(r.violations));
+      assert.ok(r.violations.some((v) => v.startsWith('TARGET_BUMP_UNJUSTIFIED')),
+        '无增长支撑的上调必须被抓：' + JSON.stringify(r.violations));
+    });
+  } finally {
+    if (OLD_ENV === undefined) delete process.env.GITHUB_ACTIONS;
+    else process.env.GITHUB_ACTIONS = OLD_ENV;
+  }
 });

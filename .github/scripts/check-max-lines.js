@@ -247,6 +247,16 @@ function writeBaseline(files, meta, p) {
  * 三条都只在**本 PR 改了 targets** 时才会命中，无关 PR 不受影响。
  */
 function targetAudit (targets, baseInfo, linesOf, violations, notices) {
+  // ⚠ 三档必须分清，合成夹具与真跑不能同形（2026-10-23 实测踩到）：
+  //   undefined = 调用方**没有要求**做这次审计（合成夹具：G.evaluate(base, scanned, existing) 只传 3–4 个参）
+  //              ⇒ 直接返回：不推 notice、不推 violation。
+  //              漏掉这一档 ⇒ fail-closed 那条 violation 会在 **CI 里**（GITHUB_ACTIONS=true）
+  //              落到每一条合成夹具用例上 ⇒ 整个测试文件在 CI 红、而本机全绿
+  //              （实测：not ok 1「新代码阻断：超限且未挂账 → NEW_OVER_LIMIT」，2 !== 1）。
+  //   null      = 调用方要求审计但**取不到 base**（真跑时读不到 base 提交）
+  //              ⇒ CI 内 fail-closed（推 violation），本机推 notice。
+  //   对象      = base 读到了 ⇒ 正常做三条判据。
+  if (baseInfo === undefined) return;
   if (!baseInfo || !baseInfo.targets) {
     // 取不到 base 就无法判断「上调是否有增长支撑」。CI 里必须 fail-closed ——
     // 静默跳过等于给「偷偷放宽」开一条无人守门的通道；本地无 base 只提示。
@@ -627,7 +637,9 @@ function main() {
   }
 
   // 只在用默认基线时读 base：--baseline 覆盖（测试夹具）无法假定 base 提交里有同名文件。
-  const baseInfo = baselinePath ? null : readBaseTargets(rootDir || ROOT, process.env.MP_BASE_REF || 'origin/main');
+  // --baseline 覆盖（测试夹具/--prune 等）时**没有 base 提交的概念** ⇒ 不做这次审计（undefined）；
+  // 其余路径要求审计：读不到 base 时传 null ⇒ targetAudit 在 CI 内 fail-closed。
+  const baseInfo = baselinePath ? undefined : (readBaseTargets(rootDir || ROOT, process.env.MP_BASE_REF || 'origin/main') || null);
   const { violations, notices, results } = evaluate(base, scanned, all, { scanned: scannedTests, all: allTests }, baseInfo);
   if (isJson) {
     console.log(JSON.stringify({ results, scanned, scannedTests, violations, notices, domainSize: domain.size }, null, 2));
