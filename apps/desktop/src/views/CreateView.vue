@@ -288,15 +288,12 @@
               :invalid-key-of="avatarCloneInvalidKey"
               :voice-clone-supported="avatarVoiceCloneSupported"
               :provider-name="avatarProviderName"
-              :voice-name-draft="avatarCloneVoiceNameDraft"
-              :voice-creating="avatarCloneVoiceCreating"
+              :voice-selection-id="avatarCloneVoiceSelectionId"
               :voice-create-error="avatarCloneVoiceCreateError"
-              :voice-created-name="avatarCloneVoiceCreatedName"
               @ack-notice="avatarCloneNoticeAcked = true"
               @update:nameDraft="val => (avatarCloneNameDraft = val)"
-              @update:voiceNameDraft="val => (avatarCloneVoiceNameDraft = val)"
+              @choose-voice-media="avatarCloneApi.chooseVoiceMedia(avatarProviderId)"
               @create="type => createAvatarClone(type)"
-              @create-voice="createAvatarVoiceClone()"
               @delete="id => removeAvatarClone(id)"
             />
           </div>
@@ -1173,7 +1170,6 @@ export default {
       avatarProviderSwitched: false,
       // 当前服务商是否支持克隆声音（probeAvatarVoiceCloneSupport 探测，拿不到保守 false）
       avatarVoiceCloneSupported: false,
-      // 声音克隆区（change: hifly-voice-subtitle-parity）：与形象克隆分开，
       // 两者可并行操作（共用 creating 会造出「传照片时不能同时传录音」的假约束）
       avatarCloneVoiceNameDraft: '',
       // 字幕（change: hifly-voice-subtitle-parity）：仅飞影支持。
@@ -1363,6 +1359,13 @@ export default {
     // 声音克隆区（change: hifly-voice-subtitle-parity）
     avatarCloneVoiceCreating: { get() { return avatarCloneRefs.voiceCreating.value } },
     avatarCloneVoiceCreateError: { get() { return avatarCloneRefs.voiceCreateError.value } },
+    // change: avatar-voice-clone-bundled —— 两条素材的 selectionId 由 composable 持有，
+    // 这里桥接出来供模板绑定（与 voiceCreating 等同型）。
+    avatarCloneVoiceSelectionId: { get() { return avatarCloneRefs.voiceSelectionId.value } },
+    // change: avatar-voice-clone-bundled —— composable 的方法桥接到模板作用域。
+    // import 进来的名字不会自动进模板（只有 data/computed/props/methods 会），
+    // 所以这里显式暴露一个只读引用。
+    avatarCloneApi: () => avatarCloneMethods,
     avatarCloneVoiceCreatedName: { get() { return avatarCloneRefs.voiceCreatedName.value } },
     /**
      * 当前服务商是否支持字幕（change: hifly-voice-subtitle-parity）。
@@ -2124,10 +2127,23 @@ export default {
         avatarCloneMethods.loadAvatarClones({ providerId: this.avatarProviderId })
       }
     },
+    /**
+     * 创建克隆形象（change: avatar-voice-clone-bundled）。
+     *
+     * 用户约束：**声音与形象绑在同一家 provider 下一次创建**，这样才用得上
+     * 飞影的整体克隆能力。所以这里把形象的 selectionId 与录音的
+     * voiceSelectionId 一起交给主进程，由 service 在同一次编排里建完两样。
+     *
+     * 录音没选也能建（voiceSelectionId 为空）——向后兼容「只克隆形象」。
+     */
     async createAvatarClone(type) {
       const name = String(this.avatarCloneNameDraft || '').trim()
       if (!name) { this.avatarCloneNameDraft = ""; return }
-      const result = await avatarCloneMethods.createAvatarClone({ type, name, providerId: this.avatarProviderId })
+      const result = await avatarCloneMethods.createAvatarClone({
+        type,
+        name,
+        providerId: this.avatarProviderId,
+      })
       if (result && result.success) {
         this.avatarCloneNameDraft = ""
         this.avatarClonePanelOpen = false
@@ -2143,14 +2159,6 @@ export default {
      * 声音必须与形象同源，让用户在别处选个 TTS provider 会造出
      * 「HeyGen 的形象配 ElevenLabs 的声音」这种服务商不认的组合。
      */
-    async createAvatarVoiceClone() {
-      const name = String(this.avatarCloneVoiceNameDraft || '').trim()
-      if (!name) { this.avatarCloneVoiceNameDraft = ''; return }
-      const result = await avatarCloneMethods.createVoiceClone({
-        name, providerId: this.avatarProviderId,
-      })
-      if (result && result.success) this.avatarCloneVoiceNameDraft = ''
-    },
     avatarCloneInvalidKey(avatar) { return avatarCloneMethods.invalidReasonKey(avatar) },
     /** 克隆形象 + 公共目录合并后的形象下拉（合并逻辑在 useAvatarClone，可独立测） */
     mergedAvatarOptions() {

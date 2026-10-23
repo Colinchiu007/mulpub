@@ -41,18 +41,16 @@
       </li>
     </ul>
 
-    <!-- 声音克隆区（change: hifly-voice-subtitle-parity）：
+    <!-- 声音素材（change: avatar-voice-clone-bundled）：
          支持时内联上传入口，不支持时只给一句说明。整个区块按能力显隐，
          不置灰——置灰会让用户以为「再点点就能用」。 -->
     <template v-if="voiceCloneSupported">
       <AvatarVoiceClone
-        :name-draft="voiceNameDraft"
-        :creating="voiceCreating"
+        :creating="creating"
+        :voice-selection-id="voiceSelectionId"
         :create-error="voiceCreateError"
         :provider-name="providerName"
-        :created-name="voiceCreatedName"
-        @update:nameDraft="val => $emit('update:voiceNameDraft', val)"
-        @create="$emit('create-voice')"
+        @choose-voice-media="$emit('choose-voice-media')"
       />
     </template>
     <p v-else class="config-hint" data-testid="avatar-clone-voice-unsupported">
@@ -112,13 +110,13 @@ export default {
      * 但不能在 locale 里写死任何一家。
      */
     providerName: { type: String, default: '' },
-    /** 声音克隆区状态（change: hifly-voice-subtitle-parity，父组件持有） */
-    voiceNameDraft: { type: String, default: '' },
-    voiceCreating: { type: Boolean, default: false },
+    /** 已选中的录音 selectionId（change: avatar-voice-clone-bundled） */
+    voiceSelectionId: { type: String, default: '' },
+
     voiceCreateError: { type: String, default: '' },
-    voiceCreatedName: { type: String, default: '' },
+
   },
-  emits: ['update:voiceNameDraft', 'create-voice'],
+  emits: ['choose-voice-media'],
   // 同步 import 而非异步：这是个常驻小块（克隆面板的一个区），
   // 异步加载会让「打开面板那一刻它还没就绪」，用户看到面板缺一块。
   components: { AvatarVoiceClone },

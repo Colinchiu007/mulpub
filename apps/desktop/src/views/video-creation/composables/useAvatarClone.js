@@ -39,6 +39,13 @@ const createError = ref('')
 const voiceCreating = ref(false)
 const voiceCreateError = ref('')
 const voiceCreatedName = ref('')
+/**
+ * 已选中的形象素材 selectionId（change: avatar-voice-clone-bundled）。
+ * 声音与形象绑在同一次创建里，所以两条素材各选一次、一起下发。
+ */
+const mediaSelectionId = ref('')
+/** 已选中的录音 selectionId（同上；空串表示还没选，仍可只克隆形象） */
+const voiceSelectionId = ref('')
 let requestId = 0
 let loadRequestId = 0
 let voiceRequestId = 0
@@ -53,6 +60,9 @@ function reset () {
   voiceCreating.value = false
   voiceCreateError.value = ''
   voiceCreatedName.value = ''
+  // 两条素材选择态一并复位：切换服务商时不能留着上一家的 selectionId
+  mediaSelectionId.value = ''
+  voiceSelectionId.value = ''
 }
 
 /**
@@ -116,33 +126,71 @@ async function loadAvatarClones (options = {}) {
 }
 
 /**
- * 两步创建：先弹主进程对话框选素材，再按 selectionId 创建。
+ * 创建克隆形象。
+ *
+ * change: avatar-voice-clone-bundled —— 素材 selectionId 可由调用方预先选好再传入。
+ * 这样面板能先分别选「形象素材」和「录音素材」，再一次创建建完两样
+ * （声音与形象绑在同一家 provider 下，用上飞影的整体克隆能力）。
+ * 不传 selectionId 时仍会自己弹对话框（向后兼容旧调用路径）。
  *
  * @param {object} input
  * @param {'photo'|'digital_twin'} input.type
  * @param {string} input.name
  * @param {'self'|'third_party_authorized'} [input.sourceKind]
  * @param {string} [input.providerId] 数字人服务商（change: digital-human-multiprovider）
+ * @param {string} [input.selectionId] 预选的形象素材 selectionId
+ * @param {string} [input.voiceSelectionId] 预选的录音 selectionId（配套声音）
  */
+/**
+ * 选形象素材（change: avatar-voice-clone-bundled）。
+ * 主进程对话框 → selectionId，renderer 不碰文件路径。
+ *
+ * @param {string} type photo | digital_twin
+ * @returns {Promise<string|null>} 选中的 type；取消/失败返回 null
+ */
+async function chooseMedia (type, providerId) {
+  const chosen = await chooseAvatarCloneMedia({ type, providerId })
+  if (!chosen || chosen.code !== 0) return null
+  const selectionId = chosen.data && chosen.data.selectionId
+  if (!selectionId) return null
+  mediaSelectionId.value = selectionId
+  return type
+}
+
+/**
+ * 选录音素材（change: avatar-voice-clone-bundled）。
+ * 与形象素材同型，最终与形象在同一次创建里捆绑下发。
+ */
+async function chooseVoiceMedia (providerId) {
+  const chosen = await chooseAvatarCloneMedia({ type: 'audio', providerId })
+  if (!chosen || chosen.code !== 0) return
+  const selectionId = chosen.data && chosen.data.selectionId
+  if (!selectionId) return
+  voiceSelectionId.value = selectionId
+}
+
 async function createAvatarClone (input) {
   const my = ++requestId
   creating.value = true
   createError.value = ''
   try {
-    const chosen = await chooseAvatarCloneMedia({ type: input.type })
-    if (my !== requestId) return { success: false, canceled: true }
-    if (!chosen || chosen.code !== 0) {
-      createError.value = friendlyError(chosen && chosen.message)
-      return { success: false }
-    }
-    // 用户取消对话框：paths 为空，不是错误
-    if (chosen.data && Array.isArray(chosen.data.paths) && chosen.data.paths.length === 0) {
-      return { success: false, canceled: true }
-    }
-    const selectionId = chosen.data && chosen.data.selectionId
+    let selectionId = input.selectionId || mediaSelectionId.value
     if (!selectionId) {
-      createError.value = friendlyError(chosen && chosen.message)
-      return { success: false }
+      const chosen = await chooseAvatarCloneMedia({ type: input.type })
+      if (my !== requestId) return { success: false, canceled: true }
+      if (!chosen || chosen.code !== 0) {
+        createError.value = friendlyError(chosen && chosen.message)
+        return { success: false }
+      }
+      // 用户取消对话框：paths 为空，不是错误
+      if (chosen.data && Array.isArray(chosen.data.paths) && chosen.data.paths.length === 0) {
+        return { success: false, canceled: true }
+      }
+      selectionId = chosen.data && chosen.data.selectionId
+      if (!selectionId) {
+        createError.value = friendlyError(chosen && chosen.message)
+        return { success: false }
+      }
     }
 
     const added = await addAvatarClone({
@@ -151,9 +199,17 @@ async function createAvatarClone (input) {
       type: input.type,
       sourceKind: input.sourceKind,
       providerId: input.providerId,
+      // change: avatar-voice-clone-bundled —— 配套录音的 selectionId（可选）。
+      // 声音与形象绑在同一家 provider 下**一次创建**；不传则只克隆形象。
+      ...((input.voiceSelectionId || voiceSelectionId.value)
+        ? { voiceSelectionId: input.voiceSelectionId || voiceSelectionId.value }
+        : {}),
     })
     if (my !== requestId) return { success: false, canceled: true }
     if (added && added.code === 0 && added.data && added.data.avatar) {
+      // 两条素材都已消费，清掉避免下次创建误带
+      mediaSelectionId.value = ''
+      voiceSelectionId.value = ''
       // 追加到列表头部（最新创建的排最前）
       clones.value = [added.data.avatar, ...clones.value]
       return { success: true, avatar: added.data.avatar }
@@ -296,6 +352,8 @@ function buildMergedAvatarOptions (publicAvatars, translate) {
 }
 
 export const avatarCloneRefs = {
+  mediaSelectionId,
+  voiceSelectionId,
   clones,
   usableClones,
   trainingClones,
@@ -316,6 +374,8 @@ export const avatarCloneComputeds = {
 
 export const avatarCloneMethods = {
   loadAvatarClones,
+  chooseMedia,
+  chooseVoiceMedia,
   createAvatarClone,
   createVoiceClone,
   removeAvatarClone,

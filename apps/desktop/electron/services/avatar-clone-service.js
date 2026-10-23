@@ -104,12 +104,16 @@ class AvatarCloneError extends Error {
  * 字段形状必须与 avatar-clone-registry.isSafeAvatarClone 的允许集逐一对应：
  * 加字段不同时改两边，写入会被 _writeRegistry 拒（fail-closed）。
  */
-function buildCloneRecord ({ avatarId, request, auditSeq, sampleStorage, now }) {
+function buildCloneRecord ({ avatarId, request, auditSeq, sampleStorage, voiceId, now }) {
   return {
     id: avatarId,
     name: request.name,
     source: CAPABILITY_TYPES.USER_CLONE,
     sourceKind: request.sourceKind,
+    // change: avatar-voice-clone-bundled —— 配套声音 id（可选）。
+    // 形象与声音绑在同一家 provider 下创建，故记住配对关系，
+    // 生成视频时直接取用，不需要用户再选一次。
+    ...(voiceId ? { voiceId } : {}),
     // attestation 是审计链一环（评审 i3）：acknowledgedAt 必填，reason 选填
     attestation: { acknowledgedAt: now },
     auditSeq,
@@ -150,8 +154,8 @@ class AvatarCloneService {
       cleanupSampleStorage: (owner, sampleStorage) => this._cleanupSampleStorage(owner, sampleStorage),
       writeRegistry: (owner, registry) => this._writeRegistry(owner, registry),
       readRegistry: (owner) => this._readRegistry(owner),
-      newCloneRecord: ({ avatarId, request, auditSeq, sampleStorage }) =>
-        buildCloneRecord({ avatarId, request, auditSeq, sampleStorage, now: this._now() }),
+      newCloneRecord: ({ avatarId, request, auditSeq, sampleStorage, voiceId }) =>
+        buildCloneRecord({ avatarId, request, auditSeq, sampleStorage, voiceId, now: this._now() }),
       toPublic: (clone) => this._toPublic(clone),
       failure: (message, data) => failure(message, data),
       success: (data) => success(data),
@@ -223,25 +227,6 @@ class AvatarCloneService {
     return success(created.data)
   }
 
-  /**
-   * 第二步：按 selectionId 创建克隆形象。
-   * selection 与 senderKey / type 必须与第一步一致，否则拒绝（防跨窗口冒用）。
-   */
-  async addCloneFromSelection (input, senderKey) {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) return failure('AVATAR_CLONE_INVALID_ARGUMENTS')
-    if (typeof senderKey !== 'string' || !senderKey) return failure('AVATAR_CLONE_INVALID_ARGUMENTS')
-    const selectionId = typeof input.selectionId === 'string' ? input.selectionId : ''
-    const type = input.type === 'photo' || input.type === 'digital_twin' ? input.type : null
-    if (!type) return failure('AVATAR_CLONE_INVALID_ARGUMENTS')
-    const name = safeDisplayName(input.name)
-    if (!name) return failure('AVATAR_CLONE_INVALID_ARGUMENTS')
-    const sourceKind = normalizeSourceKind(input.sourceKind) || 'self'
-
-    const taken = this._selections.take(selectionId, senderKey, type)
-    if (!taken.ok) return failure(taken.message)
-
-    return this.createClone({ name, type, media: taken.media, sourceKind })
-  }
 
   /** 删除克隆形象：先远端后本地；远端失败标 pending 并保留样本 */
   async deleteClone (input) {
@@ -476,5 +461,8 @@ class AvatarCloneService {
 // ——那里是同族的纯常量真源，避免两处各写一份。
 // 工具方法挂到原型上（拆出以满足 max-lines，见 avatar-clone-helpers.js 头注）
 Object.assign(AvatarCloneService.prototype, helpers)
+// change: avatar-voice-clone-bundled —— 素材两段式的 service 侧 API 拆到独立文件
+// （max-lines 门禁 + 职责边界：只依赖 _selections 与 createClone）。
+Object.assign(AvatarCloneService.prototype, require('./avatar-clone-selection-api').helpers)
 
 module.exports = { AvatarCloneService }

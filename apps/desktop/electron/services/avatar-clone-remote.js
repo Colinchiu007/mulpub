@@ -91,8 +91,12 @@ class AvatarCloneRemote {
   /**
    * 创建编排。返回 { ok, response }；response 即 service 对外的成功/失败体。
    *
-   * 顺序：审计 → 远端创建 → 落样本 → 读 registry → 写 registry。
+   * 顺序：审计 → 远端建形象 → （有配套声音则）远端建声音 → 落样本 → 读 registry → 写 registry。
    * 每一步失败都有对应的补偿（删远端 / 清样本），且都落审计。
+   *
+   * change: avatar-voice-clone-bundled —— 声音与形象绑在同一家 provider 下创建。
+   * 声音失败时要补偿删**已建成的形象**：否则留下「只有形象没有声音」的半截克隆，
+   * 用户下次生成视频仍会因缺 voice 失败，且形象是付费资产。
    */
   async orchestrateCreate (request, owner, sampleStorage) {
     const auditSeq = await this._appendAudit(owner, {
@@ -100,6 +104,7 @@ class AvatarCloneRemote {
       sourceKind: request.sourceKind,
       name: request.name,
       mediaType: request.mediaType,
+      withVoice: Boolean(request.voice),
     })
     if (!auditSeq) return { ok: false, response: this._failure('AVATAR_CLONE_STORAGE_UNAVAILABLE') }
 
@@ -117,6 +122,30 @@ class AvatarCloneRemote {
     if (!avatarId) {
       await this._appendAudit(owner, { event: 'create_failed', auditSeq, detail: 'no avatar id in response' })
       return { ok: false, response: this._failure('AVATAR_CLONE_PROVIDER_UNAVAILABLE', { detail: 'no avatar id in response' }) }
+    }
+
+    // 配套声音（可选）：与形象同一家 provider，绑在一起创建。
+    // 失败必须补偿删已建成的形象，不留半截克隆。
+    let voiceId = null
+    if (request.voice) {
+      const voiceCreated = await this.callAvatarMethod(owner.providerId, 'cloneVoice', {
+        name: request.name,
+        audio: request.voice,
+        fileName: request.voice.fileName,
+      })
+      if (!voiceCreated.ok) {
+        // 补偿：删已建成的形象
+        await this.remoteDelete(owner.providerId, avatarId)
+        await this._appendAudit(owner, { event: 'create_failed', auditSeq, detail: 'voice clone failed; avatar compensated: ' + voiceCreated.detail })
+        return { ok: false, response: this._failure('AVATAR_CLONE_VOICE_FAILED', { detail: voiceCreated.detail }) }
+      }
+      voiceId = safeIdentifier(voiceCreated.data && (voiceCreated.data.voice_id || voiceCreated.data.id || voiceCreated.data.voice), 256)
+      if (!voiceId) {
+        // 声音建了但没拿到 id：同样补偿删形象（否则形象配不上声音）
+        await this.remoteDelete(owner.providerId, avatarId)
+        await this._appendAudit(owner, { event: 'create_failed', auditSeq, detail: 'voice clone returned no id; avatar compensated' })
+        return { ok: false, response: this._failure('AVATAR_CLONE_VOICE_FAILED', { detail: 'no voice id in response' }) }
+      }
     }
 
     // 落样本：远端已创建成功，本地失败要补偿删远端
@@ -138,7 +167,7 @@ class AvatarCloneRemote {
       return { ok: false, response: this._failure('AVATAR_CLONE_DUPLICATE_ID') }
     }
 
-    const clone = this._newCloneRecord({ avatarId, request, auditSeq, sampleStorage })
+    const clone = this._newCloneRecord({ avatarId, request, auditSeq, sampleStorage, voiceId })
     const nextRegistry = { ...registryResult.registry, avatars: [...registryResult.registry.avatars, clone] }
     if (!this._writeRegistry(owner, nextRegistry)) {
       await this._compensate(owner.providerId, avatarId, owner, sampleStorage, auditSeq, 'registry write failed')
@@ -179,10 +208,22 @@ class AvatarCloneRemote {
     if (!this._writeRegistry(owner, workingRegistry)) return this._failure('AVATAR_CLONE_STORE_UNAVAILABLE')
 
     const remoteDeleted = await this.remoteDelete(owner.providerId, clone.id)
+    // change: avatar-voice-clone-bundled —— 配套声音一并删。
+    // 声音删除失败不阻塞形象删除的成功返回（形象已没了，声音留着影响较小），
+    // 但要把失败写进审计，便于人工追。
+    let voiceDeleted = true
+    if (remoteDeleted && clone.voiceId) {
+      voiceDeleted = await this.remoteDelete(owner.providerId, clone.voiceId)
+      if (!voiceDeleted) {
+        await this._appendAudit(owner, { event: 'delete_pending', avatarId: clone.id, voiceId: clone.voiceId, detail: 'avatar deleted; bundled voice delete failed' })
+      }
+    }
     await this._appendAudit(owner, {
       event: remoteDeleted ? 'deleted' : 'delete_pending',
       avatarId: clone.id,
-      detail: remoteDeleted ? null : 'remote delete failed; local retained for retry',
+      detail: remoteDeleted
+        ? (clone.voiceId && !voiceDeleted ? 'avatar deleted; bundled voice delete failed' : null)
+        : 'remote delete failed; local retained for retry',
     })
 
     if (!remoteDeleted) {

@@ -193,4 +193,49 @@ describe('avatar-clone IPC', () => {
       expect((await ipc.handlers.get('avatar-clone:rename')(validEvent(), { avatarId: 'av-1' })).code).toBe(EC.VALIDATION_ERROR)
     })
   })
+
+  // ── change: avatar-voice-clone-bundled：providerId 与配套声音透传 ──
+
+  describe('avatar-clone:add 透传 providerId 与 voiceSelectionId', () => {
+    it('providerId 与 voiceSelectionId 一路带到 addCloneFromSelection', async () => {
+      const addCloneFromSelection = vi.fn(async () => ({ code: 0, data: { avatar: { id: 'av-1', voiceId: 'vc-1' } } }))
+      const ipc = setup({ addCloneFromSelection })
+      const handler = ipc.handlers.get('avatar-clone:add')
+      const event = validEvent()
+
+      const res = await handler(event, {
+        selectionId: 'sel-1', voiceSelectionId: 'sel-v1', name: '完整', type: 'photo', providerId: 'hifly',
+      })
+
+      expect(res.code).toBe(0)
+      expect(addCloneFromSelection).toHaveBeenCalledWith(
+        expect.objectContaining({ selectionId: 'sel-1', voiceSelectionId: 'sel-v1', providerId: 'hifly' }),
+        expect.any(String),
+      )
+    })
+
+    it('不传 voiceSelectionId 时该键不出现（向后兼容旧调用）', async () => {
+      const addCloneFromSelection = vi.fn(async () => ({ code: 0, data: { avatar: { id: 'av-1' } } }))
+      const ipc = setup({ addCloneFromSelection })
+      const handler = ipc.handlers.get('avatar-clone:add')
+      const event = validEvent()
+
+      await handler(event, { selectionId: 'sel-1', name: '只要形象', type: 'photo', providerId: 'hifly' })
+
+      const arg = addCloneFromSelection.mock.calls[0][0]
+      expect('voiceSelectionId' in arg).toBe(false)
+    })
+
+    it('voiceSelectionId 非法格式 ⇒ 整个请求被拒', async () => {
+      const addCloneFromSelection = vi.fn(async () => ({ code: 0 }))
+      const ipc = setup({ addCloneFromSelection })
+      const handler = ipc.handlers.get('avatar-clone:add')
+      const event = validEvent()
+
+      const res = await handler(event, { selectionId: 'sel-1', voiceSelectionId: 'bad/id', name: 'x', type: 'photo' })
+
+      expect(res.code).not.toBe(0)
+      expect(addCloneFromSelection).not.toHaveBeenCalled()
+    })
+  })
 })

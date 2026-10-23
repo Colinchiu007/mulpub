@@ -64,6 +64,10 @@ export default {
   // come from the current digital human provider and are not user-selectable.
   avatarCloneVoiceTitle: 'Clone my voice',
   avatarCloneVoiceHintInline: 'Upload a recording to clone your own voice, then pick it under Digital human voice above.',
+  // change: avatar-voice-clone-bundled — voice is created together with the avatar
+  avatarCloneVoiceHintBundled: 'Pick a recording to create it together with the avatar. It then appears under Digital human voice above; skip it to clone the avatar only.',
+  avatarCloneVoiceChooseMedia: 'Choose a local audio file',
+  avatarCloneVoiceSelected: 'Recording selected',
   avatarCloneVoiceNamePlaceholder: 'Voice name',
   avatarCloneVoiceChoose: 'Choose a local audio file',
   avatarCloneVoiceCreated: 'Voice "{name}" created — pick it under Digital human voice above',

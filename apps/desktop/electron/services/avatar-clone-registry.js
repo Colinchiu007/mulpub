@@ -21,6 +21,9 @@ const CAPABILITY_TYPES = Object.freeze({
 const AVATAR_IMAGE_EXTENSIONS = Object.freeze(['.png', '.jpg', '.jpeg', '.webp'])
 const AVATAR_VIDEO_EXTENSIONS = Object.freeze(['.mp4', '.mov', '.webm'])
 const AVATAR_MEDIA_EXTENSIONS = Object.freeze([...AVATAR_IMAGE_EXTENSIONS, ...AVATAR_VIDEO_EXTENSIONS])
+// change: avatar-voice-clone-bundled —— 配套声音素材的白名单。
+// 飞影官方「创建声音」明确只支持 mp3 / m4a / wav 三种。
+const AVATAR_AUDIO_EXTENSIONS = Object.freeze(['.mp3', '.m4a', '.wav'])
 
 // 形象克隆失效原因
 const AVATAR_CLONE_INVALID_REASONS = Object.freeze({
@@ -159,6 +162,9 @@ function isSafeAvatarClone (value, ownerHash) {
     'trainingState',
     'sampleStorage',
     'mediaType',
+    // change: avatar-voice-clone-bundled —— 声音与形象绑在同一家 provider 下创建，
+    // 故条目要能记住配套的 voice id。选填：老数据没有该字段仍可读。
+    'voiceId',
   ])
   if (Object.keys(value).some((key) => !allowed.has(key))) return false
   const id = safeIdentifier(value.id, MAX_AVATAR_ID_LENGTH)
@@ -178,6 +184,8 @@ function isSafeAvatarClone (value, ownerHash) {
   if (!Number.isFinite(value.attestation.acknowledgedAt)) return false
   if (value.attestation.note !== undefined && typeof value.attestation.note !== 'string') return false
   if (value.mediaType !== 'image' && value.mediaType !== 'video') return false
+  // voiceId 选填：给了就必须是安全标识符（空串/带斜杠/超长都拒）
+  if (value.voiceId !== undefined && safeIdentifier(value.voiceId, MAX_AVATAR_ID_LENGTH) === null) return false
   return value.sampleStorage === undefined || isSafeSampleStorage(value.sampleStorage, ownerHash)
 }
 
@@ -249,7 +257,32 @@ function normalizeCreateRequest (input, safeExtension) {
   // change: digital-human-multiprovider —— 透传 providerId：registry 键与样本目录
   // 都按它分段，两家数字人服务商的克隆产物才不会串库。非空字符串才认。
   const providerId = typeof input.providerId === 'string' && input.providerId.trim() ? input.providerId.trim() : null
-  return { name, type, mediaType, media: input.media, sourceKind, providerId }
+  // change: avatar-voice-clone-bundled —— 配套声音素材（可选）。
+  // 用户约束：声音必须和形象走同一家 provider、绑在一起创建，才能用上飞影的
+  // 整体克隆能力。素材校验与形象同型：必须是 Blob、fileName 是字符串、
+  // 扩展名落在白名单内。不传 voice 表示「只要形象」。
+  const voice = normalizeVoiceMedia(input.voice, safeExtension)
+  if (input.voice !== undefined && input.voice !== null && !voice) return null
+  return { name, type, mediaType, media: input.media, sourceKind, providerId, voice }
+}
+
+/**
+ * 归一配套声音素材（录音）。
+ *
+ * 与形象素材同型的校验，但扩展名白名单是音频那套（mp3/m4a/wav）——
+ * 飞影官方「创建声音」明确只支持这三种。
+ *
+ * @param {unknown} input
+ * @param {(fileName: string) => string|null} safeExtension
+ * @returns {{blob: Blob, fileName: string, contentType: string}|null}
+ */
+function normalizeVoiceMedia (input, safeExtension) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  if (!(input.blob instanceof Blob)) return null
+  if (typeof input.fileName !== 'string') return null
+  const ext = safeExtension(input.fileName)
+  if (!ext || !AVATAR_AUDIO_EXTENSIONS.includes(ext)) return null
+  return { blob: input.blob, fileName: input.fileName, contentType: typeof input.contentType === 'string' ? input.contentType : '' }
 }
 
 /**
@@ -283,13 +316,16 @@ function normalizeRenameRequest (input) {
   const avatarId = safeIdentifier(input.avatarId, MAX_AVATAR_ID_LENGTH)
   const name = safeDisplayName(input.name)
   if (!avatarId || !name) return null
-  return { avatarId, name }
+  // 同 normalizeCreateRequest：重命名也要知道动的是哪家的 registry
+  const providerId = typeof input.providerId === 'string' && input.providerId.trim() ? input.providerId.trim() : null
+  return { avatarId, name, providerId }
 }
 
 module.exports = {
   CAPABILITY_TYPES,
   AVATAR_IMAGE_EXTENSIONS,
   AVATAR_VIDEO_EXTENSIONS,
+  AVATAR_AUDIO_EXTENSIONS,
   AVATAR_MEDIA_EXTENSIONS,
   AVATAR_CLONE_INVALID_REASONS,
   DELETE_STATES,

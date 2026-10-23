@@ -63,9 +63,10 @@ export default {
   // 收敛到数字人面板，provider/model 由当前数字人服务商决定、不给用户选。
   avatarCloneVoiceTitle: '克隆我的声音',
   avatarCloneVoiceHintInline: '上传一段录音即可克隆出你自己的声音，克隆成功后可在上方「数字人音色」中选择。',
-  avatarCloneVoiceNamePlaceholder: '音色名称',
-  avatarCloneVoiceChoose: '选择本地录音文件',
-  avatarCloneVoiceCreated: '已创建音色「{name}」，可在上方「数字人音色」中选择',
+  // change: avatar-voice-clone-bundled —— 声音与形象绑在一次创建里
+  avatarCloneVoiceHintBundled: '选一段录音，与形象一起创建。创建成功后可直接在上方「数字人音色」中选用；不选则只克隆形象。',
+  avatarCloneVoiceChooseMedia: '选择本地录音文件',
+  avatarCloneVoiceSelected: '已选录音',
   // 字幕（change: hifly-voice-subtitle-parity）：仅飞影支持（官方 create_by_tts 的
   // st_* 字段族）；HeyGen 无对应契约，故面板对不支持的 provider 整个不渲染。
   avatarSubtitleShow: '添加字幕',
