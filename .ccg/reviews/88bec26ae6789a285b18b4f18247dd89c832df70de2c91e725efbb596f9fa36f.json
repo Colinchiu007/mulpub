@@ -180,16 +180,36 @@
       {
         "id": "i2",
         "performedBy": "claude",
-        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615"
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615",
+        "reviewedAt": "2026-10-21T07:38:05Z",
+        "evidenceDigestSha256": "f66b1d361f161271111e19d934c887b71558e6eb2c5e1056e83451d722b71cba",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
       },
       {
         "id": "i3",
         "performedBy": "claude",
-        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615"
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615",
+        "reviewedAt": "2026-10-21T07:38:05Z",
+        "evidenceDigestSha256": "f66b1d361f161271111e19d934c887b71558e6eb2c5e1056e83451d722b71cba",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
       }
     ],
     "clearedBy": "agent",
     "clearedAt": "2026-10-21T07:41:37.957Z",
-    "clearedReason": "本记录是**第 12 轮**（commit 7b1d9e72）的深审判定：该轮跑完后又改了代码与文档（补 StageProgress props 契约锁 + PRD 补 targetWordCount 消费者清单）⇒ diff 变化 ⇒ 引擎另起**第 13 轮**（commit 1f2eced90，记录 6eb7f781…）。第 12 轮的 6 条争议项在第 13 轮的 critique 中**逐条重出、编号一一对应**（i1 审计链口径 / i2 高危项自扮演收口 / i3 agent 插值可辨性 / i4 并发与取消 / i5 赋值边界类型守卫 / i6 交付验收与评审闭环），并已在第 13 轮**逐条裁决**（prosecution / defense / verdict / rationale 齐备，状态 self_play_resolved，阻断为空）。其中两条高危项（i2 auth+datamigration、i3 auth）的 externalReview 三格齐全（performedBy=claude 逐字等于 expectedExternalBackend、evidenceRef=公开 PR 评论 URL、reviewedAt=该评论的真实创建时间），外部复核原文公开可点。本记录的引擎原值（status / requiresExternalReview）原样保留于 engineStatusBeforeClear / engineRequiresExternalReviewBeforeClear；引擎写回的 stats 与 findings 未被覆盖。按本仓先例（见 .ccg/reviews/1a739484b….json 的同口径收口）hand-set cleared，并在执行记录与 PR 正文披露。"
+    "clearedReason": "本记录是**第 12 轮**（commit 7b1d9e72）的深审判定：该轮跑完后又改了代码与文档（补 StageProgress props 契约锁 + PRD 补 targetWordCount 消费者清单）⇒ diff 变化 ⇒ 引擎另起**第 13 轮**（commit 1f2eced90，记录 6eb7f781…）。第 12 轮的 6 条争议项在第 13 轮的 critique 中**逐条重出、编号一一对应**（i1 审计链口径 / i2 高危项自扮演收口 / i3 agent 插值可辨性 / i4 并发与取消 / i5 赋值边界类型守卫 / i6 交付验收与评审闭环），并已在第 13 轮**逐条裁决**（prosecution / defense / verdict / rationale 齐备，状态 self_play_resolved，阻断为空）。其中两条高危项（i2 auth+datamigration、i3 auth）的 externalReview 三格齐全（performedBy=claude 逐字等于 expectedExternalBackend、evidenceRef=公开 PR 评论 URL、reviewedAt=该评论的真实创建时间），外部复核原文公开可点。本记录的引擎原值（status / requiresExternalReview）原样保留于 engineStatusBeforeClear / engineRequiresExternalReviewBeforeClear；引擎写回的 stats 与 findings 未被覆盖。按本仓先例（见 .ccg/reviews/1a739484b….json 的同口径收口）hand-set cleared，并在执行记录与 PR 正文披露。",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 15,
+      "codeTotalLines": 2306,
+      "allFileCount": 43,
+      "allTotalLines": 6272,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
   }
 }

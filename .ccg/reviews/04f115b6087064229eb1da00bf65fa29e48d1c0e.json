@@ -1,0 +1,60 @@
+{
+  "sha": "04f115b6087064229eb1da00bf65fa29e48d1c0e",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 14,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 15,
+    "ccgSensitiveContentSample": [
+      "        \"evidenceDigestScope\": \"sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)\"",
+      "        \"evidenceDigestScope\": \"sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)\"",
+      "        \"evidenceDigestScope\": \"sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-23T13:55:30.116Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -78,6 +78,20 @@
     "findings": null,
     "template": ".adversarial\\ccg-deep-7b1d9e72\\adjudication.json",
     "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i7）",
-    "at": "2026-10-21T06:06:27.964Z"
+    "at": "2026-10-21T06:06:27.964Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 15,
+      "codeTotalLines": 2306,
+      "allFileCount": 43,
+      "allTotalLines": 6272,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
   }
 }

@@ -72,12 +72,18 @@
       {
         "id": "i2",
         "performedBy": "claude",
-        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615"
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615",
+        "reviewedAt": "2026-10-21T07:38:05Z",
+        "evidenceDigestSha256": "f66b1d361f161271111e19d934c887b71558e6eb2c5e1056e83451d722b71cba",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
       },
       {
         "id": "i3",
         "performedBy": "claude",
-        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615"
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6310698615",
+        "reviewedAt": "2026-10-21T07:38:05Z",
+        "evidenceDigestSha256": "f66b1d361f161271111e19d934c887b71558e6eb2c5e1056e83451d722b71cba",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
       }
     ],
     "findings": [
@@ -163,7 +169,21 @@
     ],
     "blocking": [],
     "note": "自扮演裁决：全部指控不成立",
-    "at": "2026-10-21T07:39:43.017Z"
+    "at": "2026-10-21T07:39:43.017Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 15,
+      "codeTotalLines": 2306,
+      "allFileCount": 43,
+      "allTotalLines": 6272,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
   },
   "statsAudit": {
     "scope": "code-files-only 与 all-including-docs 双口径；每条都附可直接运行的复算命令",
