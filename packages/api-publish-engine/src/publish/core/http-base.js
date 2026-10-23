@@ -72,7 +72,7 @@ async function requestWithRetry (client, requestConfig, opts = {}) {
     } catch (e) {
       // axios 状态码/网络错误：不满足 !isJson 重试条件，直接抛（保留原始语义）
       if (e && e.response) throw e
-      lastErr = new PublishHttpError('http-base: request failed: ' + e.message, errorCode.request_error)
+      lastErr = new PublishHttpError('http-base: request failed at ' + String(requestConfig.method||'GET').toUpperCase() + ' ' + String(requestConfig.url||'') + ': ' + e.message, errorCode.request_error)
     }
     if (attempt < maxAttempts && retryDelayMs > 0) await sleep(retryDelayMs)
   }

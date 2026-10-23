@@ -1,0 +1,114 @@
+{
+  "sha": "ab806ce0f54bd9e0fb7097f11a6cade0512944f6",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 449 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 449,
+    "fileCount": 13,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "  --jq '\"总行数=\\(.total_count)  handle-ci-failure=\\([.check_runs[]|select(.name==\"handle-ci-failure\")]|length)\"'"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b198c599d23619f2f81224d36fd84ac7bf12f7755a413f9983ed7d2355bb0c95",
+  "decidedAt": "2026-10-22T02:28:54.038Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "tier": "external",
+    "evidence": "openspec/changes/main-red-run-baseline/ccg-review-record.md",
+    "performedBy": "claude (critic，外部模型) + self-play（裁决由会话按引擎模板逐条填写）",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": 7,
+    "critical": 3,
+    "minScore": 4,
+    "dimensionScores": {
+      "correctness": 5,
+      "security": 6,
+      "performance": 4,
+      "maintainability": 5
+    },
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 7,
+        "critical": 3,
+        "minScore": 4,
+        "tier": "self_play"
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-25739c94\\adjudication.json",
+    "closureNote": "第 1 轮 deep review（critic=claude，外部模型）产出 7 条意见：i1/i3/i4 已修（mainMoved 档新增 prFailNames + newRedComputed、裁决收口、--max-wait-seconds 总等待上限），i2/i5/i6 驳回（工具链遗留登记 / 失明纪律不得降级 / 已有 validate+Gate2b2 覆盖），i7 已满足。tier=external 与 evidence 由会话按评审交付手写（引擎尚未回填该字段）；原始产物在 .adversarial/ccg-deep-25739c94/（gitignored，不入库），可入库留档见 openspec/changes/main-red-run-baseline/ccg-review-record.md。",
+    "resolution": {
+      "disposition": "upheld-fixed-and-dismissed-with-reason",
+      "reason": "3 条 upheld 已在本 change 内修复并带回归锁；3 条 dismissed 均给出可验证理由与登记去向；1 条 Info 已满足。",
+      "upheldItems": [
+        {
+          "id": "i1",
+          "fixedIn": "scripts/lib/main-red.js + scripts/check-main-red.test.js"
+        },
+        {
+          "id": "i3",
+          "fixedIn": ".ccg/reviews/b198c599d23619f2f81224d36fd84ac7bf12f7755a413f9983ed7d2355bb0c95.json + openspec/changes/main-red-run-baseline/ccg-review-record.md"
+        },
+        {
+          "id": "i4",
+          "fixedIn": "scripts/check-main-red.js + scripts/check-main-red.test.js + openspec/changes/main-red-run-baseline/specs/ci-main-red-gate/spec.md"
+        }
+      ],
+      "dismissedItems": [
+        {
+          "id": "i2",
+          "registeredAs": "openspec/records/main-red-run-baseline.md §遗留 1"
+        },
+        {
+          "id": "i5",
+          "fixedIn": "scripts/check-main-red.js（selectMainRuns 注释：字段缺失抛错 vs 未知事件类型自动进基准）"
+        },
+        {
+          "id": "i6",
+          "registeredAs": "openspec/records/main-red-run-baseline.md §遗留 2"
+        }
+      ],
+      "adjudication": "openspec/changes/main-red-run-baseline/ccg-review-record.md（原始模板 .adversarial/ccg-deep-25739c94/adjudication.json，gitignored 不入库）"
+    },
+    "at": "2026-10-22T02:32:19.993Z"
+  }
+}

@@ -81,6 +81,37 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 
 **为什么做这件事**：`.quality-gates.md` 与 ledger 是所有会话共用的追加型写面，而共享主工作区只有一份工作树、一份 index、一份 HEAD。机器判定其实不需要它们（记录文件源读自身 frontmatter，ledger 只服务旧载体）。实测代价：同一条回填 #3602 / #3606 标题逐字相同、相隔 20 分钟各落一遍；共享根 reflog 在 5 小时窗口内记录到同一 HEAD 上 29 次 git 写动作。规范见 `openspec/changes/freeze-legacy-gate-carrier/specs/`（归档后才落到 `openspec/specs/openspec-integration/spec.md` 的「分层分支策略」——**归档前那份基线规格仍写着旧口径**，以本节与判据为准）。
 
+### 迁移编号的唯一性纪律（2026-10-23 起）
+
+**Postgres 迁移文件的编号是跨 change 共享的单调序列，不是每个 change 自己挑的。**
+
+- **迁移台账对「文件名 + checksum」双向锁定**：`packages/api-publish-engine/src/auth/postgres-migrations.js`
+  的 `MIGRATION_PATTERN = /^\d{3}_[A-Za-z0-9][A-Za-z0-9_-]*\.sql$/`；
+  同文件 `:61-62` 与 `:104-106` 对 checksum 不一致抛 `MIGRATION_CHECKSUM_MISMATCH`。
+  `postgres-identity-repository.js` 的 `assertReady` 用 `allowPending:false`
+  ⇒ **「迁移文件已入库但尚未执行」会让 identity 仓储在启动期硬失败**。
+
+- ⛔ **落任何迁移文件之前，必须先查目标编号是否已被占用**：
+
+  ```bash
+  ls migrations/postgresql/
+  ```
+
+  **编号只能往后排，不得凭 change 规格里写的编号直接建文件**——规格写下时该编号可能还没被别的线占上。
+
+- ⛔ **加文件与执行必须同批部署**（`allowPending:false` 的直接推论）：把「迁移文件入库」与
+  「执行迁移」拆成两个 PR，中间那一段每次启动都会硬失败。
+
+- **实测代价（2026-10-23）**：`compute-key-envelope-migration` 的 tasks 3.1 写的是
+  `006_official_key_envelopes.sql`，而 `006_payment_orders.sql`（微信 Native 支付那条线）
+  已占用该号。照规格落文件 ⇒ 落库后该号的任何一次追加/改名都撞 checksum ⇒
+  启动期硬失败 ⇒ `publish-api-server.js` 打 `MEMBERSHIP_UNAVAILABLE` ⇒ **会员中心整体降级**。
+  该 change 因此改用 `007`，并把「落库前先查编号」写进它的 tasks 1.3。
+
+- **这是跨 change 的主干级协调问题，change 级评审看不到别的线将要占用的号**：
+  任何带 `006` / `007` 字样的迁移 change，在开 PR 前都要**重新** `ls migrations/postgresql/`，
+  **不得沿用规格写下时的编号**——规格与落库之间可能隔了几周、几十个 PR。
+
 ### PR 自动合并（2026-10-05 起，branch: agent-automerge-rule）
 
 > 本节把「PR 需人工点合并」松绑为 **agent 自动合并**，但**不动「必须经 PR 落地」这条**。判定标准从「有没有人看过」换成「机械闸门是否全绿 + 证据是否落盘」。

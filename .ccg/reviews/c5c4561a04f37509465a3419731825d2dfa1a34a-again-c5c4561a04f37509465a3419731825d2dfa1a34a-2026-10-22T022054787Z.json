@@ -1,0 +1,60 @@
+{
+  "sha": "c5c4561a04f37509465a3419731825d2dfa1a34a",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 6,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对分支相对 origin/main 的完整 diff（16 源文件 / 613 变更行 / 31,893 字符）独立审阅，原始输出逐字公开于 evidence。评审给出 1 条 High（称 7 个 locale 键缺失）与六个面的 no finding。逐条核验后该 1 条判定为**假阳性**：7 个键在 zh/en 均存在（zh missing: []，en missing: []），成因是评审只拿到 diff 而看不到 #4187 已加入的这些键；权威判据 check-locale-sync --keys 为 PASS（2212 key 均存在）。复用鉴权/金额/状态机/数据暴露/UI/其他 i18n 六面均与实现一致。结论：0 真缺陷。\"",
+      "      \"不透传 `SELECT *` 的 `provider_order_id` / `provider_sub_id` / `discount_cents`。\",",
+      "      \"- **微信沙箱/生产端到端 E2E 零执行**（沙箱凭据未申请）——本 PR 的判据全部是注入式的，\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T02:20:54.782Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

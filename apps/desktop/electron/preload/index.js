@@ -35,6 +35,7 @@ const { createWeChatPayApi } = require('./wechat-pay')
 const { createTtsVoiceCatalogApi } = require('./tts-voice-catalog')
 const { createTtsVoiceCloneApi } = require('./tts-voice-clone')
 const { createAvatarCatalogApi } = require('./avatar-catalog')
+const { createAvatarCloneApi } = require('./avatar-clone')
 const { createPromptEvalApi } = require('./prompt-eval')
 const { createPageManagerApi } = require('./page-manager')
 const { createVideoCloneApi } = require('./video-clone')
@@ -107,6 +108,8 @@ const fullApi = {
   ...createTtsVoiceCloneApi(ipcRenderer),
   // 数字人形象/音色目录（avatar-spokesperson 流水线 UI 用）
   ...createAvatarCatalogApi(ipcRenderer),
+  // 数字人形象克隆（avatar-voice-clone：上传照片/视频 → 长期可复用形象）
+  ...createAvatarCloneApi(ipcRenderer),
   ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
   ...createVideoCloneApi(ipcRenderer),

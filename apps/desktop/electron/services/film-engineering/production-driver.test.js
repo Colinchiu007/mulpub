@@ -23,6 +23,7 @@ const os = require('os')
 const {
   planBatches,
   fingerprintBatch,
+  isSafeTaskId,
   createLedger,
   saveLedger,
   loadLedger,
@@ -555,5 +556,51 @@ describe('组 1：批次 runId 携带分镜集指纹', () => {
     const fp1 = b1.runId.match(/-([0-9a-f]{10})-b1$/)[1]
     expect(fp0).not.toBe(fp1)   // 不同批次 ⇒ 不同指纹
     expect(r2.ledger.batches[0].shotIds).toEqual(first.slice(0, 10))  // 第 0 批未受影响
+  })
+})
+
+/**
+ * 回归保护（2026-10-23）：taskId 的路径安全校验必须**平台无关**，且不得放过
+ * `.` / `..` 这类「自身即 basename」的段。
+ *
+ * 原判据 `taskId !== path.basename(taskId)` 有两个洞：
+ *   ① `path.basename` 的分隔符语义**平台相关**——POSIX 上 `\\` 是合法文件名字符，
+ *      于是 Windows 风格的穿越串 `a\\b` 在 Linux 上被放行（同一份代码两个平台两种行为）；
+ *   ② `.` 与 `..` 的 basename 就是自己 ⇒ 恒等式成立 ⇒ **被放行**，
+ *      而 `..` 会让 `path.join(root,'production',taskId,...)` 逃出 production/ 一层。
+ *
+ * 反证纪律：把 isSafeTaskId 换回 `!== path.basename()`，本组必须变红。
+ */
+describe('taskId 路径安全校验（平台无关 + 拒 . / ..）', () => {
+  const DANGEROUS = ['..', '.', 'a\\b', '../evil', 'foo/../bar', 'a/b', '', '   ']
+  const LEGAL = ['normal', 'my-task-01', 'task.with.dots', 'my..task', '中文任务', 'a b']
+
+  it('危险 taskId 一律被 production-driver 入口拒绝（fail-closed）', async () => {
+    for (const bad of DANGEROUS) {
+      await expect(runProduction({
+        taskId: bad, shotIds: ['a'], ledgerDir: tmpLedgerDir(),
+        runBatch: async () => {}, probe: () => ({ missing: [] }),
+      })).rejects.toThrow(/taskId/)
+    }
+  })
+
+  it('合法 taskId（含 my..task / 中文 / 空格）不被误拒 —— 只多拒、不少拒', async () => {
+    for (const ok of LEGAL) {
+      const r = await runProduction({
+        taskId: ok, shotIds: ['a'], ledgerDir: tmpLedgerDir(),
+        runBatch: async () => {}, probe: () => ({ missing: [] }),
+      })
+      expect(r.ok).toBe(true)
+    }
+  })
+
+  it('isSafeTaskId 判据与 path.basename 解耦（POSIX/Windows 同结果）', () => {
+    // 这三个在任何平台上都必须为 false
+    for (const bad of ['..', '.', 'a\\b', 'a/b', '../x']) {
+      expect(isSafeTaskId(bad)).toBe(false)
+    }
+    for (const ok of LEGAL) {
+      expect(isSafeTaskId(ok)).toBe(true)
+    }
   })
 })

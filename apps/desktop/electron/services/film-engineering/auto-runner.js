@@ -7,7 +7,8 @@
  *   - **提示词真源不同**：production-runner 从 film-kit 服务取原文（`service.getShot`），
  *     自动模式从 **project.json** 取（片段编辑后的提示词必须生效），仍逐字符直送 provider；
  *   - **批次落点不同**：runId 由 `runIdFor(taskId, batchIndex) = 'auto/<taskId>/b<N>'` 派生，
- *     产物落 `<mediaRoot>/auto/<taskId>/b<N>/shot_NNN.mp4`；
+ *     产物落 `<mediaRoot>/auto/<taskId>/b<N>/shot_NNN.mp4`；**轮次 ≥2 时带轮次号**
+ *     （`auto/<taskId>/r<runSeq>/b<N>/`）—— 同一 taskId 重新 plan 时旧轮次产物不得被采纳；
  *   - **单镜重生成**：批次目录内**原子覆盖**（临时目录生成 → ffprobe 校验 → rename），
  *     与 shot-downloader 的「探测通过才入库」同纪律（D15）。
  *
@@ -21,9 +22,29 @@ const { probeClip } = require('./film-render')
 const { PRODUCTION_BATCH_CONCURRENCY } = require('./production-runner')
 const { PRODUCTION_BATCH_SIZE } = require('./production-driver')
 
-/** 自动模式批次 runId（批次落点：<mediaRoot>/auto/<taskId>/b<N>） */
-function autoRunIdFor (taskId, batchIndex) {
-  return 'auto/' + String(taskId) + '/b' + String(batchIndex)
+/**
+ * 自动模式批次 runId（批次落点：<mediaRoot>/auto/<taskId>/…/b<N>）。
+ *
+ * **轮次号进目录**（2026-10-23）：同一 taskId 用 overwrite 重新 plan 时，`createProject`
+ * 会递增 `runSeq` 并把旧的 project.json / ledger.json 归档到 `archive/<runSeq>/`，
+ * 但**产物目录原本不变**（`archiveTaskRun` 只搬那两个文件，不碰产物）。
+ * 于是新轮次的 `b.runId` 与上一轮完全相同 ⇒ `resolveResumePlan` 的磁盘复核看到
+ * 上一轮的 `shot_NNN.mp4` 还在 ⇒ **整批跳过、零 provider 调用**，
+ * 而清单声称的是新分镜 ⇒ **完全静默的假成功**（已实跑复现）。
+ *
+ * `runSeq >= 2` 时目录带上轮次号 ⇒ 新旧轮次物理隔离。
+ * `runSeq === 1` 沿用历史布局 ⇒ **存量项目零影响**（不换目录、不丢已生成产物）。
+ *
+ * 注意：这里带的是**轮次**，不是分镜集指纹。自动模式的 `project.shots` 是**活状态**
+ * （`updateShot` 可改提示词/参考图/时长），若按分镜集派生目录，用户改一个字就会
+ * 整批产物作废——那才是真正的破坏。轮次只在新 plan 时变，编辑不动它。
+ */
+function autoRunIdFor (taskId, batchIndex, runSeq) {
+  const seq = Number.isInteger(runSeq) && runSeq > 0 ? runSeq : 1
+  const base = seq > 1
+    ? 'auto/' + String(taskId) + '/r' + seq
+    : 'auto/' + String(taskId)
+  return base + '/b' + String(batchIndex)
 }
 
 /** 全局镜序号 → 所属批与批内序号（文件名 shot_NNN 用的是**批内**序号） */
@@ -194,7 +215,7 @@ async function regenerateOneShot (opts) {
   const probeFn = deps._testProbeClip || probeClip
   const gen = deps._testGenerateShotVideo || generateShotVideo
   const { batchIndex, inBatchIndex } = locateShot(idx, o.batchSize)
-  const runId = autoRunIdFor(project.taskId, batchIndex)
+  const runId = autoRunIdFor(project.taskId, batchIndex, project.runSeq)
   const runDir = runDirOf(runId)
   const stageDir = path.join(tmpRootOf(), 'auto', String(project.taskId), '.regen')
   const dest = path.join(runDir, shotFileName(inBatchIndex))
@@ -249,7 +270,7 @@ function collectMissingShots ({ project, probe, batchSize = PRODUCTION_BATCH_SIZ
     entry.items.push({ shotId: String(s.shotId), inBatchIndex })
   })
   for (const [batchIndex, entry] of byBatch.entries()) {
-    const probeResult = probe(runIdFor(project.taskId, batchIndex), entry.count) || { missing: [] }
+    const probeResult = probe(runIdFor(project.taskId, batchIndex, project.runSeq), entry.count) || { missing: [] }
     const miss = Array.isArray(probeResult.missing) ? probeResult.missing : []
     for (const mi of miss) {
       const item = entry.items.find((x) => x.inBatchIndex === mi)

@@ -99,6 +99,10 @@
               <div class="card-platform" :title="item.title || $t('collection.recordsUntitled')">{{ item.title || $t('collection.recordsUntitled') }}</div>
               <div class="card-account">
                 {{ item.source || 'url' }} · {{ item.wordCount || (item.content || '').length }}{{ $t('collection.wordCountUnit') }}
+                <!-- 改写稿实际字数（feat-zhihu-fav-batch-wordcount，2026-10-21）：
+                     与原文字数**并排**，用户才能一眼看出改写后变长了还是变短了；
+                     只给一个数字（原文）时，改写稿的实际篇幅是看不见的。 -->
+                <template v-if="item.rewrittenWordCount"> · {{ $t('collection.recordsRewrittenCount', { count: item.rewrittenWordCount }) }}</template>
                 <template v-if="item.mediaType === 'video' && item.duration"> · {{ formatDuration(item.duration) }}</template>
                 <template v-if="item.mediaType === 'video' && item.platform && platformKeys.includes(item.platform)"> · {{ platformLabel(item.platform) }}</template>
               </div>

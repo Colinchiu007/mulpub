@@ -1,0 +1,10 @@
+schema: spec-driven
+created: 2026-10-22
+title: 补正头条号登录期观测的覆盖面（真实生效的验证码入口此前既不在监测域、也不匹配锚点）
+tier: T3
+priority: high
+# 血缘（2026-10-22 CCG 外部评审 i7）：本 change 是上一刀的**补正**，
+# 不是独立功能 —— 它修的是 `login-slot-reuse-and-toutiao-diagnostics`
+# 承诺的「记录图形验证码组件加载完成」在真实链路上不生效那处缺口。
+parent: login-slot-reuse-and-toutiao-diagnostics
+version: 1

@@ -30,10 +30,18 @@ const { attachCdpDetection } = require('./auth-view-cdp')
 // 会话级网络诊断：iframe 内的二维码请求失败不会触发外层 webContents 的 did-fail-load，
 // 不挂它就等于对「二维码刷很久」完全无感知
 const { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLoginPageNoiseCancel } = require('./login-network-diagnostics')
-const { createSession, setCookies, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
+// 冲突消解（两侧都保留）：本刀的 `setCookies` 已随「打开已保存账号」平移出本文件；
+// main 的 `attachExternalProtocolGuard`（2026-10-21 外部协议守卫）必须保留。
+const { createSession, restoreLocalStorage, restoreIndexedDB, createAuthView } = require('./auth-view-session')
 const { attachExternalProtocolGuard } = require('./external-protocol-guard')
 // #2701：登录分区每次新建、永不回收（本机实测 21 个目录 436MB，占分区存储 92%）
 const authReclaim = require('./auth-partition-reclaim')
+// 登录槽位（按平台复用的稳定分区）：命名 / 豁免 / 开局清
+const authLoginSlot = require('./auth-login-slot')
+// 「打开已保存账号」的实现（2026-10-21 平移出本文件）
+// ⚠️ 导入名**不得**与方法名同名（`openSavedAccount`）：同名会在方法体内被遮蔽，
+// 读代码的人分不清调的是模块函数还是方法（2026-10-21 CCG 外部评审 i2）。
+const { openSavedAccount: runSavedAccountOpen } = require('./auth-view-saved-account')
 // 内嵌视图定位唯一来源：必须用「客户区」尺寸，禁用 getBounds() 外框尺寸（见 view-bounds.js）
 // 宽度守卫用共享的 isValidSidebarWidth：各自手写比较拦不住 NaN（所有比较都是 false）。
 const { computeEmbeddedViewBounds, isValidSidebarWidth } = require('./view-bounds')
@@ -311,9 +319,12 @@ class AuthViewManager {
     this._autoCompletionAttemptId = null
     this._resolveLogin = null
     attempt.resolveLogin(result)
-    // #2701：取到凭证的会话其分区可能仍是发布链的磁盘兜底来源（kuaishou-w3-live-fix：
-    // 部分平台登录态只落分区、未同步进凭证 store），这类分区不得被清空。
-    if (hasCapturedCredentials(result, attempt.platform)) authReclaim.markCaptured(this.currentAccountId)
+    // #2701：取到凭证的会话其分区可能仍是发布链的磁盘兜底来源（kuaishou-w3-live-fix），
+    // 这类分区不得被清空。「本轮是否取到凭证」按**轮次**记（槽位跨轮次同名）。
+    if (hasCapturedCredentials(result, attempt.platform)) {
+      authReclaim.markCaptured(this.currentAccountId)
+      this._currentAttemptCaptured = true
+    }
     this.close()
     return true
   }
@@ -372,13 +383,27 @@ class AuthViewManager {
 
       if (this.currentView || this._resolveLogin) this.close()
 
-      const accountId = `auth-${platform}-${Date.now()}`
+      // 登录槽位：同一平台复用同一分区目录（2026-10-21，缓存跨次留存 ⇒ 第三方登录页的
+      // 静态资源与风控 SDK 第二次起命中缓存；代价是凭证隔离改由「开局清槽位」保证，
+      // 否则第二次登录会命中上一个账号的登录态 ⇒ 静默存成重复账号）。
+      // 完整理由见 auth-login-slot.js 头注释与 PRD §5.2。
+      const slotAccountId = authLoginSlot.loginSlotAccountIdOf(platform)
+      if (!slotAccountId) {
+        // 平台 id 非法 ⇒ 退回一次性分区命名，但必须留痕（静默掩盖非法输入会让
+        // 「缓存没生效」这类问题无从归因）。
+        log.warn('AuthView: 平台 id 非法，登录槽位退回一次性分区: ' + String(platform))
+      }
+      const accountId = slotAccountId || `auth-${platform}-${Date.now()}`
       // #2701：开局先回收上一轮遗留的临时分区——用户开完登录页直接退出应用时 close() 不会发生
       authReclaim.scheduleReclaim({ activePartitionNames: [authReclaim.partitionNameOf(accountId)] })
       this.currentPlatform = platform
       this.currentAccountId = accountId
       this._resolveLogin = resolve
       this._rejectLogin = reject
+      // 本轮凭证标记：按轮次记（槽位跨轮次同名），否则上一轮成功会把本轮误判成已取证。
+      this._currentAttemptCaptured = false
+      // 回收幂等标记：每次开新的登录会话都要复位（close() 只清一次）
+      this._loginReclaimed = false
 
       const authSession = createSession(accountId, session)
       // 补齐 #1887 §7 遗留项：诊断此前只挂在 persist:account-*，
@@ -401,8 +426,23 @@ class AuthViewManager {
       this._positionView()
       view.setVisible(true)
       // R49 修复：loadURL 返回 Promise，必须 .catch()
-      const loadStartedAt = Date.now()
-      view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
+      // 导航前先清掉槽位里的旧凭证（保留 HTTP 缓存）：复用槽位后凭证隔离靠这一步保证。
+      // 计时起点只在真正发起导航时取（清理耗时不计入首屏耗时）——
+      // 2026-10-21 CCG 外部评审 i4：清理前的那个初值是孤儿赋值。
+      // 计时起点：先给一个兜底值（清理期间页面还没开始加载），
+      // 真正发起导航时再刷新（2026-10-21 CCG 外部评审 i2：只在内层闭包里赋值，
+      // 清理超时/失败那条路径上基线会缺失 ⇒ 首屏耗时读数失真）。
+      this._loginLoadStartedAt = Date.now()
+      authLoginSlot.navigateAfterSlotCleanup({
+        view,
+        session: authSession,
+        isCurrent: () => this._isCurrentLoginAttempt(attempt),
+        navigate: () => {
+          this._loginLoadStartedAt = Date.now()
+          view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
+        },
+        log
+      })
 
       // 通知渲染进程：登录视图已打开（触发虚拟登录标签显示）
       const loginUrl_forHook = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
@@ -431,7 +471,9 @@ class AuthViewManager {
       view.webContents.on('did-finish-load', () => {
         // 首屏耗时 + 当时的页面可见性：与 LoginNetDiag 的 qr response 计时对照，
         // 就能分清「首屏本身就慢」与「首屏快但出码迟到」两类完全不同的根因
-        log.info('AuthView', 'login page finished after ' + (Date.now() - loadStartedAt) +
+        // 计时起点取自真正发起导航的那一刻（清理耗时不计入首屏）。
+        const base = this._loginLoadStartedAt
+        log.info('AuthView', 'login page finished after ' + (base ? Date.now() - base : -1) +
           'ms platform=' + platform + ' ' + this._throttleProbeOf(view))
         if (attempt && attempt.initialRedirectPhase) attempt.initialRedirectPhase = false
         // 宽度自适应（2026-09-28 非全屏登录页显示不全）：立即适配一次，
@@ -549,12 +591,23 @@ class AuthViewManager {
 
   close() {
     // #2701：会话终态就地回收。必须在视图拆除之前取 session（此后拿不到分区句柄）。
-    authReclaim.reclaimLoginSession({
-      accountId: this.currentAccountId,
-      platform: this.currentPlatform,
-      session: this.currentView && this.currentView.webContents ? this.currentView.webContents.session : null,
-      log,
-    })
+    // 登录槽位清存储但**保留 HTTP 缓存**（缓存正是槽位存在的理由）。
+    // ⚠️ 回收必须**幂等**：close() 可能被多次调用（用户点关闭 + Escape + 视图自关），
+    // 重复清空会把「本轮是否取到凭证」的标记打乱（2026-10-21 CCG 外部评审 i5）。
+    const currentPartitionName = authReclaim.partitionNameOf(this.currentAccountId)
+    if (this._loginReclaimed !== true) {
+      this._loginReclaimed = true
+      authReclaim.reclaimLoginSession({
+        accountId: this.currentAccountId,
+        platform: this.currentPlatform,
+        session: this.currentView && this.currentView.webContents ? this.currentView.webContents.session : null,
+        log,
+        keepHttpCache: authLoginSlot.isLoginSlotPartitionName(currentPartitionName),
+        // 本轮是否取到凭证：按轮次传，不让回收端用「这个分区名曾经成功过」来代替
+        captured: this._currentAttemptCaptured === true,
+      })
+      this._currentAttemptCaptured = false
+    }
     this._activeLoginAttempt = null
     this._autoCompletionAttemptId = null
     // 安全修复：清理所有 timer（R15 对齐 oauth-manager/qrcode-login）
@@ -600,64 +653,16 @@ class AuthViewManager {
   }
 
   /**
+   * 打开已保存账号（恢复登录状态）的内嵌视图。
+   * 实现已平移到 `auth-view-saved-account`（行数门禁 + 关注点分离，见该模块头注释）；
+   * **公开面与调用语义不变**（本方法仍是对外唯一入口，内部转调模块函数）。
    * @param {string} platform
    * @param {any[]} cookies
    * @param {Record<string, string>} [localStorage]
    * @param {Record<string, Record<string, Record<string, unknown>>>} [indexedDB]
    */
-  async openSavedAccount(platform, cookies, localStorage, indexedDB) {
-    const loginUrl = /** @type {Record<string, string>} */ (PLATFORM_LOGIN_URLS)[platform]
-    if (!loginUrl) return
-    if (!this.mainWindow) return
-
-    const accountId = `auth-saved-${platform}-${Date.now()}`
-    this.currentPlatform = platform
-    this.currentAccountId = accountId
-
-    const authSession = createSession(accountId, session)
-    await setCookies(authSession, (cookies || []).filter(cookie => isPlatformCookieDomain(platform, cookie?.domain)))
-
-    const view = createAuthView(accountId, this._getPreloadPath(), authSession)
-    this.currentView = view
-
-    this._positionView()
-    this.mainWindow.contentView.addChildView(view)
-    view.setVisible(true)
-    const restorations = []
-    if (localStorage && Object.keys(localStorage).length > 0) {
-      restorations.push(restoreLocalStorage(view, localStorage))
-    }
-    if (indexedDB && typeof indexedDB === 'object' && Object.keys(indexedDB).length > 0) {
-      restorations.push(restoreIndexedDB(view, indexedDB))
-    }
-    // R49 修复：loadURL 返回 Promise，必须 .catch()
-    view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
-
-    /**
-     * @param {import('electron').Event} event
-     * @param {{ type: string, key: string }} input
-     */
-    const escHandler = (event, input) => {
-      if (input && input.type === 'keyDown' && input.key === 'Escape') {
-        // 先 resolve 再 close（close 会置空 _resolveLogin，导致 Promise 永久泄漏）
-        if (this._resolveLogin) {
-          this._resolveLogin({ cancelled: true })
-          this._resolveLogin = null
-        }
-        this.close()
-      }
-    }
-    view.webContents.on("before-input-event", escHandler)
-    this._escHandler = escHandler
-    this._escView = view
-
-    if (restorations.length > 0) {
-      void Promise.all(restorations).catch(() => {})
-    }
-
-    this.mainWindow.webContents.send('auth:view-opened', { platform, accountId })
-    this._fireOpened({ platform, accountId, url: loginUrl })
-    log.info('AuthView', `Opened saved account ${accountId}`)
+  async openSavedAccount (platform, cookies, localStorage, indexedDB) {
+    return runSavedAccountOpen(this, platform, cookies, localStorage, indexedDB)
   }
 
   /**

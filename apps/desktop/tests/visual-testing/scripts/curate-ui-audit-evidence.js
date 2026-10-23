@@ -2,7 +2,8 @@
  * 把视觉巡检的「改造前 / 改造后」对照截图挑出一组关键页，落到可入库的文档资产目录。
  *
  * 为什么只挑一组：
- *   全量 387 张截图共 48 MB，且 `tests/visual-testing/screenshots/` 按仓库约定是 gitignored
+ *   巡检清单收录 210 张（亮 177 + 暗 33，覆盖 34 条路由），且
+ *   `tests/visual-testing/screenshots/` 按仓库约定是 gitignored
  *   （原始渲染不入库，只留 base-screenshots 里的评审基线）。
  *   但报告需要「肉眼可证」的证据，所以按 `01-docs/assets/` 的既有惯例挑一组代表性页面入库。
  *

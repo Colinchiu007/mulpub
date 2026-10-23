@@ -1,0 +1,92 @@
+{
+  "sha": "ab806ce0f54bd9e0fb7097f11a6cade0512944f6",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "cleared",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "minScore": 7,
+    "dimensionScores": {
+      "completeness": 8,
+      "consistency": 7,
+      "clarity": 7,
+      "feasibility": 9,
+      "security": 9
+    },
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "consistency",
+        "finding": "D5 claims 'each adds a lock' but describes only one assertion per layer (entry: FORCE=1 at plan-review.sh:237; decision: SKIP && !FORCE). Second lock condition is unspecified.",
+        "suggestion": "Add table pairing each layer's entry assertion with its exit assertion; clarify no unification occurs."
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "completeness",
+        "finding": "Mutation M-E4 expects 'connection lock (by source position) + missing-backend attribution lock' but doesn't state both must fail together; allows partial failure.",
+        "suggestion": "Specify M-E4 requires both position-lock and attribution-lock to fail simultaneously, not just non-identical sets."
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "feasibility",
+        "finding": "D3 refusal lock requires text hits 'family of terms' naming flag impossibility, but no phrase list or regex pattern is given for verification.",
+        "suggestion": "Enumerate exact refusal phrases (e.g., 'flag impossible at validation layer') or provide regex for automatic lock verification."
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "dimension": "clarity",
+        "finding": "D4 references existing exit-code table in file header to justify rc=2, but proposal doesn't quote or confirm table content.",
+        "suggestion": "Add brief citation confirming file header lists 2 under 'unknown flag/config' category."
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "dimension": "completeness",
+        "finding": "D6 acknowledges writeBack only observable for mode=skip; mutation table lacks any contract covering mode=dual file behavior.",
+        "suggestion": "Add M-E7 contract for mode=dual writeBack observation, explicitly marked as unverified/future."
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "clarity",
+        "finding": "D6 learnings handoff references 'aggregator搬运' and '01-docs/learnings.md' rules without defining format or trigger.",
+        "suggestion": "State brief learnings format: date + issue reference + contract reference; confirm aggregator picks it up."
+      }
+    ],
+    "unresolvedBySeverity": {
+      "Critical": 0,
+      "High": 0,
+      "Warning": 3,
+      "Info": 3
+    },
+    "scoreThreshold": 8,
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 6,
+        "critical": 0,
+        "minScore": 7,
+        "dimensionScores": {
+          "completeness": 8,
+          "consistency": 7,
+          "clarity": 7,
+          "feasibility": 9,
+          "security": 9
+        }
+      }
+    ],
+    "roundsRun": 1,
+    "roundsMax": 3,
+    "stoppedBy": "converged",
+    "note": "第 1 轮：无 Critical、无未解决的 High 级问题，方案可执行（最低维度分 7，仅作参考，不作放行判据）",
+    "artifacts": ".adversarial\\ccg-plan-ccg-force-design-20261022-claude",
+    "at": "2026-10-22T02:17:54.334Z"
+  }
+}

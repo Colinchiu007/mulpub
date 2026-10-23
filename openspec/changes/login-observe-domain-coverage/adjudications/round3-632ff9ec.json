@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "domains": [
+        "crypto"
+      ]
+    },
+    {
+      "id": "i8",
+      "severity": "Warning",
+      "domains": [
+        "auth",
+        "crypto"
+      ]
+    }
+  ],
+  "expectedExternalBackend": "claude",
+  "critiqueFingerprint": "344ce4a114d18531",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。",
+    "高危域条目（highRiskDomains 非空）若要解除阻断，必须同时填 externalReview 三格：performedBy（须逐字等于 expectedExternalBackend）、evidenceRef（形如 https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id> 的公开评论）、reviewedAt（可解析的 ISO 时间）。缺任一格仍按 high_risk_requires_external 计阻断；填了假 URL 属伪造证据，公开可点开即被看见。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "边界守卫仅写在注释（只读/不外发/不拦截/不记凭证），无代码强制；若后续修改删除注释，四条边界无任何运行时保障。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "边界守卫只写在注释（只读/不外发/不拦截/不记凭证），无代码强制；若后续修改删除注释，四条边界无任何运行时保障。",
+      "defense": "指控属实。注释不是门禁。",
+      "verdict": "upheld",
+      "rationale": "已修：边界从散文变成**结构化清单** OBSERVATION_GUARD（每条带 forbidden/required 锁），并加**源码级契约锁**（闸门代码必须存在、必须由清单驱动、必须排在读体调用之前；锚点用代码形态，删掉闸门只剩注释也当场红）。变异 M9a（删闸门）/ M9b（闸门改永真）/ M9c（闸门挪到读体调用之后）**全 CAUGHT**。"
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "finding": "新增监测域 yhgfb-cn-static.com/bytetos.com 无来源验证链；仅引用“实际登录页 HTML 静态引用”，无网络请求日志或签名校验证据，存在误信任外部域风险。",
+      "highRiskDomains": [
+        "crypto"
+      ],
+      "externalReview": {
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+        "reviewedAt": "2026-10-23T05:16:42.126Z",
+        "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+        "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+      },
+      "prosecution": "新增监测域 yhgfb-cn-static.com / bytetos.com 无来源验证链；仅引用「实际登录页 HTML 静态引用」，无抓包或签名证据，存在误信任外部域风险。",
+      "defense": "指控属实：当时域来源只存在于评审对话里，仓内没有任何可复现的证据。",
+      "verdict": "upheld",
+      "rationale": "已修：域来源做成**仓内可复现证据** evidence/login-page-host-snapshot.txt（抓取时刻 + 抓取命令 + 抓取内容 SHA-256 + 静态引用的 14 个主机名及每域一个实例资源路径），并加用例断言该证据必须在仓内、含两个新增域、含真实验证码入口形态 sec_sdk_build。域清单仍是**字面量白名单**，非动态拼接。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "变异反证 M4 首轮 ESCAPED 归因于“负例弱”，但修复仅增强测试负例（补含 /captcha/ 段路径），未修改实现；实现对单段缺失是否仍误判未被 M4 直接锁定。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "isCaptchaSdkUrl 用复合 && 而无具名谓词，优先级与意图对后来维护者是隐式的。",
+      "defense": "指控属实。",
+      "verdict": "upheld",
+      "rationale": "已修：抽出具名谓词 isCombinedCaptchaAnchor(path)（两段各自成布尔变量、具名 + docstring 写明「两段缺一不可」的理由），并补**优先级测试**：不经 URL 解析层直接断言「只有版本目录段 ⇒ 假」「只有组件段 ⇒ 假」「空输入 ⇒ 假」。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "具名谓词 isCombinedCaptchaAnchor 已抽出但无消费者断言锁定其行为；常量 CAPTCHA_SDK_DIR_MARKER 仅在测试断言出现，生产代码无强制消费验证。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "新增监测域扩大观测面，但依赖隐式的只读假设而非显式守卫。",
+      "defense": "指控属实。",
+      "verdict": "upheld",
+      "rationale": "已修：监测域清单处补**显式边界守卫**（只读 / 不外发 / 不拦截 / 不记凭证四条，逐条写成可读的约束），并如实登记观测层唯一的请求级动作是「**默认关闭**的登录噪声取消」（需 MP_LOGIN_NOISE_CANCEL=1 显式开启、只取消噪声 URL、不改写任何内容），由两道 required 锁住 —— 不谎称「不拦截」。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "过滤面从 20 → 24 条 URL 模式（+20%），声称匹配复杂度 O(1) 依赖“按平台编译一次正则并缓存”，但新增模式是否触发正则重编译未明示。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "过滤模式 20→24（+20%），但没有事件流负载基准；建议引用缓存的 hostMatcherOf 行为并在记录里补性能说明。",
+      "defense": "指控部分成立：缓存行为本就存在（hostMatcherOf 按平台编译一次并缓存），但「新增模式是否触发重编译」确实没写明。",
+      "verdict": "upheld",
+      "rationale": "已修：proposal 增补「影响面量化」表并写明——新增的是**域清单条目**而非平台 ⇒ hostMatcherOf 的缓存键仍是同一个 platform ⇒ **不触发正则重编译**，冷编译次数按平台计、本次不增加。另加断言「同一平台多次取匹配器必须返回同一正则对象」。"
+    },
+    {
+      "id": "i8",
+      "severity": "Warning",
+      "finding": "mutationEvidence 原始输出重复两次 M1-M8 且格式混乱（含“----”分隔符）；md5 比对仅对单文件 login-network-monitor.js，未覆盖测试文件与文档文件的变异还原。",
+      "highRiskDomains": [
+        "auth",
+        "crypto"
+      ],
+      "externalReview": {
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+        "reviewedAt": "2026-10-23T05:16:42.126Z",
+        "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+        "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+      },
+      "prosecution": "mutationEvidence 原始输出重复两次 M1~M8 且格式混乱；md5 比对仅对单文件 login-network-monitor.js，未覆盖测试文件与文档文件。",
+      "defense": "指控属实：重复块确实存在；md5 只覆盖了被变异文件。",
+      "verdict": "upheld",
+      "rationale": "已修：① 输出去重（只留一份干净汇总块）；② 判定口径改为 vitest 退出码（0=ESCAPED / 1=CAUGHT / 其他=环境问题不算 CAUGHT），并把子进程 stdio 设为 ignore（vitest 的 worker 继承父进程 fd，pipe 捕获不住 ⇒ 失败报告会直接灌进输出）；③ md5 比对扩到**每个被变异文件各一组**，并单独比对测试文件 md5。"
+    }
+  ],
+  "sourcePath": ".adversarial/ccg-deep-632ff9ec/adjudication.json",
+  "ingestedInto": "openspec/changes/login-observe-domain-coverage/adjudications/round3-632ff9ec.json",
+  "ingestedNote": "本文件是**入仓**的裁决留档：`.adversarial/` 目录不受版本管理，若不落一份进仓，「已修」的每一处修复在仓内就没有可核来源（第七轮 i3）。工作区里的原件仍在 `.adversarial/ccg-deep-*/adjudication.json`，两者内容一致。"
+}

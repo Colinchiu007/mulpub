@@ -34,7 +34,7 @@ status: executed
 | 测试 | `apps/desktop/src/views/Dashboard.style-guard.test.js` | hero 卡断言改为「已定义渐变 token」+ 暗色同构断言 |
 | 测试（新增） | `apps/desktop/tests/visual-testing/ui-audit-scripts.test.js` | 巡检脚本冒烟 + 路由覆盖守卫 + 变异反证 |
 | 巡检脚本（新增） | `apps/desktop/tests/visual-testing/scripts/ui-audit-{recon,capture,preview,scenes,probes}.js`、`ui-audit-scripts.lib.js`、`accept-baselines.js`、`curate-ui-audit-evidence.js` | 界面面枚举 / 全量截图 / 单页预览 / 场景数据 / 浏览器探针 / 纯函数库 / 基线接受 / 证据挑选 |
-| 视觉基线 | `apps/desktop/tests/visual-testing/base-screenshots/*.png` | 40 张（20 视图 × 亮/暗）随本次**有意视觉变更**更新；**来源是 CI artifact 的渲染**，不是本机产物（见「基线来源」小节） |
+| 视觉基线 | `apps/desktop/tests/visual-testing/base-screenshots/*.png` | 该目录**现有 43 个 PNG** = 40 张像素基线（20 视图 × 亮/暗）+ 3 张 autonomous-loop 专属基线（CI 无渲染）。其中 40 张像素基线随本次**有意视觉变更**更新，**来源是 CI artifact 的渲染**，不是本机产物（见「基线来源」小节）；**后续 PR（#4242）未改动任何像素基线**，只改了 `01-docs/assets/` 里的 1 张证据图 |
 | 文档 | `01-docs/UI-VISUAL-AUDIT-2026-10-20.md`、`01-docs/PRD-UI-VISUAL-SYSTEM-2026-10-20.md`、`01-docs/design-system-usage.md` | 巡检报告（含改造后复测 §2.6）/ PRD / 令牌口径 |
 | 证据资产（新增） | `01-docs/assets/ui-visual-audit-2026-10-20/*.png` | 10 组 before/after（约 3.5MB） |
 | 配置 | `.gitignore` | 为证据资产加 `!` 例外（根规则有全局 `*.png`） |
@@ -45,7 +45,7 @@ status: executed
 | # | 内容 | 落地 |
 |---|---|---|
 | 1 | 全量界面面侦察（机器枚举） | `tests/visual-testing/scripts/ui-audit-recon.js` |
-| 2 | 全量界面面截图巡检（6 维度 177 张） | `tests/visual-testing/scripts/ui-audit-capture.js` |
+| 2 | 全量界面面截图巡检（6 维度 **210 张**：亮 177 + 暗 33，覆盖 34 条路由） | `tests/visual-testing/scripts/ui-audit-capture.js` |
 | 3 | 令牌层：表面/描边/高度/渐变/玻璃/动效/字体栈 + 暗色同构 | `src/styles/tokens.css` |
 | 4 | 共享类观感升级 | `src/styles/cohere-design-system.css` |
 | 5 | 高级感视觉层（新增） | `src/styles/premium-design-system.css` + `src/main.js` |
@@ -175,7 +175,7 @@ maintainability 2），correctness 亦不上调。
 | i3 | auth 高危项同样引用同一不可验证 URL | **已修**——补可机器复核的高危面零命中取证：`git show --name-only HEAD \| grep -E 'credential-\|account-state-lock\|/auth/\|login-state\|fingerprint'` 零命中，3124 行新增行全扫鉴权/加密关键字零命中 |
 | i4 | 毛玻璃缺真实 Electron 帧率数据 | **未实测**——**登记为 R6**，performance 分维持 4 不上调 |
 | i5 | 巡检脚本行数多、单测少 | **已修**——脚本拆分为「场景数据 / 浏览器探针 / 编排 / 纯函数库」；抽出 `ui-audit-scripts.lib.js#computeUncoveredRoutes` 纯函数，用例往 router 注入假路由 `/__mutation-probe`，断言守卫**当场判红并点名它**（变异反证，不是只断言「当前是绿的」） |
-| i6 | 二进制资产与全量集双轨、无单一来源清单 | **已修**——仓内保留 10 组 before/after（约 3.5MB）+ 177 条标注清单；全量 387 张按仓库约定留在 gitignored 目录 |
+| i6 | 二进制资产与全量集双轨、无单一来源清单 | **已修**——仓内保留 10 组 before/after（**20 张 PNG**，约 3.5MB）+ **210 条**标注清单（`ui-audit-manifest.md`，入库）；清单收录的 210 张渲染按仓库约定留在 gitignored 目录 |
 | i7 | 暗色像素回归只覆盖 headless | **部分成立**——**登记为 R6**，真实 Electron 窗口复核列入待办 |
 | i8 | 审计轨迹靠人工对齐 SHA | **部分成立**——新增 CI 门禁属「改守门结构」→ **登记为 R7 交人工**；本 PR 先把能对齐的对齐（见 §四.4） |
 

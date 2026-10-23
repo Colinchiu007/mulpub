@@ -21,6 +21,18 @@ const STABLE_RENDERING_CSS = `
   }
 `
 
+/**
+ * 页面就绪等待上限（毫秒）。
+ *
+ * ⚠ 这个常量曾在拆分时漏带：探针文件引用了 READY_TIMEOUT，但定义留在了
+ *   ui-audit-capture.js 里 —— 于是拆分后的采集脚本对**每一条路由**都抛
+ *   「READY_TIMEOUT is not defined」，一张图都采不出来（巡检清单的 210 行
+ *   是拆分**之前**那次运行留下的，所以表面上看不出问题）。
+ *   教训见 `ui-audit-scripts.test.js` 的「采集脚本必须真能采出图」一条：
+ *   只测「函数能不能被 require」不够，必须真的跑一次。
+ */
+const READY_TIMEOUT = 20000
+
 /** 稳定化页面：禁用动画、等待字体与两帧 */
 async function stabilize (page) {
   await page.addStyleTag({ content: STABLE_RENDERING_CSS })

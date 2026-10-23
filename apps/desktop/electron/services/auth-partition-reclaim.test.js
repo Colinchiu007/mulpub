@@ -12,6 +12,8 @@ let isThrowawayPartitionName
 let wipeSessionStorage
 let scheduleReclaim
 let PROBE_LIMIT
+let authLoginSlot
+let partitionNameOf
 
 beforeEach(async () => {
   vi.resetModules()
@@ -23,6 +25,9 @@ beforeEach(async () => {
   wipeSessionStorage = mod.wipeSessionStorage
   scheduleReclaim = mod.scheduleReclaim
   PROBE_LIMIT = mod.PROBE_LIMIT
+  partitionNameOf = mod.partitionNameOf
+  // 槽位规则已外移到独立模块（2026-10-21，QM-6 外部评审 i4 + 行数门禁）
+  authLoginSlot = await import('./auth-login-slot.js')
 })
 
 const REAL = {
@@ -380,5 +385,140 @@ describe('auth-partition-reclaim：wipeSessionStorage', () => {
     expect(body).toContain('clearCache(): Promise<void>;')
     // 反失明：解析退化不得静默通过
     expect(body.length).toBeGreaterThan(1000)
+  })
+})
+
+// 登录槽位（2026-10-21）：登录视图改为「同一平台复用同一分区」，
+// 第三方登录页的 HTTP 缓存得以跨多次登录留存（头条号登录页实测 43MB 背景视频
+// + 1.3MB 风控 SDK ⇒ 冷缓存时图形验证码要几秒后才弹出）。
+describe('auth-partition-reclaim：登录槽位（按平台复用的稳定分区）', () => {
+  it('槽位分区名按平台固定：同一平台恒定，不同平台互不相同', () => {
+    expect(authLoginSlot.loginSlotAccountIdOf('toutiao')).toBe('auth-toutiao-slot')
+    expect(authLoginSlot.loginSlotPartitionNameOf('toutiao')).toBe('auth-auth-toutiao-slot')
+    // 同一平台两次登录必须落到同一个目录 —— 这是「缓存跨次留存」的前提
+    expect(authLoginSlot.loginSlotPartitionNameOf('toutiao')).toBe(authLoginSlot.loginSlotPartitionNameOf('toutiao'))
+    expect(authLoginSlot.loginSlotPartitionNameOf('toutiao')).not.toBe(authLoginSlot.loginSlotPartitionNameOf('kuaishou'))
+  })
+
+  it('平台非法时如实返回 null（不拼出脏目录名）', () => {
+    expect(authLoginSlot.loginSlotAccountIdOf(null)).toBe(null)
+    expect(authLoginSlot.loginSlotAccountIdOf('')).toBe(null)
+    expect(authLoginSlot.loginSlotPartitionNameOf(undefined)).toBe(null)
+  })
+
+  it('槽位落在平台级前缀下 —— 发布链兜底读取端零改动即可读到它', () => {
+    // auth-partition.listAuthPartitionCandidates 的前缀是 `auth-auth-<platform>-`
+    const slot = authLoginSlot.loginSlotPartitionNameOf('toutiao')
+    expect(slot.startsWith('auth-auth-toutiao-')).toBe(true)
+    // 且它按字典序排在时间戳目录之后（数字 < 字母）⇒ 读取端「从新到旧」会先探槽位
+    const legacy = 'auth-auth-toutiao-1790000000000'
+    expect(slot > legacy).toBe(true)
+  })
+
+  it('槽位不是一次性分区：回收端永不把它当 victim 删掉', () => {
+    const slot = authLoginSlot.loginSlotPartitionNameOf('toutiao')
+    expect(authLoginSlot.isLoginSlotPartitionName(slot)).toBe(true)
+    // 关键：不能进回收面。少了这条，槽位会在下次 sweep 被连目录删掉 ⇒ 缓存全丢。
+    expect(isThrowawayPartitionName(slot)).toBe(false)
+    const plan = planReclaim([slot, 'auth-auth-toutiao-1790000000000'], [])
+    expect(plan.victims).not.toContain(slot)
+    expect(plan.kept).not.toContain(slot)
+  })
+
+  it('槽位判定只认「auth-auth- 前缀 + -slot 后缀」，时间戳目录不受影响', () => {
+    expect(authLoginSlot.isLoginSlotPartitionName('auth-auth-toutiao-1790000000000')).toBe(false)
+    expect(authLoginSlot.isLoginSlotPartitionName('account-abc')).toBe(false)
+    expect(isThrowawayPartitionName('auth-auth-toutiao-1790000000000')).toBe(true)
+  })
+
+  it('清凭证保留 HTTP 缓存：keepHttpCache 时只调 clearStorageData', async () => {
+    const clearStorageData = vi.fn().mockResolvedValue(undefined)
+    const clearCache = vi.fn().mockResolvedValue(undefined)
+    const ok = await wipeSessionStorage({ clearStorageData, clearCache }, { warn: vi.fn() }, { keepHttpCache: true })
+    expect(ok).toBe(true)
+    expect(clearStorageData).toHaveBeenCalledTimes(1)
+    // 缓存正是槽位存在的理由 —— 清掉等于每次登录都从零下载第三方资源
+    expect(clearCache).not.toHaveBeenCalled()
+  })
+
+  it('开局清理：一律清理（不做「空槽位就跳过」——用 localStorage 存登录态的平台会漏）', async () => {
+    const clearStorageData = vi.fn().mockResolvedValue(undefined)
+    const clearCache = vi.fn().mockResolvedValue(undefined)
+    const session = {
+      clearStorageData,
+      clearCache,
+      cookies: { get: vi.fn().mockResolvedValue([]) }, // 一个 Cookie 都没有
+    }
+    const result = await authLoginSlot.wipeLoginSlotCredentials(session, { notify: vi.fn() }, {})
+    expect(result.wiped).toBe(true)
+    expect(clearStorageData).toHaveBeenCalledTimes(1)
+    expect(clearCache).not.toHaveBeenCalled()
+  })
+
+  it('开局清理：不依赖 cookies.get（探针异常时不得跳过隔离）', async () => {
+    const clearStorageData = vi.fn().mockResolvedValue(undefined)
+    const clearCache = vi.fn().mockResolvedValue(undefined)
+    const session = { clearStorageData, clearCache } // 压根没有 cookies.get
+    const result = await authLoginSlot.wipeLoginSlotCredentials(session, { notify: vi.fn() }, {})
+    expect(result.wiped).toBe(true)
+    expect(clearStorageData).toHaveBeenCalledTimes(1)
+  })
+
+  it('开局清理带硬上限：清理卡死时如实返回 timeout 且不抛', async () => {
+    const session = {
+      clearStorageData: vi.fn(() => new Promise(() => {})),
+      clearCache: vi.fn(),
+      cookies: { get: vi.fn().mockResolvedValue([{ name: 'a', value: '1', domain: '.x.example' }]) },
+    }
+    const result = await authLoginSlot.wipeLoginSlotCredentials(session, { notify: vi.fn() }, { timeoutMs: 20 })
+    expect(result.wiped).toBe(false)
+    expect(result.reason).toBe('timeout')
+  })
+
+  it('开局清理失败（抛错）只留日志、不外泄给调用方（清理是旁路）', async () => {
+    const log = { notify: vi.fn(), warn: vi.fn() }
+    const session = {
+      clearStorageData: vi.fn().mockRejectedValue(new Error('boom')),
+      clearCache: vi.fn(),
+      cookies: { get: vi.fn().mockResolvedValue([{ name: 'a', value: '1', domain: '.x.example' }]) },
+    }
+    const result = await authLoginSlot.wipeLoginSlotCredentials(session, log, {})
+    expect(result.wiped).toBe(false)
+    expect(log.notify).toHaveBeenCalled()
+  })
+
+  it('槽位命名与豁免必须同源：命名产出的名字必须被豁免判定认出来（防两处漂移）', () => {
+    for (const platform of ['toutiao', 'wechat_mp', 'kuaishou', 'zhihu', 'bilibili']) {
+      const name = authLoginSlot.loginSlotPartitionNameOf(platform)
+      expect(name, platform).toBeTruthy()
+      expect(authLoginSlot.isLoginSlotPartitionName(name), platform).toBe(true)
+      expect(isThrowawayPartitionName(name), platform).toBe(false)
+    }
+  })
+
+  it('槽位目录名必须与通用命名规则一致（auth-<accountId>）—— 两处各写一份必然漂移', () => {
+    // 槽位模块自己实现了「auth-<accountId>」这条规则（它不能反向依赖本模块，否则成环），
+    // 故用回环契约锁把两份实现钉在一起：本模块的 partitionNameOf 是唯一真源。
+    for (const platform of ['toutiao', 'wechat_mp', 'kuaishou', 'zhihu', 'bilibili']) {
+      const accountId = authLoginSlot.loginSlotAccountIdOf(platform)
+      expect(authLoginSlot.loginSlotPartitionNameOf(platform), platform).toBe(partitionNameOf(accountId))
+    }
+  })
+
+  it('超时预算：非法环境变量回落默认，合法值生效且封顶', () => {
+    expect(authLoginSlot.resolveSlotWipeTimeoutMs({}, undefined)).toBe(1200)
+    expect(authLoginSlot.resolveSlotWipeTimeoutMs({ MP_LOGIN_SLOT_WIPE_TIMEOUT_MS: 'abc' }, undefined)).toBe(1200)
+    expect(authLoginSlot.resolveSlotWipeTimeoutMs({ MP_LOGIN_SLOT_WIPE_TIMEOUT_MS: '-5' }, undefined)).toBe(1200)
+    expect(authLoginSlot.resolveSlotWipeTimeoutMs({ MP_LOGIN_SLOT_WIPE_TIMEOUT_MS: '1500' }, undefined)).toBe(1500)
+    expect(authLoginSlot.resolveSlotWipeTimeoutMs({ MP_LOGIN_SLOT_WIPE_TIMEOUT_MS: '999999' }, undefined)).toBe(60000)
+  })
+
+  it('端到端：真实目录里铺一个槽位，回收后它必须还在（反证「槽位被 sweep 吃掉」）', () => {
+    const slot = authLoginSlot.loginSlotPartitionNameOf('toutiao')
+    const base = mkProfile([slot, 'auth-auth-toutiao-1790000000000', 'auth-auth-toutiao-1790000000001'])
+    cleanups.push(base)
+    const summary = reclaim({ userDataPath: base })
+    expect(summary.removed).not.toContain(slot)
+    expect(fs.existsSync(path.join(base, 'session', 'Partitions', slot))).toBe(true)
   })
 })

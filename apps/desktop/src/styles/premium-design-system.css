@@ -385,26 +385,37 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
- * 12. 空态：虚线框 → 柔面 + 品牌淡边
+ * 12. 空态：虚线框 → 实线发丝描边
  * ---------------------------------------------------------------------------
- * 巡检实测：大量空态容器用 `1px dashed` 描边。虚线在产品界面里的语义是
+ * 巡检实测：空态容器用 `1px dashed` 描边。虚线在产品界面里的语义是
  * 「这里没画完 / 出错了」，而不是「这里还没有数据」——
  * 它让空态看起来像 bug，也让整页显得毛糙。
- * 统一改为：柔面底 + 发丝描边 + 品牌淡色描边，内容仍然是诚实的空态文案。
- */
-.pi-empty-surface,
-.empty-surface,
-.insight-empty,
-.perf-empty {
-  border: 1px solid var(--hairline) !important;
-  border-radius: var(--r-lg) !important;
-  background: var(--surface-sunken) !important;
-}
+ * 改为：发丝实线描边，内容仍然是诚实的空态文案。
+ *
+ * ⚠ 本块点名的每个类名都必须在 src 里**真实存在**——否则规则一条也命中不了，
+ *   而文档却会写成「已改」。上一版就因此留了 6 个**代码里根本没有**的类名
+ *   （`.pi-empty-surface` / `.empty-surface` / `.insight-empty` / `.perf-empty` /
+ *    `.insight-empty-card` / `.perf-empty-card`），规则全部空转，
+ *   效能洞察的空态因此仍是虚线。回归锁见 `styles/empty-state.contract.test.js`。
+ *
+ * 覆盖范围 = 报告 P0-6 点名的四类：
+ *   - `.mp-home-zero-cta` / `.mp-home-recent-empty` —— 首页零数据与「最近为空」
+ *   - `.pi-empty-state` / `.pi-dim-empty`             —— 效能洞察的全空态与维度空态
+ * 付费占位（DashboardLockedPanel）走组件内的品牌色左边条，不在本块。
+ * --------------------------------------------------------------------------- */
 
-/* 兼容以 dashed 描边的空态容器：把虚线改实（不改结构、不改文案） */
-:where(.mp-home-zero-cta, .mp-home-recent-empty, .insight-empty-card, .perf-empty-card) {
+/* 首页两处空态：底色用柔面（它们直接落在画布上）。 */
+:where(.mp-home-zero-cta, .mp-home-recent-empty) {
   border-style: solid !important;
   border-color: var(--hairline) !important;
   border-radius: var(--r-lg) !important;
   background: var(--surface-sunken) !important;
+}
+
+/* 效能洞察两处空态：它们是**卡片网格里的卡片**，底色与圆角沿用组件自身口径，
+   这里只把虚线改实线发丝（否则白卡套柔面会显脏）。 */
+.pi-empty-state,
+.pi-dim-empty {
+  border-style: solid !important;
+  border-color: var(--hairline) !important;
 }

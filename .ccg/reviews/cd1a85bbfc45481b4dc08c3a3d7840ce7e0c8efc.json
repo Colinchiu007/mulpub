@@ -1,0 +1,61 @@
+{
+  "sha": "cd1a85bbfc45481b4dc08c3a3d7840ce7e0c8efc",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 104 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 104,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| `tasks.md` 的 0.3（沙箱凭据）/ 8.8（E2E-1~7） | 需要真机凭据；本次改动**不改变**这个结论 |",
+      "| 生产注入凭据、商户平台配回调、网关放行、灰度 | 运营/运维 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T14:56:57.237Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4249#issuecomment-6343966888",
+    "reviewedAt": "2026-10-22T15:05:00Z",
+    "findings": 5,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对本 PR 的 compose + .env.example + 接线锁 diff（6,594 字符）独立审阅，原始输出逐字公开于 evidence。给出 2 High + 2 Medium + 1 Low。逐条核验：①High「CERT_PATH/CERT_CONTENT 优先级未定义」成立且根因更深——CERT_CONTENT 在任何生产代码里都无消费方，写进 .env.example 等于宣传不存在的路径，已从 .env.example 与 compose 移除；②High「CERT_CONTENT 走 env 会被 docker inspect 看到」成立，移除即消除，另核实 .gitignore:330 已忽略 .env；③Medium「锁只验声明不验值」采纳为文件头作用域说明并禁止放宽成匹配不到就跳过；④Medium「测试可能孤儿」不成立，run-tests.js:82 用 readdirSync 枚举本目录，已在文件头留证。另顺带查出阻断级问题：WeChatNativeProvider 在生产代码里从未被构造（logto-runtime.js:127 未传 paymentProvider → subscription-service.js:120 默认 null → subscription-payment.js:56 恒 503），已钉进 tasks.md §9.8 与 PRD §16，本轮不修（签名+平台公钥须一次接全，半接会把付不了款变成钱收了没给货）。"
+  }
+}

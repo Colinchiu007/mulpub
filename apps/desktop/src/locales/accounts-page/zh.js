@@ -34,7 +34,26 @@ export default {
     batchCheckAllStarted: (ctx) => '开始检测 ' + ctx.named('count') + ' 个账号的登录状态…',
     loginUnconfirmed: '未能确认 {platform} 的登录状态：本轮检测未取到定论，登录状态保持不变',
     batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效' + (Number(ctx.named('unconfirmed')) > 0 ? '，' + ctx.named('unconfirmed') + ' 个未取到定论（保持原状态）' : ''),
+    // 2026-10-22 fix-batch-check-toast-unify：「下一步」段，拼在 batchCheckAllDone 尾部。
+    // 为什么必须是「其中 …」而不是原来的「N 个账号需要重新登录」：原句读不出它与汇总句的关系，
+    // 于是「0 个失效」与「5 个账号需要重新登录」同屏时被用户读成自相矛盾 ——
+    // 两句其实在说同一批账号（6 个未取到定论里 5 个带负向倾向证据）。「其中」把这个指代关关系写明。
+    // 两者都为 0 时返回空串：调用方据此不追加分隔符，绝不留下悬空的「；」。
+    checkHintsSummaryInline: (ctx) => {
+      const relogin = Number(ctx.named('relogin')) || 0
+      const retry = Number(ctx.named('retry')) || 0
+      const parts = []
+      if (relogin > 0) parts.push(relogin + ' 个建议重新登录')
+      if (retry > 0) parts.push(retry + ' 个建议稍后重试')
+      return parts.length ? '其中 ' + parts.join('；') : ''
+    },
+    // 2026-10-22：固化失败段，拼在汇总句最尾部。原为独立红色 error toast
+    // （batchCheckAllPersistFailed），把「部分账号结论没落库」渲染成「整个检测失败」，
+    // 用户以为一键检测功能坏了。现降级为汇总尾段，与汇总同级（warning）。
+    checkHintsPersistFailedInline: (ctx) => '另有 ' + ctx.named('count') + ' 个账号的检测结论未能保存到服务端，请重试或检查后端服务',
     batchCheckAllAllValid: (ctx) => '检测完成：' + ctx.named('count') + ' 个账号登录状态全部正常',
+    // ⚠️ 保留但不再由一键检测使用：首页失效横幅的 reportError 标题仍在读它（useExpiredAccountsBanner.js）。
+    // 删键会打破 Gate 7 --keys 与横幅告警，故此处仅标注「一键检测不再用它」。
     batchCheckAllPersistFailed: (ctx) => '检测完成，但有 ' + ctx.named('count') + ' 个账号的登录状态未能保存到服务端，请重试或检查后端服务',
     persistFailedTitle: (ctx) => '登录态固化失败（' + ctx.named('count') + ' 个账号）',
     batchCheckAllNoAccounts: '暂无可检测的账号',
@@ -271,6 +290,12 @@ export default {
       publisherLabel: '运营人',
       notSet: '未设置',
       noData: '暂无数据',
+      // 账号资料（昵称/头像/粉丝）缺失时的提示（2026-10-22）：
+      // 用户看到灰色通用头像时无法判断「平台没设头像」还是「我们没取到」，
+      // 故明确告知「可点验证重新获取」，并把按钮名写进文案（与卡片上的按钮逐字一致）。
+      avatarMissing: '未获取到账号头像',
+      avatarMissingHint: '未获取到账号头像，点「验证」可重新获取账号资料',
+      followersMissingHint: '未获取到粉丝数，点「验证」可重新获取账号资料',
       unnamedAccount: '未命名账号',
       statusLoggedIn: '已登录',
       statusExpired: '已失效',

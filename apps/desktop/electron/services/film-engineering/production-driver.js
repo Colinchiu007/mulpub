@@ -62,6 +62,28 @@ function fingerprintBatch (shotIds) {
 }
 
 /**
+ * taskId 的路径安全段校验（**单一真源**，四个调用点共用）。
+ *
+ * 为什么不用 `taskId !== path.basename(taskId)`：
+ *   ① `path.basename` 的分隔符语义**平台相关**——POSIX 上反斜杠是合法文件名字符，
+ *      于是 Windows 风格的穿越串在 Linux 上被放行，
+ *      同一份代码在两个平台上对同一输入给出不同结论；
+ *   ② `.` 与 `..` 的 basename 就是自己 ⇒ 恒等式成立 ⇒ **被放行**，
+ *      而 `..` 会让 `path.join(root, 'production', taskId, ...)` 逃出 `production/` 一层。
+ *
+ * 本判据只依赖字符串本身，跨平台同结果；且**只多拒、不少拒**——
+ * 原本能被接受的 taskId（含中文、内部空格、`my..task` 这类合法文件名）一律仍然接受，
+ * 被拒的只有 `.` / `..` / 含分隔符 / 空 / 首尾空白这五类真正危险的输入。
+ */
+function isSafeTaskId (value) {
+  if (typeof value !== 'string') return false
+  if (!value || value !== value.trim()) return false
+  if (value === '.' || value === '..') return false
+  if (value.includes('/') || value.includes('\\')) return false
+  return true
+}
+
+/**
  * 默认批次 runId：`prod-<taskId>-<fp10>-b<N>`，产物落 `<mediaRoot>/<runId>/`。
  *
  * 存量台账零影响：断点续跑的 runId 一律取自**台账所载 `b.runId`**
@@ -194,7 +216,7 @@ async function runProduction (opts) {
     mediaRoot = getFilmMediaRoot(), batchSize = PRODUCTION_BATCH_SIZE,
     runOnlyBatch = null, runIdFor, shouldStop,
   } = opts || {}
-  if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
+  if (!isSafeTaskId(taskId)) {
     throw new Error('production-driver: taskId 必须为非空且路径安全的字符串')
   }
   if (!Array.isArray(shotIds) || shotIds.length === 0) {
@@ -327,6 +349,7 @@ async function runProduction (opts) {
 
 module.exports = {
   planBatches,
+  isSafeTaskId,
   fingerprintBatch,
   createLedger,
   defaultRunIdFor,

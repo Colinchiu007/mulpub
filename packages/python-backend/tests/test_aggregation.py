@@ -331,7 +331,7 @@ def test_length_ranges_mapping():
     from multi_publish.aggregation.service import _LENGTH_RANGES
 
     assert _LENGTH_RANGES["keep"] == (300, 50000, 1500)
-    assert _LENGTH_RANGES["compress"] == (100, 50000, 400)
+    assert _LENGTH_RANGES["compress"] == (100, 50000, 800)
     assert _LENGTH_RANGES["expand"] == (800, 50000, 2500)
     assert len(_LENGTH_RANGES) == 3
 
@@ -1086,3 +1086,29 @@ async def test_rewrite_empty_llm_object_still_requires_key(monkeypatch):
     with pytest.raises(UserVisibleError) as exc_info:
         await AggregationService().rewrite(req)
     assert exc_info.value.error_code == "LLM_KEY_MISSING"
+
+
+# ── 目标篇幅语义（feat-zhihu-fav-batch-wordcount，2026-10-21）────────────────
+# 事故形态：显式区间用**区间中点**当目标篇幅（target = (min+max)//2）。
+# 用户设 0-6000 ⇒ 目标 3000 字：对 300 字的知乎回答是「要求写 3000 字」（离谱膨胀），
+# 对 5000 字的长文则是「砍掉四成」。中点语义对宽区间天然失真。
+# 修法：**只有 min==0（不设下限）**时改为「与原文篇幅相当」= min(原文, 上限)；
+# min>0 保持中点（用户给了窄区间，中点就是他要的）；length 三档路径完全不动。
+
+
+def test_target_word_count_no_lower_bound_tracks_original_length():
+    """min=0（不设下限）⇒ 目标篇幅 = min(原文长度, 上限)，短文不膨胀、长文不超上限。"""
+    from multi_publish.aggregation.service import _resolve_target_word_count
+
+    assert _resolve_target_word_count(0, 6000, 3515) == 3515
+    assert _resolve_target_word_count(0, 6000, 300) == 300      # 短文不膨胀到 3000
+    assert _resolve_target_word_count(0, 6000, 9000) == 6000   # 长文不超过用户上限
+    assert _resolve_target_word_count(0, 6000, 0) == 6000      # 原文长度未知 ⇒ 取上限
+
+
+def test_target_word_count_with_lower_bound_keeps_midpoint_semantics():
+    """min>0 ⇒ 目标仍是区间中点（既有语义不变：用户给了窄区间，中点就是他要的）。"""
+    from multi_publish.aggregation.service import _resolve_target_word_count
+
+    assert _resolve_target_word_count(800, 2000, 3515) == 1400
+    assert _resolve_target_word_count(100, 800, 5000) == 450

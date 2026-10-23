@@ -52,6 +52,10 @@ const KNOWN_METHODS = [
   // （model-provider-manager.js 的 OPERATION_NOT_SUPPORTED 分支），不在本表里的
   // 方法即便子类实现了也永远不会被调到。
   'listAvatars',
+  // 形象/声音克隆（change: digital-human-multiprovider，飞影 HiFly 已实现全套）。
+  // 与 heygen-clone mixin 的方法同名同参，便于两家互换；HeyGen 侧暂不登记是
+  // 计划内的 fail-closed（无真实 Key 核字段），不是遗漏。
+  'createAvatar', 'getAvatarStatus', 'deleteAvatar', 'getVoiceCloneStatus',
 ]
 
 /**

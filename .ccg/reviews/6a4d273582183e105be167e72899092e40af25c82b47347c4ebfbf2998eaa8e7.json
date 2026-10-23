@@ -1,0 +1,62 @@
+{
+  "sha": "739baba1f54af1d5619202f292e7a1ef52041ffd",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 135 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 135,
+    "fileCount": 8,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "- 凭据出口加**域名闸 + 逐 Cookie 过滤**（多端点时 URL 配错不会跨域泄露）。",
+      "  本次变更集**未命中任何高危面前缀**（判据本体 / workflows / 凭证加解密 / 登录态真源），"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"第 2 轮 6 条：3 条 upheld 已修（品牌图后缀封闭化 / 凭据按目标主机过滤 + 平台域名闸 / 粉丝数 NaN 收口校验），1 条 dismissed 附实跑证据（toCount 的 n 由上一行 const 声明，5 条 followers 断言实跑通过），1 条 upheld 已修（公众号身份解析失效可观测），1 条 Info 认可。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6a4d273582183e105be167e72899092e40af25c82b47347c4ebfbf2998eaa8e7",
+  "decidedAt": "2026-10-22T23:23:29.787Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

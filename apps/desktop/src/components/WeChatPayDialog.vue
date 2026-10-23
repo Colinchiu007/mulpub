@@ -75,6 +75,9 @@ const props = defineProps({
   open: { type: Boolean, default: false },
   plan: { type: String, default: '' },
   period: { type: String, default: 'month' },
+  // 「继续支付」时传入既有订单号：主进程把它透传给服务端 `_reusePendingOrder`，
+  // 复用同一订单重取 codeUrl（不新建订单行）
+  reuseOrderId: { type: String, default: '' },
 })
 const emit = defineEmits(['close', 'paid'])
 
@@ -150,7 +153,10 @@ async function start () {
   orderId.value = ''
   errorText.value = ''
   state.value = 'loading'
-  const response = await invoke('wechatPayCreateOrder', { plan: props.plan, period: props.period })
+  // 有 orderId 才是「继续支付」：只在有值时带上该键，保持新建订单的调用形状不变
+  const orderPayload = { plan: props.plan, period: props.period }
+  if (props.reuseOrderId) orderPayload.orderId = props.reuseOrderId
+  const response = await invoke('wechatPayCreateOrder', orderPayload)
   if (!response || response.code !== 0 || !response.data) {
     // 服务端未开放支付通道时返回 503 PAYMENT_PROVIDER_UNAVAILABLE，走这里
     fail(response && response.message === 'PAYMENT_PROVIDER_UNAVAILABLE'

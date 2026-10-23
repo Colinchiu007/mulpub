@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "expectedExternalBackend": "claude",
+  "critiqueFingerprint": "7a28ed5f74ff1a7b",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。",
+    "高危域条目（highRiskDomains 非空）若要解除阻断，必须同时填 externalReview 三格：performedBy（须逐字等于 expectedExternalBackend）、evidenceRef（形如 https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id> 的公开评论）、reviewedAt（可解析的 ISO 时间）。缺任一格仍按 high_risk_requires_external 计阻断；填了假 URL 属伪造证据，公开可点开即被看见。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": ".ccg/reviews/7b953... embeds deepReview.status=self_play_pending with 5 undecided adjudication items (i1,i2,i3,i4,i6); missing i5; proposal must not advance until terminal.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "新增监测域 yhgfb-cn-static.com / bytetos.com 无来源验证链；仅引用「实际登录页 HTML 静态引用」，无抓包或签名证据，存在误信任外部域风险。",
+      "defense": "指控属实：当时域来源只存在于评审对话里，仓内没有任何可复现的证据。",
+      "verdict": "upheld",
+      "rationale": "已修：域来源做成**仓内可复现证据** evidence/login-page-host-snapshot.txt（抓取时刻 + 抓取命令 + 抓取内容 SHA-256 + 静态引用的 14 个主机名及每域一个实例资源路径），并加用例断言该证据必须在仓内。域清单仍是**字面量白名单**，非动态拼接。"
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "finding": "Mutation M4 initially ESCAPED due to weak negative case (other-captcha/@latest/captcha.js lacking true /captcha/ segment); counter-example set was insufficient at design time.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": ".ccg/reviews/*.json 把变异反证原始输出嵌入评审档，引用非入仓临时脚本与父提交 SHA，与提案 head 不匹配；审计无法复现。",
+      "defense": "指控属实：harness 当时是一次性临时脚本，不在仓内 ⇒ 别人无法复现「全 CAUGHT」。",
+      "verdict": "upheld",
+      "rationale": "已修：harness **入仓**（evidence/mutation-harness.cjs）；判定口径改为 vitest 退出码，跑后**每个被变异文件分别**比对 md5；评审记录里的引用改为指向仓内路径。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "isCaptchaSdkUrl uses compound && without named predicate; precedence and intent are implicit for future maintainers.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "isCaptchaSdkUrl 用复合 && 而无具名谓词，优先级与意图对后来维护者是隐式的。",
+      "defense": "指控属实。",
+      "verdict": "upheld",
+      "rationale": "已修：抽出具名谓词 isCombinedCaptchaAnchor(path)，并补**优先级测试**（不经 URL 解析层直接断言两段缺一不可与空输入不命中）。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "New monitored hosts expand observation surface but rely on implicit read-only assumption rather than explicit guard.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "新增监测域扩大观测面，但依赖隐式的只读假设而非显式守卫。",
+      "defense": "指控属实。",
+      "verdict": "upheld",
+      "rationale": "已修：监测域清单处补**显式边界守卫**，并把每条边界升级为**带 forbidden/required 锁**的结构化清单（回归锁逐条扫去注释后的代码）；如实登记观测层唯一的请求级动作是「默认关闭的登录噪声取消」。"
+    },
+    {
+      "id": "i6",
+      "severity": "Warning",
+      "finding": ".ccg/reviews note lists 5 items (i1,i2,i3,i4,i6) explicitly skipping i5; record is inconsistent.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": ".ccg/reviews note 只列 5 项（i1/i2/i3/i4/i6）显式跳过 i5，记录不一致。",
+      "defense": "指控属实：引擎产出 7 条、待裁决只有 5 条（i5/i7 是 Info 级不进裁决清单），但记录里没解释这个差别，读的人会以为漏了一条。",
+      "verdict": "upheld",
+      "rationale": "已修：在第一轮记录的 debtClosure 里加 `noteOnItemNumbering` 字段，写明「引擎产出 7 条、其中 i5 与 i7 为 Info 级 ⇒ 待裁决清单只列非 Info 的 5 条；**i5 不是被跳过**，它是『D4 正确排除 sdk-glue.js』的正反馈」。"
+    }
+  ],
+  "sourcePath": ".adversarial/ccg-deep-fd6cdcfe/adjudication.json",
+  "ingestedInto": "openspec/changes/login-observe-domain-coverage/adjudications/round2-fd6cdcfe.json",
+  "ingestedNote": "本文件是**入仓**的裁决留档：`.adversarial/` 目录不受版本管理，若不落一份进仓，「已修」的每一处修复在仓内就没有可核来源（第七轮 i3）。工作区里的原件仍在 `.adversarial/ccg-deep-*/adjudication.json`，两者内容一致。"
+}

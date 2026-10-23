@@ -608,6 +608,360 @@ describe('login-network-diagnostics — observe-only 档的隐私边界', () => 
   })
 })
 
+// ─── 头条号登录期观测（2026-10-21）───
+// 动因：头条号登录链路的请求此前一条都不记（过滤面只有微信/腾讯域），
+// 「点发送验证码后灰显几秒才弹图形验证码」现场无从归因，只能靠外部抓包倒推。
+describe('login-network-diagnostics — 头条号登录期观测', () => {
+  const TOUTIAO_SDK_URL = 'https://sf16-secsdk.ibytedtos.com/obj/rc-web-sdk-giso/webmssdk/1.0.0.303/webmssdk.js'
+  const TOUTIAO_CAPTCHA_URL = 'https://sf16-scmcdn-va.ibytedtos.com/obj/static-us/secsdk-captcha/@latest/captcha.js'
+  const TOUTIAO_BROKEN_URL = 'https://s3a.bytecdn.cn/ta/resource/v0/analytics.js'
+
+  it('头条号用自己的监测域过滤面，不含微信域', () => {
+    const ses = createSession()
+    mod.attachLoginNetworkDiagnostics(ses, { platform: 'toutiao', accountId: 'acc1' })
+    const urls = ses.webRequest.onCompleted.mock.calls[0][0].urls
+    expect(urls).toContain('*://*.toutiao.com/*')
+    expect(urls).toContain('*://*.ibytedtos.com/*')
+    expect(urls).toContain('*://*.bytecdn.cn/*')
+    expect(urls.some(u => u.indexOf('weixin.qq.com') !== -1)).toBe(false)
+  })
+
+  it('监测域与判定口径由独立模块承载（覆盖面与诊断机制分开）', () => {
+    const monitor = require('./login-network-monitor')
+    expect(monitor.monitoredHostsOf('toutiao')).toContain('toutiao.com')
+    expect(monitor.monitoredHostsOf('douyin')).toBe(null)
+    // 未登记平台 ⇒ 沿用默认（微信）过滤面，既有契约锁一字不变
+    expect(monitor.urlFiltersFor('douyin', EXPECTED_URLS)).toBe(EXPECTED_URLS)
+    expect(monitor.isMonitoredHost('toutiao', 'https://mp.toutiao.com/auth/page/login')).toBe(true)
+    expect(monitor.isMonitoredHost('toutiao', 'https://sf16-secsdk.ibytedtos.com/x.js')).toBe(true)
+    expect(monitor.isMonitoredHost('toutiao', 'https://example.com/x.js')).toBe(false)
+  })
+
+  it('未登记平台的过滤面一字不变（微信四条原样，既有契约锁不被破坏）', () => {
+    const ses = createSession()
+    mod.attachLoginNetworkDiagnostics(ses, { platform: 'wechat_mp', accountId: 'acc1' })
+    expect(ses.webRequest.onCompleted.mock.calls[0][0].urls).toEqual(EXPECTED_URLS)
+  })
+
+  it('头条号代理解析探针指向自己的站点（回答「头条请求走哪条线路」）', () => {
+    const ses = createSession()
+    mod.attachLoginNetworkDiagnostics(ses, { platform: 'toutiao', accountId: 'acc1' })
+    expect(ses.resolveProxy).toHaveBeenCalledWith('https://mp.toutiao.com/')
+  })
+
+  it('头条号的失败请求会被记录（字节自家 CDN 504 那类问题此前完全无痕）', () => {
+    const ses = createSession()
+    mod.attachLoginNetworkDiagnostics(ses, { platform: 'toutiao', accountId: 'acc1' })
+    const onError = ses.webRequest.onErrorOccurred.mock.calls[0][1]
+    onError({ url: TOUTIAO_BROKEN_URL, error: 'net::ERR_CONNECTION_RESET' })
+    const line = log.notify.mock.calls.filter(c => c[1] === 'request-failed')
+    expect(line.length).toBe(1)
+    expect((line[0][2] || {}).params.url).toContain('s3a.bytecdn.cn')
+  })
+
+  it('头条号的 HTTP>=400 会被记录（504 这类「边缘节点超时」看得见）', () => {
+    const ses = createSession()
+    mod.attachLoginNetworkDiagnostics(ses, { platform: 'toutiao', accountId: 'acc1' })
+    const onCompleted = ses.webRequest.onCompleted.mock.calls[0][1]
+    onCompleted({ url: TOUTIAO_BROKEN_URL, statusCode: 504 })
+    const line = log.notify.mock.calls.filter(c => c[1] === 'http-status-info')
+    expect(line.length).toBe(1)
+    expect((line[0][2] || {}).params.msg).toContain('504')
+  })
+
+  function attachToutiao () {
+    const dbg = createDebugger('{}')
+    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'toutiao', accountId: 'a1' })).toBe(true)
+    return messageHandler(dbg)
+  }
+
+  it('慢请求记一条 slow-request（带耗时与阈值）', async () => {
+    const onMessage = attachToutiao()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'r1', request: { url: TOUTIAO_BROKEN_URL }, timestamp: 100 })
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'r1', timestamp: 103.5, encodedDataLength: 560 })
+    const line = log.notify.mock.calls.filter(c => c[1] === 'slow-request')
+    expect(line.length).toBe(1)
+    const params = (line[0][2] || {}).params
+    expect(params.ms).toBe(3500)
+    expect(params.thresholdMs).toBe(3000)
+  })
+
+  it('未达阈值不记 slow-request（快请求不刷屏）', async () => {
+    const onMessage = attachToutiao()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'r1', request: { url: TOUTIAO_SDK_URL }, timestamp: 100 })
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'r1', timestamp: 100.5, encodedDataLength: 100 })
+    expect(log.notify.mock.calls.filter(c => c[1] === 'slow-request').length).toBe(0)
+  })
+
+  it('图形验证码组件加载完成记一条 captcha-sdk-loaded（灰显遮罩结束的时刻）', async () => {
+    const onMessage = attachToutiao()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'c1', request: { url: TOUTIAO_CAPTCHA_URL }, timestamp: 200 })
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'c1', timestamp: 201.1, encodedDataLength: 784373 })
+    const line = log.notify.mock.calls.filter(c => c[1] === 'captcha-sdk-loaded')
+    expect(line.length).toBe(1)
+    const params = (line[0][2] || {}).params
+    expect(params.ms).toBe(1100)
+    expect(params.bytes).toBe(784373)
+  })
+
+  it('风控 SDK 主包同样被识别为验证码组件', async () => {
+    const onMessage = attachToutiao()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'c2', request: { url: TOUTIAO_SDK_URL }, timestamp: 200 })
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'c2', timestamp: 201.3, encodedDataLength: 520714 })
+    const line = log.notify.mock.calls.filter(c => c[1] === 'captcha-sdk-loaded')
+    expect(line.length).toBe(1)
+  })
+
+  it('验证码组件判定只认路径：查询串里带同名不算（防误报淹没真信号）', () => {
+    const monitor = require('./login-network-monitor')
+    expect(monitor.isCaptchaSdkUrl('https://sf16-secsdk.ibytedtos.com/obj/rc-web-sdk-giso/webmssdk/1.0.0.303/webmssdk.js')).toBe(true)
+    expect(monitor.isCaptchaSdkUrl('https://sf16-scmcdn-va.ibytedtos.com/obj/static-us/secsdk-captcha/@latest/captcha.js')).toBe(true)
+    // 查询串里出现标记名 → 不算
+    expect(monitor.isCaptchaSdkUrl('https://sf16-secsdk.ibytedtos.com/collect?tag=webmssdk.js')).toBe(false)
+    // 域名里出现标记名 → 不算（只有路径算）
+    expect(monitor.isCaptchaSdkUrl('https://webmssdk.js.example.com/a.js')).toBe(false)
+    // 同尾路径但不是版本目录 → 不算（2026-10-21 CCG 外部评审 i3）
+    expect(monitor.isCaptchaSdkUrl('https://sf16-secsdk.ibytedtos.com/proxy/webmssdk.js')).toBe(false)
+    expect(monitor.isCaptchaSdkUrl('not a url')).toBe(false)
+  })
+
+  // ── 2026-10-22 现场补测：真实登录页 HTML 里实际生效的验证码组件形态 ──
+  // 动因：从 https://mp.toutiao.com/ 实际抓到的登录页资源清单里，验证码组件的
+  // 入口是 `lf-rc{1,2}.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/<ver>/captcha/index.js`
+  // ——**既不在**已登记的监测域清单里（⇒ 整条域的请求根本进不了 webRequest 过滤面），
+  // **也不匹配**已登记的路径锚点（⇒ 即便进来了也不会判成验证码组件）。
+  // 两条都漏 ⇒ 本刀承诺的「记录图形验证码组件加载完成（灰显遮罩结束的时刻）」，
+  // 在真实头条登录链路上对这条实际生效的入口**不生效**。现场读数：该文件首包
+  // 冷时 2.65~2.96s、命中边缘后 0.13s ⇒ 正是「灰显几秒」那段波动的来源。
+  const TOUTIAO_CAPTCHA_RC_URL =
+    'https://lf-rc1.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js'
+
+  it('真实登录页的验证码入口（rc-verifycenter 形态）被判为验证码组件', () => {
+    const monitor = require('./login-network-monitor')
+    expect(monitor.isCaptchaSdkUrl(TOUTIAO_CAPTCHA_RC_URL)).toBe(true)
+    // 冗余节点 rc2 同形态
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc2.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js'
+    )).toBe(true)
+  })
+
+  it('验证码组件新形态不得泛化：只有 sec_sdk_build 目录下的 captcha 才算', () => {
+    const monitor = require('./login-network-monitor')
+    // 同版本目录但不是 captcha → 不算
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/index.js'
+    )).toBe(false)
+    // 有 captcha 段但不在 sec_sdk_build 版本目录下、也不是已登记的 secsdk-captcha 包 → 不算
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/static-us/other-captcha/@latest/captcha.js'
+    )).toBe(false)
+    // ⚠️ 变异反证 M4 首轮 ESCAPED 暴露的负例弱点：上一条的路径里其实**没有真正的
+    // `/captcha/` 段**（末尾是 `captcha.js`），所以「去掉 sec_sdk_build 条件」它也不变 ⇒ 钉不住。
+    // 下面这条才是真的含 `/captcha/` 段、但不在字节验证码中心的版本目录下 ⇒ 必须不算。
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/some/other/dir/captcha/index.js'
+    )).toBe(false)
+    // 同上形态的更狠一档：段名带前缀（`not-captcha/`）**不含前导斜杠** ⇒ 段匹配不是子串匹配
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/some/not-captcha/index.js'
+    )).toBe(false)
+    // 同上：段名带后缀（`pre_captcha_suffix/`）也不含前导斜杠 ⇒ 不命中
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/pre_captcha_suffix/index.js'
+    )).toBe(false)
+    // 同上：版本目录段带前缀（`fake_sec_sdk_build/`）⇒ 段锚点带前导斜杠 ⇒ 不命中
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/fake_sec_sdk_build/captcha/index.js'
+    )).toBe(false)
+    // 百分号编码变体：`pathOf` 取 `new URL(url).pathname`，**不解码** `%2F` ⇒ 编码后的段不算
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/%63aptcha/index.js'
+    )).toBe(false)
+    // 查询串里出现标记 → 不算（既有约束，不得因新增组合锚点而丢失）
+    expect(monitor.isCaptchaSdkUrl(
+      'https://lf-rc1.yhgfb-cn-static.com/a.js?x=sec_sdk_build/captcha'
+    )).toBe(false)
+  })
+
+  it('组合锚点的两段常量必须是预期的版本目录段与组件段（防常量被悄悄改宽）', () => {
+    const monitor = require('./login-network-monitor')
+    expect(monitor.CAPTCHA_SDK_DIR_MARKER).toBe('/sec_sdk_build/')
+    expect(monitor.CAPTCHA_SDK_SEGMENT).toBe('/captcha/')
+  })
+
+  it('组合锚点谓词两段缺一不可（具名谓词的优先级测试，不经 URL 解析层）', () => {
+    const monitor = require('./login-network-monitor')
+    // 两段齐备 ⇒ 命中
+    expect(monitor.isCombinedCaptchaAnchor(
+      '/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js'
+    )).toBe(true)
+    // 只有版本目录段 ⇒ 不命中（否则该目录下非验证码资源被算成组件 ⇒ 读数失真）
+    expect(monitor.isCombinedCaptchaAnchor(
+      '/obj/rc-verifycenter/sec_sdk_build/4.0.10/index.js'
+    )).toBe(false)
+    // 只有组件段 ⇒ 不命中（否则无关资源误判 ⇒ 噪声淹没真信号）
+    expect(monitor.isCombinedCaptchaAnchor(
+      '/obj/some/other/dir/captcha/index.js'
+    )).toBe(false)
+    // 空输入不得被当成命中
+    expect(monitor.isCombinedCaptchaAnchor('')).toBe(false)
+  })
+
+  // ── 2026-10-22 CCG 外部评审第三轮 i1：边界写在注释里不算门禁 ──
+  it('观测层的每条边界都必须有可执行锁：forbidden 形态零命中、required 形态必须存在', () => {
+    const monitor = require('./login-network-monitor')
+    const g = monitor.OBSERVATION_GUARD
+    // 头条号**不得**在读体平台清单里（计时层平台永不读响应体）
+    expect(g.readsResponseBodyPlatforms).not.toContain('toutiao')
+
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const raw = fs.readFileSync(path.join(__dirname, 'login-network-diagnostics.js'), 'utf8')
+    // 扫「代码」而不是「注释」：注释里出现 forbidden 形态是正常的（说明为什么禁），
+    // 所以先把整行注释剔掉，只留可执行代码。
+    const code = raw.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+
+    const keys = ['readOnly', 'noOutbound', 'noCredentialLogging', 'responseBodyGated', 'noiseCancelGated']
+    for (const k of keys) {
+      const spec = g[k]
+      expect(spec, `边界 ${k} 缺失`).toBeTruthy()
+      expect(typeof spec.why, `边界 ${k} 必须写明它约束的是什么`).toBe('string')
+      const forbidden = spec.forbidden || []
+      const required = spec.required || []
+      // 每条边界至少要有一把锁，否则就是**装饰性声明**（评审第三轮 i1 的原话）
+      expect(forbidden.length + required.length, `边界 ${k} 没有任何锁`).toBeGreaterThan(0)
+      for (const re of forbidden) {
+        expect(code.match(re), `边界 ${k} 被违反：源码命中禁止形态 ${re}`).toBeNull()
+      }
+      for (const re of required) {
+        expect(code.match(re), `边界 ${k} 的必要形态 ${re} 不存在`).not.toBeNull()
+      }
+    }
+
+    // 读体闸门必须**排在**读体调用之前（顺序锁：闸门被挪到调用之后就失效了）
+    const guardIdx = code.indexOf('monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms.indexOf')
+    const readIdx = code.indexOf("'Network.getResponseBody'")
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(readIdx).toBeGreaterThan(guardIdx)
+  })
+
+  it('监测域的来源证据必须在仓内（域清单不是拍脑袋来的）', () => {
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const p = path.join(
+      __dirname, '..', '..', '..', '..',
+      'openspec', 'changes', 'login-observe-domain-coverage', 'evidence', 'login-page-host-snapshot.txt'
+    )
+    expect(fs.existsSync(p)).toBe(true)
+    const txt = fs.readFileSync(p, 'utf8')
+    // 本刀新增的两条必须能在证据里找到实例
+    expect(txt).toContain('yhgfb-cn-static.com')
+    expect(txt).toContain('bytetos.com')
+    // 真实生效的验证码入口形态必须在证据里
+    expect(txt).toContain('sec_sdk_build')
+    // 证据必须自带抓取时刻与来源 URL，才谈得上「可复现」
+    expect(txt).toMatch(/抓取时刻（UTC）：\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/)
+    expect(txt).toContain('https://mp.toutiao.com/')
+    // 证据完整性：抓取内容的 SHA-256 必须写在文件里（可事后核对是否被改过）
+    expect(txt).toMatch(/SHA-256：[0-9a-f]{64}/)
+  })
+
+  // ── 2026-10-22 CCG 外部评审第五轮 i5 / i6 / i8 ──
+  it('刻意排除的域必须编码进代码（不能只写在文档里），且不得出现在任何监测域清单里', () => {
+    const monitor = require('./login-network-monitor')
+    expect(monitor.EXCLUDED_HOSTS).toContain('www.douyin.com')
+    const hosts = monitor.monitoredHostsOf('toutiao') || []
+    for (const h of monitor.EXCLUDED_HOSTS) {
+      expect(hosts).not.toContain(h)
+      // 也不得以「同主域」的形式被变相纳入
+      expect(hosts.some((x) => h.endsWith('.' + x) || x.endsWith('.' + h))).toBe(false)
+    }
+  })
+
+  it('读体平台清单必须与端点匹配器的键集逐字一致，且所有计时平台都不在清单里', () => {
+    const monitor = require('./login-network-monitor')
+    // 计时平台（只记耗时 / 只记字节数）一律不读响应体
+    for (const p of ['toutiao', 'wechat_mp', 'tencent_video']) {
+      expect(monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms, `计时平台 ${p} 不得读响应体`).not.toContain(p)
+    }
+    // 清单 ≡ 诊断层的端点匹配器键集：两边漂移 ⇒ 读体面悄悄变了却没人知道
+    const fs = require('node:fs')
+    const path = require('node:path')
+    const src = fs.readFileSync(path.join(__dirname, 'login-network-diagnostics.js'), 'utf8')
+    const block = src.match(/AUTH_ENDPOINT_MATCHERS\s*=\s*\{([\s\S]*?)\n\}/)
+    expect(block, '解析不到 AUTH_ENDPOINT_MATCHERS 块').not.toBeNull()
+    const keys = [...block[1].matchAll(/^\s{2}(\w+):\s*\{/gm)].map((m) => m[1]).sort()
+    expect([...monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms].sort()).toEqual(keys)
+  })
+
+  it('监测域匹配必须复用同一平台编译出的正则（缓存未被破坏）', () => {
+    const monitor = require('./login-network-monitor')
+    const a = monitor.hostMatcherOf('toutiao')
+    const b = monitor.hostMatcherOf('toutiao')
+    expect(a).toBe(b) // 同一对象 ⇒ 没有重复编译
+    expect(a).toBeTruthy()
+    // 过滤面也必须稳定（每次调用返回等值内容）
+    expect(monitor.urlFiltersFor('toutiao', [])).toEqual(monitor.urlFiltersFor('toutiao', []))
+  })
+
+  it('头条监测域必须覆盖真实登录页用到的风控与验证码域', () => {
+    const monitor = require('./login-network-monitor')
+    const hosts = monitor.monitoredHostsOf('toutiao')
+    // 缺任一 ⇒ 该域的失败请求/慢请求在日志里永远看不到
+    expect(hosts).toContain('yhgfb-cn-static.com')
+    expect(hosts).toContain('bytetos.com')
+    // 该域的请求必须真的落进过滤面
+    expect(monitor.urlFiltersFor('toutiao', [])).toContain('*://yhgfb-cn-static.com/*')
+    expect(monitor.urlFiltersFor('toutiao', [])).toContain('*://*.yhgfb-cn-static.com/*')
+    expect(monitor.isMonitoredHost('toutiao', TOUTIAO_CAPTCHA_RC_URL)).toBe(true)
+  })
+
+  it('监测域外的请求不计时（防把无关请求算进来）', async () => {
+    const onMessage = attachToutiao()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'x1', request: { url: 'https://example.com/a.js' }, timestamp: 100 })
+    await onMessage(null, 'Network.loadingFinished', { requestId: 'x1', timestamp: 120, encodedDataLength: 1 })
+    expect(log.notify.mock.calls.filter(c => c[1] === 'slow-request').length).toBe(0)
+  })
+
+  it('监测域内请求失败记一条 monitored-request-failed', async () => {
+    const onMessage = attachToutiao()
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'f1', request: { url: TOUTIAO_SDK_URL }, timestamp: 100 })
+    await onMessage(null, 'Network.loadingFailed', { requestId: 'f1', timestamp: 101, errorText: 'net::ERR_CONNECTION_RESET' })
+    const line = log.notify.mock.calls.filter(c => c[1] === 'monitored-request-failed')
+    expect(line.length).toBe(1)
+  })
+
+  it('隐私边界：头条号永不 getResponseBody（计时层只读事件，不读响应体）', async () => {
+    const dbg = createDebugger('{"secret":"token"}')
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'toutiao', accountId: 'a1' })
+    const onMessage = messageHandler(dbg)
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'p1', request: { url: 'https://sso.toutiao.com/send_code' }, timestamp: 1 })
+    await onMessage(null, 'Network.responseReceived', { requestId: 'p1', response: { url: 'https://sso.toutiao.com/send_code', status: 200 } })
+    expect(dbg.sendCommand.mock.calls.filter(c => c[0] === 'Network.getResponseBody').length).toBe(0)
+  })
+
+  it('隐私闸门按平台判（不是按 URL 判）：计时平台即便收到知乎形状的 URL 也不读体', async () => {
+    // 2026-10-21 CCG 外部评审 i2 的落点：闸门是「该平台**登记了**端点匹配器吗」，
+    // 与具体 URL 无关 —— 计时平台（头条）即便收到任何响应都不得触发 getResponseBody。
+    const dbg = createDebugger('{"secret":"token"}')
+    mod.attachAuthResponseDiagnostics(dbg, { platform: 'toutiao', accountId: 'a1' })
+    const onMessage = messageHandler(dbg)
+    // 故意用知乎那个**已登记匹配器**的路径形状：若闸门被误改成「按 URL 判」，这里就会读体
+    await onMessage(null, 'Network.requestWillBeSent', { requestId: 'p2', request: { url: 'https://www.zhihu.com/api/v4/signin/sms_send' }, timestamp: 1 })
+    await onMessage(null, 'Network.responseReceived', { requestId: 'p2', response: { url: 'https://www.zhihu.com/api/v4/signin/sms_send', status: 200 } })
+    expect(dbg.sendCommand.mock.calls.filter(c => c[0] === 'Network.getResponseBody').length).toBe(0)
+  })
+
+  it('微信平台不进入计时层（既有 observe-only 契约不被扩大）', () => {
+    const monitor = require('./login-network-monitor')
+    const dbg = createDebugger('{}')
+    // wechat_mp 仍属 QR_BYTE_OBSERVE 档：挂接为真，但**不是**计时平台
+    expect(monitor.TIMING_OBSERVE_PLATFORMS).not.toContain('wechat_mp')
+    expect(monitor.TIMING_OBSERVE_PLATFORMS).toContain('toutiao')
+    expect(mod.attachAuthResponseDiagnostics(dbg, { platform: 'douyin' })).toBe(false)
+  })
+})
+
 // ─── 登录页噪音 cancel（MP_LOGIN_NOISE_CANCEL=1 才生效，默认关）───
 const HELPER_MP4 = 'https://res.wx.qq.com/t/wx_fed/finder/static-assets/finder-common-assets/res/finder-helper/2560x864_helper.mp4'
 const MCN_MP4 = 'https://res.wx.qq.com/t/wx_fed/finder/static-assets/finder-common-assets/res/finder-helper/2560x864_MCN.mp4'

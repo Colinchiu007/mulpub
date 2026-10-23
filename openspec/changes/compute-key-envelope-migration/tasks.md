@@ -15,11 +15,16 @@
 
 ## 2. Node 侧信封模块（交付目标）
 
-- [ ] 2.1 新增 `packages/api-publish-engine/src/cloud-accounts/official-key-envelope.js`：封印/解封/只读 verify；`v` 独立、算法常量与 `envelope-crypto.js` 同源 import；AAD = `official|<provider>|<keyRowId>`；keyId = `official:<provider>`
-- [ ] 2.2 单测（正常往返 / 跨 provider 替换必失败 / 跨行替换必失败 / `v` 不匹配拒绝 / KMS 缺失抛错）
-- [ ] 2.3 结构锁：两个信封模块的 IV/tag/DK 常量同源（**扫描域收窄到这两个文件**——`keyring-kms.js:38-40` 的既有重复声明不在本次收口，见评审后 R12）
-- [ ] 2.4 结构锁：`api_key=encrypt_key(...)` 全仓只允许出现在 `ops-center/backend/services/key_service.py`（判据取自评审 i6 的实测：当前唯一写入点 `:269`）
-- [ ] 2.5 KMS 获取复用 `createKmsFromEnv`；锁断言不出现第二处"用哪个 KMS"的判断
+- [x] 2.1 新增 `packages/api-publish-engine/src/cloud-accounts/official-key-envelope.js`：封印/解封/只读 verify；`v` 独立、算法常量与 `envelope-crypto.js` 同源 import；AAD = `official|<provider>|<keyRowId>`；keyId = `official:<provider>`
+- [x] 2.2 单测（正常往返 / 跨 provider 替换必失败 / 跨行替换必失败 / `v` 不匹配拒绝 / KMS 缺失抛错）
+- [x] 2.3 结构锁：两个信封模块的 IV/tag/DK 常量同源（**扫描域收窄到这两个文件**——`keyring-kms.js:38-40` 的既有重复声明不在本次收口，见评审后 R12）
+      - ⚠️ **规格偏差 SD-1（2026-10-23 实施时发现）**：`validate-account.js` 的 `module.exports` **未导出 `DATA_KEY_BYTES`**
+        （只有 `AUTH_TAG_BYTES` / `ENVELOPE_ALG` / `ENVELOPE_VERSION` / `IV_BYTES`），故「三组常量同源 import」不可实现。
+        **本次处理**：`IV_BYTES` / `AUTH_TAG_BYTES` / `ENVELOPE_ALG` 走**同源 import**；`DATA_KEY_BYTES` 本地声明为 32，
+        结构锁断言**两者取值相同**（而非同源 import）。**未**往 `validate-account.js` 加导出——那会动到云端凭证链路的
+        既有模块、把本 change 的爆炸半径拉大（同 R12 对 `keyring-kms.js` 的处理思路）。待第 1 组定案时补记此偏差。
+- [x] 2.4 结构锁：`api_key=encrypt_key(...)` 全仓只允许出现在 `ops-center/backend/services/key_service.py`（判据取自评审 i6 的实测：当前唯一写入点 `:269`）
+- [x] 2.5 KMS 获取复用 `createKmsFromEnv`；锁断言不出现第二处"用哪个 KMS"的判断
 
 ## 3. 表结构与迁移文件（可与第 2 组并行）
 

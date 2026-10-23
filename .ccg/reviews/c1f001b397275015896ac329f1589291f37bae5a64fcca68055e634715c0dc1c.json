@@ -1,0 +1,136 @@
+{
+  "sha": "54dec05a225986195dbf82d7f1fc85fc1d2ea4f5",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 858 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 858,
+    "fileCount": 7,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c1f001b397275015896ac329f1589291f37bae5a64fcca68055e634715c0dc1c",
+  "decidedAt": "2026-10-23T06:53:33.592Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude（critic，外部跨家族评审）+ self-play（逐条裁决）",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4310#issuecomment-6359458108",
+    "reviewedAt": "2026-10-23T07:05:00Z",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i2",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4310#issuecomment-6359458108"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "`.ccg/reviews/*.json` is a generated review artifact (contains sha, decidedBy, backends, evidence) committed into repo, leaking internal workflow metadata.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "评审产物带着 sha / decidedBy / backends / evidence 进了版本控制，等于把内部流程元数据公开；仓库里每多一个 PR 就多一份这样的文件，长期看等于把评审流水线摊开给所有能读仓库的人。",
+        "defense": "① 这**不是本 PR 引入的**：origin/main 上已有 2058 个同类产物，`.ccg/reviews/` 是仓库既有机制（pre-commit 判定器自动 stage），本 PR 只是又多了 1 个；② 门禁自己读这些文件（scripts/check-pr-exec-record.js 判欠账、scripts/ccg-review-decider.js 写它们），改「不入库」要同时改判定器、门禁、账本三处，属跨仓工程决策；③ 产物的字段由判定器写死，消费者（欠账门禁的 judgeBackendMismatch）对得上，改名或脱敏会直接让门禁失明。",
+        "verdict": "dismissed",
+        "rationale": "指控的前提（「本 PR 把评审元数据泄露进仓库」）经实测不成立：主干 2058 个同类产物是既有机制，不是本 PR 的新增泄露面。真正要改的是「评审产物该不该入库」这个仓库级决策，影响判定器/门禁/账本三处，超出本 PR 范围（与第 1/2/3/4 轮同一条指控的结论一致）。⇒ 不成立，已登记为跨仓议题。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "`http-profile-api-wechat.test.js` creates `multibyte = WX_LOGIN_TEMPLATE + '字'.repeat(1_500_000)` (~4.5 MB UTF-8) to test byte-length limit, causing unnecessary memory spike in CI.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4310#issuecomment-6359458108",
+          "reviewedAt": "2026-10-23T07:05:00Z"
+        },
+        "prosecution": "用例为了验证「按字节判体积」造了 150 万个汉字（UTF-8 ≈ 4.5MB、UTF-16 ≈ 3MB），在 CI 机器上是一次实打实的内存尖峰；desktop shard 是并发跑的，多几个这样的用例就可能把 runner 顶到 OOM，而这类失败是**偶发**的（与负载相关），排查成本极高。",
+        "defense": "阈值本身就是 2MB，样本必须真的超过 2MB 字节才跨得过线，评审建议的「1025 字符」只有约 3KB，根本测不出字节/字符的差别 —— 也就是说「更小的样本」与「仍然测得到」这两件事在本阈值下互斥，除非把阈值本身改小。",
+        "verdict": "upheld",
+        "rationale": "成立，已修：样本从 1,500,000 字降到**最小可行值** 700,000 字（= 2,100,000 字节，恰好越过 2,097,152 阈值），内存占用减半且仍然区分得出「按字符算」与「按字节算」两种实现。评审建议的 1025 字符在数学上不成立（2MB 阈值决定了样本必须真的超过 2MB 字节），故未按字面采纳。另：解析器侧的同类用例同步降到 700,000 字。本条属高危域（auth），**不接受自扮演豁免** —— 外部复核由 critic（claude，第 5 轮原始输出逐字公开于 PR 评论）完成，证据见 externalReview.evidenceRef。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`extract` in `http-profile-api.js` logs `page_too_large` and identity missing/invalid, but does not log `reason === 'nickname_invalid'` or `'avatar_rejected_scheme'`, making those failures silent.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "这两种 reason 出现时，账号卡上会**少一块内容**（名字空或头像是空），而日志里一声不吭 —— 用户报「名字没了」时，排查的人只能靠猜；结构化 reason 的全部价值就在于能查。",
+        "defense": "这两种情形下其它字段照常产出（头像/昵称/平台ID 至少有一个能用），账号卡不是全空；而且它们是**每次取数都会命中**的常态（占位值昵称在模板未渲染时就有），逐次 warn 会变成日志噪音，反而淹没真正的严重情形。",
+        "verdict": "upheld",
+        "rationale": "成立，已修：`extract` 补两条 `log.warn` 分支（`nickname_invalid` = 昵称字段在但形态不合格；`avatar_rejected_scheme` = 头像字段在但被 URL 白名单拒），让「账号卡少一块内容」在日志里可查。评审担心的「噪音」不成立 —— 这两种 reason 只在**值不合法**时出现（正常的已登录模板不会命中），不是每次取数都有。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`.ccg/reviews/*.json` `sha` (`54dec05a...`) does not match proposal head (`2867e646...`), confirming it is a stale/generated artifact wrongly staged.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "记录里的 sha 指向 54dec05a（父提交）而不是当前 head 2867e646，说明它是上一笔的产物被误提交了 —— 如果属实，本 PR 提交的是一份**陈旧的**评审结论，等于拿旧结论冒充新评审。",
+        "defense": "该字段记的是**判定时**的父提交：pre-commit 跑判定器时新 commit 还不存在，判定器只能把记录写到父 sha 名下（`ccg-review-decider.js` 的 currentSha() 取到父提交）；提交完成后 HEAD 才变成新 sha。这是引擎与脚本**双向**的既定约定（`ccg-deep-review.js::readDecision` 的内容寻址兜底就是为它写的），不是陈旧产物。",
+        "verdict": "dismissed",
+        "rationale": "不成立：sha 指向父提交是 pre-commit 既定行为（引擎侧专门有内容寻址兜底 + `deep-review.sh` 的「父提交回退」段落），不是「陈旧产物被误提交」。同一条在第 2 轮已提出，结论一致。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "closureNote": "第 5 轮外部双家族深度评审（critic=claude / proposer=opencode，跨家族校验通过；评审对象 = 本 PR 的**完整差量** origin/main..2867e646，858 行 / 5 个源文件）：critic 给出 8 条（correctness 7 / security 5 / performance 6 / maintainability 6，最低分 5），逐条裁决与理由见 findings —— i1 Critical **驳回**（`.ccg/reviews/*.json` 是仓库既有机制，主干已有 2058 个同类产物，非本 PR 新增泄露面）；i2 Critical **成立并已修**（测试的多字节样本 1,500,000 → 700,000 字，仍能区分「按字符算」与「按字节算」；评审建议的 1025 字符在 2MB 阈值下数学上不成立）；i3 Warning **成立并已修**（extract 补 nickname_invalid / avatar_rejected_scheme 两条 log.warn）；i4 Warning **驳回**（记录里的 sha 指向父提交是 pre-commit 既定行为，不是陈旧产物）。i2 属高危域（auth），**不接受自扮演豁免**：外部复核由 critic=claude 完成，第 5 轮原始输出逐字公开于 evidence 指向的 PR 评论。引擎按 upheld 记 blocking=1（i3）且不写回闭环值；按主干先例（.ccg/reviews/0232b819….json：32 条成立并已修 → agent 置闭环），本条 status 由 agent 置为 cleared：两条成立的发现已在紧随其后的提交中修复并加锁（公众号契约 27 例锁住结构化 reason 与形态白名单；发布器域全量 402 例全绿），本 PR 最终差量与被评差量的差异**就是评审发现项的修复本身**，没有引入未经评审的新功能面。",
+    "note": "自扮演裁决：1 条指控成立或需外部复核（该条已修复并加锁，闭环依据见 closureNote）",
+    "at": "2026-10-23T07:10:49.879Z"
+  }
+}

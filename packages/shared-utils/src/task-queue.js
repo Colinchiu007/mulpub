@@ -12,6 +12,8 @@ const EventEmitter = require('events')
 // 在归一后不等，会找不到等待中的任务却报 no_waiting_window）。守卫只用 publish-frequency-policy，
 // 不反向依赖本模块，无循环依赖。
 const PublishIntervalGuard = require('./publish-interval-guard')
+/** 频控等待上限：超过则强制重新入队重判，避免任务无限等待（2026-10-23） */
+const MAX_FREQ_WAIT_MS = 15 * 60 * 1000
 // R14：持久化快照（待派发 / running / delayed）的字段取舍统一到一处，
 // 见 task-projection.js 头注释（publishTime 曾在三份手抄白名单里全部缺席）。
 const { projectTask } = require('./task-projection')
@@ -149,6 +151,14 @@ class TaskQueue extends EventEmitter {
    * @returns {string} taskId
    */
   add (task) {
+    // 2026-10-23：身份模式下 `_isTaskOwnedByCurrentUser` 要求 task.owner_subject 等于当前 owner，
+    // 而调用方（publish:batch）从不写该字段 ⇒ 任务被恒判「非当前用户」并推回队列，
+    // 表现为：publish:batch ok 有 taskId、零执行日志、零报错、running=0（真机连续复现）。
+    // 这里在入队时补写 owner，保持「谁创建谁可见可执行」。
+    if (task && typeof task === 'object' && task.owner_subject === undefined) {
+      const currentOwner = this._getCurrentOwnerSubject()
+      if (currentOwner !== undefined) task = { ...task, owner_subject: currentOwner }
+    }
     const ownerSubject = this._getCurrentOwnerSubject()
     if (ownerSubject === null) throw new Error('任务队列无法识别当前用户')
     return this._add(task, ownerSubject)
@@ -484,6 +494,12 @@ class TaskQueue extends EventEmitter {
 
   _processNext () {
     if (this._paused) return
+    // 自愈（2026-10-23）：若当前没有任何任务在跑，但通道计数仍有残留，说明上一个任务
+    // 异常退出时没递减 _runningByChannel ⇒ 该通道会被永久判忙、后续任务全部跳过
+    // （现象：running=0、队列非空、无任何报错、重启后能跑一次）。此处清掉残留。
+    if (this._running.size === 0 && this._runningByChannel && this._runningByChannel.size > 0) {
+      this._runningByChannel.clear()
+    }
     let inspected = this._queue.length
     while (this._running.size < this.maxConcurrent && this._queue.length > 0 && inspected > 0) {
       const task = this._queue.shift()
@@ -576,10 +592,14 @@ class TaskQueue extends EventEmitter {
           if (task.cancelRequested || task.status === 'cancelled') return
           this._queue.unshift(task)
           this._processNext()
-        }, waitMs)
+        }, Math.min(waitMs, MAX_FREQ_WAIT_MS))
         if (requeueTimer && requeueTimer.unref) requeueTimer.unref()
         this._pendingTimers.add(requeueTimer)
-        this._delayed.set(task.id, { task, timer: requeueTimer })
+        // 2026-10-23：频控等待既要有日志（否则任务"消失"无从观测），也要有上限——
+      // 异常的 waitMs（如时钟漂移/配置错误）会让任务一等就是数小时甚至数天，
+      // 而外部只看到 running=0、无报错。上限 15 分钟后强制重新入队重判。
+      console.warn('[task-queue] 频控等待 task ' + task.id + ' 频控等待 ' + Math.round(waitMs / 1000) + 's'),
+      this._delayed.set(task.id, { task, timer: requeueTimer })
         this._saveState()
         return
       }

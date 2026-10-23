@@ -34,7 +34,26 @@ export default {
     batchCheckAllStarted: (ctx) => 'Checking login status of ' + ctx.named('count') + ' accounts…',
     loginUnconfirmed: 'Could not confirm {platform} login: this check returned no verdict, status unchanged',
     batchCheckAllDone: (ctx) => 'Check complete: ' + ctx.named('valid') + ' valid, ' + ctx.named('invalid') + ' expired' + (Number(ctx.named('unconfirmed')) > 0 ? ', ' + ctx.named('unconfirmed') + ' unresolved (status kept)' : ''),
+    // 2026-10-22 fix-batch-check-toast-unify: "next steps" segment appended to batchCheckAllDone.
+    // "of which ..." (not the old standalone "N account(s) need to log in again") because the old
+    // wording gave no hint that it referred to the same accounts as the summary line — users read
+    // "0 expired" and "5 need to log in again" as a contradiction. Returns '' when both are 0 so the
+    // caller can skip the separator instead of leaving a dangling ";".
+    checkHintsSummaryInline: (ctx) => {
+      const relogin = Number(ctx.named('relogin')) || 0
+      const retry = Number(ctx.named('retry')) || 0
+      const parts = []
+      if (relogin > 0) parts.push(relogin + ' should log in again')
+      if (retry > 0) parts.push(retry + ' should be retried later')
+      return parts.length ? 'of which ' + parts.join('; ') : ''
+    },
+    // 2026-10-22: persist-failure segment appended at the end of the summary line. It used to be a
+    // standalone red error toast (batchCheckAllPersistFailed), which rendered "some accounts' verdicts
+    // were not saved" as "the whole check failed" and made users think the feature was broken.
+    checkHintsPersistFailedInline: (ctx) => 'login status of ' + ctx.named('count') + ' account(s) could not be saved to the server. Retry or check the backend service',
     batchCheckAllAllValid: (ctx) => 'Check complete: all ' + ctx.named('count') + ' accounts are valid',
+    // ⚠️ Kept but no longer used by check-all: the home expired-banner's reportError title still reads
+    // it (useExpiredAccountsBanner.js). Deleting the key would break Gate 7 --keys and that alert.
     batchCheckAllPersistFailed: (ctx) => 'Check finished, but login status of ' + ctx.named('count') + ' account(s) could not be saved. Please retry or check the backend service',
     persistFailedTitle: (ctx) => 'Failed to persist login status (' + ctx.named('count') + ' account(s))',
     batchCheckAllNoAccounts: 'No accounts to check',
@@ -271,6 +290,11 @@ export default {
       publisherLabel: 'Publisher',
       notSet: 'Not set',
       noData: 'No data',
+      // 账号资料（昵称/头像/粉丝）缺失时的提示（2026-10-22）：
+      // 与中文文案逐字对应：按钮名取自同文件的 verify。
+      avatarMissing: 'Account avatar not fetched',
+      avatarMissingHint: 'Account avatar not fetched. Click "Verify" to fetch account info again',
+      followersMissingHint: 'Follower count not fetched. Click "Verify" to fetch account info again',
       unnamedAccount: 'Unnamed account',
       statusLoggedIn: 'Logged in',
       statusExpired: 'Invalid',

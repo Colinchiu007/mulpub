@@ -135,7 +135,7 @@ describe('买断授权模型移除契约锁', () => {
      * 只写"存在"的话，下一个会话顺手加第三条（比如免登录的 `wechat-pay:refund`）不会被任何
      * 判据拦住。写死枚举后，新增通道必然红，逼人回来改这张表并想清楚权限级别。
      */
-    it('微信支付通道：恰好两条，且不得借用 payment: 前缀（正向锁）', () => {
+    it('微信支付通道：恰好三条，且不得借用 payment: 前缀（正向锁）', () => {
       const acl = stripComments(read('../ipc-handlers/license-access-control.js'))
       const preload = stripComments(read('../preload/wechat-pay.js'))
       const handler = stripComments(read('../ipc-handlers/wechat-pay.js'))
@@ -143,10 +143,14 @@ describe('买断授权模型移除契约锁', () => {
       // ① 通道名必须出现在 handler 的 ipcMain.handle 字面量里（循环注册对静态扫描不可见）
       expect(handler).toMatch(/ipcMain\.handle\('wechat-pay:create-order'/)
       expect(handler).toMatch(/ipcMain\.handle\('wechat-pay:order-status'/)
+      expect(handler).toMatch(/ipcMain\.handle\('wechat-pay:list-orders'/)
 
       // ② preload 必须且只能暴露这两个桥接
       const exposed = preload.match(/\bwechatPay[A-Z]\w+/g) || []
-      expect([...new Set(exposed)].sort()).toEqual(['wechatPayCreateOrder', 'wechatPayOrderStatus'])
+      // 2026-10-22 追加第三条 wechatPayListOrders（会员中心「订单与账单」列表）。
+      // 这张表**故意写死**：每新增一条能触达资金/账号数据的通道，都必须回来改这一行并想清楚
+      // 权限级别（是否需登录、是否只读、是否会产生写副作用）。改这一行本身就是那次思考的凭据。
+      expect([...new Set(exposed)].sort()).toEqual(['wechatPayCreateOrder', 'wechatPayListOrders', 'wechatPayOrderStatus'])
 
       // ③ 两条通道都**不得**进 PUBLIC_CHANNELS（下单能触发真实扣款，必须登录）
       expect(acl).not.toMatch(/['"]wechat-pay:/)

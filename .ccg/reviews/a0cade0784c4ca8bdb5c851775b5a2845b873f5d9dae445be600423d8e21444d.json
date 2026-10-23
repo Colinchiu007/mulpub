@@ -1,0 +1,61 @@
+{
+  "sha": "f59d6fd8011bde41aa445143ff7d400883f88e27",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 115 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 115,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "      \"finding\": \"empty-state.contract.test.js binds deferred registry DASHED_REGISTRY to live regex scan; fixing a deferred item breaks the test with no auto-update mechanism.\",",
+      " - **守门与代价**：视觉基线属**有意变更**，由 **CI artifact 的渲染重建**后提交（仓库规矩：基线不得用本机 `test:visual:update-baseline` 的产物——本机与 CI runner 字体/渲染环境不同，同一份代码两边实测差 12~20384 px，在 CI 侧会逐张判 `BASELINE_STALE`；重建后判据本体复跑 **40/40 逐像素相等、违规 0**，本机像素回归亮/暗各 20/20 通过）；CCG 外部双家族评审（critic=claude / proposer=opencode）三轮 8 条意见**逐条裁决并全部处置**（毛玻璃 GPU 成本→半径 20px 降到 14px + `prefers-reduced-transparency` 守卫；暗色同构漏检→补断言；正则注入→补 `escapeRegExp`；零单测→补 6 例含路由覆盖守卫与变异反证；外部证据可核→补可 API 复核的公开评论）；`debt-budget` / `max-lines` 两套行数门禁**全程靠拆分与单键清账消化，一处基线都没抬**（`tokens.css` 压到 499 行、巡检脚本拆成四份、Home 样式搬到域级 CSS 后 `--prune` 单键清账）。",
+      " | i3 | auth 高危项同样引用同一不可验证 URL | **已修**——补可机器复核的高危面零命中取证：`git show --name-only HEAD \\| grep -E 'credential-\\|account-state-lock\\|/auth/\\|login-state\\|fingerprint'` 零命中，3124 行新增行全扫鉴权/加密关键字零命中 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "a0cade0784c4ca8bdb5c851775b5a2845b873f5d9dae445be600423d8e21444d",
+  "decidedAt": "2026-10-22T12:30:37.738Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

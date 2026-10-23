@@ -41,7 +41,12 @@
     </header>
 
     <div class="account-profile">
-      <div class="account-avatar" :class="{ 'has-status-mask': showAvatarMask }">
+      <div
+        class="account-avatar"
+        :class="{ 'has-status-mask': showAvatarMask }"
+        :title="avatarHint"
+        :aria-label="avatarHint || undefined"
+      >
         <img v-if="showAvatar" :src="account.avatar || account.avatar_url" alt="" @error="avatarBroken = true">
         <UserFilled v-else />
         <!-- 失效态：状态文字直接压在头像上（头像即状态载体），头像旁不再重复出徽章 -->
@@ -95,7 +100,7 @@
           <span v-else>{{ t('accountsPage.accountCardLabels.accountSynced') }}</span>
           <span :data-testid="`account-check-${account.id}`">{{ loginCheckLabel(account) }}</span>
         </div>
-        <div class="account-followers" :data-testid="`account-followers-${account.id}`">
+        <div class="account-followers" :data-testid="`account-followers-${account.id}`" :title="followersHint">
           {{ t('accountsPage.accountCardLabels.followers') }}{{ followersLabel(account) }}
         </div>
         <div class="account-assignees" :aria-label="t('accountsPage.accountCardLabels.accountInfo')">
@@ -249,6 +254,23 @@ function followersLabel (account) {
   const value = firstValue(account, FOLLOWER_KEYS)
   return value || t('accountsPage.accountCardLabels.noData')
 }
+
+/**
+ * 头像缺失时的提示（2026-10-22）。
+ * 灰色通用头像本身不解释「为什么没有」——用户分不清是「平台没设头像」还是
+ * 「我们没取到」。这里明确告知并给出下一步（点「验证」重新获取资料）。
+ * 无提示时返回 undefined（而不是空串）：空串会渲染出空的 title 属性。
+ */
+const avatarHint = computed(() => {
+  if (showAvatar.value) return undefined
+  return t('accountsPage.accountCardLabels.avatarMissingHint')
+})
+
+/** 粉丝数缺失时的提示（同上口径） */
+const followersHint = computed(() => {
+  const value = firstValue(props.account, FOLLOWER_KEYS)
+  return value ? undefined : t('accountsPage.accountCardLabels.followersMissingHint')
+})
 
 function assigneeLabel (account, keys) {
   return firstValue(account, keys) || t('accountsPage.accountCardLabels.notSet')

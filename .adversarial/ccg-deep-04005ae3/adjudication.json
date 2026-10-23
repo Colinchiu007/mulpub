@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [],
+  "expectedExternalBackend": "claude",
+  "critiqueFingerprint": "323f5acf17d1aa66",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。",
+    "高危域条目（highRiskDomains 非空）若要解除阻断，必须同时填 externalReview 三格：performedBy（须逐字等于 expectedExternalBackend）、evidenceRef（形如 https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id> 的公开评论）、reviewedAt（可解析的 ISO 时间）。缺任一格仍按 high_risk_requires_external 计阻断；填了假 URL 属伪造证据，公开可点开即被看见。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": ".ccg/reviews/dd8ec146...json uses sha: 71a61e540... but declared head is 04005ae35...; review artifact references a different commit, invalidating the review decision.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "判定记录 .ccg/reviews/dd8ec146….json 里的 sha 字段是父提交 71a61e540，而本轮 head 是 04005ae35；评审产物挂在另一个提交上 ⇒ 评审结论与被审对象对不上，这条 Critical 足以让整轮审查失效。",
+      "defense": "这是仓库**既定设计**，不是缺陷：pre-commit 在新提交尚未生成时执行，判定记录只能先写到父 sha 上（deep-review 脚本自己打印过「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」）。记录与被审对象靠**diff 内容寻址**（stagedDiffHash）绑定，而不是靠提交 sha；本轮 deep-review 的输出里「判定记录按 diff 内容寻址命中: dd8ec146」就是命中证据。check-pr-exec-record.js 的 AUDIT_ARTIFACT_RE 同时接受 40 位（父 sha 形态）与 64 位（内容寻址形态）两种命名，正是为了容纳这一约定。",
+      "verdict": "dismissed",
+      "rationale": "可验证依据：(1) deep-review 输出「判定记录按 diff 内容寻址命中: dd8ec146」——绑定关系是 diff 内容，不是提交 sha；(2) scripts/check-pr-exec-record.js 的 AUDIT_ARTIFACT_RE 明确允许 40 位与 64 位两种命名形态，即父 sha 命名是**被门禁承认的合法形态**。因此「产物引用另一个提交 ⇒ 决策无效」的推论不成立。指控里唯一成立的部分是「字段名与文件名不一致容易误读」——已在执行记录「审计轨迹与 SHA 对齐现状」里写明这一约定。"
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "finding": "empty-state.contract.test.js binds deferred registry DASHED_REGISTRY to live regex scan; fixing a deferred item breaks the test with no auto-update mechanism.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "DASHED_REGISTRY 与活的正则扫描强绑定：将来把某个 defer 项改成实线，测试会立刻红，而失败信息只说「期望 [] 实际 [xxx]」，没有任何自动更新机制 ⇒ 维护者要么被红卡住，要么绕过测试。",
+      "defense": "这条红**就是设计意图**，而且是 fail-closed 方向：清单陈旧（代码已改、清单还写着「仍虚线」）比清单漏登更危险——漏登会让新增的虚线空态静默存在，陈旧只会让人多删一行。测试的价值不在「永绿」，而在「该同步时一定出声」。",
+      "verdict": "upheld",
+      "rationale": "指控成立的部分是「失败信息没告诉维护者该改哪」，而不是「绑定机制本身错」。已修：断言的失败信息改为直接给出处置动作（「从 DASHED_REGISTRY 删除该行，并同步更新报告 §3 P0-6 的两张表」）。绑定机制保留——它是「清单陈旧要出声」的唯一保证。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "dashedEmptyStateClasses() regex ([^{}]*) misses dashed rules in nested blocks or multi-selector rules where empty/zero class is not first selector; false negatives possible.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "dashedEmptyStateClasses() 用 `([^{}]*)` 贪婪匹配规则，遇到 @media / @supports 嵌套块时会把整段规则一次吞掉，嵌套块里的虚线空态**扫不到**；多选择器规则里 empty/zero 类不在第一位时也可能漏。漏报方向 ⇒ 新的虚线空态不会被登记。",
+      "defense": "该扫描只服务于「把仓内虚线空态与例外清单对账」这一个用途；即便漏报，真实缺陷仍由 P0-6 的代码复核与人工阅读发现，不会直接变成线上问题——只是清单可能不完整。",
+      "verdict": "upheld",
+      "rationale": "指控成立，且方向正是最危险的那一侧（漏报）。已修并**实测验证**：改成嵌套感知的规则抽取（`([^{}]+)\\{([^{}]*)\\}`，体里不允许花括号 ⇒ @media 内规则各自被抽出）+ 只读样式源码（.vue 只取 <style> 块，避免模板里的花括号污染）语义特征放宽到 empty|zero|none|no-data|placeholder。修完立刻多扫出 **2 个之前漏掉的**虚线空态（`.is-placeholder`、`.video-preview-placeholder`），两者已登记进例外清单——这直接证实了指控。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "DASHED_REGISTRY has 8 items (includes s2v-estimate-note) but docs only list 3 kept and omit it; registry and documentation are out of sync.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "DASHED_REGISTRY 有 8 项（含 s2v-estimate-note），而报告 §3 P0-6 的「保留虚线的三处」只列了 3 个、漏了它；注册表与文档不同步 ⇒ 读者按文档理解会以为 s2v-estimate-note 已经被处理。",
+      "defense": "注册表是给机器看的（对账用），文档是给人看的（说明用），两者本就不必逐条同形；文档的「三处」指的是「虚线语义正确、明确不改」的那几处，s2v-estimate-note 与它们同型，漏列只是措辞不严谨。",
+      "verdict": "upheld",
+      "rationale": "指控成立：文档漏项与「注册表有 10 项」的事实不同源，读者会漏掉。已修：报告 §3 P0-6 改成**两张完整表**——「仍是虚线、本轮不改的语义空态（4 项 defer）」与「有意保留虚线的 6 项」，与注册表逐条对应；同批还把 i3 修好后新发现的 2 项也补进了 keep 表（keep 共 6 项）。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "Diff updates claims to 43 PNG baselines but only one binary (06-performance-insights-after.png) changed; rest of claimed 43 files unverified in commit.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "diff 里只改了 1 个二进制（06-performance-insights-after.png），但文档/记录里写「43 个 PNG 基线」，其余 42 个在本 PR 里没被验证 ⇒ 数字与 diff 不符。",
+      "defense": "43 是**该目录现状**的陈述（40 张像素基线 + 3 张 autonomous-loop 专属基线），不是「本轮改了 43 个」；本 PR 确实没有改动任何像素基线，措辞上的并置让人误读成了「本轮更新了 43 个」。",
+      "verdict": "dismissed",
+      "rationale": "指控的前提（「diff 声称改了 43 个」）与事实不符：可验证依据是 `git diff --name-status` 里二进制只有一条（06-performance-insights-after.png），其余 40 张像素基线在本次 diff 中未出现。属于**措辞会被误读**，不是数字与仓库不符。已做：上一轮记录与本轮记录都补了明确措辞——「目录现有 43 个 PNG……**本轮未改动任何像素基线**，只改了 01-docs/assets/ 里的 1 张证据图」。"
+    },
+    {
+      "id": "i6",
+      "severity": "Warning",
+      "finding": "READY_TIMEOUT fixed in ui-audit-probes.js but other split scripts (curate-ui-audit-evidence.js, scenes, etc.) not shown with constant/import audits.",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "只修了 ui-audit-probes.js 的 READY_TIMEOUT，没有对其余拆分脚本（curate-ui-audit-evidence.js、ui-audit-scenes.js、ui-audit-scripts.lib.js 等）做常量/导入审计 ⇒ 同一类缺陷可能还藏在别处，且没有逐脚本的真跑冒烟。",
+      "defense": "其余脚本里没有跨文件常量引用：scenes.js 是纯数据、lib.js 是纯函数、curate/accept-baselines 是纯文件操作；真正跑浏览器的那条链（capture → probes）已真跑（33 张）。",
+      "verdict": "upheld",
+      "rationale": "指控成立的部分是「缺逐文件常量审计」——这正是本轮缺陷的根因。已修且是**通用机制**而非逐个排查：把 `tests/visual-testing/scripts/` 整目录纳入 eslint 范围并只开 `no-undef`（该目录此前完全不在 lint 范围，lint 脚本只扫 electron/ src/），6 个脚本一次性被覆盖；并用**变异反证**证明它真能抓住同型缺陷（删掉 READY_TIMEOUT 的定义 ⇒ eslint 判红并点名）。真跑冒烟方面：需要浏览器的 capture 已真跑（33 张），其余三个是无浏览器依赖的纯数据/纯函数/纯文件脚本，require 级冒烟已覆盖（见 ui-audit-scripts.test.js）。"
+    }
+  ]
+}

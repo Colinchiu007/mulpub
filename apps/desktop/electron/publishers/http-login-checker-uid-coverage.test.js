@@ -149,6 +149,66 @@ describe('八平台 platform_uid 提取覆盖结构锁', () => {
     }
   })
 
+  // ─── 锁 1b：账号资料来源表（2026-10-22 新增，与登录判定表分表）───
+  // 为什么要有这张表：登录判定回答「Cookie 还活着吗」，账号资料回答「这个账号叫什么/
+  // 长什么样/多少粉丝」。二者需要的端点本就不同（抖音的判定端点只回 {status_code,uid}，
+  // 资料端点才带 user 对象），塞在同一张表里必然有一边取不到数据。
+  it.each(UID_PLATFORMS.length ? UID_PLATFORMS.map(p => [p]) : [['<枚举为空：必须处理>']])(
+    'HTTP_PROFILE_APIS[%s] 登记了资料来源（昵称/头像/粉丝/平台ID）',
+    (platform) => {
+      const sources = checker.HTTP_PROFILE_APIS[platform]
+      expect(Array.isArray(sources), 'HTTP_PROFILE_APIS 缺少平台: ' + platform).toBe(true)
+      expect(sources.length, platform + ' 资料来源为空').toBeGreaterThan(0)
+      for (const source of sources) {
+        expect(typeof source.extract, platform + ' 的每个资料来源都必须实现 extract').toBe('function')
+      }
+    },
+  )
+  it('资料来源表里的每个平台都在平台枚举内（防出现第二套平台口径）', () => {
+    for (const platform of Object.keys(checker.HTTP_PROFILE_APIS)) {
+      expect(Object.keys(PLATFORM_ACCOUNT_INFO_SELECTORS), '未知平台出现在 HTTP_PROFILE_APIS: ' + platform)
+        .toContain(platform)
+    }
+  })
+  it('八平台的资料来源都必须能产出 platformAccountId（uid 合并键不得缺）', () => {
+    for (const platform of ACCOUNT_MANAGED_PLATFORMS) {
+      const sources = checker.HTTP_PROFILE_APIS[platform] || []
+      const canProduceUid = sources.some(source => {
+        if (typeof source.extract !== 'function') return false
+        // cookie 型来源（快手）第二个参数是 Cookie 数组，不是响应体
+        if (source.uidSource === 'cookie') {
+          try {
+            const probe = source.extract(null, [
+              { name: 'kuaishou.web.cp.api_st', value: 'ST-123' },
+              { name: 'userId', value: '5321009876543' },
+            ])
+            return Boolean(probe && probe.platformAccountId)
+          } catch (_) {
+            return false
+          }
+        }
+        // HTML 型来源（公众号 loginpage）必须喂 HTML 字符串，不能喂对象
+        const payload = source.responseType === 'html'
+          ? '<html><body><script>var pageData = { uin: "3100000001", nick_name: "公众号甲" };</script></body></html>'
+          : {
+              // 抖音的 user 在顶层、小红书/头条/视频号的在 data 下 —— 探针载荷两种都放，
+              // 免得「探针形状写错」被误读成「平台缺 uid 能力」。
+              user: { uid: 'u1', nickname: 'n' },
+              data: { userId: 'u1', userName: 'n', id: 'u1', mid: 1, uniqId: 'u1', uname: 'n', name: 'n', display_name: 'n', redId: 'r1', user: { uid: 'u1', nickname: 'n' }, finderUser: { uniqId: 'u1', nickname: 'n' }, media: { id: 'u1', display_name: 'n' }, fans_stat: { total_fans_count: 1 } },
+              id: 'u1', name: 'n', url_token: 'u1', avatar_url: 'https://x/a.png',
+            }
+        // 用探针载荷喂一遍 extract：产出 platformAccountId 键即算具备能力
+        try {
+          const probe = source.extract(payload, { id: 'u1', name: 'n', url_token: 'u1', avatar_url: 'https://x/a.png' })
+          return Boolean(probe && probe.platformAccountId)
+        } catch (_) {
+          return false
+        }
+      })
+      expect(canProduceUid, platform + ' 的资料来源无法产出 platformAccountId（云端合并键会缺）').toBe(true)
+    }
+  })
+
   // ─── 锁 2：逐平台正例 + 负例齐备（源码结构断言）───
   it('info 测试文件可被解析出 it 块（解析退化即红，防止锁对空集合假绿）', () => {
     expect(parseItBlocks(infoTestRaw).length).toBeGreaterThan(ACCOUNT_MANAGED_PLATFORMS.length * 2)

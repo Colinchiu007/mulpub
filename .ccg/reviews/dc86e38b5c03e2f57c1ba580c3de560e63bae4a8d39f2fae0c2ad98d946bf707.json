@@ -1,0 +1,61 @@
+{
+  "sha": "103f7e6cee491b16baabc683b31d71fde77e8ee3",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 98 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 98,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "4. **本文档 §19 存在三份逐字重复副本**（第 502-601、602-706、707-806 行，均以 `## 19. 2026-10-17 变更：登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离` 开头）。这是**本次修复之前就存在的结构性债务**（历史 PR 重复追加所致），本次不改——删副本会与\"只做本主题改动\"冲突，且需确认哪一份是权威版。已登记为后续 change。",
+      "4. **本文档 §19 存在三份逐字重复副本**（第 502-601、602-706、707-806 行，均以 `## 19. 2026-10-17 变更：登录态提示可执行化 + 能力级授权 + DOM 判定进程隔离` 开头）。这是**本次修复之前就存在的结构性债务**（历史 PR 重复追加所致），本次不改——删副本会与\"只做本主题改动\"冲突，且需确认哪一份是权威版。已登记为后续 change（见 `openspec/records/fix-batch-check-toast-unify.md` §8.4）。",
+      "探针 A 的还原**第一次没生效**：PowerShell 正则的锚点与实际缩进不匹配，`Select-String` 显示\"已还原\"但文件里仍是探针形态；是全量复跑（164/164 期望值）时才发现少了 1 条绿。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "dc86e38b5c03e2f57c1ba580c3de560e63bae4a8d39f2fae0c2ad98d946bf707",
+  "decidedAt": "2026-10-22T07:58:48.561Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

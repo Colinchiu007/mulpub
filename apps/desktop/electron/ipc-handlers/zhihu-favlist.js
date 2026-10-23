@@ -23,6 +23,8 @@ const { classifyZhihuUrl, buildUnifiedFavItems, normalizeFavItem } = require('..
 const credential = require('../services/zhihu-credential')
 // 改写 payload 注入桌面「模型设置」默认 llm（Python /aggregation/rewrite 只读 env 会误报 LLM_KEY_MISSING）
 const { applyLlmToBody } = require('../services/llm-runtime-config')
+// 单条改写 + 失败诊断脱敏 + 字数区间归一（2026-10-21 自本文件搬出，见模块头注释）
+const { rewriteOne, sanitizeDiagText, summarizeRewriteError, normalizeRewriteWordCountRange, isOverWordCountLimit } = require('../services/zhihu-fav-rewrite')
 
 /** 进行中批量任务的取消标记（单例：同类型任务同时只允许一个） */
 const activeBatches = { collect: null, rewrite: null, favBatch: null }
@@ -220,56 +222,12 @@ function registerHandlers (ipcMain, deps) {
   }
 
   /**
-   * 单条改写：成功返回改写稿字符串；失败返回 { error }（调用方回退原文）。
-   *
-   * 失败原因可诊断（2026-10-17，change: collected-results-fix）：
-   * 旧版调用方 `catch {}` 把真实异常吞掉，用户只看到「改写失败用原文」却不知道是
-   * Python 后端没起（ECONNREFUSED）、接口 500 还是返回了空结果 —— 三种情况对应三种
-   * 用户该做的事（起后端 / 看日志 / 换风格重试）。因此把失败原因以字符串形式抛给调用方：
-   *   - 成功：返回改写稿（error 为 undefined）
-   *   - 接口异常：error = 异常 message（截断 200 字符）
-   *   - 返回空 result_content：error = 明确的「空结果」说明
-   *
-   * 两道护栏（QM-6 评审 #1/#6，2026-10-17）：
-   *   ① 非 Error 抛出值（字符串/对象）也要有可读摘要，不能产出 "[object Object]"；
-   *   ② 摘要里的内网端点（127.* / localhost / 内网 IP:端口）替换为通用说法 ——
-   *      完整原文仍在 log.warn，UI 不暴露内部拓扑。
-   *
-   * 2026-10-18（fav-force-recollect 自评）：脱敏逻辑抽成 sanitizeDiagText 供采集失败
-   * 的 reason 复用 —— reason 同样直传 UI（进度行 + 结果徽标），暴露面与 rewriteError 同级。
+   * 单条改写 + 失败诊断脱敏 + 字数区间归一已搬出到
+   * `../services/zhihu-fav-rewrite.js`（2026-10-21，feat-zhihu-fav-batch-wordcount）：
+   * 本文件当时 498 行、距 max-lines 的 500 行天花板只剩 2 行，而本片要给它加
+   * 「字数区间透传 + 改写稿字数回传 + 超限统计」⇒ 整体搬迁（纯搬迁，行为逐字不变）。
+   * 模块头注释记了搬迁理由与「区间三层契约」。
    */
-  /**
-   * 诊断文本脱敏 + 截断：内网 IP/localhost 端点替换为通用说法，保留可读性。
-   * @param {string} text
-   * @returns {string} ≤200 字符
-   */
-  function sanitizeDiagText (text) {
-    return String(text)
-      .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?/g, '后端服务')
-      .replace(/\blocalhost(?::\d+)?/gi, '后端服务')
-      .slice(0, 200)
-  }
-
-  function summarizeRewriteError (e) {
-    let msg
-    if (e && typeof e === 'object' && typeof e.message === 'string' && e.message) msg = e.message
-    else if (typeof e === 'string') msg = e
-    else { try { msg = JSON.stringify(e) } catch { msg = String(e) } }
-    // 内网端点脱敏 + 截断（单一实现见 sanitizeDiagText）
-    return sanitizeDiagText(msg)
-  }
-
-  async function rewriteOne (pythonBridge, content, style, llm) {
-    let res
-    try {
-      const body = { content, style: style || '轻松易懂', length: 'keep', ...(llm ? { llm } : {}) }
-      res = await pythonBridge.requestBackend('POST', '/aggregation/rewrite', body)
-    } catch (e) {
-      return { error: summarizeRewriteError(e) }
-    }
-    const out = res && typeof res.result_content === 'string' ? res.result_content.trim() : ''
-    return out || { error: '改写接口返回空结果（result_content 为空），请查看后端日志或换个改写风格重试' }
-  }
 
   ipcMain.handle('zhihu-fav-batch:run', async (event, arg) => {
     try {
@@ -293,8 +251,11 @@ function registerHandlers (ipcMain, deps) {
       const seenInRun = new Set()
       const stats = {
         completed: 0, failed: 0, duplicateSkipped: 0,
-        rewriteFailed: 0, registerOnly: 0, cancelled: false, circuitBroken: false,
+        rewriteFailed: 0, registerOnly: 0, cancelled: false, circuitBroken: false, overLimit: 0,
       }
+      // 字数区间（feat-zhihu-fav-batch-wordcount）：渲染层传来的 min/max 归一；
+      // 缺省/非法 ⇒ null ⇒ 改写请求**不带** min/max ⇒ Python 回落 length 三档（旧行为不变）。
+      const wordCountRange = normalizeRewriteWordCountRange({ min: arg.wordCountMin, max: arg.wordCountMax })
       const items = []
       const ctrl = makeController({})
       const total = arg.items.length
@@ -377,11 +338,12 @@ function registerHandlers (ipcMain, deps) {
         // 失败原因不再吞掉（2026-10-17）：rewriteOne 以 { error } 形态带出原因摘要，
         // 落条目 rewriteError + done 事件，进度行与结果区才能显示「为什么失败」。
         let rewritten = null
+        let rewrittenWordCount = 0
         let rewriteError
         try {
-          const r1 = await rewriteOne(pythonBridge, result.content, arg.rewriteStyle, rewriteLlm)
+          const r1 = await rewriteOne(pythonBridge, result.content, arg.rewriteStyle, rewriteLlm, wordCountRange)
           if (r1 && r1.error) rewriteError = r1.error
-          else if (typeof r1 === 'string' && r1) rewritten = r1
+          else if (r1 && r1.text) { rewritten = r1.text; rewrittenWordCount = r1.wordCount }
         } catch (e) {
           // 兜底：rewriteOne 自身不该抛，但真抛了也不能让整条采集挂掉（同 summarize 规则）
           rewriteError = summarizeRewriteError(e)
@@ -390,6 +352,8 @@ function registerHandlers (ipcMain, deps) {
         let rewriteFailed = false
         if (rewritten) {
           rewrittenContent = rewritten
+          // 超出用户设定上限 ⇒ 计数告知，**不截断**（截断=静默丢内容；本仓理念是可见化）
+          if (isOverWordCountLimit(rewrittenWordCount, wordCountRange && wordCountRange.max)) stats.overLimit++
         } else {
           rewriteFailed = true
           stats.rewriteFailed++
@@ -416,6 +380,7 @@ function registerHandlers (ipcMain, deps) {
           images,
           imageFallbacks,
           rewrittenContent,
+          rewrittenWordCount: rewrittenWordCount || undefined,
           rewriteFailed,
           rewriteError: rewriteError || undefined,
           batchId: typeof arg.batchId === 'string' ? arg.batchId : undefined,

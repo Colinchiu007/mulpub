@@ -12,6 +12,8 @@ python/__pycache__/
 data/
 # API 服务运行时状态，不进入版本库
 packages/api-publish-engine/config/api-keys.json
+# 微信支付商户私钥（compose 把该目录 bind 进容器，但私钥绝不能入库）
+packages/api-publish-engine/config/wechat-pay/
 packages/api-publish-engine/config/publish-api.json
 packages/api-publish-engine/config/*.tmp
 .DS_Store
@@ -329,6 +331,18 @@ _bigfiles.txt
 # Environment
 .env
 .env.local
+# 业务 API 的真实环境文件（docker compose --env-file deploy/logto/api.env）。
+# ⛔ 里面会有微信商户私钥 / APIv3 密钥，绝不能入库。
+# 注意上面 `.env` 只匹配名为 `.env` 的文件，匹配不到 api.env —— 2026-10-23 实测它当时未被忽略。
+# 用 `api.env*` + 取反模板：既覆盖 api.env~ / api.env.bak / api.env.swp 这类编辑器备份，
+# 又保证 api.env.example 仍然被跟踪（**不要**只写 api.env*，那会把模板一起忽略）。
+deploy/logto/api.env*
+!deploy/logto/api.env.example
+# 微信支付商户凭据（与上面 api.env 分开，见 deploy/payment/wechat-pay.env.example）
+deploy/payment/wechat-pay.env*
+!deploy/payment/wechat-pay.env.example
+# 与上面同理，显式写一条，避免将来 `.env` 全局规则被调整时静默露出
+deploy/logto/.env
 .coverage
 
 # coverage annotate output
@@ -481,6 +495,14 @@ shared-user-data.backups/
 # 静默忽略：而它的自测由第 244 行 !scripts/*.test.js 通用例外进了仓 ⇒ 漏这条 negation 的后果是
 # "测试在盘、判据不在盘"，CI 上以 Cannot find module 的形式红，本地全绿（同 #3011 家族）。
 !scripts/check-debt-recheck.js
+# 定时作业报警覆盖面判据（2026-10-22，change: schedule-failure-watch）：
+# 它要防的是"手抄的名单漂了没人知道"，所以本体与行为锁都必须入库、都必须被 Gate 2b13 点名跑。
+!scripts/check-schedule-failure-watch.js
+!scripts/check-schedule-failure-watch.test.js
+!scripts/check-schedule-failure-watch.mutation.js
+!scripts/check-schedule-heartbeat.js
+!scripts/check-schedule-heartbeat.test.js
+!scripts/check-schedule-heartbeat.mutation.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）

@@ -107,10 +107,13 @@ function createAppContext() {
       throw new RiskSuspendedError(platform, taskAccountId)
     }
     // publish-progress-ux：任务开始边界事件（对齐账号批量检测 start/done 双边界先例）
+    console.warn('[exec] enter task=' + task.id + ' platform=' + platform)
     taskProgressRouter.register(platform, task.id)
+    console.warn('[exec] registered task=' + task.id)
     progressEmitter.emit(task.id, platform, 'start', {
       stage: '准备发布...', percent: 0, batchId: task.batchId || null,
     })
+    console.warn('[exec] creating publisher task=' + task.id)
     const publisher = publisherRouter.createPublisher(platform, {
       rpaViewManager, store, pythonBridge, accountManager: AccountManager,
     })
@@ -123,6 +126,7 @@ function createAppContext() {
     }
     // publish-frequency-policy-v2：区分「进入发布器之前」与「之内」的失败（见下方打点注释）
     let enteredPublisher = false
+    console.warn('[exec] publisher ready task=' + task.id)
     try {
       // ── publish-frequency-policy-v2：提交阶段打点（P0-1 的正确性基础）──
       // 判据是「平台写操作是否真的发出去过」，因此打点必须由**这一层**（真正调用发布器

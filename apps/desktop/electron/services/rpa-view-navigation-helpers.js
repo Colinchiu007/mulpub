@@ -101,6 +101,14 @@ const navigationHelpers = {
   //   ③ 找不到 modal 时回退到全局「确认/确定」（快手等既有平台行为不变）。
   async _confirmPublishDialog(win, platform) {
     const MODAL_TEXTS = ['确认', '确定', '确认发布', '发布', '立即发布', '发布文章']
+    // 视频号（真机 2026-10-23）：点「发布」后会弹出「切换视频号 / 取消切换」层，
+    // 它会抢走点击导致 publish verification timeout。这里先点「取消切换」关掉它。
+    if (platform === 'tencent_video') {
+      try {
+        const r = await win.webContents.executeJavaScript('(function(){var es=[].slice.call(document.querySelectorAll("button,div,span,a")).filter(function(e){return (e.innerText||"").replace(/\\s+/g,"")==="取消切换"&&e.getClientRects().length>0});if(es.length){es[0].click();return "CANCELLED_SWITCH"}return "NO_SWITCH_MODAL"})()', true)
+        if (r === 'CANCELLED_SWITCH') log.info('RpaView', '[tencent_video] 已关闭「切换视频号」弹窗')
+      } catch (_e) { /* 无该弹窗时无副作用 */ }
+    }
     const FALLBACK_TEXTS = ['确认', '确定']
     try {
       for (let attempt = 0; attempt < 5; attempt += 1) {
