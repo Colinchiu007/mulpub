@@ -24,14 +24,25 @@
   "decidedAt": "2026-10-23T07:52:12.256Z",
   "decidedBy": "ccg-review-decider",
   "reviewBackends": {
+    "critic": "codex",
     "proposer": "opencode",
-    "critic": "claude",
     "from": {
-      "proposer": "list",
-      "critic": "list"
+      "proposer": "cli",
+      "critic": "cli"
     },
     "notes": [],
-    "overridden": false
+    "overridden": true,
+    "commitRequest": {
+      "proposer": "opencode",
+      "critic": "claude",
+      "from": {
+        "proposer": "list",
+        "critic": "list"
+      },
+      "notes": [],
+      "overridden": false
+    },
+    "rewrittenAt": "2026-10-23T08:06:03.143Z"
   },
   "backendAvailability": {
     "count": 2,
@@ -52,10 +63,25 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "error",
+    "performedBy": "claude",
+    "findings": null,
+    "error": "Critique校验失败",
+    "validationErrors": [
+      "issues[0].dimension无效:consistency",
+      "issues[2].dimension无效:feasibility",
+      "issues[3].dimension无效:completeness",
+      "issues[5].suggestion为空",
+      "issues[6].dimension无效:clarity",
+      "issues[6].suggestion为空",
+      "缺少维度分:correctness",
+      "缺少维度分:performance",
+      "缺少维度分:maintainability",
+      "未知维度:completeness",
+      "未知维度:consistency",
+      "未知维度:clarity",
+      "未知维度:feasibility"
+    ],
+    "at": "2026-10-23T08:08:36.261Z"
   }
 }
