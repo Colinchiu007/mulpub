@@ -8,7 +8,7 @@ date: 2026-10-19
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | 新增判据本体 + 基线 JSON + 测试 + workflow 接线（`.github/workflows/quality-gate.yml` 属混合 PR，不走 docs-only 快速通道）⇒ 隔离 worktree `D:/Data/projects/mp-worktrees/mp-ux-audit-a11y-keys`、裸分支 `ux-audit-a11y-keys`（`session-init.sh` 创建） |
+| 变更类型与隔离 | ✅ | 新增判据本体 + 基线 JSON + 测试 + workflow 接线（`.github/workflows/quality-gate.yml` 属混合 PR，不走 docs-only 快速通道）⇒ 隔离 worktree `<仓库父目录>/mp-worktrees/mp-ux-audit-a11y-keys`、裸分支 `ux-audit-a11y-keys`（`session-init.sh` 创建） |
 | 判定 | `classify-docs-only` docs-only=false | 改动集含 `.github/workflows/`、`scripts/` 工具脚本本体 ⇒ 完整节拍，不得借道 |
 | 现场读数（同一把尺子） | ✅ | `node scripts/check-vfor-stable-key.js` 打印 `域=180 文件 / v-for 索引变量=52 / 名字补召回=8 / 违规文件=34 / 处数=47 / 基线处数=47 / 风险档文件=6 / 违规=0`。**与审计 §14 audit-33 报的「38 处」和粗尺 grep 报的「46 处 / 31 文件」都不同**：审计那个数是批次前的现状（存续期间他人会话新增），粗尺 grep 会把"名字像索引但不是 v-for 非首位形参"的写法也计进来。判据本体是**结构化 + 名字补召回两层**：结构层收任意命名的索引位（本仓实测 52 个索引变量里有 `si / plat / cat / slot / stageIndex` 这类不在任何词表里的名字），名字层补召回结构看不见的那些（8 处）。两个数用同一把尺子可对账：47 = 39（纯结构）+ 8（名字补召回）。 |
 | 第一性原因（QM-5 ①） | ✅ | 两把棘轮要量的东西**从来没有一把尺子**：索引 `:key` 与未关联 `<label>` 都是逐个提交累积的，仓库里不存在"存量不许增长"的读数点。审计稿报 38 处而判据实测 47 处，这个差本身就是"没有单一真源读数"的后果 —— 每个会话用各自的粗尺（`grep` 名字像索引的写法）量出一个自己的数。第一性缺口在 2026-10-17 的审计里被写明为「有对比度类 a11y 门禁，缺语义/键盘可达类」。 |
