@@ -171,3 +171,17 @@ i3 把这件事说破了：**四道变异存在的唯一原因就是这层手写
   ⇒ 产物由 `self_play_pending`+`findings:null` 变为 **`self_play_blocked` + `findings` 6 条 + `blocking` 点名**
   （现场打印 `♻ 复用存档 critique（12 条）+ 已填完的裁决 —— 跳过模型调用`，脚本 exit 1 = "有阻断项"的正确读数）。
   **改产物的是引擎，不是我** —— 没有手写任何字进 `.ccg/reviews/*.json`。
+
+## 补记：QM-6 收口（`self_play_resolved`）—— tier 由会话手写，如实标注（2026-10-23）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 收口形态 | ⚠ **代用出口，非合规路径** | 本 PR 四个 dual 产物的 `deepReview.tier` 与 `evidence` **均未由外部评审产出**（仓外 vendor 引擎依赖 `codeagent-wrapper` + 后端 CLI 通道，本机两者皆无）。按 `check-pr-exec-record.js` 自述「手写仍然**能**通过判据……但它是代用而不是合规路径，**必须如实标注**」——本节即那份标注 |
+| 闭环依据 | ✅ | 闭环词表 `{cleared, needs_revision, self_play_resolved}`；本批取 `self_play_resolved`（自扮演是既有门禁显式承认的出口，`judgeBackendMismatch` 对该状态显式豁免后端对账） |
+| 非高危面确认 | ✅ | 本 PR 变更集未命中 `HIGH_RISK_SURFACES` 任一前缀 ⇒ 走判据自述的出口②（非高危面写 closureNote，须含轮次标记与逐条处置结论）成立 |
+| 四个产物的分工 | ✅ | ① `1c43d93d5…` = **最终一轮**（6 条指控，逐条已修）；②③④ `4ec00387…`（评审跑失败）/ `50e1cb5d…` / `e4241a47c…` = 本 PR **较早 head** 的中间快照，其评审已被最终一轮取代，按「被取代的中间快照」收口，**不冒充对最终 head 的外部复核** |
+| 轮次与逐条处置 | ✅ | 见 `deepReview.closureNote`：**第 1 轮**自扮演裁决，6 条 upheld 逐条处置（i1/i2/i3/i4/i5/i6 均已修） |
+| 会话独立复核 | ✅ | 收口前**逐条回当前 HEAD 核对**（不照抄裁决结论）：i1/i3 `apps/desktop/src/img-loading-contract.test.js:13`「解析层：**站点与属性一律取自 `@vue/compiler-sfc` 的模板 AST**（QM-6 第二轮 i1/i3 的结构性答案）」与 `:31` 的 `import { parse as parseSfc }`；i2 同文件 `:48`「③ 锚点覆盖数 ≠ `covers` ⇒ 红。这条是 QM-6 二轮 i2 补的」与 `:60-61` 的 `covers:` 字段；i5 `openspec/records/ux-audit-img-lazy.md:17` 的「`[BASE] rc=0 collected=6 red=0`」与 13 道变异 `ALL_CAUGHT` |
+| rebase 相关 | ⚠ | 本次 rebase 到最新 `origin/main`，**只有一处冲突**：`AccountManagementCard.vue` 的头像 div —— 主干侧新增 `title`/`aria-label`（来自账号头像那条线）、本片侧新增 `<img>` 的 `loading="lazy" decoding="async"`。已按「两侧记录都保留」消解，**PR 自身改动集的其余部分逐字不变**；但产物 `1c43d93d5…` 的 `sha` 仍指向 **rebase 前**的 head，本节已如实标注，未把它读成「最终 head 的同源产物」 |
+| 判据复跑 | ✅ | `node scripts/check-pr-exec-record.js --base=origin/main --head=HEAD --mode=enforce` → **rc=0**；TIER-COVERAGE 读数 `dual-closed total=4 unknown=4`（tier 字段全部缺席 ⇒ 可见不拦，诚实反映「外部评审未产出 tier」） |
+| 遗留 | ⚠ | `tier=external` + 可核 evidence 这一条合规路径**仍未走**（本机无外部评审通道）。本条收口只解除「欠账挡住合并」，**不冒充外部评审已通过** |

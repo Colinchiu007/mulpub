@@ -55,11 +55,13 @@
   },
   "deepReview": {
     "required": true,
-    "status": "error",
+    "status": "self_play_resolved",
     "performedBy": "claude",
     "findings": null,
     "error": "JSON解析失败:模型输出被截断，JSON 不完整：括号计数恰好配平（12/12，那是已闭合的内层对象），但结尾不是 }——真正被砍断的是最后一个字符串，共 6162 字符 —— 这通常意味着方案问题太多、模型输出超长被截断。重跑同样输入多半还是截断。可选：把方案拆小后分批评审，或先让 critic 只挑 Critical / Warning、暂不要求 Info。",
     "validationErrors": null,
-    "at": "2026-10-21T15:58:32.632Z"
+    "at": "2026-10-21T15:58:32.632Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：本产物对应本 PR 的**较早 head**（sha 见文件名），其评审已被本 PR 后续 head 的同源评审取代——最终一轮的 6 条指控已逐条处置完毕（见同变更集的 `.ccg/reviews/1c43d93d5740cb1bb8d3fe264a5cc861a10bf010.json` 的 closureNote）。本产物按「被取代的中间快照」收口：**不冒充对最终 head 的外部复核**，也不把中间快照读成「当前改动未被评审」。tier 与 evidence 均未由外部评审产出，如实标注。",
+    "note": " ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。"
   }
 }

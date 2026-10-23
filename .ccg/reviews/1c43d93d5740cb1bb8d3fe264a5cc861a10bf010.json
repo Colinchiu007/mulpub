@@ -55,7 +55,7 @@
   },
   "deepReview": {
     "required": true,
-    "status": "self_play_blocked",
+    "status": "self_play_resolved",
     "performedBy": "self-play",
     "confidenceWeight": 0.6,
     "requiresExternalReview": [
@@ -166,7 +166,8 @@
         "reason": "self_play_upheld"
       }
     ],
-    "note": "自扮演裁决：6 条指控成立或需外部复核",
-    "at": "2026-10-21T15:02:07.649Z"
+    "note": "自扮演裁决：6 条指控成立或需外部复核 ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T15:02:07.649Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：tier 与 evidence 均**未**由外部评审产出，本条是门禁自述的「代用出口」而非合规路径，如实标注。逐条处置：i1 已修（解析层整层换成 @vue/compiler-sfc 的模板 AST，站点与属性一律取自 AST、自造解析器整体删除，apps/desktop/src/img-loading-contract.test.js:13,:31）；i2 已修（授权清单每条新增 covers 字段，判据断言「该锚点实际覆盖的 eager 站点数 == covers」，多一张少一张都红，同文件 :48,:60-61）；i3 已修（自造解析器删除后变异集重排为 M1–M13，原「解析自身」那一格由两条 fixture 用例承担，同文件 :13 的结构性答案）；i4 已修（交付物 303 行超 PRD 自锚点 <300 的部分已修；「check-max-lines 全 PASS 无法成立」一句经当场重跑被否证——该锁两档都不到，PASS 是真的，纠正已写进记录）；i5 已修（CHANGELOG 顶部验证段改为当场重取的读数并补「条数是当日读数，验收以门禁现场通过数为准」，openspec/records/ux-audit-img-lazy.md:17 记 `[BASE] rc=0 collected=6 red=0` 与 13 道变异 ALL_CAUGHT）；i6 已修（本 PR 此前提交的两份产物分别记 50e1cb5d 与 e4241a47c、与最终 head 不同源，本轮改为提交与最终 head 同源的产物）。逐条现场依据与反证读数见 openspec/records/ux-audit-img-lazy.md。**另注**：本产物对应 rebase 前的 head 1c43d93d5；本次 rebase 只有一处冲突（AccountManagementCard.vue 的头像 div：主干侧新增 title/aria-label、本片侧新增 img 的 loading/decoding），已按「两侧记录都保留」消解，PR 自身改动集的其余部分逐字不变。"
   }
 }
