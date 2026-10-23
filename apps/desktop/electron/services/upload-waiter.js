@@ -307,10 +307,10 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         dbg.on('message', onMsg)
         setTimeout(() => resolve(null), 8000)
       })
-      const sel = JSON.stringify(clickSelectors || '[class*=upload],[class*=dragger],[class*=drop],div[class*=add]')
+      const sel = JSON.stringify(clickSelectors || '[class*=upload],[class*=dragger],[class*=drop],div[class*=add],div[class*=empty],span[class*=plus]')
       await win.webContents.executeJavaScript('(function(){var c=[].slice.call(document.querySelectorAll(' + sel + ')).filter(function(e){return e.getClientRects().length>0});if(!c.length)return "NO_TARGET";c[c.length-1].click();return "CLICKED"})()', true)
       const params = await opened
-      if (!params || !params.backendNodeId) return false
+      if (!params || !params.backendNodeId) { log.warn('RpaView', 'file-chooser: no fileChooserOpened within 8s (click did not open a native chooser)'); return false }
       await dbg.sendCommand('DOM.setFileInputFiles', { files: [path.resolve(filePath)], backendNodeId: params.backendNodeId })
       log.info('RpaView', 'file-chooser upload ok: ' + path.basename(filePath))
       return true
