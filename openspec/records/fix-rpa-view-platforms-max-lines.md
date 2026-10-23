@@ -2,14 +2,16 @@
 record: fix-rpa-view-platforms-max-lines
 task: 代还 main 的行数债——rpa-view-platforms.js 被点名还账（目标 1484、容差 0），#4276 加 14 行后越界，令债务熔断检查在所有后续 PR 转红
 date: 2026-10-23
-branch: fix-rpa-view-platforms-max-lines
+branch: film-production-identity-followup
 ---
 
 ## 本次执行记录：代还 rpa-view-platforms.js 点名还账（fix-rpa-view-platforms-max-lines，2026-10-23）
 
+> 载体：`openspec/records/fix-rpa-view-platforms-max-lines.md`；随 PR #4320 一同落地。
+
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | PASS | 代码变更（1 源文件拆分 + 1 新模块 + 1 测试基线）。分支 `fix-rpa-view-platforms-max-lines`（**裸 task 名，无斜杠** —— 本机 ref 写入对含斜杠分支名不可靠），经 PR 落地，未直推 main |
+| 变更类型与隔离 | PASS | 代码变更（1 源文件拆分 + 1 新模块 + 1 测试基线）。本块随 `film-production-identity-followup` 分支经 PR 落地，未直推 main。（先曾另开独立分支 `fix-rpa-view-platforms-max-lines` 建 PR #4330，发现与 #4329/#4331/#4332 重复后**已自行关闭并删除远端分支**，同一 commit 改由 #4320 携带） |
 | 第一性原因（QM-5 ①） | PASS | **这不是本 PR 引入的红，是 main 级的欠账**。`.github/scripts/max-lines-baseline.json` 把 `apps/desktop/electron/services/rpa-view-platforms.js` 列入 **targets = 1484（容差 0，「谁被点名谁从今天起一行都不能再涨」）**；`f84e1f79f fix(toutiao): click add-video before upload (#4276)` 给该文件加了 14 行 ⇒ 1496 > 1484 ⇒ **债务熔断检查在所有后续 PR 上转红**（含与该改动完全无关的 PR）。基线证据：main 最近两个已合并提交（#4310 / #4296）的同一 job 均 FAILURE，且**只有**这一道红 |
 | 逃逸分析（QM-5 ②） | PASS | 见下「逃逸分析」 |
 | 修复 + 回归保护（QM-5 ④） | PASS | **纯搬移、零行为变化**：三个函数（`readVisibleEditorToast` / `summarizePublishDiagnostics` / `parsePublishResponseEvidence`，连续 33 行）此前是 **mixin 私有、未导出**（`wechat-mp-draft-mediaid.test.js:163` 注释明说「未导出（mixin 私有），改走 mixin 出口验证」）⇒ 无任何外部调用点受影响。抽出到 `rpa-view-publish-diagnostics.js`（沿用该文件既有的拆分范式：前两次为 `rpa-publish-id-extract.js` / `rpa-view-navigation-helpers.js`）。**1496 → 1466 行**（目标 ≤1483，净减 30 行） |
