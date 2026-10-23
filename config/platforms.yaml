@@ -116,7 +116,7 @@ platforms:
     # 自相矛盾，使视频号完整链（src/publish/platforms/shipinhao-video.js，
     # 分片 + Content-MD5 + post_draft/post_create 双分支，带链级测试）从未被触发。
     has_api: true
-    publishMode: dom-only   # 2026-10-23：API 上传协议段已下线（PRD 8.14/8.15 实测 404），暂走 DOM 轨
+    publishMode: api-then-dom   # 2026-10-23：URL 查询参数已按蚁小二修正，恢复 API 轨优先
     enabled: true
   kuaishou:
     id: 35
