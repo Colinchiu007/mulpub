@@ -12,6 +12,8 @@ python/__pycache__/
 data/
 # API 服务运行时状态，不进入版本库
 packages/api-publish-engine/config/api-keys.json
+# 微信支付商户私钥（compose 把该目录 bind 进容器，但私钥绝不能入库）
+packages/api-publish-engine/config/wechat-pay/
 packages/api-publish-engine/config/publish-api.json
 packages/api-publish-engine/config/*.tmp
 .DS_Store

@@ -125,6 +125,13 @@ test('storefront env 文件必须被 gitignore（防私钥入库）', () => {
   assert.equal(ignored('deploy/logto/api.env~'), true, '编辑器备份文件未被忽略');
   // 反向锁：模板必须**仍然被跟踪**。只写 `api.env*` 而不取反，会把模板一起忽略掉。
   assert.equal(ignored('deploy/logto/api.env.example'), false, 'api.env.example 被误忽略 —— 模板必须可入库');
+  // 商户私钥放在 compose 的 bind 目录里（容器要读），但**绝不能入库**。
+  // 2026-10-23 实测：这条当时没有忽略规则（git check-ignore rc=1）。
+  assert.equal(
+    ignored('packages/api-publish-engine/config/wechat-pay/apiclient_key.pem'),
+    true,
+    '商户私钥目录未被忽略 —— apiclient_key.pem 会随 git add -A 入库',
+  );
 });
 // 支付凭据已拆到独立模板（deploy/payment/wechat-pay.env.example），与 api.env 分离。
 // 但"拆开"不能让接线锁失效：那份模板声明的键，同样必须全部被 compose 透传。
