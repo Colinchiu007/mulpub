@@ -1,0 +1,58 @@
+{
+  "sha": "98b2512292820f99236b32c1ed47370ada8b1c44",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"第 5 轮外部双家族深度评审（critic=claude / proposer=opencode，跨家族校验通过）的**处置落地提交**：本提交的全部内容 = ① 第 5 轮评审成立的三条发现（i2 测试样本瘦身、i3 失败原因出声、i7 拒绝带凭据的头像 URL）的修复 + ② 上一条评审记录的收口（status/tier/evidence/closureNote）+ ③ 执行记录的第 2~5 轮逐条裁决表与遗留清单。① 的外部复核证据与上一条记录**同源**（critic=claude 第 5 轮原始输出逐字公开于 evidence 指向的 PR 评论，含逐条处置表）⇒ tier=external + 可核 evidence 成立；②③ 是文档与门禁产物，不引入新功能面。故本条由 agent 置为闭环值（status=cleared），依据同主干先例（.ccg/reviews/0232b819….json：成立并已修 → agent 置闭环）。\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-23T07:18:46.882Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

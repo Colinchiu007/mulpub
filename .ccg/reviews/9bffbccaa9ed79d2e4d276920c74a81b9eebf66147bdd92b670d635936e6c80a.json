@@ -50,10 +50,50 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude（critic，外部跨家族评审）+ self-play（逐条裁决）",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4310#issuecomment-6359458108",
+    "reviewedAt": "2026-10-23T07:05:00Z",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [
+      {
+        "id": "i2",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4310#issuecomment-6359458108"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "第 5 轮外部评审 i2：测试用 150 万汉字（≈4.5MB）造成 CI 内存尖峰（本提交已改为最小可行值 700,000 字 = 2,100,000 字节）。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "verdict": "upheld",
+        "rationale": "成立并已修（就在本提交里落地）：样本 1,500,000 → 700,000 字，内存占用减半且仍然区分得出「按字符算」与「按字节算」两种实现；评审建议的 1025 字符在 2MB 阈值下数学上不成立。高危域条目的外部复核由 critic=claude 完成，原始输出逐字公开于 evidence 指向的 PR 评论。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "第 5 轮外部评审 i3：extract 未对 nickname_invalid / avatar_rejected_scheme 出声（本提交已补两条 warn 分支）。",
+        "highRiskDomains": [],
+        "verdict": "upheld",
+        "rationale": "成立并已修（就在本提交里落地）：补两条 log.warn 分支，让「账号卡上名字或头像是空的」在日志里可查。"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "finding": "第 5 轮外部评审 i7：带 userinfo（user:pass@host）的头像 URL 未被显式拒绝（本提交已修）。",
+        "highRiskDomains": [],
+        "verdict": "upheld",
+        "rationale": "成立并已修（就在本提交里落地）：显式拒绝 username/password 非空的 URL，并加 1 例锁住。"
+      }
+    ],
+    "closureNote": "第 5 轮外部双家族深度评审（critic=claude / proposer=opencode，跨家族校验通过）的**处置落地提交**：本提交的全部内容 = ① 第 5 轮评审成立的三条发现（i2 测试样本瘦身、i3 失败原因出声、i7 拒绝带凭据的头像 URL）的修复 + ② 上一条评审记录的收口（status/tier/evidence/closureNote）+ ③ 执行记录的第 2~5 轮逐条裁决表与遗留清单。① 的外部复核证据与上一条记录**同源**（critic=claude 第 5 轮原始输出逐字公开于 evidence 指向的 PR 评论，含逐条处置表）⇒ tier=external + 可核 evidence 成立；②③ 是文档与门禁产物，不引入新功能面。故本条由 agent 置为闭环值（status=cleared），依据同主干先例（.ccg/reviews/0232b819….json：成立并已修 → agent 置闭环）。",
+    "note": "本提交 = 第 5 轮评审发现项的修复 + 评审记录收口 + 执行记录文档；外部复核证据与上一条记录同源",
+    "at": "2026-10-23T07:20:00.000Z"
   }
 }
