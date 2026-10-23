@@ -194,6 +194,15 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
             const shape = await win.webContents.executeJavaScript('(function(){var a=[].slice.call(document.querySelectorAll("input[type=file]"));return a.map(function(e){return (e.accept||"-")+"|"+(e.className||"").toString().slice(0,24)}).join(" ; ")||"NONE"})()', true)
             log.warn('RpaView', '[' + platform + '] file inputs on page: ' + shape)
           } catch (_e9) { /* 诊断失败忽略 */ }
+          // 2026-10-23：视频号页面无 input[type=file]，改走 CDP 文件选择器拦截。
+          if (platform === 'tencent_video') {
+            const chooserDone = await this._uploadViaFileChooser(win, article.video_path)
+            if (chooserDone) {
+              const ok = await this._waitForVideoUploadComplete(win, platform, 600000, { fileBytes: readVideoFileBytes(article.video_path) }).catch(() => false)
+              fillReport.upload = ok ? { ok: true } : { ok: false, detail: '选择器注入后未等到上传完成信号' }
+              if (ok) { retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 40); break }
+            }
+          }
           if (!retry.retry('file_upload')) break
           await this._sleep(2000); continue
         }
@@ -272,6 +281,44 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       return empty
     }
   },
+
+  /**
+   * 2026-10-23（视频号实测 file inputs on page: NONE）：上传器没有 input[type=file]，
+   * 点击上传区才由 JS 动态创建并弹出文件选择器。用 CDP 拦截选择器，直接把文件交给它。
+   * 判据：Page.fileChooserOpened 事件拿到 backendNodeId ⇒ DOM.setFileInputFiles 成功。
+   */
+  async _uploadViaFileChooser(win, filePath, clickSelectors) {
+    const path = require('path')
+    const dbg = win.webContents.debugger
+    let attachedHere = false
+    if (!dbg.isAttached()) { dbg.attach('1.3'); attachedHere = true }
+    try {
+      await dbg.sendCommand('Page.enable')
+      await dbg.sendCommand('DOM.enable')
+      await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
+      const opened = new Promise((resolve) => {
+        const onMsg = (_e, method, params) => {
+          if (method === 'Page.fileChooserOpened') { dbg.removeListener('message', onMsg); resolve(params) }
+        }
+        dbg.on('message', onMsg)
+        setTimeout(() => resolve(null), 8000)
+      })
+      const sel = JSON.stringify(clickSelectors || '[class*=upload],[class*=dragger],[class*=drop],div[class*=add]')
+      await win.webContents.executeJavaScript('(function(){var c=[].slice.call(document.querySelectorAll(' + sel + ')).filter(function(e){return e.getClientRects().length>0});if(!c.length)return "NO_TARGET";c[c.length-1].click();return "CLICKED"})()', true)
+      const params = await opened
+      if (!params || !params.backendNodeId) return false
+      await dbg.sendCommand('DOM.setFileInputFiles', { files: [path.resolve(filePath)], backendNodeId: params.backendNodeId })
+      log.info('RpaView', 'file-chooser upload ok: ' + path.basename(filePath))
+      return true
+    } catch (e) {
+      log.warn('RpaView', 'file-chooser upload failed: ' + e.message)
+      return false
+    } finally {
+      try { await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: false }) } catch (_) {}
+      if (attachedHere) { try { dbg.detach() } catch (_) {} }
+    }
+  },
+
 }
 
 module.exports = { uploadWaiterMixin, readVideoFileBytes }
