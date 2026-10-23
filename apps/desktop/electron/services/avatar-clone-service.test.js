@@ -357,6 +357,45 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
 
   // ── change: digital-human-multiprovider：provider 隔离 ──────────────
 
+  describe("远端调用必须按 owner.providerId 走（不能写死 heygen）", () => {
+    it("providerId=hifly 时 createAvatar 打到 hifly", async () => {
+      const store = createStore()
+      const manager = createManager({ createAvatar: () => ({ code: 0, data: { id: 'av-hf' } }) })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      await service.createClone({ name: '飞影形象', type: 'photo', media: imageMedia(), providerId: 'hifly' })
+
+      const call = manager.callAdapter.mock.calls.find((c) => c[1] === 'createAvatar')
+      expect(call).toBeDefined()
+      expect(call[0]).toBe('hifly')
+    })
+
+    it('删除也按 providerId 走（hifly 的形象不能拿 HeyGen 删）', async () => {
+      const store = createStore()
+      const manager = createManager({ createAvatar: () => ({ code: 0, data: { id: 'av-hf' } }) })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      await service.createClone({ name: '飞影形象', type: 'photo', media: imageMedia(), providerId: 'hifly' })
+      await service.deleteClone({ avatarId: 'av-hf', providerId: 'hifly' })
+
+      const call = manager.callAdapter.mock.calls.find((c) => c[1] === 'deleteAvatar')
+      expect(call).toBeDefined()
+      expect(call[0]).toBe('hifly')
+    })
+
+    it('providerId=heygen 时仍打 heygen（回归）', async () => {
+      const store = createStore()
+      const manager = createManager({ createAvatar: () => ({ code: 0, data: { id: 'av-hg' } }) })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      await service.createClone({ name: 'HeyGen 形象', type: 'photo', media: imageMedia(), providerId: 'heygen' })
+
+      const call = manager.callAdapter.mock.calls.find((c) => c[1] === 'createAvatar')
+      expect(call[0]).toBe('heygen')
+    })
+  })
+
+
   describe('provider 隔离（registry 键与样本目录按 providerId 分段）', () => {
     it('两家 provider 的克隆写进各自 registry，不串库', async () => {
       const store = createStore()

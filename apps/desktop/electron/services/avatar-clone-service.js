@@ -312,7 +312,7 @@ class AvatarCloneService {
 
     if (!this._remote.hasAdapter()) return failure('AVATAR_CLONE_PROVIDER_UNAVAILABLE')
 
-    const statusResult = await this._remote.callAvatarMethod('getAvatarStatus', { avatarId: clone.id })
+    const statusResult = await this._remote.callAvatarMethod(owner.providerId, 'getAvatarStatus', { avatarId: clone.id })
     if (!statusResult.ok) {
       // 轮询失败不改变本地状态（下次再试），只回报
       return failure('AVATAR_CLONE_PROVIDER_UNAVAILABLE', { detail: statusResult.detail })

@@ -380,6 +380,57 @@ describe('HiFlyAdapter — 飞影数字人', () => {
     })
 
     describe('形象克隆', () => {
+      // 飞影克隆接口只接受 *_url / file_id，**不接受二进制**。
+      // 而 avatar-clone-service 传的是 Blob（HeyGen 契约：{ image|video: Blob }）。
+      // 所以 adapter 必须自己把 Blob 换成 file_id —— 换血放在这里，
+      // service/IPC/UI 才不需要长 provider 分支。
+      it('传 Blob ⇒ 自动 create_upload_url + PUT 换 file_id，再带 file_id 克隆', async () => {
+        const fetchMock = createFetchMock([
+          // ① 换上传地址
+          createFetchResponse({ code: 0, upload_url: 'https://upload.hifly.cc/a.png?Expires=1', content_type: 'image/png', file_id: 'file_auto' }),
+          // ② PUT 上传
+          { ok: true, status: 200, headers: new Map(), async json() { return {} }, async text() { return '' } },
+          // ③ 创建克隆
+          createFetchResponse({ code: 0, task_id: 't-av-auto' }),
+        ])
+        global.fetch = fetchMock
+
+        const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })
+        const result = await createAdapter().createAvatar({ type: 'photo', name: '自动上传', image: blob })
+
+        expect(result.taskId).toBe('t-av-auto')
+        expect(fetchMock.calls).toHaveLength(3)
+        expect(fetchMock.calls[0].url).toBe(`${BASE}/tool/create_upload_url`)
+        expect(JSON.parse(fetchMock.calls[0].opts.body)).toEqual({ file_extension: 'png' })
+        expect(fetchMock.calls[1].url).toBe('https://upload.hifly.cc/a.png?Expires=1')
+        expect(fetchMock.calls[1].opts.method).toBe('PUT')
+        expect(fetchMock.calls[1].opts.headers['Content-Type']).toBe('image/png')
+        // 预签名 URL 自带凭证，不得再发 Authorization
+        expect(fetchMock.calls[1].opts.headers.Authorization).toBeUndefined()
+        expect(fetchMock.calls[2].url).toBe(`${BASE}/avatar/create_by_image`)
+        expect(JSON.parse(fetchMock.calls[2].opts.body)).toMatchObject({ title: '自动上传', file_id: 'file_auto' })
+      })
+
+      it('传 Blob 但换 file_id 失败 ⇒ 抛错且不调克隆接口（不留半截状态）', async () => {
+        const fetchMock = createFetchMock([createFetchResponse({ code: 50000, message: 'upload-url boom' })])
+        global.fetch = fetchMock
+        const blob = new Blob([new Uint8Array([1])], { type: 'image/png' })
+        await expect(createAdapter().createAvatar({ type: 'photo', name: 'x', image: blob })).rejects.toThrow(/upload-url boom/)
+        expect(fetchMock.calls).toHaveLength(1)
+      })
+
+      it('后缀从 Blob 的 MIME 反查（含别名：mpeg→mp3、quicktime→mov、jpeg→jpg）', async () => {
+        const a = createAdapter()
+        expect(a._resolveFileExtension({ type: 'audio/mpeg' }, undefined, 'audio')).toBe('mp3')
+        expect(a._resolveFileExtension({ type: 'video/quicktime' }, undefined, 'digital_twin')).toBe('mov')
+        expect(a._resolveFileExtension({ type: 'image/jpeg' }, undefined, 'photo')).toBe('jpg')
+        expect(a._resolveFileExtension({ type: 'image/png' }, undefined, 'photo')).toBe('png')
+        // 显式 fileName 优先于 MIME
+        expect(a._resolveFileExtension({ type: 'image/png' }, 'real.WEBP', 'photo')).toBe('webp')
+        // MIME 缺失时按 type 兜底
+        expect(a._resolveFileExtension({ type: '' }, undefined, 'digital_twin')).toBe('mp4')
+      })
+
       it('createAvatar(photo) → create_by_image，映射 type=photo 到 image_url/file_id', async () => {
         const fetchMock = createFetchMock([createFetchResponse({ code: 0, task_id: 't-av-1' })])
         global.fetch = fetchMock

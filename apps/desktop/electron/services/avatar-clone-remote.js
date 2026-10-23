@@ -18,7 +18,16 @@
 
 const { safeIdentifier, DELETE_STATES } = require('./avatar-clone-registry')
 
-const AVATAR_CLONE_PROVIDER = 'heygen'
+/**
+ * 兜底 provider（仅当 owner 上没带 providerId 时用）。
+ *
+ * change: digital-human-multiprovider —— 此前这里是唯一的 provider 来源，
+ * 导致 service 已按 providerId 分段存 registry、远端调用却仍打 HeyGen：
+ * 切到飞影后「用照片创建」会拿 HeyGen 的 avatar id 存进飞影的 registry，
+ * 生成视频时飞影不认这个 id —— 不报错，静默错配。
+ * 现在 providerId 一律由调用方（owner）传入，本常量只兜底。
+ */
+const DEFAULT_AVATAR_CLONE_PROVIDER = 'heygen'
 const PENDING = DELETE_STATES.PENDING
 
 class AvatarCloneRemote {
@@ -54,10 +63,18 @@ class AvatarCloneRemote {
     return Boolean(this._manager) && typeof this._manager.callAdapter === 'function'
   }
 
-  async callAvatarMethod (method, params) {
+  /**
+   * 调 adapter 的形象克隆方法。
+   *
+   * @param {string} providerId 当前数字人服务商（由 owner 带下，不在此处猜）
+   * @param {string} method adapter 方法名
+   * @param {object} params
+   */
+  async callAvatarMethod (providerId, method, params) {
     if (!this.hasAdapter()) return { ok: false, detail: 'model provider manager unavailable' }
+    const provider = typeof providerId === 'string' && providerId.trim() ? providerId.trim() : DEFAULT_AVATAR_CLONE_PROVIDER
     try {
-      const result = await this._manager.callAdapter(AVATAR_CLONE_PROVIDER, method, params)
+      const result = await this._manager.callAdapter(provider, method, params)
       if (result && result.code === 0) return { ok: true, data: result.data }
       const detail = result && (result.message || result.errorCode) ? String(result.message || result.errorCode) : 'adapter returned failure'
       return { ok: false, detail }
@@ -66,8 +83,8 @@ class AvatarCloneRemote {
     }
   }
 
-  async remoteDelete (avatarId) {
-    const result = await this.callAvatarMethod('deleteAvatar', { avatarId })
+  async remoteDelete (providerId, avatarId) {
+    const result = await this.callAvatarMethod(providerId, 'deleteAvatar', { avatarId })
     return result.ok
   }
 
@@ -86,7 +103,7 @@ class AvatarCloneRemote {
     })
     if (!auditSeq) return { ok: false, response: this._failure('AVATAR_CLONE_STORAGE_UNAVAILABLE') }
 
-    const created = await this.callAvatarMethod('createAvatar', {
+    const created = await this.callAvatarMethod(owner.providerId, 'createAvatar', {
       name: request.name,
       type: request.type,
       [request.mediaType === 'image' ? 'image' : 'video']: request.media,
@@ -106,25 +123,25 @@ class AvatarCloneRemote {
     try {
       await this._persistSample(owner, sampleStorage, request.media)
     } catch (_) {
-      await this.remoteDelete(avatarId)
+      await this.remoteDelete(owner.providerId, avatarId)
       await this._appendAudit(owner, { event: 'create_failed', auditSeq, detail: 'sample persist failed; remote compensated' })
       return { ok: false, response: this._failure('AVATAR_CLONE_STORAGE_UNAVAILABLE') }
     }
 
     const registryResult = this._readRegistry(owner)
     if (registryResult.error) {
-      await this._compensate(avatarId, owner, sampleStorage, auditSeq, 'registry read failed')
+      await this._compensate(owner.providerId, avatarId, owner, sampleStorage, auditSeq, 'registry read failed')
       return { ok: false, response: registryResult.error }
     }
     if (registryResult.registry.avatars.some((a) => a.id === avatarId)) {
-      await this._compensate(avatarId, owner, sampleStorage, auditSeq, 'duplicate id')
+      await this._compensate(owner.providerId, avatarId, owner, sampleStorage, auditSeq, 'duplicate id')
       return { ok: false, response: this._failure('AVATAR_CLONE_DUPLICATE_ID') }
     }
 
     const clone = this._newCloneRecord({ avatarId, request, auditSeq, sampleStorage })
     const nextRegistry = { ...registryResult.registry, avatars: [...registryResult.registry.avatars, clone] }
     if (!this._writeRegistry(owner, nextRegistry)) {
-      await this._compensate(avatarId, owner, sampleStorage, auditSeq, 'registry write failed')
+      await this._compensate(owner.providerId, avatarId, owner, sampleStorage, auditSeq, 'registry write failed')
       return { ok: false, response: this._failure('AVATAR_CLONE_STORE_UNAVAILABLE') }
     }
 
@@ -132,8 +149,8 @@ class AvatarCloneRemote {
     return { ok: true, response: this._success({ avatar: this._toPublic(clone) }) }
   }
 
-  async _compensate (avatarId, owner, sampleStorage, auditSeq, reason) {
-    await this.remoteDelete(avatarId)
+  async _compensate (providerId, avatarId, owner, sampleStorage, auditSeq, reason) {
+    await this.remoteDelete(providerId, avatarId)
     await this._cleanupSampleStorage(owner, sampleStorage)
     await this._appendAudit(owner, { event: 'create_failed', auditSeq, detail: reason + '; remote compensated' })
     this._warn('AvatarClone', 'create compensated: ' + reason)
@@ -161,7 +178,7 @@ class AvatarCloneRemote {
     }
     if (!this._writeRegistry(owner, workingRegistry)) return this._failure('AVATAR_CLONE_STORE_UNAVAILABLE')
 
-    const remoteDeleted = await this.remoteDelete(clone.id)
+    const remoteDeleted = await this.remoteDelete(owner.providerId, clone.id)
     await this._appendAudit(owner, {
       event: remoteDeleted ? 'deleted' : 'delete_pending',
       avatarId: clone.id,
@@ -181,4 +198,4 @@ class AvatarCloneRemote {
   }
 }
 
-module.exports = { AvatarCloneRemote, AVATAR_CLONE_PROVIDER }
+module.exports = { AvatarCloneRemote, DEFAULT_AVATAR_CLONE_PROVIDER }
