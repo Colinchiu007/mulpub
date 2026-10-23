@@ -52,7 +52,7 @@ date: 2026-10-21
 | QM-1 打包 | 待 CI | 本片改 `electron/ipc-handlers/store.js`（属 electron 域）。本机 worktree 依赖因跨盘 pnpm 安装限制未装全（store 在 C 盘、worktree 在 D 盘，硬链接退化为逐文件复制），无法本地产包；如实登记未执行，交 CI `QG Desktop Shards` |
 | QM-4 视觉 | 待 CI | 草稿箱新增工具栏与卡片勾选框，视觉非中性；基线只能取自 CI 产物（AGENTS 规则 7），本机不产基线 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本片触及「删除」这一不可恢复操作与批量入口的确认语义，属需要外部轴复核的语义面；如实登记「未执行」而非跳过 |
-| 远程同步 | PENDING | PR 未合并 |
+| 远程同步 | 由门禁推导 |
 
 ## 遗留（不假装已闭合）
 
