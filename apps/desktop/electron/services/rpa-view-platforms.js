@@ -828,6 +828,13 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       }
       const diagnostics = summarizePublishDiagnostics(stoppedRequests, artifact)
       if (!postId) {
+        // 2026-10-23 用户地面真相：头条作品列表无新内容 ⇒ 发布未真正提交。
+        // 此处补打发布期捕获到的请求（METHOD/端点/状态），用于区分「没发出去」与「发出去了但没回 ID」。
+        try {
+          const recs = (networkCapture && Array.isArray(networkCapture.records)) ? networkCapture.records : []
+          const brief = recs.slice(-10).map((r) => String((r && r.endpoint) || '').slice(0, 80) + ' [' + String((r && r.status) || '?') + ']')
+          log.warn('RpaView', '[' + platform + '] publish captured n=' + recs.length + ' :: ' + brief.join(' | '))
+        } catch (_e) { /* 取证失败不阻塞 */ }
         log.warn('RpaView', '[' + platform + '] publish signal lacked platform ID; endpoint=' + sanitizeDiagnosticEndpoint(currentUrl) + ' responses=' + stoppedRequests.length)
         return { success: false, error: '发布结果缺少平台作品 ID', platform, url: sanitizePublishResultUrl(currentUrl), diagnostics }
       }
