@@ -361,8 +361,9 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       // 2026-10-23：CDP 报 `Invalid parameters` —— dragData.items 不能是空数组，
       // 必须至少一项；文件本体走 files（绝对路径）。
       const _abs = path.resolve(filePath)
+      // minimalDragData：CDP 对 title/baseURL 的空串敏感，只保留必需字段。
       const data = {
-        items: [{ mimeType: 'text/uri-list', data: 'file:///' + _abs.replace(/\\/g, '/'), title: path.basename(filePath), baseURL: '' }],
+        items: [{ mimeType: 'text/plain', data: '' }],
         files: [_abs],
         dragOperationsMask: 1
       }
