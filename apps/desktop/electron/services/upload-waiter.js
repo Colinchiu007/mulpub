@@ -355,11 +355,18 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       } catch (_e12) { /* 锚点失败沿用原选择器 */ }
       const q = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector: useSel })
       if (!q || !q.nodeId) { log.warn('RpaView', 'cdp-drop: target not found ' + selector); return false }
-      // rectCenter：getBoxModel 对零尺寸容器会给出空 content ⇒ x/y 变 NaN ⇒ CDP 报 Invalid parameters。
-      // 改用 JS 的 getBoundingClientRect 取中心点，并在缺失时回落到视口中心。
-      const rect = await win.webContents.executeJavaScript('(function(){var e=document.querySelector(' + JSON.stringify(useSel) + ');if(!e)return null;var r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,w:r.width,h:r.height}})()', true)
-      const x = rect && isFinite(rect.x) ? Math.round(rect.x) : 400
-      const y = rect && isFinite(rect.y) ? Math.round(rect.y) : 300
+      // boxModelPrimary：穿透 iframe 后的节点只能用 CDP 取几何；JS 的 document.querySelector 在
+      // 主文档执行，查不到 iframe 内的元素。取不到时回落到视口中心。
+      let x = 400, y = 300, rect = null
+      try {
+        const box = await dbg.sendCommand('DOM.getBoxModel', { nodeId: q.nodeId })
+        const c = box && box.model && box.model.content
+        if (c && c.length >= 8) {
+          x = Math.round((c[0] + c[2] + c[4] + c[6]) / 4)
+          y = Math.round((c[1] + c[3] + c[5] + c[7]) / 4)
+          rect = { via: 'boxModel', x, y }
+        }
+      } catch (_e13) { /* 回落视口中心 */ }
       log.info('RpaView', 'cdp-drop: target rect ' + JSON.stringify(rect) + ' -> (' + x + ',' + y + ')')
       // 2026-10-23：CDP 报 `Invalid parameters` —— dragData.items 不能是空数组，
       // 必须至少一项；文件本体走 files（绝对路径）。
