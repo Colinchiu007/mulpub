@@ -83,6 +83,15 @@
 | --- | --- | --- |
 | 视频号**发布**接口（post_create / post_draft） | `post_create` / `post_draft` / `publishdfs` / `cgi-bin` | 未记载 ⇒ 以本项目 `shipinhao-video.js` 与真机为准 |
 | 头条 **DOM 发布流程**（按钮文案、表单步骤） | `toutiao` + `DOM/选择器/点击/提交` | 仅有发布档与签名层，**无流程细节** |
+**2026-10-23 补充：三个来源逐一查证（头条 DOM 发布流程）**
+
+| 来源 | 检索 | 结果 |
+| --- | --- | --- |
+| `01-analysis/*.md` | `toutiao` + DOM/选择器/点击/提交 | ❌ 只有发布档与签名层 |
+| `00-vendor-originals/wemedia/Asset-sign2/chuangzuozhe.js`（3.4MB 注入脚本） | `预览并发布` / `toutiao` / `发表` | ❌ **0 命中** |
+| `00-vendor-originals/refproduct/main-dist-index.cjs`（8.2MB 主包） | 同上 | ❌ 仅平台枚举与**作品列表读取**（`docId` / `getShortContentListAsync`），无发布流程 |
+
+⇒ 结论：**头条发布 DOM 流程在逆向成果中确实不存在**。不要再检索，直接以本项目实现 + 真机为准。
 | 头条视频封面流程 | `头条` + `封面/cover` | 未记载 |
 
 **使用建议**：遇到上表「不能答」的三类问题，不要继续在逆向目录里翻，直接以**真机日志 + 本项目实现**为准，并把结论回写到本文件。
