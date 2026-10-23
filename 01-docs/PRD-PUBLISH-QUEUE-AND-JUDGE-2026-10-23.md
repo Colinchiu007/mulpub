@@ -147,3 +147,82 @@ phase-failed error="竖版视频暂不支持 API 发布，请使用 RPA 发布"
 3. 用户可见提示文案沿用平台原文语义：「竖版视频暂不支持 API 发布，请使用 RPA 发布」，并在任务详情里注明已自动改走 RPA。
 
 **反面教材**：曾按「平台有视频 ⇒ 走 API」一刀切路由，结果竖版任务 100% 在 prepare 阶段失败，且失败被记成「发布失败」而非「轨选择错误」。
+
+### 8.4 点击后校验（防「点了但不是那个按钮」）
+
+**背景（2026-10-23 两次真机事故）**：
+
+| 平台 | 日志表现 | 真因 | 用户可见结果 |
+| --- | --- | --- | --- |
+| 视频号 | `publishing...` 有日志、`verifying...` 也有 | 选择器 `button:has-text("发表")` 是**子串匹配**，先命中首页「发表视频」入口 | 创作者中心与草稿箱**均为空** |
+| 今日头条 | `publishing...` + `confirm dialog clicked: 确定` 都有 | 封面弹窗 `no-next` 失败后**未关闭**，发布点击命中遮罩 | 作品列表**无新内容** |
+
+⇒ 共同点：**日志证明「发生了点击」，不证明「点到了正确元素」**。
+
+**强制规则**：
+
+1. **选择器必须精确**：可点击控件一律用 `:text-is`（精确文案），禁止 `:has-text`（子串）。确需包含匹配时，必须同时排除同前缀的兄弟控件（如「发表视频」「定时发布」）。
+2. **弹窗必须先于点击关闭**：任何「打开弹窗 → 失败 → 返回」的路径，返回前必须执行关闭（取消/关闭/×），并在日志中记录 `closed=<文案|none>`。
+3. **点击后立即校验落点**：点击发布后 1.5 秒内读取 `win.webContents.getURL()`；若 URL 偏离预期（如视频号应在 `post/create`，却变成通知中心/首页），立即记录 `publish click may have hit the wrong element url=<实际>`，不得静默进入验证阶段。
+4. **验收只认用户可见结果**：创作者中心 / 作品列表 / 草稿箱。HTTP 2xx、`publishing...` 日志、确认弹窗点击**都不构成发布成功证据**。
+
+**反例（必须记住）**：曾以「捕获到 3 条 HTTP 201」推断发布成功，用户核对创作者中心与草稿箱**均为空**，证明该推断错误。2xx 只能证明「某个请求被受理」，不能证明「作品已发布」。
+
+## 8.5 视频号 API 链：与竞品实现的逐项对照（2026-10-23）
+
+竞品实现取自 `00-vendor-originals/refproduct/main-dist-index.cjs`（压缩代码，以下为原文摘录）。
+
+| 步骤 | 竞品 | 本项目 | 一致性 |
+| --- | --- | --- | --- |
+| 1 取鉴权 | `POST channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/helper/helper_upload_params`，body `{timestamp,_log_finder_id,rawKeyBuff}` | 同 | ✅ |
+| 2 申请上传 | `PUT finderassistancea.video.qq.com/applyuploaddfs`，`X-Arguments: apptype=251&filetype&weixinnum&filekey&filesize&taskid&scene=2` | 同 | ✅ |
+| 3 分片 | `PUT finderassistanced.video.qq.com/uploadpartdfs?PartNumber&UploadID`，`scene=0` | 同 | ✅ |
+| 4 完成 | `POST finderassistancea.video.qq.com/completepartuploaddfs?UploadID`，body `{TransFlag:'0_0',PartInfo}`，`scene=2` | 同 | ✅ |
+| 5a 视频登记 | `POST .../post/post_clip_video`，body 含 `clipOriginVideoInfo{width,height,duration,fileSize}`、`traceInfo{traceKey,uploadCdnStart,uploadCdnEnd}`、`targetWidth/targetHeight`、`type:4`、`scene:7` | **缺** | ❌ |
+| 5b 发布 | `POST .../post/post_create` 或 `post_draft` | 同 | ✅ |
+
+### 数据校验（本条链路的判定口径）
+
+- Step1 成功判据：`errCode===0` 且 `data.authKey` 非空；**响应不含 `cdnHost`**（实测），故主机必须用常量。
+- Step2/4 成功判据：HTTP 2xx 且响应可 JSON 解析；失败时错误信息须带 `[host=…]` 以便归因。
+- Step3 成功判据：每片 2xx；分片大小 8 MiB。
+- Step5 成功判据：`errCode===0` 且返回体含 `postId/contentId/id` 之一；**仅有 2xx 不算成功**（见 8.1/8.4）。
+
+### 待验证与后续
+
+- 2026-10-23 13:52 起验证「主机修正后 Step5 是否可直接成功」。
+- 若 Step5 因缺少视频登记而失败，则补 `post_clip_video`：其 `traceInfo` 需记录上传开始/结束时间戳（`getTimeStamp(10)`），`targetWidth/Height` 在竖版时按 `width<=height` 分支取 1080 或 1920 上限。
+
+## 8.6 今日头条：上传已通、提交被封面阻断（2026-10-23 14:24 真机）
+
+### 实测时间线（账号 7ae99805，真文案《被误解的明朝》）
+
+| 时间 | 事件 | 判读 |
+| --- | --- | --- |
+| 14:24:25 | `add-video NO_BTN` | 「添加视频」按钮未出现，改走 file input 直传 |
+| 14:26:52 | `file uploaded` | **视频确实上传成功**（历史首次在该分支达成） |
+| 14:26:52 | `title input hasTitle=true selectorCount=4` | 标题框已出现并填写成功 |
+| 14:27:16 | `cover dialog closed after failure: none` | 封面弹窗被尝试关闭（未找到取消键） |
+| 14:27:17 | `cover path failed: no-next` | **「下一步」持续不可点** |
+| 14:27:17 | `publishing...` | 执行了发布点击 |
+| 14:27:19 | `publish confirm dialog clicked: CONFIRMED_IN_MODAL:确定` | 点到的是**弹窗内的「确定」**，非发布确认 |
+| 14:27:46 | `artifact 未命中：no-endpoint-hit` | **没有任何发布请求发出** |
+| 14:28:00 | `publish failed … 缺少平台作品 ID` | 判定失败 |
+
+### 结论（数据校验）
+
+- **上传链路已修通**：`file uploaded` + `title input hasTitle=true` 两条同时成立，可证明视频已附着。
+- **提交未发生**：`_startPublishNetworkCapture` 已启用（禁用模式 0 处），但捕获到 **0 条**发布请求 ⇒ 不是判定器抓不到，是请求没发出。
+- **最可能的阻断点**：封面未设置成功（`no-next`）。头条很可能要求封面必填，缺封面时发布按钮为禁用态，点击不产生请求。
+- **`CONFIRMED_IN_MODAL:确定` 不可作为提交证据**：该「确定」来自弹窗作用域（`modals[s].querySelectorAll`），而上一行正是封面弹窗失败，二者时间相邻（1 秒内）。
+
+### 下一步取证（已排程 15:45）
+
+- 新增 `cover dialog shape: <控件清单> :: <弹窗文字>` 日志：在「下一步」不可点时 dump 弹窗内全部 `button/div[role=button]/span/a` 的文本与 `disabled` 态，以及弹窗整体文案。
+- 判据：若出现 `请上传封面/请选择封面/尺寸不符` 等文案 ⇒ 按提示补输入；若按钮全为 `dis=true` ⇒ 需先完成前置选择；若无按钮 ⇒ 弹窗结构与预期不符，需重新采集选择器。
+
+### 交互与提示文字（当前实现）
+
+- 失败提示：`封面设置失败，已关闭弹窗继续发布`（warn 级，不阻塞主流程）
+- 关窗尝试顺序：`取消` → `关闭` → `×`，均未命中时记录 `none`
+- 关窗后固定等待 800ms 再继续，避免点击落在遮罩上。
