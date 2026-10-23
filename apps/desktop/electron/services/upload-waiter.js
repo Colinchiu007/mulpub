@@ -353,7 +353,24 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         const marked = await win.webContents.executeJavaScript('(function(){var a=[].slice.call(document.querySelectorAll("div,section"));for(var i=0;i<a.length;i++){var t=a[i].innerText||"";if(t.indexOf("上传时长")>=0||t.indexOf("添加视频")>=0||t.indexOf("点击上传")>=0){a[i].setAttribute("data-mp-drop","1");return "marked"}}return "none"})()', true)
         if (marked === 'marked') useSel = '[data-mp-drop="1"]'
       } catch (_e12) { /* 锚点失败沿用原选择器 */ }
-      const q = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector: useSel })
+      let q = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector: useSel })
+      // frameId fallback：pierce 对 iframe 不一定生效，改按 frameId 逐帧查。
+      if(!q || !q.nodeId){
+        try {
+          const ft = await dbg.sendCommand('Page.getFrameTree')
+          const flat = []
+          const walk = (n) => { if(!n) return; flat.push(n.frame); if(n.childFrames) n.childFrames.forEach(walk) }
+          walk(ft.frameTree)
+          for(const f of flat){
+            if(!f || !f.id) continue
+            try {
+              const fd = await dbg.sendCommand('DOM.getDocument', { depth: -1, frameId: f.id })
+              const fq = await dbg.sendCommand('DOM.querySelector', { nodeId: fd.root.nodeId, selector: useSel })
+              if(fq && fq.nodeId){ q = fq; log.info('RpaView', 'cdp-drop: hit in frame ' + String(f.url||'').slice(0,80)); break }
+            } catch (_e14) { /* 该帧不可查，继续 */ }
+          }
+        } catch (_e15) { /* 无 frame tree，沿用 pierce 结果 */ }
+      }
       if (!q || !q.nodeId) { log.warn('RpaView', 'cdp-drop: target not found ' + selector); return false }
       // boxModelPrimary：穿透 iframe 后的节点只能用 CDP 取几何；JS 的 document.querySelector 在
       // 主文档执行，查不到 iframe 内的元素。取不到时回落到视口中心。
