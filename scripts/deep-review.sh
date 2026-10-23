@@ -880,16 +880,52 @@ run_driver_with_writeback() {
   #  ③ 只在驱动**真的被调用过之后**记账 —— 没跑完就记一轮，等于把失败烧进配额。
   # 超限是**升级**：不调模型、打印 escalated、非零退出。绝不是"跑满了就自动放行"。
   _QM6_CHANGE="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
+  # CLI 非零退出 = **判据没跑起来**（缺模块 / 权限 / node 不可用），与"账本内容读不出"是两件事：
+  # 前者要修的是文件在不在，后者要修的是那份 json。两者都按"无证据"处理（不调模型），
+  # 但**必须各说各话**——本刀实测把前者写成后者，会让三条与本刀无关的用例红成
+  # "入口说账本坏了"，而照着这句话去查 external-rounds.json 永远查不到东西。
+  _QM6_CLI_RC=0
+  _QM6_CHK=""
   _QM6_ROUND="?"
   _QM6_CAP="?"
   _QM6_SEEN="0"
   if [ -n "$_QM6_CHANGE" ] && [ -n "$SHA" ]; then
-    _QM6_CHK="$(node scripts/lib/ccg-review-rounds.js check "$_QM6_CHANGE" "$SHA" 2>&1 || echo 'round=0 max=3 exceeded=0 unreadable=1 seen=0')"
+    # 账本路径**不在这里重复拼**：让库里 defaultLedger(change) 单点决定，
+    # 否则入口一份、库一份，改了一边就会出现"check 查 A 文件、record 写 B 文件"的静默分叉。
+    # 动手前的交付指纹在这里取：超限判据拿它看"本轮是不是零模型复跑"。
+    _QM6_BEFORE_FP="$(node scripts/lib/ccg-delivery-digest.js --print-fingerprint="$REC" 2>/dev/null || true)"
+    # CLI 自己必须**跑起来了**才算读数。旧写法是 `|| echo '…unreadable=1…'`，它把三件不同的事
+    # 压成一句"账本读不出"：账本坏、账本没权限、以及**这个 lib 根本不在**（夹具/部署缺文件）。
+    # 第三种曾让三条与本刀无关的用例红成"入口说账本坏了、于是不调模型"——一句与事实无关的归因，
+    # 而照着它去查 external-rounds.json 是查不到的。缺模块是**结构性**故障，必须单独一档并说出对象。
+    _QM6_CHK="$(node scripts/lib/ccg-review-rounds.js check "$_QM6_CHANGE" "$SHA" --delivery "$_QM6_BEFORE_FP" 2>&1)"
+    _QM6_CLI_RC=$?
+    if [ "$_QM6_CLI_RC" -ne 0 ]; then
+      say "🔴 轮次判据 CLI 未正常退出（rc=${_QM6_CLI_RC}）⇒ 无法证明还有预算，本轮**不调用模型**，交人工。"
+      say "  这一档**不是**「账本坏了」：先在下面原文里找 Cannot find module / EACCES——"
+      say "  缺文件要修的是 scripts/lib/ccg-review-rounds.js 在不在（夹具或部署没带上），不是 external-rounds.json。"
+      say "  CLI 原文（已剥空白投影）："
+      say "  $(printf '%s' "$_QM6_CHK" | tr -d '\r' | head -3)"
+      exit 1
+    fi
     _QM6_KV() { printf '%s' "$_QM6_CHK" | tr ' ' '\n' | sed -n "s/^$1=//p" | head -1; }
     _QM6_ROUND="$(_QM6_KV round)"; _QM6_CAP="$(_QM6_KV max)"
     _QM6_EXCEEDED="$(_QM6_KV exceeded)"; _QM6_UNREADABLE="$(_QM6_KV unreadable)"
     _QM6_NOCHANGE="$(_QM6_KV nochange)"; _QM6_SEEN="$(_QM6_KV seen)"
-    if [ "${_QM6_EXCEEDED:-0}" = "1" ]; then
+    # 读数完整性判据（QM-6 第二轮 i5）：这五个键**必须都在且都是纯数字**。
+    # 为什么要单独一格：`_QM6_KV` 取不到值时返回空串，而下面每个分支都写 `${...:-0}`，
+    # 于是"CLI 输出形状变了"（改文案、加了前导日志、被 || 兜底成半行）在产物上读起来
+    # 完全像"没超限、继续跑"——上限这种闸，静默读空等于没有闸。
+    _QM6_UNPARSED=0
+    for _qm6_k in round max exceeded unreadable seen; do
+      _qm6_v="$(_QM6_KV "$_qm6_k")"
+      case "$_qm6_v" in (''|*[!0-9]*) _QM6_UNPARSED=1 ;; esac
+    done
+    if [ "${_QM6_UNPARSED:-0}" = "1" ]; then
+      say "外部评审轮次 读数不可用（缺键或非数字）"
+    elif [ "${_QM6_UNREADABLE:-0}" = "1" ]; then
+      say "外部评审轮次 账本读不出（不可据此证明还有预算）"
+    elif [ "${_QM6_EXCEEDED:-0}" = "1" ]; then
       say "外部评审轮次 已记 ${_QM6_ROUND:-?}/${_QM6_CAP:-?}（已达上限 ⇒ 本轮不调用模型）"
     elif [ "${_QM6_SEEN:-0}" = "1" ]; then
       say "外部评审轮次 ${_QM6_ROUND:-?}/${_QM6_CAP:-?}（同一载荷重跑，本轮不计数）"
@@ -898,11 +934,23 @@ run_driver_with_writeback() {
       case "${_QM6_ROUND:-}" in (*[!0-9]*|'') ;; (*) _QM6_THIS=$(( _QM6_ROUND + 1 )) ;; esac
       say "外部评审轮次 第 ${_QM6_THIS}/${_QM6_CAP:-?} 轮（本轮真调用外部评审，change=${_QM6_CHANGE}）"
     fi
-    if [ "${_QM6_UNREADABLE:-0}" = "1" ]; then
-      say "  ⚠ 轮次账本读不出 ⇒ 按未证实处理：本轮照常调用，但不得把「没跑过」当成结论。"
-    fi
     if [ "${_QM6_NOCHANGE:-0}" = "1" ]; then
       say "  ⚠ 该分支没有 openspec/changes/<分支>/ 目录 ⇒ 无账本可记，本轮不计数（也不代为创建）。"
+    fi
+    if [ "${_QM6_UNPARSED:-0}" = "1" ]; then
+      say "🔴 轮次读数不可用 ⇒ **不调用模型**，交人工。CLI 原文（已剥空白投影）："
+      say "  $(printf '%s' "$_QM6_CHK" | tr -d '\r' | head -3)"
+      say "  这一档刻意与「跑满了」分开：那不是配额用尽，是**判据自己没读数**——去修 CLI 或它的输出形状。"
+      exit 1
+    fi
+    if [ "${_QM6_UNREADABLE:-0}" = "1" ]; then
+      # 取向反转（第二轮评审 i3）：读不出从前"照常调用 + 一句告警"，等于把闸的开关交给
+      # 任何一次 `echo garbage > external-rounds.json`。零成本绕行的闸不叫闸。
+      # 与 nochange 分档：连目录都没有 = 这分支没规格（合法）；账本在但读不动 = 证据缺失（拦）。
+      say "🔴 轮次账本读不出 ⇒ 无法证明还有预算，本轮**不调用模型**，交人工。"
+      say "  要继续跑：人工看一眼那份 external-rounds.json（坏 JSON / 权限 / 被截断），修好再跑；"
+      say "  或直接人工收口 —— 不要删了账本文件再跑（那是把证据删了，不是把预算清出来了）。"
+      exit 1
     fi
     if [ "${_QM6_EXCEEDED:-0}" = "1" ]; then
       say "🔴 ESCALATED：外部评审已达轮次上限（${_QM6_ROUND}/${_QM6_CAP}），本轮**不再调用模型**，交人工裁决。"
@@ -924,8 +972,12 @@ run_driver_with_writeback() {
   # 记账排在驱动返回**之后**（口径 ③），且必须排在写回之前 —— 写回那段之后就是 exit，
   # 挪到它后面就有不执行的可能（本仓「释放必须发生在控制流正确位置」同型）。
   # 同一 sha 已记过就不再记（口径 ②）。这一步失败不改评审 rc（旁路语义），但要把读数打出来。
-  if [ -n "${_QM6_CHANGE:-}" ] && [ -n "$SHA" ] && [ "${_QM6_SEEN:-0}" != "1" ]; then
-    printf '  [rounds] %s\n' "$(node scripts/lib/ccg-review-rounds.js record "$_QM6_CHANGE" "$SHA" 2>&1 || echo 'counted=0 error=1')"
+  # 总是调用一次 record：计不计这一轮由 **(sha, 交付指纹)** 这个键在库里判，入口不预先跳过。
+  # 旧写法是 `[ "$_QM6_SEEN" != "1" ]`（这个 sha 记过就不调用），那正是第二轮评审 i4 中的那一格——
+  # 入口一跳过，"同一个 sha 又真跑出一批新交付"这件事在产物上就永远看不见。
+  if [ -n "${_QM6_CHANGE:-}" ] && [ -n "$SHA" ]; then
+    _qm6_post_fp="$(node scripts/lib/ccg-delivery-digest.js --print-fingerprint="$REC" 2>/dev/null || true)"
+    printf '  [rounds] %s\n' "$(node scripts/lib/ccg-review-rounds.js record "$_QM6_CHANGE" "$SHA" --delivery "$_qm6_post_fp" 2>&1 || echo 'counted=0 error=1')"
   fi
   node scripts/ccg-review-writeback.js \
     --record="$REC" --expected-critic="$RB_CRITIC" --before-sha256="$_wb_before" --before-fingerprint="$_wb_before_fp" \

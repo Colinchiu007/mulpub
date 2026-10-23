@@ -27,68 +27,16 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const ROOT = path.resolve(__dirname, '..')
 
 /** 写回器（及其 require 闭包）在真跑时会被入口调到；夹具必须把它们一起放进临时仓库。 */
-// 入口链真跑时要被 require / bash source 的文件集。
-// ⚠ 这里**不得再手抄清单**：2026-10-24 实测上游把闭环状态词搬进 `lib/exec-record-statuses.js`，
-// 手抄清单看不见它 ⇒ 夹具缺一个文件，CI 上红的是六条入口用例，而现场深处只有一句
-// `Cannot find module './lib/exec-record-statuses'`（在被测子进程的输出里，不在测试文案里）。
-// 种子只列「入口直接摸到的那几张面」，`.js` 的相对 require 由 `closureOf` 沿依赖边走出来；
-// 于是「上游新增一个 lib」这件事从此自动进闭包，不需要任何人对账。
-const SCRIPT_SEEDS = [
-  'deep-review.sh',
-  'ccg-review-writeback.js',
-  'ccg-review-decider.js',
-  'check-pr-exec-record.js',
-  'classify-docs-only.js',
-  'ccg-review-backends.list',
-  'lib/ccg-backends.sh'
-]
+// 入口链闭包**只有一份实现**：scripts/lib/deep-review-fixture-closure.js。
+// 动因（两次同形红，都是"手抄清单与真实依赖边漂开"）：① 上游把闭环状态词搬进
+// lib/exec-record-statuses.js ⇒ 本文件的旧手抄清单少拷一个文件，CI 上六条入口用例一起红；
+// ② 本刀给入口新增 lib/ccg-review-rounds.js 调用点 ⇒ **另一个**夹具（deep-review-deps）没跟着长。
+// 所以这里不再维护清单，也不许第二个消费者自带一份（⓱ 里有这条锁）。
+const { ENTRY_ROOTS, closureOf, entryClosure } = require('./lib/deep-review-fixture-closure')
 
-/** 沿 `require('./x')` 求传递闭包（只认相对 require；缺文件不静默跳过，收进 unresolved 由调用方点名）。 */
-function closureOf (scriptsRoot, seeds, unresolved = []) {
-  const out = new Set()
-  const queue = seeds.slice()
-  while (queue.length) {
-    const rel = queue.shift()
-    if (out.has(rel)) continue
-    out.add(rel)
-    if (!rel.endsWith('.js')) continue
-    const abs = path.join(scriptsRoot, rel)
-    if (!fs.existsSync(abs)) { unresolved.push({ from: '(seed)', rel }); continue }
-    const src = fs.readFileSync(abs, 'utf8')
-    const base = path.posix.dirname(rel) === '.' ? '' : path.posix.dirname(rel) + '/'
-    for (const m of src.matchAll(/require\((['"])\.\/([^'"]+)\1\)/g)) {
-      const target = base + m[2]
-      const withJs = target.endsWith('.js') ? target : target + '.js'
-      if (fs.existsSync(path.join(scriptsRoot, withJs))) queue.push(withJs)
-      else if (fs.existsSync(path.join(scriptsRoot, target))) queue.push(target)
-      else unresolved.push({ from: rel, rel: target })
-    }
-  }
-  return [...out].sort()
-}
-
-/** 入口 .sh 用 `node scripts/<x>.js` 形态调的文件。require 图看不见它们
- *  （本刀实测：纯 require 闭包会把 `lib/ccg-review-rounds.js` 整个丢掉，因为它是被 bash 调的，
- *   而 ⓮ 只能事后打回——闭包本身就该把它们收进来）。 */
-function bashInvoked (scriptsRoot) {
-  const sh = fs.readFileSync(path.join(scriptsRoot, 'deep-review.sh'), 'utf8')
-  const out = []
-  for (const m of sh.matchAll(/node [^\n]*?scripts\/([A-Za-z0-9_./-]+\.js)/g)) out.push(m[1])
-  return out
-}
-
-const SCRIPTS_DIR = path.join(ROOT, 'scripts')
-// 闭包退化（扫描命中 0 个）在产物上完全像「这个分支不需要那些脚本」，与把工具失明读成结论同型
-// ⇒ 下界断言 + .sh 必须在场，两件事一起守。
-const CLOSURE_UNRESOLVED = []
-const SCRIPT_CLOSURE = closureOf(
-  SCRIPTS_DIR,
-  SCRIPT_SEEDS.concat(bashInvoked(SCRIPTS_DIR)),
-  CLOSURE_UNRESOLVED
-)
-if (!SCRIPT_CLOSURE.includes('deep-review.sh') || SCRIPT_CLOSURE.length < 6) {
-  throw new Error(`脚本闭包退化（${SCRIPT_CLOSURE.length} 项）：${JSON.stringify(SCRIPT_CLOSURE)}`)
-}
+const CLOSURE = entryClosure(path.join(ROOT, 'scripts'))
+const SCRIPT_CLOSURE = CLOSURE.files
+const CLOSURE_UNRESOLVED = CLOSURE.unresolved
 
 const FAKE_DRIVER = `'use strict'
 // 假驱动：只复刻真引擎 ccg-deep-review.js 的**收口站点形状**（:1252-1256）——
@@ -573,7 +521,8 @@ test('⓱ 脚本闭包沿 require 与 bash 调用两条边传递：上游新增�
     `入口两侧都调的交付指纹实现必须在闭包里：${JSON.stringify(SCRIPT_CLOSURE)}`)
   assert.deepStrictEqual(CLOSURE_UNRESOLVED, [],
     `真树闭包不得有缺件（有就说明夹具会在被测子进程里炸成 Cannot find module）：${JSON.stringify(CLOSURE_UNRESOLVED)}`)
-  const backends = fs.readFileSync(path.join(SCRIPTS_DIR, 'ccg-review-writeback.js'), 'utf8')
+  const scriptsDir = path.join(ROOT, 'scripts')
+  const backends = fs.readFileSync(path.join(scriptsDir, 'ccg-review-writeback.js'), 'utf8')
   const required = [...backends.matchAll(/require\((['"])\.\/([^'"]+)\1\)/g)].map((m) => m[2])
   assert.ok(required.length > 0, `写回器应当有相对 require（实得 ${required.length} 条 ⇒ 扫描器读不到东西）`)
   for (const r of required) {
@@ -581,4 +530,34 @@ test('⓱ 脚本闭包沿 require 与 bash 调用两条边传递：上游新增�
     assert.ok(cands.some((c) => SCRIPT_CLOSURE.includes(c)),
       `写回器 require 的 ${r} 必须在闭包里（候选 ${JSON.stringify(cands)}，闭包 ${JSON.stringify(SCRIPT_CLOSURE)}）`)
   }
+  // **单一实现锁**：所有"把入口拷进临时仓库再真跑"的夹具都必须引用同一份闭包，
+  // 且不得在自己文件里再写一份算法——第二份不需要写错，只需要没人记得同步（这两次红的共同成因）。
+  for (const f of ['deep-review-entry-rc.test.js', 'deep-review-deps.test.js']) {
+    const src = fs.readFileSync(path.join(scriptsDir, f), 'utf8')
+    assert.match(src, /require\((['"])\.\/lib\/deep-review-fixture-closure\1\)/,
+      `${f} 必须引用共享闭包实现（自带一份清单就一定会漂）`)
+    assert.ok(!/function\s+closureOf\s*\(/.test(src),
+      `${f} 不得自带第二份闭包算法；要扩大闭包只有"加真入口"或"让两条边走到它"两种正当方式`)
+  }
+})
+
+test('⓲ 轮次 CLI 跑不起来（缺文件）必须自成一档：不得冒充「账本读不出」', (t) => {
+  // 现场：本刀给入口加了 lib/ccg-review-rounds.js 这个调用点，而 deps 那份手抄闭包没跟着长 ⇒
+  // 三条与本刀无关的用例红成"入口说账本读不出、于是不调模型"，归因指向一个**根本没坏**的文件。
+  // 这一条锁的就是那两句文案不许再互相冒充：动作相同（都拦），修的对象不同（装文件 vs 修 json）。
+  const fx = makeFixture(t)
+  fs.rmSync(path.join(fx.dir, 'scripts', 'lib', 'ccg-review-rounds.js'))
+  const before = fs.readFileSync(fx.recFile, 'utf8')
+
+  const r = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
+  assert.strictEqual(r.rc, 1,
+    `CLI 没跑起来必须拦下本轮（无证据不放行），实得 rc=${r.rc}\n${r.out.slice(-2500)}`)
+  assert.match(r.out, /轮次判据 CLI 未正常退出/,
+    `要说出真实那一档（判据没跑起来），实得：\n${r.out.slice(-2500)}`)
+  assert.ok(!/轮次账本读不出/.test(r.out),
+    '不得说成「账本读不出」——那会把人支使去查一份没坏的 external-rounds.json（本刀就是这么绕的）')
+  assert.match(r.out, /Cannot find module|不调用模型/,
+    `必须带上 CLI 原文或"本轮不调用模型"，让人一眼看到缺的是谁：\n${r.out.slice(-2500)}`)
+  assert.strictEqual(fs.readFileSync(fx.recFile, 'utf8'), before,
+    '判定记录一个字节都不能动 —— 动了就是驱动其实被调了，"不调模型"是假话')
 })

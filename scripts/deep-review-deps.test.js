@@ -441,15 +441,13 @@ function resolveGitBashB () {
  *   「非 .ccg 改动」，导致「有改动却无记录 ⇒ 报故障」这条判据在**每一个**场景里都命中
  *   （首版正栽在这里：正向场景没报故障、反向场景反而报了）。夹具必须只含被测对象。
  */
-/** 真跑出口在驱动返回之后要调的那一步，及其 require 闭包（夹具必须与生产同形）。 */
-const ENTRY_WRITEBACK_CLOSURE_B = [
-  'ccg-review-writeback.js',
-  'ccg-review-decider.js',
-  'check-pr-exec-record.js',
-  'classify-docs-only.js',
-  'lib/ccg-review-backends.js',
-  'lib/ccg-delivery-digest.js'
-]
+/** 真跑出口在驱动返回之后要调的那一步，及其 require 闭包（夹具必须与生产同形）。
+ *  ⚠ 这份清单**不在本文件里维护**：2026-10-24 实测本刀给入口加了 lib/ccg-review-rounds.js 与
+ *  lib/ccg-delivery-digest.js 两个调用点，而这份手抄清单没人提醒去长 ⇒ 三条既有行为用例红，
+ *  且红法误导（入口把"CLI 跑不起来"当成"账本读不出"）。闭包只有一份实现，两位消费者共用。 */
+const { entryClosure } = require("./lib/deep-review-fixture-closure")
+const ENTRY_CLOSURE_B = entryClosure(pathB.join(ROOT, "scripts"))
+const ENTRY_WRITEBACK_CLOSURE_B = ENTRY_CLOSURE_B.files
 
 function makeRepoWithoutRecordB () {
   const dir = fsB.mkdtempSync(pathB.join(osB.tmpdir(), 'dr-behav-'))
@@ -486,6 +484,12 @@ fsB.copyFileSync(pathB.join(ROOT, 'scripts', 'lib', 'ccg-backends.sh'), pathB.jo
     fsB.mkdirSync(pathB.dirname(dst), { recursive: true })
     fsB.copyFileSync(pathB.join(ROOT, 'scripts', rel), dst)
     fsB.appendFileSync(infoExclude, '\nscripts/' + rel + '\n')
+  }
+  // 闭包缺件必须在这里出声：少拷一个文件的症状是"入口深处一句 Cannot find module"，
+  // 而那会被本刀入口读成"账本读不出"——红落在无关用例上，归因还指错对象。
+  if (ENTRY_CLOSURE_B.unresolved.length) {
+    throw new Error('入口闭包缺件（deps 夹具会少拷文件）：'
+      + ENTRY_CLOSURE_B.unresolved.map((u) => `${u.from} -> ${u.rel}`).join(' , '))
   }
   fsB.mkdirSync(pathB.join(dir, '.ccg', 'reviews'), { recursive: true })
   return dir
