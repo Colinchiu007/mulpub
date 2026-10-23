@@ -1,3 +1,4 @@
+const __pkgLogger = require('../logger') // shipinhao-chain-logger
 // 视频号（微信 channels）视频发布适配器（W1 §4.4：变薄委托新链 ShipinhaoVideoChain）
 // 外部接口不变（constructor 'tencent_video'、getReferer/getOrigin/getHeaders、
 // uploadVideo/uploadCover/buildPostData/publish、继承 base-adapter 的 execute），
@@ -27,7 +28,8 @@ class ShipinhaoAdapter extends BasePlatformAdapter {
   // ids：{finderId, finderUin} 透传给链（_log_finder_id / weixinnum）。
   _chain(cookie, clients, ids) {
     if (this._chainOverride) return this._chainOverride;
-    return new ShipinhaoVideoChain(Object.assign({ cookie, userAgent: UA, apiBase: this.apiBase }, ids || {}, clients || {}));
+    const chainLogger = { log: (...args) => { try { __pkgLogger.info('shipinhao-video', args.join(' ')) } catch (_) { /* 日志失败不阻塞 */ } } } // shipinhao-chain-logger
+    return new ShipinhaoVideoChain(Object.assign({ cookie, userAgent: UA, apiBase: this.apiBase, logger: chainLogger }, ids || {}, clients || {}));
   }
 
   // 上传：authKey → applyuploaddfs → 逐片 uploadpartdfs → completepartuploaddfs，
