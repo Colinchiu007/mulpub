@@ -199,6 +199,16 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
             let chooserDone = false
             try { chooserDone = await this._uploadViaFileChooser(win, article.video_path) }
             catch (_e10) { log.warn('RpaView', '[tencent_video] chooser threw: ' + _e10.message) }
+            // dropViaCdpGuard：视频号上传区是纯拖拽区（点击不弹原生选择器），改用 CDP 真实拖放。
+            if (!chooserDone && typeof this._dropViaCdp === 'function') {
+              let dropped2 = false
+              try { dropped2 = await this._dropViaCdp(win, article.video_path, '[class*=upload],[class*=dragger],[class*=drop],div[class*=empty]') }
+              catch (_e11) { log.warn('RpaView', '[tencent_video] cdp-drop threw: ' + _e11.message) }
+              if (dropped2) {
+                const ok2 = await this._waitForVideoUploadComplete(win, platform, 600000, { fileBytes: readVideoFileBytes(article.video_path) }).catch(() => false)
+                if (ok2) { fillReport.upload = { ok: true }; retry.markDone('file_upload'); this._emitProgress(platform, 'file uploaded', 40); break }
+              }
+            }
             if (chooserDone) {
               const ok = await this._waitForVideoUploadComplete(win, platform, 600000, { fileBytes: readVideoFileBytes(article.video_path) }).catch(() => false)
               fillReport.upload = ok ? { ok: true } : { ok: false, detail: '选择器注入后未等到上传完成信号' }
@@ -321,6 +331,35 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       try { await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: false }) } catch (_) {}
       if (attachedHere) { try { dbg.detach() } catch (_) {} }
     }
+  },
+
+
+  /**
+   * 2026-10-23：视频号上传区是**纯拖拽区**（点击不弹原生选择器，实测两次 no fileChooserOpened）。
+   * 用 CDP Input.dispatchDragEvent 把真实文件路径拖进去（dragData.files 支持绝对路径）。
+   */
+  async _dropViaCdp (win, filePath, selector) {
+    const path = require('path')
+    const dbg = win.webContents.debugger
+    let attached = false
+    try {
+      if (!dbg.isAttached()) { dbg.attach('1.3'); attached = true }
+      await dbg.sendCommand('DOM.enable')
+      const doc = await dbg.sendCommand('DOM.getDocument', { depth: -1 })
+      const q = await dbg.sendCommand('DOM.querySelector', { nodeId: doc.root.nodeId, selector })
+      if (!q || !q.nodeId) { log.warn('RpaView', 'cdp-drop: target not found ' + selector); return false }
+      const box = await dbg.sendCommand('DOM.getBoxModel', { nodeId: q.nodeId })
+      const c = box.model.content
+      const x = (c[0] + c[2] + c[4] + c[6]) / 4
+      const y = (c[1] + c[3] + c[5] + c[7]) / 4
+      const data = { items: [], files: [path.resolve(filePath)], dragOperationsMask: 1 }
+      for (const type of ['dragEnter', 'dragOver', 'drop']) {
+        await dbg.sendCommand('Input.dispatchDragEvent', { type, x, y, data })
+      }
+      log.info('RpaView', 'cdp-drop: dispatched ' + path.basename(filePath) + ' -> ' + selector)
+      return true
+    } catch (e) { log.warn('RpaView', 'cdp-drop failed: ' + e.message); return false }
+    finally { if (attached) { try { dbg.detach() } catch (_) { /* ignore */ } } }
   },
 
 }
