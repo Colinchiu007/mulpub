@@ -2,9 +2,6 @@
 record: credit-pricing-envelope-node
 task: 官方 Key 的 Node 侧信封加密模块（change compute-key-envelope-migration 第 2 组 2.1-2.5）
 date: 2026-10-23
-sync_status: PENDING
-sync_reason: 本 PR 尚未合并，merge SHA 还不存在
-sync_backfill_owner: 下一个会话（合并后回填）
 ---
 
 ## 本次执行记录：官方 Key 的 Node 侧信封加密模块（credit-pricing-envelope-node，2026-10-23）
@@ -27,7 +24,7 @@ sync_backfill_owner: 下一个会话（合并后回填）
 | QM-1 打包 | N/A | 未触 `apps/desktop/electron/`；新增模块位于 `packages/api-publish-engine/src/cloud-accounts/`，零第三方依赖（仅 `node:crypto`），不改变任何既有 require 链 |
 | QM-4 视觉 | N/A | 无 UI 变更 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本环境无 `codeagent-wrapper`；**不以自审冒充通过**。替代验证：**变异反证**（见下）——三条锁各自确认「破坏实现即变红」，比单测全绿更能证明锁有效 |
-| 远程同步 | PENDING | 合并后取 `git log origin/main --grep='(#NNNN)$' --format=%H\|%cI` 回填，`git ls-remote --heads origin credit-pricing-envelope-node` 返回 0 行证远端分支已删；回填后删除上方三个 sync_* 字段 |
+| 远程同步 | PASS | PR #4307 已 squash 合并为 `f271e8e6e0955433fab99356af7c3ffc896af941`（2026-10-23T05:26:57Z / 13:26:57+08:00）；合并后远端分支 `credit-pricing-envelope-node` 经 GraphQL `ref(qualifiedName:)` 查询确认**已删除**；CI 23 项全部 SUCCESS，`mergeStateStatus = CLEAN`。**取证说明**：merge commit 的**首行**含 `(#4307)`、但不在**行尾**，故 `git log --grep='(#4307)$'` 匹配不上，本条直接写 SHA 与时间（原因见「落库方式与 commit message 的偏差」）。frontmatter 三个 `sync_*` 字段在同一次回填提交中删除 |
 
 ## 交付内容（change tasks 第 2 组）
 
