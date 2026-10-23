@@ -55,10 +55,12 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4291#issuecomment-6355431744",
+    "reviewedAt": "2026-10-23T01:45:00Z",
+    "findings": 4,
+    "closureNote": "QM-6 跨家族外部评审已执行（claude 2.1.303，非本实现作者家族），原始输出逐字公开于 evidence。1 Critical + 1 High + 1 Medium + 1 Low。①Critical「doesNotThrow 会在 git 缺失时空过」不成立——execFileSync 在 ENOENT/非零退出都会抛，doesNotThrow 会红；仍改写为 spawnSync+显式退出码判定。②High「api.env 只匹配精确名，备份文件未覆盖」成立→改 api.env* + !api.env.example，并加 deploy/logto/.env。③Medium 显式写 deploy/logto/.env。④Low 模板加「不要填真实值」横幅。自查另抓到一条假绿：git check-ignore 默认跳过已跟踪文件，导致「模板未被忽略」这条断言永远不可能失败；加 --no-index 后才真正判定，变异「删掉取反」从 6 pass/0 fail 变为 5 pass/1 fail。"
   }
 }
