@@ -207,13 +207,13 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
           await this._sleep(2000); continue
         }
         await this._setFileInput(win, article.video_path, fileSel)
-        // tencent drop fallback（2026-10-23 截图取证）：视频号发布页的上传区是拖拽区，
-        // CDP/DataTransfer 设 input 后页面仍是空框（截图 evidence），必须再走 DragEvent drop。
-        if (platform === 'tencent_video' && typeof this._dropFilesToDragArea === 'function') {
+        // 2026-10-23：视频号即使 _setFileInput 返回成功，页面仍可能不接受文件（截图实证）。
+        // always try the chooser：无条件再用 CDP 文件选择器注入一次，作为第二通道。
+        if (platform === 'tencent_video' && typeof this._uploadViaFileChooser === 'function') {
           try {
-            const dropped = await this._dropFilesToDragArea(win, article.video_path, '[class*=upload],[class*=dragger],[class*=drop]')
-            log.info('RpaView', '[tencent_video] drop fallback: ' + dropped)
-          } catch (_e8) { log.warn('RpaView', '[tencent_video] drop fallback failed: ' + _e8.message) }
+            const ok2 = await this._uploadViaFileChooser(win, article.video_path)
+            log.info('RpaView', '[tencent_video] chooser second pass: ' + ok2)
+          } catch (_e8) { log.warn('RpaView', '[tencent_video] chooser second pass failed: ' + _e8.message) }
         }
         // 完成判定：百家号看「预览/编辑器/发布按钮可用」，其余平台走上传等待器
         let uploadDone
