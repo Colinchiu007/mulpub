@@ -400,6 +400,10 @@ export async function offlineClearCache() { return invokeWithFallback("offlineCl
 
 export function onOfflineRestored(callback) { return bridgeOn("OfflineRestored", callback) }
 
+/** 主进程侧网络状态变化（UX 审计 1.7）：断网方向也会推送，载荷 `{isOffline, cachedCount}`。
+ *  与 onOfflineRestored 同为"事件订阅"，返回取消函数；桥不可用时 bridgeOn 自己返回 no-op。 */
+export function onOfflineLost(callback) { return bridgeOn("OfflineLost", callback) }
+
 export function showNotification (data) {
   return invoke("showNotification", data)
 }
