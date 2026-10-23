@@ -114,8 +114,14 @@
 
 - [x] 6.1 执行记录 `openspec/records/qm6-exit-capability-probe.md`：QM-5 ①②④⑤ + 现场读数 + `## CHANGELOG 条目`
       （4.3 的两口径 numstat 与门禁批跑读数补在该记录里）
-- [ ] 6.2 QM-6：本刀差量命中 `scripts/ccg-convergence-` 吗？—— `HIGH_RISK_SURFACES` 现读 10 条，
-      命中的是 `.github/workflows/`（改了 `quality-gate.yml`）⇒ 按矩阵须 `tier=external` + 可核 `evidence`；
-      拿不到工具署名（本刀恰好测的就是"拿不到"这一格）时按 #4234 / #4305 先例人工闭环，
-      并在产物里逐字声明"tier 由会话手写"
-- [ ] 6.3 合并后回读该 merge SHA 的 `quality-gate.yml` push run，读数写进 PR 评论；再按 R1–R7 清 worktree
+- [x] 6.2 QM-6：三轮真跑（critic=`claude` / proposer=`opencode`，真源 `scripts/ccg-review-backends.list`）。
+      本刀差量命中的高危面前缀是 **`.github/workflows/` 一格**（`HIGH_RISK_SURFACES` 现读 10 条逐文件比对；
+      `scripts/ccg-convergence-` / `scripts/qm6-exit-` 都不在表里 —— 事实陈述，不主张扩表）。
+      第 3 轮收敛 `status=self_play_resolved`、`blocking=[]`，但写回器拒签 `reason=backend-mismatch`（五条合取只欠 `performedBy`）
+      ⇒ 按 #4234 / #4305 先例人工闭环：`tier=external` + `evidence=<PR #4326 评论 issuecomment-6372031270>`，
+      `closureNote` 逐字声明"由会话手写"；enforce 判据 ⇒ `TIER-COVERAGE dual-closed total=1 external=1 external-unverified=0` + `OK`
+- [ ] 6.3 合并与收尾（**被主干红挡住，非本刀原因**）：`merge-when-green.sh` 读数 `verdict=STOP_MAIN_RED newRed=0 mainFail=1`；
+      主干 `QG Changes` 的 `Gate 2b11` 自 `c2c0bb085` 起连红（run `40002327074` / `40009177457`），
+      六条红全在 `scripts/deep-review-entry-rc.test.js`（本机同一条聚合命令 44/44 绿 ⇒ 差异落在 runner 平台），
+      且本刀改动集与那一步**无文件交集**。修复已有主：在飞 #4347-#4350 ⇒ 按"修复有主就别开第三刀"不再动本分支。
+      任一修复落主干后重跑 `bash scripts/merge-when-green.sh 4326 squash --delete-branch`，再按收尾清单做 main push 回读与 R1-R7 清理
