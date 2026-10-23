@@ -134,6 +134,11 @@ const OPEN_SITES_GUARDED_IN_MAIN = [
   'src/composables/usePublishHistoryContentLink.js', // 发布记录卡片点击打开平台链接：首选 tabStore.createTab 应用内新标签；
   // createTab 失败降级 window.open(url,'_blank')，URL 已过渲染端 safeHttpUrl，
   // window.open 再由主进程 setWindowOpenHandler → isAllowedExternalUrl 更严判据兜底（PRD-PUBLISH-HISTORY-CARD-OPEN-LINK-2026-10-03）
+  // 2026-10-15 随 PRD-PUBLISH-RESULT-LINK-INAPP-TAB 登记：发布结果/发布记录「查看文章」的
+  // 应用内新标签通道。与上一条同构——普通左键先 createTab（URL 已过渲染端 safeHttpUrl），
+  // 建标签失败才降级 window.open(url,'_blank','noopener')，最终仍由主进程
+  // setWindowOpenHandler → isAllowedExternalUrl 兜底。改这里必须同步 PRD §5 降级表。
+  'src/composables/useInAppLink.js',
 ]
 
 /**
