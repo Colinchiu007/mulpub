@@ -197,7 +197,7 @@ class ToutiaoVideoChain {
     if (this._csrf) return this._csrf
     const fromCookie = pickCsrfToken(this.cookie)
     if (fromCookie) { this._csrf = fromCookie; return fromCookie }
-    const pool = ['/mp/agw/article/wtt/list', '/profile_v4/xigua/upload-video', '/api/pc/feed/']
+    const pool = ['/mp/agw/article/wtt/list', '/profile_v4/xigua/upload-video', '/profile_v4/manage/content/video', '/xigua/api/upload/getAuthKey/', '/api/pc/feed/']
     for (const p of pool) {
       try {
         const res = await this.mp.request({
@@ -205,7 +205,9 @@ class ToutiaoVideoChain {
           headers: { Cookie: this.cookie, 'User-Agent': this.userAgent, Referer: this.mpBase + '/profile_v4/xigua/upload-video', Origin: this.mpBase, 'x-secsdk-csrf-request': '1', 'x-secsdk-csrf-version': '1.2.7' },
           validateStatus: (st) => st >= 200 && st < 500,
         })
-        const raw = (res.headers && (res.headers['x-ware-csrf-token'] || res.headers['x-csrf-token'])) || ''
+        const hdr = (res.headers || {})
+        const raw = hdr['x-ware-csrf-token'] || hdr['x-csrf-token'] || hdr['x-tt-token'] || ''
+        if (this.logger) this.logger.log('toutiao csrf probe ' + p + ' status=' + res.status + ' hdrs=' + Object.keys(hdr).filter(function(k){return k.indexOf('csrf')>=0||k.indexOf('token')>=0}).join(',') + ' raw=' + String(raw).slice(0,40))
         const tok = String(raw).split(',')[1] || String(raw)
         if (tok) { this._csrf = tok; if (this.logger) this.logger.log('toutiao csrf bootstrapped from ' + p); return tok }
       } catch (_eCsrf) { /* 换下一个候选 */ }
