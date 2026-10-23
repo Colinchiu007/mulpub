@@ -147,3 +147,41 @@ phase-failed error="竖版视频暂不支持 API 发布，请使用 RPA 发布"
 3. 用户可见提示文案沿用平台原文语义：「竖版视频暂不支持 API 发布，请使用 RPA 发布」，并在任务详情里注明已自动改走 RPA。
 
 **反面教材**：曾按「平台有视频 ⇒ 走 API」一刀切路由，结果竖版任务 100% 在 prepare 阶段失败，且失败被记成「发布失败」而非「轨选择错误」。
+
+## 8.7 登录态双存储：凭证库 vs 浏览器 session（2026-10-23 实测）
+
+### 现象
+
+用户重新扫码登录视频号后，程序仍报未登录。四次测量：
+
+| # | 测量 | 读数 |
+| --- | --- | --- |
+| 1 | App 侧凭证库 cookie 长度 | `cookieLen 142 → 284`（**登录已生效**） |
+| 2 | CDP 页面 URL | `https://channels.weixin.qq.com/login.html` |
+| 3 | CDP `context.cookies(...)` | **0 条** |
+| 4 | 页内 `POST helper_upload_params` | `errCode=300334`（登录前为 `300342`） |
+
+### 结论（数据校验）
+
+- 登录态写入**应用凭证库**（加密存储 / 账号分区），而 RPA 发布页读取的是 **Electron 浏览器 session 的 cookie**。
+- 二者之间没有同步桥 ⇒ 页面永远判定未登录，API 轨的 Step1 也拿不到 `authKey`。
+- 错误码变化（`300342 → 300334`）本身即是「登录确实落在别处」的反证。
+
+### 修复（PR #4321）
+
+- 在 `rpa-view-manager.js` 解析出 cookie 字符串后，按 cookie 名逐条调用
+  `session.defaultSession.cookies.set({ url, name, value, domain, path })`。
+- 域名映射：`tencent_video → .weixin.qq.com`；`toutiao → .toutiao.com`。
+- 成功日志：`cookie inject -> browser session: N cookies platform=… domain=…`。
+- 失败仅 warn，不阻塞发布（fail-open：注入失败时退回原有行为，不应让整条发布中止）。
+
+### 交互与提示文字
+
+- 成功：INFO 级一行，含注入条数、平台、域名。
+- 失败：内部 warn，不向用户提示，避免把内部通道问题暴露为产品错误。
+- 用户侧无新增按钮或文案；登录仍走既有「账号管理 → 重新登录」。
+
+### 为什么头条当时不加此修复
+
+- 头条 14:24 的运行已达成 `file uploaded` + `title input hasTitle=true`，说明其会话有效。
+- 验证窗口前 15 分钟内不引入变量，是今天确立的纪律。
