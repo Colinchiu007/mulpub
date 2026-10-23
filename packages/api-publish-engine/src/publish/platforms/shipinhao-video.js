@@ -182,7 +182,7 @@ class ShipinhaoVideoChain {
       try { meta.taskid = require('crypto').randomUUID() } catch (_e0) { meta.taskid = String(Date.now()) + Math.random().toString(16).slice(2) }
     }
     return meta && meta.taskid
-  },
+  }
 
   async applyUpload (meta) {
     this._ensureTaskId(meta)
