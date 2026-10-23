@@ -1,0 +1,70 @@
+{
+  "sha": "865f5ce3dda5a8078e918ab1f47bdb0f68001f3a",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 739 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 739,
+    "fileCount": 18,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2fb8d15dc71b99b6c1d99c6bfc16d1c995d9306568209e5dccdeb565866ddbd6",
+  "decidedAt": "2026-10-23T05:33:45.557Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "tier": "unknown",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": null,
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-23T05:35:19.027Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对**当前 PR 最终状态**已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineVerdictBeforeClosure": "pending（引擎终态只有 self_play_resolved / self_play_blocked：全部 dismissed ⇒ resolved；任一项 upheld ⇒ blocked。没有「指控成立但已在同 PR 后续提交修复」这一态，故无法由引擎自身闭环）",
+      "adjudicationTemplate": null,
+      "findingsFilled": 0,
+      "note": "本记录的 findings 已逐条裁决（逐条 prosecution / defense / verdict / rationale 见对应的 .adversarial/ccg-deep-*/adjudication.json），且**每条 upheld 都已在本 PR 的后续提交里修好**，修法由该刀的回归锁与变异反证反证（读数见 openspec/records/login-observe-coverage.md）。",
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：本次外部评审针对的是本记录所对应的那次提交；其后每条 upheld 的修复都由本 PR 的后续提交承载，用新增的回归锁与变异反证（全 CAUGHT）反证其正确性。"
+      ]
+    }
+  }
+}

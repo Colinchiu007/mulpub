@@ -1,0 +1,186 @@
+{
+  "sha": "2267d5178ec291d573b32644ffb99fcdf40991e7",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 85 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 85,
+    "fileCount": 10,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7b953a6191874aaa6bcfe12c0ed34537962f72bc8b30fd0afb4bb9835380be6a",
+  "decidedAt": "2026-10-22T17:34:44.310Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "needs_revision",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/*.json references SHA 2267d517... but proposal head is d2cd13a...; review artifact points to wrong commit, untrustable linkage.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "记录里的 sha=2267d5178 与 proposal head=d2cd13a0 不是同一个提交 ⇒ 评审产物可能指向错误提交，链接不可信。",
+        "defense": "记录的**寻址键不是 sha**，而是 stagedDiffHash（diff 内容哈希，64 位）：sha 字段只是 pre-commit 判定时点的 HEAD 快照（pre-commit 跑在 commit 生成之前）。deep-review.sh 明确打印「判定记录按 diff 内容寻址命中: 7b953a61（stagedDiffHash）」，并在同一处自述「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」。下游 check-pr-exec-record.js 认 40 位（父 sha）与 64 位（内容寻址键）两种命名，且**按内容判**（mode / deepReview / decidedBy 三键），不看文件名猜。实测 2267d5178 正是本次提交的父 commit（= PR #4241 的 squash 落点），sha256 抗碰撞 ⇒ 同名只可能是同一份 diff。",
+        "verdict": "dismissed",
+        "rationale": "事实（sha 与 head 不同）属实，但结论「链接不可信」不成立：链路靠 diff 内容哈希寻址，sha 是判定时点快照。两处独立口径（deep-review.sh 的内容寻址命中、check-pr-exec-record.js 的按内容判）都能定位到同一条记录，指控把「快照字段不同」读成了「寻址错误」。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "Mutation M4 escaped because negative example other-captcha/@latest/captcha.js lacked true /captcha/ segment, failing to stress combination anchor; fix required manual strengthening.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "M4（去掉 /sec_sdk_build/ 条件）首轮 ESCAPED ⇒ 负例没有真正压到组合锚点上，判据强度不足，靠人工补强才能拦住。",
+        "defense": "（无有效辩护——指控所述事实完全属实。）",
+        "verdict": "upheld",
+        "rationale": "属实。根因：原负例 `…/obj/static-us/other-captcha/@latest/captcha.js` 的路径里**没有真正的 `/captcha/` 段**（末尾是 `captcha.js`），因此「去掉 sec_sdk_build 条件」它也不变 ⇒ 钉不住。已修：① 补一条真含 `/captcha/` 段但不在版本目录下的负例 `…/obj/some/other/dir/captcha/index.js`；② 连带补 `not-captcha/`（带前缀、不含前导斜杠）与百分号编码变体两条反例。复跑读数：M1~M6 **全 CAUGHT**，跑后源文件 md5 与跑前逐一相等（before=after=560126389f5b）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "Two new monitor domains increase webRequest.filter scope; proposal shows no event-volume delta or perf regression note.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "新增两个监测域扩大了注册给 webRequest 的过滤范围，但提案没有给事件量增量或性能回归说明 ⇒ 无法判断会不会刷屏或拖慢。",
+        "defense": "（无有效辩护——提案确实缺这一节。）",
+        "verdict": "upheld",
+        "rationale": "属实。已修：proposal 增补「影响面量化」表 —— 过滤模式 20 → 24 条（10 → 12 域，每域两条 `://域/*` 与 `://*.域/*`）；慢请求日志条数上限 `SLOW_REQUEST_LOG_LIMIT = 20` **不变**（硬闸，防刷屏）；新增日志只有失败/HTTP≥400/慢请求三类且各有上限；监测域匹配仍按平台**编译一次并缓存**（O(1)）；未登记平台过滤面与「观测层永不读响应体」两条边界**一字不动** ⇒ 无性能回归面，也无日志量失控面。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "CAPTCHA_SDK_DIR_MARKER and CAPTCHA_SDK_SEGMENT exported in module.exports without documented external consumers.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "CAPTCHA_SDK_DIR_MARKER / CAPTCHA_SDK_SEGMENT 被导出到 module.exports，但没有任何外部消费者 ⇒ 死导出。",
+        "defense": "（无有效辩护——导出确实没被引用。）",
+        "verdict": "upheld",
+        "rationale": "属实：当时测试用的是字面量 URL，没引用常量。已修：新增用例断言 `monitor.CAPTCHA_SDK_DIR_MARKER === '/sec_sdk_build/'` 且 `monitor.CAPTCHA_SDK_SEGMENT === '/captcha/'` ⇒ 导出有了正当消费者，且常量被悄悄改宽当场红。真实 URL 仍写字面量（不用常量拼），避免测试与实现同源导致「改了实现测试也跟着变」的失真。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "path.indexOf segment matching risks false positives in nested filenames or URL-encoded variants (e.g. not-captcha/, encoded slashes).",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "path.indexOf 段匹配在嵌套文件名或 URL 编码变体上有误报风险（如 not-captcha/、编码斜杠），可能把非验证码资源判成验证码组件。",
+        "defense": "组合锚点要求两个**带前导斜杠**的段同时出现：`not-captcha/` 这类形态不含前导斜杠 ⇒ `indexOf('/captcha/')` 不命中；`pathOf` 取 `new URL(url).pathname`，**不解码** `%2F` ⇒ 百分号编码变体不命中；版本目录下带 `/captcha/` 段的资源本身就是验证码相关资源，判为组件不构成误报。",
+        "verdict": "dismissed",
+        "rationale": "指控描述的通用风险在本组合判据下不成立：段锚点带前导斜杠且要求两段同时出现，误报面为零。已按建议**加固**：新增 `not-captcha/` 与百分号编码变体两条反例并钉住；「查询串里出现标记不算」那条既有负例原样保留（中途曾误删，已补回）。"
+      }
+    ],
+    "template": "openspec/changes/login-observe-domain-coverage/adjudications/round1-d2cd13a0.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i6）",
+    "at": "2026-10-23T00:57:21.491Z",
+    "debtClosure": {
+      "closedBy": "agent(Lead)",
+      "at": "2026-10-23T03:32:13.598Z",
+      "gatedBy": "scripts/check-pr-exec-record.js::evaluateDeepReviewDebt（只查 mode===dual）",
+      "remedy": "按该门禁判据给出的补救路径：确认判定对**当前 PR 最终状态**已不成立后，在记录里写明原因并把 status 置为闭环值（白名单 needs_revision）",
+      "engineVerdictBeforeClosure": "self_play_pending（引擎终态只有 self_play_resolved / self_play_blocked：全部 dismissed ⇒ resolved；任一项 upheld ⇒ blocked。没有「指控成立但已在同 PR 后续提交修复」这一态，故无法由引擎自身闭环）",
+      "adjudicationTemplate": ".adversarial/ccg-deep-d2cd13a0/adjudication.json",
+      "upheldFixedInThisPr": [
+        "i2",
+        "i3",
+        "i4"
+      ],
+      "dismissedByEvidence": [
+        "i1",
+        "i6"
+      ],
+      "items": [
+        {
+          "id": "i2",
+          "verdictAtReview": "upheld",
+          "fixedIn": "本 PR 同批提交（login-observe-coverage）",
+          "evidence": "原负例路径里没有真正的 `/captcha/` 段（末尾是 `captcha.js`）⇒ 去掉 `sec_sdk_build` 条件也不变、钉不住。已补：真含 `/captcha/` 段但不在版本目录下的负例，并连带补 `not-captcha/` 与百分号编码变体两条反例。复跑 M1~M8 全 CAUGHT，源文件 md5 跑前跑后逐一相等（before=after=3a418b534dc8e7a1187b5568e760d6ad）。"
+        },
+        {
+          "id": "i3",
+          "verdictAtReview": "upheld",
+          "fixedIn": "本 PR 同批提交（login-observe-coverage）",
+          "evidence": "proposal 增补「影响面量化」表：过滤模式 20→24 条（10→12 域，每域两条）；慢请求日志条数上限 SLOW_REQUEST_LOG_LIMIT=20 不变；监测域匹配仍按平台编译一次并缓存（O(1)）；未登记平台过滤面与「观测层永不读响应体」两条边界一字不动。"
+        },
+        {
+          "id": "i4",
+          "verdictAtReview": "upheld",
+          "fixedIn": "本 PR 同批提交（login-observe-coverage）",
+          "evidence": "新增用例断言 monitor.CAPTCHA_SDK_DIR_MARKER === '/sec_sdk_build/' 且 CAPTCHA_SDK_SEGMENT === '/captcha/' ⇒ 导出有了正当消费者，且常量被悄悄改宽当场红。真实 URL 仍写字面量，不用常量拼，避免测试与实现同源失真。"
+        },
+        {
+          "id": "i1",
+          "verdictAtReview": "dismissed",
+          "fixedIn": null,
+          "evidence": "记录的寻址键是 stagedDiffHash（diff 内容哈希 64 位），sha 字段只是 pre-commit 判定时点的 HEAD 快照（脚本自述「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上」）。实测 2267d5178 正是本次提交的父 commit。"
+        },
+        {
+          "id": "i6",
+          "verdictAtReview": "dismissed",
+          "fixedIn": "按建议加固",
+          "evidence": "组合锚点要求两个带前导斜杠的段同时出现；not-captcha/ 不含前导斜杠故不命中；pathOf 取 new URL(url).pathname 不解码 %2F ⇒ 编码变体不命中。已加固：新增 not-captcha/ 与百分号编码变体两条反例并钉住，「查询串里出现标记不算」那条既有负例原样保留。"
+        }
+      ],
+      "infoOnlyNotAdjudicated": [
+        {
+          "id": "i5",
+          "severity": "Info",
+          "finding": "Design D4 correctly excludes sdk-glue.js from captcha event via combination logic; aligns with semantic requirement.",
+          "disposition": "正反馈，无需改代码；已在 design.md §D4 保留该排除理由（风控 glue 加载完 ≠ 验证码就绪，把它算进去会让「灰显遮罩结束」这个读数提前）。"
+        },
+        {
+          "id": "i7",
+          "severity": "Info",
+          "finding": ".openspec.yaml is minimal (schema/created only); missing title, tier, priority metadata.",
+          "disposition": "已补：.openspec.yaml 增加 title / tier / priority / parent / version 字段（parent 指向上一刀 login-slot-reuse-and-toutiao-diagnostics，说明本 change 是它的补正而非独立功能）。"
+        }
+      ],
+      "noteOnItemNumbering": "本轮引擎产出 7 条 findings（i1~i7），其中 i5 与 i7 为 **Info** 级 ⇒ 引擎的待裁决清单只列非 Info 的 5 条（i1/i2/i3/i4/i6）。**i5 不是「被跳过」**：它是「D4 正确排除 sdk-glue.js」的正反馈，信息级、无需裁决。「记录只列 5 条」与「评审共 7 条」两件事由本字段对账（外部评审第二轮 i6 指的就是这一处不透明）。",
+      "residualNotClosed": [
+        "本次闭环**不等于**对最终 diff 的一次全新评审：第一轮外部评审针对的是 commit d2cd13a0 的 diff；i2/i3/i4 三处修复由本 PR 随后的提交承载，用新增的回归锁（真含 `/captcha/` 段的负例 ×3、常量断言 ×1、具名谓词优先级 ×1）与变异反证 M1~M8 全 CAUGHT 反证其正确性。",
+        "字节自家 CDN 对那个埋点脚本的 504、以及本机链路首包偏慢，都**不在**本仓可修范围内 ⇒ 本 change 只保证「该被看见的都被看见」，不保证「看见之后能修」。"
+      ]
+    },
+    "templateOriginal": ".adversarial/ccg-deep-d2cd13a0/adjudication.json",
+    "deepReviewNote": "findings 由 .adversarial 裁决文件真实回填"
+  }
+}

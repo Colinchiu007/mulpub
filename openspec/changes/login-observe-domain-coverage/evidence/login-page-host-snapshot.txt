@@ -1,0 +1,36 @@
+# 头条号登录页静态引用的资源域 —— 快照（域来源的可复现证据）
+
+# 抓取方式：GET https://mp.toutiao.com/ ，从 HTML 的静态引用（script src / link href / img src）里提取主机名。
+# 抓取命令：curl.exe -sL --max-time 30 -o login-page.html https://mp.toutiao.com/
+# 抓取时刻（UTC）：2026-10-23T03:40:38Z
+# 抓取内容的 SHA-256：5fea4f3992e1132a33434c16e79e877622d8f26906a2769e943de7a9f9cde66d（61,014 字节）
+#   —— 有了它，本快照的完整性可被事后核对：重新抓一次、哈希相同 ⇒ 登录页没变；
+#      哈希不同 ⇒ 平台改版过，本清单需要按本 change 的同法重新取样（见 design.md §D7）。
+# 为什么需要这份快照（2026-10-22 CCG 外部评审 i2：新增监测域缺来源验证链）：
+#   上一刀登记监测域用的是「运行时请求流」这个取数口，而图形验证码组件是
+#   点「发送验证码」之后才按需加载的 ⇒ 首屏观测抓不到它。本快照是互补的第二个取数口。
+#   对照代码里的 PLATFORM_MONITORED_HOSTS（apps/desktop/electron/services/login-network-monitor.js）。
+# 复现方式：仓库内 openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs
+#   是变异反证的可复现载体；本快照的域清单可用上面的抓取命令 + 同样的主机名提取规则复现。
+
+# ---- 本刀新增的两条（此前两个取数口都漏了）----
+#   yhgfb-cn-static.com  验证码中心：承载真正生效的图形验证码入口
+#   bytetos.com          风控 glue
+
+# ---- 主机名清单 ----
+lf-c-flwb.bytetos.com                          /obj/rc-client-security/web/glue/1.0.0.61/sdk-glue.js
+lf-cdn-tos.bytescm.com                         /obj/static/filter-xss/filter-xss-lastest.umd.js
+lf-content-ecology.toutiaostatic.com           /obj/tt-content-ecology-fe/pgcfe/mp/web/resource/vendors~dde893e5_6242fb3d27aac6b8.css
+lf-headquarters-speed.yhgfb-cn-static.com      /obj/rc-client-security/web/stable/1.0.1.15/bdms.js
+lf-rc1.yhgfb-cn-static.com                     /obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js
+lf-rc2.yhgfb-cn-static.com                     /obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js
+lf-security.bytegoofy.com                      /obj/security-secsdk/runtime-v1.0.0.js
+lf1-cdn-tos.bytegoofy.com                      /obj/goofy/secsdk/secsdk-lastest.umd.js
+lf3-cdn-tos.bytegoofy.com                      /obj/goofy/secsdk/secsdk-lastest.umd.js
+lf3-short.ibytedapm.com                        /slardar/fe/sdk-web/browser.cn.js
+lf6-cdn-tos.bytegoofy.com                      /obj/goofy/secsdk/secsdk-lastest.umd.js
+mon.zijieapi.com                               /monitor_browser/collect/batch/?biz_id=web_bdms_cn
+mp.toutiao.com                                 /gf/exclusive?enter_from=menu\
+www.douyin.com                                 /falcon/webcast_openpc/pages/streamingtool_download/index.html\   [excluded-by-design：刻意不入监测域，见 EXCLUDED_HOSTS 与其排除理由]
+
+# host-count=14

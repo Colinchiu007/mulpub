@@ -18,7 +18,79 @@
  */
 
 /**
+ * **刻意不**纳入监测域的域（2026-10-22 CCG 外部评审第五轮 i6：只写在文档里的「刻意排除」
+ * 会被后续重构误删或误加 ⇒ 必须**编码进代码**，让误改当场可查）。
+ *
+ * 快照 `evidence/login-page-host-snapshot.txt` 里出现、但**不**进监测域的域：
+ * - `www.douyin.com`（抖音域）：头条号登录页引用了它的脚本，但抖音域**不是头条号登录链路
+ *   必需的域**，且它承载大量与登录无关的资源 ⇒ 纳入只会把观测面无谓地扩大。
+ *
+ * 这条清单与监测域清单是**互斥**的两面：登录页引用了什么（证据）、
+ * 我们看哪些（覆盖面）、我们**故意不看**哪些（及其理由）。
+ */
+const EXCLUDED_HOSTS = Object.freeze(['www.douyin.com'])
+
+/**
+ * 观测面的**可执行边界清单**（2026-10-22 CCG 外部评审 i1：边界只写在注释里，
+ * 删掉注释就没有任何运行时保障 —— 注释不是门禁；第二轮 i1 又指出「声明成常量但
+ * 没有代码消费它」同样只是装饰性安全剧场）。
+ *
+ * 因此每条边界都带**两种可执行约束**，回归锁逐条扫源码验证：
+ * - `forbidden`：源码（去注释后）**不得**出现的形态；
+ * - `required`：源码**必须**出现的形态。
+ * 声明与锁**同源**（都在这份清单里），改一处即改两处。
+ *
+ * ⚠️ 如实登记：观测层**唯一的请求级动作**是 `attachLoginPageNoiseCancel`
+ * ——它①**默认关闭**（需 `MP_LOGIN_NOISE_CANCEL=1` 显式开启）②只取消
+ * `LOGIN_NOISE_FILTERS` 里的噪声 URL ③**不改写**任何请求或响应内容。
+ * 这条不是「不拦截」，而是「带闸门的、默认关闭的噪声取消」，
+ * 由 `noiseCancelGated` 两条 `required` 锁住。
+ *
+ * ⚠️ 域来源证据（外部评审 i2：新增监测域要有来源验证链）：
+ * `openspec/changes/login-observe-domain-coverage/evidence/login-page-host-snapshot.txt`
+ * 记录了登录页静态引用的域快照（抓取时刻 + 每个域的一个实例资源路径），
+ * 与本模块的 `PLATFORM_MONITORED_HOSTS` 逐条对照。域清单是**字面量数组**（白名单），
+ * 不是动态拼接或从响应里学来的。
+ */
+const OBSERVATION_GUARD = Object.freeze({
+  readOnly: Object.freeze({
+    forbidden: Object.freeze([/\bfilterResponseData\b/, /\bredirectURL\b/]),
+    why: '观测层只读事件：不改写请求或响应的任何内容'
+  }),
+  noOutbound: Object.freeze({
+    forbidden: Object.freeze([/\bfetch\s*\(/, /\bnet\.request\b/, /\bhttps?\.request\s*\(/]),
+    why: '观测数据只写本机日志：观测层不得发起任何网络请求'
+  }),
+  noCredentialLogging: Object.freeze({
+    forbidden: Object.freeze([/\bcookie\b/i, /\bauthorization\b/i, /\bset-cookie\b/i]),
+    why: '不记录 Cookie / 授权头等凭证值'
+  }),
+  responseBodyGated: Object.freeze({
+    required: Object.freeze([/monitor\.OBSERVATION_GUARD\.readsResponseBodyPlatforms\.indexOf/]),
+    why: '读响应体必须过「已登记平台」闸门；闸门代码必须存在且排在读体调用之前'
+  }),
+  noiseCancelGated: Object.freeze({
+    required: Object.freeze([/MP_LOGIN_NOISE_CANCEL !== '1'/, /\bisLoginPageNoiseUrl\b/]),
+    why: '观测层唯一的请求级动作是「默认关闭的登录噪声取消」，且只取消噪声 URL'
+  }),
+  readsResponseBodyPlatforms: Object.freeze(['zhihu'])
+})
+
+/**
  * 按平台的监测域（实测得来的头条号登录链路资源域）。
+ *
+ * ⚠️ **观测面的显式边界**（2026-10-22 CCG 外部评审 i4：扩大监测域清单时，
+ * 「隐式的只读假设」不够，必须写成看得见的守卫）：
+ * 本清单只决定「**哪些请求会被看见**」，**不决定**「看到什么、怎么处理」。下列四条
+ * 是硬边界，任何改动都不得放宽：
+ * 1. **只读** —— 观测层只产出「主机名 / 路径 / 耗时 / 字节数 / 状态码」这类元信息，
+ *    **永不读取响应体**（`Network.getResponseBody` 在观测层被显式禁用；
+ *    未登记匹配器的平台更是显式不读响应体）。
+ * 2. **不外发** —— 观测数据只写本机日志，**不经任何网络通道回传**。
+ * 3. **不拦截** —— 观测层只读事件，**不改写、不阻断**任何请求。
+ * 4. **不记录凭证** —— 不记录 Cookie 值、请求体、响应体；日志 URL 去 query 与 fragment。
+ * ⇒ 扩大监测域清单 = 扩大「被看见的请求集合」，**不等于**扩大数据出站面。
+ *
  * @type {Record<string, string[]>}
  */
 const PLATFORM_MONITORED_HOSTS = {
@@ -32,7 +104,10 @@ const PLATFORM_MONITORED_HOSTS = {
     'ibytedapm.com',
     'snssdk.com',
     'zijieapi.com',
-    'bytedance.com'
+    'bytedance.com',
+    // ── 2026-10-22 现场补测（从 https://mp.toutiao.com/ 实际抓到的登录页资源清单）──
+    'yhgfb-cn-static.com', // 验证码中心：lf-rc{1,2}.…/obj/rc-verifycenter/sec_sdk_build/<ver>/captcha/index.js
+    'bytetos.com'          // 风控 glue：lf-c-flwb.…/obj/rc-client-security/web/glue/<ver>/sdk-glue.js
   ]
 }
 
@@ -136,13 +211,61 @@ function isMonitoredHost (platform, url) {
 const CAPTCHA_SDK_MARKERS = ['/secsdk-captcha/', '/webmssdk/']
 
 /**
+ * 验证码组件的**组合锚点**（2026-10-22 现场补测）。
+ *
+ * 动因：从 https://mp.toutiao.com/ 实际抓到的登录页资源清单显示，**真实生效**的
+ * 验证码入口是字节「验证码中心」的版本目录形态：
+ *   `lf-rc{1,2}.yhgfb-cn-static.com/obj/rc-verifycenter/sec_sdk_build/4.0.10/captcha/index.js`
+ * 该形态**既不匹配**上面的两个单段锚点（路径里没有 `secsdk-captcha`、也没有 `webmssdk`），
+ * 于是「记录图形验证码组件加载完成」这条承诺在真实链路上对这条入口**不生效**。
+ * 现场读数：该文件首包冷时 2.65~2.96s、命中边缘后 0.13s ⇒ 正是「灰显几秒」那段波动的来源。
+ *
+ * 为什么是**两个段一起**判、而不是再加一个单段锚点：
+ * - 只认 `/captcha/` ⇒ 任何路径里带 captcha 字样的无关资源都会误判（噪声淹没真信号）；
+ * - 只认 `/sec_sdk_build/` ⇒ 该版本目录下的非验证码资源也会被算成验证码组件（灰显时刻读数失真）。
+ * 两个段同时出现才命中，判据仍然窄；且 `/sec_sdk_build/` 是字节验证码中心的版本目录，
+ * 专属性足够。
+ */
+const CAPTCHA_SDK_DIR_MARKER = '/sec_sdk_build/'
+const CAPTCHA_SDK_SEGMENT = '/captcha/'
+
+/**
+ * 组合锚点判定：版本目录段与组件段**同时**出现才算验证码组件。
+ *
+ * 为什么抽成**具名谓词**（2026-10-22 CCG 外部评审 i3：复合 `&&` 直接写在返回语句里，
+ * 对后来的维护者是「哪一段是必要的、优先级如何」的隐式表达）：
+ * - 具名后，「两段缺一不可」这件事在函数名与 docstring 里自明；
+ * - 可被**单独**测试（不必经 `isCaptchaSdkUrl` 的 URL 解析层）；
+ * - 意图与实现分离，将来若要放宽或收紧，改动点唯一。
+ *
+ * ⭐ **形式化规格**：`openspec/changes/login-observe-domain-coverage/specs/desktop-logging/spec.md`
+ * 的「**图形验证码组件的判定 MUST 覆盖真实链路上出现过的路径形态**」Requirement，
+ * 其中「判定 MUST 是**组合锚点**（版本目录段与组件段**同时**出现）」是**强制约束**，
+ * 并附「只满足组合锚点其中一段的不算组件」「版本目录下但非验证码资源的不算组件」两条场景。
+ * 本谓词是该 Requirement 的**唯一实现点** ⇒ 改动它等于改动规格，须同步 spec.md。
+ *
+ * @param {string} path
+ * @returns {boolean}
+ */
+function isCombinedCaptchaAnchor (path) {
+  if (!path) return false
+  const hasVersionDir = path.indexOf(CAPTCHA_SDK_DIR_MARKER) !== -1
+  const hasCaptchaSegment = path.indexOf(CAPTCHA_SDK_SEGMENT) !== -1
+  // 两段必须**同时**具备：
+  // - 只认组件段 ⇒ 任何路径带 captcha 字样的无关资源都命中 ⇒ 噪声淹没真信号；
+  // - 只认版本目录段 ⇒ 该目录下非验证码资源也被算成组件 ⇒ 灰显时刻读数失真。
+  return hasVersionDir && hasCaptchaSegment
+}
+
+/**
  * @param {string} url
  * @returns {boolean}
  */
 function isCaptchaSdkUrl (url) {
   const path = pathOf(url)
   if (!path) return false
-  return CAPTCHA_SDK_MARKERS.some(function (m) { return path.indexOf(m) !== -1 })
+  if (CAPTCHA_SDK_MARKERS.some(function (m) { return path.indexOf(m) !== -1 })) return true
+  return isCombinedCaptchaAnchor(path)
 }
 
 /** 慢请求阈值（毫秒）：超过即认为「这一步卡了」。可经 MP_LOGIN_SLOW_REQUEST_MS 覆盖。 */
@@ -174,8 +297,13 @@ const SLOW_REQUEST_LOG_LIMIT = 20
 
 module.exports = {
   PLATFORM_MONITORED_HOSTS,
+  EXCLUDED_HOSTS,
+  OBSERVATION_GUARD,
   TIMING_OBSERVE_PLATFORMS,
   CAPTCHA_SDK_MARKERS,
+  CAPTCHA_SDK_DIR_MARKER,
+  CAPTCHA_SDK_SEGMENT,
+  isCombinedCaptchaAnchor,
   DEFAULT_SLOW_REQUEST_MS,
   SLOW_REQUEST_LOG_LIMIT,
   monitoredHostsOf,
