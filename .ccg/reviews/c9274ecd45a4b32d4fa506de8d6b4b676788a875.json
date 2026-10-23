@@ -1,0 +1,58 @@
+{
+  "sha": "c9274ecd45a4b32d4fa506de8d6b4b676788a875",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"rationale\": \"critic 给的两条出路（complete token tables 或 clearly label as future-work proposal）本 PR **两条都做了**：既补全了逐令牌对照表，也保留了未决项标注。外部复核证据：critic（claude）的原始输出与逐条处置结论已逐字发布在 PR 评论 https://github.com/Colinchiu007/mulpub/pull/4351#issuecomment-6374691315 。另需说明：本条被判为高危域（highRiskDomains: [\\\"auth\\\"]）的触发词是 finding 文本里的 \\\"token\\\"（\\\"dark-mode token mappings\\\"）——分类正则按工程高频词宽匹配所致，与鉴权无关；按仓规高危项不接受自扮演豁免，故以公开评论作为可核外部证据，并把 performedBy 记为实际产出该意见的 critic（claude）。\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-23T21:17:09.375Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
