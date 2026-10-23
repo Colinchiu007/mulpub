@@ -509,6 +509,51 @@ providerId 的老数据自然失效（用户重新克隆即可）——迁移要
 ⑤ 若支持字幕：把 id 加进 `avatarSubtitleSupported` 白名单；
 ⑥ 上述五步之外，**不改** UI 布局、IPC 契约、流水线编排。
 
+### A.5.4 素材上传的 provider 契约差异（Blob vs file_id）
+
+两家对「上传素材」的契约不同：
+
+| 服务商 | createAvatar 接受的形式 |
+|---|---|
+| HeyGen | **直接收二进制**（Blob） |
+| 飞影 HiFly | **只收 `*_url` 或 `file_id`**，不收二进制 |
+
+**适配位置：adapter 内闭环**，不在 service 分叉。
+
+理由：「怎么把素材送到服务商」是该服务商的实现细节。若在 service 里写
+`if (providerId === 'hifly')`，每加一家就多一个分支，且 service 会同时懂两家的上传协议。
+
+**飞影侧三步**（`hifly-clone.js` 的 `ensureFileId`）：
+① `POST /tool/create_upload_url`（要 `file_extension`）换上传地址
+② `PUT` 传二进制到 `upload_url`，**只设 `Content-Type`，不再发 `Authorization`**（预签名 URL 自带凭证）
+③ 拿 `file_id`，随 `create_by_image` / `create_by_video` / `voice/create` 下发
+
+**后缀推断三级兜底**（踩过的坑）：Blob **没有文件名**，而飞影必须要 `file_extension`：
+
+| 优先级 | 来源 | 说明 |
+|---|---|---|
+| 1 | 显式 `fileName` | service 会传 |
+| 2 | Blob 的 MIME 反查 | MIME 子类型不总等于扩展名，需别名表：`audio/mpeg → mp3`、`video/quicktime → mov`、`image/jpeg → jpg` |
+| 3 | `type` 兜底 | `photo → png` / `digital_twin → mp4` / `audio → mp3` |
+
+**已修的两个静默错配缺陷**（同类，不同链路）：
+
+| # | 位置 | 症状 |
+|---|---|---|
+| 1 | `CreateView.vue` 启动参数 `params.videoProvider = 'heygen'` 写死 | 切到飞影后启动仍发 heygen，主进程拿 HeyGen adapter 解析飞影的 avatar id |
+| 2 | `avatar-clone-remote.js` 的 `AVATAR_CLONE_PROVIDER = 'heygen'` 写死 | 切到飞影后点「用照片创建」实际调 HeyGen，拿到的 avatar id 存进飞影的 registry，生成视频时飞影不认 |
+
+两者共同点：**id 是同形的（都是 look id），所以不报错**，只是不属于当前服务商。
+用户看到的是「克隆成功了但生成视频失败」。修法都是「providerId 一律由 owner / 当前选中项传入，常量只兜底」。
+
+### A.5.5 形象克隆的 fail-closed 现状（已知，非回归）
+
+`_base/base.js` 的 `KNOWN_METHODS` **未登记** `createAvatar` / `getAvatarStatus` / `deleteAvatar`，
+因此 `callAdapter` 的 `supports()` 闸门会拦下这三个方法，返回 `{ ok: false, detail: 'OPERATION_NOT_SUPPORTED' }`。
+
+这是**计划内的 fail-closed**：等真实 clone 首跑核对字段名后才登记（#4194 踩过「登记了但契约是错的」的坑）。
+当前表现为：点「用照片创建 / 用视频创建」会得到「当前数字人服务商暂时不可用」提示，不会产生半截状态、不会留下付费孤儿资产。
+
 
 ## A.6 数据校验
 
