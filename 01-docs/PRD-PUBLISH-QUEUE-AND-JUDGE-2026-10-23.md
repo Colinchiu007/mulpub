@@ -192,3 +192,37 @@ phase-failed error="竖版视频暂不支持 API 发布，请使用 RPA 发布"
 
 - 2026-10-23 13:52 起验证「主机修正后 Step5 是否可直接成功」。
 - 若 Step5 因缺少视频登记而失败，则补 `post_clip_video`：其 `traceInfo` 需记录上传开始/结束时间戳（`getTimeStamp(10)`），`targetWidth/Height` 在竖版时按 `width<=height` 分支取 1080 或 1920 上限。
+
+## 8.6 今日头条：上传已通、提交被封面阻断（2026-10-23 14:24 真机）
+
+### 实测时间线（账号 7ae99805，真文案《被误解的明朝》）
+
+| 时间 | 事件 | 判读 |
+| --- | --- | --- |
+| 14:24:25 | `add-video NO_BTN` | 「添加视频」按钮未出现，改走 file input 直传 |
+| 14:26:52 | `file uploaded` | **视频确实上传成功**（历史首次在该分支达成） |
+| 14:26:52 | `title input hasTitle=true selectorCount=4` | 标题框已出现并填写成功 |
+| 14:27:16 | `cover dialog closed after failure: none` | 封面弹窗被尝试关闭（未找到取消键） |
+| 14:27:17 | `cover path failed: no-next` | **「下一步」持续不可点** |
+| 14:27:17 | `publishing...` | 执行了发布点击 |
+| 14:27:19 | `publish confirm dialog clicked: CONFIRMED_IN_MODAL:确定` | 点到的是**弹窗内的「确定」**，非发布确认 |
+| 14:27:46 | `artifact 未命中：no-endpoint-hit` | **没有任何发布请求发出** |
+| 14:28:00 | `publish failed … 缺少平台作品 ID` | 判定失败 |
+
+### 结论（数据校验）
+
+- **上传链路已修通**：`file uploaded` + `title input hasTitle=true` 两条同时成立，可证明视频已附着。
+- **提交未发生**：`_startPublishNetworkCapture` 已启用（禁用模式 0 处），但捕获到 **0 条**发布请求 ⇒ 不是判定器抓不到，是请求没发出。
+- **最可能的阻断点**：封面未设置成功（`no-next`）。头条很可能要求封面必填，缺封面时发布按钮为禁用态，点击不产生请求。
+- **`CONFIRMED_IN_MODAL:确定` 不可作为提交证据**：该「确定」来自弹窗作用域（`modals[s].querySelectorAll`），而上一行正是封面弹窗失败，二者时间相邻（1 秒内）。
+
+### 下一步取证（已排程 15:45）
+
+- 新增 `cover dialog shape: <控件清单> :: <弹窗文字>` 日志：在「下一步」不可点时 dump 弹窗内全部 `button/div[role=button]/span/a` 的文本与 `disabled` 态，以及弹窗整体文案。
+- 判据：若出现 `请上传封面/请选择封面/尺寸不符` 等文案 ⇒ 按提示补输入；若按钮全为 `dis=true` ⇒ 需先完成前置选择；若无按钮 ⇒ 弹窗结构与预期不符，需重新采集选择器。
+
+### 交互与提示文字（当前实现）
+
+- 失败提示：`封面设置失败，已关闭弹窗继续发布`（warn 级，不阻塞主流程）
+- 关窗尝试顺序：`取消` → `关闭` → `×`，均未命中时记录 `none`
+- 关窗后固定等待 800ms 再继续，避免点击落在遮罩上。
