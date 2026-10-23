@@ -172,6 +172,22 @@ class RpaViewManager {
                 }
               }
             } catch (_e) { /* 注入失败不阻塞发布 */ }
+            // 2026-10-23：复用参考产品的做法——直接用浏览器里那份 cookie 串。
+            // 实测：视频号账号分区只有 4 条 cookie（头条 41 条）⇒ API 轨 Step1 必然 300334。
+            // 若浏览器 session 里已有更完整的同域 cookie（用户在应用窗口里登录过），就用它覆盖。
+            if (platform === 'tencent_video') {
+              try {
+                const { session } = require('electron')
+                const jar = await session.defaultSession.cookies.get({ domain: '.weixin.qq.com' })
+                if (jar && jar.length > 10) {
+                  const str = jar.map((c) => c.name + '=' + c.value).join('; ')
+                  if (str.length > String(cookie || '').length) {
+                    log.info('RpaView', 'harvest -> api cookie: ' + jar.length + ' cookies (was ' + String(cookie || '').length + ' chars)')
+                    cookie = str
+                  }
+                }
+              } catch (_e3) { /* 收割失败沿用原 cookie */ }
+            }
           } else {
             log.warn('RpaView', 'API publish cookie fallback empty: reason=' + fallback.reason + ' probed='
               + ((fallback.probed || []).length) + ' platform=' + platform + ' accountId=' + (acctId || '(none)'))
