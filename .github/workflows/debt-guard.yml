@@ -22,7 +22,25 @@ concurrency:
 jobs:
   debt-guard:
     name: 债务熔断检查
-    runs-on: windows-latest
+    # ⛔ 必须 ubuntu-latest，不得占 windows-latest 的并发额度（2026-10-23 实测）。
+    #    本作业三步全是「纯 node + git」：`check-debt-budget.js` / `check-max-lines.js` +
+    #    它的 node:test 自测 / `detect-unwired-exports.js` —— **无任何 Windows 专属依赖**
+    #    （与 ci-failure-handler.yml 里那条注释同一族理由：那家已经因为同样理由挪到 ubuntu）。
+    #    动因：Windows 托管池是本仓最紧的一档，而**主干读数恰恰卡在等 Windows**：
+    #    `check-main-red.js` 的基线是「主干链上最后一次完整跑完的那一版」，
+    #    主干上排队的作业全是 Windows（债务熔断门禁 / Electron CI / GUI Tests）⇒
+    #    门禁基线长时间取不到 ⇒ 每个 PR 的本地判据都停在 STOP_MAIN_RED。
+    #    实测 2026-10-23：同批次的纯 ubuntu 作业（quality-gate）零排队，
+    #    而本作业在 Windows 池上排队 40+ 分钟。
+    #
+    #    平台无关性（迁 runner 前必须逐条核过，不能只凭「都是 node」）：
+    #      · 行数口径 `fs.readFileSync(fp,'utf8').split(NEWLINE).length` —— CRLF 与 LF 同数
+    #        （CRLF 只是一个换行符终结的片段，尾随的 CR 不额外计行）⇒ 读数不受 checkout
+    #        的 autocrlf 影响；
+    #      · `check-debt-budget.js` 里的路径一律 `.replace(/\\/g,'/')` 归一 ⇒ 两平台同键名；
+    #      · `detect-unwired-exports.js` 零平台引用。
+    #    ⇒ 判定结果与 runner 无关，作业名（required check 的键）也不变。
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     defaults:
       run:
