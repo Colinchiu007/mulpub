@@ -324,9 +324,7 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         walkDeep(deepDoc.root)
         if (_inputNodeId) {
           await dbg.sendCommand('DOM.setFileInputFiles', { files: [require('path').resolve(filePath)], nodeId: _inputNodeId })
-          log.info('RpaView', 'cdp-drop: deep-input setFileInputFiles ok nodeId=' + _inputNodeId)
-          try { dbg.detach() } catch (_eD) {}
-          return true
+          log.info('RpaView', 'cdp-drop: deep-input setFileInputFiles ok nodeId=' + _inputNodeId + ' (not returning; fall through to shadow-scan)')
         }
         log.info('RpaView', 'cdp-drop: deep-input found no file input')
       } catch (eD) { log.warn('RpaView', 'cdp-drop: deep-input failed ' + (eD && eD.message ? eD.message.slice(0,80) : '')) }
