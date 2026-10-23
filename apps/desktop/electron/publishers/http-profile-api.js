@@ -13,6 +13,12 @@
  * 依赖方向单一：http-login-checker.js require 本模块；本模块**不**反向 require
  * （否则成环）。契约：字段缺席 = 不修改；异常/非 2xx 只返回已合并到的部分；
  * 只读端点；凭据出口按目标主机过滤 + 平台域名闸门（见 scopedCookieHeader）。
+ *
+ * 拆分记录（2026-10-23）：本文件一度涨到 643 行，越过「逐文件行数门禁」的 500 行红线。
+ * 拆出两块（依赖方向仍单向）：
+ *   ./profile-value-rules      —— 通用形态规则（trimText / toCount / 头像 URL 归一 / 昵称白名单）
+ *   ./wechat-mp-profile-parser —— 公众号登录页模板的身份解析（parseWechatMpIdentity）
+ * 本文件保留的是「资料来源表 + 取数编排」—— 也就是与平台无关的那一半。
  */
 const log = require('../services/logger')
 const {
@@ -20,6 +26,12 @@ const {
   hasPlatformSessionCookie,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 const { normalizeUid, cookieValue } = require('./platform-uid')
+const {
+  trimText,
+  toCount,
+  pickAvatarUrl,
+} = require('./profile-value-rules')
+const { parseWechatMpIdentity } = require('./wechat-mp-profile-parser')
 
 /** HTTP 超时（毫秒）—— 登录判定与资料抓取共用同一常量（单一真源，不各写一份） */
 const HTTP_TIMEOUT_MS = 8000
@@ -36,78 +48,11 @@ function cookiesToHeader (cookies) {
   return cookies.filter(c => c && c.name && c.value).map(c => c.name + '=' + c.value).join('; ')
 }
 
-
-function toCount (v) {
-  const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() ? Number(v) : NaN)
-  if (!Number.isFinite(n) || n < 0) return undefined
-  return Math.round(n)
-}
-
-/**
- * 公众号 loginpage HTML 的身份解析 —— **唯一实现**。
- * 登录判定表（uid 提取）与账号资料表（昵称 + uid）读的是同一页，
- * 各写一份正则必然漂移（昵称抽到了但 uid 没抽到这类半命中最难查）。
- *
- * 依赖与校验（CCG 评审 i3）：
- * - 依赖：页面模板内嵌 `uin: "<数字>"` 与 `nick_name: "<名字>"` 两处赋值。
- *   模板改版会让这里取不到 —— 属**如实降级**（取不到就不产出，不猜），
- *   不做「换个正则再试」，因为那只会把「模板变了」伪装成「账号没登录」。
- * - 校验：uid 走 `normalizeUid` 形态白名单（占位值 `0`/`null`/`{{userId}}` 一律拒绝）；
- *   昵称拒绝空串与模板占位（`{{nickname}}` 之类），避免把模板变量当账号名落库。
- * @param {unknown} html
- * @returns {{nickname: string, platformAccountId: string}}
- */
-function parseWechatMpIdentity (html) {
-  if (!html || typeof html !== 'string') return { nickname: '', platformAccountId: '' }
-  // 明确登录页形态优先短路：即便页面内出现示例 uin / nick_name 也不产出
-  // （与 checkHtml 同一黑名单口径）
-  if (/扫码登录|请使用微信扫码|请登录|welcome_login/.test(html)) return { nickname: '', platformAccountId: '' }
-  const uinMatch = /uin:\s{0,}"([0-9]{3,})"/.exec(html)
-  const uid = normalizeUid(uinMatch && uinMatch[1])
-  const nickMatch = /nick_name\s*[:=]\s*"([^"]{1,40})"/.exec(html)
-  let nickname = trimText(nickMatch && nickMatch[1])
-  // 模板占位不是昵称：SSR 未填充时页面里会原样输出 `{{nickname}}` 之类的字面量
-  if (/^\{\{.*\}\}$/.test(nickname) || !nickname) nickname = ''
-  // 失效可观测（CCG 评审 i3 的「记录失效日志」）：页面**不像登录页**却取不到身份字段
-  // ⇒ 多半是模板改版，而不是账号没登录。这类情况静默降级会让排查无从下手，故出声。
-  if (!uid && !nickname && !/扫码登录|请使用微信扫码|请登录|welcome_login/.test(html)) {
-    log.warn('HttpLoginChecker', 'wechat_mp: loginpage looks signed-in but identity fields not parsed (template change?) html len=' + html.length)
-  }
-  return { nickname, platformAccountId: uid }
-}
-
 /**
  * 平台原生 ID（platform_uid）的取值原语拆到 ./platform-uid —— 三条取数通道
  * （json / html / cookie）必须共用同一份形态白名单与唯一性守卫；各写一份会让云端
  * 合并键的判定漂移，并被两侧单测互相印证为正确。
  */
-
-function trimText (v) {
-  return typeof v === 'string' ? v.trim() : ''
-}
-
-/**
- * 条目是否具备「登录检测」能力：必须有端点 URL 和一种判定函数。
- * 只有 uid 提取来源（uidSource:'cookie'，如快手）没有端点，不得被当成登录检测支持，
- * 否则 tryHttpLoginCheck 会对一个不存在的 URL 发请求并污染登录态结论。
- * @param {HttpCheckApi|undefined} api
- * @returns {boolean}
- */
-
-function pickAvatarUrl (value) {
-  if (typeof value === 'string') return trimText(value)
-  if (!value || typeof value !== 'object') return ''
-  const list = Array.isArray(value.url_list) ? value.url_list : null
-  if (list) {
-    for (const item of list) {
-      const url = trimText(item)
-      if (url) return url
-    }
-  }
-  return trimText(value.url || value.uri || '')
-}
-
-/** 去掉首尾空白；非字符串一律返回空串（与 account-profile.trimText 同口径） */
 
 // ─── 账号资料来源（昵称/头像/粉丝数/平台ID）─────────────────────────────
 //
@@ -261,16 +206,40 @@ const HTTP_PROFILE_APIS = {
   wechat_mp: [
     {
       // 公众号没有可用的 JSON user-info 端点（仓库既有结论，且本轮实测
-      // cgi-bin/userinfo 返回 404）。昵称取自**登录态同页**的 loginpage HTML：
-      // 页面模板内嵌 `nick_name`（见 mp.weixin.qq.com 自身模板与仓库既有夹具）。
-      // 头像该页不提供 → 仍走 DOM 采集（img.user_avatar）。
+      // cgi-bin/userinfo 返回 404）。昵称/头像/平台ID 全部取自**登录态同页**的
+      // loginpage HTML：页面模板内嵌 `window.wx.commonData.data` 账号资料对象，
+      // 字段含 `nick_name_decode` / `real_nick_name`（昵称）、`head_img` / `head_url`（头像）、
+      // `uin`（平台ID）—— 2026-10-23 实测模板原文（见 parseWechatMpIdentity 的判据表）。
+      //
+      // ★ 头像**零新增请求**即可拿到：竞品逆向成果里的线索是另一个端点
+      //   `misc/getheadimg?fakeid=`，但模板本身就带头像字段，用同一页更省且不引新端点。
       url: 'https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome',
       headers: { Referer: 'https://mp.weixin.qq.com/', Accept: 'text/html,application/xhtml+xml' },
       responseType: 'html',
       extract: (html) => {
         const id = parseWechatMpIdentity(html)
+        // 解析器本身**无 logger**（同一段解析在登录判定侧也会被调用，副作用必须留在调用点）。
+        // 告警只依赖 `id.reason`，**不再自己判登录页关键词**（CCG 评审 i5 / i7）：
+        // ① 页面异常大 ⇒ 直接放弃解析，出声否则排查时看不到「为什么取不到」；
+        // ② 页面**不像登录页**却一个身份字段都没解析出 ⇒ 多半是模板改版而非账号没登录，
+        //    静默降级会让排查无从下手，故出声。
+        //    「不像登录页」这件事由 reason 本身表达：登录页在解析器里短路成 reason='login_page'，
+        //    走到这里的 identity_fields_* 只可能是「不是登录页却没解析出」。
+        if (id.reason === 'page_too_large') {
+          log.warn('HttpLoginChecker', 'wechat_mp: page too large, skip parse bytes=' + Buffer.byteLength(String(html || ''), 'utf8'))
+        } else if (id.reason === 'identity_fields_missing' || id.reason === 'identity_fields_invalid') {
+          log.warn('HttpLoginChecker', 'wechat_mp: loginpage looks signed-in but identity fields not parsed reason=' + id.reason + ' (template change?)')
+        } else if (id.reason === 'nickname_invalid') {
+          // 昵称取到了但形态不合格（超长 / 含控制字符 / 模板占位值）⇒ 账号卡上会显示空昵称。
+          // 不出声的话，用户看到的只是「名字没了」，排查时不知道是模板变了还是值不合法。
+          log.warn('HttpLoginChecker', 'wechat_mp: nickname field present but invalid (placeholder/too long/control char), nickname not produced')
+        } else if (id.reason === 'avatar_rejected_scheme') {
+          // 头像字段在但被白名单拒了（scheme 非法 / 主机不是公网形态 / 带 userinfo）⇒ 同上，出声。
+          log.warn('HttpLoginChecker', 'wechat_mp: avatar field present but rejected by url whitelist, avatar not produced')
+        }
         const out = {}
         if (id.nickname) out.nickname = id.nickname
+        if (id.avatar) out.avatar = id.avatar
         if (id.platformAccountId) out.platformAccountId = id.platformAccountId
         return out
       },
@@ -489,6 +458,8 @@ async function fetchAccountInfoViaHttpApi (platform, cookies) {
 module.exports = {
   HTTP_PROFILE_APIS,
   fetchAccountInfoViaHttpApi,
+  // 下面两个是**转出**（实现已搬到 ./profile-value-rules 与 ./wechat-mp-profile-parser）：
+  // http-login-checker.js 一直从这里取，导出面保持不变 ⇒ 消费方零改动。
   parseWechatMpIdentity,
   toCount,
   cookiesToHeader,

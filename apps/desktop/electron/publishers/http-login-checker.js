@@ -61,6 +61,8 @@ const {
   toCount,
   HTTP_TIMEOUT_MS,
 } = require('./http-profile-api')
+// 登录页关键词的唯一真源在公众号解析器里（资料侧与登录判定侧共用同一份，见 i5）。
+const { LOGIN_PAGE_KEYWORDS_RE } = require('./wechat-mp-profile-parser')
 /** @type {Record<string, HttpCheckApi>} */
 const HTTP_CHECK_APIS = {
   douyin: {
@@ -126,7 +128,9 @@ const HTTP_CHECK_APIS = {
       const hasToken = /&token=[0-9a-zA-Z]{3,}/.test(html) || /token=[0-9a-zA-Z]{3,}/.test(html)
       const hasUin = /uin:\s{0,}"[0-9]{3,}"/.test(html)
       if (hasToken && hasUin) return true
-      if (/扫码登录|请使用微信扫码|请登录|welcome_login/.test(html)) return false
+      // 登录页关键词与资料侧解析器共用**同一份**（CCG 评审 i5）：
+      // 两处各抄一份的话，改了其中一处就会让「判定未登录」与「不产出资料」给出相反结论。
+      if (LOGIN_PAGE_KEYWORDS_RE.test(html)) return false
       return undefined
     },
     // platform_uid（云端合并键）来源与登录判定**同源同页**：登录态页面才会内嵌
