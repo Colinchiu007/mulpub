@@ -314,6 +314,22 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         const flat2 = []
         const walk2 = (n) => { if(!n) return; flat2.push(n.frame); if(n.childFrames) n.childFrames.forEach(walk2) }
         walk2(ft2.frameTree)
+        // 2026-10-24 帧探针：编辑器 iframe 首扫时 text='' kids=0（尚未渲染）⇒ 轮询等待。
+        let _frameReady = false
+        for (let attempt = 0; attempt < 20 && !_frameReady; attempt++) {
+          for (const f of flat2) {
+            if (!f || !f.id) continue
+            if (!String(f.url||'').includes('/micro/content/')) continue
+            try {
+              const w0 = await dbg.sendCommand('Page.createIsolatedWorld', { frameId: f.id, worldName: 'mp-probe' })
+              const ev0 = await dbg.sendCommand('Runtime.evaluate', { contextId: w0.executionContextId, expression: '(document.body?document.body.children.length:0)', returnByValue: true })
+              const kids = (ev0 && ev0.result && ev0.result.value) || 0
+              if (kids > 0) { _frameReady = true; break }
+            } catch (_e0) { /* 该帧不可注入 */ }
+          }
+          if (!_frameReady) await new Promise((r) => setTimeout(r, 1000))
+        }
+        log.info('RpaView', 'frame-scan: ready=' + _frameReady + ' after poll')
         log.info('RpaView', 'frame-scan: frames=' + flat2.length + ' ' + flat2.map(f=>String(f.url||'').slice(0,60)).join(' | '))
         let _hitCount = 0
         for (const f of flat2) {
