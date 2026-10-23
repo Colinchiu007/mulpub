@@ -237,13 +237,44 @@ const sizeOptions = computed(() => {
 
 const aspectRatio = computed(() => PROFILE_ASPECT_RATIO[profile.value] || DEFAULT_ASPECT_RATIO)
 
+/**
+ * 当前模式**实际会提交**的素材（只取与该模式匹配的那一类）。
+ *
+ * 为什么按模式取子集而不是「一律带上」：
+ * 切模式时另一类素材会留在状态里（用户可能切回来接着用），而那些素材区在当前模式下
+ * **并不渲染** ⇒ 用户既看不到也删不掉。若契约按「全量素材」判，text 模式会因为
+ * 残留的参考图被判「模式与媒体不匹配」⇒ **用户永久卡在无法提交**（既不能提交，
+ * 也找不到地方清理）。故契约只判「本模式会提交的那部分」。
+ *
+ * 主进程侧仍按**实际收到的载荷**做同一条校验 ⇒ 防御有两层，且不会误伤。
+ */
+const effectiveMedia = computed(() => {
+  if (mode.value === 'keyframe') {
+    return {
+      images: [],
+      audios: [],
+      firstFrame: frames.value.first ? frames.value.first.dataUrl : '',
+      lastFrame: frames.value.last ? frames.value.last.dataUrl : '',
+    }
+  }
+  if (mode.value === 'reference') {
+    return {
+      images: referenceImages.value.map((i) => i.dataUrl),
+      audios: referenceAudios.value.map((a) => a.dataUrl),
+      firstFrame: '',
+      lastFrame: '',
+    }
+  }
+  return { images: [], audios: [], firstFrame: '', lastFrame: '' }
+})
+
 /** 当前模式与素材是否自洽（与主进程共用同一判据） */
 const contract = computed(() => validateVideoRequest({
   mode: isAiMode.value ? mode.value : 'text',
-  images: referenceImages.value.map((i) => i.dataUrl),
-  audios: referenceAudios.value.map((a) => a.dataUrl),
-  firstFrame: frames.value.first ? frames.value.first.dataUrl : '',
-  lastFrame: frames.value.last ? frames.value.last.dataUrl : '',
+  images: effectiveMedia.value.images,
+  audios: effectiveMedia.value.audios,
+  firstFrame: effectiveMedia.value.firstFrame,
+  lastFrame: effectiveMedia.value.lastFrame,
 }))
 
 const canStart = computed(() => {
@@ -334,14 +365,11 @@ async function start () {
     // 分辨率档位：只有模型声明支持多档时才下发（单档位模型由适配器取默认档）
     size: size.value || undefined,
   }
-  if (mode.value === 'keyframe') {
-    payload.firstFrame = frames.value.first ? frames.value.first.dataUrl : undefined
-    payload.lastFrame = frames.value.last ? frames.value.last.dataUrl : undefined
-  }
-  if (mode.value === 'reference') {
-    payload.images = referenceImages.value.map((i) => i.dataUrl)
-    payload.audios = referenceAudios.value.map((a) => a.dataUrl)
-  }
+  // 载荷与契约同源：只提交「本模式会用的那一类」素材（与 effectiveMedia 一致）
+  if (effectiveMedia.value.firstFrame) payload.firstFrame = effectiveMedia.value.firstFrame
+  if (effectiveMedia.value.lastFrame) payload.lastFrame = effectiveMedia.value.lastFrame
+  if (effectiveMedia.value.images.length) payload.images = effectiveMedia.value.images
+  if (effectiveMedia.value.audios.length) payload.audios = effectiveMedia.value.audios
   try {
     const res = await renderStartAiVideo(payload)
     if (res && res.code === 0) {

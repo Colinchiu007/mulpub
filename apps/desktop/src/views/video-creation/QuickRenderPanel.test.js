@@ -195,6 +195,27 @@ describe('QuickRenderPanel — 提交载荷', () => {
     expect(payload.audios).toHaveLength(1)
   })
 
+  it('切换模式后残留的素材不得让用户卡住（素材区不渲染 ⇒ 用户无从清理）', async () => {
+    const { w, mocks } = await mountPanel()
+    // 先在参考素材模式上传一张图
+    await w.find('[data-testid="quick-mode-reference"]').trigger('click')
+    await nextTick()
+    await w.find('[data-testid="quick-ai-prompt"]').setValue('x')
+    await pickFiles(w, 'quick-image-input', [makeFile('a.png', 'image/png')],
+      thumbsIn(w, 'quick-ref-images-zone', 1))
+    // 切到文生视频：参考图仍在状态里，但该模式下素材区不渲染
+    await w.find('[data-testid="quick-mode-text"]').trigger('click')
+    await nextTick()
+    expect(w.find('[data-testid="quick-ref-images-zone"]').exists()).toBe(false)
+    // 「开始渲染」必须可用，且载荷里**不含**残留的参考图
+    expect(w.find('[data-testid="quick-start"]').attributes('disabled')).toBeUndefined()
+    await w.find('[data-testid="quick-start"]').trigger('click')
+    await new Promise((r) => setTimeout(r, 0))
+    const payload = mocks.renderStartAiVideo.mock.calls[0][0]
+    expect(payload.mode).toBe('text')
+    expect(payload.images).toBeUndefined()
+  })
+
   it('首尾帧模式缺素材时「开始渲染」禁用（不发请求）', async () => {
     const { w, mocks } = await mountPanel()
     await w.find('[data-testid="quick-mode-keyframe"]').trigger('click')
