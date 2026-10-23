@@ -513,3 +513,38 @@ PUT  https://finderassistancea.video.qq.com/applyuploaddfs -> 404（无鉴权请
 
 - `post_clip_video` 的 `url` 取自 `completepartuploaddfs` 返回体的哪个字段（候选：`DownloadURL` / `VideoUrl`）——需真机响应确认；
 - ⑦ 的 `videoCover/title/description/isOriginal/locationKeyword` 归属为 **INFERRED**，未在原文中逐个定位到 `post_create` 的 body 构造处。
+
+## 8.20 视频号上传区在 iframe 内：四种查询策略的实测结论（2026-10-23 20:45）
+
+### 事实
+
+`content frame found: https://channels.weixin.qq.com/micro/content/post/create`
+
+发布页的**上传区不在主文档**，而在上述 iframe 内。这解释了为什么主文档上的
+`document.querySelector`、`input[type=file]`、文字锚点全部落空。
+
+### 四种策略逐一实测
+
+| # | 策略 | 代码 | 实测结果 | 判定 |
+| --- | --- | --- | --- | --- |
+| 1 | 主文档 `DOM.querySelector` | `getDocument({depth:-1})` | `target not found` | ❌ 看不到 iframe 内 |
+| 2 | `pierce: true` | `getDocument({depth:-1, pierce:true})` | 三次仍 `target not found` | ❌ pierce 只覆盖 shadow DOM，不穿透 iframe |
+| 3 | `DOM.getDocument({frameId})` | `Page.getFrameTree` 逐帧查 | 未单独验证（已被 4 取代） | ⚠️ 理论可行 |
+| 4 | **`Page.createIsolatedWorld` + `Runtime.evaluate`** | 在每帧内执行 JS，返回 `getBoundingClientRect()` | 进行中 | ✅ **唯一能"在 iframe 内执行脚本"的正规入口** |
+
+### 关键认知
+
+- CDP 里**跨 frame 执行脚本**只有一条正路：`Page.createIsolatedWorld({frameId})` 拿 `executionContextId`，再 `Runtime.evaluate({contextId, expression})`；
+- `Runtime.evaluate` **不带 contextId 时只在主 world 执行**，即使传了 frameId 也不会进入 iframe；
+- 坐标必须由**帧内**的 `getBoundingClientRect()` 给出，主文档算出来的坐标对 iframe 内元素无意义。
+
+### 对实现的约束（写入代码注释）
+
+1. 上传相关的**任何** DOM 查询都必须先枚举 frame；
+2. 每一帧单独 try/catch —— 跨域帧注入会抛错，不能中断整条链；
+3. 命中帧要打日志（frame url 前缀 + rect），否则无法区分"没找到"与"找到了但拖不进去"。
+
+### 尚未验证
+
+`createIsolatedWorld` 对 `micro/content/post/create` 是否可注入（跨域策略）；
+若不可注入，则浏览器上传器这条路在本机**不可达**，只能走 API。
