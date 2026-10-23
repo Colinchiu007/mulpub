@@ -97,3 +97,57 @@ test('支付环境变量必须被 docker-compose 透传进容器', async (t) => 
       '支付是可选能力：没配时必须照常启动并保持入口 fail-closed，不能因为缺支付变量把整个服务卡死：' + offenders.join(', '));
   });
 });
+
+// ——— 密钥入库防线 ———
+//
+// 支付凭据（商户私钥 / APIv3 密钥）落在 `deploy/logto/api.env` 里，而 `.gitignore:330` 的 `.env`
+// **只匹配名为 `.env` 的文件，匹配不到 `api.env`** —— 2026-10-23 实测它当时确实未被忽略。
+// 一旦有人 `git add -A`，私钥就进了仓库。这条锁把"它必须被忽略"变成可执行判据。
+test('storefront env 文件必须被 gitignore（防私钥入库）', () => {
+  const { spawnSync } = require('node:child_process');
+  const path = require('node:path');
+  const root = path.resolve(__dirname, '../../..');
+  // 用 spawnSync 读**显式退出码**，不依赖"有没有抛"：
+  //   0 = 命中忽略规则
+  //   1 = 未命中（要红）
+  //   其它/  null（git 缺失、非 git 仓库）= 判据自身故障，也要红 —— 不能把失明读成通过
+  const ignored = (file) => {
+    // --no-index 不可省：默认模式下 git 会**跳过已跟踪文件**，于是「模板没被忽略」这条断言
+    // 永远不可能失败（模板本来就是 tracked）—— 那是假绿。--no-index 按纯模式匹配判定。
+    const r = spawnSync('git', ['check-ignore', '--no-index', '-q', file], { cwd: root, encoding: 'utf8' });
+    if (r.error || r.status === null) throw new Error(`git 不可用，无法判定 ${file} 是否被忽略：${r.error && r.error.message}`);
+    if (r.status !== 0 && r.status !== 1) throw new Error(`git check-ignore 异常退出 ${r.status}：${r.stderr}`);
+    return r.status === 0;
+  };
+
+  assert.equal(ignored('deploy/logto/api.env'), true, 'deploy/logto/api.env 未被忽略 —— 商户私钥会随 git add -A 入库');
+  // 编辑器备份同样不能入库（api.env~ / api.env.bak / api.env.swp）
+  assert.equal(ignored('deploy/logto/api.env~'), true, '编辑器备份文件未被忽略');
+  // 反向锁：模板必须**仍然被跟踪**。只写 `api.env*` 而不取反，会把模板一起忽略掉。
+  assert.equal(ignored('deploy/logto/api.env.example'), false, 'api.env.example 被误忽略 —— 模板必须可入库');
+  // 商户私钥放在 compose 的 bind 目录里（容器要读），但**绝不能入库**。
+  // 2026-10-23 实测：这条当时没有忽略规则（git check-ignore rc=1）。
+  assert.equal(
+    ignored('packages/api-publish-engine/config/wechat-pay/apiclient_key.pem'),
+    true,
+    '商户私钥目录未被忽略 —— apiclient_key.pem 会随 git add -A 入库',
+  );
+});
+// 支付凭据已拆到独立模板（deploy/payment/wechat-pay.env.example），与 api.env 分离。
+// 但"拆开"不能让接线锁失效：那份模板声明的键，同样必须全部被 compose 透传。
+test('deploy/payment/wechat-pay.env.example 的支付键必须与 compose 透传集合相等', () => {
+  const PAYMENT_ENV_EXAMPLE = path.join(REPO_ROOT, 'deploy/payment/wechat-pay.env.example');
+  assert.equal(fs.existsSync(PAYMENT_ENV_EXAMPLE), true, '支付模板不见了 —— 拆分后必须留下独立模板');
+
+  const declared = paymentKeysFromEnvExample(fs.readFileSync(PAYMENT_ENV_EXAMPLE, 'utf8'));
+  const passed = environmentKeysFromCompose(fs.readFileSync(COMPOSE, 'utf8'));
+
+  assert.ok(declared.size >= 10, `前提：模板至少声明 10 个支付键，实测 ${declared.size}`);
+  const missing = [...declared].filter((k) => !passed.has(k));
+  assert.deepEqual(missing, [], '以下键在模板里声明了，但 compose 没透传 ⇒ 容器读不到');
+  // 反方向：compose 不能透传模板里没有的支付键（两份清单漂移同样要红）。
+  // 只测一向等于只测一半 —— 模板少一个键时"missing 为空"，假绿。
+  const composePaymentKeys = [...passed].filter((k) => k === 'PAYMENT_PROVIDER' || k.startsWith('WECHAT_PAY_'));
+  const extra = composePaymentKeys.filter((k) => !declared.has(k));
+  assert.deepEqual(extra, [], '以下键 compose 在透传，但支付模板里没声明 ⇒ 两份清单已漂移');
+});

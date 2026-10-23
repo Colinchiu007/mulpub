@@ -34,6 +34,21 @@ const PASS = 'PASS';
 const FAIL = 'FAIL';
 const SKIP = 'SKIP';
 
+// 只要这些变量里**任意一个**有值，就说明有人填过支付配置。
+// 用来识别「凭据填了但开关是 none」这种半配置（最常见成因：漏了第二个 --env-file）。
+const PAYMENT_SECRET_KEYS = [
+  'WECHAT_PAY_APPID',
+  'WECHAT_PAY_MCH_ID',
+  'WECHAT_PAY_API_V3_KEY',
+  'WECHAT_PAY_CERT_SERIAL_NO',
+  'WECHAT_PAY_CERT_PATH',
+  'WECHAT_PAY_CERT_CONTENT',
+  'WECHAT_PAY_PLATFORM_PUBLIC_KEY',
+  'WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH',
+  'WECHAT_PAY_PUBLIC_KEY_ID',
+  'WECHAT_PAY_NOTIFY_URL',
+];
+
 function parseArgs (argv = process.argv.slice(2)) {
   const result = { json: false, skipDb: false, databaseUrl: null, help: false, error: null };
   for (let i = 0; i < argv.length; i += 1) {
@@ -72,6 +87,19 @@ async function runPreflight (options = {}) {
   // 1) provider 种类
   const kind = String(env.PAYMENT_PROVIDER || 'none').trim().toLowerCase();
   if (kind === 'none') {
+    // ⛔ 半配置检测：凭据填了、开关却是 none。
+    // 最典型的成因是**漏了第二个 --env-file**（微信支付凭据在 deploy/payment/wechat-pay.env，
+    // 与 deploy/logto/api.env 分开）。若这里只报 SKIP，操作者会看到"通过"，
+    // 而前端其实是「支付通道暂未开放」—— 这正是拆分 env 文件后最容易踩的坑。
+    const strayKeys = PAYMENT_SECRET_KEYS.filter((key) => String(env[key] || '').trim());
+    if (strayKeys.length) {
+      add('provider-kind', FAIL,
+        `检测到 ${strayKeys.length} 个支付变量（${strayKeys.join(', ')}）但 PAYMENT_PROVIDER=none —— ` +
+        '多半是漏了第二个 --env-file（deploy/payment/wechat-pay.env），' +
+        '或填了凭据却忘了把 none 改成 wechat_native');
+      add('database', SKIP, '支付未启用，未检查迁移');
+      return { ok: false, checks };
+    }
     add('provider-kind', SKIP, 'PAYMENT_PROVIDER=none —— 支付入口处于关闭状态（fail-closed）。' +
       '要启用请设 wechat_native 后重跑本命令');
     // 即使支付关闭也要显式留一行：否则结果里完全没有 database 项，

@@ -1,0 +1,61 @@
+{
+  "sha": "79f5a1ea712352420cf7a009ee29c6948842ef6e",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 67 行（≤ 200）但命中 auth/数据库/加密：敏感内容 7 处",
+  "stats": {
+    "changedLines": 67,
+    "fileCount": 9,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 10,
+    "docSensitiveContentSample": [
+      "**支付凭据放在独立的文件里**，不要写进 `deploy/logto/api.env`（那是业务 API 自身的 Logto / PostgreSQL / entitlement 配置）：",
+      "# 两个 --env-file：身份/数据库一份，支付凭据一份（Compose v2.24+ 支持多文件，后者覆盖前者）",
+      "task: 支付凭据注入落点：补 api.env 模板支付段 + 把 api.env 加入 gitignore"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c6b7021901b8a0655cb3377408af004a888eeca8f34132f7558fe26eff1ab8e1",
+  "decidedAt": "2026-10-23T02:05:26.852Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

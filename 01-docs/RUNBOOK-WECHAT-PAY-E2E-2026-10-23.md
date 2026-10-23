@@ -81,15 +81,22 @@ SELECT name FROM identity_schema_migrations ORDER BY name;
 
 ## 2. 把支付变量送进容器
 
-`packages/api-publish-engine/docker-compose.yml` 已经逐项透传（2026-10-23 修复）。宿主机 `.env` 里填：
+`packages/api-publish-engine/docker-compose.yml` 已经逐项透传（2026-10-23 修复）。
+
+**支付凭据放在独立的文件里**，不要写进 `deploy/logto/api.env`（那是业务 API 自身的 Logto / PostgreSQL / entitlement 配置）：
+
+```bash
+cp deploy/payment/wechat-pay.env.example deploy/payment/wechat-pay.env   # 已被 .gitignore 忽略
+```
 
 ```dotenv
+# deploy/payment/wechat-pay.env
 PAYMENT_PROVIDER=wechat_native
 WECHAT_PAY_APPID=<appid>
 WECHAT_PAY_MCH_ID=<mchid>
 WECHAT_PAY_API_V3_KEY=<32 字符>
 WECHAT_PAY_CERT_SERIAL_NO=<40 位十六进制>
-# 二选一：文件路径（容器内）或 PEM 全文
+# 二选一：文件路径（**容器内**）或 PEM 全文
 WECHAT_PAY_CERT_PATH=/app/packages/api-publish-engine/config/wechat-pay/apiclient_key.pem
 # WECHAT_PAY_CERT_CONTENT=<PEM 全文>
 # 平台公钥（回调验签）：二选一
@@ -104,8 +111,16 @@ WECHAT_PAY_NOTIFY_URL=https://<你的域名>/api/v1/webhooks/payment
 
 ```bash
 chmod 600 packages/api-publish-engine/config/wechat-pay/apiclient_key.pem
-docker compose -f packages/api-publish-engine/docker-compose.yml up -d
+
+# 两个 --env-file：身份/数据库一份，支付凭据一份（Compose v2.24+ 支持多文件，后者覆盖前者）
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  --env-file deploy/logto/api.env \
+  --env-file deploy/payment/wechat-pay.env \
+  up -d
 ```
+
+> ⚠️ **漏掉第二个 `--env-file` 会怎样**：`PAYMENT_PROVIDER` 读不到 ⇒ 退回 `none` ⇒ 前端显示「支付通道暂未开放」。
+> 好消息是 `payment-preflight` 会把它判成 **FAIL**（"检测到 N 个支付变量但 PAYMENT_PROVIDER=none"），不会静默通过。
 
 ---
 
