@@ -39,6 +39,6 @@ date: 2026-10-19
 | 现象 | ✅ | 本 PR rebase 到最新 `origin/main` 后，CI 的 `QG Changes` 红在 `[no-brand-residue] FAIL：发现 1 处品牌残留`，点名 `01-docs/BUGFIX-COVER-CROP-SIZE-SEAM-2026-10-19.md` |
 | 第一性原因（QM-5 ①） | ✅ | 本分支的第 2 个提交 `78e757fa4`（115 文件，既含主干内容也含「按 Gate 12/12c 去掉品牌字面与本机绝对路径」这次修复）在 rebase 重放时**被判定为已应用而跳过** ⇒ 品牌字面与本机绝对路径两处修复一并丢失 |
 | 逃逸分析（QM-5 ②） | ✅ | 这类回退在**门禁层**可见、在**提交层**不可见：rebase 本身报「成功」，但被跳过的提交携带的唯一修复（不在主干里的那两行）就消失了 ⇒ 只能靠门禁或逐 blob 比对发现 |
-| 修复（QM-5 ③④） | ✅ | 把 `78e757fa4` 相对本分支旧 tip（`8a7b6c3d`）的**独有内容**逐行补回：① 文档引用原提交主题处改回中性称谓（品牌字面）；② 执行记录里的本机绝对路径 `D:/Data/projects/mp-worktrees/mp-cover-crop-license-bugs` 改回占位符。两文件与旧 tip 逐 blob 相同（`git diff 8a7b6c3d -- <两文件>` = 0 行差异） |
+| 修复（QM-5 ③④） | ✅ | 把 `78e757fa4` 相对本分支旧 tip（`8a7b6c3d`）的**独有内容**逐行补回：① 文档引用原提交主题处改回中性称谓（品牌字面）；② 执行记录里的本机绝对路径 `<仓库父目录>/mp-worktrees/mp-cover-crop-license-bugs` 改回占位符。两文件与旧 tip 逐 blob 相同（`git diff 8a7b6c3d -- <两文件>` = 0 行差异） |
 | 回归保护（QM-5 ④） | ✅ | 本机实跑 `node scripts/check-no-brand-residue.js` → **PASS（rc=0，扫描 12196 个 tracked 文件）**；`node scripts/check-doc-abs-paths.js --base=origin/main --head=HEAD` → **PASS（rc=0）** |
 | 防止再次发生（QM-5 ⑤） | ✅ | rebase 后必须做**逐 blob 对账**（旧 tip vs 新 tip，限 PR 自己的文件），不能只看 rebase 的 rc 与「无冲突」提示——rebase 报成功与内容完整是两件事 |
