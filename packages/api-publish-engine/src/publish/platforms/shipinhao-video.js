@@ -120,6 +120,8 @@ class ShipinhaoVideoChain {
     const headers = { 'User-Agent': this.userAgent }
     this.api = opts.api || createHttpClient({ baseURL: opts.apiBase || DEFAULT_API_BASE, timeout: opts.timeout, agents: opts.agents, headers })
     this.cdn = opts.cdn || createHttpClient({ baseURL: opts.cdnBase || DEFAULT_CDN_BASE, timeout: opts.timeout, agents: opts.agents, headers })
+    // 2026-10-23：平台自身用 setHost() 动态设置上传主机 ⇒ 优先用 Step1 响应里的主机，取不到才回落到 baseURL。
+    this.cdnHost = ''
   }
 
   /** 发起前校验：缺 cookie → fail-closed 零请求 */
@@ -149,6 +151,14 @@ class ShipinhaoVideoChain {
     if (!authKey) {
       throw new ShipinhaoVideoError('shipinhao-video: upload authKey missing (cookie may be expired)', errorCode.data_error)
     }
+    // 2026-10-23 平台自身代码（finder-helper-web chunk-common）用 setHost() 动态设上传主机，
+    // 说明主机不是常量。此处在 Step1 响应里尝试取主机；取不到则沿用 baseURL（行为不变）。
+    const rawHost = String(d.cdnHost || d.host || d.uploadHost || (d.data && (d.data.cdnHost || d.data.host || d.data.uploadHost)) || '').trim()
+    if (rawHost) {
+      const withScheme = /^https?:/i.test(rawHost) ? rawHost : 'https://' + rawHost.replace(/^\/+/, '')
+      this.cdnHost = withScheme.replace(/\/+$/, '')
+      if (this.logger && this.logger.log) this.logger.log('[shipinhao-video] resolved cdn host: ' + this.cdnHost)
+    }
     return String(authKey)
   }
 
@@ -167,7 +177,7 @@ class ShipinhaoVideoChain {
       Referer: UPLOAD_REFERER,
       Origin: DEFAULT_API_BASE + '/',
     }
-    const res = await requestWithRetry(this.cdn, { method: 'put', url: '/applyuploaddfs', data: payload, headers })
+    const res = await requestWithRetry(this.cdn, { method: 'put', url: this.cdnHost + '/applyuploaddfs', data: payload, headers })
     const d = res.data || {}
     const uploadId = d.UploadID || (d.data && d.data.UploadID) || ''
     if (!uploadId) {
@@ -187,7 +197,7 @@ class ShipinhaoVideoChain {
       Origin: DEFAULT_API_BASE,
       'User-Agent': this.userAgent,
     }
-    const url = '/uploadpartdfs?PartNumber=' + partNumber + '&UploadID=' + encodeURIComponent(uploadId)
+    const url = this.cdnHost + '/uploadpartdfs?PartNumber=' + partNumber + '&UploadID=' + encodeURIComponent(uploadId)
     const res = await requestWithRetry(this.cdn, { method: 'put', url, data: buf, headers })
     const d = res.data || {}
     return { etag: d.ETag, partNumber, raw: d }
@@ -203,7 +213,7 @@ class ShipinhaoVideoChain {
       Origin: DEFAULT_API_BASE,
       'User-Agent': this.userAgent,
     }
-    const url = '/completepartuploaddfs?UploadID=' + encodeURIComponent(uploadId)
+    const url = this.cdnHost + '/completepartuploaddfs?UploadID=' + encodeURIComponent(uploadId)
     const res = await requestWithRetry(this.cdn, { method: 'post', url, data: { TransFlag: '0_0', PartInfo: partInfos }, headers })
     return res.data || {}
   }
