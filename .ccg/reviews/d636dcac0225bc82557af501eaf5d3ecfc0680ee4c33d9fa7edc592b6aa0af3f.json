@@ -1,0 +1,65 @@
+{
+  "sha": "c808c8b2644e1705a99991ee74c7f6d80324b926",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1521 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1521,
+    "fileCount": 28,
+    "codeFileCount": 23,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 12,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "审计防「静默」不防恶意篡改；组件级授权做不了（同文档承载三个标签页）。",
+      "组件级授权做不了（同文档承载三个标签页）。",
+      "⑩ 早退路径（未授权 / 对话框不可用 / 对话框失败 / 用户取消 / 所选路径非法）**各留一行审计**（`reason` 落在 18 值闭集内）—— codex i4。"
+    ],
+    "ccgSensitiveContentHits": 4,
+    "ccgSensitiveContentSample": [
+      "        \"finding\": \"早退路径（未授权 / 对话框不可用 / 对话框失败 / 取消 / 所选路径非法）一行审计都不写\",",
+      "        \"finding\": \"外部来源被来源门禁在 handler 之前拦下 ⇒ 未授权调用一行审计都不写\",",
+      "    \"note\": \"验证层双家族外部评审（claude + codex，跨家族）已真跑并逐条裁决：外部意见共 29 条（21 条成立并全部已修、8 条不成立并附证据），另有作者自查发现 5 条并全部已修 ⇒ 本表 34 条逐条记录（同一处被两个家族各报一次算两条）。其中 Critical 按去重计 10 处（写路径被登记为 public / .bak 递归删除违反 R0 / 审计写失败仍计数 / 成功路径残留档位被丢 / 成功路径审计结果被吞 / 回滚失败档位张冠李戴（数据丢失级）/ 失败路径审计被吞 / 换入前不复核锁 / 未授权调用无审计 / 崩溃残留不留痕），**全部已修并各有回归锁**。⚠ 如实标注：引擎的机器判定**不是**「评分通过」——第 1 轮维度分 correctness 7 / security 6（codex 4 / 4）低于引擎阈值 8.0；放行依据是本仓口径「无 Critical 且无未解决 High」，而逐条 Critical 全部已修。⚠ 引擎的验证层路径本身有缺陷（diff 层维度词表与 claude 输出不匹配 + --critic 覆盖不作用于 diff 层），本轮未改仓外引擎，只如实记录。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d636dcac0225bc82557af501eaf5d3ecfc0680ee4c33d9fa7edc592b6aa0af3f",
+  "decidedAt": "2026-10-23T10:08:06.665Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

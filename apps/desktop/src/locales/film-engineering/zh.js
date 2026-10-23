@@ -225,9 +225,11 @@ export default {
       "failed": "导入失败：{reason}",
       "cancelled": "已取消导入",
       "recover": "导入回滚失败，旧资产在 {path}，请手动恢复",
-      "recoverLock": "存在未完成的导入。若确认当前没有导入在进行，请手动删除锁文件：{path}",
+      "recoverLock": "存在未完成的导入。若确认当前没有导入在进行，请检查并手动删除锁文件：{path}",
       "recoverMissing": "上次导入未完成（当前资产缺失）。请把备份目录 {path} 手动改回 film-kit 后再试",
       "recoverBak": "上次导入留下了备份目录 {path}，可安全删除",
+      "residue": "导入已生效，但有残留需要你手动清理",
+      "auditLost": "导入已生效，但审计结果行未能写入（审计不完整）。请检查磁盘空间与目录权限",
       "auditFull": "审计日志已满，请手动轮转：把 film-kit-import.log 改名为带时间戳的备份，再新建同名空文件",
       "reason": {
         "VALIDATION": "所选目录不符合资产要求",

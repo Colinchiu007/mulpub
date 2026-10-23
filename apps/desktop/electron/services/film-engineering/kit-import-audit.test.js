@@ -91,6 +91,29 @@ describe('kit-import-audit: 追加与预检', () => {
     expect(res.ok).toBe(false)
     expect(res.reason).toBe(REASON.AUDIT_UNAVAILABLE)
   })
+
+  // ⚠ 2026-10-23 验证层外部评审（claude i2 / codex i7）命中：初版把
+  //   `this.lineCount += 1` 放在 `finally` ⇒ **写失败也计数** ⇒ 计数单调偏高
+  //   ⇒ 正常导入会被误判成 `AUDIT_UNAVAILABLE`（阈值 10,000 行）。
+  it('写失败 ⇒ 行数**不**递增（计数必须与已落盘的行一一对应）', () => {
+    const dir = tmpDir()
+    const boom = new Error('disk on fire')
+    const brokenFs = {
+      accessSync: () => {},
+      statSync: () => ({ size: 0 }),
+      readFileSync: () => { throw new Error('ENOENT') },
+      openSync: () => 7,
+      writeSync: () => { throw boom },
+      closeSync: () => {},
+    }
+    const w = new AuditWriter({ userDataDir: dir, fs: brokenFs })
+    w.countLines()
+    expect(w.lineCount).toBe(0)
+    const res = w.append({ time: 't', result: 'ok' })
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe(REASON.AUDIT_UNAVAILABLE)
+    expect(w.lineCount).toBe(0)
+  })
 })
 
 describe('kit-import-audit: 阈值判法（拒绝写入，不截断）', () => {

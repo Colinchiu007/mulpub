@@ -749,9 +749,9 @@ split → scene_context（已有）
 | 2 | **确认框**（说明「整体替换、不可撤销」） | 等用户点确认 | 用户点取消 ⇒ **不算失败**，无错误提示 |
 | 3 | 操作系统**目录选择框** | 取 `filePaths[0]` | 取消 ⇒ `cancelled`；非目录 / UNC ⇒ 拒 |
 | 4 | 「正在导入…」**不可中断模态** | 严格校验源目录 → 审计「开始」行 → 建锁 → 两遍扫描 + 拷贝（逐文件哈希对账）→ staging 再校验 | 失败 ⇒ 旧 kit **逐字未变** |
-| 5 | 同上 | 清缓存 → 旧 kit 改名 `.bak-<时间戳>` → staging 改名 `film-kit`（同卷原子） | 换入失败 ⇒ 回滚；回滚也失败 ⇒ 保留 `.bak` 并给恢复路径 |
-| 6 | 同上 | 删 `.bak` → 删锁 → 审计结果行 | — |
-| 7 | 成功 toast / 失败 toast + 恢复指引告警 | 刷新分镜库与状态 | 见 9.c.6 |
+| 5 | 同上 | 清缓存 → 旧 kit 改名 `.bak-<时间戳>` → staging 改名 `film-kit`（同卷原子） | 换入失败 ⇒ 回滚；回滚也失败 ⇒ 保留 `.bak` 并给恢复路径（档位 `MISSING_KIT`，恢复动作 = **改名回来**） |
+| 6 | 同上 | 删 `.bak` → 删锁 → 审计结果行 | 删 `.bak` / 删锁失败 ⇒ **导入已生效但有残留** ⇒ 档位 `BAK_LEFT` / `LOCK_LEFT` + 恢复路径（**成功信封也要带**） |
+| 7 | 成功 toast / 失败 toast + 恢复指引告警 / **残留告警** / **审计不完整告警** | 刷新分镜库与状态 | 见 9.c.6 |
 
 #### 9.c.3 数据校验（判据 → 触发 → 失败原因 → 用户看到什么）
 
@@ -759,16 +759,17 @@ split → scene_context（已有）
 |------|----------|----------------------|----------|
 | 必填齐备 | 缺 `film-manifest/shot-library/reference-registry/prompt-doctrine` 任一 | `VALIDATION_ERROR` | 「所选目录不符合资产要求」 |
 | v7 增强齐备 | 缺 `shot-grammar/compliance-checklist/palette/prompts/tasks` 任一 | `VALIDATION_ERROR` | 同上 |
-| 目录形状 | `prompts/tasks` 下**不是** 3 层（基准 `prompts/tasks`） | `EXT_NOT_ALLOWED` / `VALIDATION_ERROR` | 同上 |
+| 目录形状 | `prompts/tasks` 下**不是** 3 层（基准 `prompts/tasks`） | `VALIDATION_ERROR` | 同上 |
+| 任务库非普通文件 | `prompts/tasks/**` 任一层出现软链 / 联接点 / 设备文件 | `SYMLINK_REJECTED` / `VALIDATION_ERROR` | 同上 |
 | 隐藏名 | **候选路径**任一组件以 `.` 开头（`.`/`..` 枚举阶段先跳过） | `HIDDEN_NAME_REJECTED` | 同上 |
 | 扩展名 | 根文件非 `.json`；`prompts/tasks/**` 非 `.md` | `EXT_NOT_ALLOWED` | 同上 |
 | 软链 / 断链 | 白名单条目是软链，或软链指向不存在的目标 | `SYMLINK_REJECTED` | 同上 |
 | 越界 | `realpath` 落在源目录之外 | `PATH_ESCAPE` | 同上 |
-| 同目录硬链 | 同目录内两条目 `(dev, ino)` 相同 | `HARDLINK_REJECTED` | 同上 |
+| 同目录硬链 | **同一目录内**两条目 `(dev, ino)` 相同（去重键带父目录） | `HARDLINK_REJECTED` | 同上 |
 | 魔数 | `*.json` 头不是 `{`/`[`（去 BOM/空白） | `MAGIC_MISMATCH` | 同上 |
 | 单文件体积 | > **32 MB** | `SIZE_EXCEEDED` | 同上 |
 | 整包体积 | > **256 MB** | `SIZE_EXCEEDED` | 同上 |
-| 源/目标重叠 | 源目录等于、包含或被包含于目标路径（`film-kit` / `staging-*` / `.bak-*` / `.import-lock` / 审计文件） | `SOURCE_OVERLAPS_TARGET` | 同上 |
+| 源/目标重叠 | 源目录等于、包含或被包含于目标路径（`film-kit` / `.import-lock` / 审计文件 / `staging-*` / `.bak-*` **前缀目录**）；比较在 Windows 上**大小写不敏感** | `SOURCE_OVERLAPS_TARGET` | 同上 |
 | 源不是目录 | 选中的不是目录 | `NOT_A_DIRECTORY` | 同上 |
 | 目标不可写 | 父目录不可写 / 建 staging 失败 | `PARENT_NOT_WRITABLE` | 「目标目录不可写」 |
 | 审计不可写 | 审计父目录不可写 / 追加失败 | `AUDIT_UNAVAILABLE` | 「审计日志不可写或已满」 |
@@ -777,14 +778,22 @@ split → scene_context（已有）
 | 锁内容损坏 | 锁文件不是合法 JSON | `LOCK_HELD` | 同上（**不清锁**） |
 | 残留未恢复 | 存在 `.bak-*` 且 `film-kit` **缺失** | `VALIDATION_ERROR` + `recoveryState=MISSING_KIT` | 「上次导入未完成（当前资产缺失）」+ 恢复路径 |
 | 换入失败 | staging→`film-kit` 改名失败 | `SWAP_FAILED` | 「替换资产时出错（当前资产未受影响）」 |
-| 回滚失败 | `.bak` 改名回 `film-kit` 也失败 | `ROLLBACK_FAILED` + `recoveryState=BAK_LEFT` | 「替换资产时出错」+ **旧资产路径** |
+| 回滚失败 | `.bak` 改名回 `film-kit` 也失败（⇒ `film-kit` 缺失、`.bak` = 旧 kit） | `ROLLBACK_FAILED` + `recoveryState=MISSING_KIT` | 「上次导入未完成（当前资产缺失）」+ **旧资产路径**（恢复动作 = **改名回来**，**不是**删除） |
+| 残留 `.bak` 未删 | ⑥ 删 `.bak` 自身失败（⇒ 导入**已生效**） | — （成功路径） | 残留告警 + 「上次导入留下了备份目录 {path}，可安全删除」 |
+| 锁未删 | ⑦ 删锁自身失败（⇒ 只剩锁） | — （成功路径） | 残留告警 + 「检查并手动删除锁文件：{path}」 |
+| 审计结果行写失败 | 导入**已生效**，但审计结果行没落盘 | — （成功路径，`auditWritten=false`） | 「导入已生效，但审计结果行未能写入（审计不完整）」 |
 | 来源未授权 | 子框架 / 路由前缀不匹配 / 协议不在白名单 | `UNAUTHORIZED_SENDER` | 「调用来源未授权」 |
 
 **两条哈希对账（TOCTOU）**：① 第二遍拷出的**副本 SHA-256** == 第一遍记录的**源 SHA-256**；
 ② 拷贝完成后**再次 `stat` 源文件**，其 `(dev, ino, size, mtime)` 与第一遍记录一致 ⇒ 任一不符即拒。
 
-**诚实边界（写进界面与文档）**：跨目录硬链在 FAT/exFAT/网络盘**检测不到**（`nlink` 恒为 1）⇒ 非防篡改边界；
-审计防「静默」不防恶意篡改；组件级授权做不了（同文档承载三个标签页）。
+**诚实边界（写进界面与文档）**：跨目录硬链在 FAT/exFAT/网络盘**检测不到**（`nlink` 恒为 1）⇒ 非防篡改边界
+（⇒ 代码也**不拒**跨目录同 inode，只拒**同一目录内**的重复条目）；审计防「静默」不防恶意篡改；
+组件级授权做不了（同文档承载三个标签页）。
+
+**⛔ 删除纪律**：staging 与 `.bak` 的清理**一律**「精确清单逐个 `unlink` + 自底向上 `rmdir` 空目录」，
+**禁止** `fs.rm(dir, {recursive:true})` 之类的递归删除原语（本仓 R0 铁律）⇒ 有一条**机械结构锁**盯着
+（`kit-tree-clean.test.js` 的「R0 结构锁」用例：导入链路源文件里不得出现 `rm`/`rmdir` + `recursive`）。
 
 #### 9.c.4 交互逻辑
 
@@ -795,8 +804,10 @@ split → scene_context（已有）
 | 确认框 | 点入口 ⇒ 弹；**必须用户点「确认」才继续**（注入脚本无法代点）；「取消」关闭且**不触发**导入 |
 | 导入中模态 | **无关闭按钮 / 点遮罩不关 / ESC 不关 / 没有取消按钮**；文案「导入过程中不可中断，请勿关闭应用」 |
 | 失败 toast | 「导入失败：{原因}」；原因按 6 个桶本地化（VALIDATION / LOCK / AUDIT / SWAP / PERM / UNAUTHORIZED） |
-| 恢复指引告警 | 失败后在入口下方常驻 `el-alert`（warning，不自动关）：失败原因 + **可执行的恢复步骤**（按 `recoveryState` 选文案） |
+| 恢复指引告警 | 失败后**或成功但有残留时**在入口下方常驻 `el-alert`（warning，不自动关）：失败原因 + **可执行的恢复步骤**（按 `recoveryState` 选文案） |
 | 成功 toast | 「导入完成（N 个文件）」并**自动刷新**分镜库 / 状态 / 方法论 |
+| 残留告警 | 导入**已生效**但 `.bak` / 锁没删干净 ⇒ 额外一条 warning toast（标题 `filmEngineering.filmKitImport.residue`），正文复用对应恢复指引文案 |
+| 审计不完整告警 | 导入已生效但审计结果行没落盘 ⇒ 一条 warning toast（`filmEngineering.filmKitImport.auditLost`） |
 | 取消 | **不算失败**：无错误提示、无告警 |
 
 #### 9.c.5 显示项
@@ -808,11 +819,12 @@ split → scene_context（已有）
 | 确认框 | 渲染端 | 标题 + 正文 + 取消/确认两按钮 |
 | 导入中模态 | 渲染端 | 标题 + 「勿关闭应用」提示；**无取消** |
 | 失败 toast | 主进程错误信封 → 渲染端本地化 | `errorCode` = `reason` 闭集值 |
-| 恢复指引告警 | 主进程回传 `recoveryState` + `recoveryPath` | 按档位选文案 |
+| 恢复指引告警 | 主进程回传 `recoveryState` + `recoveryPath` | 按档位选文案（**成功信封也可能带**） |
 | 成功 toast（含文件数） | 主进程回传 `fileCount` | — |
+| 审计完整性标记 | 主进程回传 `auditWritten` | `false` ⇒ 追加一条「审计不完整」告警 |
 | 导入后的分镜库 / 状态 | 服务端缓存失效后重读 | 导入成功后自动刷新 |
 
-#### 9.c.6 提示文字全量（`filmEngineering.filmKitImport.*`，zh/en 成对，**20 键**）
+#### 9.c.6 提示文字全量（`filmEngineering.filmKitImport.*`，zh/en 成对，**22 键**）
 
 | 键 | zh | en |
 |----|----|----|
@@ -826,9 +838,11 @@ split → scene_context（已有）
 | `failed` | 导入失败：{reason} | Import failed: {reason} |
 | `cancelled` | 已取消导入 | Import cancelled |
 | `recover` | 导入回滚失败，旧资产在 {path}，请手动恢复 | Import rollback failed; the old assets are at {path} — please restore them manually |
-| `recoverLock` | 存在未完成的导入。若确认当前没有导入在进行，请手动删除锁文件：{path} | An unfinished import is present. If no import is running, delete the lock file manually: {path} |
+| `recoverLock` | 存在未完成的导入。若确认当前没有导入在进行，请检查并手动删除锁文件：{path} | An unfinished import is present. If no import is running, check and delete the lock file manually: {path} |
 | `recoverMissing` | 上次导入未完成（当前资产缺失）。请把备份目录 {path} 手动改回 film-kit 后再试 | The last import did not finish (current assets are missing). Rename the backup directory {path} back to film-kit, then retry |
 | `recoverBak` | 上次导入留下了备份目录 {path}，可安全删除 | The last import left a backup directory {path} — it is safe to delete |
+| `residue` | 导入已生效，但有残留需要你手动清理 | The import took effect, but there is leftover residue for you to clean up manually |
+| `auditLost` | 导入已生效，但审计结果行未能写入（审计不完整）。请检查磁盘空间与目录权限 | The import took effect, but the audit result row could not be written (audit is incomplete). Please check disk space and directory permissions |
 | `auditFull` | 审计日志已满，请手动轮转：把 film-kit-import.log 改名为带时间戳的备份，再新建同名空文件 | The audit log is full; please rotate it manually: rename film-kit-import.log to a timestamped backup and create a new empty file with the same name |
 | `reason.VALIDATION` | 所选目录不符合资产要求 | the selected directory does not meet the asset requirements |
 | `reason.LOCK` | 已有导入正在进行，或上一次导入的锁还没清理 | an import is already running, or the previous import's lock was not cleaned up |
@@ -839,7 +853,7 @@ split → scene_context（已有）
 
 （「确认 / 取消」两按钮复用 `common.confirm` / `common.cancel`，不另计键。）
 
-#### 9.c.7 验收判据（26 条）
+#### 9.c.7 验收判据（26 条 + 验证层外部评审新增 10 条 = **36 条**）
 
 **A 组（4 条，原 `tasks.md`）**：① 严格模式校验失败 ⇒ 不落盘；② 成功 ⇒ `userData/film-kit` 齐备 + service 缓存已失效；③ 含符号链接 ⇒ 拒；④ 换入中途失败 ⇒ 无半份 kit、旧 kit 逐字未变。
 
@@ -848,6 +862,18 @@ split → scene_context（已有）
 **C 组（2 条，契约/镜像）**：㉒ `kit-mirror-check.test.js`：代码白名单 == `SCHEMA.md` 标 ✅ 行（归一化 + 字典序后逐行 `===`），且 `images/` 落在**排除项清单**；㉓ `kit-schema-contract.test.js`：`SCHEMA.md`「导入契约」小节存在且**非空**（审计字段 / reason 枚举 / 恢复档位 / 取舍），小节缺失 ⇒ **失败不跳过**。
 
 **win32 专项（3 条）**：① 硬链判定的**可断言部分**：同目录 `(dev,ino)` 相同 ⇒ 拒（**不断言 `nlink>1`**，该维度已声明无判据）⇒ 改为断言审计字段 `hardlink_check=best-effort`；② NTFS 的 `.` / `..` **不得**被当成合法目录项（`basename === "." || basename === ".."` ⇒ 枚举阶段跳过且**不计入层数**）；③ `ERROR_ACCESS_DENIED` 的重试分级：A 类（`copyFile`）套指数退避、B 类（目录 `rename`）只做一次立即重试、审计追加**不重试**。
+
+**D 组（10 条 · 2026-10-23 验证层**双家族**外部评审命中后新增）**：
+① **写路径不得登记为 public**：`filmEngineering.importKit` 不在 `PUBLIC_METHODS` 内（未登录不可用），主进程侧 `film-engineering:import-kit` 同样非 public —— claude i1 / codex i1（**两家独立命中**）；
+② **禁止递归删除原语**：导入链路源文件里不得出现 `rm`/`rmSync`/`rmdir` + `recursive`（R0 **机械结构锁**）—— codex i2 命中初版 `.bak` 的 `rm(recursive:true)`；
+③ 审计**写失败**时行数**不**递增（`lineCount` 与已落盘行一一对应）—— claude i2 / codex i7；
+④ 删 `.bak` 失败 ⇒ 导入**仍生效**，但成功信封必须带 `recoveryState=BAK_LEFT` + 恢复路径 —— claude i3 / codex i6；
+⑤ 删锁失败 ⇒ 成功信封必须带 `recoveryState=LOCK_LEFT` + 锁路径；
+⑥ **回滚失败 ⇒ 档位是 `MISSING_KIT`（不是 `BAK_LEFT`）** —— 两者互换会让用户**删掉旧资产仅存的一份**（数据丢失级误导）；
+⑦ 审计**结果行**写失败 ⇒ 成功信封带 `auditWritten=false`，渲染端给出「审计不完整」告警（**不得静默**）—— codex i3；
+⑧ 源目录 = `film-kit.staging-*` / `film-kit.bak-*` 残留目录 ⇒ 拒（`SOURCE_OVERLAPS_TARGET`）—— codex i5（初版这条判据**是死的**）；重叠比较在 Windows 上**大小写不敏感**；
+⑨ 跨目录同 inode **不拒**（去重键带父目录），**同目录**同 inode 仍拒 —— claude i5；任务库层级不符 / 非普通文件**拒**（不静默跳过）—— codex i8；
+⑩ 早退路径（未授权 / 对话框不可用 / 对话框失败 / 用户取消 / 所选路径非法）**各留一行审计**（`reason` 落在 18 值闭集内）—— codex i4。
 
 #### 9.c.8 明确不做
 

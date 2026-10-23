@@ -24,6 +24,7 @@ const fs = require('fs')
 const EC = require('../core/error-codes').ERROR
 const { withSenderCheck } = require('./helpers')
 const { importKit, REASON } = require('../services/film-engineering/kit-import')
+const { AuditWriter } = require('../services/film-engineering/kit-import-audit')
 const { loadFilmKit } = require('../services/film-engineering/kit-loader')
 
 /** 允许的 URL 协议（打包态 app: / 开发态 http(s):） */
@@ -77,6 +78,45 @@ function authorizeSender (event) {
 }
 
 /**
+ * 写一行**结果**审计（未进入导入流程的那些早退路径）。
+ *
+ * ⚠ 为什么在 IPC 层写（2026-10-23 验证层外部评审 codex i4 修）：
+ *   契约（`SCHEMA.md` §11.5）要求「每次 IPC 调用都有审计痕迹」，而初版里
+ *   **未授权 / 对话框不可用 / 对话框失败 / 用户取消** 这四条路径
+ *   **一行都不写** ⇒ 一次未授权的调用在审计里**完全不存在**。
+ *
+ * ⚠ `reason` 必须落在**导入流程的 reason 闭集**内（`SCHEMA.md` §11.4）：
+ *   `DIALOG_UNAVAILABLE` / `DIALOG_FAILED` 是 **IPC 层**的错误码，不在闭集里
+ *   ⇒ 审计行记 `VALIDATION_ERROR`（"请求无法准备"这一类），**精确错误码仍回传给渲染端**。
+ * ⚠ 目标目录不可用（`USERDATA_UNAVAILABLE`）⇒ **物理上无处可写** ⇒ 该行不存在
+ *   （写不出审计不是"漏写"，是"没有可写的审计文件"；`SCHEMA.md` §11.5 已写明这条例外）。
+ */
+function writeOutcomeAudit (opts) {
+  const o = opts || {}
+  const userDataDir = o.userDataDir
+  if (!userDataDir) return { ok: false, reason: 'USERDATA_UNAVAILABLE' }
+  try {
+    const audit = new AuditWriter({ userDataDir })
+    audit.countLines()
+    const row = audit.append({
+      time: new Date().toISOString(),
+      senderUrl: o.senderUrl || null,
+      senderRoute: o.senderRoute || null,
+      triggerComponent: o.triggerComponent || null,
+      sourceDir: o.sourceDir || null,
+      result: o.result || 'failed',
+      reason: o.reason || null,
+      postCheck: null,
+      recoveryState: null,
+      recoveryPath: null,
+    })
+    return row
+  } catch (e) {
+    return { ok: false, message: String(e && e.message) }
+  }
+}
+
+/**
  * 注册导入通道。
  * @param {import('electron').IpcMain} ipcMain
  * @param {object} deps
@@ -88,12 +128,23 @@ function registerImportHandlers (ipcMain, deps) {
   const dialog = o.dialog
   const importFn = o._testImportKit || importKit
   const loadKit = o._testLoadFilmKit || loadFilmKit
+  const userDataDir = service && service.userDataDir
+  const triggerComponent = o.triggerComponent || 'FilmEngineeringView'
 
+  // ⚠ `onUntrusted`：来源门禁在 handler **之前**拦截 ⇒ handler 里的代码根本不执行
+  //   ⇒ 外部来源的未授权调用若要进审计，只能由这一格回调补写
+  //   （2026-10-23 验证层外部评审 codex i1 命中：初版「每次 IPC 调用都有痕迹」被自身行为证伪）。
   ipcMain.handle('film-engineering:import-kit', withSenderCheck(async (event) => {
     // ── ① sender 授权断言（硬；写路径不 fail-open）────────────────
     const auth = authorizeSender(event)
     if (!auth.ok) {
       log.warn('[film-engineering:import-kit] 未授权来源:', auth.message)
+      writeOutcomeAudit({
+        userDataDir,
+        triggerComponent,
+        result: 'failed',
+        reason: REASON.UNAUTHORIZED_SENDER,
+      })
       return { code: EC.AUTH_ERROR, errorCode: REASON.UNAUTHORIZED_SENDER, message: auth.message }
     }
 
@@ -102,6 +153,14 @@ function registerImportHandlers (ipcMain, deps) {
       try { return require('electron').dialog } catch (_e) { return null }
     })()
     if (!dialogApi || typeof dialogApi.showOpenDialog !== 'function') {
+      writeOutcomeAudit({
+        userDataDir,
+        triggerComponent,
+        senderUrl: auth.senderUrl,
+        senderRoute: auth.senderRoute,
+        result: 'failed',
+        reason: REASON.VALIDATION_ERROR,
+      })
       return { code: EC.REQUEST_ERROR, errorCode: 'DIALOG_UNAVAILABLE', message: '目录选择对话框不可用' }
     }
     let picked
@@ -111,28 +170,69 @@ function registerImportHandlers (ipcMain, deps) {
         properties: ['openDirectory'],
       })
     } catch (e) {
+      writeOutcomeAudit({
+        userDataDir,
+        triggerComponent,
+        senderUrl: auth.senderUrl,
+        senderRoute: auth.senderRoute,
+        result: 'failed',
+        reason: REASON.VALIDATION_ERROR,
+      })
       return { code: EC.REQUEST_ERROR, errorCode: 'DIALOG_FAILED', message: String(e && e.message) }
     }
     if (!picked || picked.canceled === true || !picked.filePaths || picked.filePaths.length === 0) {
+      // 取消**也留痕**（一次取消说明用户点过入口 ⇒ 审计里应当看得见）
+      writeOutcomeAudit({
+        userDataDir,
+        triggerComponent,
+        senderUrl: auth.senderUrl,
+        senderRoute: auth.senderRoute,
+        result: 'cancelled',
+        reason: REASON.CANCELLED,
+      })
       return { code: 0, data: { cancelled: true, reason: 'CANCELLED' } }
     }
 
     // ── ③ handler 层也拒：非目录 / UNC 网络路径（S22 两层都执行）──
     const kitDir = picked.filePaths[0]
     if (!kitDir || String(kitDir).startsWith('\\\\')) {
+      writeOutcomeAudit({
+        userDataDir,
+        triggerComponent,
+        senderUrl: auth.senderUrl,
+        senderRoute: auth.senderRoute,
+        result: 'failed',
+        reason: REASON.NOT_A_DIRECTORY,
+      })
       return { code: EC.VALIDATION_ERROR, errorCode: 'NOT_A_DIRECTORY', message: '不支持网络路径（UNC）' }
     }
     try {
       if (!fs.statSync(kitDir).isDirectory()) {
+        writeOutcomeAudit({
+          userDataDir,
+          triggerComponent,
+          senderUrl: auth.senderUrl,
+          senderRoute: auth.senderRoute,
+          result: 'failed',
+          reason: REASON.NOT_A_DIRECTORY,
+        })
         return { code: EC.VALIDATION_ERROR, errorCode: 'NOT_A_DIRECTORY', message: '所选路径不是目录' }
       }
     } catch (_e) {
+      writeOutcomeAudit({
+        userDataDir,
+        triggerComponent,
+        senderUrl: auth.senderUrl,
+        senderRoute: auth.senderRoute,
+        result: 'failed',
+        reason: REASON.NOT_A_DIRECTORY,
+      })
       return { code: EC.VALIDATION_ERROR, errorCode: 'NOT_A_DIRECTORY', message: '所选路径不可读' }
     }
 
     // ── ④ 执行导入（编排层负责 ⓪-⑦）──────────────────────────────
-    const userDataDir = service && service.userDataDir
     if (!userDataDir) {
+      // ⚠ 目标目录不可用 ⇒ 审计文件**无处可写** ⇒ 这一行物理上不存在
       return { code: EC.REQUEST_ERROR, errorCode: 'USERDATA_UNAVAILABLE', message: '目标目录不可用' }
     }
     const res = await importFn({
@@ -142,7 +242,7 @@ function registerImportHandlers (ipcMain, deps) {
       loadFilmKit: loadKit,
       senderUrl: auth.senderUrl,
       senderRoute: auth.senderRoute,
-      triggerComponent: o.triggerComponent || 'FilmEngineeringView',
+      triggerComponent,
     })
     if (!res.ok) {
       const code = CODE_BY_REASON[res.reason] || EC.VALIDATION_ERROR
@@ -153,6 +253,10 @@ function registerImportHandlers (ipcMain, deps) {
         data: {
           recoveryPath: res.recoveryPath || null,
           recoveryState: res.recoveryState || null,
+          // ⚠ **失败路径**的审计行写失败也要透传（2026-10-23 验证层外部评审
+          //   claude i1 / codex i6）：初版只查成功路径 ⇒ 「这次失败连审计都没留下」被静默。
+          auditWritten: res.auditWritten !== false,
+          auditMessage: res.auditMessage || null,
         },
       }
     }
@@ -162,8 +266,27 @@ function registerImportHandlers (ipcMain, deps) {
         ok: true,
         fileCount: res.stats ? res.stats.fileCount : 0,
         totalBytes: res.stats ? res.stats.totalBytes : 0,
+        // ⚠ **成功也可能带残留**（`.bak` 未删 ⇒ BAK_LEFT / 锁未删 ⇒ LOCK_LEFT）：
+        //   导入**已生效**，但现场有残留要用户手动清 ⇒ 必须透传给渲染端
+        //   （2026-10-23 验证层外部评审 claude i3 / codex i6 修：初版这两个字段
+        //   只在失败分支回传 ⇒ 成功路径的残留**永远到不了用户眼前**）。
+        recoveryState: res.recoveryState || null,
+        recoveryPath: res.recoveryPath || null,
+        // 审计结果行写失败 ⇒ 导入已生效但审计不完整 ⇒ 显式告知，不静默
+        auditWritten: res.auditWritten !== false,
+        auditMessage: res.auditMessage || null,
       },
     }
+  }, {
+    // 来源不可信（外部页面 / 子框架）⇒ handler 不会执行 ⇒ 由这一格补写审计行
+    onUntrusted: () => {
+      writeOutcomeAudit({
+        userDataDir,
+        triggerComponent,
+        result: 'failed',
+        reason: REASON.UNAUTHORIZED_SENDER,
+      })
+    },
   }))
 }
 
@@ -171,6 +294,7 @@ module.exports = {
   registerImportHandlers,
   authorizeSender,
   parseHashRoute,
+  writeOutcomeAudit,
   ALLOWED_PROTOCOLS,
   ROUTE_PREFIX,
 }

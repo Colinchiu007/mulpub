@@ -130,6 +130,51 @@ describe('kit-import-swap: 目录级换入与回滚', () => {
     expect(fs.readFileSync(path.join(oldKit, 'old.txt'), 'utf8')).toBe('old')
     expect(fs.existsSync(path.join(ud, bakName('s3')))).toBe(false)
   })
+
+  // ⚠ 2026-10-23 验证层外部评审（claude i3 / codex i6）命中：初版把
+  //   `swap.bakPath` 丢掉 ⇒ 「.bak 没删掉」这件事**永远到不了用户眼前**。
+  it('删 `.bak` 失败 ⇒ 仍算生效，但必须回传 BAK_LEFT 残留档位与恢复路径', async () => {
+    const ud = tmpDir('ud')
+    const oldKit = path.join(ud, KIT_DIR_NAME)
+    fs.mkdirSync(oldKit, { recursive: true })
+    fs.writeFileSync(path.join(oldKit, 'old.txt'), 'old', 'utf8')
+    const staging = path.join(ud, stagingName('s4'))
+    fs.mkdirSync(staging, { recursive: true })
+    fs.writeFileSync(path.join(staging, 'new.txt'), 'new', 'utf8')
+
+    // 让 unlink 失败（模拟被占用 / 权限不足）
+    // ⚠ 不能用 `Object.create(fs)` 后赋值 `promises`：`fs.promises` 是只读 getter。
+    const brokenFs = Object.assign({}, fs, {
+      promises: Object.assign({}, fs.promises, {
+        unlink: async () => {
+          const e = new Error('EPERM: operation not permitted')
+          e.code = 'EPERM'
+          throw e
+        },
+      }),
+    })
+
+    const res = await swapIn({ userDataDir: ud, stagingDir: staging, stamp: 's4', fs: brokenFs })
+    expect(res.ok).toBe(true)
+    expect(res.recoveryState).toBe('BAK_LEFT')
+    expect(res.bakPath).toContain(bakName('s4'))
+    // 新资产确实已生效
+    expect(fs.existsSync(path.join(oldKit, 'new.txt'))).toBe(true)
+  })
+
+  it('删 `.bak` 成功 ⇒ 不留 BAK_LEFT 档位（旧资产目录整体消失）', async () => {
+    const ud = tmpDir('ud')
+    const oldKit = path.join(ud, KIT_DIR_NAME)
+    fs.mkdirSync(path.join(oldKit, 'sub'), { recursive: true })
+    fs.writeFileSync(path.join(oldKit, 'sub', 'old.txt'), 'old', 'utf8')
+    const staging = path.join(ud, stagingName('s5'))
+    fs.mkdirSync(staging, { recursive: true })
+    fs.writeFileSync(path.join(staging, 'new.txt'), 'new', 'utf8')
+    const res = await swapIn({ userDataDir: ud, stagingDir: staging, stamp: 's5' })
+    expect(res.ok).toBe(true)
+    expect(res.recoveryState).toBeUndefined()
+    expect(fs.existsSync(path.join(ud, bakName('s5')))).toBe(false)
+  })
 })
 
 describe('kit-import-swap: 精确清单清理（⛔ 不递归删目录）', () => {

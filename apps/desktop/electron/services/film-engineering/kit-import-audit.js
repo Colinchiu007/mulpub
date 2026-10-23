@@ -136,6 +136,11 @@ class AuditWriter {
   /**
    * 追加一行（**追加式、可追加不可改写**）。
    * ⚠ 写入失败 ⇒ 返回失败（**拒绝导入**，审计不可静默丢失）。
+   *
+   * ⚠ **行数只在真正写成功时 +1**（2026-10-23 验证层外部评审 i2/i7 修）：
+   *   初版把 `this.lineCount += 1` 放在 `finally` ⇒ **写失败也计数** ⇒
+   *   计数单调偏高 ⇒ 正常导入会被误判成 `AUDIT_UNAVAILABLE`（阈值 10,000 行）。
+   *   计数必须与**已落盘的行**一一对应。
    */
   append (row) {
     const line = typeof row === 'string' ? row : buildAuditRow(row)
@@ -145,6 +150,7 @@ class AuditWriter {
     try {
       fd = this.fs.openSync(this.path, 'a')
       this.fs.writeSync(fd, line, null, 'utf8')
+      this.lineCount += 1
       return { ok: true }
     } catch (e) {
       return { ok: false, reason: REASON.AUDIT_UNAVAILABLE, message: '审计写入失败: ' + String(e && e.message) }
@@ -152,7 +158,6 @@ class AuditWriter {
       if (fd !== null) {
         try { this.fs.closeSync(fd) } catch (_e) { /* 关闭失败不影响已写入内容 */ }
       }
-      this.lineCount += 1
     }
   }
 }

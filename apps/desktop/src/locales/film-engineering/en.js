@@ -225,9 +225,11 @@ export default {
       "failed": "Import failed: {reason}",
       "cancelled": "Import cancelled",
       "recover": "Import rollback failed; the old assets are at {path} — please restore them manually",
-      "recoverLock": "An unfinished import is present. If no import is running, delete the lock file manually: {path}",
+      "recoverLock": "An unfinished import is present. If no import is running, check and delete the lock file manually: {path}",
       "recoverMissing": "The last import did not finish (current assets are missing). Rename the backup directory {path} back to film-kit, then retry",
       "recoverBak": "The last import left a backup directory {path} — it is safe to delete",
+      "residue": "The import took effect, but there is leftover residue for you to clean up manually",
+      "auditLost": "The import took effect, but the audit result row could not be written (audit is incomplete). Please check disk space and directory permissions",
       "auditFull": "The audit log is full; please rotate it manually: rename film-kit-import.log to a timestamped backup and create a new empty file with the same name",
       "reason": {
         "VALIDATION": "the selected directory does not meet the asset requirements",

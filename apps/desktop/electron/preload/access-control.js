@@ -81,11 +81,11 @@ const PUBLIC_METHODS = [
   // 从台账解析，渲染端不参与；是否可用仍由主进程自校验（Provider 未配等）。
   'filmEngineering.productionRetryShot',
   'filmEngineering.productionPlan', 'filmEngineering.productionRunBatch', 'filmEngineering.productionStatus', 'filmEngineering.onProductionUpdate',
-  // 资产导入（PR-3b · F-J **写路径**）：整体替换 userData/film-kit。
-  // ⚠ 与上面那些「只读浏览」不同族 —— 它是**破坏性写操作**（会替换用户当前资产），
-  //   因此**不登记为 public**（未登录不可用）；主进程另有 sender 授权硬断言
-  //   （主框架 + 路由前缀 + 协议）与原生对话框（路径只能由用户选）。
-  'filmEngineering.importKit',
+  // ⚠ 资产导入（PR-3b · F-J **写路径**，`filmEngineering.importKit`）**刻意不在本名单里**：
+  //   它是**破坏性写操作**（整体替换 userData/film-kit）⇒ 落进「不在 PUBLIC_METHODS /
+  //   ADMIN_ONLY_METHODS 名单内 ⇒ 默认 authenticated」那一档（未登录不可用）；
+  //   主进程另有 sender 授权硬断言（主框架 + 路由前缀 + 协议）与原生对话框
+  //   （路径只能由用户选）。回归锁见 preload.test.js「写路径不得登记为 public」。
 ]
 
 function hasAccess(currentLevel, requiredLevel) {
@@ -175,4 +175,5 @@ module.exports = {
   createDynamicAccessApi,
   filterApiByAccessLevel,
   hasAccess,
+  requiredLevelForMethod,
 }

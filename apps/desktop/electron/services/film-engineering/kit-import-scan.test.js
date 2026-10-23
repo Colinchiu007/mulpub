@@ -219,3 +219,83 @@ describe('kit-import-scan: 归一化与辅助判定', () => {
     expect(isHiddenComponent('a/b/c')).toBe(false)
   })
 })
+
+// ⚠ 以下三条是 2026-10-23 **验证层外部评审**（claude i5 / codex i8）命中后补的回归锁。
+describe('kit-import-scan: 硬链范围与任务库形状（外部评审修）', () => {
+  // ⚠ claude i5：初版去重键只用 `dev:ino`（**全局**）⇒ 把**跨目录**硬链也一起拒了，
+  //   而契约明写「跨目录硬链 = 非防篡改边界」⇒ 那是**超出声明的误拒**
+  //   （同一个文件被放进两个任务目录的合法包会被整包拒掉）。
+  it('跨目录硬链**不拒**（去重键按父目录分桶）', async () => {
+    const dir = makeKit({})
+    const t2 = path.join(dir, BASE_PROMPT_PATH, 't2', 'zh')
+    fs.mkdirSync(t2, { recursive: true })
+    const src = path.join(dir, BASE_PROMPT_PATH, 't1', 'zh', 'system.md')
+    let linked = false
+    try {
+      fs.linkSync(src, path.join(t2, 'system.md'))
+      linked = true
+    } catch (_e) { /* 所在卷不支持硬链 ⇒ 跳过该断言 */ }
+    if (!linked) return
+    const res = await scanKit({ kitDir: dir })
+    expect(res.ok).toBe(true)
+    const rels = res.files.map((f) => f.relPath)
+    expect(rels).toContain(BASE_PROMPT_PATH + '/t1/zh/system.md')
+    expect(rels).toContain(BASE_PROMPT_PATH + '/t2/zh/system.md')
+  })
+
+  it('**同目录**硬链仍拒（去重键带父目录 ⇒ 同一目录内重复照样命中）', async () => {
+    const dir = makeKit({})
+    const langDir = path.join(dir, BASE_PROMPT_PATH, 't1', 'zh')
+    const src = path.join(langDir, 'system.md')
+    let linked = false
+    try {
+      fs.linkSync(src, path.join(langDir, 'copy.md'))
+      linked = true
+    } catch (_e) { /* 不支持硬链 ⇒ 跳过 */ }
+    if (!linked) return
+    const res = await scanKit({ kitDir: dir })
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe(REASON.HARDLINK_REJECTED)
+  })
+
+  // ⚠ codex i8：初版把层级不符 / 非普通文件的条目**静默跳过**
+  //   ⇒ 一个缺任务、深度错乱的包能「导入成功」（任务库实际是空的）。
+  it('任务库层级不符（少一层）⇒ 拒，不静默跳过', async () => {
+    const dir = makeKit({})
+    fs.writeFileSync(path.join(dir, BASE_PROMPT_PATH, 'stray.md'), '# stray', 'utf8')
+    const res = await scanKit({ kitDir: dir })
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe(REASON.VALIDATION_ERROR)
+  })
+
+  it('任务库内出现软链/联接点 ⇒ 拒（SYMLINK_REJECTED），不静默跳过', async () => {
+    const dir = makeKit({})
+    const langDir = path.join(dir, BASE_PROMPT_PATH, 't1', 'zh')
+    let linked = false
+    try {
+      fs.symlinkSync(path.join(dir, 'palette.json'), path.join(langDir, 'link.md'), 'file')
+      linked = true
+    } catch (_e) { /* 无权限 ⇒ 跳过 */ }
+    if (!linked) return
+    const res = await scanKit({ kitDir: dir })
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe(REASON.SYMLINK_REJECTED)
+  })
+
+  // ⚠ codex i4：部分网络盘 / FUSE **恒返回 ino = 0** ⇒ 此时 (dev,ino) 不可信
+  //   ⇒ 若照样拿它去重，同目录下所有文件会撞到同一个键 ⇒ **合法包被整包误拒**。
+  it('ino = 0（不可信）⇒ 跳过硬链判据，不误拒合法包', async () => {
+    const dir = makeKit({})
+    const zeroInoFs = Object.assign({}, fs, {
+      promises: Object.assign({}, fs.promises, {
+        lstat: async (p) => {
+          const st = await fs.promises.lstat(p)
+          return Object.assign(Object.create(Object.getPrototypeOf(st)), st, { ino: 0 })
+        },
+      }),
+    })
+    const res = await scanKit({ kitDir: dir, fs: zeroInoFs })
+    expect(res.ok).toBe(true)
+    expect(res.files.length).toBeGreaterThan(0)
+  })
+})

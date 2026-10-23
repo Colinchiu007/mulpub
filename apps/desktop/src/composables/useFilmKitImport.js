@@ -17,7 +17,9 @@ import { formatUserError } from '@/utils/user-facing-error'
 import i18n from '@/i18n'
 import { useNotify } from './useNotify'
 
-const t = (key) => i18n.global.t(key)
+// ⚠ 第二个参数（插值参数）**必须透传**：初版写成 `const t = (key) => i18n.global.t(key)`
+//   ⇒ 恢复指引里的 `{path}` **永远不会被替换** ⇒ 用户看到的是字面量「{path}」。
+const t = (key, params) => (params === undefined ? i18n.global.t(key) : i18n.global.t(key, params))
 
 /** 失败原因（主进程 reason 闭集）→ i18n 桶（6 个） */
 const IMPORT_REASON_BUCKETS = Object.freeze({
@@ -98,9 +100,27 @@ export function useFilmKitImport (options) {
           // 取消**不算失败**（不弹错误提示）
           return false
         }
+        const data = res.data || {}
         notifySuccess('filmEngineering.filmKitImport.success', {
-          message: t('filmEngineering.filmKitImport.success', { count: (res.data && res.data.fileCount) || 0 }),
+          message: t('filmEngineering.filmKitImport.success', { count: data.fileCount || 0 }),
         })
+        // ⚠ **成功也可能带残留**（`.bak` 未删 / 锁未删）⇒ 导入已生效，但现场要用户手动清
+        //   （2026-10-23 验证层外部评审 claude i3 / codex i6 修：初版成功路径完全无视残留）
+        if (data.recoveryState) {
+          kitImportRecoveryPath.value = data.recoveryPath || ''
+          kitImportRecoveryState.value = data.recoveryState
+          notifyWarning('filmEngineering.filmKitImport.residue', {
+            message: t('filmEngineering.filmKitImport.' + (RECOVERY_KEYS[data.recoveryState] || 'recoverLock'), {
+              path: data.recoveryPath || '',
+            }),
+          })
+        }
+        // ⚠ 审计结果行没落盘 ⇒ 导入已生效但审计不完整 ⇒ **显式告知**（不静默）
+        if (data.auditWritten === false) {
+          notifyWarning('filmEngineering.filmKitImport.auditLost', {
+            message: t('filmEngineering.filmKitImport.auditLost'),
+          })
+        }
         await onImported()
         return true
       }
@@ -111,6 +131,13 @@ export function useFilmKitImport (options) {
       notifyWarning('filmEngineering.filmKitImport.failed', {
         message: t('filmEngineering.filmKitImport.failed', { reason: importReasonText(reason) }),
       })
+      // ⚠ **失败路径**的审计行没落盘 ⇒ 同样要显式告知（不静默）
+      //   （2026-10-23 验证层外部评审 claude i1 / codex i6）
+      if (res && res.data && res.data.auditWritten === false) {
+        notifyWarning('filmEngineering.filmKitImport.auditLost', {
+          message: t('filmEngineering.filmKitImport.auditLost'),
+        })
+      }
       return false
     } catch (e) {
       notifyWarning('filmEngineering.filmKitImport.failed', {

@@ -52,7 +52,10 @@ const ROOT_OPTIONAL = Object.freeze(['prompt-doctrine.zh.md'])
  * ⚠ `images/` **不在白名单内**（全仓无消费方 ⇒ 契约零价值）——排除本身写进 SCHEMA.md 的「排除项清单」。
  */
 const WHITELIST_PATTERNS = Object.freeze(
-  ROOT_REQUIRED.concat(ROOT_OPTIONAL).concat([BASE_PROMPT_PATH + '/**']).sort()
+  // ⚠ 排序口径与镜像断言**必须一致**（`localeCompare`）—— 否则「代码白名单」与
+  //   「SCHEMA.md 人读镜像」在两边用不同序排，漂移时更难看出是哪边变了
+  //   （2026-10-23 验证层外部评审 claude i3）。
+  ROOT_REQUIRED.concat(ROOT_OPTIONAL).concat([BASE_PROMPT_PATH + '/**']).sort((a, b) => a.localeCompare(b))
 )
 
 /** 根文件扩展名允许集 */
@@ -165,17 +168,48 @@ async function enumerateCandidates (fsImpl, kitDir) {
     const tasks = await fsImpl.promises.readdir(tasksRoot, { withFileTypes: true })
     for (const task of tasks) {
       if (task.name === '.' || task.name === '..') continue
-      if (!task.isDirectory()) continue
+      // ⚠ 层级不符**必须拒**，不能静默跳过（2026-10-23 验证层外部评审 codex i8 修）：
+      //   `prompts/tasks/**` 是**白名单内**的路径，契约要求恰 3 层 ⇒ 深度不对就是
+      //   「形状不对」，跳过会让一个缺任务/深度错乱的包「导入成功」。
+      if (task.isSymbolicLink()) {
+        return { ok: false, reason: REASON.SYMLINK_REJECTED, message: '任务库内含软链/联接点: ' + BASE_PROMPT_PATH + '/' + task.name }
+      }
+      if (!task.isDirectory()) {
+        return {
+          ok: false,
+          reason: REASON.VALIDATION_ERROR,
+          message: '任务库层级不符（应为 <task>/<lang>/<file>）: ' + BASE_PROMPT_PATH + '/' + task.name,
+        }
+      }
       const taskDir = nodePath.join(tasksRoot, task.name)
       const langs = await fsImpl.promises.readdir(taskDir, { withFileTypes: true })
       for (const lang of langs) {
         if (lang.name === '.' || lang.name === '..') continue
-        if (!lang.isDirectory()) continue
+        if (lang.isSymbolicLink()) {
+          return { ok: false, reason: REASON.SYMLINK_REJECTED, message: '任务库内含软链/联接点: ' + BASE_PROMPT_PATH + '/' + task.name + '/' + lang.name }
+        }
+        if (!lang.isDirectory()) {
+          return {
+            ok: false,
+            reason: REASON.VALIDATION_ERROR,
+            message: '任务库层级不符（应为 <task>/<lang>/<file>）: ' + BASE_PROMPT_PATH + '/' + task.name + '/' + lang.name,
+          }
+        }
         const langDir = nodePath.join(taskDir, lang.name)
         const files = await fsImpl.promises.readdir(langDir, { withFileTypes: true })
         for (const f of files) {
           if (f.name === '.' || f.name === '..') continue
-          if (!f.isFile()) continue
+          // ⚠ 非普通文件（软链/联接点/设备）**必须拒**（同上：不能静默跳过）
+          if (f.isSymbolicLink()) {
+            return { ok: false, reason: REASON.SYMLINK_REJECTED, message: '任务库内含软链/联接点: ' + BASE_PROMPT_PATH + '/' + task.name + '/' + lang.name + '/' + f.name }
+          }
+          if (!f.isFile()) {
+            return {
+              ok: false,
+              reason: REASON.VALIDATION_ERROR,
+              message: '任务库内含非普通文件: ' + BASE_PROMPT_PATH + '/' + task.name + '/' + lang.name + '/' + f.name,
+            }
+          }
           out.push(BASE_PROMPT_PATH + '/' + task.name + '/' + lang.name + '/' + f.name)
         }
       }
@@ -270,16 +304,28 @@ async function scanKit (opts) {
       return { ok: false, reason: REASON.PATH_ESCAPE, message: 'realpath 越出源目录: ' + norm }
     }
 
-    // 硬链（同目录）：(dev, ino) 去重 —— 与 nlink 无关，任何文件系统都成立
-    const inodeKey = String(st.dev) + ':' + String(st.ino)
-    if (seenInodes.has(inodeKey)) {
-      return {
-        ok: false,
-        reason: REASON.HARDLINK_REJECTED,
-        message: '同目录硬链: ' + norm + ' 与 ' + seenInodes.get(inodeKey),
+    // 硬链（**同目录**）：(dev, ino) 相同 ⇒ 拒 —— 与 nlink 无关，任何文件系统都成立
+    // ⚠ 键**必须带父目录**（2026-10-23 验证层外部评审 claude i5 修）：
+    //   初版只用 `dev:ino` 做全局键 ⇒ 把**跨目录**硬链也一起拒了，
+    //   而契约明写「跨目录硬链 = 非防篡改边界」⇒ 那是**超出声明的误拒**
+    //   （同一个文件被放进两个任务目录的合法包会被整包拒掉）。
+    // ⚠ 键用 **JSON.stringify([目录, dev, ino])**：不依赖任何分隔符
+    //   ⇒ 路径里出现什么字符都不会与键撞车；源码里也不出现不可见字符
+    //   （2026-10-23 验证层外部评审 codex i4 修：键带父目录 ⇒ 只覆盖**同目录**重复）。
+    // ⚠ `ino === 0` 时**不可信**（部分网络盘 / FUSE 恒返回 0）⇒ 此时**跳过**该判据，
+    //   否则同目录下所有文件会撞到同一个键 ⇒ 合法包被整包误拒
+    //   （2026-10-23 验证层外部评审 codex i4 修）。
+    if (st.ino) {
+      const inodeKey = JSON.stringify([nodePath.posix.dirname(norm), st.dev, st.ino])
+      if (seenInodes.has(inodeKey)) {
+        return {
+          ok: false,
+          reason: REASON.HARDLINK_REJECTED,
+          message: '同目录硬链: ' + norm + ' 与 ' + seenInodes.get(inodeKey),
+        }
       }
+      seenInodes.set(inodeKey, norm)
     }
-    seenInodes.set(inodeKey, norm)
 
     // 体积
     if (st.size > MAX_KIT_FILE_BYTES) {

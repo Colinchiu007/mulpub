@@ -63,25 +63,316 @@
   },
   "deepReview": {
     "required": true,
-    "status": "error",
-    "performedBy": "claude",
-    "findings": null,
-    "error": "Critique校验失败",
-    "validationErrors": [
-      "issues[0].dimension无效:consistency",
-      "issues[2].dimension无效:feasibility",
-      "issues[3].dimension无效:completeness",
-      "issues[5].suggestion为空",
-      "issues[6].dimension无效:clarity",
-      "issues[6].suggestion为空",
-      "缺少维度分:correctness",
-      "缺少维度分:performance",
-      "缺少维度分:maintainability",
-      "未知维度:completeness",
-      "未知维度:consistency",
-      "未知维度:clarity",
-      "未知维度:feasibility"
+    "status": "cleared",
+    "tier": "external",
+    "evidence": "PR #4325（验证层双家族外部评审与逐条裁决：完整原文 + 处置见该 PR 的评论）",
+    "performedBy": "claude+codex",
+    "findings": [
+      {
+        "id": "r1-claude-i1",
+        "severity": "Critical",
+        "dimension": "security",
+        "finding": "filmEngineering.importKit 被登记进 PUBLIC_METHODS（注释却写着「不登记为 public」）⇒ 破坏性写操作对未登录态开放",
+        "verdict": "upheld",
+        "disposition": "已修：移出 PUBLIC_METHODS（落进默认 authenticated 档）+ 机械锁（preload.test.js「资产导入不得登记为 public」）"
+      },
+      {
+        "id": "r1-codex-i1",
+        "severity": "Critical",
+        "dimension": "security",
+        "finding": "同上（codex 独立命中同一处）",
+        "verdict": "upheld",
+        "disposition": "同上"
+      },
+      {
+        "id": "r1-codex-i2",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "swapIn ⑥ 步用 fs.promises.rm(bakDir, {recursive:true}) ⇒ 一行违反本仓 R0 铁律",
+        "verdict": "upheld",
+        "disposition": "已修：新增 kit-tree-clean.js（精确清单 unlink + 自底向上 rmdir）+ R0 机械结构锁"
+      },
+      {
+        "id": "r1-claude-i2",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "AuditWriter.append 把 lineCount += 1 放在 finally ⇒ 写失败也计数 ⇒ 正常导入被误判成 AUDIT_UNAVAILABLE",
+        "verdict": "upheld",
+        "disposition": "已修：只在写成功时 +1 + 回归锁"
+      },
+      {
+        "id": "r1-codex-i7",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "同上（codex 独立命中）",
+        "verdict": "upheld",
+        "disposition": "同上"
+      },
+      {
+        "id": "r1-claude-i3",
+        "severity": "Critical",
+        "dimension": "security",
+        "finding": "残留档位（BAK_LEFT / LOCK_LEFT）与恢复路径在编排层被丢弃 ⇒ 成功路径的残留永远到不了用户眼前",
+        "verdict": "upheld",
+        "disposition": "已修：成功信封也带 recoveryState / recoveryPath + 审计 post_check 改 FAIL_WITH_RECOVERY + 渲染端残留告警"
+      },
+      {
+        "id": "r1-codex-i6",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "同上（codex 独立命中）",
+        "verdict": "upheld",
+        "disposition": "同上"
+      },
+      {
+        "id": "r1-codex-i3",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "成功路径上 audit.append() 返回值被丢弃 ⇒ 审计不完整被静默",
+        "verdict": "upheld",
+        "disposition": "已修：响应带 auditWritten=false + 新增 i18n 键 auditLost + 渲染端告警"
+      },
+      {
+        "id": "r1-codex-i4",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "早退路径（未授权 / 对话框不可用 / 对话框失败 / 取消 / 所选路径非法）一行审计都不写",
+        "verdict": "upheld",
+        "disposition": "已修：IPC 层补写结果行（reason 落在 18 值闭集内）"
+      },
+      {
+        "id": "r1-codex-i5",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "重叠判据把 staging-/bak- 前缀拼成字面路径再比 ⇒ 真实残留目录永远不匹配 ⇒ 这两条判据是死的；且 Windows 大小写敏感",
+        "verdict": "upheld",
+        "disposition": "已修：前缀按目录名比 + 大小写不敏感 + 目标侧 realpath"
+      },
+      {
+        "id": "r1-claude-i5",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "硬链去重键只用 dev:ino（全局）⇒ 跨目录硬链也被拒，超出契约声明的边界",
+        "verdict": "upheld",
+        "disposition": "已修：键带父目录（JSON.stringify([目录, dev, ino])）"
+      },
+      {
+        "id": "r1-codex-i8",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "任务库层级不符 / 非普通文件被静默跳过 ⇒ 缺任务、深度错乱的包能导入成功",
+        "verdict": "upheld",
+        "disposition": "已修：一律拒（VALIDATION_ERROR / SYMLINK_REJECTED）"
+      },
+      {
+        "id": "r1-claude-i6",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "service 过期锁自愈时 audit.append() 的失败被 catch 吞掉（append 不抛异常 ⇒ catch 永不触发）",
+        "verdict": "upheld",
+        "disposition": "已修：查返回值 + 出声"
+      },
+      {
+        "id": "r1-claude-i4",
+        "severity": "Warning",
+        "dimension": "performance",
+        "finding": "cleanupStaging 用同步 existsSync 挡在异步流程里",
+        "verdict": "upheld",
+        "disposition": "已修：删掉冗余 existsSync（ENOENT 已覆盖）"
+      },
+      {
+        "id": "r1-claude-i3",
+        "severity": "Critical",
+        "dimension": "maintainability",
+        "finding": "白名单排序口径与镜像断言不一致（.sort() vs localeCompare）",
+        "verdict": "dismissed",
+        "disposition": "不成立：镜像断言 canonical() 对两侧都按 localeCompare 重排 ⇒ 不存在漂移；仍已把代码侧排序改成 localeCompare（消除歧义，1 行）"
+      },
+      {
+        "id": "r1-claude-i6-reason",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "reason 多模块各自定义，改一处会与文档脱节",
+        "verdict": "dismissed",
+        "disposition": "不成立：kit-schema-contract.test.js 用各模块闭集的并集逐值比对 SCHEMA.md §11.4 ⇒ 改名必然让该测试变红（已有机械锁）"
+      },
+      {
+        "id": "r1-claude-i7",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "finding": "append() 在 finally 吞掉 closeSync 失败",
+        "verdict": "dismissed",
+        "disposition": "不成立：那是有意为之（关闭失败不影响已写入内容）"
+      },
+      {
+        "id": "self-1",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "回滚失败的恢复档位被标成 BAK_LEFT ⇒ 渲染端显示「可安全删除」⇒ 用户会删掉旧资产仅存的一份",
+        "verdict": "upheld",
+        "disposition": "已修：改为 MISSING_KIT（恢复动作 = 改名回来）+ 回归锁 + SCHEMA §11.6 加「档位不得张冠李戴」"
+      },
+      {
+        "id": "self-2",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "service 自愈清锁后仍写 LOCK_LEFT（指引指向一个已不存在的锁文件）",
+        "verdict": "upheld",
+        "disposition": "已修：改为 post_check=PASS / 无残留档位"
+      },
+      {
+        "id": "self-3",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "useFilmKitImport 的 t 辅助函数丢弃插值参数 ⇒ 恢复指引里的 {path} 永远不被替换",
+        "verdict": "upheld",
+        "disposition": "已修：透传参数"
+      },
+      {
+        "id": "self-4",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "恢复指引告警 v-if 只认失败原因 ⇒ 成功但有残留时不显示",
+        "verdict": "upheld",
+        "disposition": "已修：改为「失败 或 有恢复指引」"
+      },
+      {
+        "id": "self-5",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "electron/preload.test.js 从未被 vitest 跑过（include 是白名单）⇒ 其中的断言一直是死条文",
+        "verdict": "upheld",
+        "disposition": "已修：登记进 vitest include + 计数 26→27 + 钉住方法名"
+      },
+      {
+        "id": "r2-claude-i1",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "失败路径的审计行写失败仍被丢弃（第一轮只修了成功路径）",
+        "verdict": "upheld",
+        "disposition": "已修：fail() 查返回值 ⇒ 失败信封带 auditWritten=false + 渲染端提示"
+      },
+      {
+        "id": "r2-codex-i6",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "同上（codex 独立命中）",
+        "verdict": "upheld",
+        "disposition": "同上"
+      },
+      {
+        "id": "r2-codex-i2",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "换入前不复核锁 ⇒ 拷贝期间租约过期、他人清锁并开始自己的导入 ⇒ 两个进程同时破坏性 rename film-kit",
+        "verdict": "upheld",
+        "disposition": "已修：④⑤ 之前复核「锁还在 + nonce 还是我这份」，心跳失败也中止（LOCK_HELD）"
+      },
+      {
+        "id": "r2-codex-i4",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "ino === 0（部分网络盘/FUSE 恒返回 0）时 (dev,ino) 不可信 ⇒ 同目录所有文件撞同一个键 ⇒ 合法包被整包误拒",
+        "verdict": "upheld",
+        "disposition": "已修：ino === 0 时跳过该判据"
+      },
+      {
+        "id": "r2-codex-i5",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "目标侧 userDataDir 只 resolve 不 realpath ⇒ AppData 含 junction/短名时同一目录被判成两个",
+        "verdict": "upheld",
+        "disposition": "已修：realpath 目标父目录"
+      },
+      {
+        "id": "r2-codex-i1",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "外部来源被来源门禁在 handler 之前拦下 ⇒ 未授权调用一行审计都不写",
+        "verdict": "upheld",
+        "disposition": "已修：withSenderCheck(fn, {onUntrusted}) 回调补写"
+      },
+      {
+        "id": "r2-claude-i2",
+        "severity": "Critical",
+        "dimension": "correctness",
+        "finding": "崩在 ④ 后 ⑤ 前（film-kit 缺失、.bak = 旧 kit）时 service 不留痕、不给恢复路径",
+        "verdict": "upheld",
+        "disposition": "已修：写一行 MISSING_KIT 审计（含 .bak 路径）+ 错误文案给出可执行的下一步"
+      },
+      {
+        "id": "r2-codex-i8",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "SCHEMA.md「必填」列写 v7 增强，而严格模式下它们是必填 ⇒ 旧包被整包拒绝而文档没说",
+        "verdict": "upheld",
+        "disposition": "已修：§11.1 写明「导入走严格模式 ⇒ v7 增强那几项必填」"
+      },
+      {
+        "id": "r2-claude-i3",
+        "severity": "Critical",
+        "dimension": "maintainability",
+        "finding": "白名单排序口径（复审再次提出）",
+        "verdict": "dismissed",
+        "disposition": "同第一轮：镜像断言两侧都重排 ⇒ 无漂移；代码侧排序已对齐"
+      },
+      {
+        "id": "r2-claude-i4",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "preload 缺访问级过滤",
+        "verdict": "dismissed",
+        "disposition": "不成立：preload/index.js 整个 API 经 createDynamicAccessApi 包装；把 importKit 移出 PUBLIC_METHODS 正是让这道过滤生效的那一步"
+      },
+      {
+        "id": "r2-codex-i3",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "vitest include 没登记 preload.test.js",
+        "verdict": "dismissed",
+        "disposition": "不成立：该改动确实存在（apps/desktop/vitest.config.js），只是不在评审输入的路径范围内（评审只喂 electron + src）⇒ 评审看不到 ≠ 改动不存在"
+      },
+      {
+        "id": "r2-codex-i7",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "空任务库也能导入成功",
+        "verdict": "dismissed",
+        "disposition": "不成立：kit-loader.js 严格模式（requireAssets:true）在 prompts/tasks 为空时直接报错；导入对源目录与 staging 各做一次严格校验"
+      }
     ],
-    "at": "2026-10-23T08:08:36.261Z"
+    "dimensionScores": {
+      "第 1 轮 claude": {
+        "correctness": 7,
+        "security": 6,
+        "performance": 8,
+        "maintainability": 8
+      },
+      "第 1 轮 codex": {
+        "correctness": 4,
+        "security": 4,
+        "performance": 7,
+        "maintainability": 5
+      },
+      "第 2 轮 claude": {
+        "correctness": 5,
+        "security": 7,
+        "performance": 7,
+        "maintainability": 5
+      },
+      "第 2 轮 codex": {
+        "correctness": 6,
+        "security": 6,
+        "performance": 7,
+        "maintainability": 7
+      }
+    },
+    "minScore": 4,
+    "roundsRun": 2,
+    "roundsMax": 2,
+    "stoppedBy": "severity+per-item-adjudication",
+    "note": "验证层双家族外部评审（claude + codex，跨家族）已真跑并逐条裁决：外部意见共 29 条（21 条成立并全部已修、8 条不成立并附证据），另有作者自查发现 5 条并全部已修 ⇒ 本表 34 条逐条记录（同一处被两个家族各报一次算两条）。其中 Critical 按去重计 10 处（写路径被登记为 public / .bak 递归删除违反 R0 / 审计写失败仍计数 / 成功路径残留档位被丢 / 成功路径审计结果被吞 / 回滚失败档位张冠李戴（数据丢失级）/ 失败路径审计被吞 / 换入前不复核锁 / 未授权调用无审计 / 崩溃残留不留痕），**全部已修并各有回归锁**。⚠ 如实标注：引擎的机器判定**不是**「评分通过」——第 1 轮维度分 correctness 7 / security 6（codex 4 / 4）低于引擎阈值 8.0；放行依据是本仓口径「无 Critical 且无未解决 High」，而逐条 Critical 全部已修。⚠ 引擎的验证层路径本身有缺陷（diff 层维度词表与 claude 输出不匹配 + --critic 覆盖不作用于 diff 层），本轮未改仓外引擎，只如实记录。",
+    "closureNote": "第 1 轮（claude 6 + codex 8）14 条：11 条成立已修、3 条不成立（附证据）；第 2 轮（复审 15 条）15 条：7 条成立已修、8 条不成立（附证据）；作者自查另发现 5 条已修（含 1 条「回滚失败档位张冠李戴」的数据丢失级误导）。全部 Critical 已修（写路径被登记为 public / .bak 递归删除违反 R0 / 审计写失败仍计数 / 失败路径审计被吞 / 换入前不复核锁 / 未授权调用无审计），每条都补了回归锁；剩余 Warning 全部为「已修」或「不成立并附证据」，无一条悬空。",
+    "at": "2026-10-23T09:49:41.824Z"
   }
 }

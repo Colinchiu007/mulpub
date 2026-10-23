@@ -54,15 +54,22 @@ async function onConfirm () {
     <span class="fe-import-hint">{{ t('filmEngineering.filmKitImport.hint') }}</span>
   </div>
 
-  <!-- 导入失败后的恢复指引（残留档位 ⇒ 具体步骤；主进程回传 recoveryState/recoveryPath） -->
+  <!-- 恢复指引（残留档位 ⇒ 具体步骤；主进程回传 recoveryState/recoveryPath）
+       ⚠ **失败**与**成功但有残留**两种情形都要出现：
+         失败 ⇒ 标题是「导入失败：{原因}」；
+         成功但 `.bak` / 锁没删干净 ⇒ 导入**已生效**，标题是「导入已生效，但有残留需要你手动清理」
+         （2026-10-23 验证层外部评审 claude i3 / codex i6 修：初版只认失败分支
+          ⇒ 成功路径的残留**永远不显示** ⇒ 恢复指引是空的）。 -->
   <el-alert
-    v-if="kitImportReason"
+    v-if="kitImportReason || kitImportRecoveryHint"
     class="fe-import-alert"
     type="warning"
     show-icon
     :closable="false"
     data-testid="fe-kit-import-recovery"
-    :title="t('filmEngineering.filmKitImport.failed', { reason: importReasonText(kitImportReason) })"
+    :title="kitImportReason
+      ? t('filmEngineering.filmKitImport.failed', { reason: importReasonText(kitImportReason) })
+      : t('filmEngineering.filmKitImport.residue')"
   >
     <span v-if="kitImportRecoveryHint">{{ kitImportRecoveryHint }}</span>
   </el-alert>

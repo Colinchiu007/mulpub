@@ -82,4 +82,48 @@ describe('FilmEngineeringService · 导入标记与缓存失效', () => {
     expect(svc.getImportState().inProgress).toBe(true)
     expect(fs.existsSync(lockPathOf(ud))).toBe(true)
   })
+
+  // ⚠ 2026-10-23 验证层外部评审后自查发现（与 claude i3 / codex i6 同族的**档位误导**）：
+  //   走到这一步时**锁已经被自动清掉了**、目标 kit 在位 ⇒ **没有任何残留要用户动手**。
+  //   初版审计行写 `FAIL_WITH_RECOVERY` + `LOCK_LEFT`（「手动删除锁文件」）
+  //   ⇒ 指引指向一个**已经不存在**的文件。
+  it('过期锁自愈的审计行：postCheck=PASS、**无**残留档位（锁已被清掉）', () => {
+    const ud = tmpUserData()
+    createLock({ userDataDir: ud })
+    const old = new Date(Date.now() - (LEASE_MS + 5000))
+    fs.utimesSync(lockPathOf(ud), old, old)
+    const svc = new FilmEngineeringService({ kitDir: ud, userDataKitDir: path.join(ud, 'film-kit'), log })
+    expect(svc.getImportState().inProgress).toBe(false)
+    const auditFile = path.join(ud, 'film-kit-import.log')
+    expect(fs.existsSync(auditFile)).toBe(true)
+    const row = fs.readFileSync(auditFile, 'utf8').split('\n').filter(Boolean).pop()
+    const cols = row.split('\t')
+    expect(cols.length).toBe(10)
+    expect(cols[8]).toBe('-') // recovery_state 为空（无残留）
+    expect(cols[9]).toBe('-') // 恢复路径为空
+    expect(cols[7]).toBe('PASS') // post_check
+  })
+
+  // ⚠ 2026-10-23 验证层外部评审（claude i2）命中：崩在 ④ 后 ⑤ 前
+  //   （`film-kit` 缺失、`.bak` = 旧 kit）时，初版**直接返回** ⇒ 既没有审计痕迹、
+  //   也没有恢复路径 ⇒ 用户只看到「导入进行中」。
+  it('崩溃残留且目标 kit 缺失 ⇒ 留一行 MISSING_KIT 审计（含 .bak 路径），且**保持阻塞**', () => {
+    const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'film-svc-miss-'))
+    fs.mkdirSync(path.join(ud, 'film-kit.bak-old'), { recursive: true })
+    // 目标 kit 缺失（崩在 ④ 后 ⑤ 前）
+    const svc = new FilmEngineeringService({ kitDir: ud, userDataKitDir: path.join(ud, 'film-kit'), log })
+    createLock({ userDataDir: ud })
+    const old = new Date(Date.now() - (LEASE_MS + 5000))
+    fs.utimesSync(lockPathOf(ud), old, old)
+    const svc2 = new FilmEngineeringService({ kitDir: ud, userDataKitDir: path.join(ud, 'film-kit'), log })
+    // 仍然阻塞（不静默回落到随包 min 版）
+    expect(svc2.getImportState().inProgress).toBe(true)
+    const auditFile = path.join(ud, 'film-kit-import.log')
+    expect(fs.existsSync(auditFile)).toBe(true)
+    const row = fs.readFileSync(auditFile, 'utf8').split('\n').filter(Boolean).pop()
+    const cols = row.split('\t')
+    expect(cols[8]).toBe('MISSING_KIT')
+    expect(cols[9]).toContain('film-kit.bak-old')
+    expect(svc).toBeTruthy()
+  })
 })

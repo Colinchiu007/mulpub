@@ -58,29 +58,74 @@ const REASON = Object.freeze({
   UNAUTHORIZED_SENDER: 'UNAUTHORIZED_SENDER',
 })
 
-/** 目标侧路径集合（用于「源/目标重叠」判定） */
+/** 目标侧的**精确**路径（文件或目录） */
 function targetPathsOf (userDataDir) {
   return [
     nodePath.join(userDataDir, KIT_DIR_NAME),
-    nodePath.join(userDataDir, STAGING_PREFIX),
-    nodePath.join(userDataDir, BAK_PREFIX),
     nodePath.join(userDataDir, LOCK_FILE),
     auditFilePathOf(userDataDir),
   ]
 }
 
+/** 目标侧的**前缀**目录名（staging / `.bak` 的名字带时间戳 ⇒ 只能按前缀比） */
+const TARGET_DIR_PREFIXES = Object.freeze([STAGING_PREFIX, BAK_PREFIX])
+
+/**
+ * 路径比较用的**大小写口径**：Windows 上文件系统大小写不敏感 ⇒ 比较也必须不敏感，
+ * 否则 `D:/Data` 与 `d:/data` 会被判成两个目录 ⇒ 重叠判据直接失效。
+ * （2026-10-23 验证层外部评审 codex i5 命中）
+ */
+function pathKey (p) {
+  const s = nodePath.resolve(String(p))
+  return process.platform === 'win32' ? s.toLowerCase() : s
+}
+
+/** `child` 是否在 `parent` 之内（严格子孙，不含相等） */
+function isUnder (child, parent) {
+  const c = pathKey(child)
+  const p = pathKey(parent)
+  if (c === p) return false
+  return c.startsWith(p.endsWith(nodePath.sep) ? p : p + nodePath.sep)
+}
+
 /**
  * 源/目标重叠判定：**互为前缀关系即拒**（否则用户选中 `userData/film-kit` 自身或其父级时，
  * 会把目标拷进自己、或把目标 rename 走）。
+ *
+ * ⚠ 目标集分两类（2026-10-23 验证层外部评审 codex i5 修）：
+ *   ① **精确路径**：`film-kit` / `.import-lock` / 审计日志文件；
+ *   ② **前缀目录名**：`film-kit.staging-*` / `film-kit.bak-*`（名字带时间戳 ⇒
+ *      拼成字面路径再比前缀**永远不匹配** ⇒ 初版这两条判据是死的）。
+ * ⚠ 目标侧（`userDataDir`）也要 **realpath**：AppData 路径里可能有 junction / 8.3 短名
+ *   ⇒ 同一个目录会被判成两个 ⇒ 重叠判据直接失效（用户可以把目标目录自身当源目录导入）。
  * @returns {{ok:boolean, message?:string}}
  */
-function checkNoOverlap (sourceReal, userDataDir) {
-  for (const t of targetPathsOf(userDataDir)) {
-    const s = nodePath.resolve(sourceReal)
+function checkNoOverlap (sourceReal, userDataDir, fsImpl) {
+  const fsx = fsImpl || nodeFs
+  let realUserData = userDataDir
+  try {
+    realUserData = fsx.realpathSync(userDataDir)
+  } catch (_e) { /* 读不到 ⇒ 用原值（后续比较仍成立，只是少了 junction 归一） */ }
+  const s = nodePath.resolve(sourceReal)
+  for (const t of targetPathsOf(realUserData)) {
     const p = nodePath.resolve(t)
-    if (s === p) return { ok: false, message: '源目录与目标路径相同: ' + p }
-    if (s.startsWith(p + nodePath.sep)) return { ok: false, message: '源目录包含目标路径: ' + p }
-    if (p.startsWith(s + nodePath.sep)) return { ok: false, message: '目标路径包含源目录: ' + p }
+    if (pathKey(s) === pathKey(p)) return { ok: false, message: '源目录与目标路径相同: ' + p }
+    if (isUnder(p, s)) return { ok: false, message: '目标路径包含源目录: ' + p }
+    if (isUnder(s, p)) return { ok: false, message: '源目录包含目标路径: ' + p }
+  }
+  // 前缀目录：源目录**本身**是 staging/.bak（或其子目录）⇒ 拒
+  const parent = nodePath.dirname(s)
+  const base = nodePath.basename(s)
+  if (pathKey(parent) === pathKey(realUserData)) {
+    for (const pre of TARGET_DIR_PREFIXES) {
+      if (base.startsWith(pre)) {
+        return { ok: false, message: '源目录是导入残留目录: ' + s }
+      }
+    }
+  }
+  for (const pre of TARGET_DIR_PREFIXES) {
+    const p = nodePath.resolve(nodePath.join(realUserData, pre))
+    if (isUnder(s, p)) return { ok: false, message: '源目录位于导入残留目录内: ' + p }
   }
   return { ok: true }
 }
@@ -121,7 +166,7 @@ async function importKit (opts) {
 
   const fail = (reason, message, extra) => {
     const res = Object.assign({ ok: false, reason, message }, extra || {})
-    audit.append({
+    const row = audit.append({
       time: new Date(now()).toISOString(),
       senderUrl: o.senderUrl,
       senderRoute: o.senderRoute,
@@ -133,6 +178,13 @@ async function importKit (opts) {
       recoveryState: (extra && extra.recoveryState) || null,
       recoveryPath: (extra && extra.recoveryPath) || null,
     })
+    // ⚠ **失败路径**的审计行写失败同样必须显式上报
+    //   （2026-10-23 验证层外部评审 claude i1 / codex i6：初版只查了成功路径的返回值，
+    //    失败路径的 `audit.append()` 返回值被**丢弃** ⇒ 「这次失败连审计都没留下」被静默）。
+    if (!row.ok) {
+      res.auditWritten = false
+      res.auditMessage = row.message || '审计写入失败'
+    }
     return res
   }
 
@@ -169,7 +221,7 @@ async function importKit (opts) {
   } catch (e) {
     return fail(REASON.NOT_A_DIRECTORY, '源目录不可读: ' + String(e && e.message))
   }
-  const overlap = checkNoOverlap(sourceReal, userDataDir)
+  const overlap = checkNoOverlap(sourceReal, userDataDir, fsImpl)
   if (!overlap.ok) {
     return fail(REASON.SOURCE_OVERLAPS_TARGET, overlap.message)
   }
@@ -216,8 +268,11 @@ async function importKit (opts) {
   if (service && typeof service.setImportInProgress === 'function') {
     service.setImportInProgress(true)
   }
+  /** 心跳失败 ⇒ 锁已不属于自己（被清或被接管）⇒ 换入前必须中止 */
+  let lockLost = false
   const timer = setInterval(() => {
-    heartbeat({ fs: fsImpl, userDataDir, nonce: lock.nonce, now: now() })
+    const ok = heartbeat({ fs: fsImpl, userDataDir, nonce: lock.nonce, now: now() })
+    if (!ok) lockLost = true
   }, HEARTBEAT_MS)
   if (timer && typeof timer.unref === 'function') timer.unref()
 
@@ -259,12 +314,29 @@ async function importKit (opts) {
     }
 
     // ── ④⑤⑥：目录级换入 ────────────────────────────────────────
+    // ⚠ **换入前复核锁**（2026-10-23 验证层外部评审 codex i2）：
+    //   ② 阶段可能跑很久（几百 MB 拷贝 + 逐文件哈希）⇒ 期间租约若过期，
+    //   另一个进程会按「租约已过期 ⇒ owner 已死」清锁并开始自己的导入
+    //   ⇒ **两个进程同时对 `film-kit` 做破坏性 rename**。
+    //   ⇒ 换入前必须确认「锁还在、且 nonce 还是我这份」，否则**中止**（旧 kit 未动）。
+    if (lockLost) {
+      return fail(REASON.LOCK_HELD, '导入锁心跳已失败（锁被他人接管），为避免并发换入已中止')
+    }
+    const lockNow = readLockState({ fs: fsImpl, userDataDir, now: now() })
+    if (!lockNow.exists || lockNow.nonce !== lock.nonce) {
+      return fail(REASON.LOCK_HELD, '导入锁已不存在或已被他人接管，为避免并发换入已中止')
+    }
     const swap = await swapIn({ fs: fsImpl, userDataDir, stagingDir, stamp })
     if (!swap.ok) {
       const extra = {}
       if (swap.reason === SWAP_REASON.ROLLBACK_FAILED && swap.bakPath) {
         extra.recoveryPath = swap.bakPath
-        extra.recoveryState = 'BAK_LEFT'
+        // ⚠ 档位更正（2026-10-23 验证层外部评审 codex i6 + 自查交叉核对）：
+        //   回滚失败 ⇒ **film-kit 缺失、`.bak` = 旧 kit** ⇒ 恢复动作是
+        //   「把 `.bak` 改名回 film-kit」⇒ 档位是 `MISSING_KIT`，**不是** `BAK_LEFT`。
+        //   初版标成 `BAK_LEFT` ⇒ 渲染端会显示「可安全删除 .bak」——
+        //   那会让用户**删掉旧资产仅存的一份**（数据丢失级误导）。
+        extra.recoveryState = 'MISSING_KIT'
       }
       return fail(swap.reason || REASON.SWAP_FAILED, swap.message, extra)
     }
@@ -274,10 +346,21 @@ async function importKit (opts) {
     if (service && typeof service.setImportInProgress === 'function') {
       service.setImportInProgress(false)
     }
-    clearLock({ fs: fsImpl, userDataDir, expectNonce: lock.nonce, now: now() })
+    // 删锁失败 ⇒ 留 `LOCK_LEFT` 残留档位（资产已就位，只剩锁）
+    const lockCleared = clearLock({ fs: fsImpl, userDataDir, expectNonce: lock.nonce, now: now() })
+    const residue = {}
+    if (!lockCleared.ok) {
+      residue.recoveryState = 'LOCK_LEFT'
+      residue.recoveryPath = nodePath.join(userDataDir, LOCK_FILE)
+    }
+    // 删 `.bak` 失败 ⇒ 留 `BAK_LEFT` 残留档位（film-kit = 新的、.bak = 旧 kit）
+    if (swap.recoveryState === 'BAK_LEFT' && swap.bakPath) {
+      if (!residue.recoveryState) residue.recoveryState = 'BAK_LEFT'
+      residue.recoveryPath = swap.bakPath
+    }
 
-    // 审计成功行
-    audit.append({
+    // 审计成功行（**结果行写失败必须显式上报**，不能静默丢）
+    const okRow = audit.append({
       time: new Date(now()).toISOString(),
       senderUrl: o.senderUrl,
       senderRoute: o.senderRoute,
@@ -285,11 +368,24 @@ async function importKit (opts) {
       sourceDir,
       result: 'ok',
       reason: null,
-      postCheck: 'PASS',
-      recoveryState: null,
-      recoveryPath: null,
+      postCheck: residue.recoveryState ? 'FAIL_WITH_RECOVERY' : 'PASS',
+      recoveryState: residue.recoveryState || null,
+      recoveryPath: residue.recoveryPath || null,
     })
-    return { ok: true, stats: { fileCount: firstPassFiles.length, totalBytes: scan.totalBytes } }
+    const res = {
+      ok: true,
+      stats: { fileCount: firstPassFiles.length, totalBytes: scan.totalBytes },
+    }
+    if (residue.recoveryState) {
+      res.recoveryState = residue.recoveryState
+      res.recoveryPath = residue.recoveryPath || null
+    }
+    if (!okRow.ok) {
+      // 导入**已生效**，但结果行没落盘 ⇒ 必须让用户知道「审计不完整」（不静默）
+      res.auditWritten = false
+      res.auditMessage = okRow.message || '审计结果行写入失败'
+    }
+    return res
   } finally {
     clearInterval(timer)
     if (!swapped && fsImpl.existsSync(stagingDir)) {

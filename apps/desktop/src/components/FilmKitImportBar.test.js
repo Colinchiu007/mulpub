@@ -136,4 +136,65 @@ describe('FilmKitImportBar 资产导入（PR-3b · F-J）', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="fe-kit-import-btn"]').attributes('disabled')).toBeUndefined()
   })
+
+  // ⚠ 2026-10-23 **验证层外部评审**（claude i3 / codex i6）命中：初版成功路径**完全无视**残留
+  //   ⇒ 「.bak 没删掉」「锁没删掉」这两件事用户永远看不到 ⇒ 恢复指引是空的。
+  it('成功但有残留（.bak 未删）⇒ 弹残留警告 + 显示恢复指引', async () => {
+    bridge.res = {
+      code: 0,
+      data: {
+        ok: true,
+        fileCount: 9,
+        recoveryState: 'BAK_LEFT',
+        recoveryPath: 'D:/x/film-kit.bak-1',
+      },
+    }
+    const onImported = vi.fn()
+    const wrapper = mountBar(onImported)
+    await flushPromises()
+    await wrapper.find('[data-testid="fe-kit-import-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="fe-kit-import-ok"]').trigger('click')
+    await flushPromises()
+    expect(notifyMock.success).toHaveBeenCalled()
+    expect(notifyMock.warn).toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="fe-kit-import-recovery"]').exists()).toBe(true)
+    // 导入**已生效** ⇒ 仍然刷新
+    expect(onImported).toHaveBeenCalledTimes(1)
+  })
+
+  it('成功但审计结果行没落盘 ⇒ 弹审计告警（不得静默）', async () => {
+    bridge.res = {
+      code: 0,
+      data: { ok: true, fileCount: 9, auditWritten: false, auditMessage: '审计写入失败' },
+    }
+    const wrapper = mountBar()
+    await flushPromises()
+    await wrapper.find('[data-testid="fe-kit-import-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="fe-kit-import-ok"]').trigger('click')
+    await flushPromises()
+    expect(notifyMock.warn).toHaveBeenCalled()
+    const warned = notifyMock.warn.mock.calls.map((c) => String(c[0]))
+    expect(warned.some((k) => k.indexOf('auditLost') >= 0)).toBe(true)
+  })
+
+  // ⚠ 2026-10-23 验证层外部评审（claude i1 / codex i6）：**失败路径**的审计行没落盘
+  //   同样要显式告知（初版只查成功路径）。
+  it('失败且审计行没落盘 ⇒ 也要弹审计告警', async () => {
+    bridge.res = {
+      code: -2,
+      errorCode: 'LOCK_HELD',
+      message: 'lock',
+      data: { recoveryPath: 'D:/x/.import-lock', recoveryState: 'LOCK_LEFT', auditWritten: false },
+    }
+    const wrapper = mountBar()
+    await flushPromises()
+    await wrapper.find('[data-testid="fe-kit-import-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-testid="fe-kit-import-ok"]').trigger('click')
+    await flushPromises()
+    const warned = notifyMock.warn.mock.calls.map((c) => String(c[0]))
+    expect(warned.some((k) => k.indexOf('auditLost') >= 0)).toBe(true)
+  })
 })

@@ -24,6 +24,8 @@ const nodeFs = require('fs')
 const nodePath = require('path')
 const nodeCrypto = require('crypto')
 
+const { manifestFromFileList, collectTreeManifest, removeTreeByManifest } = require('./kit-tree-clean')
+
 /** 重试常量（§三 S19；数值只在代码里存在一次） */
 const RETRY_MAX = 3
 const RETRY_MS = 500
@@ -189,57 +191,9 @@ async function copyToStaging (opts) {
 async function cleanupStaging (opts) {
   const o = opts || {}
   const fsImpl = o.fs || nodeFs
-  const stagingDir = o.stagingDir
-  let removedFiles = 0
-  let removedDirs = 0
-
-  // ① 文件：按精确清单逐个 unlink（先 existsSync ⇒ 清单里有「尚未写入」的路径也不会抛）
-  for (const rel of o.fileList || []) {
-    const abs = nodePath.join(stagingDir, rel)
-    try {
-      if (!fsImpl.existsSync(abs)) continue
-      await fsImpl.promises.unlink(abs)
-      removedFiles += 1
-    } catch (e) {
-      if (e && e.code === 'ENOENT') continue
-      // 其它错误：继续清其余项（尽力而为），错误由调用方通过残留检查发现
-    }
-  }
-
-  // ② 目录：按深度从深到浅逐个 rmdir（只删自己确认已空的目录；**不递归**）
-  const dirs = new Set()
-  for (const rel of o.fileList || []) {
-    const parts = nodePath.dirname(rel).split(/[\\/]/).filter(Boolean)
-    let acc = []
-    for (const p of parts) {
-      acc = acc.concat([p])
-      dirs.add(acc.join('/'))
-    }
-  }
-  const ordered = Array.from(dirs).sort((a, b) => b.split('/').length - a.split('/').length)
-  for (const d of ordered) {
-    const abs = nodePath.join(stagingDir, d)
-    try {
-      if (!fsImpl.existsSync(abs)) continue
-      await fsImpl.promises.rmdir(abs)
-      removedDirs += 1
-    } catch (e) {
-      if (e && (e.code === 'ENOENT' || e.code === 'ENOTEMPTY')) continue
-    }
-  }
-  // ③ 根目录最后删
-  try {
-    if (fsImpl.existsSync(stagingDir)) {
-      await fsImpl.promises.rmdir(stagingDir)
-      removedDirs += 1
-    }
-  } catch (e) {
-    if (!e || (e.code !== 'ENOENT' && e.code !== 'ENOTEMPTY')) {
-      return { ok: false, removedFiles, removedDirs, message: 'staging 根目录未清空: ' + String(e && e.message) }
-    }
-    return { ok: false, removedFiles, removedDirs, message: 'staging 根目录仍非空' }
-  }
-  return { ok: true, removedFiles, removedDirs }
+  const manifest = manifestFromFileList(o.fileList || [])
+  const res = await removeTreeByManifest({ rootDir: o.stagingDir, manifest, fs: fsImpl })
+  return { ok: res.ok, removedFiles: res.removedFiles, removedDirs: res.removedDirs, message: res.message }
 }
 
 /**
@@ -292,12 +246,29 @@ async function swapIn (opts) {
     return { ok: false, reason: REASON.SWAP_FAILED, message: '换入失败: ' + String(e && e.message) }
   }
 
-  // ⑥ 删 .bak（成功路径：立即删；失败不阻塞生效）
+  // ⑥ 删 .bak（成功路径：立即删；失败不阻塞生效 ⇒ 留 `BAK_LEFT` 残留档位）
+  // ⚠ **不递归删目录**（本仓 R0 铁律）：初版这里写的是
+  //   `fs.promises.rm(bakDir, {recursive:true, force:true})` ⇒ 一行就违反铁律
+  //   （2026-10-23 验证层外部评审 codex i2 命中）⇒ 改为「自己走一遍树拿精确清单
+  //   → 逐个 unlink → 自底向上 rmdir」。
   if (bakCreated) {
-    try {
-      await fsImpl.promises.rm(bakDir, { recursive: true, force: true })
-    } catch (e) {
-      return { ok: true, bakPath: bakDir, message: '旧备份未删（不影响生效）: ' + String(e && e.message) }
+    const manifest = await collectTreeManifest(bakDir, fsImpl)
+    if (!manifest.ok) {
+      return {
+        ok: true,
+        bakPath: bakDir,
+        recoveryState: 'BAK_LEFT',
+        message: '旧备份未清（' + manifest.message + '），不影响生效',
+      }
+    }
+    const rm = await removeTreeByManifest({ rootDir: bakDir, manifest, fs: fsImpl })
+    if (!rm.ok) {
+      return {
+        ok: true,
+        bakPath: bakDir,
+        recoveryState: 'BAK_LEFT',
+        message: '旧备份未删（' + rm.message + '），不影响生效',
+      }
     }
   }
   return { ok: true }

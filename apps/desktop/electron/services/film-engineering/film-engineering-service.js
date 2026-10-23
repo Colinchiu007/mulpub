@@ -74,14 +74,68 @@ class FilmEngineeringService {
     if (state.leaseValid) return // 租约有效 ⇒ 有导入在跑 ⇒ 保持标记
     // 租约已过期 ⇒ 崩溃残留 ⇒ 若目标 kit 在位则可自动清锁
     const kitDir = this.userDataKitDir
-    if (!kitDir || !fs.existsSync(kitDir)) return
+    if (!kitDir || !fs.existsSync(kitDir)) {
+      // ⚠ 崩在 ④ 后 ⑤ 前（`film-kit` 缺失、`.bak` = 旧 kit）⇒ **留痕 + 保持阻塞**
+      //   （2026-10-23 验证层外部评审 claude i2 命中：初版这里**直接返回** ⇒
+      //   既没有审计痕迹、也没有恢复路径 ⇒ 用户只看到「导入进行中」而不知道该做什么）。
+      //   ⇒ 保持 `_importInProgress = true`（**不静默回落到随包 min 版**），
+      //     但把「资产缺失 + 备份在哪」写进审计（导入尝试时还会再回传一次恢复路径）。
+      this._writeMissingKitAudit()
+      return
+    }
     const cleared = clearLock({ userDataDir: this.userDataDir })
     if (!cleared.ok) return
     this._importInProgress = false
     try {
       const audit = new AuditWriter({ userDataDir: this.userDataDir })
       audit.countLines()
-      audit.append({
+      const row = audit.append({
+        time: new Date().toISOString(),
+        senderUrl: null,
+        senderRoute: null,
+        triggerComponent: null,
+        sourceDir: null,
+        result: 'failed',
+        reason: 'LOCK_HELD',
+        // ⚠ 档位更正（2026-10-23 验证层外部评审后自查发现，与 claude i3 / codex i6 同族）：
+        //   走到这里时**锁已经被自动清掉了**、目标 kit 在位 ⇒ **没有任何残留要用户动手**。
+        //   初版写 `FAIL_WITH_RECOVERY` + `LOCK_LEFT`（「手动删除锁文件」）⇒
+        //   指引指向一个**已经不存在**的文件 ⇒ 误导。
+        //   正确形态 = `SCHEMA.md` §11.7 的第 ③ 档：资产已就位、锁已自动清 ⇒ 无恢复动作。
+        postCheck: 'PASS',
+        recoveryState: null,
+        recoveryPath: null,
+      })
+      // ⚠ 审计写失败**不能静默吞掉**（2026-10-23 验证层外部评审 claude i6 修）：
+      //   `append()` 返回 `{ok:false}` 而**不抛异常** ⇒ 初版的 `catch` 永远不触发
+      //   ⇒ 「审计不完整」这件事被完全吞掉（与「审计防静默」的目的相反）。
+      //   自愈结果（标记已清、锁已清）不受影响 ⇒ 只出声、不改判据。
+      if (!row.ok && this.log && typeof this.log.warn === 'function') {
+        this.log.warn('[film-engineering] 过期锁自愈的审计写入失败:', row.message)
+      }
+    } catch (_e) {
+      // 审计写失败不影响自愈结果（标记已清、锁已清）
+    }
+  }
+
+  /**
+   * 崩在 ④ 后 ⑤ 前（`film-kit` 缺失、`.bak` = 旧 kit）⇒ 写一行**恢复指引**审计。
+   * @private
+   */
+  _writeMissingKitAudit () {
+    const userDataDir = this.userDataDir
+    if (!userDataDir) return
+    let bakPath = null
+    try {
+      const names = fs.readdirSync(userDataDir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && e.name.startsWith('film-kit.bak-'))
+        .map((e) => e.name)
+      if (names.length > 0) bakPath = path.join(userDataDir, names[0])
+    } catch (_e) { /* 读不到目录 ⇒ 恢复路径留空 */ }
+    try {
+      const audit = new AuditWriter({ userDataDir })
+      audit.countLines()
+      const row = audit.append({
         time: new Date().toISOString(),
         senderUrl: null,
         senderRoute: null,
@@ -90,11 +144,14 @@ class FilmEngineeringService {
         result: 'failed',
         reason: 'LOCK_HELD',
         postCheck: 'FAIL_WITH_RECOVERY',
-        recoveryState: 'LOCK_LEFT',
-        recoveryPath: null,
+        recoveryState: 'MISSING_KIT',
+        recoveryPath: bakPath,
       })
+      if (!row.ok && this.log && typeof this.log.warn === 'function') {
+        this.log.warn('[film-engineering] 崩溃残留的审计写入失败:', row.message)
+      }
     } catch (_e) {
-      // 审计写失败不影响自愈结果（标记已清、锁已清）
+      // 审计写失败不影响自愈结果
     }
   }
 
@@ -130,7 +187,10 @@ class FilmEngineeringService {
     // PR-3b F-J：导入中 ⇒ **绝不从磁盘重读 kit**（S11）
     // ⇒ 抛**可识别**错误，不静默回落到随包 min 版（那会让用户刚导入的资产被悄悄换掉）。
     if (this._importInProgress) {
-      const err = new Error('FILM_KIT_IMPORT_IN_PROGRESS: 影视工程资产正在导入，请稍后再试')
+      // ⚠ 文案要**可执行**（2026-10-23 验证层外部评审 claude i2）：
+      //   这个标记有两种成因 ——「真的在导入」与「上次导入崩了、残留未恢复」；
+      //   后者只说「正在导入」会让用户干等 ⇒ 明确给出「去导入入口重试一次以拿到恢复步骤」。
+      const err = new Error('FILM_KIT_IMPORT_IN_PROGRESS: 影视工程资产正在导入，请稍后再试（若上次导入已崩溃，请到「项目案例 → 导入我的影视工程资产」重试一次以获取恢复步骤）')
       err.code = 'FILM_KIT_IMPORT_IN_PROGRESS'
       throw err
     }
