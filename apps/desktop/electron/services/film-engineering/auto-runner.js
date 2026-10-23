@@ -7,7 +7,8 @@
  *   - **提示词真源不同**：production-runner 从 film-kit 服务取原文（`service.getShot`），
  *     自动模式从 **project.json** 取（片段编辑后的提示词必须生效），仍逐字符直送 provider；
  *   - **批次落点不同**：runId 由 `runIdFor(taskId, batchIndex) = 'auto/<taskId>/b<N>'` 派生，
- *     产物落 `<mediaRoot>/auto/<taskId>/b<N>/shot_NNN.mp4`；
+ *     产物落 `<mediaRoot>/auto/<taskId>/b<N>/shot_NNN.mp4`；**轮次 ≥2 时带轮次号**
+ *     （`auto/<taskId>/r<runSeq>/b<N>/`）—— 同一 taskId 重新 plan 时旧轮次产物不得被采纳；
  *   - **单镜重生成**：批次目录内**原子覆盖**（临时目录生成 → ffprobe 校验 → rename），
  *     与 shot-downloader 的「探测通过才入库」同纪律（D15）。
  *
