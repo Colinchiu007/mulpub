@@ -41,6 +41,13 @@
       </li>
     </ul>
 
+    <!-- 声音克隆入口提示（change: digital-human-multiprovider）：
+         形象与声音是两条独立链路，声音克隆的 UI 在配音面板；这里只告知能力，
+         不重复造一个上传入口（那会造出两份选择器、两套样本存储）。 -->
+    <p class="config-hint" data-testid="avatar-clone-voice-hint">
+      {{ voiceCloneSupported ? t('avatarCloneVoiceHint') : t('avatarCloneVoiceUnsupported') }}
+    </p>
+
     <!-- 创建：名称 + 两种素材入口（照片 / 视频） -->
     <div class="clone-create">
       <input
@@ -84,6 +91,8 @@ export default {
     createError: { type: String, default: '' },
     /** 失效标记 → locale key 的映射函数（逻辑在 useAvatarClone，这里只调用） */
     invalidKeyOf: { type: Function, default: () => '' },
+    /** 当前数字人服务商是否支持克隆声音（父组件按 tts-voice-catalog 判定后传入） */
+    voiceCloneSupported: { type: Boolean, default: false },
   },
   methods: {
     t(key) {

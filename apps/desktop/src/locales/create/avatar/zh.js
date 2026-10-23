@@ -54,6 +54,11 @@ export default {
   avatarCloneDeleteConfirm: '删除后该形象将不能再用，确定删除吗？',
   avatarCloneEmpty: '还没有克隆形象',
   avatarCloneEmptyHint: '上传一张照片或一段视频，克隆出一个可长期复用的数字人形象',
+  // change: digital-human-multiprovider —— 声音克隆入口提示。
+  // 声音克隆的 UI 在「配音 → 音色复制/克隆」面板（S2vConfigPanels），
+  // 与形象克隆是两条独立链路；这里只负责告知用户「本服务商支持自己的声音」。
+  avatarCloneVoiceHint: '本服务商还支持克隆你自己的声音：在下方「数字人音色」旁的「音色复制 / 克隆」里上传录音即可，克隆成功后即可在此选择。',
+  avatarCloneVoiceUnsupported: '当前服务商不支持克隆声音，只能使用它提供的现成音色。',
   avatarCloneCreating: '正在创建克隆形象…',
   avatarCloneChooseMedia: '选择{media}',
   avatarCloneErrInvalidArgs: '参数不合法',
