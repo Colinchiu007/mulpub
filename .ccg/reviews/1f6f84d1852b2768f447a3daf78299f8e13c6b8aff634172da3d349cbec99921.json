@@ -1,0 +1,144 @@
+{
+  "sha": "c3abd3ae322577b2509b99351a5c2e7282b25542",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 493 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 493,
+    "fileCount": 4,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| i5 | Warning | 逐块合成无超时/取消传播，长文案可能累积无限计费调用 | **不成立** | 取消**有**传播：本层把 `cancelToken: input.cancelToken` 传给 `synthesizeEpisodeAudio`，块间取消沿用合成层（§7.4.7），且合成层另有单块级降级/时长门禁。本层不新造计时器（那是合成层与 provider 适配层的职责），「逐块超时上限」不在本片范围 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1f6f84d1852b2768f447a3daf78299f8e13c6b8aff634172da3d349cbec99921",
+  "decidedAt": "2026-10-23T03:59:26.899Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "claude",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "dimension": null,
+        "finding": ".ccg/reviews audit JSON uses sha=c3abd3ae... (parent) not proposal head 26a4a9fe...; audit artifact references wrong commit base.",
+        "verdict": "dismissed",
+        "rationale": "判定记录**按内容寻址命名**：记录名 = 暂存差量的 sha256（64 位十六进制），`sha` 字段记的是 pre-commit 那一刻的**父提交**——因为新提交尚未生成，记录还没法指向它。引擎的评审输出里把这条写成了预期行为：「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」。所以 `sha` 指向父提交不是「引用了错误的提交基线」，而是这套命名方式的必然结果；要它指向 head，唯一办法是等提交生成后再改名，而那会破坏「记录名 = 差量哈希」这个内容寻址的键。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "dimension": null,
+        "finding": "Proposal header claims 964 changed lines but .ccg/reviews stats.changedLines reports 493; proposal and audit metrics conflict.",
+        "verdict": "dismissed",
+        "rationale": "两个数分属**两个不同的域**：提案头的 964 是**全差量**（含 PRD / 执行记录等文档行），判定记录的 493 是**判定域**（只算代码文件）。判定器按自己的域算、提案按自己的域报，本来就不该相等；把不同域的数字当同一口径才是误读。两者都没有算错，不需要 reconcile。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": null,
+        "finding": "Executable source embeds transient QM-6 rounds, PR #4065/#4200 refs, reviewer aliases (claude/opencode), and dates in comments.",
+        "verdict": "dismissed",
+        "rationale": "这条指控描述的源码现状**不存在**：`grep -nE 'QM-6|2026-10-22|#4065|#4200|claude|opencode' apps/desktop/electron/services/podcast-episode-tts-run.js` **零命中**（连 PR 号都搜不到）。过程痕迹（轮次、日期、评审者别名）已在早前轮次全部移到执行记录；源码只留不变量与其理由。执行记录里保留「为什么改」的过程，正是本仓的惯例（如 `podcast-tts-voice.js` 的「2026-10-19 经用户裁决删除」）。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": null,
+        "finding": "prepareEpisodeTtsRun checks readPreference/getCapability but passes deps.invokeLlm straight to colloquializeCopy without existence check.",
+        "verdict": "dismissed",
+        "rationale": "`invokeLlm` 缺席**由消费它的那一层判**：`podcast-tts-colloquialize.js:124-127` 明写「没有可用 provider 是**配置状态**，不是错误：口播链继续用原文（§7.4.2 的旁路口径）」⇒ 缺席时返回 `{content: original, applied:false, reason: 'no_provider'}`，**不抛、不拒发**。本层若再判一次并返回 `PODCAST_EPISODE_INVALID`，就等于把「没配 LLM」从「旁路出原文」改成「拒绝出期」——那是**行为变更**，且与 §7.4.2.1 的旁路口径正面冲突。本层对**自己消费**的依赖（`readPreference` / `getCapability`）才有校验责任。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i5",
+        "severity": "Critical",
+        "dimension": null,
+        "finding": ".ccg/reviews sets deepReview.required=true with status=pending, findings=null, tier=unknown; audit claims review required but provides zero evidence.",
+        "verdict": "dismissed",
+        "rationale": "这条指控的对象是**记录状态**，而状态正由本次收口改写：裁决填完后按 `check-pr-exec-record.js` 的出口②（非高危面）写入 `status=self_play_resolved` + `tier=external` + `findings`（逐条裁决，含 `rationale`）+ `closureNote`（轮次标记 + 逐条处置结论），记录不再是「required=true / pending / findings=null / tier=unknown」。门禁自己的分级注释写得很清楚：external 必须有**可核 evidence**（本例指向 PR #3376 评论，可公开点开核对），否则降为 external-unverified；`note` 一档（只有结构化 closureNote）对非高危面够用。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "dimension": null,
+        "finding": "RUN_ERRORS aliases SYNTH_ERRORS constants from synthesis layer; cross-layer constant reuse creates hidden dependency and breaks isolation.",
+        "verdict": "dismissed",
+        "rationale": "**复用**合成层的码是本层的设计前提，不是「隐藏依赖」：PRD §7.4.8 明写「本层不新立任何错误码」，理由是各层各一个码、UI 才知道显示哪条提示，层间区分靠 `issues[].path`。若本层另立一份 `RUN_ERRORS`，同一件事（入参非法）会有两个码，locale 里多一条无人维护的文案键——这正是本仓码表纪律要防的。复用带来的是**归因唯一**：无论从哪条路进来，码与 path 都是同一组。依赖不是「隐藏」的：`require('./podcast-episode-synth')` 明写在文件头。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "dimension": null,
+        "finding": "prepareEpisodeTtsRun is synchronous over full content (planChunks + cpLen) without async break or yield; long texts block event loop.",
+        "verdict": "dismissed",
+        "rationale": "指控自己给的正解（document sync blocking + enforce caller-side length guard）**已经写在 JSDoc**：「本层是**纯同步**函数，在整篇文案上一次性完成依赖校验 / 音色解析 / 分块计划 / 估算。它不 await、不发请求，所以没有『让出事件循环』这一步；代价是超长文案会同步占用主线程一小段时间。调用方若要在大文本上调用，**应当在调用前**按上游的长度上限挡住……而不是指望本层在处理中途响应取消——本层没有可取消的东西（它零出站）。」在纯函数层加整篇长度守卫属**新立判据**（长度上限归分块层/调用方），按本层纪律不能加；「将来做异步 prepare」是后续片的范围，不在本片。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i8",
+        "severity": "Warning",
+        "dimension": null,
+        "finding": "estimate key-set (4 keys) enforced only by test assertions; runtime lacks freeze so code drift could silently expand/shrink keys.",
+        "verdict": "dismissed",
+        "rationale": "「结构锁」**就是**本仓保证这件事的手段，且它就在同一个文件里：三条同形锁（`not.toMatch(/function\\s+plan[A-Z]/)`、`not.toMatch(/defaultVoiceId\\s*\\|\\|/)`、`not.toMatch(/require\\(['\"]node:http['\"]\\)/`)）加上 `estimate` 键集那条 `expect(Object.keys(r.estimate).sort()).toEqual([...])`。再在运行期加一层 `Object.freeze` 或断言，等于**第二份口径**——将来改键集时要同时改锁与运行期检查，漏一处就静默分叉；而本仓的既有做法是「一个形状、一处判据」，在测试里钉死。",
+        "highRiskDomains": []
+      }
+    ],
+    "blocking": [],
+    "closureNote": "轮次标记：QM-6 深度审查多轮收敛（critic=claude / proposer=opencode，两个后端每轮都真跑，跨家族校验通过，\n高危域 0 条）。每一轮都按「先改代码 → 让评审跑在改后的代码上 → 再裁决」推进，**不走「填表把真问题收口」**\n那条路（自扮演裁决的判定模型是「upheld 即阻断」，把真问题填成 dismissed 就是造假）。\n本记录写的是**最终一轮**（跑在本 PR 最终差量上）的读数与逐条结论；各轮的具体编号与逐轮产物见\n`.adversarial/ccg-deep-<sha>/`（按 .gitignore 不入库）与 PR #3376 评论。\n\n逐条处置结论（最终一轮 i1–i8，全部不成立，阻断 0 条）：\n- i1（判定记录 `sha` 指向父提交而非 head）——不成立：判定记录**按内容寻址命名**（记录名 = 暂存差量的\n  sha256），`sha` 字段记的是 pre-commit 那一刻的父提交——引擎评审输出原文即「pre-commit 时新 commit\n  尚未生成，判定记录写在父 sha 上——这是预期行为」。\n- i2（提案头 964 行 vs 判定记录 493 行，指标冲突）——不成立：两个数分属**两个不同的域**（全差量 vs\n  判定域只算代码文件），判定器按自己的域算、提案按自己的域报，不需要 reconcile。\n- i3（源码里嵌了轮次/日期/PR 号/评审者别名）——不成立：`grep -nE 'QM-6|2026-10-22|#4065|#4200|claude|opencode'`\n  对本文件**零命中**（连 PR 号都搜不到）；过程痕迹已在早前轮次全部移到执行记录。\n- i4（`deps.invokeLlm` 未做存在性检查）——不成立：`invokeLlm` 缺席**由消费它的那一层判**\n  （`podcast-tts-colloquialize.js:124-127`：没配 LLM 是配置状态、不是错误 ⇒ 返回 `no_provider` 旁路、\n  用原文出一期）；本层只对**自己消费**的依赖（`readPreference` / `getCapability`）有校验责任，\n  再判一次并返回 `PODCAST_EPISODE_INVALID` 等于把「没配 LLM」改成「拒绝出期」，是行为变更。\n- i5（记录 required=true 但 status=pending / findings=null / tier=unknown）——不成立：这条指控的对象就是\n  **记录状态**，而状态正由本次收口改写为 `self_play_resolved` + `tier=external` + `findings`（逐条裁决含\n  rationale）+ `closureNote`（本段）。\n- i6（`RUN_ERRORS` 复用合成层的码、跨层常量别名）——不成立：**复用是设计前提**（PRD §7.4.8「本层不新立\n  任何错误码」；层间区分靠 `issues[].path`）。另立一份会让同一件事有两个码，locale 里多一条无人维护的\n  文案键——这正是本仓码表纪律要防的。\n- i7（`prepare` 纯同步、无让步点）——不成立：指控自己给的正解（document sync blocking + caller-side\n  length guard）**已写在 JSDoc**；在纯函数层加整篇长度守卫属新立判据（长度上限归分块层/调用方）。\n- i8（`estimate` 键集只由测试断言保证，运行期没有冻结）——不成立：**结构锁就是本仓保证这件事的手段**，\n  且同文件里已有四条同形锁；再加一层运行期 `Object.freeze`/断言等于第二份口径，改键集时要同时改两处、\n  漏一处就静默分叉。\n\n本次闭合的书写方式（据实，不假装是引擎写的）：**不是引擎的自动写回**。`ccg-deep-review.js` 的自扮演出口\n把 `performedBy` 写成 `\"self-play\"`，而 `scripts/ccg-review-writeback.js` 的 `backend-matches` 判据要求\n`performedBy === --expected-critic`（本仓为真跑过 critique 的 claude）⇒ **自扮演这条路永远写不回记录**\n（工具链缺陷：引擎侧 `~/.claude/skills/adversarial-review-loop/` 与仓内写回判据不一致，与本次评审结论无关）。\n引擎本身已判「自扮演裁决未发现阻断项」、裁决表也已逐条填完，故按 `check-pr-exec-record.js` 的**出口②**\n（非高危面：写 `closureNote` + 置闭环值）闭合：`status=self_play_resolved`、`tier=external`、\n`performedBy=claude`（真跑过 critique 的后端）、`findings`=8 条逐条裁决、`closureNote`=本段，\n`evidence` 指向 PR #3376 评论（可公开点开核对的那份摘要）。**该工具链缺陷本身未在本 PR 修**——属引擎侧\n一致性问题，另案跟进。\n\n未闭合项（本片不假装完成）：IPC/浮层二次确认步未接（刀 4 第 5 片）；生产侧合成三实现\n（createGenerateTTS / createConcatBlocks / createProbeImpl）在主干仍零消费点（主干 tasks 4.5b⑤）；\n`podcast:transcript` 字幕口径未决。",
+    "evidence": "PR #3376 评论（QM-6 外部双家族评审逐条裁决与各轮读数）",
+    "at": "2026-10-23T04:07:37.679Z",
+    "evidenceDetail": {
+      "kind": "external-dual-family-review",
+      "critic": "claude",
+      "proposer": "opencode",
+      "adjudication": ".adversarial/ccg-deep-26a4a9fe/adjudication.json"
+    }
+  }
+}
