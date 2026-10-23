@@ -166,6 +166,10 @@ class ShipinhaoVideoChain {
       this.cdnHost = withScheme.replace(/\/+$/, '')
       if (this.logger && this.logger.log) this.logger.log('[shipinhao-video] resolved cdn host: ' + this.cdnHost)
     }
+    // 2026-10-23：逆向交叉验证（融媒宝-完整拆解 §5.8）确认三段式协议与主机就是 finderassistancea，
+    // Step1 响应不含 cdnHost ⇒ 必须回落到已知主机，否则 cdnHost 为空、请求落到 baseURL ⇒ 404。
+    this.cdnHost = this.cdnHost || DEFAULT_CDN_BASE // fallback to DEFAULT_CDN_BASE
+    if (this.logger && this.logger.log) this.logger.log('[shipinhao-video] cdn host = ' + this.cdnHost)
     return String(authKey)
   }
 
