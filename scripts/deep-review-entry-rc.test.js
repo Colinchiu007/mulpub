@@ -219,6 +219,34 @@ function readRec (file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'))
 }
 
+test('⑫ --writeback-dry 走真实入口：五条件齐备也不改产物，且还原经字节对账自证（i5）', (t) => {
+  // 这条锁测的是**生产接线**，不是 §12a 那种直接调 applyWriteback({dry:true}) 的注入路径。
+  // 同源教训：只测注入面会让"入口根本没传 --dry"这一格永远绿着活（本仓记过的第 5 条现场形状）。
+  const fx = makeFixture(t)
+  const before = fs.readFileSync(fx.recFile)
+  const r = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' }, ['--writeback-dry'])
+  assert.strictEqual(r.rc, 0, `驱动 rc=0 ⇒ 入口 rc 照旧 0（dry 也不得改 rc）：${r.rc}\n${r.out.slice(-2500)}`)
+  assert.match(r.out, /DRY\(五条件齐备，本轮不落盘\) tier=external evidence=delivery@[0-9a-f]{64}/,
+    `dry 必须把**将写什么**打出来，否则无从核对：\n${r.out.slice(-2500)}`)
+  assert.match(r.out, /dry-restore=verified sha256=[0-9a-f]{12}/,
+    `还原必须由字节对账自证（只看 cp 的返回码不构成证据）：\n${r.out.slice(-2500)}`)
+  assert.ok(!/dry-restore=mismatch/.test(r.out), '对账不过就是 dry 档失守，不得同时打印 verified')
+  assert.deepStrictEqual(fs.readFileSync(fx.recFile), before,
+    'dry 的净效果是"产物逐字不变"——引擎那一跳的改写也要被还原掉')
+  assert.notStrictEqual(readRec(fx.recFile).deepReview.tier, 'external', 'dry 档不得由写回器写 external')
+
+  // 反向对照（同一夹具、同一份假驱动）：不带旗标时必须真的落盘。
+  // 缺了这条，上面那句"逐字不变"就可能是"写回器压根没跑"的空断言。
+  const fx2 = makeFixture(t)
+  const before2 = fs.readFileSync(fx2.recFile)
+  const r2 = runEntry(fx2, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
+  assert.strictEqual(r2.rc, 0, String(r2.out).slice(-1500))
+  assert.ok(!/writeback-dry/.test(r2.out), '不带旗标时不得出现 dry 读数')
+  assert.notDeepStrictEqual(fs.readFileSync(fx2.recFile), before2,
+    '不带旗标时同一场景必须真的落盘 ⇒ 证明上面那条"不变"是旗标的效果')
+  assert.strictEqual(readRec(fx2.recFile).deepReview.tier, 'external', '对照组要走到 external 那一档')
+})
+
 test('① 驱动 rc=0 ⇒ 入口 rc=0，且盘里的记录被写回 tier=external + delivery@ 摘要', (t) => {
   const fx = makeFixture(t)
   const r = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })

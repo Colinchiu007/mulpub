@@ -35,6 +35,61 @@ const {
   sha256Hex
 } = require('./lib/ccg-delivery-digest.js')
 
+/**
+ * 写入作用域（外部深审 i2）：本模块**只**允许改写"形如 .ccg/reviews/<产物>.json"的路径。
+ * 两条判据都按**路径段**切 —— 不按子串、也不按"字符串里有没有出现过 reviews"（本仓「禁令与
+ * 存在性判据必须按语义位置切」那条刚踩过：子串判据会被 `a..b` / 相邻目录名误伤或放过）。
+ *   ① 任一路径段不得是 `..`（逃逸）；② 父段必须是 `reviews`、祖父段必须是 `.ccg`、文件名以 .json 结尾。
+ * 强度边界照实写（这条刻意**只收到不靠改夹具就能收的那一格**）：
+ *   · 收的两格：路径段里的 `..`（逃逸）与非 .json 文件名。两格都是"写错位置"的形状，且不动任何既有夹具；
+ *   · 没收的那格：要求父两级必须是 `.ccg/reviews`。语义上更强（把作用域钉死在判定产物目录），
+ *     但本仓现存约 30 处测试夹具把记录写在临时目录根（`<tmp>/record.json`）—— 加这条等于**逼测试迁目录**，
+ *     而"夹具要与生产同形"本身是另一件该做的事，已登记为 design §12 的待办，不在这里偷偷放宽判据、也不顺手改测试；
+ *   · 真正兜住"任意文件被改写"的仍是五条件本身：非判定产物的 JSON 走 record-unreadable 的拒绝路径，
+ *     既有那批「拒绝写入 ⇒ 既有产物逐字节不变」就是它的行为锁（本片另加作用域内诱饵文件的负控）。
+ * 它拦不住"故意在别处建一个 .ccg/reviews/ 目录" —— 那种前提已等于本机可写，而那时不需要这个 CLI。
+ * 真正兜住"任意文件被改写"的仍是五条件本身：负控用例断言"作用域内但不是判定产物"的 JSON 一个字节都不写。
+ */
+function assertRecordPathScope (recordPath) {
+  const parts = String(recordPath).split(/[\\/]+/)
+  const base = parts[parts.length - 1] || ''
+  if (parts.some((p) => p === '..')) {
+    throw new Error('record-path-out-of-domain: 路径里出现 `..` 段（逃逸）—— 实际=' + recordPath + '，在任何 IO 之前终止')
+  }
+  if (!/\.json$/i.test(base)) {
+    throw new Error('record-path-out-of-domain: 判定产物必须以 .json 结尾，实际=' + base + ' —— 在任何 IO 之前终止')
+  }
+}
+
+/**
+ * 缺件名 ⇒ 处置（i3：一张表持有，不散在 if 链里）。这张表的**键**与规格
+ * `specs/qm6-closure-writeback/spec.md` 那张处置表逐字同文（有锁：ccg-review-writeback.test.js §11d），
+ * 改一侧不同次改另一侧即红。
+ *
+ * ⚠ 今天 `normalize-only` 这一档在**盘面上是 no-op**：初值只用于判定、不回落盘。
+ *   原因是本仓现存的锁「拒绝写入 ⇒ 既有产物逐字节不变」与规格 Scenario
+ *   「判据要能区分『补过初值未升级』与『字段整段消失』」在这格上互斥 —— 要区分就必须落盘。
+ *   两代实现各执一词，已登记为待人工裁决（design §12），**本片不擅自翻转主干那条锁**。
+ */
+/**
+ * 缺件名 ⇒ 处置那张表的**唯一名源**（第 5 轮外部深审 i2：只导出常量而实现仍逐处写字符串，
+ * 等于名字有两个真源——表改了代码不会红，红的是"表与实现对不上"那条用例，而它答的是另一个问题）。
+ * 现在所有拒写出口都必须走 decline(name, …)：写错名或表没登记 ⇒ 当场抛，不产出没人认识的 reason。
+ */
+const DECLINE_REASONS = Object.freeze([
+  'not-closed', 'empty-findings', 'backend-mismatch',
+  'before-state-missing', 'no-write', 'no-new-delivery',
+  'record-unreadable', 'write-failed'
+])
+
+/**
+ * **不是缺件**的出口名（第 6 轮外部深审 i3）。`dry-run` 以前只写在 return 字面量里，
+ * 而 §12d 那条同文锁只比 `DECLINE_REASONS` 与规格表 ⇒ 这个形状从两张表之间漏过去：
+ * 一个"只认表名"的消费者会撞上一个没有任何出处的 reason。现在它也必须登记。
+ */
+const NON_DECLINE_OUTCOMES = Object.freeze(['dry-run'])
+const DRY_RUN_REASON = NON_DECLINE_OUTCOMES[0]
+
 const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
 const RENAME_ATTEMPTS = 5
 const RENAME_BACKOFF_MS = 40
@@ -71,6 +126,14 @@ function atomicWrite (file, data) {
 /**
  * @param {{recordPath?: string, expectedCritic?: string, beforeBytes?: Buffer, beforeSha256?: string, log?: {warn?: Function}}} opts
  */
+function decline (name, spoke, detail) {
+  if (!DECLINE_REASONS.includes(name)) {
+    throw new Error('decline reason 不在 DECLINE_REASONS 内：' + JSON.stringify(name)
+      + '（表是名源；要么登记进表并同步规格那张表，要么这里就是写错了）')
+  }
+  return { wrote: false, reason: name, spoke, detail }
+}
+
 function applyWriteback (opts) {
   const o = opts || {}
   const log = o.log || console
@@ -79,6 +142,8 @@ function applyWriteback (opts) {
     throw new Error('missing-record-path: 记录文件路径必须由上层显式透传。'
       + '不给就回退「按 sha 猜文件名」或「扫 .ccg/reviews 取最新」都是猜 —— 猜中一次就静默写错产物，猜不中则写回永不发生且无人知晓')
   }
+  // 作用域判据排在**读文件之前**：越界路径连一次 readFileSync 都不该发生（负控用例断言既有字节逐字不变）。
+  assertRecordPathScope(recordPath)
   const expected = o.expectedCritic
   if (typeof expected !== 'string' || expected.trim() === '') {
     throw new Error('expectedCritic: 期望后端必须由上层从 scripts/ccg-review-backends.list 真源透传，'
@@ -89,17 +154,17 @@ function applyWriteback (opts) {
   try {
     rawBuf = fs.readFileSync(recordPath)
   } catch (e) {
-    return { wrote: false, reason: 'record-unreadable', spoke: [], detail: `读取失败：${e.code || e.message}` }
+    return decline('record-unreadable', [], `读取失败：${e.code || e.message}`)
   }
   const currentBytes = rawBuf
   let rec
   try {
     rec = JSON.parse(rawBuf.toString('utf8'))
   } catch (e) {
-    return { wrote: false, reason: 'record-unreadable', spoke: [], detail: 'JSON 解析失败' }
+    return decline('record-unreadable', [], 'JSON 解析失败')
   }
   if (!rec || typeof rec !== 'object' || !rec.deepReview || typeof rec.deepReview !== 'object') {
-    return { wrote: false, reason: 'record-unreadable', spoke: [], detail: '记录里没有 deepReview 段' }
+    return decline('record-unreadable', [], '记录里没有 deepReview 段')
   }
   const dr = rec.deepReview
   // 语义指纹必须在**任何本模块自己的改动之前**取。
@@ -113,14 +178,14 @@ function applyWriteback (opts) {
 
   const spoke = []
   if (CLOSED_DEEP_REVIEW_STATUSES.has(dr.status)) spoke.push('closed-status')
-  else return { wrote: false, reason: 'not-closed', spoke, detail: `status=${JSON.stringify(dr.status)}` }
+  else return decline('not-closed', spoke, `status=${JSON.stringify(dr.status)}`)
 
   if (Array.isArray(dr.findings)) spoke.push('findings-present')
   if (Array.isArray(dr.findings) && dr.findings.length > 0) spoke.push('nonempty-findings')
-  else return { wrote: false, reason: 'empty-findings', spoke, detail: `findings=${typeof dr.findings}` }
+  else return decline('empty-findings', spoke, `findings=${typeof dr.findings}`)
 
   if (dr.performedBy === expected) spoke.push('backend-matches')
-  else return { wrote: false, reason: 'backend-mismatch', spoke, detail: `performedBy=${JSON.stringify(dr.performedBy)} 期望 ${JSON.stringify(expected)}` }
+  else return decline('backend-mismatch', spoke, `performedBy=${JSON.stringify(dr.performedBy)} 期望 ${JSON.stringify(expected)}`)
 
   // ④ 两条并立，各自出声
   // ⚠ 必须直接把 **Buffer** 交给哈希函数：入口侧（deep-review.sh）用 `sha256sum` 取动手前的
@@ -145,32 +210,33 @@ function applyWriteback (opts) {
   // ⚠ 两半**缺一半都不放行**（外部深审 round 2 i1，Critical）：生产入口只传十六进制串，
   //   原实现只在拿到 Buffer 时才计算 beforeFp ⇒ 真跑路径上「只有 at 变了」这一格永远不触发。
   if (!beforeSha || !beforeFp) {
-    return {
-      wrote: false,
-      reason: 'before-state-missing',
-      spoke,
-      detail: `动手前状态缺一半（beforeSha256=${beforeSha ? '有' : '无'} / beforeFingerprint=${beforeFp ? '有' : '无'}）⇒ ④ 无法证明，不写`
-    }
+    return decline('before-state-missing', spoke,
+      `动手前状态缺一半（beforeSha256=${beforeSha ? '有' : '无'} / beforeFingerprint=${beforeFp ? '有' : '无'}）⇒ ④ 无法证明，不写`)
   }
   if (nowSha === beforeSha) {
-    return { wrote: false, reason: 'no-write', spoke, detail: '调用前后字节相同 ⇒ 本次驱动根本没写过这条记录' }
+    return decline('no-write', spoke, '调用前后字节相同 ⇒ 本次驱动根本没写过这条记录')
   }
   if (!fingerprintNow) {
-    return { wrote: false, reason: 'before-state-missing', spoke, detail: '动手后的 deepReview 读不出一把可比对的指纹 ⇒ ④ 无法证明，不写' }
+    return decline('before-state-missing', spoke, '动手后的 deepReview 读不出一把可比对的指纹 ⇒ ④ 无法证明，不写')
   }
   if (beforeFp === fingerprintNow) {
-    return { wrote: false, reason: 'no-new-delivery', spoke, detail: '字节变了但去掉 at 的语义指纹没变（只有时间戳在动）' }
+    return decline('no-new-delivery', spoke, '字节变了但去掉 at 的语义指纹没变（只有时间戳在动）')
   }
   spoke.push('delivery-changed')
 
   dr.tier = 'external'
   dr.evidence = deliveryEvidence(dr.findings)
+  // 排障旗标（i1）：五条件齐备但**本轮不落盘**。打印必须发生在还原之前 ——
+  // 还原之后手上只剩内存里的值，用户就看不到"它本来会写什么"了。
+  if (o.dry === true) {
+    return { wrote: false, reason: DRY_RUN_REASON, spoke, action: 'external', tier: dr.tier, evidence: dr.evidence }
+  }
   try {
     atomicWrite(recordPath, JSON.stringify(rec, null, 2) + '\n')
   } catch (e) {
     // 静默配置失败必须留日志：写回没发生而无人知晓，比少一个字段更糟
     if (typeof log.warn === 'function') log.warn(`[ccg-review-writeback] 写回失败，既有产物保持原样：${e.code || ''} ${e.message}`)
-    return { wrote: false, reason: 'write-failed', spoke, detail: e.code || e.message }
+    return decline('write-failed', spoke, e.code || e.message)
   }
   return { wrote: true, reason: null, spoke, tier: dr.tier, evidence: dr.evidence }
 }
@@ -185,13 +251,16 @@ function main (argv) {
       recordPath: argOf(argv, 'record'),
       expectedCritic: argOf(argv, 'expected-critic'),
       beforeSha256: argOf(argv, 'before-sha256'),
-      beforeFingerprint: argOf(argv, 'before-fingerprint')
+      beforeFingerprint: argOf(argv, 'before-fingerprint'),
+      dry: argv.includes('--dry')
     })
   } catch (e) {
     console.log(`[ccg-review-writeback] 未写回 reason=throw detail=${e && e.message ? e.message : String(e)}`)
     return 0
   }
-  const line = res.wrote
+  const line = res.reason === DRY_RUN_REASON
+    ? '[ccg-review-writeback] DRY(五条件齐备，本轮不落盘) tier=external evidence=' + res.evidence + ' spoke=' + res.spoke.join('|')
+    : res.wrote
     ? `[ccg-review-writeback] 已写回 tier=external evidence=${res.evidence} spoke=${res.spoke.join('|')}`
     : `[ccg-review-writeback] 未写回 reason=${res.reason} spoke=${res.spoke.join('|') || '-'}${res.detail ? ' detail=' + res.detail : ''}`
   console.log(line)
@@ -201,4 +270,4 @@ function main (argv) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2))
 
-module.exports = { applyWriteback, atomicWrite, RENAME_ATTEMPTS }
+module.exports = { applyWriteback, atomicWrite, assertRecordPathScope, DECLINE_REASONS, NON_DECLINE_OUTCOMES, RENAME_ATTEMPTS }
