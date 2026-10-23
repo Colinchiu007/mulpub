@@ -19,3 +19,8 @@ date: 2026-10-23
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机无 `codeagent-wrapper`，如实记录 |
 
 | 远程同步 | 由门禁推导 |
+## R5 结构锁与债务登记（2026-10-23 追加）
+
+- 新增 `apps/desktop/tests/toutiao-cover-r5-lock.test.js`（2 例）：断言 `no-next` 失败分支返回前存在 `取消/关闭/×` 动作，并断言 `cover dialog closed after failure` 日志存在（防改名真空通过）。
+- **债务**：同一文件另有 **8 处** `return { ok: false }` 尚未补齐「失败前关闭弹窗」。锁暂只覆盖 `no-next`；补齐后将判据扩展为「全部失败返回」。
+- 该债务与逆向风险清单 R5「失败分支不复位 UI 状态」同型（R5 原审计面只覆盖 Vue 组件，未覆盖 `rpa-view-*`）。
