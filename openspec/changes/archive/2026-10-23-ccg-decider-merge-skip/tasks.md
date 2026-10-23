@@ -143,7 +143,11 @@
 - [ ] M15（**预测项，未实测**）把 `:(exclude).ccg` 只加回 `pathspecs`（交集仍含 `.ccg`，
       只收窄 numstat/diff）⇒ 预期只有 T11 红，断言位置应在 `changedLines` / `ccgChangedLines`
       （消费面）。如实记为未实测：实现上它与 M14 落在同一函数的两处 pathspec，红集形态可推，
-      但不把推断写成实测
+      但不把推断写成实测。
+      **本项不是交付物**，保持未勾选即如实状态：M 段整段是「反证做过了什么」的记录，
+      M12–M16 是对同一处 pathspec 的五条变异探针，缺一条只影响该探针的取证完整度
+      （M14 已覆盖「观测面收窄」这一格），不影响已合入行为；归档时按未实测原样保留，
+      MUST NOT 改写成实测
 - [x] M16 摘掉默认档实参尾巴上的 `:(exclude).ccg`（**行为锁的反证**，不是结构锁的反证）
       ⇒ 实测 `--test-name-pattern=命名配方行为锁` 下 `pass=0 fail=1`，红 = 只有「默认档必须真的
       排除 `.ccg`（位置不是判据，行为才是）」。失败断言是 `strictEqual` 而不是 `match`：
@@ -209,8 +213,18 @@ M16 的还原 sha 等于行为锁落地后的基线 `a6e2ca68a043`（每加用�
 
 - [x] 5.1 PR 正文含「为什么」，不只含「改了什么」
       ✅ PR <https://github.com/Colinchiu007/mulpub/pull/4232> 正文含「为什么」、分层说明与门禁读数
-- [ ] 5.2 CI 全绿后 squash 合并、删远端分支
-- [ ] 5.3 `check-branch-merged.js --ref <tip> --merge <merge SHA>` rc=0 后删本地分支
-- [ ] 5.4 main push 回读（`quality-gate` / `Electron CI` / `Build & Release` / `债务熔断门禁`），
+- [x] 5.2 CI 全绿后 squash 合并、删远端分支
+      ✅ PR #4232 squash 合并 → `7178ad27c`（`state=MERGED`，`mergedAt=2026-10-22T11:19:02Z`）；
+      `git ls-remote --heads origin ccg-decider-merge-skip` 返回 **0 行** ⇒ 远端分支已删
+- [x] 5.3 `check-branch-merged.js --ref <tip> --merge <merge SHA>` rc=0 后删本地分支
+      ✅ 先打可恢复出口 `retire/ccg-decider-merge-skip-20261022` → `bff24e7b0`；
+      `node scripts/check-branch-merged.js --ref bff24e7b0 --merge 7178ad27c` **rc=0**
+      （`files=9 identical=9`），随后删本地分支
+- [x] 5.4 main push 回读（`quality-gate` / `Electron CI` / `Build & Release` / `债务熔断门禁`），
       读数写 **PR 评论**（`gh pr comment`），不写仓库文件
-- [ ] 5.5 worktree 走 `scripts/safe-worktree-remove.ps1`（干跑 → 实跑 → R7 对账）
+      ✅ 四个 workflow 在 `7178ad27c` 上全部 `conclusion=success`（run `39769657366` /
+      `39769657285` / `39769657324` / `39769657340`）；派生收口 `派生收口=650`（+1）与清理
+      取证已写进 PR #4232 评论，仓库文件未改
+- [x] 5.5 worktree 走 `scripts/safe-worktree-remove.ps1`（干跑 → 实跑 → R7 对账）
+      ✅ `-WhatIf` 干跑通过 → 实跑移除注册、11 个 junction 解除链接、`git worktree prune` rc=0；
+      R7 对账与主工作区基线文件逐项一致（零新增 D、零消失 M）

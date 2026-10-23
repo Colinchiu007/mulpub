@@ -1,5 +1,8 @@
-## ADDED Requirements
+# ccg-review-decider Specification
 
+## Purpose
+规定 pre-commit 的 CCG 判定器（`scripts/ccg-review-decider.js`）在**合并收尾提交**下凭什么计算本次改动集，以及它在读不到合并元数据时怎么说话。合并态下 `git diff --cached` 等于「ours tip → 合并结果」，也就是**对方那一侧**的改动量，于是「合并主干」这个零语义动作会按主干前进量判出 `dual`（现场实测 606 文件 / 1880 行），让 QM-6 对每一次合并都强制开跑。本规格因此把口径钉成「两侧都改过的文件交集」，并同时锁定三条不可拆的边界：自身产物（`.ccg/`）只能在**消费面**排除、不得在观测面用 pathspec 排除（读得到才有得判）；交集路径必须以 `:(literal)` 传给 git，防 `[1]` 一类文件名被 glob 放大成另一个文件；判定域只允许收缩到交集，不得因交集非零就回落阈值链。另两条管「说不了话的时候」：合并态读不到交集一律走既有「未判定」出口（退出码 0、点名原因、给补救命令、不落盘），MUST NOT 回落整侧口径；合并态探测的「失明」（spawn 失败或异常退出码）必须与「真的不在合并中」分成三档，探测失明时判定方向保持 fail-open 但 MUST 出声——把工具的失明静默读成结论，是本仓反复复发的同型缺陷。
+## Requirements
 ### Requirement: 判定器 MUST 识别「合并收尾提交」并收敛变更集
 
 `scripts/ccg-review-decider.js` 在 pre-commit 阶段（无 `--input` / `--base`）SHALL
@@ -83,3 +86,44 @@ scope  = ours ∩ theirs
 当判为合并态但读不到两侧交集（git 调用失败）时，判定器 SHALL 返回 0 并打印
 「未判定」及可执行的补救命令，MUST NOT 回落到整侧导入口径（那正是本条要消除的形态），
 也 MUST NOT 阻断开发者的提交。
+
+#### Scenario: 合并态读不到交集时打印「未判定」且不落盘
+- **WHEN** `MERGE_HEAD` 存在（判为合并态），但 `git merge-base HEAD MERGE_HEAD` 失败、
+  两份无关历史导致无共同祖先，或任一侧的 `git diff <base>..<rev>` 读不到
+- **THEN** 判定器 MUST 以退出码 0 结束，MUST NOT 阻断这次提交
+- **AND** stdout MUST 打印「未判定」，并点明「在合并中（MERGE_HEAD 存在），
+  但读不到 merge-base / 任一侧文件集」
+- **AND** MUST 打印可执行的补救指引（`补跑请带 --base <rev>`）
+- **AND** MUST NOT 回落到 `collectStaged()` 的整侧口径
+- **AND** MUST NOT 在 `.ccg/reviews/` 下新建任何文件
+
+### Requirement: 合并态探测的「失明」MUST 与「真的不在合并中」分开
+
+`detectMergeState()` SHALL 把合并态探测分成三档，三档 MUST NOT 同形：
+
+```
+合并中     MERGE_HEAD 可解析且非空                      -> merging=true,  probeError=null
+不在合并中 git rev-parse 以 128/1 退出（该 ref 不存在）  -> merging=false, probeError=null
+探测失明   spawn 失败（取不到退出码）或退出码为其它值    -> merging=false, probeError=<detail>
+```
+
+`<detail>` SHALL 是错误码（如 `ENOENT` / `EACCES`），取不到时回落 `exit=<n|unknown>`。
+
+探测失明时判定方向 MUST 保持 fail-open（回落非合并口径，MUST NOT 因读不到就整体 skip
+或整体 dual）——但该状态 MUST 可见：只在成功分支打印，等于把「git 起不来」静默吞成
+「不在合并中」，那正是本条要消除的形态。
+
+#### Scenario: 探测失明必须出声，且不得被读成「不在合并中」
+- **WHEN** `git rev-parse --verify MERGE_HEAD` 因 spawn 失败或非 128/1 的退出码而失败
+- **THEN** `detectMergeState()` MUST 返回 `merging === false` 且 `probeError` 非空
+- **AND** CLI MUST 在回落非合并口径之前打印
+  `合并态探测失败（<detail>）⇒ 回落非合并口径（按暂存区判定）`
+- **AND** 该文案 MUST 明确「这不等于当前不在合并中」，并点明本次判定可能把对方整侧
+  当成本次改动
+- **AND** 判定模式 MUST 仍按暂存区口径给出，MUST NOT 因探测失明而整体 skip 或整体 dual
+
+#### Scenario: 真的不在合并中不得告警
+- **WHEN** `git rev-parse --verify MERGE_HEAD` 以 128 或 1 退出（该 ref 不存在）
+- **THEN** `probeError` MUST 为 `null`，CLI MUST NOT 打印任何探测失败告警
+- **AND** 判定结果 MUST 与本次改动之前逐字节一致（含记录文件名）
+
