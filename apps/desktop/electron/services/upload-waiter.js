@@ -308,6 +308,21 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
       // attach 会抛「Another debugger is already attached」，此前它写在外面导致整轮静默。
       if (!dbg.isAttached()) { dbg.attach('1.3'); attachedHere = true }
       await dbg.sendCommand('Page.enable')
+      // shadow-scan：上传区不在普通 DOM（主帧只出页头、编辑器 iframe 恒空），改递归穿透 shadowRoot。
+      try {
+        const sv = await win.webContents.executeJavaScript("(function(){var out={found:false};var seen=0;function walk(root,depth){if(!root||depth>8||seen>4000)return null;var els;try{els=root.querySelectorAll('*')}catch(e){return null}for(var i=0;i<els.length;i++){var e=els[i];seen++;var t='';try{t=e.innerText||''}catch(e2){}if(t&&(t.indexOf('上传时长')>=0||t.indexOf('添加视频')>=0||t.indexOf('点击上传')>=0)){return e}var cn='';try{cn=String(e.className||'')}catch(e3){}if(cn&&(cn.indexOf('upload')>=0||cn.indexOf('dragger')>=0||cn.indexOf('drop')>=0)){return e}if(e.shadowRoot){var r=walk(e.shadowRoot,depth+1);if(r)return r}}return null}var hit=walk(document,0);if(!hit)return out;hit.setAttribute('data-mp-drop','1');var r=hit.getBoundingClientRect();return {found:true,x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2),w:Math.round(r.width),h:Math.round(r.height),via:'shadow-scan'}})()", true)
+        log.info('RpaView', 'cdp-drop: shadow-scan ' + JSON.stringify(sv))
+        if (sv && sv.found && sv.w > 0 && sv.h > 0) {
+          const _abs2 = require('path').resolve(filePath)
+          const _d = { items: [{ mimeType: 'text/plain', data: '' }], files: [_abs2], dragOperationsMask: 1 }
+          for (const _t of ['dragEnter','dragOver','drop']) {
+            await dbg.sendCommand('Input.dispatchDragEvent', { type: _t, x: sv.x, y: sv.y, data: _d })
+          }
+          log.info('RpaView', 'cdp-drop: dispatched (shadow-scan) ' + filePath)
+          try { dbg.detach() } catch (_eS) {}
+          return true
+        }
+      } catch (eS) { log.warn('RpaView', 'cdp-drop: shadow-scan failed ' + (eS && eS.message ? eS.message.slice(0,80) : '')) }
       // frame-scan：pierce/querySelector 对 iframe 无效，改用 createIsolatedWorld + Runtime.evaluate 在每帧内定位。
       try {
         const ft2 = await dbg.sendCommand('Page.getFrameTree')
