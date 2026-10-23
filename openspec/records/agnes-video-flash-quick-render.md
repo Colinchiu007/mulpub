@@ -17,6 +17,7 @@ delivered_by_pr: 4342
 | 防止再次发生（QM-5 ⑤） | 通过 | 判据收敛到三处单一真源（模型能力表 / 模式契约 / 请求体构造），新增 provider 只需声明能力，**不必改中央名单** |
 | 行尾与 diff 对账 | 通过 | 两口径 numstat 一致；本 PR 无行尾改动（纯 LF） |
 | 接线棘轮 | 通过 | 新增 `*.test.js` 三支由 vitest 默认发现（`apps/desktop` 的 `test` 脚本 = `vitest run`，无白名单接线机制）；已实跑全绿 |
+| 渲染层跨包边界 | 通过 | 渲染层曾具名 import shared-utils 的 **CommonJS** 模块 `agnes-video-request` ⇒ 浏览器端拿不到具名导出 ⇒ vite dev server 在运行时抛 `does not provide an export named 'AGNES_VIDEO_REQUEST_ERRORS'` ⇒ **整个 `/create` 页面挂载失败**（Browser E2E 实测：`/create` 18 项全红、流水线卡片 count=0）。按仓内既有形态修：建 ESM 孪生 + `vite.config.js` 登记 alias + `agnes-video-request-parity.test.js` 逐行锁两侧同源；`check-renderer-cjs-boundary` 修复前本地实跑为红（点名 `QuickRenderPanel.vue`）、修复后为绿 |
 | QM-1 打包 / QM-4 视觉 | 部分 | QM-1 未执行（沙箱无 Electron 打包环境）；QM-4 核实「快速渲染」**不在像素判定域**（`base-screenshots/` 无 create-quick 基线，`check-visual-coverage.js` 通过）⇒ 改 UI 不撞 Gate 7b 的 0px 判定；workflows 套件的截图步骤由 CI 的 QG Visual job 实跑 |
 | QM-6 CCG 双模型外部评审 | **未执行** | 本机无 `codeagent-wrapper` ⇒ 如实记「未执行」，**不以自审冒充通过** |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`） |
@@ -37,7 +38,7 @@ delivered_by_pr: 4342
 
 ⇒ 模型已具备的能力在产品上**一个都不可见**。
 
-## 3. 顺带查出的两个真缺陷
+## 3. 顺带查出的三个真缺陷
 
 ### 3.1 「输出平台」失效
 
@@ -49,6 +50,31 @@ delivered_by_pr: 4342
 2. **载荷形状不匹配** —— preload 的 `onRenderProgress` 把 IPC 载荷**原样**传给回调（`(_e, p) => callback(p)`），主进程发的是 `{ percent, stage }` **对象**，而渲染层按 `(pct, stg)` 两个位置参数解构 ⇒ `pct` 拿到的是整个对象。
 
 ⇒ 修法不是「多推几次进度」，而是**按对象读载荷** + 在轮询期真的推。
+
+### 3.3 渲染层整页挂载失败：shared-utils 的 CommonJS 跨边界
+
+「模式 ↔ 媒体」契约收敛到 `packages/shared-utils/src/agnes-video-request.js`（主进程与渲染层共用同一判据）后，渲染层直接具名 import 了它。**它是 CommonJS**（`module.exports`）⇒ 浏览器端拿不到具名导出 ⇒ vite dev server 在运行时抛：
+
+```
+[Router Load Error] The requested module '.../shared-utils/src/agnes-video-request.js'
+does not provide an export named 'AGNES_VIDEO_REQUEST_ERRORS'
+```
+
+⇒ **整个 `/create` 页面挂载失败**。后果的迷惑性在于：报错指向「视频能力」，失败形态却像「渲染引擎没就绪」——Browser E2E 里 `/create` 26 项挂 18 项、**流水线卡片 count=0**、`/create/pipeline` 与 `/create/history` 连带红，而 `/create/result` 等其余路由全绿。
+
+**为什么所有本地信号都是绿的**（与本仓 2026-10-19 `publish-gate-help` 同形，属**第二次**踩同一个坑）：
+
+| 手段 | 为什么没抓到 |
+|---|---|
+| `vite build` | rollup 的 commonjs 插件在**构建期**做了 interop ⇒ 绿 |
+| `vitest` | vite-node 自带 CJS interop ⇒ 绿 |
+| `tsc --noEmit` | JS 文件不做模块形态检查 ⇒ 绿 |
+| `electron-builder` | asar 里就是 CJS，主进程 `require` 没问题 ⇒ 绿 |
+| **只有跑 dev server 的视觉回归会红** | 报错形态是「页面渲染失败」+ 一条 ESM 具名导出错误，与「某个平台不支持」毫无关系 |
+
+**修法（仓内既有形态，12 个先例）**：建 `agnes-video-request.browser.js`（ESM 孪生）+ 在 `apps/desktop/vite.config.js` 的 `resolve.alias` 登记 + `__tests__/agnes-video-request-parity.test.js` 逐行锁两侧同源。
+
+**防复发**：`scripts/check-renderer-cjs-boundary.js` 正是为此设的静态门禁（判据：渲染层 import 的 shared-utils 模块要么已登记 alias、要么是 `.json`）。**本次修复前本地实跑它就是红的**（点名 `QuickRenderPanel.vue` 的跨界 import）—— 门禁能抓，只是它此前没被本地跑到；修完转绿。
 
 ## 4. 两条硬约束如何绕过（都不是靠抬基线）
 
@@ -98,11 +124,11 @@ delivered_by_pr: 4342
 
 | 面 | 证据 |
 |---|---|
-| 新增单测 | `scene-video-generator.test.js`（10）、`agnes-video-models.test.js`（8）、`QuickRenderPanel.test.js`（18） |
+| 新增单测 | `scene-video-generator.test.js`（10）、`agnes-video-models.test.js`（8）、`QuickRenderPanel.test.js`（18）、`agnes-video-request-parity.test.js`（CJS ↔ ESM 孪生逐行同源 + 导出面 + 15 组行为向量） |
 | 扩展既有单测 | `agnes-multimodal.test.js`（+6，能力驱动上限/档位/参考视频）、`render.test.js`（+6，领域码/时长越界/载荷透传/能力查询） |
 | 既有单测改写 | `CreateView.test.js`：快速渲染相关用例**迁至** `QuickRenderPanel.test.js`（不是删除）；`viewQuickResult` 改新签名 |
 | preload 契约 | `preload.test.js` 键数 339→340、`PUBLISH_METHODS` 88→89（含新增键的真实存在断言） |
-| 本仓门禁（本地实跑） | `check-max-lines` ✅ / `check-locale-sync --cjk` ✅ / `--keys` ✅ / `check-no-brand-residue` ✅ / `check-visual-coverage` ✅ / `check-gate-record-debt` ✅ |
+| 本仓门禁（本地实跑） | `check-max-lines` ✅ / `check-locale-sync --cjk` ✅ / `--keys` ✅ / `check-no-brand-residue` ✅ / `check-visual-coverage` ✅ / `check-gate-record-debt` ✅ / `check-renderer-cjs-boundary` ✅（修复前实跑为红，修复后为绿） |
 | 行数读数 | `story2video-stages.js` 4081→3906；`CreateView.vue` 5528→5419；`model-provider-manager.js` 1284→1284；新文件全部 < 500 |
 
 ## 8. 一条被本次改动证伪的旧说法
