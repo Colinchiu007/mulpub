@@ -321,6 +321,21 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
           const kids = [].concat(n.children || [], n.shadowRoots || [])
           for (const k of kids) walkDeep(k)
         }
+        let _wujieShadow = 0
+        const findWujie = (n) => {
+          if (!n || _wujieShadow) return
+          const a = n.attributes || []
+          for (let i = 0; i < a.length; i += 2) { if (a[i] === 'class' && String(a[i+1]).indexOf('wujie_iframe') >= 0) { if (n.shadowRoots && n.shadowRoots[0]) { _wujieShadow = n.shadowRoots[0].nodeId; return } } }
+          const kids = [].concat(n.children || [], n.shadowRoots || [])
+          for (const k of kids) findWujie(k)
+        }
+        findWujie(deepDoc.root)
+        if (_wujieShadow) {
+          try {
+            const wq = await dbg.sendCommand('DOM.querySelector', { nodeId: _wujieShadow, selector: '.upload input[type="file"]' })
+            if (wq && wq.nodeId) { _inputNodeId = wq.nodeId; log.info('RpaView', 'cdp-drop: wujie-shadow input found nodeId=' + _inputNodeId) }
+          } catch (_eWq) {}
+        }
         walkDeep(deepDoc.root)
         if (_inputNodeId) {
           await dbg.sendCommand('DOM.setFileInputFiles', { files: [require('path').resolve(filePath)], nodeId: _inputNodeId })
@@ -458,8 +473,7 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
   },
 
   async _dropViaCdp (win, filePath, selector) {
-    // wujie-first：竞品实现优先（.wujie_iframe.shadowRoot .upload input[type=file]）
-    try { if (await this._uploadViaWujie(win, filePath)) { log.info('RpaView', 'cdp-drop: wujie-first succeeded, skip CDP paths'); return true } } catch (_eWf) {}
+    // wujie-first 已移除：base64 注入会卡住渲染进程（2026-10-24 01:02 实测）
     const path = require('path')
     const dbg = win.webContents.debugger
     let attached = false
