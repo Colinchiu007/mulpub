@@ -28,6 +28,7 @@ on:
       "时钟位移引信巡检",
       "依赖漏洞审计门禁",
       "Sidecar Parity (cross-repo)",
+      "定时作业心跳巡检",
     ]
     types: [completed]
 

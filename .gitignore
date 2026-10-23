@@ -500,6 +500,9 @@ shared-user-data.backups/
 !scripts/check-schedule-failure-watch.js
 !scripts/check-schedule-failure-watch.test.js
 !scripts/check-schedule-failure-watch.mutation.js
+!scripts/check-schedule-heartbeat.js
+!scripts/check-schedule-heartbeat.test.js
+!scripts/check-schedule-heartbeat.mutation.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）

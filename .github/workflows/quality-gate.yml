@@ -636,6 +636,19 @@ jobs:
           node scripts/check-schedule-failure-watch.js
           node --test scripts/check-schedule-failure-watch.test.js
 
+      # --- Gate 2b14：定时作业心跳锁的行为面（change: schedule-heartbeat-lock）---
+      # 判据本体**不在这里跑**：它要读 GitHub 的 run 历史，PR 侧既读不到稳定的 schedule 历史，
+      # 又会把"基础设施健康"耦合进合并判定；线上读数挂在 .github/workflows/schedule-heartbeat.yml（每日）。
+      # 这里跑的是**行为锁**（夹具正/负控 + 接线锁 + 采集器形状，全部零出站），作用是"锁不被拆"——
+      # 少了这一步，判据被人改坏后唯一的发现途径是等下一次日巡检红，而"日巡检根本没跑"恰恰是本判据
+      # 要抓的那一类失败：自己抓不到自己，就得由 PR 侧的接线证据来兜。
+      # 落点必须在 changes 作业（与 Gate 2b13 同一条理由）：本锁的输入含 .github/workflows/**，
+      # 那些路径全在 docs-only 白名单里，放进被 docs-only 门控的 static-gates 等于给自己的锁关掉校验。
+      - name: "Gate 2b14 - Scheduled-job heartbeat locks (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-schedule-heartbeat.test.js
+
       # --- Gate 2b12：artifact 清理作业的行为锁 ---
       # 被测对象是 .github/workflows/cleanup-artifacts.yml 里那段清理逻辑（已搬进 scripts/cleanup-artifacts.js）。
       # 必须接在 changes 作业：cleanup 那条 workflow 只由 schedule 触发，接在那儿等于"红在 PR 侧不可见"，
