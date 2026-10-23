@@ -154,7 +154,7 @@ class RpaViewManager {
             // 2026-10-23 实测：凭证库/分区里 cookieLen=284，但 channels.weixin.qq.com 页面 context 里 0 个 cookie
             // ⇒ 页面必然显示未登录。故把 cookie 字符串注入浏览器 session（按 cookie 名逐条 set）。
             try {
-              if (cookie) {
+              if (false && cookie) { // 2026-10-23 停用：写 defaultSession 会混合多账号 cookie（架构文档 §2.4.3 禁止串 Cookie），这是「切换视频号」弹窗的根因
                 const { session } = require('electron')
                 const ses = session.defaultSession
                 const dom = platform === 'tencent_video' ? '.weixin.qq.com' : (platform === 'toutiao' ? '.toutiao.com' : null)
