@@ -16,7 +16,7 @@ date: 2026-10-23
 | 行尾与 diff 对账 | PASS | 两口径 numstat 逐文件一致（提交前现测） |
 | 接线棘轮 | N/A | 未新增 `*.test.js`；门禁脚本本体未改，只改台账数据（`.github/scripts/max-lines-baseline.json`） |
 | QM-1 打包 / QM-4 视觉 | N/A / N/A | 只改门禁台账数据，未触运行面（无打包、无样式/路由变更） |
-| QM-6 CCG 双模型外部评审 | 未执行（并说明为何） | 本 PR 是 1 个数 + 1 段理由的台账数据改动，**不构成中大型改动**；且它属于「改谁来守门」这一类，按 AGENTS.md 需**人工过目** —— 已由维护者在会话中明确确认「另开一个极小 PR 修主干：把该文件的名点目标从 1484 上调到 1497 并写明理由」。自审不冒充外部评审，故此处如实写「未执行」 |
+| QM-6 CCG 双模型外部评审 | 已跑（第 4 轮），逐条处置见「## 评审」 | 后端实测可跑：critic=**claude**（anthropic 家族）、proposer=**opencode**（deepseek/hy3 家族），**跨家族校验通过**。本 PR 被判定器判为 **DUAL**（4 行改动但命中 2 处敏感内容 ⇒ 强制双模型深度审查），已按要求跑完：critic 给出 **4 条**（correctness 4 / security 5 / performance 8 / maintainability 5，最低分 4），其中 **1 条高危域（`auth`）**。高危域**不接受自扮演豁免** ⇒ 外部复核由 critic=claude 完成，第 4 轮原始输出**逐字公开**于 PR 评论（`externalReview.evidenceRef` 指向该评论 URL） |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；合并后 main push 的回读证据写在 PR 评论里，不写回本文件 |
 
 ### 做了什么（用户视角）
@@ -43,6 +43,28 @@ date: 2026-10-23
   那是另一个 PR 的事，本 PR 不做（也不应在此回退刚上线的功能）。
 - **PR 侧全绿 ≠ 主干不红**：这次的红是「合并后才在主干 push 上诞生」的。若后续再有类似情况，
   判据仍是「有人修 main」——不是把这条差集当已解释。
+- **两侧一致性的自动化校验**（外部评审 i4，Info）：台账里 `files` 与 `targets` 两侧的口径一致性
+  目前只靠注释人工保证。补一条 CI 校验（如「对每个被点名的文件验证 `files + 200 ≥ targets`」）
+  要改门禁脚本本体（判据自指面），属跨仓工程决策 ⇒ 登记为遗留，不在本 PR 做。
+
+## 评审
+
+第 4 轮外部双家族深度评审（critic=claude / proposer=opencode，评审对象 = 本 PR 完整差量
+`origin/main..0012e7da`）：critic 给出 **4 条**（correctness 4 / security 5 / performance 8 /
+maintainability 5，最低分 4），其中 **1 条高危域（`auth`）**。逐条处置：
+
+| # | 严重度 | 结论 | 处置 |
+|---|---|---|---|
+| i1 | Critical（**高危域 auth**） | **不成立** | 指控「本 PR 无敏感内容、产物是混入的孤立审阅产物、会污染审计链」。**指控的因果链在实测处断开**：① 「敏感内容 2 处」的来源查实为台账 `//` 注释里**原本就有**的英文单词 `update`（3 处）被判定器的 SQL 关键词模式 `/\b(SELECT\|INSERT INTO\|UPDATE\|DELETE FROM\|DROP TABLE\|ALTER TABLE)\b/i` 命中（大小写不敏感）⇒ 中文敏感词（密钥/加密/凭据/鉴权/授权）命中 **0**、敏感路径命中 **0**（一行 node 可复算，见 `scripts/ccg-review-decider.js:72-78`）—— 这是**关键词匹配假阳性**，本 PR 没有任何认证/数据库/加密面；② 记录里的 `sha` 指向 `7718f8987` 不是「引用了无关 sha」：pre-commit 跑判定器时新 commit 还不存在，`sha` 记的是**判定时的父提交**，差量的内容寻址键是 `stagedDiffHash`；③ 「删掉 `.ccg/reviews` 产物」是仓库明确禁止的动作（删产物 ≠ 完成评审）。**高危域按规则不接受自扮演豁免** ⇒ 外部复核由 critic=claude 完成，第 4 轮原始输出逐字公开于 PR 评论（`externalReview.evidenceRef` 指向该 URL）。 |
+| i2 | Warning | **不成立** | `deepReview.required` / `status` 是**判定器的输出**（命中敏感内容 ⇒ dual ⇒ required=true），不是本 PR 能自选的字段；「配置型 PR 设 `required=false`」= 改门禁让自己过（违反 AGENTS.md 红线），「按文件类型分档」是跨仓工程决策。本 PR 接受 DUAL 判定并跑完了外部双家族评审，未绕过任何门禁。 |
+| i3 | Warning | **不成立** | 审计绑定**已有三条机器可读通道**：① `.ccg/reviews/<hash>.json` 的**文件名就是内容寻址键**（`stagedDiffHash`），记录内另有 `stagedDiffHash` 与 `sha`（父提交）两个可机读字段；② 执行记录**文件名 = 分支名**，合并后由 `scripts/lib/merge-ledger.js` 按 `(#NNNN)` 尾注**推导**归属；③ 记录模板自带可选 `delivered_by_pr` 字段专供与主干事实交叉核对。⇒「仅依赖自由文本」前提不成立；新增 `headSha` 会与既有 `sha` 同名不同义，且要同时改判定器与门禁两处。 |
+| i4 | Info | **登记为遗留** | 「两侧一致性只靠手动注释、缺自动化校验」方向成立，但补校验要改门禁脚本本体（判据自指面）⇒ 记入「遗留」，本 PR 不做。 |
+
+**驳回的可核性**：每条驳回都给了**可复算**的理由 —— 关键词命中的实测来源（一行 node 可复算）、
+产物字段的既定语义（可在 `scripts/ccg-review-decider.js` / `ccg-deep-review.js` 里逐字核对）、
+审计绑定的三条既有通道（`merge-ledger` + 记录文件名约定 + 模板字段）。
+外部复核证据：PR 评论（claude 原始输出逐字公开），
+`externalReview` 三格 = `performedBy=claude` / `evidenceRef=<该评论 URL>` / `reviewedAt=2026-10-23T10:05:00Z`。
 
 ## CHANGELOG 条目
 
