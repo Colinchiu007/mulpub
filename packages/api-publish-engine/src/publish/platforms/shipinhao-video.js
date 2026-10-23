@@ -29,7 +29,7 @@ const DEFAULT_API_BASE = 'https://channels.weixin.qq.com'
 // 新值取自**创作页自身代码**（finder-helper-web chunk-common 内 `this.HOST="finder.video.qq.com"`、
 // `ReplaceHost="https://finder.video.qq.com"`），实测该主机可达（返回 protobuf 业务错误而非 404）。
 // 保留旧主机作为**最后兜底**：若新主机在部分网络不可达，仍可回落读取 envInfo.cdnHostList。
-const CDN_HOST_CANDIDATES = ['https://finder.video.qq.com', 'https://finderassistancea.video.qq.com']
+const CDN_HOST_CANDIDATES = ['https://finderassistancea.video.qq.com', 'https://finderassistanced.video.qq.com', 'https://finder.video.qq.com']
 const DEFAULT_CDN_BASE = CDN_HOST_CANDIDATES[0]
 const API_REFERER = 'https://channels.weixin.qq.com'
 const POST_REFERER = 'https://channels.weixin.qq.com/platform/post/create'
@@ -122,6 +122,8 @@ class ShipinhaoVideoChain {
     this.cdn = opts.cdn || createHttpClient({ baseURL: opts.cdnBase || DEFAULT_CDN_BASE, timeout: opts.timeout, agents: opts.agents, headers })
     // 2026-10-23：平台自身用 setHost() 动态设置上传主机 ⇒ 优先用 Step1 响应里的主机，取不到才回落到 baseURL。
     this.cdnHost = ''
+    // 注入客户端（测试/自定义）时保持相对路径；真实运行时 uploadpartdfs 用逆向实证的独立主机。
+    this._partHost = opts.cdn ? '' : 'https://finderassistanced.video.qq.com'
   }
 
   /** 发起前校验：缺 cookie → fail-closed 零请求 */
@@ -209,7 +211,7 @@ class ShipinhaoVideoChain {
       Origin: DEFAULT_API_BASE,
       'User-Agent': this.userAgent,
     }
-    const url = this.cdnHost + '/uploadpartdfs?PartNumber=' + partNumber + '&UploadID=' + encodeURIComponent(uploadId)
+    const url = (this.cdnHost || this._partHost) + '/uploadpartdfs?PartNumber=' + partNumber + '&UploadID=' + encodeURIComponent(uploadId)
     const res = await requestWithRetry(this.cdn, { method: 'put', url, data: buf, headers })
     const d = res.data || {}
     return { etag: d.ETag, partNumber, raw: d }
