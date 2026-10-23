@@ -1,6 +1,6 @@
 # 逆向成果复用对照表（2026-10-23）
 
-> 目的：把 `D:\Data\reverse-two-competitors` 里**可直接落地**的结论抽成一张表，避免再次出现「凭我们自己的代码猜方向」。
+> 目的：把 **本机逆向工程目录** 里**可直接落地**的结论抽成一张表，避免再次出现「凭我们自己的代码猜方向」。
 > 每条都注明出处文件与行号，便于复核。
 
 ## 1. 平台发布档（决定走 API 还是 DOM/RPA）
@@ -51,54 +51,7 @@
 >
 > 落地：PR #4309（`tv-host-final`）把 apply/complete 指回 `finderassistancea`、part 指向 `finderassistanced`。
 >
-> **方法论**：探测受鉴权保护的接口时，缺头返回的 404 **不能**用来证明端点不存在。 目的：把 `D:\Data\reverse-two-competitors` 里**可直接落地**的结论抽成一张表，避免再次出现「凭我们自己的代码猜方向」。
-> 每条都注明出处文件与行号，便于复核。
-
-## 1. 平台发布档（决定走 API 还是 DOM/RPA）
-
-出处：`01-analysis/derived/平台能力矩阵.md` L34–44
-
-| 平台 | key | 竞品发布档 | 本项目当前 | 结论 |
-| --- | --- | --- | --- | --- |
-| 抖音 | `douyin` | **API** | RPA/DOM（已达成） | 结果达成，档位不同 |
-| 小红书 | `xiaohongshu` | DOM/RPA | RPA（草稿箱已达成） | 一致 |
-| **视频号** | `tencent_video` | **API** | API（失败在传输层）→ 回退 RPA | **应修 API 轨** |
-| **今日头条** | `toutiao` | **DOM/RPA** | RPA（失败在提交） | **不应切 API** |
-| 快手 | `kuaishou` | API | — | — |
-| 哔哩哔哩 | `bilibili` | API | — | — |
-| 百家号 | `baijiahao` | API | — | — |
-| 微信公众号 / 知乎 / 微博 | — | DOM/RPA | — | — |
-
-**推论**：视频号的问题必须用 API 轨解决；把头条视频导向 API 是方向错误（平台自己也回 `竖版视频暂不支持 API 发布`）。
-
-## 2. 视频号三段式上传：三步主机不同
-
-出处：`01-analysis/融媒宝-完整拆解.md` §5.8 对照表
-
-| 步骤 | 竞品原生层主机 |
-| --- | --- |
-| `applyuploaddfs` | `finderassistancea.video.qq.com` |
-| `uploadpartdfs` | **`finderassistanced.video.qq.com`** |
-| `completepartuploaddfs` | `finderassistancea.video.qq.com` |
-
-**本项目改前**：三步共用一个 `baseURL` ⇒ 与实证不符。已按此改为分步主机（PR #4299）。
-
-## 3. 视频号签名：纯本地，不走第三方签名
-
-出处：`01-analysis/两边竞品风控方式对照.md` L170
-
-- 竞品视频号链：本地 `createSign("SHA256")`（私信链）+ `QiehaoSm3` 文件哈希（上传校验）。
-> ⛔ **2026-10-23 实测更正（务必先读）**：上表三个主机**已失效**。直连探测结果：
-> `PUT finderassistancea/applyuploaddfs` → **404**、`PUT finderassistanced/uploadpartdfs` → **404**、
-> `POST finderassistancea/completepartuploaddfs` → **404**；而 `finder.video.qq.com` → `Parse Error: Expected HTTP/`。
-> 与本项目 2026-10-18 的注释「三条路径全 404」一致。
->
-> **正确机制（取自平台自身代码 `finder-helper-web/chunk-common`）**：上传主机由运行时 `setHost(s.cdnHost)` 设置，
-> 主机来自接口响应字段 **`cdnHost`**，**不是常量**。落地实现见 PR #4303（`shipinhao-video.js` 从 Step-1 响应解析 `cdnHost`）。
->
-> 结论：本节表格只能作为**历史对照**，不得照抄为常量。
 - 因此 **`signer-assembly` 不认识 `tencent_video` 属正常**，不应把它当作失败原因（该日志为 WARN，流程继续）。
-
 ## 4. 平台枚举：头条号与西瓜是两个 id
 
 出处：`01-analysis/融媒宝-平台配置拆解-top10.md` 平台 id 表
