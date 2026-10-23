@@ -6,7 +6,7 @@
  *   1. getUploadAuthKey   POST {api}/cgi-bin/mmfinderassistant-bin/helper/helper_upload_params
  *   2. applyUpload        PUT  {cdn}/applyuploaddfs          {BlockSum, BlockPartLength} + X-Arguments(scene=2)/Authorization
  *   3. uploadPart(×N)     PUT  {cdn}/uploadpartdfs?PartNumber&UploadID  二进制分片 + Content-MD5=md5(chunk) + X-Arguments(scene=0)
- *   4. completeUpload     POST {cdn}/completepartuploaddfs?UploadID     {TransFlag:"0_0", PartInfo:[{PartNumber,ETag}]}
+ *   4. completeUpload     PUT  {cdn}/completepartuploaddfs?UploadID     {TransFlag:"0_0", PartInfo:[{PartNumber,ETag}]}
  *   5. publish            POST {api}/cgi-bin/mmfinderassistant-bin/post/post_{create|draft}
  *
  * 分片器复用 publish/core/chunker（8MiB=8388608）；重试/风控复用 requestWithRetry。
@@ -248,7 +248,8 @@ class ShipinhaoVideoChain {
       'User-Agent': this.userAgent,
     }
     const url = this.cdnHost + '/completepartuploaddfs?UploadID=' + encodeURIComponent(uploadId)
-    const res = await requestWithRetry(this.cdn, { method: 'post', url, data: { TransFlag: '0_0', PartInfo: partInfos }, headers })
+    // completepart must be PUT（2026-10-23 逆向《视频号发布链深挖》⑤：PUT ?UploadID=，body {TransFlag,PartInfo}）
+    const res = await requestWithRetry(this.cdn, { method: 'put', url, data: { TransFlag: '0_0', PartInfo: partInfos }, headers })
     return res.data || {}
   }
 
