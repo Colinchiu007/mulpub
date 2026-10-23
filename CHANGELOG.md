@@ -388,6 +388,36 @@
   **为什么本机没抓到**：我只跑了 `src/layouts` 与 `TabBar.test.js`——这条锁读的是 `01-docs/i18n-glossary.md`，
   而我改了那个文件却没把"读它的测试"纳入验证域。AGENTS「改被多文件消费的模块，验证范围取消费者并集」在本仓的
   新落点：**被测试读取的数据文件也算消费者面**，改它就要跑读它的那把测试。
+# [未发布] test(a11y): 语义色对比度判据从「只测暗色」扩到两档主题，并把浅色四档不可读钉成只能缩小的台账（UX 审计 4.1 / audit-51）
+
+- **修的是判据，不是颜色**：`tokens.slots.test.js` 原有那条「≥4.5:1」只在暗色块上取数
+  （`dark[name]` vs `dark['--color-bg-card']`），浅色块从未被同一把尺量过 ⇒ 「浅色档不可读」在测试面上
+  **不可表示**，所以它一直没人发现。本批把判据域扩到两档：8 个文字/语义色槽 × 2 档（当场读数 `domain=16`），
+  底取 canvas/card/inset/page 四档背景里的**最差值**（只量卡片底会漏 —— muted 在卡片底 2.84、在 inset 底 2.65，
+  而审计引用的正是 inset 那组数；判据与审计对齐才算对得上账）。
+- **实测**：暗色 8/8 全部 ≥5.13 通过；**浅色 4 档不及格** —— muted 2.65 / danger 3.18 / success 1.79 / warning 1.56。
+  先 `git grep` 核实过这四个 token 在渲染端是**当文字色用的**（warning 13 处 / success 17 处 / danger 28 处 /
+  text-muted 21 个消费文件），4.5:1 这条线才适用；若它们只当填充色，判据方向就该反过来问"底上的字够不够"。
+- **台账三方向都有牙**（这是本批真正防住的东西）：变差 ⇒ `CONTRAST_DEBTENED`；改好了但不改登记 ⇒
+  `LEDGER_STALE_VALUE`（登记必须等于实测，防止"已修好却被当成还坏着"，与 `check-debt-baseline-change` R4 同口径）；
+  达标却不销账 ⇒ `LEDGER_CLOSED_BUT_REGISTERED`。另两条反失明断言：域长度必须 == 槽数 × 2 且每个取值必须是
+  6 位 hex（改名 / 换成 `color-mix()` / 只在单档定义 都会当场红，而不是静默少测一项），背景槽自身形态同样逐个校验。
+- **验证**：`vitest run src/styles/tokens.slots.test.js` → 20 passed / 0 failed（新增 5 条）；
+  变异反证 9 条（CL-1 改得更浅 / CL-2 改好不登记 / CL-3 达标不销账 / CL-4 新增未登记坏档 /
+  CL-5 把槽改名 / CL-6 台账键打错一个字母 / CL-7 暗色被拖下水 / CL-8 退化成只量卡片底 / CL-9 把 4.5 调宽成 1.0）
+  全部 CAUGHT 且红在指名用例；控制跑 rc=0 / passed=20；两份被测文件还原后逐字节相同。
+  过程中 CL-6 首跑报 `ANCHOR_MISS(命中 0 次)` —— 因为我把台账值 3.20 改成 3.18 后驱动锚点过期；
+  驱动把"锚点没命中"与"锁没牙"分成两档，所以这次没演成"这条判据无效"的错误结论。
+- **为什么本批不动颜色**：改 token 必然改变渲染像素，而本仓视觉基线只能取自 CI 渲染，
+  并由 `scripts/check-baseline-freshness.js` 断言每张受跟踪基线逐像素等于同一次 run 的渲染 ⇒ 颜色修正与基线刷新
+  必须同 PR 走第二批。第二批目标值已算好（同色相压到 ≥4.6），但**推荐解不是整档挪色**：
+  本仓已量过同一族教训 —— `ep-theme.css` 把 EP 六档主色压成三个 token 后一档兼多职，
+  任何"为了显淡"的调值都会把文字那半拖下水（50% 淡化档作文字只有 2.39:1）。正解是给三个状态色
+  拆"文字档"孪生 token、只迁文字消费点，badge/边框/图标填充色不动。该取向会新增 3 个 token 键并牵动 13+17+28 处
+  迁移范围，属需确认的设计决定，故本批只写成待决项、不代订。
+
+- 涉及文件：`apps/desktop/src/styles/tokens.slots.test.js`、`openspec/records/ux-audit-contrast-light.md`（新）、
+  `01-docs/UX-AUDIT-2026-10-17.md`（audit-51 就地指针 + 4.1 行状态）、`01-docs/learnings.md`（置顶一条：量对比度前先问这个 token 被几种语义消费）。渲染端零改动。
 
 
 # [未发布] fix(登录): 头条号登录期观测的覆盖面补正——真实生效的验证码入口此前既不在监测域、也不匹配锚点
@@ -1089,39 +1119,6 @@
 ## 问题
 
 rewrite-limits-50000 放开上限后暴露三条契约尾巴（change rewrite-segment-and-finish-reason 第一刀）：
-# [未发布] test(a11y): 语义色对比度判据从「只测暗色」扩到两档主题，并把浅色四档不可读钉成只能缩小的台账（UX 审计 4.1 / audit-51）
-
-- **修的是判据，不是颜色**：`tokens.slots.test.js` 原有那条「≥4.5:1」只在暗色块上取数
-  （`dark[name]` vs `dark['--color-bg-card']`），浅色块从未被同一把尺量过 ⇒ 「浅色档不可读」在测试面上
-  **不可表示**，所以它一直没人发现。本批把判据域扩到两档：8 个文字/语义色槽 × 2 档（当场读数 `domain=16`），
-  底取 canvas/card/inset/page 四档背景里的**最差值**（只量卡片底会漏 —— muted 在卡片底 2.84、在 inset 底 2.65，
-  而审计引用的正是 inset 那组数；判据与审计对齐才算对得上账）。
-- **实测**：暗色 8/8 全部 ≥5.13 通过；**浅色 4 档不及格** —— muted 2.65 / danger 3.18 / success 1.79 / warning 1.56。
-  先 `git grep` 核实过这四个 token 在渲染端是**当文字色用的**（warning 13 处 / success 17 处 / danger 28 处 /
-  text-muted 21 个消费文件），4.5:1 这条线才适用；若它们只当填充色，判据方向就该反过来问"底上的字够不够"。
-- **台账三方向都有牙**（这是本批真正防住的东西）：变差 ⇒ `CONTRAST_DEBTENED`；改好了但不改登记 ⇒
-  `LEDGER_STALE_VALUE`（登记必须等于实测，防止"已修好却被当成还坏着"，与 `check-debt-baseline-change` R4 同口径）；
-  达标却不销账 ⇒ `LEDGER_CLOSED_BUT_REGISTERED`。另两条反失明断言：域长度必须 == 槽数 × 2 且每个取值必须是
-  6 位 hex（改名 / 换成 `color-mix()` / 只在单档定义 都会当场红，而不是静默少测一项），背景槽自身形态同样逐个校验。
-- **验证**：`vitest run src/styles/tokens.slots.test.js` → 20 passed / 0 failed（新增 5 条）；
-  变异反证 9 条（CL-1 改得更浅 / CL-2 改好不登记 / CL-3 达标不销账 / CL-4 新增未登记坏档 /
-  CL-5 把槽改名 / CL-6 台账键打错一个字母 / CL-7 暗色被拖下水 / CL-8 退化成只量卡片底 / CL-9 把 4.5 调宽成 1.0）
-  全部 CAUGHT 且红在指名用例；控制跑 rc=0 / passed=20；两份被测文件还原后逐字节相同。
-  过程中 CL-6 首跑报 `ANCHOR_MISS(命中 0 次)` —— 因为我把台账值 3.20 改成 3.18 后驱动锚点过期；
-  驱动把"锚点没命中"与"锁没牙"分成两档，所以这次没演成"这条判据无效"的错误结论。
-- **为什么本批不动颜色**：改 token 必然改变渲染像素，而本仓视觉基线只能取自 CI 渲染，
-  并由 `scripts/check-baseline-freshness.js` 断言每张受跟踪基线逐像素等于同一次 run 的渲染 ⇒ 颜色修正与基线刷新
-  必须同 PR 走第二批。第二批目标值已算好（同色相压到 ≥4.6），但**推荐解不是整档挪色**：
-  本仓已量过同一族教训 —— `ep-theme.css` 把 EP 六档主色压成三个 token 后一档兼多职，
-  任何"为了显淡"的调值都会把文字那半拖下水（50% 淡化档作文字只有 2.39:1）。正解是给三个状态色
-  拆"文字档"孪生 token、只迁文字消费点，badge/边框/图标填充色不动。该取向会新增 3 个 token 键并牵动 13+17+28 处
-  迁移范围，属需确认的设计决定，故本批只写成待决项、不代订。
-
-- 涉及文件：`apps/desktop/src/styles/tokens.slots.test.js`、`openspec/records/ux-audit-contrast-light.md`（新）、
-  `01-docs/UX-AUDIT-2026-10-17.md`（audit-51 就地指针 + 4.1 行状态）、`01-docs/learnings.md`（置顶一条：量对比度前先问这个 token 被几种语义消费）。渲染端零改动。
-
-# [未发布] feat(gates): UX 审计阶段 5.3/5.4 两条新门禁 —— 未接线组件与死观测字段必须被机械检出（ux-audit-phase34）
-
 1. provider `finish_reason` 在 adapter 已返回（openai.js:158 / anthropic.js:174 / minimax-llm.js:137，其余 OpenAI 兼容子类继承），但 ai-generator→llmClient→引擎全链路只传 string ⇒ **模型侧输出截断完全不可见**，与引擎侧截断混淆无法归因；
 2. Python 聚合链路 `RewriteRequest` 字数上界仍钉 5999/6000，与 JS 引擎 50000 不一致；
 3. 引擎 `rewrite()` 是 160 行单体，无单次改写子方法 ⇒ >50000 分段改写无可复用单元。
