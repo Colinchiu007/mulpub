@@ -49,6 +49,7 @@
           audioLimit: "At most {max} audio clips",
           fileTooLarge: "Each file must be under {max}MB",
           aiWriteFailed: "AI writing failed",
+          secondsOutOfRange: "Duration must be between 4 and 12 seconds",
           renderFailed: "Render failed",
           generic: "Invalid request parameters",
         },

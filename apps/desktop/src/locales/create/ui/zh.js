@@ -49,6 +49,7 @@
           audioLimit: "参考音频最多 {max} 段",
           fileTooLarge: "单个文件不能超过 {max}MB",
           aiWriteFailed: "AI 写稿失败",
+          secondsOutOfRange: "时长需在 4–12 秒之间",
           renderFailed: "渲染失败",
           generic: "请求参数不合法",
         },

@@ -157,6 +157,8 @@ const MODE_ERROR_KEY = Object.freeze({
   [AGNES_VIDEO_REQUEST_ERRORS.KEYFRAME_DISALLOWS_REFERENCE]: 'create.story2video.ui.quickError.keyframeDisallowsReference',
   [AGNES_VIDEO_REQUEST_ERRORS.REFERENCE_REQUIRES_MEDIA]: 'create.story2video.ui.quickError.referenceRequiresMedia',
   [AGNES_VIDEO_REQUEST_ERRORS.REFERENCE_DISALLOWS_FRAMES]: 'create.story2video.ui.quickError.referenceDisallowsFrames',
+  // 主进程侧的时长越界码（同属「请求参数不合法」族，一并本地化，避免退化成笼统的「渲染失败」）
+  VIDEO_SECONDS_OUT_OF_RANGE: 'create.story2video.ui.quickError.secondsOutOfRange',
 })
 
 const mode = ref('text')
