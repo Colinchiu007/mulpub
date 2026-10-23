@@ -296,7 +296,11 @@ const helpersMixin = {
       'var file=new File([bytes],name,{type:mime});' +
       'var input=document.querySelector('+JSON.stringify(fileSelector)+');' +
       'if(!input)throw new Error("No file input found (JS fallback)");' +
-      'var dt=new DataTransfer();dt.items.add(file);input.files=dt.files;' +
+      // 2026-10-23（蚁小二 manualDispatchFileEvent 逐字对照）：React 受控组件会吞掉直接赋值，
+      // 必须用 HTMLInputElement.prototype 上的原生 setter 写 files，再派发 change。
+      'var dt=new DataTransfer();dt.items.add(file);' +
+      'var _d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"files");' +
+      'var nativeFilesSetter=!!(_d&&_d.set);if(nativeFilesSetter){_d.set.call(input,dt.files)}else{input.files=dt.files}' +
       'input.dispatchEvent(new Event("change",{bubbles:true}));' +
       'input.dispatchEvent(new Event("input",{bubbles:true}));' +
       'return true})()'
