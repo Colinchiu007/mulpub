@@ -709,3 +709,58 @@ manualDispatchFileEvent({ dom: inputDom, element: HTMLInputElement,
 
 必须先**枚举本页真实的 shadow host**：在页面里 `Array.from(document.querySelectorAll('*')).filter(e=>e.shadowRoot).map(e=>e.tagName+'.'+e.className)`
 ——这一步能把"上传区到底挂在哪层"一次性问清；在拿到该清单之前，任何选择器都是猜。
+
+## 8.25 视频号：API 轨从未执行 + 竞品选择器生效（2026-10-24 02:00）
+
+### 发现 1：`publishMode: dom-only` 让整条 API 链形同虚设
+
+`config/platforms.yaml` 里视频号同时写着：
+
+```yaml
+has_api: true          # 完整 API 链存在（shipinhao-video.js，带链级测试）
+publishMode: dom-only  # 2026-10-23 为验证 DOM 拖放而临时改，之后未复原
+```
+
+`has_api` 是 RpaViewManager 唯一的 API 闸门（`rpa-view-manager.js shouldUseApi`），
+而 `publishMode=dom-only` 使 `api-then-dom` 分支永不进入 ⇒ **API 链一次都没被调用过**。
+此前所有 `applyuploaddfs 404` 都是我手工 curl 的结果，不是产品真实调用。
+
+**修正**：改为 `api-then-dom`（`3b07130b8`）。改后真机日志：
+
+```
+17:57:40  [tencent_video] using API publish engine...
+17:57:42  step1 helper_upload_params → errCode:0，返回 authKey/uin/appType=251/videoFileType=20302
+17:57:42  applyuploaddfs → 404 host=finderassistancea.video.qq.com
+```
+
+**结论**：`helper_upload_params` 完全正常（拿到了 authKey），**404 只发生在 CDN 那一跳**；
+且 step1 响应体**不含任何主机字段**（只有 authKey/uin/appType/…/scene），
+所以「用 step1 返回的主机」这条路不存在，`finderassistancea` 就是唯一目标。
+
+### 发现 2：竞品选择器在我方页面真实有效
+
+```
+17:16:55  shadow-hosts: ["WUJIE-APP.wujie_iframe#"]
+17:16:55  wujie-upload: {"ok":true,"w":0,"h":0,"n":255745,"publishBtnAfter":true}
+```
+
+`document.querySelector('.wujie_iframe').shadowRoot.querySelector('.upload input[type=file]')`
+逐字照搬竞品，**文件确实写入成功**，且页面自己长出了「发表」按钮（`publishBtnAfter:true`）。
+
+### 发现 3：点发表后无发稿请求
+
+```
+17:41:20  programmatic publish click: clicked-wujie
+17:41:44  publish verification timeout endpoint=.../post/create responses=3
+```
+
+点到了按钮但**没有发出 `post_create`**（`responses=3` 无一条是发稿）。
+下一个判据：按钮是否 `disabled`、以及是否需要先填「原创声明/位置」等必填项。
+
+### 待办（按判据强度）
+
+| # | 动作 | 判据 |
+| --- | --- | --- |
+| 1 | CDN 404：比对 `X-Arguments` 原文与竞品样本（长度/字段序/base64） | 高（纯本地） |
+| 2 | 发表点击：点前打印按钮 `disabled` 与 `outerHTML` 前 200 字 | 高（一次运行） |
+| 3 | `post_create` body：文档标注 INFERRED，需抓包 | 中 |
