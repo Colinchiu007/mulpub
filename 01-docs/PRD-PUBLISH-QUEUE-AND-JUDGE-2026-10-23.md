@@ -415,3 +415,29 @@ PUT  https://finderassistancea.video.qq.com/applyuploaddfs -> 404（无鉴权请
 
 - 单测：对每个 `return false` 分支断言"至少调用了一次 logger"；
 - 真机：任意一次失败运行，日志中必须能读到**阶段名 + 原因**，不允许出现"某步骤完全无输出"。
+
+## 8.17 视频号上传通道矩阵（2026-10-23，逐条实测）
+
+| # | 通道 | 实现 | 实测结果 | 判定 |
+| --- | --- | --- | --- | --- |
+| 1 | CDP `DOM.setFileInputFiles` | `_setFileInput` | 页面仍空；`input[type=file]` 时有时无，三次 `NONE` | ❌ 不可用 |
+| 2 | JS `DataTransfer` 赋值 | `_setFileInputViaJs` | 同上，框架清空 `files` | ❌ 不可用 |
+| 3 | CDP 文件选择器拦截 | `_uploadViaFileChooser` | `no fileChooserOpened within 8s`（点击**不弹原生选择器**） | ❌ 不可用 |
+| 4 | CDP 真实拖放 | `_dropViaCdp`（`Input.dispatchDragEvent` + `dragData.files`） | 首版类名选择器 `target not found`；改**文字锚点**（「上传时长」/「添加视频」/「点击上传」）后待验证 | 🔄 进行中 |
+
+### 输入证据（为什么选这四条）
+
+- 截图：上传区是**虚线框 + 「+」**，说明是拖拽/点击区，非常规 input；
+- 日志：`file inputs on page: NONE` 与"有 input 但设值无效"交替出现 ⇒ 异步挂载 + 受控组件；
+- `no fileChooserOpened` ⇒ 点击不触发原生文件对话框。
+
+### 失败时的产品行为（必须）
+
+上传阶段未取得「视频已附上」证据时，不得继续发布；应提示：
+「视频未能上传成功，请重试或改用网页端发布」。
+
+### 与逆向成果的关系
+
+- 蚁小二（`yx-slices-v2.txt`）给出的是**纯 API 三段式**，不含浏览器上传器实现；
+- 融媒宝（DLL 字符串）同样只有 URL；
+- ⇒ 浏览器上传器这条路**没有逆向成果可直接复用**，只能靠页面自身证据（截图/日志/锚点）推导。
