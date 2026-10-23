@@ -620,3 +620,31 @@ test("system 档的 core.excludesFile 真能改域：夹具的 NOSYSTEM 是承�
     rmRf(root)
   }
 })
+
+test('targets 重锚：允许同 PR 上调，但只允许恰好锚定当前行数', async (t) => {
+  const mkBase = (targets) => ({ limit: 500, growthAllowance: 200, files: {}, targets });
+  await t.test('合法：文件确实从 100 涨到 113，目标同步 100 -> 113', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 113 }), { 'a.js': 113 }, { 'a.js': 113 }, null, { targets: { 'a.js': 100 } });
+    assert.deepEqual(r.violations, []);
+  });
+  await t.test('无增长支撑：文件只有 90 行却把目标从 100 上调到 120', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 120 }), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
+    assert.ok(r.violations.some((v) => v.startsWith('TARGET_BUMP_UNJUSTIFIED')), r.violations.join(';'));
+  });
+  await t.test('留额度：文件 113 行，目标却上调到 120', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 120 }), { 'a.js': 113 }, { 'a.js': 113 }, null, { targets: { 'a.js': 100 } });
+    assert.ok(r.violations.some((v) => v.startsWith('TARGET_BUMP_HEADROOM')), r.violations.join(';'));
+  });
+  await t.test('删目标等于永久解除零增长约束', () => {
+    const r = G.evaluate(mkBase({}), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
+    assert.ok(r.violations.some((v) => v.startsWith('TARGET_REMOVED')), r.violations.join(';'));
+  });
+  await t.test('无关 PR：targets 未变时不受影响', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 100 }), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
+    assert.deepEqual(r.violations, []);
+  });
+  await t.test('只降不升：为还债而下调目标永远允许', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 90 }), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
+    assert.deepEqual(r.violations, []);
+  });
+});
