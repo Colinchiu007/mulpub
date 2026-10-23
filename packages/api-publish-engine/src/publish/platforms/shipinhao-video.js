@@ -31,6 +31,8 @@ const DEFAULT_API_BASE = 'https://channels.weixin.qq.com'
 // 保留旧主机作为**最后兜底**：若新主机在部分网络不可达，仍可回落读取 envInfo.cdnHostList。
 const CDN_HOST_CANDIDATES = ['https://finderassistancea.video.qq.com', 'https://finderassistanced.video.qq.com', 'https://finder.video.qq.com']
 const DEFAULT_CDN_BASE = CDN_HOST_CANDIDATES[0]
+// 2026-10-23：适配器未传 timeout 时 http 客户端无超时 ⇒ 上传挂起且无任何日志。给 60s 默认。
+const DEFAULT_TIMEOUT_MS = 60000
 const API_REFERER = 'https://channels.weixin.qq.com'
 const POST_REFERER = 'https://channels.weixin.qq.com/platform/post/create'
 const UPLOAD_REFERER = 'https://channels.weixin.qq.com/'
@@ -118,8 +120,8 @@ class ShipinhaoVideoChain {
     this.finderUin = opts.finderUin != null ? opts.finderUin : (opts.finderId || '') // weixinnum
     this.logger = opts.logger || console
     const headers = { 'User-Agent': this.userAgent }
-    this.api = opts.api || createHttpClient({ baseURL: opts.apiBase || DEFAULT_API_BASE, timeout: opts.timeout, agents: opts.agents, headers })
-    this.cdn = opts.cdn || createHttpClient({ baseURL: opts.cdnBase || DEFAULT_CDN_BASE, timeout: opts.timeout, agents: opts.agents, headers })
+    this.api = opts.api || createHttpClient({ baseURL: opts.apiBase || DEFAULT_API_BASE, timeout: opts.timeout || DEFAULT_TIMEOUT_MS, agents: opts.agents, headers })
+    this.cdn = opts.cdn || createHttpClient({ baseURL: opts.cdnBase || DEFAULT_CDN_BASE, timeout: opts.timeout || DEFAULT_TIMEOUT_MS, agents: opts.agents, headers })
     // 2026-10-23：平台自身用 setHost() 动态设置上传主机 ⇒ 优先用 Step1 响应里的主机，取不到才回落到 baseURL。
     this.cdnHost = ''
     // 注入客户端（测试/自定义）时保持相对路径；真实运行时 uploadpartdfs 用逆向实证的独立主机。
