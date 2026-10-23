@@ -160,3 +160,15 @@ CI 日志里取不到它的读数。
    写 `log.warn`（`hotkeys.js:62`），`getShortcuts()` 不回传注册结果。要区分需主进程侧改动，另批。
 3. 暗色档入口（单元 1.1）未合并 ⇒ 本面板不写暗色专属样式，也不声称暗色已验证。
 4. 反证驱动接进 CI（与任务 #23 同批欠账），落点须避开 30 分钟预算墙。
+
+## 补记：QM-6 收口（`self_play_resolved`）—— tier 由会话手写，如实标注（2026-10-23）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 收口形态 | ⚠ **代用出口，非合规路径** | 本条产物的 `deepReview.tier` 与 `evidence` **均未由外部评审产出**（仓外 vendor 引擎依赖 `codeagent-wrapper` + 后端 CLI 通道，本机两者皆无）。按 `check-pr-exec-record.js` 自述「手写仍然**能**通过判据……但它是代用而不是合规路径，**必须如实标注**」——本节即那份标注 |
+| 闭环依据 | ✅ | 闭环词表 `{cleared, needs_revision, self_play_resolved}`；本条取 `self_play_resolved`（自扮演是既有门禁显式承认的出口，`judgeBackendMismatch` 对该状态显式豁免后端对账） |
+| 非高危面确认 | ✅ | 本 PR 变更集未命中 `HIGH_RISK_SURFACES` 任一前缀 ⇒ 走判据自述的出口②（非高危面写 closureNote，须含轮次标记与逐条处置结论）成立 |
+| 轮次与逐条处置 | ✅ | 见 `deepReview.closureNote`：**第 1 轮**自扮演裁决，7 条 upheld 逐条处置（i1/i2/i3/i4/i5/i7/i8 均已修），i6 裁决为不成立维持原样 |
+| 会话独立复核 | ✅ | 收口前**逐条回当前 HEAD 核对**（不照抄裁决结论）：i1 `apps/desktop/src/components/HotkeysSettings.vue:60,:67,:93` 的 `isMac` prop（默认 null 回落宿主探测）；i2 `apps/desktop/src/utils/hotkey-labels.test.js:19`（从 `./main-shortcuts-harness.js` 单一来源 import）与 `:207`「QM-6 i2 的**防复发**那一半」；i3 `openspec/records/ux-audit-hotkeys-settings.md:82-83` 如实写「本批的组件测试**不 mock 该模块**」；i4 同文件 `:197` 的 `readHotkeyActionBlock(src)`；i5 同文件 `:174` 的 `expect(new Set(list).size, …).toBe(list.length)`；i7 `scripts/hotkey-labels-contract-mutate.js:8,:231` 的 PARTIAL_RED 与标题全集；i8 `apps/desktop/src/utils/hotkey-labels.js:74` 的 `t.length === 1 ? t.toUpperCase() : t` |
+| 判据复跑 | ✅ | `node scripts/check-pr-exec-record.js --base=origin/main --head=HEAD --mode=enforce` → **rc=0**；TIER-COVERAGE 读数 `dual-closed total=1 unknown=1`（tier 字段缺席 ⇒ 可见不拦，诚实反映「外部评审未产出 tier」） |
+| 遗留 | ⚠ | `tier=external` + 可核 evidence 这一条合规路径**仍未走**（本机无外部评审通道）。本条收口只解除「欠账挡住合并」，**不冒充外部评审已通过** |
