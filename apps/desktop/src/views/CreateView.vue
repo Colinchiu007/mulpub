@@ -957,7 +957,6 @@ import '@/styles/create-view.css'
 import '@/styles/avatar-clone-panel.css'
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
-import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { extractRunContextVideoPath } from '@/features/pipeline/run-context-video-path'
@@ -1103,7 +1102,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { AvatarProviderPicker, AvatarClonePanel, QuickRenderPanel, UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
+  components: { AvatarProviderPicker, AvatarClonePanel, QuickRenderPanel, UiButton, UiModal, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
   // 配置面板子树的受控访问入口：白名单由 s2v-panel-contract 单一来源定义，
   // 这里只转发，不复制任何 optionKey 语义（见该文件头注释）。
   provide() {

@@ -18,6 +18,8 @@ delivered_by_pr: 4342
 | 行尾与 diff 对账 | 通过 | 两口径 numstat 一致；本 PR 无行尾改动（纯 LF） |
 | 接线棘轮 | 通过 | 新增 `*.test.js` 三支由 vitest 默认发现（`apps/desktop` 的 `test` 脚本 = `vitest run`，无白名单接线机制）；已实跑全绿 |
 | 渲染层跨包边界 | 通过 | 渲染层曾具名 import shared-utils 的 **CommonJS** 模块 `agnes-video-request` ⇒ 浏览器端拿不到具名导出 ⇒ vite dev server 在运行时抛 `does not provide an export named 'AGNES_VIDEO_REQUEST_ERRORS'` ⇒ **整个 `/create` 页面挂载失败**（Browser E2E 实测：`/create` 18 项全红、流水线卡片 count=0）。按仓内既有形态修：建 ESM 孪生 + `vite.config.js` 登记 alias + `agnes-video-request-parity.test.js` 逐行锁两侧同源；`check-renderer-cjs-boundary` 修复前本地实跑为红（点名 `QuickRenderPanel.vue`）、修复后为绿 |
+| 渲染端 lint | 通过 | 快速渲染的两个下拉移出后，`CreateView.vue` 的 `UiSelect` **注册了但不再使用** ⇒ `vue/no-unused-components` 报错（CI `QG Static` 的 `pnpm exec eslint electron/ src/ --quiet`）。**本地门禁清单里没有 eslint** ⇒ 本地全绿、CI 才红（与「本地门禁清单 ≠ CI 门禁清单」同族）。修法：删掉 import 与 `components` 注册（净 -1 行）。修法经**变异验证**：还原成 CI 报的版本 ⇒ eslint 在同一行号报同一错；修好后全量 `eslint electron/ src/ --quiet` 退出码 0 |
+| 拖拽上传路径接线 | 通过 | 素材区五个绑定写成了裸标识符（`@drop-images="pushImages"` 等），而这些名字只存在于 `useQuickRenderMaterials()` 的返回值里 ⇒ Vue 渲染期报「was accessed during render but is not defined」、事件触发时 `TypeError`。**既有单测只走隐藏 input 的 `change`（那条路是通的）⇒ 拖拽分支零覆盖 ⇒ 缺陷长期隐身**。改为 `materials.pushImages` 等；补结构锁（不得出现「模板引用未定义标识符」的 Vue warn）+ 行为锁（真的 emit `drop-gallery`，断言素材进列），两条均经变异验证 |
 | QM-1 打包 / QM-4 视觉 | 部分 | QM-1 未执行（沙箱无 Electron 打包环境）；QM-4 核实「快速渲染」**不在像素判定域**（`base-screenshots/` 无 create-quick 基线，`check-visual-coverage.js` 通过）⇒ 改 UI 不撞 Gate 7b 的 0px 判定；workflows 套件的截图步骤由 CI 的 QG Visual job 实跑 |
 | QM-6 CCG 双模型外部评审 | **未执行** | 本机无 `codeagent-wrapper` ⇒ 如实记「未执行」，**不以自审冒充通过** |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`） |
@@ -38,7 +40,7 @@ delivered_by_pr: 4342
 
 ⇒ 模型已具备的能力在产品上**一个都不可见**。
 
-## 3. 顺带查出的三个真缺陷
+## 3. 顺带查出的四个真缺陷
 
 ### 3.1 「输出平台」失效
 
@@ -75,6 +77,27 @@ does not provide an export named 'AGNES_VIDEO_REQUEST_ERRORS'
 **修法（仓内既有形态，12 个先例）**：建 `agnes-video-request.browser.js`（ESM 孪生）+ 在 `apps/desktop/vite.config.js` 的 `resolve.alias` 登记 + `__tests__/agnes-video-request-parity.test.js` 逐行锁两侧同源。
 
 **防复发**：`scripts/check-renderer-cjs-boundary.js` 正是为此设的静态门禁（判据：渲染层 import 的 shared-utils 模块要么已登记 alias、要么是 `.json`）。**本次修复前本地实跑它就是红的**（点名 `QuickRenderPanel.vue` 的跨界 import）—— 门禁能抓，只是它此前没被本地跑到；修完转绿。
+
+⇒ 全部 15 组行为向量与 11 个具名导出在两侧**逐字节一致**（parity 回归逐行锁）。
+
+### 3.4 拖拽上传路径：绑定指向不存在的标识符
+
+素材区的五个绑定写成了裸标识符：
+
+```
+@drop-frame="pushFrame"   @drop-images="pushImages"   @drop-audios="pushAudios"
+@drop-gallery="pushGallery"   @remove-frame="clearFrame"
+```
+
+而这五个名字**只存在于 `useQuickRenderMaterials()` 的返回值里** —— 组件作用域没有它们 ⇒ Vue 渲染期就报「Property "pushGallery" was accessed during render but is not defined on instance」，事件真正触发时是 `TypeError: pushGallery is not a function`。
+
+**为什么长期没被发现**：既有单测只走**隐藏 input 的 `change`**（那条路经 `onGalleryPicked` 调 `materials.pushGallery`，是通的）⇒ **拖拽分支零覆盖**。
+
+**处置**：改为 `materials.pushImages` / `materials.pushAudios` / `materials.pushGallery` / `materials.pushFrame` / `materials.clearFrame`（签名与 emit 参数一致：`drop-frame` 传 `(slot, files)`，其余传 `(files)`，`remove-frame` 传 `(slot)`）；并补两条锁 —— **结构锁**（挂载时不得出现「模板引用未定义标识符」的 Vue warn，直指根因）与**行为锁**（真的 `emit('drop-gallery')`，断言素材进列）。两条均做**变异验证**：把绑定改回裸标识符 ⇒ 双双变红。
+
+> **这一条与 §3.3 形状相同**：**所有本地信号都是绿的**（`vitest` 全绿、`vite build` 绿、`tsc` 绿），
+> 只有**真实交互路径**与**跑 dev server 的视觉回归**会红。
+> ⇒ 「本地全绿」不能当「接对了」的证据；**断言必须落在真实路径上，且要能真红**。
 
 ## 4. 两条硬约束如何绕过（都不是靠抬基线）
 
