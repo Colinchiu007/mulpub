@@ -519,7 +519,7 @@ class ModelProviderManager {
       hunyuan: require('./adapters/hunyuan').HunyuanAdapter,
       cogvideo: require('./adapters/cogvideo').CogVideoAdapter,
       'grok-video': require('./adapters/grok-video').GrokVideoAdapter,
-      heygen: require('./adapters/heygen').HeyGenAdapter,
+      heygen: require('./adapters/heygen').HeyGenAdapter, hifly: require('./adapters/hifly').HiFlyAdapter,
       kling: require('./adapters/kling').KlingAdapter,
       runway: require('./adapters/runway').RunwayAdapter,
       veo: require('./adapters/veo').VeoAdapter,

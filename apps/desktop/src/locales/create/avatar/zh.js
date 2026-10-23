@@ -11,6 +11,11 @@
  */
 export default {
   avatarSectionTitle: '数字人',
+  avatarProviderLabel: '数字人服务商',
+  avatarProviderPlaceholder: '请选择数字人服务商',
+  avatarProviderMissing: '使用数字人需要在模型设置中配置数字人服务商',
+  avatarProviderSwitched: '已切换到{name}，请重新选择形象与音色',
+  avatarProviderSingle: '当前仅配置了一家数字人服务商，切换需先在模型设置中添加',
   avatarLabel: '数字人形象',
   avatarVoiceLabel: '数字人音色',
   avatarPlaceholder: '请选择数字人形象',
@@ -19,9 +24,8 @@ export default {
   avatarLoading: '正在加载数字人列表…',
   avatarLoadFailed: '数字人列表加载失败：{reason}',
   avatarCachedFailed: '列表为缓存数据，刷新失败：{reason}',
-  avatarEmpty: '未获取到可用数字人形象，请检查 HeyGen 配置',
-  avatarVoiceEmpty: '未获取到可用音色，请检查 HeyGen 配置',
-  avatarProviderMissing: '使用数字人需要在模型设置中配置 HeyGen',
+  avatarEmpty: '未获取到可用数字人形象，请检查数字人服务商配置',
+  avatarVoiceEmpty: '未获取到可用音色，请检查数字人服务商配置',
   avatarGotoSettings: '前往配置 →',
   avatarNeedAvatar: '请先选择数字人形象',
   avatarNeedVoice: '请先选择数字人音色',

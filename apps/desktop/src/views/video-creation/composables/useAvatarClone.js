@@ -65,13 +65,21 @@ function invalidReasonKey (avatar) {
   return 'avatarCloneErrUnknown'
 }
 
-/** 加载本账号的克隆形象（requestId 竞态守卫，同 useAvatarCatalog） */
+/**
+ * 加载本账号的克隆形象（requestId 竞态守卫，同 useAvatarCatalog）。
+ *
+ * change: digital-human-multiprovider —— 带 `providerId`：主进程的 registry 键
+ * 与样本目录都按 provider 分段，不传就会拿到默认那家的克隆列表，
+ * 表现是「切换了服务商，克隆面板还显示上一家的形象」。
+ *
+ * @param {{providerId?: string}} [options]
+ */
 async function loadAvatarClones (options = {}) {
   const my = ++loadRequestId
   loading.value = true
   error.value = ''
   try {
-    const result = await listAvatarClones({})
+    const result = await listAvatarClones({ providerId: options.providerId || '' })
     if (my !== loadRequestId) return
     if (result && result.code === 0 && result.data && Array.isArray(result.data.avatars)) {
       clones.value = result.data.avatars
@@ -95,6 +103,7 @@ async function loadAvatarClones (options = {}) {
  * @param {'photo'|'digital_twin'} input.type
  * @param {string} input.name
  * @param {'self'|'third_party_authorized'} [input.sourceKind]
+ * @param {string} [input.providerId] 数字人服务商（change: digital-human-multiprovider）
  */
 async function createAvatarClone (input) {
   const my = ++requestId
@@ -122,6 +131,7 @@ async function createAvatarClone (input) {
       name: input.name,
       type: input.type,
       sourceKind: input.sourceKind,
+      providerId: input.providerId,
     })
     if (my !== requestId) return { success: false, canceled: true }
     if (added && added.code === 0 && added.data && added.data.avatar) {
@@ -140,8 +150,17 @@ async function createAvatarClone (input) {
   }
 }
 
-async function removeAvatarClone (avatarId) {
-  const result = await deleteAvatarClone({ avatarId })
+/**
+ * 删除克隆形象。
+ *
+ * change: digital-human-multiprovider —— 带 `providerId`：registry 按 provider
+ * 分段，不传就会去删默认那家，用户会看到「删了没反应」或误删别家的形象。
+ *
+ * @param {string} avatarId
+ * @param {{providerId?: string}} [options]
+ */
+async function removeAvatarClone (avatarId, options = {}) {
+  const result = await deleteAvatarClone({ avatarId, providerId: options.providerId || '' })
   if (result && result.code === 0) {
     clones.value = clones.value.filter((a) => a.id !== avatarId)
     return { success: true, pending: Boolean(result.data && result.data.pending) }

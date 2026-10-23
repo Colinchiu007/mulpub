@@ -205,6 +205,16 @@
               <a href="#/model-providers" class="config-hint-link">{{ avatarText('avatarGotoSettings') }}</a>
             </div>
             <template v-else>
+              <!-- 数字人服务商切换（change: digital-human-multiprovider，本体在 AvatarProviderPicker.vue） -->
+              <AvatarProviderPicker
+                v-if="!avatarProviderMissing"
+                :options="avatarProviderOptions"
+                :model-value="avatarProviderId"
+                :loading="avatarLoading"
+                :switched="avatarProviderSwitched"
+                :switched-name="avatarProviderName"
+                @change="switchAvatarProvider"
+              />
               <div class="config-item" data-testid="avatar-select-item">
                 <label>{{ avatarText('avatarLabel') }}</label>
                 <select
@@ -1026,6 +1036,7 @@ import { avatarCatalogRefs, avatarCatalogComputeds, avatarCatalogMethods } from 
 // 数字人形象克隆（avatar-voice-clone）：上传照片/视频 → 长期可复用形象
 import { avatarCloneRefs, avatarCloneComputeds, avatarCloneMethods } from './video-creation/composables/useAvatarClone'
 import AvatarClonePanel from './video-creation/AvatarClonePanel.vue'
+import AvatarProviderPicker from './video-creation/AvatarProviderPicker.vue'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
@@ -1129,7 +1140,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { AvatarClonePanel, UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
+  components: { AvatarProviderPicker, AvatarClonePanel, UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
   // 配置面板子树的受控访问入口：白名单由 s2v-panel-contract 单一来源定义，
   // 这里只转发，不复制任何 optionKey 语义（见该文件头注释）。
   provide() {
@@ -1167,6 +1178,11 @@ export default {
       avatarCloneNameDraft: '',
       // 克隆列表是否已拉过一次（选中流水线时拉；打面板只兜底）
       avatarClonesLoadedOnce: false,
+      // 数字人服务商（change: digital-human-multiprovider）：选中哪家就用哪家的
+      // 形象/音色/克隆列表；空串表示尚未解析出可用 provider。
+      // 注意 avatarProviderOptions 是 computed（见 computed 区），不在此处声明。
+      avatarProviderId: '',
+      avatarProviderSwitched: false,
       // 带文案进入（/create?draft=xxx 预填成功）：非文案型流水线在选择列表中灰显不可选
       textPrefilledFromDraft: false,
       // 配置
@@ -1358,6 +1374,25 @@ export default {
     avatarCloneCreateError: { get() { return avatarCloneRefs.createError.value } },
     avatarCloneNoticeAcked: { get() { return avatarCloneRefs.noticeAcknowledged.value }, set(v) { avatarCloneRefs.noticeAcknowledged.value = v } },
     isAvatarPipeline() { return this.selectedPipeline?.name === 'avatar-spokesperson' },
+    /**
+     * 可选的数字人服务商 + 当前选中项名（change: digital-human-multiprovider）。
+     *
+     * 从 s2vVideoProviders 派生而不是另存一份：那份列表已在 loadS2VProviders
+     * 里做过「enabled + is_configured」过滤，这里只加一道 capability 筛选。
+     * 判据与主进程 resolveDigitalHumanProviderId 完全一致（capabilities 含
+     * digital_human）—— 前端列出的必须与后端实际能解析出来的同一批，
+     * 否则会出现「下拉里有、一启动就报 provider 不可用」。
+     */
+    avatarProviderOptions() {
+      return (this.s2vVideoProviders || []).filter(
+        (p) => Array.isArray(p?.capabilities) && p.capabilities.includes('digital_human')
+      )
+    },
+    /** 当前选中的数字人服务商名（供切换提示用） */
+    avatarProviderName() {
+      const found = this.avatarProviderOptions.find((p) => p.id === this.avatarProviderId)
+      return found ? found.name : ''
+    },
     /** 数字人 provider 未配置：整区替换为「前往配置」引导 */
     avatarProviderMissing() {
       return this.isAvatarPipeline && !this.avatarLoading && this.avatarOptions.length === 0 && !!this.avatarError
@@ -2079,22 +2114,48 @@ export default {
       // 列表已在选中流水线时加载；这里只在「从未加载过」时兜底拉一次
       if (this.avatarClonePanelOpen && !this.avatarClonesLoadedOnce) {
         this.avatarClonesLoadedOnce = true
-        avatarCloneMethods.loadAvatarClones()
+        avatarCloneMethods.loadAvatarClones({ providerId: this.avatarProviderId })
       }
     },
     async createAvatarClone(type) {
       const name = String(this.avatarCloneNameDraft || '').trim()
       if (!name) { this.avatarCloneNameDraft = ""; return }
-      const result = await avatarCloneMethods.createAvatarClone({ type, name })
+      const result = await avatarCloneMethods.createAvatarClone({ type, name, providerId: this.avatarProviderId })
       if (result && result.success) {
         this.avatarCloneNameDraft = ""
         this.avatarClonePanelOpen = false
       }
     },
-    async removeAvatarClone(avatarId) { await avatarCloneMethods.removeAvatarClone(avatarId) },
-    avatarCloneInvalidKey(avatar) { return avatarCloneMethods.invalidReasonKey(avatar) },    /** 克隆形象 + 公共目录合并后的形象下拉（合并逻辑在 useAvatarClone，可独立测） */
+    async removeAvatarClone(avatarId) {
+      await avatarCloneMethods.removeAvatarClone(avatarId, { providerId: this.avatarProviderId })
+    },
+    avatarCloneInvalidKey(avatar) { return avatarCloneMethods.invalidReasonKey(avatar) },
+    /** 克隆形象 + 公共目录合并后的形象下拉（合并逻辑在 useAvatarClone，可独立测） */
     mergedAvatarOptions() {
       return avatarCloneMethods.buildMergedAvatarOptions(this.avatarOptions, (k) => this.avatarText(k))
+    },
+
+    /**
+     * 切换数字人服务商：重拉形象/音色/克隆列表。
+     *
+     * 三份列表都按 provider 分段，只重拉一份会出现「新服务商的形象 +
+     * 旧服务商的克隆项」这种混搭；已选形象/音色一律清空（两家 id 同形，
+     * 留着旧值等于让用户误选另一家的资源）。
+     */
+    async switchAvatarProvider(providerId) {
+      this.avatarProviderId = providerId
+      this.avatarProviderSwitched = true
+      this.avatarId = ''
+      this.avatarVoiceId = ''
+      this.avatarClonesLoadedOnce = false
+      const { invalidateAvatarCatalog } = await import('@/api/avatar-catalog')
+      invalidateAvatarCatalog()
+      // reset() 递增 requestId，必须**先** reset 再发请求，否则新请求会被
+      // 自己的竞态守卫判成「过期」而静默丢弃（表现是切换后列表不刷新）。
+      avatarCloneMethods.reset()
+      // 两份列表独立容错：形象目录失败不连带克隆列表也不刷新
+      try { await this.loadAvatarCatalog() } catch (_) { /* 失败由 avatarError 呈现 */ }
+      await this.loadAvatarClones({ providerId })
     },
     /**
      * 错误文案：composable 存的是「locale key 或原始错误码」，这里翻译成人话。
@@ -2330,7 +2391,7 @@ export default {
       // 用长度判会让「确实没有克隆形象」的用户每次切回流水线都打一次接口。
       if (p?.name === 'avatar-spokesperson' && !this.avatarClonesLoadedOnce) {
         this.avatarClonesLoadedOnce = true
-        this.loadAvatarClones()
+        this.loadAvatarClones({ providerId: this.avatarProviderId })
       }
       // 选中编排流水线时执行生效上限（默认 10000，可被运营中心 storyTextLimit 覆盖）码点截断
       // （含带文案预填场景：预填时不截断，选中时统一截断+提示）
@@ -3528,6 +3589,17 @@ export default {
       const nextVideoProviders = enabledProviders(videoResult)
       if (nextVideoProviders) {
         this.s2vVideoProviders = nextVideoProviders
+        // 数字人服务商下拉：avatarProviderOptions 是 computed（从本列表派生），
+        // 这里只负责默认选中值的初始化与陈旧值清理。
+        const dhIds = new Set(this.avatarProviderOptions.map((p) => p.id))
+        // 陈旧选中清空：已配置的 provider 从列表消失（删 Key / 停用）时不能留着旧值，
+        // 否则会拿着一家已不可用的服务商去请求，报错还指不到真正原因。
+        if (this.avatarProviderId && !dhIds.has(this.avatarProviderId)) {
+          this.avatarProviderId = ''
+        }
+        if (!this.avatarProviderId && this.avatarProviderOptions.length > 0) {
+          this.avatarProviderId = this.avatarProviderOptions[0].id
+        }
         // 视频生成器与图片对齐（2026-08-12 审查 M2）：陈旧 provider 清空（含 videoModel），
         // 未显式选择时默认取模型设置里 video 能力的默认 provider（2026-10-18 起同源修复）。
         const videoProviderIds = new Set(this.s2vVideoProviders.map(p => p.id))

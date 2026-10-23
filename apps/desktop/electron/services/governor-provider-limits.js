@@ -62,6 +62,7 @@ const PROVIDER_LIMITS = Object.freeze({
   cogvideo: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
   'grok-video': Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
   heygen: Object.freeze({ rpm: 8, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
+  hifly: Object.freeze({ rpm: 8, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
   kling: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
   runway: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),
   veo: Object.freeze({ rpm: 6, maxConcurrent: 2, cooldownMs: 60000, retry429: 2 }),

@@ -298,3 +298,132 @@ class AvatarCatalogService {
 3. 不做多数字人同屏/对话视频。
 4. 不做数字人视频的字幕烧录（复用 render 阶段现有合并，不新增字幕能力）。
 5. 不改 `talking-head` / 其它流水线。
+
+---
+
+# 附录 A：数字人 provider 多供应商化（change: digital-human-multiprovider，2026-10-23）
+
+> 本附录是对正文的**增量修订**。正文写于 2026-10-19，当时仓库只有 HeyGen 一家数字人
+> adapter，provider 名在两处硬编码。本附录记录「去硬编码 + 接入飞影 HiFly」的完整契约。
+
+## A.1 背景与动因
+
+| 问题 | 后果 |
+|---|---|
+| `DIGITAL_HUMAN_PROVIDER = 'heygen'` 在 `digital-human-stages.js` 与 `pipeline-model-preflight.js` **各写一份** | 两处容易漂移；注释要求「保持同步」但无机械约束 |
+| provider 名写死 | 用户无法在设置里切换数字人服务商；加第三家要改多处 |
+| 克隆 registry 键为 `avatar-clones:v1:<ownerHash>`（不含 provider） | 两家克隆 id **同形同键**，会写进同一份 registry；用户切换 provider 后看到的是另一家的失效 id，选了要到 generate 阶段才炸 |
+
+## A.2 能力判据（单一真源）
+
+provider 通过 `capabilities` 声明自己是数字人服务商：
+
+```
+capabilities: ['video', 'digital_human']
+```
+
+**前端与主进程用同一把判据**：`CreateView.vue` 的 `hasDigitalHumanCapability()` 与主进程
+`resolveDigitalHumanProviderId()` 都检查 `capabilities.includes('digital_human')`。
+若两边判据不一致，会出现「下拉里有、一启动就报 provider 不可用」。
+
+解析优先级（`resolveDigitalHumanProviderId`）：
+
+| 优先级 | 条件 | 说明 |
+|---|---|---|
+| 1 | `params.videoProvider` 非空 | 显式覆盖，保留人工指向其他数字人服务的口子 |
+| 2 | 只有一家声明了 `digital_human` | 直接命中，无需默认 provider |
+| 3 | 多家时取模型设置里 `video` 能力的默认 provider | 与图片/视频生成器的默认 provider 同源 |
+| 4 | 默认 provider 不是数字人 | 取排序后第一家（稳定，不随机） |
+| — | 一家都没声明 | 返回 `null`，调用方 fail closed |
+
+**关键约束**：一家都没配时**不得回落** `getDefault('video')`——那会拿到 agnes-video /
+kling / runway 等**通用文生视频**模型，它们不认 `character/voice/script`，
+把数字人参数发给它们等于把流水线跑成普通文生视频。
+
+## A.3 两家 adapter 的契约对照
+
+上层（`digital-human-stages.js`）按 `{character, voice, script}` 调用，两家 adapter
+**同名同参**，差异全在内部字段映射：
+
+| 维度 | HeyGen | 飞影 HiFly |
+|---|---|---|
+| Base URL | `https://api.heygen.com/v2` | `https://hfw-api.hifly.cc/api/v2/hifly` |
+| 认证头 | `X-Api-Key` | `Authorization: Bearer` |
+| 视频生成 | `POST /v2/video/generate`，body `video_inputs:[{character:{...},voice:{...}}]` + `dimension` | `POST /video/create_by_tts`，body **扁平** `{avatar, voice, text, title?}` |
+| 状态查询 | `GET /v1/video_status.get?video_id=` | `GET /video/task?task_id=` |
+| 状态字段 | `status` 字符串 | `status` **整数**（1等待/2处理中/3完成/4失败） |
+| 视频地址字段 | `video_url` | `video_Url`（大写 U，文档原样） |
+| 形象列表 | `GET /v2/avatars` 全量 | `GET /avatar/list`，`page`/`size`/`kind` 分页，字段 `avatar`/`title`/`kind` |
+| 音色列表 | `GET /v2/voices` | `GET /voice/list`，`page`/`size`/`kind` |
+| 素材上传 | 直接发 Blob | **两步**：`POST /tool/create_upload_url` 换 `file_id` → PUT 上传二进制 |
+| 形象克隆 | `POST /v3/avatars`（type: photo/digital_twin） | `POST /avatar/create_by_image` / `POST /avatar/create_by_video` |
+| 声音克隆 | `POST /v3/voices/clone` | `POST /voice/create`（`voice_type` 必填，目前只支持 8） |
+| 克隆任务状态 | `GET /v3/avatars/looks/{id}` | `GET /avatar/task`（形象）/ `GET /voice/task`（声音） |
+| 删除 | `DELETE /v3/avatars/looks/{id}` | `DELETE /avatar?avatar=` |
+| 错误模型 | 401 认 token；其余 200 + body `code` | 同型，`code === 0` 为成功 |
+| 免费档 | 有水印 | demo token 有水印 + 30s 限制 |
+
+**飞影 `kind` 参数语义**（`avatar/list`）：`0`=全部（自己的在前）/`1`=自己的/
+`2`=公共（不传时默认）。数字人配置区取 **1**——取默认值 2 会把用户刚克隆的形象整批漏掉
+（最坏故障形态：克隆成功但下拉里看不见）。
+
+**飞影官方限制**（写进 UI 提示）：
+- 声音：mp3/m4a/wav、≤20MB、5 秒～3 分钟；`title` ≤20 字；API 创建上限 200 个
+- 视频素材：mp4/mov（h264）、≤500MB、360p～4K、5 秒～30 分钟；**相同 URL 视为同一个数字人**
+- 文本：≤10000 字，不支持 html 标签
+- 字幕：`st_show`/`st_font_name`/`st_font_size`/`st_primary_color`/`st_outline_color`/`st_width`/`st_height`/`st_pos_x`/`st_pos_y`（本轮未接，留待后续）
+
+## A.4 克隆产物隔离（防串库）
+
+registry 键与样本目录都按 `providerId` 分段：
+
+```
+registry 键：avatar-clones:v1:<providerId>:<ownerHash>
+样本目录：  userData/avatar-clone-samples/<providerId>/<ownerHash>/<storageId>/
+```
+
+**为什么必须分**：两家克隆 id 同形（都是 `avatar` / look id），不分段则
+- 用户切到飞影后，列表里混着 HeyGen 的克隆项，选中即失败；
+- 同名 storageId 会落在同一目录互相覆盖。
+
+**老数据不迁移**：升级前的 registry 是 3 段目录，新代码**同时放行 3 段与 4 段**
+（`isSafeSampleStorage`），让已克隆的用户仍能看到自己的形象；registry 键不含
+providerId 的老数据自然失效（用户重新克隆即可）——迁移要把「这条记录属于哪家」
+猜出来，而老 registry 里没存这个信息。
+
+## A.5 前端交互（切换服务商）
+
+数字人配置区顶部新增「数字人服务商」下拉：
+
+| 状态 | 表现 |
+|---|---|
+| 只配了一家 | 下拉仅一项且**禁用**，附常驻提示「当前仅配置了一家数字人服务商，切换需先在模型设置中添加」 |
+| 配了多家 | 可切换；切换后**立即**清空已选形象/音色 → invalidate 目录缓存 → 带新 providerId 重拉形象/音色/克隆列表 |
+| 一家都没配 | 整区替换为「前往配置」引导 |
+
+**切换时必须清空已选形象/音色**：两家 id 同形，留着旧值等于让用户误选另一家的资源
+（选了要到 generate 阶段才炸，错误还指不到真正原因）。
+
+**切换时三份列表都要重拉**：形象目录、音色目录、克隆列表都按 provider 分段，
+只重拉一份会出现「新服务商的形象 + 旧服务商的克隆项」这种混搭。
+
+## A.6 数据校验
+
+| 层 | 校验 |
+|---|---|
+| adapter | `generateVideo` 三要素任一缺失抛 `INVALID_CONFIG` 且不发请求；`createAvatar` 缺素材抛 `INVALID_CONFIG`；`cloneVoice` 缺 `name`/音频源抛 `INVALID_CONFIG` |
+| adapter | `getVideoStatus` / `getAvatarStatus` / `getVoiceCloneStatus` 的 `status` 只认 1/2/3/4，**未知值兜底 `processing`**（不谎称完成） |
+| adapter | 删除类响应**只认 `code === 0`**，不拿 `data` 真值判（`data` 常为 null，会把成功读成失败） |
+| registry | `isSafeSampleStorage`：目录必须 3 或 4 段、前缀精确、每段过 `safeIdentifier`（不许 `..`、绝对路径、空段） |
+| service | `_normalizeRequest` 对 `undefined`/`null` 输入回落默认 provider 而不是判负（只读入口常被无参调用） |
+| 前端 | provider 下拉只列 `enabled && is_configured && capabilities 含 digital_human` 的项 |
+
+## A.7 已知遗留
+
+- **真实飞影 Token 首跑未执行**：端点与字段来自用户提供的官方文档本地版
+  （`<用户本地官方文档副本：飞影数字人 API V2 技术文档.md>`），
+  但真实 Token 下的响应形状未经核对，首跑 checklist 见
+  `openspec/changes/digital-human-multiprovider/tasks.md` §7.1。
+- **声音克隆前端入口未做**：adapter 已就绪（`cloneVoice` / `getVoiceCloneStatus` 已登记
+  `KNOWN_METHODS`），但 UI 仍只有形象克隆的照片/视频两个入口。
+- **飞影字幕参数未接**：`st_show` 等 9 个字幕字段已在 adapter 契约里预留，UI 未开放。

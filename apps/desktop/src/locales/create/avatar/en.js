@@ -11,6 +11,11 @@
  */
 export default {
   avatarSectionTitle: 'Digital human',
+  avatarProviderLabel: 'Digital human provider',
+  avatarProviderPlaceholder: 'Select a digital human provider',
+  avatarProviderMissing: 'Digital human requires a provider configured in Model Settings',
+  avatarProviderSwitched: 'Switched to {name}. Please reselect an avatar and a voice',
+  avatarProviderSingle: 'Only one digital human provider is configured. Add another in Model Settings to switch',
   avatarLabel: 'Avatar',
   avatarVoiceLabel: 'Voice',
   avatarPlaceholder: 'Select an avatar',
@@ -19,9 +24,8 @@ export default {
   avatarLoading: 'Loading digital humans…',
   avatarLoadFailed: 'Failed to load digital human list: {reason}',
   avatarCachedFailed: 'Showing cached list; refresh failed: {reason}',
-  avatarEmpty: 'No avatars available. Check your HeyGen configuration',
-  avatarVoiceEmpty: 'No voices available. Check your HeyGen configuration',
-  avatarProviderMissing: 'Digital human requires HeyGen in Model Settings',
+  avatarEmpty: 'No avatars available. Check your digital human provider configuration',
+  avatarVoiceEmpty: 'No voices available. Check your digital human provider configuration',
   avatarGotoSettings: 'Go to settings →',
   avatarNeedAvatar: 'Select a digital human first',
   avatarNeedVoice: 'Select a voice first',

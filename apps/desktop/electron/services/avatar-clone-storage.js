@@ -41,13 +41,21 @@ class AvatarCloneStorage {
     this._warn = typeof deps.warn === 'function' ? deps.warn : () => {}
   }
 
-  /** 落盘一份素材，返回 { relativeDir, bytes }；失败抛错由调用方转译 */
+  /**
+   * 落盘一份素材，返回 { relativeDir, bytes }；失败抛错由调用方转译。
+   *
+   * 路径**只从 descriptor.relativeDir 派生**，不在这里再拼一次
+   * owner.hash / providerId：change: digital-human-multiprovider 之后目录是
+   * `avatar-clone-samples/<providerId>/<ownerHash>/<storageId>`（4 段），
+   * 若此处仍按 3 段拼，落盘位置会与 registry 记录的形状不符 ——
+   * 表现是「registry 写成功但 existsSync 为 false」这类幽灵故障。
+   * 拼完仍做 root  containment 校验，防相对目录越界。
+   */
   async persistSample (owner, descriptor, media) {
     const userDataPath = this._resolveUserDataPath()
     if (!userDataPath) throw new Error('AVATAR_CLONE_STORAGE_UNAVAILABLE')
     const root = path.resolve(userDataPath, SAMPLE_STORAGE_DIRECTORY)
-    const ownerDir = path.resolve(root, owner.hash)
-    const sampleDir = path.resolve(ownerDir, descriptor.storageId)
+    const sampleDir = path.resolve(userDataPath, descriptor.relativeDir)
     if (!isPathWithin(root, sampleDir)) throw new Error('AVATAR_CLONE_STORAGE_UNAVAILABLE')
 
     await this._fs.promises.mkdir(sampleDir, { recursive: true, mode: 0o700 })

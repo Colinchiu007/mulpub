@@ -21,15 +21,18 @@ const path = require('path')
 const os = require('os')
 const { execFile } = require('child_process')
 const { emitStageItem, emitStageComplete } = require('./stage-progress')
+const { resolveDigitalHumanProviderId } = require('./digital-human-provider')
 
 /** 数字人流水线的机器名 */
 const AVATAR_PIPELINE = 'avatar-spokesperson'
 
 /**
- * 数字人 provider 固定为 HeyGen：仓库当前只有这一家数字人 adapter
- * （model-provider-seeds.js 中 category=video 里唯一带数字人语义的）。
- * 将来接第二家时把本常量换成 capability 解析即可，改动力仍集中在一处。
- * 允许 params.videoProvider 显式覆盖，保留人工指向其他数字人服务的口子。
+ * 默认数字人 provider（仅作「未声明 capability 时的兜底」）。
+ *
+ * change: digital-human-multiprovider —— 真正的解析在
+ * ./digital-human-provider 的 resolveDigitalHumanProviderId（capability 驱动），
+ * 本常量不再被直接当作 provider 名使用；保留它是为了让
+ * 「种子数据漏声明 capability」这种配置错误有确定的兜底而不是静默失效。
  */
 const DIGITAL_HUMAN_PROVIDER = 'heygen'
 
@@ -48,6 +51,10 @@ function nonEmpty (value) {
  * agnes-video/kling/runway/veo 等**通用文生视频**模型——它们不认
  * character/voice/script，把数字人参数发给它们等于把流水线跑成普通文生视频。
  *
+ * change: digital-human-multiprovider —— provider 名从硬编码改为 capability 解析
+ * （./digital-human-provider），加第三家数字人服务商只需在种子数据里声明
+ * `digital_human` capability，本函数零改动。
+ *
  * @param {object} aiGenerator
  * @param {object} [params] 允许 params.videoProvider 显式覆盖
  * @param {{resolveProviderDefaultModel?: Function}} [deps] 注入便于单测
@@ -55,12 +62,12 @@ function nonEmpty (value) {
  */
 function resolveDigitalHumanProvider (aiGenerator, params, deps = {}) {
   const manager = aiGenerator && aiGenerator._modelProviderManager
-  const override = nonEmpty(params && params.videoProvider)
-  const providerId = override || DIGITAL_HUMAN_PROVIDER
   if (!manager || typeof manager.getProvider !== 'function') {
     // manager 不可用时不臆造 provider 可用性，交给调用方 fail closed
     return null
   }
+  const providerId = resolveDigitalHumanProviderId(manager, params || {})
+  if (!providerId) return null
   let provider = null
   try { provider = manager.getProvider(providerId) } catch (_) { /* 保持 null ⇒ 调用方 fail closed */ }
   if (!provider) return null
