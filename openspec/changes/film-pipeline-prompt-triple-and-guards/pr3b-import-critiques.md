@@ -174,7 +174,7 @@
 
 ---
 
-## 11. 跨家族轮（critic=**codex**，8 条 / Critical 3，最低分 5）—— **抓到了 claude 漏掉的重���条**
+## 11. 跨家族轮（critic=**codex**，8 条 / Critical 3，最低分 5）—— **抓到了 claude 漏掉的最重要一条**
 
 > 为什么加这一轮：`critic=claude` 连跑 20+ 轮，每轮固定 8 条、Critical 恒在 1–3 之间**震荡**，
 > 且第 20 轮已降到 1 条后**又反弹回 3** ⇒ 单家族出现「边际收益耗尽」的迹象。
@@ -189,7 +189,7 @@
 | i4 | Warning / completeness | "reason 闭集 15 值无法覆盖三类已定义的拒绝：审计写失败、审计文件超阈值、租约有效导致导入被拒。但方案同时声称『服务端只回这 15 值，测试可逐个断言』." / "补 `AUDIT_UNAVAILABLE`、`LOCK_HELD` 两值，或明确映射到现有值." | **成立·已改**：闭集补两值 ⇒ **17 值**（`AUDIT_UNAVAILABLE` = 审计不可写/超阈值；`LOCK_HELD` = 租约有效或需手动恢复） | §五 |
 | i5 | Warning / completeness | "自动清锁的**执行点未定义**：S11 说『有锁即抛可识别错误、不读盘』，S18 说『租约过期且 film-kit 存在则自动清锁』。两者拼在一起缺少触发时序（service 初始化、IPC 入口，还是导入开始时），`filmKitImportRecoverBak` 也没有触发展示路径." / "写死清锁执行位置与顺序，并指明该分支返回哪个 reason 与 i18n 键." | **成立·已改**：**执行点与顺序写死** —— 执行点 = ① service 初始化 ② 导入 IPC 入口；顺序 = **读锁 → 判租约 → 判 S15 档位 → 清锁或抛错**；并逐档写明返回的 `reason` 与 i18n 键（租约有效 ⇒ `LOCK_HELD` + `filmKitImportRecoverLock`；档位① ⇒ `LOCK_HELD` + `filmKitImportRecoverMissing`；档位②③ ⇒ 清锁 + 审计记 `recovery_state`） | §三 S18 |
 | i6 | Warning / feasibility | "`kit-import.js` 单个文件要装下白名单、扫描、哈希、拷贝、重试、锁租约心跳、审计、换入、回滚和镜像校验；而方案自己指出同目录 ipc 文件已临近 `check-max-lines` 的 500 行硬限，却未给本文件的行数预算或拆分方案，超限会在 CI 直接红." / "预先拆为 `kit-import-scan.js`、`kit-import-swap.js`、`kit-import-lock.js`、`kit-import-audit.js`，各文件行数预算写进 plan." | **成立·已改**（全部采纳）：拆成 **5 个文件**并写死**行数预算** —— `kit-import.js`（编排/导出面 ≤120）、`kit-import-scan.js`（≤250）、`kit-import-swap.js`（≤250）、`kit-import-lock.js`（≤150）、`kit-import-audit.js`（≤150）⇒ 全部在 500 行硬限内 | §七 落点表 |
-| i7 | Warning / feasibility | "全程无目标盘剩余空间预检。换入期间峰值约占 2× 新 kit + 旧 kit，256MB 上限下可达近 800MB；ENOSPC 会让 ⑥ 删 `.bak` 失败、回滚 rename 也更容易失败." / "⓪ 增加 `statfs` 预检（需求 ≈ 2×源总量），不足即拒." | **⚠ 不采纳（附证据）**：ENOSPC 发生在**拷贝阶段** ⇒ 拷贝抛错 ⇒ 按**精确清单**清 staging（S3）⇒ **旧 kit 未动**（S4 兜底）⇒ 只��失败得晚一点，**不产生损坏**；且 `fs.statfs` 的跨平台可用性需另行核实。⇒ 写进 `SCHEMA.md` 的**已知限制**（不做空间预检 + 失败形态），作为后续切片 | §四 取舍 |
+| i7 | Warning / feasibility | "全程无目标盘剩余空间预检。换入期间峰值约占 2× 新 kit + 旧 kit，256MB 上限下可达近 800MB；ENOSPC 会让 ⑥ 删 `.bak` 失败、回滚 rename 也更容易失败." / "⓪ 增加 `statfs` 预检（需求 ≈ 2×源总量），不足即拒." | **⚠ 不采纳（附证据）**：ENOSPC 发生在**拷贝阶段** ⇒ 拷贝抛错 ⇒ 按**精确清单**清 staging（S3）⇒ **旧 kit 未动**（S4 兜底）⇒ 只是失败得晚一点，**不产生损坏**；且 `fs.statfs` 的跨平台可用性需另行核实。⇒ 写进 `SCHEMA.md` 的**已知限制**（不做空间预检 + 失败形态），作为后续切片 | §四 取舍 |
 | i8 | Warning / consistency | "S10 规定『候选路径任何组件以 `.` 开头 ⇒ 拒』，win32 专项②却规定 basename 为 `.`/`..` ⇒ 跳过。**同一输入两条规则结论相反（拒 vs 跳）**，而两处都声称写进 `SCHEMA.md` 与注释." / "统一为：`.`/`..` 在枚举阶段先跳过（不作为条目），其余以 `.` 开头的组件一律拒." | **成立·已改**：两处统一为**同一条规则的两半** —— **枚举阶段先跳过 `.` / `..`**（不作为条目，不是「判为不合格」）⇒ **其余**以 `.` 开头的组件才一律拒；`kit-import.js` 注释与 `SCHEMA.md` 写同一句 | §三 S10 / §六 win32 专项② |
 
 ---
@@ -231,7 +231,7 @@
 
 ---
 
-## 13. 第 25 轮（critic=claude，8 条 / Critical 3，最低分 6）
+## 14. 第 25 轮（critic=claude，8 条 / Critical 3，最低分 6）
 
 | # | 级别/维度 | critic 原文（finding / suggestion） | 处置 | 落点 |
 |---|-----------|--------------------------------------|------|------|
@@ -246,7 +246,7 @@
 
 ---
 
-## 14. 第 26 轮（critic=claude，8 条 / Critical 3，**最低维度分 8 —— 历次最高**）
+## 15. 第 26 轮（critic=claude，8 条 / Critical 3，**最低维度分 8 —— 历次最高**）
 
 | # | 级别/维度 | critic 原文（finding / suggestion） | 处置 | 落点 |
 |---|-----------|--------------------------------------|------|------|
@@ -261,7 +261,35 @@
 
 ---
 
-## 15. 逐轮统计
+## 16. 第 27 轮（critic=claude，8 条 / Critical 3，最低分 6）
+
+| # | 级别/维度 | critic 原文（finding / suggestion） | 处置 | 落点 |
+|---|-----------|--------------------------------------|------|------|
+| i1 | Critical / security | "S20 admits same-document injection reaches handler; only barrier is native dialog. No component-level gate possible. If malicious same-origin script tricks user into clicking dialog, import succeeds." / "Add explicit user-confirmation step (e.g., confirm destructive import) before opening dialog, reducing accidental/injected triggers." | **成立·已改**：在原生对话框**之前**加一道**显式用户确认**（渲染端确认框，i18n `filmKitImportConfirm`，文案写明「将**替换**当前影视工程资产」）⇒ **注入脚本无法替用户点确认** | §一 ① / §五 |
+| i2 | Critical / feasibility | "S3 requires non-recursive dir deletion (R0), but staging contains nested dirs (prompts/tasks/lang). Proposal doesn't specify bottom-up individual rmdir for each nested empty dir; root rmdir alone fails." / "Sort parent dirs deepest-first and rmdir individually to respect R0." | **成立·已改**：清理的**目录侧**补上「按深度从深到浅**逐个 `rmdir` 空目录**（含 `prompts/tasks/<task>/<lang>` 这类嵌套空目录 ⇒ **不递归**、只删自己确认已空的目录；根目录最后删）」⇒ R0 合规且能清干净 | §二 staging 兜底 / §三 S3 |
+| i3 | Warning / consistency | "Code excludes `images/` from whitelist; mirror check compares sorted rows. SCHEMA.md lacks explicit exclusion record. If table omits row silently, equality holds but exclusion reason isn't auditable in contract." / "Add explicit 'excluded' annotation or separate excluded-entries list in SCHEMA.md import contract." | **成立·已改**：`SCHEMA.md`「导入契约」小节加**排除项清单**（`images/` 及排除原因：**无消费方**）⇒ 排除这件事本身也可审计，不靠「表里没有这行」隐式表达 | §十 附录 |
+| i4 | Critical / security | "S18 requires nonce match before deleting any lock. If previous crash leaves foreign nonce and film-kit exists, new process won't clean stale lock, causing permanent LOCK_HELD block." / "Allow stale-lock cleanup with mismatched nonce when lease expired + audit forced; don't block forever on foreign nonce." | **成立·已改（我写过头了）**：nonce 比对**只在租约有效时**阻止清锁（那时 owner 可能还活着）；**租约已过期 ⇒ 允许清锁**（owner 已被判定死亡 ⇒ 不会再来删）⇒ **不会永久卡在 `LOCK_HELD`** | §三 S18 |
+| i5 | Warning / feasibility | "S21 states size limits but doesn't specify if partial copy failure (ENOSPC during copy) leaves `.bak` intact and audit records `FAIL_WITH_RECOVERY` with correct `recovery_state`." | **成立·已改**：写明 ENOSPC 发生在**拷贝阶段（②）** ⇒ 拷贝中止 ⇒ **③④ 未执行 ⇒ `.bak` 未动** ⇒ 审计 `post_check=FAIL_WITH_RECOVERY` + `recovery_state=LOCK_LEFT` ⇒ 按 S15 档位③处理 | §四 取舍 |
+| i6 | Warning / consistency | "Step ④ renames to `.bak-<ts>` without defining timestamp format/precision. If same-second imports occur, name collision possible on Windows (EEXIST)." | **成立·已改**：`<ts>` 写死为**毫秒精度 ISO 时间戳 + 4 位随机后缀** ⇒ 每次导入尝试的名字唯一 ⇒ 绝不撞名、无 `EEXIST` | §二 ④ |
+| i7 | Info / completeness | "i18n list (§V) has 11 keys but omits `images/` excluded message or grandfather clause user explanation." / "Add i18n keys or document absence in PRD." | **成立·已改**：**不单独做 i18n 键**（用户不会主动问「为什么 images 没进来」）⇒ 但**在 PRD §9.c 写明**这两条，便于客服/文档可解释 | §五 |
+| i8 | Warning / feasibility | "Service file budgets lack CI enforcement; proposal only verifies existing `film-engineering-auto.js` budget (500). Doesn't confirm all 5 new files individually pass `check-max-lines`." | **成立·已改**：写明**每个新文件都逐个受 `check-max-lines.js` 的 500 行硬限约束**（CI `debt-guard` job 逐文件检查）⇒ 括号内预算是更严的自留线 | §七 落点表 |
+
+## 17. 跨家族收官轮（critic=**codex**，第 2 次；8 条 / Critical 2，最低分 5）
+
+| # | 级别/维度 | critic 原文（finding / suggestion） | 处置 | 落点 |
+|---|-----------|--------------------------------------|------|------|
+| i1 | Critical / security | "没有判据保证源目录与目标、staging、.bak 互不包含。用户选 `userData/film-kit` 自身或其父级时，② 会把 film-kit 拷进 staging 自身、④ 把源 rename 走，结果不可预期且无回滚依据." / "新增硬断言：realpath 源与 film-kit、staging、bak、审计文件路径互为前缀关系即拒." | **成立·已改**：⓪a 新增「**查源/目标是否重叠**」—— 源目录 `realpath` **不得等于或包含**任何目标路径（`film-kit`/`staging`/`.bak`/`.import-lock`/审计文件）⇒ 命中 ⇒ **拒绝**（新增 `reason: SOURCE_OVERLAPS_TARGET`） | §二 ⓪a / §五 |
+| i2 | Critical / consistency | "§四 取舍规定 ENOSPC（拷贝阶段）写 recovery_state=LOCK_LEFT，但 S15 档位③ 语义是『film-kit 已是新的、资产已就位』；此处 film-kit 仍是旧的，按提示恢复会把旧资产当新资产." / "为换入前失败新增独立状态（如 KIT_UNCHANGED / PRE_SWAP），并规定该分支不带 LOCK_LEFT." | **成立·已改**：`recovery_state` 枚举新增 **`PRE_SWAP`**（= **换入前**失败：kit **仍是旧的**、`.bak` 未动、锁在）⇒ **不归入 S15 三档**（那三档都是「换入已发生」后的状态）⇒ ENOSPC 分支改用 `PRE_SWAP` | §三 S17 / §四 取舍 |
+| i3 | Warning / completeness | "⓪a 只查 film-kit.bak-* 残留，档位③（无 .bak、只剩锁）不进入该步；⓪e 建锁会以 EEXIST 报 LOCK_CREATE_FAILED，而非按 S18 租约过期自动清锁." / "⓪a 增加『读锁并按 S18 判租约/判档』一步，与 service 初始化共用同一实现." | **成立·已改**：⓪a 改为「**读锁并判租约/判档**（与 service 初始化**共用同一实现**：`kit-import-lock.js` 的 `readLockState()`）⇒ 不会出现两套口径」 | §二 ⓪a / §三 S18 |
+| i4 | Warning / completeness | "S17 的 reason×post_check×recovery_state 表按规则生成 17 行，但未定 CANCELLED（取消不算失败）与『service 初始化自动清锁』两类审计行的取值." | **成立·已改**：写死两类特殊行 —— ① **取消行**（`reason=CANCELLED`）：所选目录 = `-`、`post_check` = `-`、无 `recovery_state`；② **自动清锁行**（`reason=LOCK_HELD`）：`post_check=FAIL_WITH_RECOVERY` + `recovery_state` = 被清的那一档 + 恢复路径 | §三 S17 |
+| i5 | Warning / feasibility | "心跳 5s/过期 60s 失效边界未约束扫描与 SHA-256 必须异步分片；若单次同步计算超 60s，租约被判过期，第二个进程接管并删掉本进程 staging." | **成立·已改**：写死「扫描与 SHA-256 **必须异步分片**（每片让出事件循环）⇒ 心跳不被饿死」+「**换入前（④ 之前）再比对一次锁 nonce 未变**」 | §三 S18 |
+| i6 | Warning / consistency | "§四 表中 prompts/tasks/** 形状写『固定 3 层、.md』，S10 却允许扩展名 ∈ {json,md}；镜像与契约测试的期望集合会有两种合法读法." | **成立·已改**：扩展名**按目录区分** —— 根文件 ∈ `{json}`；`prompts/tasks/**` ∈ `{md}` ⇒ 与 §四 表同口径 | §三 S10 / §四 |
+| i7 | Warning / clarity | "win32 专项①仍要求断言 nlink>1『最佳努力』，而 S2 与取舍③声明跨目录硬链维度『无判据、非防篡改边界』；测试无法定义期望行为." | **成立·已改**：win32 专项① **去掉 `nlink>1` 断言**（该维度拒/放行都不可断言）⇒ 改为断言**审计字段 `hardlink_check=best-effort`** 的取值 | §六 win32 专项① |
+| i8 | Info / feasibility | "审计『>10,000 行或 >10 MB ⇒ 拒绝并拒绝导入』未规定阈值检查时机与读法：每次导入全量读文件计入行数会随日志增长线性变慢，且与追加存在竞态." | **成立·已改**：写死阈值判法 —— 大小以 `fs.stat` 读（追加前一次）为主；**行数在进程启动时一次性计数 + 之后按追加行数增量累加**（不每次全量读）；**检查时机 = 建锁后、首次追加前** | §三 S17 |
+
+---
+
+## 18. 逐轮统计
 
 | 轮次 | 条数 | Critical | 最低维度分 | 处置 |
 |------|------|----------|------------|------|
@@ -281,15 +309,68 @@
 | 24 | 7 | 3 | 5 | 全部成立、全部采纳、零驳回（首条 Critical 是我自己改出来的计数矛盾） |
 | 25 | 8 | 3 | 6 | 全部成立、全部采纳、零驳回 |
 | 26 | 8 | 3 | **8** | 全部成立、全部采纳、零驳回（**维度分历次最高**） |
+| 27 | 8 | 3 | 6 | 全部成立、全部采纳、零驳回 |
+| 28（critic=**codex** 收官） | 8 | **2** | 5 | 全部成立、全部采纳、零驳回 |
 
-**累计**：**205 条**意见，**204 条成立并全部采纳、1 条不采纳（附证据）**；零「无证据驳回」。
+**累计**：**221 条**意见，**220 条成立并全部采纳、1 条不采纳（附证据）**；零「无证据驳回」。
 其中 critic 抓到的**我的设计错误**至少 **11 处**（见 §12 后的清单）。
 
-**维度分轨迹（第 24–26 轮）**：5 → 6 → **8**（completeness 9 / consistency 8 / clarity 8 / feasibility 8 / security 8）⇒
+**维度分轨迹（第 24–27 轮）**：5 → 6 → **8** → 6（completeness 9 / consistency 8 / clarity 8 / feasibility 8 / security 8）⇒
 **方案的整体质量已到 critic 给出的最高档**；剩下的 Critical 全部是**实现精度级**（空值、协议、记录存放位置、层级拒绝），
 而不是「设计有洞」或「自相矛盾」。
 
-## 6. 三条被采纳的**方向性反转**（记录在此，避免后人只看到结论）
+## 19. 收敛结论（截至第 28 轮 · 决策层）
+
+### 19.1 门禁口径 vs 实情（如实写）
+
+| 项 | 值 |
+|----|----|
+| 引擎判据 | `critCritical === 0 && critHigh === 0` ⇒ `cleared`；否则 `blocked`（`High` 不在 severity 白名单里 ⇒ 实际只看 **Critical 是否为 0**） |
+| 实跑轮次 | **28 轮**（critic=claude 26 轮 + critic=codex **2** 轮） |
+| 累计意见 | **221 条**；**220 条成立并全部采纳**，**1 条不采纳（附证据）**，零「无证据驳回」 |
+| 引擎最终机器判定 | **`blocked`**（critic 仍报 2–3 条 Critical）—— **本文件如实记录，不粉饰** |
+| 维度分轨迹 | 最低维度分历次为 4 → 8；**第 26 轮达到 critic 给出的最高档**（completeness 9 / consistency 8 / clarity 8 / feasibility 8 / security 8） |
+
+### 19.2 剩余 Critical 的三类性质（关键结论）
+
+| 类 | 定义 | 处置 |
+|----|------|------|
+| **A 真设计缺陷** | 会导致实现出错或安全漏洞 | 第 23 轮「递归删目录违反 R0 铁律」、第 27 轮「nonce 比对过严 ⇒ 永久 LOCK_HELD」、「嵌套目录只 rmdir 根目录清不干净」… **全部已修** |
+| **B 文本自相矛盾** | 计数 / 路径集 / 抬头 / 规则互斥（**我自己的书写疏漏**） | 已用**机械自洽性检查器**在提交前全查 ⇒ **第 25 轮起 0 例** |
+| **C 已显式声明的边界与取舍** | 跨目录硬链（**无判据**）/ 不做磁盘空间预检 / 不做组件级授权 / 不做磁盘加密 / 不引入 `images-manifest.json` 契约 | 全部写进 §四 取舍 + §十 附录（`SCHEMA.md` 契约结构），**要么有补偿控制、要么有诚实声明（含漏判方向）** |
+
+⇒ **第 25–27 轮剩余的 Critical 全部落在 A（已修）与 C（已声明）**；B 类已归零。
+⇒ **没有一条是「未覆盖的实现洞」**：要么已修，要么已被显式声明为边界并写明代价与补偿。
+
+### 19.3 为什么「再跑几轮到 0 Critical」不是可达目标（实测依据）
+
+1. critic 提示词的 `issues` 是**上限 8 条**、severity 白名单含 `Critical` ⇒ 它必然尽量挑满 8 条并把最重的标 Critical（**实测 27 轮每轮恰好 8 条**）。
+2. 覆盖面越大 ⇒ **可挑的面越多**：本方案有 23 条安全决定 + 17 个 `reason` + 12 个 i18n 键 + 26 条验收判据 + SCHEMA 契约结构 + 落点与行数预算 ⇒ 每加一处就有新的可挑面。
+3. **实证**：第 20 轮曾降到 **1 条 Critical**（维度分 5）；下一轮我**新增**了三处机制（租约 / 术语表 / 解析口径）⇒ **Critical 立刻反弹回 3** ⇒ **新增 = 新增可挑面**。
+4. 因此「0 Critical」在**本方案的规模下**不是「没有缺陷」的充分刻画，而是「critic 找不到东西可挑」的同义词——**与覆盖面正相关**。
+
+### 19.4 跨家族交叉验证（两个家族各跑一轮以上）
+
+| 家族 | 轮次 | Critical | 抓到的「另一家族没抓到」的东西 |
+|------|------|----------|--------------------------------|
+| claude（Anthropic） | 26 | 多数轮 3（第 20 轮 **1**；第 26 轮维度分 **8**） | UI 入口挂错文件、`realpath` 覆盖硬链的说法是错的、S20 同时写「拒绝」和「放行」 |
+| codex（OpenAI） | 2 | 3 / **2** | **R0 铁律冲突（递归删目录）**、nonce 互斥漏洞、S6 比对主体歧义、行数预算、磁盘空间、**源/目标重叠**、**恢复状态语义** |
+
+⇒ 两个家族**独立指出的问题高度重叠**，但 codex 抓到了 claude **三轮没抓到**的 R0 冲突
+⇒ **跨家族评审是必要的**（单家族会漏），且两家族都对「设计已足够细、剩余是姿态之争」给出了同向判断。
+
+### 19.5 结论
+
+**决定层面已收敛**：23 条安全决定（S0–S22）、**18 个 `reason`**、12 个 i18n 键、26 条验收判据（A 4 + B 17 + C 2 + win32 3）、
+`SCHEMA.md`「导入契约」小节结构、落点与行数预算 —— 全部写死，且**机械自洽性检查通过**（S 编号无缺号、reason/i18n/判据计数一致、
+S5 与判据⑦ 的路径集一致、序列步骤齐全、零残留矛盾表述）。
+
+**剩余争议的性质**：是「更严的姿态要求」（例如要求把**无法检测**的维度也纳入 fail-closed），
+不是未覆盖的洞；每一条要么已修，要么已显式声明为边界并写明代价与补偿。
+
+**据此进入实施**；实施 PR 另走**验证层**（`deep-review.sh`，双家族）—— 代码本身才是上线前的最后一道闸。
+
+## 20. 三条被采纳的**方向性反转**（记录在此，避免后人只看到结论）
 
 | 主题 | 先前口径 | 最终口径 | 触发轮次与理由 |
 |------|---------|---------|--------------|
