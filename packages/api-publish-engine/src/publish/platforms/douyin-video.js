@@ -43,6 +43,7 @@ const REGION = 'cn-north-1'
 const IMAGEX_VERSION = '2018-08-01'
 const IMAGEX_SERVICE_ID = 'jm8ajry58r'
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+const douyinWeb = require('./douyin-web')
 const FAIL_MSG = '账号信息缺失，请重新授权此账号再试'
 /**
  * 签名材料**只剩 key id** 时的专用提示（2026-10-19 真机实证新增）。
@@ -272,6 +273,25 @@ class DouyinVideoChain {
   buildPostData (taskData, ctx) { return buildDouyinPostData(taskData, ctx) }
 
   /** Step 5：create_v2 投稿 + Step 6 裁决 */
+  /** web-api 轨（竞品实现）：cookie + referer 直调 creator，无需 ticket-guard 材料。 */
+  async runWebApi (taskData, opts = {}) {
+    if (!taskData || !taskData.video || !taskData.video.path) throw new DouyinVideoError('douyin-video: taskData.video.path required', errorCode.data_error)
+    if (!fs.existsSync(taskData.video.path)) throw new DouyinVideoError('douyin-video: video file not found: ' + taskData.video.path, errorCode.io_error)
+    const http = this._webHttp || (this._webHttp = require('../core/http-base').createHttpClient({ baseURL: douyinWeb.BASE, headers: douyinWeb.headers(this.cookie) }))
+    const me = await douyinWeb.getUserInfo(http, this.cookie)
+    if (!me.ok) throw new DouyinVideoError('douyin-web: user/info failed', errorCode.data_error)
+    const uid = String(me.data.user_id)
+    const auth = await douyinWeb.getUploadAuth(http, this.cookie, uid)
+    if (!auth.ok) throw new DouyinVideoError('douyin-web: upload auth failed', errorCode.data_error)
+    const videoId = await this.uploadVideo(taskData.video.path, auth.data, uid, opts.onProgress)
+    const coverPath = (taskData.cover && taskData.cover.path) || taskData.video.path
+    const coverPoster = fs.existsSync(coverPath) ? await this.uploadCover(coverPath, auth.data, uid) : ''
+    const visibilityType = Number(taskData.visibility_type != null ? taskData.visibility_type : (opts.draft === false ? 102 : 0))
+    const postData = this.buildPostData(taskData, { videoId, coverPoster, visibilityType })
+    const r = await douyinWeb.createV2(http, this.cookie, postData)
+    if (!r.ok) return { success: false, platform: 'douyin', mode: 'web-api', error: r.error || 'create_v2 rejected', raw: r.raw }
+    return { success: true, platform: 'douyin', mode: 'web-api', postId: r.id, raw: r.raw }
+  }
   async publish (postData, sdkToken, opts = {}) {
     const ms = cookieValue(this.cookie, 'msToken=') || ('a12man123masb' + Date.now())
     const query = this._applyQuery({ read_aid: this.appId, aid: 1128, support_h265: 1, msToken: ms, a_bogus: '' })
@@ -309,6 +329,10 @@ class DouyinVideoChain {
 
   /** 全链编排 */
   async run (taskData, opts = {}) {
+    // 2026-10-23：对齐竞品——安全材料（__security_mc_*）只在页面 JS 运行时存在，本机读不到。
+    // 竞品用 cookie+referer 直调 creator web API 且 msToken/a_bogus 传空即可 ⇒ 材料不齐时改走 web-api 轨。
+    // 仅当显式开启 webApi 时才改道；默认仍 fail-closed，保持既有契约与测试不变。
+    if (opts && opts.webApi === true && !hasSecurityMaterials(String(this.cookie || ''))) return this.runWebApi(taskData, opts)
     this._assertPreconditions()
     if (!taskData || !taskData.video || !taskData.video.path) throw new DouyinVideoError('douyin-video: taskData.video.path required', errorCode.data_error)
     if (!fs.existsSync(taskData.video.path)) throw new DouyinVideoError('douyin-video: video file not found: ' + taskData.video.path, errorCode.io_error)
