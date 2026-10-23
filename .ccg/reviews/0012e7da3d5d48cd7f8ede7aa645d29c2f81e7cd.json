@@ -1,0 +1,60 @@
+{
+  "sha": "0012e7da3d5d48cd7f8ede7aa645d29c2f81e7cd",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 4,
+    "ccgSensitiveContentSample": [
+      "        \"prosecution\": \"本 PR 引入了一份自称「敏感内容 2 处 ⇒ 命中 auth/DB/加密」的评审产物，但它只改了一个台账数字与一段中文说明，**没有任何认证/数据库/加密面**；产物里的 sha 又指向主干上的另一笔提交（7718f8987）。读记录的人据此会认为「这个 PR 动了 auth 面」，从而：(a) 把一次纯门禁数据修正误当成安全相关改动；(b) 审计链上出现一条「说法与内容不符」的记录，比没有这条记录更糟。\",",
+      "        \"defense\": \"① 「本 PR 无敏感内容」这半句成立，且**误判来源已实测查实**：台账 `//` 注释是**一整行**，改动它等于整行进 diff，于是该行里**原本就有的** `--update` 字样（3 处）被判定器的 SQL 关键词模式 `/\\\\b(SELECT|INSERT INTO|UPDATE|DELETE FROM|DROP TABLE|ALTER TABLE)\\\\b/i` 命中（update 大小写不敏感）⇒ 中文敏感词（密钥/加密/凭据/鉴权/授权）命中 **0** 处、敏感路径命中 **0** 处（`node .github/scripts/check-max-lines.js` 与判定器规则 `scripts/ccg-review-decider.js:72-78` 可逐字复算）。这是**关键词匹配的假阳性**，不是本 PR 动了 auth 面。② 记录里的 `sha` 指向 7718f8987 不是「引用了无关 sha」：pre-commit 跑判定器时新 commit 还不存在，`sha` 记的是**判定时的父提交**（`ccg-review-decider.js::currentSha` 取父提交），记录里的 `stagedDiffHash` 才是本次差量的内容寻址键 —— 这与「评审产物的 sha 应对齐被评提交」的建议是同一件事的两种口径，不能靠加字段解决。③ 产物由 pre-commit 钩子**自动生成并自动 stage**，「删掉它」等于用删产物冒充完成评审，也违反本仓「受管文件走 `git rm` 评审」的纪律。\",",
+      "        \"rationale\": \"不成立：指控的因果链在实测处断开 —— 「敏感内容 2 处」来自台账注释里**既有**的英文单词 `update` 被 SQL 关键词模式误命中（中文敏感词 0、路径 0，可一行 node 复算），与本 PR 的改动内容无关；「引用了无关 sha」实为 pre-commit 判定器记**父提交**的既定语义；而「删掉 .ccg/reviews 产物」是仓库明确禁止的动作。本 PR 接受被这条判据判成 DUAL（敏感命中 ⇒ dual ⇒ required=true），并按要求**跑完了外部双家族评审**（claude critic + opencode proposer，跨家族校验通过），critic 原始输出逐字公开于 externalReview.evidenceRef 指向的 PR 评论。本条属高危域（auth）⇒ **不接受自扮演豁免**：外部复核由 critic=claude 完成，证据见 externalReview.evidenceRef。\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-23T09:52:41.459Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
