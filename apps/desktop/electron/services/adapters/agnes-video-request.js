@@ -69,10 +69,10 @@ function buildAgnesVideoRequest (input) {
     size = requested
   }
 
-  // 画幅：显式值优先，否则由宽高推导；不在白名单内 ⇒ 本地拒收
-  const explicitRatio = isNonEmptyString(params.aspect_ratio)
-    ? params.aspect_ratio.trim()
-    : (isNonEmptyString(params.aspectRatio) ? params.aspectRatio.trim() : '')
+  // 画幅：显式值优先（params.aspect_ratio || params.aspectRatio），否则由宽高推导
+  // ⚠ 两个键名都要在：只认一个会让竖屏请求被静默丢弃、永远回退 16:9（见
+  //   image-adapter-aspect-contract.test.js 的结构锁与配套行为锁）
+  const explicitRatio = String(params.aspect_ratio || params.aspectRatio || '').trim()
   const aspectRatio = explicitRatio || pickAspectRatio(params.width, params.height)
   if (!VALID_ASPECT_RATIOS.includes(aspectRatio)) {
     return { error: `aspect_ratio must be one of ${VALID_ASPECT_RATIOS.join(', ')}` }
