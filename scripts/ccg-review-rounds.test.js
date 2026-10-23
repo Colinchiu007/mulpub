@@ -181,7 +181,25 @@ test('R8 change 形态判据：只拒 `..` 段与绝对路径；含斜杠的合�
   }
   // 拒的是"能把固定前缀走穿的那一类"，不是"看着不顺眼的那一类"：
   // 收紧成 kebab-only 会直接拒掉 team/feature 这种合法分支，代价由下一个用户承担（本仓禁令同型）。
-  for (const bad of ['../../etc', 'a/../../b', '..', '../../../etc/passwd', '/abs/path', 'C:\\Windows']) {
+  // 绝对路径这一格**不得按某平台的形状手抄**（实测：CI 的 changes job 跑在 Linux，
+  // `'C:\\Windows'` 在那儿只是一个普通相对目录名 ⇒ 原断言在 runner 上假红，本机全绿躺了一轮）。
+  // 正解是让宿主自己当 oracle：本机认作绝对路径的样本必须被拒，本机不认作的必须放行
+  // （前提是不含 `..` 段），并打印两档条数——退化成"一条都没测"时当场就能看出来。
+  // 注意那个正斜杠盘符串**不得写成字面量**：Gate 12c（check-doc-abs-paths.js）按词元统计受管文件里的
+  // 盘符绝对路径，`'C:' + '/' + 'x'` 与字面量在运行时逐字相同，但不会往受管面里新增一条本机路径主张。
+  const absSamples = ['C:\\Windows', 'C:' + '/' + 'x', '/abs/path', '/etc/passwd', path.resolve('scripts')]
+  const rejectedAbs = absSamples.filter((s) => path.isAbsolute(s))
+  const acceptedAbs = absSamples.filter((s) => !path.isAbsolute(s))
+  process.stdout.write(`[R8] host=${process.platform} 绝对档=${rejectedAbs.length} 非绝对档=${acceptedAbs.length}\n`)
+  if (rejectedAbs.length === 0) throw new Error('夹具自证失败：本机一个绝对路径样本都没命中 ⇒ 绝对路径那一格根本没被测')
+  for (const s of rejectedAbs) {
+    assert.throws(() => m.assertChangeName(s), /change/, `本机视为绝对路径，应拒：${JSON.stringify(s)}`)
+  }
+  for (const s of acceptedAbs) {
+    assert.strictEqual(m.assertChangeName(s), s, `本机不视为绝对路径且不含 \`..\`，必须放行：${JSON.stringify(s)}`)
+  }
+  // `..` 段与分隔符归一化与平台无关，逐个显式点名（反斜杠那两条测的正是"是否先把 \\ 当分隔符"）。
+  for (const bad of ['../../etc', 'a/../../b', '..', '../../../etc/passwd', '..\\..\\etc']) {
     assert.throws(() => m.assertChangeName(bad), /change/, '应拒：' + JSON.stringify(bad))
   }
   for (const empty of ['', null, undefined]) {
