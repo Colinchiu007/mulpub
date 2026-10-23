@@ -24,14 +24,14 @@ const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
 const MAX_PRODUCTION_SHOTS = 1000
 const WALLCLOCK_SECONDS_PER_SHOT = 300
 
-const { runProduction, loadLedger, planBatches, resolveResumePlan, buildRenderManifest, PRODUCTION_BATCH_SIZE } = require('../services/film-engineering/production-driver')
+const { runProduction, loadLedger, planBatches, resolveResumePlan, buildRenderManifest, PRODUCTION_BATCH_SIZE, isSafeTaskId } = require('../services/film-engineering/production-driver')
 const { runBatchViaVideoGen } = require('../services/film-engineering/production-runner')
 const { generateShotVideo, resolveFilmVideoProvider, getFilmRunDir, FILM_ASPECTS, FILM_DURATIONS } = require('../services/film-engineering/video-gen')
 
 /** 出片台账 taskId 参数校验（路径遍历防护）；供 plan / run-batch / status 复用 */
 function validateProductionArgs (EC, params) {
   const taskId = params.taskId
-  if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
+  if (!isSafeTaskId(taskId)) {
     return { code: EC.VALIDATION_ERROR, message: 'taskId 必须为非空且路径安全的字符串' }
   }
   const shotIds = params.shotIds
@@ -87,7 +87,7 @@ function registerProductionHandlers (ipcMain, deps, EC, withKit, kitError) {
   ipcMain.handle('film-engineering:production-retry-shot', withSenderCheck(async (_event, payload) => {
     const params = payload || {}
     const taskId = params.taskId
-    if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
+    if (!isSafeTaskId(taskId)) {
       return { code: EC.VALIDATION_ERROR, message: 'taskId 必须为非空且路径安全的字符串' }
     }
     const batchIndex = params.batchIndex

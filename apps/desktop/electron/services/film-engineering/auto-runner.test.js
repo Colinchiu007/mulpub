@@ -298,3 +298,52 @@ describe('auto-runner · 单镜重生成（原子覆盖）', () => {
     expect(r.errorCode).toBe('AUTO_SHOT_INVALID')
   })
 })
+
+/**
+ * 回归保护（2026-10-23）：自动模式的批次产物目录必须**按轮次隔离**。
+ *
+ * Bug：同一 taskId 用 overwrite 重新 plan 时，`createProject` 递增 `runSeq` 并把旧的
+ * project.json / ledger.json 归档到 `archive/<runSeq>/`，但**产物目录原地不动**
+ * （`archiveTaskRun` 只搬那两个文件）。而 `autoRunIdFor` 不含轮次 ⇒ 新旧轮次的
+ * `b.runId` 完全相同 ⇒ `resolveResumePlan` 的磁盘复核看到上一轮的 `shot_NNN.mp4` 还在
+ * ⇒ **整批跳过、零 provider 调用**，而清单声称的是新分镜
+ * ⇒ 完全静默的假成功（已实跑复现：轮次 2 零调用、收口 ok、产物是上一轮的视频）。
+ *
+ * 为什么带**轮次**而不是分镜集指纹：自动模式的 `project.shots` 是活状态
+ * （`updateShot` 可改提示词/参考图/时长），按分镜集派生目录会让用户改一个字就丢光
+ * 已生成产物。轮次只在新 plan 时变，编辑不动它 —— 两个语义各归其位。
+ *
+ * 反证纪律：把 runSeq 从 autoRunIdFor 里去掉，本组必须变红。
+ */
+describe('自动模式批次产物：轮次隔离（2026-10-23）', () => {
+  it('轮次 1 沿用历史布局 ⇒ 存量项目零影响', () => {
+    expect(autoRunIdFor('auto-1', 0)).toBe('auto/auto-1/b0')
+    expect(autoRunIdFor('auto-1', 2)).toBe('auto/auto-1/b2')
+    // 显式传 1 也必须与缺省一致
+    expect(autoRunIdFor('auto-1', 0, 1)).toBe('auto/auto-1/b0')
+  })
+
+  it('轮次 ≥2 带上轮次号 ⇒ 与上一轮目录物理隔离', () => {
+    expect(autoRunIdFor('auto-1', 0, 2)).toBe('auto/auto-1/r2/b0')
+    expect(autoRunIdFor('auto-1', 1, 2)).toBe('auto/auto-1/r2/b1')
+    expect(autoRunIdFor('auto-1', 0, 2)).not.toBe(autoRunIdFor('auto-1', 0, 1))
+  })
+
+  it('非法/缺失 runSeq 回落轮次 1（不生成可疑目录名）', () => {
+    for (const bad of [undefined, null, 0, -1, 1.5, 'x', NaN]) {
+      expect(autoRunIdFor('auto-1', 0, bad)).toBe('auto/auto-1/b0')
+    }
+  })
+
+  it('collectMissingShots 按项目轮次探针 ⇒ 新轮次不会被上一轮产物判为「齐备」', () => {
+    const probeCalls = []
+    const probe = (runId, count) => { probeCalls.push(runId); return { missing: [] } }
+    // 轮次 2 的项目：探针必须打在 r2 目录上，而不是上一轮的裸目录
+    collectMissingShots({ project: { taskId: 'tk', runSeq: 2, shots: [{ shotId: 'S1' }] }, probe })
+    expect(probeCalls).toEqual(['auto/tk/r2/b0'])
+    // 轮次 1 的项目：仍是历史布局
+    probeCalls.length = 0
+    collectMissingShots({ project: { taskId: 'tk', runSeq: 1, shots: [{ shotId: 'S1' }] }, probe })
+    expect(probeCalls).toEqual(['auto/tk/b0'])
+  })
+})
