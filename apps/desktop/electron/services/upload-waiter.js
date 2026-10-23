@@ -314,6 +314,8 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         const flat2 = []
         const walk2 = (n) => { if(!n) return; flat2.push(n.frame); if(n.childFrames) n.childFrames.forEach(walk2) }
         walk2(ft2.frameTree)
+        log.info('RpaView', 'frame-scan: frames=' + flat2.length + ' ' + flat2.map(f=>String(f.url||'').slice(0,60)).join(' | '))
+        let _hitCount = 0
         for (const f of flat2) {
           if (!f || !f.id) continue
           try {
@@ -329,9 +331,9 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
               try { dbg.detach() } catch (e0) {}
               return true
             }
-          } catch (_e16) { /* 该帧不可注入 */ }
+          } catch (e16) { log.warn('RpaView', 'frame-scan: inject failed ' + String(f.url||'').slice(0,50) + ' :: ' + (e16 && e16.message ? e16.message.slice(0,80) : '')) }
         }
-      } catch (_e17) { /* 无 frame tree */ }
+      } catch (e17) { log.warn('RpaView', 'frame-scan: no frame tree :: ' + (e17 && e17.message ? e17.message.slice(0,80) : '')) }
       await dbg.sendCommand('DOM.enable')
       await dbg.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
       const opened = new Promise((resolve) => {
