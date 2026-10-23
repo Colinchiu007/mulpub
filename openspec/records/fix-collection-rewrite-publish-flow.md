@@ -106,7 +106,7 @@ branch: fix-collection-rewrite-publish-flow
 - i7（CHANGELOG 无版本号 / 与分支对应关系）：**采纳（形式项）** —— `[未发布]` 是本仓既有惯例；分支对应关系写进 PR 正文。
 - i8（locale import 需构建链支持）：与轮 2 的 i7 同形，**已补产物级证据**（见上）。
 
-### QM-6 双家族外部评审（七轮实跑）
+### QM-6 双家族外部评审（十一轮实跑；合并 main 之后另有轮 12 / 13）
 
 **后端**：`scripts/ccg-review-backends.list` 固定 critic=`claude`（本机 2.1.303，可执行文件在 `<hermes-home>/bin/claude.exe`）、proposer=`opencode`（本机 1.18.34，可执行文件在 `<npm-global>/opencode.ps1`）——**两个不同厂商**；脚本自检「裸名自检」两条均过，跨家族校验「通过」。评审**原文**由外部模型生成（`.adversarial/ccg-deep-*/critique-v1.md`），agent 只填**裁决**（引擎第三档出口，`confidenceWeight=0.6`，低于真跨家族的 1.0）。
 
@@ -127,16 +127,11 @@ branch: fix-collection-rewrite-publish-flow
 **被采纳并已实现的（6 条）**：
 
 - **i3（轮 2，Critical，correctness）**：「`watch(rewriteResult,{flush:'sync'})` 缺类型守卫，引擎返回非字符串结果可能污染草稿态」。核实后**部分成立**——watcher 体内不含字符串运算 ⇒ 不会抛错；但「非字符串真值进 `rewriteResult`」是**真缺口**（IPC 外部边界；字符串口径分叉 ⇒ watcher 误判「程序赋值」⇒ **归因链错挂**）。**已实现**：`applyRewriteResult` 入口加 `typeof content !== 'string' || !content` 守卫 ⇒ 非字符串一律判失败（不写正文、不挂归因链、不报「改写完成」，如实报「AI 改写失败」）；新增行为级用例 + **变异反证 M5**（守卫改成 `if (false)` ⇒ 该用例当场红，还原即绿）。
-- **i5（轮 3，Warning，maintainability）**：「作废逻辑埋在 2000+ 行视图里，且**程序赋值与用户手改两条路径没有分别的用例**」。后半句**属实**。**已实现**：抽出 `composables/useRewriteResultInvalidation.js`（判据单一实现、可脱离视图单测）+ 6 例（程序赋值 / 用户手改 / 清空 / **两条交错边界**）+ `rewrite-word-count.test.js` 补常量漂移前置断言 + `genreDraftId` 由模块级 `let` 改为 `ref`。
+- **i5（轮 3，Warning，maintainability）**：「作废逻辑埋在 2000+ 行视图里，且**程序赋值与用户手改两条路径没有分别的用例**」。后半句**属实**。**已实现**：抽出 `composables/useRewriteResultInvalidation.js`（判据单一实现、可脱离视图单测）+ `useRewriteResultInvalidation.test.js` 6 例（程序赋值 / 用户手改 / 清空 / **两条交错边界**）+ `genreDraftId` 由模块级 `let` 改为 `ref`。（本条此前另有一句提到 `rewrite-word-count.test.js` 的常量漂移锁——该文件已随**与 #4111 的融合**整体撤回 ⇒ 此处删除该引用，避免记录指向不存在的文件。）
 - **i7（轮 6，Info，performance）**：「并发模型要在文档里写明」。**已实现**：`useCollectionVideoCreation.js` 头注释新增「并发模型」段 —— 并发由 **UI 层按钮禁用**串行化、`videoSeq` 是第二道防线（让在途响应作废而非覆盖新状态），并写明未来若引入后台重试/多路并行必须补真正的取消/版本守卫。
 - **i4（轮 9）**：外部复核证据「仅用 URL」⇒ **已整改**：13 份产物逐条补 `evidenceDigestSha256`（公开评论正文的 sha256，可自行重算），原文全文落盘 `.adversarial/ccg-deep-*/external-review-*.md`。
 - **i3 / i5（轮 10）**：审计要「不读提案正文」就能独立核对两个口径、且要能分辨引擎输出与人工插值 ⇒ **已实现**：13 份产物新增**自填** `deepReview.statsAudit`（`scope` / `codeFileCount` / `codeTotalLines` / `allFileCount` / `allTotalLines` / 两条可粘贴的 numstat 复算命令 / `authoredBy`）与三个角色标记（`findingsAuthoredBy` / `closureAuthoredBy` / `statsAudit.authoredBy`）；**引擎写回的 `stats` 与 `findings` 一字未改**。
 - **i7（轮 10）**：「不要只靠 UI 禁用标志做并发控制」⇒ **已实现**：`startPipelineRun` 入口**显式终止前一轮 run**（`pipelineCancelRun(prevRunId)` + 清 `videoRunId`），把「启动 ⇒ 其它 run 一定不在跑」写死在编排边界上（编排层管理的是外部进程，只丢响应会让前一个 run 在后台空转）。
-
-
-- **i3（轮 2，Critical，correctness）**：「`watch(rewriteResult,{flush:'sync'})` 缺类型守卫，引擎返回非字符串结果可能污染草稿态」。核实后**部分成立**——watcher 体内不含字符串运算 ⇒ 不会抛错；但「非字符串真值进 `rewriteResult`」是**真缺口**（IPC 外部边界；字符串口径分叉 ⇒ watcher 误判「程序赋值」⇒ **归因链错挂**）。**已实现**：`applyRewriteResult` 入口加 `typeof content !== 'string' || !content` 守卫 ⇒ 非字符串一律判失败（不写正文、不挂归因链、不报「改写完成」，如实报「AI 改写失败」）；新增行为级用例 + **变异反证 M5**（守卫改成 `if (false)` ⇒ 用例当场红，还原即绿）。
-- **i5（轮 3，Warning，maintainability）**：「作废逻辑埋在 2000+ 行视图里，且**程序赋值与用户手改两条路径没有分别的用例**」。后半句**属实**。**已实现**：抽出 `composables/useRewriteResultInvalidation.js`（判据单一实现、可脱离视图单测）+ `useRewriteResultInvalidation.test.js` 6 例（程序赋值 / 用户手改 / 清空 / **两条交错边界**）+ `rewrite-word-count.test.js` 补常量漂移前置断言 + `genreDraftId` 由模块级 `let` 改为 `ref`。
-- **i7（轮 6，Info，performance）**：「并发模型要在文档里写明」。**已实现**：`useCollectionVideoCreation.js` 头注释新增「并发模型」段 —— 并发由 **UI 层按钮禁用**串行化、`videoSeq` 是第二道防线（让在途响应作废而非覆盖新状态），并写明未来若引入后台重试/多路并行必须补真正的取消/版本守卫。
 
 **两次独立外部复核（高危面解除证据，均公开留痕）**：
 
@@ -284,3 +279,49 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
    属**主干侧该视图的基线抖动**，需主干侧处理（重采基线或让渲染确定化）。
    本 PR 的 QM-4 证据仍是 `collection` 视图（本地 1/1、100%），**未**用全量
    UPDATE_BASELINE 把无关视图的环境差烘进基线。
+
+### 本轮收尾（2026-10-23）：分支谱系订正与最终形态
+
+#### ① 并发会话把远端分支 force-push 成了**回退版**（如实登记，已覆盖回去）
+
+本分支推送合并提交（`04f115b60`）之后，远端 `origin/fix-collection-rewrite-publish-flow`
+被**另一个会话** force-push 成 `618ebe8e`。留痕：本地 remote-tracking reflog 里
+`refs/remotes/origin/...@{0}` 是 `fetch origin: forced-update`，其上一条 `@{1}` 正是本会话的
+`update by push`（`04f115b60`）⇒ **是外力覆盖，不是本会话的回退**。
+
+该版本是本分支 18 个提交的 **rebase 版**，但**零合并提交** ⇒ 合并主干时在**冲突处置**中形成的实现不在其中：
+
+| 项 | 远端 rebase 版 `618ebe8e` | 本地谱系 `04f115b60` |
+|---|---|---|
+| `features/collection/collection-video-config-profile.js` | **不存在** | 存在（含 15 例用例） |
+| `useCollectionVideoCreation.js` 的配置档案兑现 | **无**（少 32 行） | 有：读配置库 → 套用档案快照 → 套不上时给**可见提示** |
+| 执行记录里的本机绝对路径 | 仍是本机路径形态 | 已改占位符形态 |
+
+取证（可复算）：
+
+- `git ls-tree 618ebe8e -- apps/desktop/src/features/collection/collection-video-config-profile.js` → **空**；
+- `git diff --stat 618ebe8e 04f115b60 -- apps/desktop/src/composables/useCollectionVideoCreation.js`
+  → `37 ++++---`（32 insertions / 5 deletions）。
+
+⇒ 远端那份是**回退版**：它把主干 `publish-config-picker` 带来的「配置档案」能力在采集页上丢了
+（选了配置却静默按默认值跑 = 主干修过的同一个坑「选了等于没选」）。
+⇒ 处置：以本地完整谱系为准 **force-push 覆盖回去**，并再次与主干对齐（合并提交 `2e4dc6bd8`，零冲突）。
+最终 PR 差集 = **45 个文件 / 6426 insertions / 178 deletions**（28 份评审产物 + 17 个业务与文档文件）。
+
+#### ② 「成片 ↔ 文案同源」的复核结论：**不引入**（驳回，附可复算理由）
+
+外部复核曾指出「文案挂在函数作用域的可变 `let` 上，发布出口可能把上一轮成片配上新一轮文案」。
+本轮逐条核对**该路径不可达**，故**不加**这层守卫（本仓纪律：不给不可达路径加装饰性守卫）：
+
+1. **过期响应被 runId 身份挡住**（不是靠时间顺序猜）：`useGenVideoRunTracking.js:68`（请求前）、
+   `:71`（await 之后）、`:94`（推送快照）三处都是 `runId.value !== id` ⇒ 旧 run 的完成回调
+   **不可能**落到新 run 的状态上。
+2. **新一轮启动会清空成片路径**：`useCollectionVideoCreation.js:298`（`startVideoCreation`）与
+   `:395`（`retryVideoCreation`）都把 `videoCompletedVideoPath` 置空 ⇒ 成片缺失时
+   `isGenVideoResultReady`（`features/hot-topics/gen-video-view-model.js:47-48`）为假
+   ⇒ **发布出口不可达**（按钮灰显、`publishVideoResult` 首行即返回）。
+
+⇒ 结论：**不构成缺陷**（驳回）。若将来引入「后台重试 / 多路并行」形态（多条 run 各自存活），
+上述第 1 条的 runId 身份守卫不再足够，那时才需要每条 run 独立取消句柄 + 文案按 run 绑定 —— 属**另一种产品形态**，
+已在 composable 头注释的「并发模型」段写明，不在本刀范围。
+
