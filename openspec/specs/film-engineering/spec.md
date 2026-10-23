@@ -224,6 +224,14 @@ film_generate_videos 的 checkpoint SHALL 在等待态暴露成本预估载荷�
 - **WHEN** 全量出片第 1 批第 3 镜失败，用户点击「重试该镜」且本次生成成功
 - **THEN** 主进程从台账解析出该批次与目标 shotId，产物覆盖该批次 runDir 的 `shot_002.mp4`，批次状态与台账同步为已完成，**且渲染端全程未参与 runId 拼接**
 
+#### Scenario: 出片台账批次重试不再误查流水线（本 change 新增）
+- **WHEN** 全量出片批次 runId（如 `prod-<taskId>-<fp>-b0`）从未注册为流水线 run
+- **THEN** `production-retry-shot` SHALL 仍能从台账正确定位并完成重试；SHALL NOT 因 `getRunSnapshot` 返回 null 而报「runId 不属于任何运行中的流水线」
+
+#### Scenario: 重试入参非法拒绝
+- **WHEN** 重试请求携带路径不安全的 taskId、越界的 batchIndex/shotIndex、缺失台账，或目标分镜 prompt 为空
+- **THEN** IPC 返回带字段名与原因的校验错误，不发生 provider 调用
+
 #### Scenario: taskId 为相对路径段时拒绝（路径遍历防护）
 - **WHEN** 重试请求携带 `taskId` 为 `..`、`.`、`../evil` 或含路径分隔符的字符串
 - **THEN** 通道 SHALL 返回带字段名与边界的校验错误，SHALL NOT 发生任何 provider 调用，SHALL NOT 写出任何文件
@@ -258,6 +266,12 @@ film-engineering SHALL 提供"全量出片"模式：输入超过 MAX_VIDEO_BATCH
 
 断点续跑 SHALL 一律使用**台账所载 `b.runId`**，SHALL NOT 在续跑路径重新派生——因此既有台账（无论何种 runId 格式）SHALL 无需迁移即可继续续跑。`createLedger`（唯一调用派生的入口）SHALL 仅在台账缺失、损坏或分镜集不匹配时调用；分镜集不匹配时重建台账并按新格式派生即为期望行为。
 
+**自动模式（film-auto-mode）的批次产物目录 SHALL 按轮次隔离。** 自动模式的 `taskId` 由用户手输，同一 `taskId` 以 overwrite 重新 plan 时 SHALL 递增轮次号（`runSeq`）并归档上一轮的 `project.json` / `ledger.json`；**批次 `runId` SHALL 携带该轮次号**，使新旧轮次的产物目录互不重叠：
+- 轮次 ≥ 2 ⇒ `runId` 形如 `auto/<taskId>/r<runSeq>/b<N>`
+- 轮次 = 1（缺失或非法轮次号时同此）⇒ 沿用 `auto/<taskId>/b<N>` ⇒ **存量项目零影响**（不换目录、不丢已生成产物）
+
+**SHALL NOT** 以分镜集指纹派生自动模式的批次目录：自动模式的 `project.shots` 是活状态（`updateShot` 可改提示词/参考图/时长），按内容派生目录会使「改一个字」导致整批产物作废、续跑失效。轮次只在新 plan 时变，编辑不动它。
+
 #### Scenario: 144 镜全量切分与逐批过闸
 - **WHEN** 用户对 144 镜发起全量出片
 - **THEN** 驱动切分为 15 批（14×10+1×4），每批生成前展示该批 costCheck 并等待确认，确认前该批零调用
@@ -286,6 +300,13 @@ film-engineering SHALL 提供"全量出片"模式：输入超过 MAX_VIDEO_BATCH
 - **WHEN** 调用方注入只接受 `(taskId, batchIndex)` 的 `runIdFor`（如 auto 模式）
 - **THEN** 其批次 `runId` 按该注入方的自有规则派生，不受指纹影响，产物落点与既有行为完全一致
 
+#### Scenario: 自动模式换轮次不采纳上一轮产物（本 change 新增）
+- **WHEN** 用户在同一 `taskId` 上以 overwrite 重新 plan 出一组新分镜
+- **THEN** 新轮次的批次 `runId` SHALL 与上一轮不同，磁盘复核 SHALL NOT 把上一轮的 `shot_NNN.mp4` 判为本次已完成，驱动 SHALL 真实调用 provider 生成新分镜的视频，SHALL NOT 出现「零 provider 调用 + 清单声称新分镜 + 成片实为旧分镜」的静默假成功
+
+#### Scenario: 存量自动模式项目零影响（本 change 新增）
+- **WHEN** 一个轮次号为 1 的既有自动模式项目被重新读取
+- **THEN** 其批次 `runId` SHALL 仍为 `auto/<taskId>/b<N>`，既有产物路径不变，续跑与合成行为与变更前完全一致
 ### Requirement: 原片 resultUrl 下载通道
 film-engineering SHALL 提供 kit 镜产物下载通道：对携带 https resultUrl 的分镜，用户可将原作者已生成的视频拉取到本地受控媒体目录（film-engineering 根下），落盘文件 SHALL 经 ffprobe 验证可读并登记为 renderManifest 的 sourceKind=downloaded 条目。下载 SHALL 仅允许 https、限制单文件大小与总并发、校验响应为视频内容类型；URL 失效（404/过期）或内容校验失败 SHALL 将该镜标记"下载不可用"并降级为生成路径，不得产出损坏片段。下载动作 SHALL 显式用户触发，不在浏览/查询时自动预取。
 
