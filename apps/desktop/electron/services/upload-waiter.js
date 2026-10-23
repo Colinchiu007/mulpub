@@ -190,6 +190,14 @@ const budgetMs = Number.isFinite(bytes) && bytes > 0 ? computeBudgetMs(bytes, { 
         const fileSel = await this._resolveSelector(win, inputs, 15000, 3000)
         if (!fileSel) { if (!retry.retry('file_upload')) break; await this._sleep(2000); continue }
         await this._setFileInput(win, article.video_path, fileSel)
+        // tencent drop fallback（2026-10-23 截图取证）：视频号发布页的上传区是拖拽区，
+        // CDP/DataTransfer 设 input 后页面仍是空框（截图 evidence），必须再走 DragEvent drop。
+        if (platform === 'tencent_video' && typeof this._dropFilesToDragArea === 'function') {
+          try {
+            const dropped = await this._dropFilesToDragArea(win, article.video_path, '[class*=upload],[class*=dragger],[class*=drop]')
+            log.info('RpaView', '[tencent_video] drop fallback: ' + dropped)
+          } catch (_e8) { log.warn('RpaView', '[tencent_video] drop fallback failed: ' + _e8.message) }
+        }
         // 完成判定：百家号看「预览/编辑器/发布按钮可用」，其余平台走上传等待器
         let uploadDone
         if (platform === 'baijiahao') {
