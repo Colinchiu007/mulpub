@@ -1,6 +1,6 @@
 ---
 name: start-app
-version: 1.8.0
+version: 1.9.0
 description: >
   用当前项目最新代码 + 共享数据（shared-user-data 锚点）启动/重启 Multi-Publish
   桌面应用。支持 Windows 与 WSL（Ubuntu-E）双环境：默认启动 Windows 环境的应用，
@@ -363,7 +363,7 @@ pwsh -File scripts/start-desktop.ps1 `
 - `-Profile`：已登录 profile（默认 `D:\tmp\Multi-Publish-debug-profile`）。
 - `-CheckIdentity`：窗口出现后经 CDP 校验登录态。
 - `-Json`：输出结构化证据块。
-- 可选：`-InvalidateViteCache`（陈旧 Vite 缓存导致 504 空白页时用）、`-StopForeignProfile`（其他 worktree 占用同一 profile 时审计停止后继续）。
+- 可选：`-InvalidateViteCache`（**兜底开关**：v1.9.0 起 `dev.js` 在 spawn vite 前已按 mtime 自动预检并清理过期 `apps/desktop/node_modules/.vite`，正常情况下不再需要手工指定；仅当自动预检被 `MP_VITE_DEPS_CACHE_CHECK=0` 关掉、或缓存损坏形态超出 mtime 判据时使用。注意它只把 `.vite\deps` 改名成 `deps.stale-<时间戳>` 留档、保留 `_metadata.json`，与 `dev.js` 的「整目录删除」不是同一动作）、`-StopForeignProfile`（其他 worktree 占用同一 profile 时审计停止后继续）。
 
 **备选——直接启动（不经过完整契约，仅调试用）：**
 
@@ -447,7 +447,8 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 | profile 被其他 worktree 占用 | 加 `-StopForeignProfile` 审计停止，或手动停旧实例 |
 | 依赖缺失 | `node scripts/ensure-desktop-deps.js` 自愈后重试 |
 | 150s 无窗口 | 看 `%TEMP%\mp-start-dev.err.log`（Windows）或脚本输出日志（WSL）尾部错误 |
-| 504 空白页 | 加 `-InvalidateViteCache` 重试 |
+| **渲染层报 `does not provide an export named 'X'`**（页面白屏或某个页面报错，2026-10-13 事故，v1.9.0 自动收口） | **Vite 预构建缓存过期，不是代码缺陷**：`optimizeDeps` 缓存指纹只含 lockfile + config、**不含 workspace 源码**，新增导出后旧缓存里的模块仍是旧版本；且该条目已在 optimized 列表 ⇒ 重启 dev server 也不重建。v1.9.0 起 `dev.js`（`start-desktop.ps1` 与快链路 launcher 都经它）在 spawn vite 前自动预检，判出 stale 即删 `apps/desktop/node_modules/.vite` 让 Vite 重建。日志指纹：`[vite-deps] state=stale … action=cleared`；清除失败则 `dev.js` exit 1 并打印需手动删除的绝对路径。**看到该报错但日志里没有 `[vite-deps]` 行** ⇒ 该会话没走 `dev.js`（直连 vite / 旧代码 / WSL 路径），按 Pitfalls「Vite 预构建缓存过期」手工删缓存 |
+| 504 空白页 | 先看启动日志有无 `[vite-deps] state=stale … action=cleared`（v1.9.0 起 `dev.js` 已自动重建缓存）；仍 504 再加 `-InvalidateViteCache` 重试 |
 | WSL electron 缺库 | `LD_LIBRARY_PATH=~/mp-wsl-deps/electron-libs` 注入；缺失则从 `/tmp/electron-libs/extracted/usr/lib/x86_64-linux-gnu/` 复制 |
 | WSL GPU 崩溃（GPU process isn't usable）| 加 `--in-process-gpu`（start-desktop-wsl.sh 已内置）|
 | WSL 数据分裂 | 确认 electron 用共享目录：`--user-data-dir=/mnt/d/Data/projects/mulpub/shared-user-data`；不要设 `ELECTRON_USER_DATA_DIR` |
@@ -496,4 +497,5 @@ const page = targets.find((t) => t.type === 'page' && t.url.startsWith('http://1
 - **worktree 注册失效致 start-desktop.ps1 不可用（2026-09-16 复盘）**：其他会话 `git worktree prune` 会移除 `.git/worktrees/<name>` 注册且可能删分支，导致 `git -C <wt> log -1` 返回空 → `start-desktop.ps1` fail-closed。此时 `start-desktop.ps1` 无法用。可靠替代：直启 `node apps/desktop/scripts/dev.js`（不依赖 git），env 设 `MP_VITE_PORT`/`MP_CDP_PORT`/`ELECTRON_USER_DATA_DIR`/`MP_PYTHON`/`MP_CDP_ALLOW_ALL_ORIGINS=1`；端口由 `dev-ports.js` 按路径派生（mp-start-app-win = vite 7364 / cdp 11412）。⚠️ `python` 必须解析到系统 3.12（前置 `C:\Users\邱领\AppData\Local\Programs\Python\Python312` 到 PATH，或显式 `MP_PYTHON` 指向它；**路径用 `$env:LOCALAPPDATA` 解析，不要字面写中文用户名，否则 GBK 乱码→ENOENT，见「启动器脚本必须纯 ASCII」**），否则托管 3.13 缺 uvicorn/pydantic/splitter → 导入即崩。
 - **CDP 验证必须带 allow-origins 开关（2026-09-16）**：外部 CDP 客户端（WorkBuddy / Python 诊断脚本）连 DevTools WebSocket 需 `--remote-allow-origins=*`，否则 403。dev-launcher.js 已加 `MP_CDP_ALLOW_ALL_ORIGINS` 开关（默认关，显式设 1 才附加 `--remote-allow-origins=*`）。启动器脚本内 `$env:MP_CDP_ALLOW_ALL_ORIGINS='1'` 才能经 CDP 拉 `servicesGetStatus()`/`listAccounts()`/`identityGetState()`。
 - **主服务 = mainBackend（端口 8299）**：`servicesGetStatus()` 返回的 6 服务中，`mainBackend` 是主服务（承载账号/后端 API 的核心）。其 `not_started` 直接导致 `listAccounts()` 报 "Python backend is not running"（账号缺失表象=后端没起来）。完整清单：mainBackend(8299, 主服务)/splitterEngine(8002)/promptEngine(8013)/callbackServer(16521, running)/mediaServer(动态高端口, running)/alignerEngine(8004, on_demand)。账号数据在 `ELECTRON_USER_DATA_DIR/backend-data/accounts.json`；切换 profile 必须复制该目录（见「profile 数据分裂」坑）。
+- **Vite 预构建缓存过期（`does not provide an export named 'X'`，2026-10-13 事故复盘，v1.9.0 自动收口）**：给 workspace 包（`packages/shared-utils` 等）**新增导出**后，渲染层一 import 就报 `does not provide an export named 'X'`（整页白屏或某页局部报错），而代码本身是对的。三个事实叠加使它必然复发：① Vite `optimizeDeps` 的缓存指纹只含 lockfile + config、**不含 workspace 源码内容**；② 源码更新后重启 dev server 也不会重建（该依赖已在 optimized 列表里，没有"新发现"）；③ 日常动作（sync-app 的 `checkout -f origin/main`、分支跳转、每日 04:00 自动化）会持续刷新 `packages/` 下文件 mtime ⇒ 只要「缓存生成时刻早于源码当前时刻」就复发，与有无代码缺陷无关。**v1.9.0 起的自动保护**：`apps/desktop/scripts/dev.js` 在 spawn vite 之前调用 `ensureFreshViteDepCache`（实现 `apps/desktop/scripts/vite-dep-cache.js`）——判据是 `packages/<pkg>/{src,dist}` 最新 mtime **严格大于** `.vite/deps` 最新 mtime ⇒ stale（相等算 fresh；扫不到任何 source 根时按 fresh 放行，宁可不动用户缓存），stale 就 `rm -rf apps/desktop/node_modules/.vite` 让 Vite 启动时重新 optimize（一次性成本约 10s）。三态留痕：`[vite-deps] state=fresh … action=none` / `state=stale … action=cleared` / `action=clear-FAILED`（后者 `dev.js` 直接 exit 1 并给出需手动删除的绝对路径，不静默带病启动）。**排障**：`MP_VITE_DEPS_CACHE_CHECK=0` 只用于排障（跳过即失去保护，须自行承担复发风险）；手工等价动作是删 `apps/desktop/node_modules/.vite` **整目录**（`-InvalidateViteCache` 只把 `deps` 改名留档、保留 `_metadata.json`，属兜底而非等价）。**不要**改用 `optimizeDeps.force: true` 换「永久不用管」——那会让每次 dev 启动都全量 optimize（10–30s），把一次性成本换成每次成本。⚠️ **覆盖边界（如实记账）**：`start-desktop.ps1` 与快链路 `mp-applive-launcher.ps1` 都 spawn `dev.js`，故 Windows 两路都受保护；**WSL 的 `scripts/start-desktop-wsl.sh` 直接起 `node_modules/vite/bin/vite.js`，不经 `dev.js`** ⇒ WSL 下遇此报错仍须手工删 `apps/desktop/node_modules/.vite` 后重启。
 - **单一事实源**：逻辑修改只改本文件；各 agent 入口只做「指向本文件 + 执行要点」，不要各自维护重复逻辑。
