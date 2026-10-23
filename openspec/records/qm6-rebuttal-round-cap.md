@@ -44,7 +44,6 @@ date: 2026-10-23
 | 行尾与编码对账 | ✅ | `scripts/deep-review.sh` 是 `attr:text eol=lf`（工作树 LF），`deep-review-entry-rc.test.js` 是 `i/lf w/crlf`（工作树 CRLF，350→431 行 CR/LF 守恒）；改后两口径 `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` **逐字相同**（82/1 与 47/0）⇒ 无 CRLF 幽灵行 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件；改动面全在 `scripts/` 工具链与 workflow |
 | QM-6 CCG 双模型外部评审 | 未闭合 | 本片改 `scripts/check-*` 判据家族所在的守门面与评审入口链（高危面前缀），因此机械上要求 `tier=external`。**当前状态：未收口，交人工**。不得手写 `tier`/`evidence`，也不得在高危面用 `closureNote` 收口（AGENTS「撞线时的处置纪律」）。本片自身正是给这条链加"何时停手"的闸，故一律人工过目、不自动合并 |
-| 远程同步 | 由门禁推导 | 不事后改写：合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导 |
 - 判定：本 PR 含 `scripts/` 工具脚本与 workflow 改动 ⇒ **不是 docs-only**，`classify-docs-only.js` 读数在 commit 之后取并写进 PR 正文
 - 保留门禁：行尾对账 ✅ | 文档同步 ✅ | 绝对路径 ✅ | QM-6 未闭合（交人工）
 

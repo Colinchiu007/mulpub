@@ -197,10 +197,30 @@ function exceedsCap (opts) {
  * （比如入口改用参数传 change）就静默失效。所以按"边界处校验"补这一格，且**只拒 `..` 段与绝对路径**：
  * 分支名合法地可以含 `/`（`team/feature`），不得顺手把字符集收紧成 kebab-only 而拒掉合法分支。
  */
+/**
+ * 绝对路径判据：**不能只看 path.isAbsolute** —— 它是**平台相关**的。
+ *
+ * POSIX 的 `path.isAbsolute('C:\\Windows')` 恒为 false（只认前导 `/`），
+ * 而同一份输入在 Windows 上为 true ⇒ 同一份 change 名在两个平台给出两个相反结论。
+ * 本函数的入参是**分支名**（可能来自任何平台的工作区），账本路径又是拿它拼出来的，
+ * 所以判据必须**平台无关**：同时拒 POSIX 绝对、盘符绝对、UNC。
+ *
+ * 现场（2026-10-23）：本仓的 R8 用例在 Ubuntu runner 上红，报
+ * `Missing expected exception: 应拒："C:\\Windows"` —— 判据实现用的是 `path.isAbsolute`，
+ * 在 Linux 上对盘符路径不判绝对 ⇒ 用例的期待（平台无关）与实现的判据（平台相关）相反。
+ * 修实现而不是改用例：用例的期待是对的（分支名可能带 `C:\`），
+ * 改成"Linux 上不拒盘符"才是把跨平台不一致固化下来。
+ */
+const WINDOWS_DRIVE_ABS_RE = /^[A-Za-z]:[\\/]/
+const WINDOWS_UNC_ABS_RE = /^\\\\/
+function isAbsoluteAnyPlatform (s) {
+  return path.isAbsolute(s) || WINDOWS_DRIVE_ABS_RE.test(s) || WINDOWS_UNC_ABS_RE.test(s)
+}
+
 function assertChangeName (change) {
   const s = String(change === undefined || change === null ? '' : change)
   if (s === '') throw new Error('change 不得为空 —— 空值会让账本落到 openspec/changes//，两个不同分支共用同一份计数')
-  if (path.isAbsolute(s)) throw new Error('change 必须是相对名，收到绝对路径：' + JSON.stringify(s))
+  if (isAbsoluteAnyPlatform(s)) throw new Error('change 必须是相对名，收到绝对路径：' + JSON.stringify(s))
   const segs = s.replace(/\\/g, '/').split('/').filter(Boolean)
   if (segs.includes('..')) throw new Error('change 含 `..` 段，拒绝拼出仓库外/跨目录的账本路径：' + JSON.stringify(s))
   return s
