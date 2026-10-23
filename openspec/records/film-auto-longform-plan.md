@@ -192,7 +192,30 @@ docs-only，无代码改动。保留门禁本地实跑结果：
 | 编号自洽 | R1–R14 / M0–M0′–M6 / A1–A28（+A20a/A20b）/ K1–K10 **无悬空引用** |
 | `check-gate-record-debt` | OK |
 
-## 7. 遗留（不在本 PR 范围）
+## 7. 本 PR 的 CI 红了 —— 但**不是本 PR 弄红的**（已用对照组判据确认）
+
+本 PR 的 `quality-gate` 在 `Gate 2b11 - QM-6 closure writeback chain` 失败，报
+`Cannot find module './lib/exec-record-statuses'`。
+
+**对照判据**（换回主干跑同一道门禁）：
+
+| 读数 | 结果 |
+|---|---|
+| 主干最新 push `c2c0bb085` 的 QG Changes | **failure**，失败步骤**完全相同** |
+| 本地在**未修**的主干上跑 `node --test scripts/deep-review-entry-rc.test.js` | **4 pass / 6 fail** |
+| 修后同一条命令 | **10 pass / 0 fail** |
+
+根因：主干上的一次提交给 `scripts/check-pr-exec-record.js:770` 新增了
+`require('./lib/exec-record-statuses')`，但测试夹具 `scripts/deep-review-entry-rc.test.js` 的
+`SCRIPT_CLOSURE` 复制清单**没跟着加这个 lib 文件** ⇒ 临时目录里缺依赖。
+⇒ **主干级存量债**（且因是 required 检查，挡住全仓所有 open PR，本 PR 是被殃及的）。
+
+**处置**：**不在本 PR 里混改代码**（本 PR 是 docs-only 方案文档），
+**另开 PR 修那一行** ⇒ `Colinchiu007/mulpub#4348`（分支 `fix/deep-review-entry-lib-closure`，
+与本 PR **零文件重叠**，可独立合并）。
+⇒ #4348 合并后本 PR 的该门禁即转绿。
+
+## 8. 遗留（不在本 PR 范围）
 
 - M0 的三个取证需在**有可用视频 provider** 的环境下跑；开发机默认模型无通道（上游 G8 的原委）。
 - 本 PR **只落方案，不落任何代码**。代码落地按 M0 / M0′ → M1–M6 逐里程碑独立 PR。
