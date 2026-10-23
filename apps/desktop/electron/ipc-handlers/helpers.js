@@ -122,10 +122,15 @@ function _isTestEnv() {
  * 已打包应用或已提供 senderFrame 时始终执行真实来源校验。
  *
  * @param {(event: import('electron').IpcMainInvokeEvent, ...args: any[]) => Promise<any> | any} fn - 原始 handler（通常已用 wrapIpcHandlerRaw 包装）
+ * @param {object} [opts]
+ * @param {(event: import('electron').IpcMainInvokeEvent) => void} [opts.onUntrusted] - 来源不可信时的回调
+ *   （**给需要留痕的通道用**：来源门禁在 handler **之前**拦截 ⇒ handler 里的代码根本不会执行
+ *   ⇒ 未授权调用若要进审计，只能由这一格回调补写）
  * @returns {(event: import('electron').IpcMainInvokeEvent, ...args: any[]) => Promise<any>} 包装后的 handler，先校验 sender 可信再执行原逻辑
  */
-function withSenderCheck(fn) {
+function withSenderCheck(fn, opts) {
   const isTest = _isTestEnv()
+  const onUntrusted = opts && typeof opts.onUntrusted === 'function' ? opts.onUntrusted : null
   return async (event, ...args) => {
     // 仅兼容未打包应用中没有 senderFrame 的旧测试 mock。
     if (isTest && app && app.isPackaged === false && (!event || !event.senderFrame)) {
@@ -133,6 +138,10 @@ function withSenderCheck(fn) {
     }
     if (!isTrustedSender(event, app)) {
       log.warn('[IPC] 未授权的调用来源:', event && event.senderFrame && event.senderFrame.url)
+      // ⚠ 回调**不得抛**（它在这里执行 ⇒ 抛了会把「未授权」变成「内部错误」）
+      if (onUntrusted) {
+        try { onUntrusted(event) } catch (e) { log.warn('[IPC] 未授权来源留痕失败:', e && e.message) }
+      }
       return { code: EC.AUTH_ERROR, message: '未授权的调用来源' }
     }
     return fn(event, ...args)

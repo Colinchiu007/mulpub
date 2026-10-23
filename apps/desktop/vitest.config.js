@@ -40,6 +40,13 @@ module.exports = defineConfig({
       // ⚠️ 必须显式登记：vitest 的 include 是白名单，未登记的测试文件**一个都不会跑**，
       // 而 CI 仍然全绿——本仓 startup-compat.test.js 就这样逃逸过一次（见 learnings「测试不执行」）。
       'electron/monitor-preload.test.{js,ts}',
+      // ⚠️ 2026-10-23 补登记：`electron/preload.test.js`（**文件**在 `electron/` 根下，
+      //   不被 `electron/preload/**/*.test.js` 覆盖）此前**从未被 vitest 跑过**
+      //   ⇒ 它里面的断言（包括「preload API 有多少个方法」）一直是**死条文**：
+      //   PR-3b 给 film-engineering preload 加了 `importKit`（26 → 27），
+      //   那句 `toBe(26)` 红了却没人看见（CI 全绿）。
+      //   教训与 startup-compat.test.js 同型：**未登记的测试文件 = 没有测试**。
+      'electron/preload.test.{js,ts}',
       'electron/stealth/**/*.test.{js,ts}',
       'electron/tests/**/*.test.{js,ts}',
       'tests/**/*.test.{js,ts}',

@@ -45,6 +45,10 @@ function createFilmEngineeringApi (ipcRendererRef = ipcRenderer) {
       autoRegenerateShot: (payload) => ipcRendererRef.invoke('film-engineering:auto-regenerate-shot', payload),
       autoCompose: (payload) => ipcRendererRef.invoke('film-engineering:auto-compose', payload),
       onAutoUpdate: (callback) => { const h = (_e, p) => callback(p); ipcRendererRef.on('film-engineering:auto-update', h); return () => ipcRendererRef.removeListener('film-engineering:auto-update', h) },
+      // ── 资产导入（PR-3b · F-J 写路径）──────────────────────────────
+      // ⚠ **入参为空**：路径只能由主进程的原生对话框返回（renderer 无法指定替换内容）；
+      //   失败时 errorCode = 方案 §五 的 reason 闭集值（渲染端据此本地化）。
+      importKit: () => ipcRendererRef.invoke('film-engineering:import-kit'),
     },
   }
 }

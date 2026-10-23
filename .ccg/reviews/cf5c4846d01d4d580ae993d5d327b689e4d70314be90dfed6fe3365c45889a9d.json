@@ -1,0 +1,61 @@
+{
+  "sha": "43f34d68fb01c441e174451b98a5c7b43f5634e4",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| i1 | Critical / security | \"写路径操作（替换用户 kit）的授权边界明确推迟到后续批次；本批仅依赖 `withSenderCheck` + 审计增强。这意味着恶意 renderer 可触发导入，审计只能事后可见，无法阻止破坏性替换.\" / \"在本批至少增加服务层的最小授权断言（如只允许特定 sender URL 或组件标识），否则写路径无实际防御.\" | **成立·已改**（**方向性反转**）：第 16 轮把路由断言降级为「只做审计」，本轮判定那等于**写路径无防御** ⇒ 改为**硬断言**，但用**前缀**匹配（`/film-engineering`，**三个标签页都在这条路由下 ⇒ 不误伤合法调用**），并保留「判不到组件」的诚实边界；`reason` 加 `UNAUTHORIZED_SENDER`（14 → **15 值**） | §三 S20 / §一 边界③ / §四 取舍③ / §五 |",
+      "| S20 | **写路径的 sender 路由断言（硬）**：`film-engineering:import-kit` 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，`pathname` 恒为 `/`）⇒ 路由**前缀**须为 `/film-engineering`（**三个标签页都在这条路由下** ⇒ **不会误伤合法调用**）⇒ 不命中 ⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：该断言只能判到「调用方**当前在**影视工程路由」，**判不到组件**（SPA 同一文档承载三标签页）⇒ **组件级授权仍不做**；⚠ URL 里解析不出路由（某些打包形态无 hash）⇒ **放行 + 审计警告**（fail-open，避免误伤）；⚠ **另一道不依赖 URL 的屏障**：handler **入参为空**、路径只能来自原生对话框 ⇒ 任意可信渲染进程**无法指定替换内容** |",
+      "| S20 | **写路径的 sender 路由断言（硬）**：`film-engineering:import-kit` 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，**`pathname` 恒为 `/` ⇒ 不参与判断**）—— **解析口径写死**：`new URL(url).hash` ⇒ 去前导 `#` ⇒ 取 `?` 之前的部分 ⇒ 去尾斜杠 ⇒ 与前缀 `/film-engineering` 比较；**`hash` 缺失/为空 ⇒ 判为「解析不出」** ⇒ 放行 + 审计警告（fail-open）；测试必须覆盖「`pathname=/` + `hash` 有路由」「`hash` 缺失」两种形态⇒ 路由**前缀**须为 `/film-engineering`（**三个标签页都在这条路由下** ⇒ **不会误伤合法调用**）⇒ 不命中 ⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：该断言只能判到「调用方**当前在**影视工程路由」，**判不到组件**（SPA 同一文档承载三标签页）⇒ **组件级授权仍不做**；⚠ URL 里解析不出路由（某些打包形态无 hash）⇒ **放行 + 审计警告**（fail-open，避免误伤）；⚠ **另一道不依赖 URL 的屏障**：handler **入参为空**、路径只能来自原生对话框 ⇒ 任意可信渲染进程**无法指定替换内容** |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "cf5c4846d01d4d580ae993d5d327b689e4d70314be90dfed6fe3365c45889a9d",
+  "decidedAt": "2026-10-22T23:59:00.758Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "sha": "3abb102c09812e850fdf6bde26ca91b9fe4c82e7",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "3. **授权边界**：窗口级/组件级授权**不在本批**，处置**只写在 §四 取舍③**（此处不重复）。本批做法 = `withSenderCheck` + **S20 的 sender 路由前缀硬断言**（路由不在 `/film-engineering` ⇒ 拒绝）+ 全量审计。",
+      "3. **授权边界**：窗口级/组件级授权**不在本批**（取舍说明见 §四 取舍③）；本批做法 = `withSenderCheck` + **S20 的 sender 授权硬断言**（主框架 + 路由前缀）+ 全量审计。",
+      "| S20 | **写路径的 sender 授权断言（硬）** —— 两条：① **只允许主框架调用**：`event.senderFrame.parent` 存在 ⇒ **子框架** ⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）⇒ iframe/嵌入页打不到写路径；② **路由前缀断言**：解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，**`pathname` 恒为 `/` ⇒ 不参与判断**）—— **解析口径写死**：`new URL(url).hash` ⇒ 去前导 `#` ⇒ 取 `?` 之前的部分 ⇒ 去尾斜杠 ⇒ 与前缀 `/film-engineering` 比较；**写路径一律 fail-closed**：前缀不匹配**或**路由解析不出（`hash` 缺失/为空）⇒ **拒绝**（`UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：同一文档内的注入**仍可**触达本通道（同源 ⇒ 路由可伪造 ⇒ 判不到组件）⇒ 真正的屏障是「**目录只能由用户原生选**」+ 严格校验不落盘 + 全量审计 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "69e2aa744ead36ad1cba9e45c934a990bd1f269475dfe79ab7b86bb195dc97ce",
+  "decidedAt": "2026-10-23T02:34:31.304Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

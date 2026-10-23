@@ -720,14 +720,19 @@ describe('子模块 require 链可加载', () => {
 
 describe('影视工程 film-engineering preload API', () => {
   // 25 → 26（2026-10-10，新增 productionRetryShot：出片台账批次的单镜重试通道）。
+  // 26 → 27（2026-10-23，PR-3b 新增 importKit：资产导入**写路径**）。
+  // ⚠ 本文件此前**从未被 vitest 跑过**（`electron/preload.test.js` 在 `electron/` 根下，
+  //   不被 `electron/preload/**/*.test.js` 覆盖）⇒ 26 → 27 这次红了却没人看见。
+  //   已把该文件**登记进 vitest include**（见 vitest.config.js 的显式登记块）。
   // 计数断言的意图是「方法面不得无理由增减」，故同时钉住新增方法名——只改数字会让
   // 下一次误加方法时，人和 CI 都失去参照。
-  it('createFilmEngineeringApi 应为函数且返回 26 个方法', () => {
+  it('createFilmEngineeringApi 应为函数且返回 27 个方法', () => {
     const { createFilmEngineeringApi } = require('./preload/film-engineering')
     expect(typeof createFilmEngineeringApi).toBe('function')
     const api = createFilmEngineeringApi(ipcRenderer)
-    expect(Object.keys(api.filmEngineering).length).toBe(26)
+    expect(Object.keys(api.filmEngineering).length).toBe(27)
     expect(api.filmEngineering.productionRetryShot).toBeTypeOf('function')
+    expect(api.filmEngineering.importKit).toBeTypeOf('function')
   })
 
   it.each([
@@ -778,5 +783,20 @@ describe('影视工程 film-engineering preload API', () => {
     expect(requiredLevelForChannel('film-engineering:auto-start')).toBe('public')
     expect(requiredLevelForChannel('film-engineering:auto-stop')).toBe('public')
     expect(requiredLevelForChannel('film-engineering:auto-regenerate-shot')).toBe('public')
+  })
+
+  // ⚠ 2026-10-23 **验证层外部双家族评审**（claude i1 / codex i1，**两家独立命中**）修：
+  //   `filmEngineering.importKit` 是**破坏性写操作**（整体替换 userData/film-kit），
+  //   初版却被登记进 `PUBLIC_METHODS` —— 而它**上面那段注释白纸黑字写着**
+  //   「不登记为 public（未登录不可用）」⇒ **注释与代码自相矛盾**，
+  //   未登录态事实上能触发一次资产替换。
+  it('资产导入**不得**登记为 public（写路径 ⇒ 需登录）', () => {
+    const { PUBLIC_METHODS } = require('./preload/access-control')
+    const { requiredLevelForMethod } = require('./preload/access-control')
+    const { requiredLevelForChannel } = require('./ipc-handlers/license-access-control')
+    expect(PUBLIC_METHODS).not.toContain('filmEngineering.importKit')
+    expect(requiredLevelForMethod('filmEngineering.importKit')).toBe('authenticated')
+    // 主进程侧同样不得公开
+    expect(requiredLevelForChannel('film-engineering:import-kit')).not.toBe('public')
   })
 })
