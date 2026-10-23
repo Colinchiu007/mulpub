@@ -1,6 +1,6 @@
 ---
 record: qm6-rebuttal-round-cap
-task: 把外部深审的"已否证清单 + 跨调用轮次上限"立成合同（只落文档，实现未开工）
+task: 外部深审的跨调用轮次上限（§1 已落地）+ 已否证清单（§2 未开工，以仓外引擎授权为前提）
 date: 2026-10-23
 ---
 
@@ -44,6 +44,7 @@ date: 2026-10-23
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/electron/`、`packages/rpa-engine/` 与任何 UI 文件；改动面全在 `scripts/` 工具链与 workflow |
 | QM-6 CCG 双模型外部评审 | 未闭合 | 本片改 `scripts/check-*` 判据家族所在的守门面与评审入口链（高危面前缀），因此机械上要求 `tier=external`。**当前状态：未收口，交人工**。不得手写 `tier`/`evidence`，也不得在高危面用 `closureNote` 收口（AGENTS「撞线时的处置纪律」）。本片自身正是给这条链加"何时停手"的闸，故一律人工过目、不自动合并 |
 | 远程同步 | 由门禁推导 | 不事后改写：合并后由 `scripts/lib/merge-ledger.js` 按 squash 尾注推导 |
+⛔ 本分支这篇记录有**两个**执行块，但 `| 远程同步 |` 收口行**全篇只写一行**（写在末块=实现片那节）：`check-gate-record-debt.js` 的 `dupClosureRows` 判据是「结果文件 >1 行且本 PR 新增行 ⇒ 红」，第二个块再写一行就是它点名的"绕过收口锁最自然的退化形态"（本轮 CI `QG Changes` 就是被这一格打红的，见 §第三轮之后）。反向的坑同样真踩过：并发会话各删一行、rebase 自动合完⇒**零行**，`missingRecordRows` 立刻判红（见末块之后那条实录）。
 - 判定：本 PR 含 `scripts/` 工具脚本与 workflow 改动 ⇒ **不是 docs-only**，`classify-docs-only.js` 读数在 commit 之后取并写进 PR 正文
 - 保留门禁：行尾对账 ✅ | 文档同步 ✅ | 绝对路径 ✅ | QM-6 未闭合（交人工）
 
@@ -116,3 +117,54 @@ date: 2026-10-23
 
 **未闭合项不变**：本 PR 的 QM-6 收口仍需一轮"零 Critical 的真外部评审"拿 `tier=external`；
 round 3 是本闸允许的最后一次自动尝试（3/3），跑完若仍有 Critical，按 §4/§7 的合同**交人工**，不再加轮。
+
+
+## 第三轮外部评审（round 3 = 上限那一轮，载荷 `cee109520`，2026-10-23）
+
+`sh scripts/deep-review.sh` 真跑：critic 交付 **8 条**（4 Critical / 3 Warning / 1 Info）、维度最低分 **4**
+⇒ 仍落第三档 `self_play_pending`，写回器 `reason=not-closed`。计数侧 `外部评审轮次 第 3/3 轮` +
+`[rounds] counted=1 round=3`。**这就是本片立项要结束的那种循环第三次开机**：轮 1 交付 7 条、轮 2 交付 8 条、
+轮 3 交付 8 条，其中同一指控（无跨进程锁）第三次原样回来，而新增的两条是形状与风格问题。
+按合同到此为止：**不跑第 4 轮、不删账本、不手写 `tier`/`evidence`、不在高危面用 `closureNote`**，交人工。
+
+逐条处置（口径沿用前两轮：**采纳观察、否证结论**，每条给可复跑证据）：
+
+| # | 严重度 | 处置 | 证据 |
+| --- | --- | --- | --- |
+| i1 `e14…` 记着 `skip` 而差量含运行时代码 | Critical | **否证**：那枚产物由判定器按 `d21b86b21` **那一笔**的差量算出（纯 openspec ⇒ `skip`/`required=false`，逐笔判定本来就是既有语义）；欠账判据只要求 `mode=dual` 的产物收口 | 当场 `--base=$(git merge-base origin/main HEAD) --mode=enforce` ⇒ rc=1 且打印 `CCG 深度审查欠账 **1** 条`，点名 `842dc2554…（mode=dual，status=self_play_pending）`；`TIER-COVERAGE dual-closed total=0` |
+| i2 跨进程竞态未修 | Critical | **维持前两轮结论**：这是 §1.8 已登记的残留，本机 4 进程探针仍未复现丢更新 ⇒ 不加没验证过的锁 | 同一指控第三次原样回来，正是"机制对重复没有记忆"的现场样本 |
+| i3 读不出=超限，无"没预算/没证据"之分，可被文件损坏 DoS | Critical | **采纳前半（两档确实都存在）、否证后半**：分档是刻意的取向反转（round 2 i3），且两档在产物上可区分 | CLI 打 `exceeded=1 unreadable=1` vs `exceeded=1 unreadable=0`；入口 `deep-review.sh` 对两档各说各话（`轮次读数不可用` / `账本读不出` / `已达上限`）；锁 R6/R10/R11。损坏账本的出口写在红文案里（人工看过再修，**不要删文件再跑**） |
+| i4 shell 用 `tr`/`sed` 解析且不看退出码 | Critical | **否证：这条描述的是第二轮之前的形状**，i5（第二轮）已落地修复 | `deep-review.sh:900-905` 五键必须齐且为纯数字，否则 `_QM6_UNPARSED=1` ⇒ `:921` 打印 CLI 原文并 `exit 1`；`|| echo '…unreadable=1…'` 兜住非零退出；形状本身由 R11 钉成合同 |
+| i5 `MP_QM6_MAX_ROUNDS` 无上限，设 99999 即关闸 | Warning | **采纳观察、结论交人工**：`capOf` 只验正整数（`lib/ccg-review-rounds.js:93`），确无 ceiling。加不加属"谁来守门"，不在本片自选 | 三点如实记下：额度是操作者自己的；每轮都打印 `第 N/max`，把 max 改成 99999 在日志与账本 diff 里都可见；`external-rounds.json` 受管 ⇒ 绕过会留在 PR 上 |
+| i6 `defaultLedger` 依赖 `process.cwd()`，`assertChangeName` 只在 CLI | Warning | **否证 cwd 那半**（入口 `deep-review.sh:55` 自己 `cd "$ROOT" || exit 2`）；**登记库侧那半为可选加固**：目前除 CLI 与本测试外无 importer（`grep -rn defaultLedger scripts/` 只这三处），把校验下沉到 `defaultLedger` 是零风险但需要新锁的一格，交人工 | 同 i1 的 enforce 读数；grep 结果逐条列出 |
+| i7 `tasks.md` 混着未开工草案与调试流水 | Warning | **采纳草案那半**（§2 的 Requirement 已整块搬出 spec delta，未开工逐条点名）；**否证"临时记录不该留正文"那半**：本仓的记录文化要求现场教训与实测数字随交付写全（AGENTS「不假装已闭合」），M-f 首轮 MISSED 那条正是下一个人要读的 | 见本篇 §第一/二轮 与 tasks §5/§6 |
+| i8 原子写用有界自旋 | Info | **采纳事实、不改码**：确为 `while (Date.now() < end)`，`ATTEMPTS=5`、`wait=40*attempt` ⇒ 最坏只在 `EPERM/EACCES/EBUSY` 上自旋合计 **400ms**。不改的理由不是"没必要"，是**这条改动的验证故事很弱**：`Atomics.wait` 与自旋对调用方逐字等价，任何"不再忙等"的断言只能写成文本锁——那正是要防的装饰性断言 | 函数体在 `lib/ccg-review-rounds.js` 的 `writeJsonAtomic` |
+
+### 第三轮之后：本 PR 自己被 CI 打红的一处缺陷（不是我修的判据发现的，是它发现的）
+
+`QG Changes`（run 39914783195，载荷 `6ddfbfb4e`）红在步骤 `Detect docs-only changes`，**不是** `classify` 取不到
+base/head——那行 `::error::取不到本 PR 的 base/head（[]/[]）` 是**步骤正文被回显**（`bash -e` 在它之前就退了）。
+真正的失败在同一个步骤块更后面的 `node scripts/check-gate-record-debt.js --carrier-mode=visible`：
+
+```
+HAND-CLOSURE 人工改写=0 新增重复行=1 记录被删=0 触碰记录=1
+❌ 本 PR 给已经有多行的记录又新增了 `| 远程同步 |` 行 1 篇 …
+  qm6-rebuttal-round-cap.md —— 结果内容 2 行，本次又加 2 行
+```
+
+根因是我自己的记录形状：本篇有**两个执行块**（合同片 + 实现片），而我在第二块又写了一行收口行。
+判据 `check-gate-record-debt.js:334` 的条件是 `addedRowLines > 0 && count > 1` ⇒ 一篇记录只准一行。
+本机同一条命令复现 rc=1，删掉第二块那行后 `新增重复行=0`、rc=0（当场重跑取数，不靠推理）。
+**这条不是评审提到的**：轮次上限管的是"调用模型"，管不着"闸门自己会抓什么"——所以第三轮的 8 条里没有它，
+而它在 push 后被 CI 抓到。已在本篇第二个块留一句显式禁令，免得下一个会话给第二个块"顺手补一行"。
+
+**紧接着的同格第二次红（并发删行的净零形态，实测）**：我按下红后本地提交，`git push` 被拒——
+远端已多出一枚并发会话的 `a4799f133 fix(records): 一个记录文件只留一行「远程同步」`，
+它删的是**第一块**那行、留末块；我删的是**末块**那行、留第一块。`git rebase origin/<本分支>` **一次冲突都没报**
+（两侧删的是不同行，git 各自应用），结果文件里 `| 远程同步 |` 行数 = **0**，
+`missingRecordRows` 当场判红：`❌ 记录文件整块缺 远程同步 行 1 篇 —— qm6-rebuttal-round-cap.md`。
+三条口径记下来：① **"Successfully rebased" 不等于合并结果合法**，两侧各删一行的自动合并只会把两条欠账都清掉；
+② 收口这一格的判据是**双向**的（>1 行红、0 行也红），所以并发处置的唯一安全做法是
+"先读对方的版本、再决定保留哪一块"——这里采纳对方那半（删第一块、留末块），我的新增散文单独重放并改写指向；
+③ 复跑必须在**rebase 之后**再做一次，`git diff --numstat` 与 rc 都是当场取的，不沿用重放前的读数。
+
