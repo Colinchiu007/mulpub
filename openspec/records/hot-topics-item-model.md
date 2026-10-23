@@ -68,3 +68,16 @@ date: 2026-10-18
 **为什么不收口**：本片判定是 `dual`（436 行 / 8 个源文件），不是假阳性 ⇒ 门禁给的合规出口（"写明原因并把 status 置为闭环值"）在这里用就是拿自扮演顶替外部评审。两份旧 dual 产物 `39caed93…` / `5fcbd5ea…` 仍 `pending`，第 8-9 次尝试的 `fe4c8652b…json`（`status=error`）**刻意不入库**——多提交一份未闭环 dual 只会让 CI 多一条红，而它并不比现状更真实。
 
 **本轮顺带抓到 #3927 自身的一个缺陷**（只有在真去换后端时才现形）：`reviewBackends` 由**提交时**的判定器写入，而操作者可以在**评审时**才换后端；那时记录里是 `claude`、驱动回填 `performedBy=codex` ⇒ 对账判未闭合，即我自己的机制把它支持的用法判成红。已立 follow-up（入口在调用驱动前把评审时的请求值回写进它解析到的那份记录；驱动 writeBack 只替换 `deepReview` 对象，顶层字段可存活）。
+
+## 补记：CI 红（`债务熔断检查` / `Gate Result`）的定位与修复（2026-10-23）
+
+| 门禁 | 状态 | Fresh 证据 |
+|------|------|-----------|
+| 失败步骤定位 | ✅ | `债务熔断检查` 日志原文：`❌ NEW_OVER_LIMIT: apps/desktop/electron/services/hot-topics/channels.js 504 行 >= 500，新代码不得引入超大文件（按既有 mixin/composable 范式…）` |
+| 第一性原因（QM-5 ①） | ✅ | 本 PR 给 **13 个渠道 parser** 各加一行 `kind: KIND_TOPIC`（条目模型的 kind 判别位），把该文件从 488 行顶到 503 行 ⇒ 越过 500 行上限 |
+| 逃逸分析（QM-5 ②） | ✅ | 该文件此前 488 行、**不在挂账清单里**；`NEW_OVER_LIMIT` 只在**新代码把文件顶过上限**时触发 ⇒ 单元测试与 E2E 都测不到（它们不查行数），只有 CI 的 `check-max-lines` 会拦 ⇒ 本地跑测试全绿也发现不了 |
+| 系统性漏洞（QM-5 ③） | ✅ | 「渠道解析器」与「HTML 文本处理工具」两类关注点挤在同一个文件里 ⇒ **任何一个渠道加一个字段**都会顶到这个共享文件，把「加字段」变成「触发全局门禁」 |
+| 修复（QM-5 ③④） | ✅ | 按仓内「既有 mixin/composable 范式」把两类关注点拆成独立模块：<br>① `hot-topics/html-utils.js`（`decodeHtmlEntities` / `stripTags` / `stripTagsJoined` / `extractLinks` —— 纯文本处理，与渠道语义无关）<br>② `hot-topics/channels-gyread.js`（`parseGyreadIndex` / `parseGyreadEdition` —— gyread 是独立来源：每日编辑精选的日报，不是热度榜单）<br>③ `channels.js` 504 → **368 行**。函数体**逐字搬移**，`channels.js` 的导出集合（23 个名字）保持不变 |
+| 回归保护（QM-5 ④） | ✅ | **A/B 实跑比对**（搬移前 vs 搬移后同一批样本）：<br>· 20 个函数（15 个渠道 parser + `parseCnNumber` + 4 个文本函数）逐个比对输出 ⇒ **逐字节一致**<br>· 4 个文本函数各 **500 例随机 fuzz** ⇒ 一致<br>· `channels.js` 导出集合比对 ⇒ 23 个名字一致<br>· 三个文件 `node --check` ⇒ OK<br>· **A/B 抓到一处真缺陷**：`extractLinks` 用到的 `sanitizeUrl` 原本定义在 `channels.js`，搬走后在 `html-utils.js` 里成了未定义标识符 ⇒ 运行到就 ReferenceError（被 `try/catch` 吞掉 ⇒ 静默失效）。已在 `html-utils.js` 内补 `const sanitizeUrl = safeHttpUrl`（同一共享实现）后复跑 A/B 全绿 |
+| 判据复跑 | ✅ | 在**真实 merge preview**（main ⊕ 本分支）上 `node .github/scripts/check-max-lines.js` → **✅ 无新增超大文件，挂账清单与现实一致。** |
+| 防止再次发生（QM-5 ⑤） | ✅ | ① 文件按关注点分模块后，单个渠道的字段增删不再顶到共享文件；② 搬移类改动一律附 **A/B 实跑比对**（不是"看一眼像对"），把"行为等价"变成可复跑的机械证明 |
