@@ -74,6 +74,13 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
   }
   if (!nextClicked) {
     if (log) log.warn('RpaView', '[' + platform + '] cover dialog: 下一步 never became clickable (解析超时)')
+    // 2026-10-23 真机：封面失败后弹窗**仍然开着**，会遮挡发布按钮 ⇒ 之后点发布只打在遮罩上（
+    // 表现为 publishing 有日志但作品列表无内容）。失败路径必须先关弹窗再继续。
+    try {
+      const closed = await win.webContents.executeJavaScript('(function(){var w=["取消","关闭","×"];var all=[].slice.call(document.querySelectorAll("button,div,span,a"));for(var i=0;i<all.length;i++){var s=(all[i].innerText||"").trim();if(w.indexOf(s)>=0&&all[i].getClientRects().length>0){all[i].click();return s}}return ""})()', true).catch(() => '')
+      if (log) log.warn('RpaView', '[' + platform + '] cover dialog closed after failure: ' + (closed || 'none'))
+    } catch (_e) { /* 无弹窗可关 */ }
+    await sleep(800)
     return { ok: false, step: 'no-next' }
   }
 
