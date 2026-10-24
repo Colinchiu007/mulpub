@@ -130,7 +130,9 @@ test('② findings 缺席 / 非数组 / 空数组 ⇒ 三种都不写，各自�
 test('③ performedBy ≠ 上层透传的期望后端 ⇒ 不写（backend-mismatch）', () => {
   withRecord(deliveredRecord({ performedBy: 'self-play' }), (file, before) => {
     const res = run(file, before)
-    assert.strictEqual(res.reason, 'backend-mismatch')
+    // 2026-10-24 起 self-play 有第二条出口，所以这一格的**名字**变了；"不写"这条判据不变。
+    // 刻意保留这个用例而不是删掉它：删掉就等于让"self-play 无公开复核"落到某个默认分支。
+    assert.strictEqual(res.reason, 'no-adjudication-evidence')
     assert.strictEqual(res.wrote, false)
   })
   withRecord(deliveredRecord({ performedBy: 'Claude' }), (file, before) => {
@@ -385,4 +387,134 @@ test('④-g 真跑一次 lib 的指纹出口：入口就是用它取动手前指
     assert.strictEqual(String(r.stdout).trim(), c.beforeFingerprint,
       'shell 侧拿到的指纹必须与判据用的是同一份实现算出来的（否则 ④ 的两边永远不等）')
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+// ── 合取③ 的第二条出口：自扮演收口 + 公开可核复核（用户 2026-10-24 裁决授权） ──
+// 原五格在直签档一字不动；这里只**新增**一条窄路径，且每个缺件各有各的红因文案
+// （把"忘了传 URL"和"根本没跑外部评审"塌成同一句话，人会去修错的那一格）。
+const ADJ_URL = 'https://github.com/Colinchiu007/mulpub/pull/4308#issuecomment-6370125410'
+
+function adjudicableRecord (drOver, recOver) {
+  const rec = deliveredRecord(Object.assign({
+    status: 'self_play_resolved',
+    performedBy: 'self-play',
+    confidenceWeight: 0.6,
+    blocking: [],
+    requiresExternalReview: []
+  }, drOver || {}))
+  rec.deepReview.findings = rec.deepReview.findings.map((f, i) => Object.assign({}, f, {
+    verdict: 'dismissed',
+    rationale: '轮 6 i' + (i + 1) + ' 的现场判据见 §D21 表第 ' + (i + 1) + ' 行',
+    highRiskDomains: []
+  }))
+  rec.reviewBackends = { proposer: 'opencode', critic: 'claude' }
+  return Object.assign(rec, recOver || {})
+}
+
+/** 动手前那一刻的样子：引擎还没写终值（status 中间态、逐条裁决未填）。 */
+function adjBefore () {
+  const rec = adjudicableRecord({ status: 'self_play_pending' })
+  rec.deepReview.findings = rec.deepReview.findings.map((f) => {
+    const c = Object.assign({}, f)
+    delete c.verdict
+    delete c.rationale
+    return c
+  })
+  return rec
+}
+
+function runAdj (file, beforeBytes, adjEvidence, expectedCritic) {
+  return mod().applyWriteback({
+    recordPath: file,
+    beforeBytes,
+    expectedCritic: expectedCritic === undefined ? 'claude' : expectedCritic,
+    adjudicationEvidence: adjEvidence
+  })
+}
+function runAdjDelivery (beforeRec, afterRec, url) {
+  return withDelivery(beforeRec, afterRec, (file, beforeBytes) => runAdj(file, beforeBytes, url))
+}
+
+test('自扮演收口 + 公开复核 URL ⇒ 写 tier=external，但来源被显式声明成另一档', () => {
+  withDelivery(adjBefore(), adjudicableRecord(), (file, beforeBytes) => {
+    const r = runAdj(file, beforeBytes, ADJ_URL)
+    assert.equal(r.wrote, true, '六件齐备却不写：' + r.reason + ' ' + (r.detail || ''))
+    assert.equal(r.reason, 'adjudicated-self-play', '写回必须说出它走的是**哪条出口**，不得与直签档共用 null')
+    assert.ok(r.spoke.includes('adjudication-conditions'), '六件前置必须单独打点，实得 ' + JSON.stringify(r.spoke))
+    assert.ok(r.spoke.includes('delivery-changed'), '④ 对两条出口一视同仁：本次驱动没刚产出过就不给章')
+    const after = JSON.parse(fs.readFileSync(file, 'utf8')).deepReview
+    assert.equal(after.tier, 'external')
+    assert.equal(after.tierBasis, 'adjudicated-self-play', '不写来源就是把这一档混进直签档（改宽不可见）')
+    assert.equal(after.evidence, ADJ_URL, 'evidence 必须是那条能点开的 URL，而不是另造一种形态')
+    assert.match(after.adjudicationDigest, /^adjudicated@[0-9a-f]{64}$/)
+    assert.notEqual(after.evidence, after.adjudicationDigest)
+    assert.equal(after.performedBy, 'self-play', '出口放宽不等于改写"谁做的裁决"——那一格必须仍是原值')
+    assert.equal(after.status, 'self_play_resolved', 'status 仍由引擎写，写回器不得代写')
+  })
+})
+
+test('缺公开复核 ⇒ no-adjudication-evidence；形态不对 ⇒ adjudication-evidence-form（两格不得共用文案）', () => {
+  for (const [url, want] of [[undefined, 'no-adjudication-evidence'], ['见内部群消息 2026-10-24', 'adjudication-evidence-form']]) {
+    const r = runAdjDelivery(adjBefore(), adjudicableRecord(), url)
+    assert.equal(r.wrote, false, want + ' 竟然放行了')
+    assert.equal(r.reason, want, '"忘了传 URL"与"本轮没跑外部评审"修法相反（前者补参数、后者去跑评审），塌成一句必被误修')
+  }
+})
+
+test('拒绝写入时文件必须逐字节不动（自扮演档同样适用"返回 false 不等于没动文件"）', () => {
+  withDelivery(adjBefore(), adjudicableRecord(), (file, beforeBytes) => {
+    const untouched = fs.readFileSync(file)
+    const r = runAdj(file, beforeBytes, undefined)
+    assert.equal(r.wrote, false)
+    assert.equal(fs.readFileSync(file, 'utf8'), untouched.toString('utf8'), '缺件却动了文件 ⇒ 半次写回')
+  })
+})
+
+test('自扮演档还要挡：blocking 非空 / 逐条裁决不全 / 本轮请求的后端与期望不一致 / 权重不是一档自扮演', () => {
+  const cases = []
+  const blocking = adjudicableRecord({ blocking: [{ id: 'i1', reason: 'self_play_upheld' }] })
+  cases.push([blocking, 'blocking-not-empty'])
+  const noRationale = adjudicableRecord()
+  noRationale.deepReview.findings[0].rationale = '   '
+  cases.push([noRationale, 'verdicts-incomplete'])
+  const noVerdict = adjudicableRecord()
+  delete noVerdict.deepReview.findings[1].verdict
+  cases.push([noVerdict, 'verdicts-incomplete'])
+  cases.push([adjudicableRecord(null, { reviewBackends: { proposer: 'opencode', critic: 'opencode' } }), 'backend-request-mismatch'])
+  cases.push([adjudicableRecord({ confidenceWeight: 1 }), 'confidence-weight-absent'])
+  cases.push([adjudicableRecord(null, { reviewBackends: undefined }), 'backend-request-mismatch'])
+  for (const [rec, want] of cases) {
+    const r = runAdjDelivery(adjBefore(), rec, ADJ_URL)
+    assert.equal(r.wrote, false, want + ' 竟然放行了')
+    assert.equal(r.reason, want, '红因点名错了，实得 ' + r.reason + ' / ' + (r.detail || ''))
+  }
+})
+
+test('performedBy 写成第三个模型名 ⇒ 仍走 backend-mismatch，新档不为它开门', () => {
+  const rec = adjudicableRecord({ performedBy: 'gpt' })
+  const r = runAdjDelivery(adjBefore(), rec, ADJ_URL)
+  assert.equal(r.wrote, false)
+  assert.equal(r.reason, 'backend-mismatch', '新档只认 performedBy="self-play"；放行任意值等于把合取③整个删掉')
+})
+
+test('直签档一字不动：performedBy 等于期望后端时不得要求 URL，也不得写 tierBasis', () => {
+  const res = runWithDelivery(deliveredRecord({ status: 'pending' }), deliveredRecord())
+  assert.equal(res.wrote, true, '直签档被新逻辑挡住了：' + res.reason + ' ' + (res.detail || ''))
+  assert.equal(res.reason, null, '直签档的 reason 仍为 null——分档靠"有没有 tierBasis"，不靠新枚举')
+  return withDelivery(deliveredRecord({ status: 'pending' }), deliveredRecord(), (file, beforeBytes) => {
+    run(file, beforeBytes)
+    const after = JSON.parse(fs.readFileSync(file, 'utf8')).deepReview
+    assert.equal(after.tier, 'external')
+    assert.equal(after.tierBasis, undefined, '直签档写上 tierBasis 等于把两档又合并回去')
+    assert.equal(after.adjudicationDigest, undefined)
+    assert.match(after.evidence, /^delivery@/, '直签档的 evidence 仍是 delivery 摘要，不得顺手改成 URL')
+  })
+})
+
+test('CLI 档必须接住 --adjudication-evidence=，否则生产路径根本走不到新出口', () => {
+  const src = fs.readFileSync(MOD, 'utf8')
+  assert.match(src, /argOf\(argv, 'adjudication-evidence'\)/,
+    'CLI 没接这个旗标 ⇒ 只有单测能到新档，deep-review.sh 传不进来（"实现存在但生产不可达"那一族）')
+  const entry = fs.readFileSync(path.join(__dirname, 'deep-review.sh'), 'utf8')
+  assert.match(entry, /adjudication-evidence/, '入口没把它透传给写回器 ⇒ 高危面在真跑路径上仍然拿不到第二出口')
 })

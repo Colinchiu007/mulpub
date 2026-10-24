@@ -45,7 +45,7 @@ const { execFileSync } = require('child_process')
 const { changedFileStatuses } = require('./classify-docs-only.js')
 // `delivery@<sha256>` 的规范化口径与写回器共用一份实现（tasks 4.1）：两边各算一份哈希，
 // 写回器写的与判据认的就会永远对不上 —— 那才是本片真正要防的失效形态。
-const { isDeliveryEvidenceShape, matchesDeliveryEvidence } = require('./lib/ccg-delivery-digest.js')
+const { isDeliveryEvidenceShape, matchesDeliveryEvidence, matchesAdjudicationDigest } = require('./lib/ccg-delivery-digest.js')
 // 降档文案只说「重算值不符」，不说「真伪」：该摘要任何填写方都能一条命令自算（tasks 8.5 / 4.1c），
 // 把它说成抓到伪造，等于对作者动机下一个判据并不支持的结论。
 const DELIVERY_MISMATCH_HINT = '摘要与本记录 findings 重算值不符 ⇒ 降为 external-unverified；这不是指控伪造，是该档无法就地自洽'
@@ -900,6 +900,16 @@ function classifyEvidenceTier (dr, existsAt) {
     const ev = dr.evidence
     const shaped = typeof ev === 'string' && ev.trim() !== '' && isResolvableEvidence(ev)
     if (!shaped) return 'external-unverified'
+    // `tierBasis` 把"这一格是工具直签"与"这一格是自扮演收口 + 公开复核"分开。
+    // 分档不是为了好看：合取③ 被放宽之后，若两档在覆盖率读数里同形，"改宽"就变成不可见事件
+    // ——那正是零人工收口立项点名的第二条病根（出口缺失 + 改宽不可见）。
+    const basis = dr.tierBasis
+    if (basis !== undefined && basis !== null && basis !== '') {
+      if (basis !== 'adjudicated-self-play') return 'unrecognized'
+      if (evidenceForm(ev) !== 'url') return 'external-unverified'
+      if (!matchesAdjudicationDigest(dr)) return 'external-unverified'
+      return 'external'
+    }
     // 路径形态且调用方给了「存在性探针」时，必须验到该 revision 里真有这个对象（X2-5）。
     // 探针是**注入参数**（本仓新判据落点纪律第 3 条）：不给就不验，测试与仓外调用方保持原语义。
     if (evidenceForm(ev) === 'path' && typeof existsAt === 'function' && !existsAt(ev)) return 'external-unverified'
@@ -914,13 +924,30 @@ function classifyEvidenceTier (dr, existsAt) {
 /** 空集也必须出行：否则"这条锁没跑"与"没有记录"在日志里逐字同形。 */
 function summarizeTierCoverage (records, existsAt) {
   const by = { external: 0, 'external-unverified': 0, 'self-play': 0, none: 0, unknown: 0, unrecognized: 0 }
-  for (const dr of records) by[classifyEvidenceTier(dr, existsAt)]++
+  // external 再按**出口**拆两档：直签（验证层零 Critical）与自扮演收口 + 公开复核。
+  // 两子读数之和必须等于 external —— 这条等式由下面按同一批 records 计数的构造保证，
+  // 并由 check-pr-exec-record.test.js 与本片的 qm6-tier-watermark.test.js 各钉一次。
+  let extDirect = 0
+  let extAdjudicated = 0
+  for (const dr of records) {
+    const t = classifyEvidenceTier(dr, existsAt)
+    by[t]++
+    if (t === 'external') {
+      if (dr && dr.tierBasis === 'adjudicated-self-play') extAdjudicated++
+      else extDirect++
+    }
+  }
+  by['external(直签)'] = extDirect
+  by['external(自扮演+公开复核)'] = extAdjudicated
   const total = records.length
   const line = 'TIER-COVERAGE dual-closed total=' + total +
-    ' external=' + by.external + ' external-unverified=' + by['external-unverified'] +
+    ' external=' + by.external +
+    ' [external(直签)=' + extDirect + ' external(自扮演+公开复核)=' + extAdjudicated + ']' +
+    ' external-unverified=' + by['external-unverified'] +
     ' self-play=' + by['self-play'] + ' none=' + by.none +
     ' unknown(字段缺席)=' + by.unknown + ' unrecognized(值不认识)=' + by.unrecognized +
-    '（unknown 可见不拦；unrecognized 一律拦 —— design §9.1 丙 + 后端轴 Critical#2）'
+    '（unknown 可见不拦；unrecognized 一律拦 —— design §9.1 丙 + 后端轴 Critical#2；' +
+    '两子读数之和 == external，合取③ 放宽后的分档必须在这行里看得见）'
   return { total, by, line }
 }
 

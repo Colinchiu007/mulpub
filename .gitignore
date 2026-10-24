@@ -503,6 +503,14 @@ shared-user-data.backups/
 !scripts/check-schedule-heartbeat.js
 !scripts/check-schedule-heartbeat.test.js
 !scripts/check-schedule-heartbeat.mutation.js
+# QM-6 外部出处覆盖率水位 + 假想 enforce 扫描的本体（2026-10-23，change: qm6-tier-watermark）。
+# 同一个坑第三次兑现：规则 scripts/*.js 静默忽略新建脚本，而 !scripts/*.test.js 那条通用例外把
+# 测试文件兜住 ⇒ 只补本体这两条 negation，否则"测试在盘、判据不在盘"，
+# 本地全绿而 CI 以 Cannot find module 红（#3011 家族）。本刀实测踩过：前三笔提交只带了测试。
+# 刻意不写行号：本仓这份文件很长、行号会漂；判据在 scripts/qm6-tier-watermark.test.js 的
+#   「negation 必须各自存在」那条锁里，它按模式匹配 negation 清单，不依赖任何行位置。
+!scripts/qm6-tier-watermark.js
+!scripts/qm6-enforce-preview.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）
