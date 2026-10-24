@@ -133,9 +133,12 @@ function createComposeExecutor (pipelineEngine) {
       ? { ...context, assets: { scenes: legacyScenes } }
       : context
     // ⚠ 内层调用的 stage 必须**原样带 options**（内置 compose 读它的白名单 key）
+    // ⚠ **且必须带 inputFrom**：`_resolveInput`（stage-executor.js:977）按 `context[stage.inputFrom]`
+    //   取输入；漏了它就会走 fallback（读 params.assets / params.text）⇒ 拿到 null
+    //   ⇒ 内置 compose 报「Invalid assetManifest: missing scenes or image/audio pairs」。
     const inner = await pipelineEngine.stageExecutor.execute({
       runId,
-      stage: { name: 'compose', type: 'compose', options },
+      stage: { name: 'compose', type: 'compose', options, inputFrom: 'assets' },
       params,
       context: legacyContext,
       onProgress,
@@ -210,7 +213,8 @@ function createComposeExecutor (pipelineEngine) {
 function createPublishExecutor (pipelineEngine) {
   return async ({ stage, params, context, onProgress }) => {
     const inner = await pipelineEngine.stageExecutor.execute({
-      stage: { name: 'publish', type: 'publish', options: stage.options || {}, platforms: stage.platforms },
+      // ⚠ 同样必须带 inputFrom: 'compose'（内置 publish 从 context.compose 读 videoPath）
+      stage: { name: 'publish', type: 'publish', options: stage.options || {}, platforms: stage.platforms, inputFrom: 'compose' },
       params,
       context,
       onProgress,
