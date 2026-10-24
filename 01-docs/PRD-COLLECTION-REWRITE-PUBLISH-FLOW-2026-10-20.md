@@ -299,6 +299,21 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
 - **不含** `rewrite_copy`（改写阶段）——采集页的改写**已经完成**，再列一个「改写」阶段是假的；
 - 流水线 Registry 缺失时回退 S2V 阶段名（仅展示兜底；启动侧仍 fail-closed）。
 
+**F2.3.1 浮层组件的导入方式（实现约束，2026-10-24 补）**
+
+- 进度浮层复用视频创作页的 `StageProgress`，但**必须直连具体模块**
+  （`@/views/video-creation/StageProgress.vue`），**不得**从桶文件 `@/views/video-creation` 取；
+- 理由（可复算）：桶文件同时 re-export `PipelineSelector`，而 `PipelineSelector.vue` 顶部
+  `import '@/styles/pipeline-selector.css'` ⇒ 从桶文件取组件会把该样式表注入进**采集页**的模块图，
+  位置比创作页的 `create-view.css` 更靠前。两份全局样式表对流水线卡片边框给出**同特异性（0,2,0）**
+  的声明（`create-view.css` 的 `.pipeline-card.<category> { border-left: 3px solid var(--pipe-*) }`
+  与 `pipeline-selector.css` 的 `.pipeline-card.has-bg { border-color: rgba(255,255,255,0.16) }`），
+  **靠加载顺序决胜** ⇒ 顺序一翻转，视频创作页的流水线卡片边框就从「半透明白」变成「分类色」
+  （用户可见的观感回归 + 视觉基线门禁判红）；
+- 机械锁：`apps/desktop/src/features/collection/collection-css-cascade-order.test.js`（3 例）
+  —— 采集页模块图不得触及 `pipeline-selector.css`；`features/collection/**` 不得从桶文件取组件；
+  `create-view.css` 必须早于 `pipeline-selector.css`。
+
 **F2.4 文案裁切披露**
 
 视频创作流水线的文案上限取 `story-text-limit.js` 的**内置默认**（10000 码点；

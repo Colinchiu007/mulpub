@@ -98,7 +98,13 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UiModal from '@/components/UiModal.vue'
 import UiButton from '@/components/UiButton.vue'
-import { StageProgress } from '@/views/video-creation'
+// 直连具体模块，**不走桶文件** `@/views/video-creation`（2026-10-24 修正）：
+// 桶文件同时 re-export `PipelineSelector`，取它会把 `pipeline-selector.css`
+// 提前注入到**采集页**的模块图里 ⇒ 全局层叠顺序翻转 ⇒ `create-view.css` 的
+// 分类色 `border-left` 反而后到、压过 `pipeline-selector.css` 的 `.has-bg` 白边
+// ⇒ 视频创作页的流水线卡片边框变色 ⇒ 视觉基线 GATE-7B 判红（实测 28.496% 漂移）。
+// 见 features/collection/collection-css-cascade-order.test.js（契约锁）。
+import StageProgress from '@/views/video-creation/StageProgress.vue'
 
 const { t } = useI18n()
 

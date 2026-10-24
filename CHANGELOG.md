@@ -720,10 +720,18 @@
   且更完整**（它还改了引擎侧 `min=0` 的指令形态，治好了「0 到 6000 字之间」被模型读成「写摘要」），
   于是本 PR **撤回**自己重复的字数区间实现，**只保留 #4111 未覆盖的部分**（草稿失效 / 视频创作就地执行 /
   非字符串信封守卫 / locale 拆分 / 文档与记忆沉淀）。
-- 回归锁：新增 33 例（作废 composable 6 + 编排 composable 16 + 组件 11）；变异反证 5/5 CAUGHT；
-  采集页相关全集 **33 文件 / 509 用例全绿**；QM-4 像素 `collection` 1/1（100%）；
+- 回归锁：新增 **61 例**（作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 +
+  StageProgress 契约锁 4 + 依赖契约锁 6 + 层叠顺序契约锁 3）；变异反证 5/5 CAUGHT；
+  采集页相关全集 **24 文件 / 336 用例全绿**；QM-4 像素 `collection` 1/1（100%）；
   `vite build` rc=0；QM-6 外部双家族深审（claude + opencode）多轮实跑，2 条 Critical 采纳并实现，
   高危面（datamigration）另有**独立外部模型复核**并公开原文于 PR #4114 评论。
+- **视频创作页的流水线卡片边框回到正常色（本 PR 自身引入又自身修掉的跨页影响）**：进度浮层原先从**桶文件**
+  `@/views/video-creation` 取 `StageProgress`，桶文件连带把 `pipeline-selector.css` 提前注入采集页的模块图
+  ⇒ 全局层叠顺序翻转 ⇒ `create-view.css` 的分类色 `border-left` 压过 `.has-bg` 的半透明白边
+  ⇒ **视频创作页每张流水线卡片边框变色**（视觉基线门禁判红，实测 590903 px / 28.496%）。
+  修法：浮层改为**直连** `@/views/video-creation/StageProgress.vue`（层叠顺序复原），
+  并新增层叠顺序契约锁（3 例：采集页模块图不得触及 `pipeline-selector.css`／
+  `features/collection/**` 不得从桶文件取组件／`create-view.css` 必须早于 `pipeline-selector.css`）。
 - 详见 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md` 与
   `openspec/records/fix-collection-rewrite-publish-flow.md`。
 

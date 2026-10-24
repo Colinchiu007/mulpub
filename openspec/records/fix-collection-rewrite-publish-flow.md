@@ -11,15 +11,16 @@ branch: fix-collection-rewrite-publish-flow
 |------|------|-----------|
 | 变更类型与隔离 | PASS | 运行时代码（`apps/desktop/src/**`）+ locale + 文档 ⇒ **混合 PR**。**中途与 main 的一次合并（#4111）已如实登记**：本刀最初也自带字数区间的实现，发现 #4111 已先行落地且更完整 ⇒ **撤回重复实现**（删除 `features/collection/rewrite-word-count.js` 及其 14 例），只保留 #4111 未覆盖的部分。
 | 依赖就绪 | PASS | `pnpm install --frozen-lockfile` rc=0（1526 包）→ `ensure-electron.js` v43.7.7 就绪 → `verify-worktree-deps.js` OK（11 项解析、9 个 workspace 全指向本 worktree） |
-| 行尾对账 | PASS | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` **两口径逐文件一致**（27 个文件：评审产物 11 个、PRD 485/0、learnings 29/0、CHANGELOG 42/0、编排 composable 403/0 及其测试 211/0、作废 composable 59/0 及其测试 96/0、浮层组件 149/0、locale en 39/76 + quick-collect en 82/0 + zh 84/0 + zh 16/0、组件测试 289/0、Collection.vue 139/20、执行记录 170/0；合计 raw 3513 行 / 代码侧 12 文件 1677 行；旧口径（14 文件）：
-| TDD（RED→GREEN） | PASS | 三个新测试文件**先写后实现**：①`features/collection/rewrite-word-count.test.js` 先写 ⇒ 实跑 **RED（模块不存在，Failed to resolve import）** ⇒ 实现后 14/14；②`composables/useCollectionVideoCreation.test.js` 先写 ⇒ 实现后 10/10；③`views/Collection.rewrite-publish-flow.test.js` 先写 ⇒ 实现后 10/10。末态新增 **58 例**（作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 + StageProgress 契约锁 4 + 依赖契约锁 6）|
+| 行尾对账 | PASS | `git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat` **两口径逐字一致**（PR 差量 = 合并基点 `f6cd3e562` → 工作区：**54 个文件 / 7421 行**；其中评审产物 `.ccg/reviews/**` 34 个、其余 20 个：PRD 643/0、learnings 30/0、CHANGELOG 35/0、编排 composable 456/0 及其测试 258/0 + 契约锁 29/0、作废 composable 59/0 及其测试 96/0、浮层组件 166/0（含本轮的层叠顺序修复）、浮层契约锁 79/0、**层叠顺序契约锁 144/0（本轮新增）**、配置档案纯模块 134/0 及其测试 152/0、locale en 22/76 + zh 19/75 + quick-collect en 82/0 + zh 84/0、Collection.vue 146/27、采集页 E2E 346/0、执行记录 401/0）。**差量内零张视觉基线 PNG**（`git diff --numstat <merge-base> -- apps/desktop/tests/visual-testing/` 为空 ⇒ 本 PR 不碰任何基线图） |
+| TDD（RED→GREEN） | PASS | 三个新测试文件**先写后实现**：①`features/collection/rewrite-word-count.test.js` 先写 ⇒ 实跑 **RED（模块不存在，Failed to resolve import）** ⇒ 实现后 14/14；②`composables/useCollectionVideoCreation.test.js` 先写 ⇒ 实现后 10/10；③`views/Collection.rewrite-publish-flow.test.js` 先写 ⇒ 实现后 10/10。末态新增 **61 例**（作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 + StageProgress 契约锁 4 + 依赖契约锁 6 + 层叠顺序契约锁 3）|
 | 变异反证 | PASS | 5/5 **CAUGHT**（**M1 / M2 针对的是已撤回的字数区间实现**——它们证伪过「键名退回 targetWordCount」与「吞掉 min=0」两种退化，但那部分代码已随与 #4111 的合并撤回；**M3 / M4 / M5 仍在最终代码里**，其中 M3 去掉 `genreDraftId = null`、M4 退回跳页型视频创作、M5 去掉非字符串信封守卫）
 | 接线棘轮 | PASS | `node scripts/check-unwired-tests.js` rc=0 ⇒ 检查域内测试文件 **128 个**、`OK: 全部测试均已接线或按欠账登记`（无新增欠账） |
-| 静态门禁 | PASS | `node .github/scripts/check-max-lines.js` rc=0（**无新增超大文件**，挂账清单与现实一致）；`check-locale-sync.js --keys` rc=0（2249 个使用中 key 均存在于 zh/en）；`check-locale-sync.js --cjk` rc=0（基线 1330、当前 1125、**无新增硬编码中文**）；`eslint` 改动文件 `--quiet` rc=0 |
+| 静态门禁 | PASS | 本轮（修复视觉门禁红点后）全部重跑，**rc 全 0**：`node .github/scripts/check-max-lines.js`（无新增超大文件；源码挂账 94/94、墓碑 6、点名还账 20；测试文件上限 1500：超限 13/挂账 12）｜`node .github/scripts/check-locale-sync.js --keys`（**2291** 个使用中 key 均存在于 zh/en）｜`--cjk`（基线 1330、当前 1115、**无新增硬编码中文**）｜`node scripts/check-unwired-tests.js`（域内 **132** 个测试文件，全部已接线或按欠账登记；本轮新增的层叠顺序契约锁已在内）｜`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce`（`TIER-COVERAGE dual-closed total=4 external=1`，OK）｜`node scripts/check-gate-record-debt.js --base-ref=origin/main --head-ref=HEAD`（两源未收口的「远程同步」行均已登记，清单无陈旧项，OK）｜`node scripts/check-doc-abs-paths.js --simulate-no-drives`（**复现 CI 无盘符那一档**：全量审计 5821 个受管文件，无新增本机绝对路径）｜`node scripts/check-no-brand-residue.js`（12497 个 tracked 文件无品牌残留） |
 | QM-1 打包 | **N/A（不适用，非「跑了通过」）** | 改动集 **零** `apps/desktop/electron/**`、**零** `packages/rpa-engine/**`（只动渲染层 `src/**` + locale + 文档）⇒ 按 AGENTS.md 字面规则「每次修改 `apps/desktop/electron/` 或 `packages/rpa-engine/` 下代码后必须打包」**不触发**。本行记录此格是为与「已验证」区分。**额外**（不属 QM-1，但为否证 QM-6 i2「无构建验证」而跑）：渲染层生产构建 `npx vite build` ⇒ **rc=0、built in 24.11s** |
 | QM-4 视觉 | PASS | `TEST_URL=http://127.0.0.1:5199 PIXEL_ONLY=collection node tests/visual-testing/scripts/run-pixel-tests.js` ⇒ **1/1 通过、0 失败、100%**（报告 `tests/visual-testing/reports/report-1792523798281.json`）。用**本 worktree 自起的独立 Vite**（5199，`--strictPort`，HTTP 200 实证），**不借用他人端口**（5174 已被他人占用）；**未刷新基线**。新增横幅与浮层均为**条件渲染**（截断态 / 流水线运行态），采集页默认态不渲染 ⇒ 像素不变，0.000% 差异本身即证据 |
+| QM-4 视觉（**CI 侧：视频创作页基线被本刀判红 → 已定位真因并修**） | **PASS（修复待 CI 复核）** | 本轮 run 40068534350 的 `QG Visual` 在 `create-editor.png` 报 `590903 px (28.496%)`（Gate 7b 基线新鲜度，**0 px** 容差；两轮甄别同数 ⇒ 稳定违规），`QG Changes / Unit Tests / Static / Coverage / Desktop Shards / Browser E2E / Autonomous / Business API Postgres` **全绿**。真因**在本刀**：新增浮层从**桶文件** `@/views/video-creation` 取 `StageProgress`，把 `pipeline-selector.css` 提前注入采集页的模块图 ⇒ **全局层叠顺序翻转** ⇒ 视频创作页流水线卡片边框从「半透明白」变成「分类色」。修法：直连 `@/views/video-creation/StageProgress.vue`（顺序复原为与主干一致）+ 新增层叠顺序契约锁（3 例）。取证与订正见下方第 2 条与「事件 4」 |
 | QM-6 CCG 双模型外部评审 | PASS | **共跑 13 轮，全部是跨家族外部模型实跑**（合并 main 后又跑轮 12 / 轮 13：并发模型注释订正、StageProgress 契约锁、PRD 消费者清单）（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家**不同厂商**；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 **50+ 条**评审意见，**逐条填 prosecution/defense/verdict/rationale**；其中 **3 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例、i7 并发模型写进文档），其余 dismissal 均附**可复算实测证据**；各轮收口 `self_play_resolved`、blocking 空（轮 12 的记录因被取代而按先例 hand-set `cleared`，见下方「合并 main 之后的深审轮次」）。**高危面另有三次独立外部复核**（外部模型 claude 自行读代码/脚本、原文**公开于 PR 评论**）：第一次针对键名迁移（datamigration，#4114#issuecomment-6302916932）、第二次针对审计可信度与厂商独立性（auth + datamigration，#4114#issuecomment-6303677171）、第三次针对**合并 main 之后**的代码与并发/配置档案链路（auth + datamigration，#4114#issuecomment-6310698615）、**第四次针对交付前最终形态**（高危面是否命中 /「成片↔文案同源」是否可达 / 分支谱系 / 本轮记录是否属实，#4114#issuecomment-6368372014）。**详细逐轮叙述见下方「QM-6 双家族外部评审（十一轮实跑；合并 main 之后另有轮 12 / 13）」与「本轮收尾 · ③」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
-| 相关测试全集 | PASS | 合并 main 后复跑：`vitest run src/features/collection src/features/publish-destination src/composables src/views/Collection*.test.js src/components/PublishDestinationModal.test.js src/views/CreateView.config-profile-handoff.test.js` ⇒ **84 文件 / 1523 用例全绿**（本 PR 自有新增 **58 例**：作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 + StageProgress 契约锁 4 + 依赖契约锁 6）
+| 相关测试全集 | PASS | 本轮（层叠顺序修复后）复跑采集页相关全集：`vitest run src/features/collection src/composables/useCollectionVideoCreation.test.js src/composables/useCollectionVideoCreation.contract.test.js src/composables/useRewriteResultInvalidation.test.js src/views/Collection.rewrite-publish-flow.test.js` ⇒ **24 文件 / 336 用例全绿**（含本轮新增的层叠顺序契约锁 **3 例**）。合并 main 后复跑：`vitest run src/features/collection src/features/publish-destination src/composables src/views/Collection*.test.js src/components/PublishDestinationModal.test.js src/views/CreateView.config-profile-handoff.test.js` ⇒ **84 文件 / 1523 用例全绿**（本 PR 自有新增 **61 例**：作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 + StageProgress 契约锁 4 + 依赖契约锁 6 + 层叠顺序契约锁 3）
 | 文档同步 | PASS | 新增 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md`（454 行：缺陷根因 / 数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 未闭合）；订正 `01-docs/PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md`（采集页口径已被取代的四处 + 校验表上限 + 变更记录）；`CHANGELOG.md` 顶部新增 36 行条目 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）。把本行状态列写成 `PASS` 会被判「预写不存在的证据」而红（change: `ban-record-closure-backfill-pr`）。合并前本篇不在基线上 ⇒ 走 byDesign 档，不红；main push 回读证据写在 PR 评论里，不写回本文件 |
 
@@ -31,7 +32,7 @@ branch: fix-collection-rewrite-publish-flow
 > 手改会让「引擎写回」与「我抄上去」混成同一份证据，失去可追溯性。
 
 
-- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅（14 文件两口径一致）| 品牌残留 随 CI | 文档同步 ✅ | 执行记录 ✅ | 远程同步 由门禁推导
+- 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅（PR 差量 54 文件，两口径逐字一致）| 品牌残留 随 CI | 文档同步 ✅ | 执行记录 ✅ | 远程同步 由门禁推导
 
 ### 与 #4111 的合并（如实登记）
 
@@ -254,7 +255,7 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
 88 份记录里 76 份已丢）⇒ 本轮把口径字段放到记录的**顶层同级键** `statsAudit`，并在
 `note` 里写明这条依据。外部复核独立确认了这条机制。
 
-#### 三起需要如实登记的运营事件
+#### 四起需要如实登记的运营事件
 
 1. **首次外部复核越权写入仓库，已完整撤回**：第一次跑外部复核时用了
    `claude -p --dangerously-skip-permissions`，该模型**修改了本仓库**——归档了**别的会话**的
@@ -267,36 +268,43 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
    （Write/Edit/NotebookEdit 显式禁用）、并把引擎判据源码内嵌进提问。**教训**：
    外部复核的「只读」不能靠提示词约束，必须靠**执行环境隔离 + 工具白名单**；且外部模型
    自填的证据三格**必须逐条核对**（URL 是否为本轮真实发布、reviewedAt 是否取自该评论的真实创建时间）。
-2. **QG Visual（Gate 7b 基线新鲜度）报红，但**非**本 PR 引起**：红的是
-   `create-editor.png`（**视频创作页**基线，582150 px / 28.07%），与本 PR 改的采集页无关。
-   取证：本 PR 的 `CreateView.vue` 与 `create-editor.png` 与一条**绿灯** PR（#4149）**逐字相同**
-   （blob SHA 一致），而 #4149 的 Gate 7b 读数是 `violatedViews: []`；`apps/desktop/tests/`
-   与 `apps/desktop/electron/` 也逐字相同 ⇒ 差异只可能来自 runner 侧。
-   **本 PR 改动集内不含任何创作页相关文件**（逐条 `git diff --name-only` 核对）。
-   **决定性取证（本地）**：在**本分支**上自起 5199 dev server 跑
-   `PIXEL_ONLY=create-editor` ⇒ **1/1 PASSED、与旧基线逐像素一致（0 px 漂移）**
-   ⇒ 渲染差异**不由本 PR 的代码引起**。结合「#4149 同代码同基线在 CI 上绿」，
-   结论是：**该基线相对当前 CI runner 的渲染已过期**（流水线卡片的渐变背景栅格化
-   在不同 runner 镜像上结果不同；工作流注释里「同一差值在两个不同 head 上逐字相同 ⇒
-   与 head 无关」记的是同一类现象）。
-   **④ 根因定位（补测后才有）**：本仓的视觉门禁有**两个渲染域**，而基线只能匹配其中一个：
-   - **像素套**（`run-pixel-tests.js`）产出 `<name>-current.png`，与基线比、阈值 **6%**；
-   - **views 套件**产出 `<name>.png`，是 **Gate 7b 基线新鲜度**的判定域（阈值 **0 px**），
-     且 `findRender` **优先取它**。
-   实测这两个域对 `/create` 的渲染**相差 582150 px（28%）**：仓库现有的
-   `create-editor.png` 基线匹配的是**像素套**渲染（与像素套差 4366 px = 0.21% ⇒ 像素套绿），
-   与 **views 渲染**差 582150 px ⇒ **Gate 7b 报它过期**。
-   ⇒ **「用 CI 渲染刷新基线」这条路走不通**：换成 views 渲染后像素套立刻红
-   （586516 px = 28.28% > 6%）——只是把红从一道门禁挪到另一道。
-   （工作流注释里记的「同一次 run 内 dashboard 差 350 px、collection 差 67870 px」
-   正是同一类现象：**两个域渲染本就不是同一张图**。）
-   **最终处置**：**回滚基线刷新**（保持仓库原状），只保留取证与披露；**未改任何创作页代码**。
-   **为何这不是本 PR 的问题**：本 PR 与绿灯 PR（#4149 / #4153）的 `CreateView.vue`、
-   `create-editor.png`、视觉夹具**逐字相同**，而它们在 CI 上 Gate 7b 是绿的
-   ⇒ views 域渲染**逐 run 不稳定**（同一份代码，有的 run 与基线一致、有的差 28%），
-   属**主干侧该视图的基线抖动**，需主干侧处理（重采基线或让渲染确定化）。
-   本 PR 的 QM-4 证据仍是 `collection` 视图（本地 1/1、100%），**未**用全量
-   UPDATE_BASELINE 把无关视图的环境差烘进基线。
+2. **QG Visual（Gate 7b 基线新鲜度）在 `create-editor.png`（视频创作页）报红
+   —— 本条结论已于 2026-10-24 被推翻并订正，真因是本 PR 引起（已修）**：
+   - **当时的判断（已推翻，如实留档）**：红的是视频创作页基线（582150 px / 28.07%），
+     而本 PR 未改创作页（`CreateView.vue`、`create-editor.png`、视觉夹具与一条**绿灯** PR #4149
+     **逐字相同**，blob SHA 一致），本 PR 本地跑 `PIXEL_ONLY=create-editor` 也是
+     1/1 PASSED、0 px 漂移 ⇒ 一度判为「主干侧基线过期 / runner 侧抖动」，并据此**不刷新基线**。
+   - **订正后的真因**：漂移来自**全局 CSS 层叠顺序被本刀翻转**，与「基线过期」无关。
+     本刀新增的 `features/collection/CollectionVideoProgressModal.vue` 从**桶文件**
+     `@/views/video-creation` 取 `StageProgress`；桶文件同时 re-export `PipelineSelector`，
+     而 `PipelineSelector.vue` 顶部 `import '@/styles/pipeline-selector.css'`
+     ⇒ `pipeline-selector.css` 被注入进**采集页**的模块图，位置比创作页的 `create-view.css` **更靠前**。
+     两份全局样式表对流水线卡片边框给出**同特异性（0,2,0）**的声明，靠**加载顺序**决胜：
+     `create-view.css` 的 `.pipeline-card.<category> { border-left: 3px solid var(--pipe-*) }`
+     与 `pipeline-selector.css` 的 `.pipeline-card.has-bg { border-color: rgba(255,255,255,0.16) }`
+     —— 正常顺序下 `.has-bg` 白边胜出（＝基线）；顺序一翻转 ⇒ **分类色边框**胜出
+     ⇒ 视频创作页每张流水线卡片边框变色 ⇒ views 域整片卡片区域像素漂移
+     ⇒ Gate 7b（**0 px** 容差）判红。
+   - **取证（可复算）**：
+     ① 取回本轮 CI 产物（run 40068534350）后，用**仓内判据**本地复现同一条判决：
+     `node scripts/check-baseline-freshness.js --renders=<产物 screenshots 目录> --partial`
+     ⇒ `❌ create-editor.png 590903 px (28.496%) 来源=views`（43 张基线里**仅此一张**超标；
+     **采集页那张逐像素相等** ⇒ 本 PR 改的采集页本身没问题）；
+     ② 逐像素读边：基线的卡片左边缘是 `rgba(255,255,255,0.16)`（≈254,254,254），
+     本轮是 `--pipe-generated` 的 `#3b82f6`（59,130,246）⇒ **边框颜色规则换了胜者**；
+     ③ 按源码顺序深度优先走两棵树的模块图（近似 Vite dev 的样式注入顺序）：
+     主干 = `create-view.css`(#13) → `pipeline-selector.css`(#14)；
+     本分支 = `pipeline-selector.css`(#11) → … → `create-view.css`(#14) ⇒ **顺序确实翻转**。
+   - **处置**：把浮层的导入改成**直连具体模块** `@/views/video-creation/StageProgress.vue`
+     （不再经桶文件）⇒ 注入顺序复原为与主干一致 ⇒ 卡片边框回到基线；
+     并新增契约锁 `apps/desktop/src/features/collection/collection-css-cascade-order.test.js`（3 例）：
+     「采集页模块图不得触及 `pipeline-selector.css`」「`features/collection/**` 不得从桶文件取组件」
+     「`create-view.css` 必须早于 `pipeline-selector.css`」——把这类「A 页面的代码改 B 页面像素」
+     的事故从「靠人读 diff」变成**机械拦截**。
+   - **为什么旧取证没能发现**：当时的比对只比了**创作页相关文件**的 blob，
+     而漂移的成因在**采集页的导入边**上 —— **文件逐字相同 ≠ 加载顺序相同**。
+     ⇒ 教训：视觉门禁判红时，「我没改那个页面」**不等于**「与那个页面无关」：
+     全局样式表、注入顺序、共享模块图都属于「我没改、但会影响它」的面。
 3. **本 PR 的 CI 红了两次，两次红都**不是**本 PR 的改动引起**（如实登记）：
    - **第一次**（run 39952385145）：`QG Changes` 红 ⇒ `check-doc-abs-paths` 的
      「本仓基线必须与现场逐文件相等」自测红 —— 执行记录里写了两个**本机绝对路径**
@@ -315,6 +323,17 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
    ⇒ 教训：**「CI 红了」的第一问是「红的是谁」，不是「谁改的」** —— 门禁在每个 PR 上都跑，
    断链的红会被记在**无辜 PR** 的账上；而本地复现的判据是**把纯主干的树单独解出来跑那几把锁**
    （本机跑自己分支的树是**测不出来的** —— 夹具只在自己造的临时仓里崩）。
+4. **本刀自己把视频创作页的视觉基线判红了（真因在本刀，已修，并加机械锁）**：
+   run 40068534350 的 `QG Visual` 报 `create-editor.png 590903 px (28.496%)`（Gate 7b 基线新鲜度，
+   0 px 容差），两轮甄别**同数** ⇒ 稳定违规。本会话一开始把它判成「主干侧基线过期」
+   （详见上文第 2 条的留档与订正），**这是错的**：真因是本刀新增的进度浮层从**桶文件**
+   `@/views/video-creation` 取 `StageProgress`，把 `pipeline-selector.css` 提前注入进采集页的模块图，
+   翻转了全局层叠顺序 ⇒ 视频创作页流水线卡片边框从「半透明白」变成「分类色」。
+   处置：改成直连 `@/views/video-creation/StageProgress.vue`（顺序复原），并加契约锁
+   `collection-css-cascade-order.test.js`（3 例：采集页不得触及 `pipeline-selector.css`／
+   `features/collection/**` 不得从桶文件取组件／`create-view.css` 必须早于 `pipeline-selector.css`）。
+   ⇒ 教训：**「我没改那个页面」不等于「与那个页面无关」** —— 全局样式表、注入顺序、共享模块图
+   都在「我没改」的范围里；这类跨页影响**只能靠机械锁**，靠人读 diff 必然漏。
 
 ### 本轮收尾（2026-10-23）：分支谱系订正与最终形态
 
