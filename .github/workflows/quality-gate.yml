@@ -68,6 +68,13 @@ jobs:
           # 它守的是"收紧基线后在飞 PR 的旧绿结论会被重算并点名"，而 static-gates 整块会被 docs-only 短路 ⇒
           # 一份改基线的 docs-only PR 恰好能绕过它（本仓同类反例见上方 check-gate-record-debt 那条注释）。
           node --test scripts/check-debt-recheck.test.js
+          # QM-6 外部出处覆盖率水位 + 假想 enforce 扫描的回归锁（change: qm6-tier-watermark）。
+          # 同上一条的理由留在 changes job：这两把锁守的是"advisory→enforce 何时可翻"的测量面，
+          # 而测量本体（scripts/check-pr-exec-record.js 的 tier 分类）就在本 step 里被点名跑。
+          # 刻意**不**给水位计另接一个 CI 打印档（派生数不需要累积日志，落点在路径过滤作业里
+          # 等于罕见触发）—— 否证与代价记在 openspec/changes/qm6-tier-watermark/design.md §D12。
+          node --test scripts/qm6-tier-watermark.test.js
+          node --test scripts/qm6-enforce-preview.test.js
           # 冻结判据按档拦：PR 档收口成"可见"。动因是 2026-10-16 实测 run 38781654774 ——
           # pull_request 检出的是 main⊕本分支的合并预览，主干每几分钟长一块，PR 档"等于基线"必红。
           # main push 那一档照旧拦，所以锁没被拆松，只是装回它真能成立的位置。

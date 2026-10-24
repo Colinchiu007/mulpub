@@ -1,0 +1,61 @@
+{
+  "sha": "d94f83a7bd42ac004cd83360ad077d8768d4e830",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1890 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1890,
+    "fileCount": 19,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 16,
+    "docSensitiveContentHits": 22,
+    "docSensitiveContentSample": [
+      "  - **合取③ 自 2026-10-24 起有第二条出口**（change: `qm6-tier-watermark`，用户裁决授权）：`performedBy===\"self-play\"` 时，若同时满足「本轮请求的后端 `reviewBackends.critic` 等于清单 critic」「`confidenceWeight < 1`」「`blocking` 为空数组」「每条 finding 都有 `verdict` 与非空 `rationale`」「入口透传一条公开可核的 PR 评论 URL `--evidence=https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>`」，则写 `tier=external` + `evidence=<该 URL>` + **`tierBasis=\"adjudicated-self-play\"`** + `adjudicationDigest=adjudicated@<sha256(deliveryEvidence(findings) + NUL + url)>`。缺任何一件都拒写，且红因点名是哪一件（`no-adjudication-evidence` / `adjudication-evidence-form` / `backend-request-mismatch` / `confidence-weight-absent` / `blocking-not-empty` / `verdicts-incomplete`）——**不得**把它们塌回 `backend-mismatch`：「忘了传 URL」与「本轮没跑外部评审」修法相反。合取④⑤ 与直签档一字未动（两条出口都必须过④，否则一份手写好的 self-play 记录就能绕开\"本次刚产出\"这一格被签上章）。⚠ **放宽必须可见**：`TIER-COVERAGE` 与水位读数以 `[external(直签)=a external(自扮演+公开复核)=b]` 分档打印，且 `a + b == external` 由锁钉住；`tierBasis` 出现未知值按 `unrecognized` 拦。这一档仍**不是签名**（摘要任何填写方可自算），真正对第三方负责的是那条评论本身——任何人都能点开看到 critique 原文与逐条处置。",
+      "会在无凭据的机器上报一串归因不到的失败。",
+      "「凭据」二字 —— 本 diff 不含任何加解密代码，这是已登记的散文触发面，不是新洞）。逐条先读码再处置："
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e49e6c999ce208ade3965bf18235ffd65b546c98318a4712ca582bdefffdd284",
+  "decidedAt": "2026-10-24T01:17:47.671Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -21,6 +21,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 
 const DELIVERY_PREFIX = 'delivery@'
+const ADJ_PREFIX = 'adjudicated@'
 const HEX64 = /^[0-9a-f]{64}$/
 
 /** 码点升序比较（`Array.from` 按码点迭代，代理对不会被拆成两个单元）。 */
@@ -74,6 +75,35 @@ function matchesDeliveryEvidence (findings, evidence) {
 }
 
 /**
+ * 自扮演收口 + 公开复核的绑定摘要：`adjudicated@<sha256(deliveryEvidence(findings) + NUL + url)>`。
+ *
+ * 为什么要把 URL 也哈希进去，而不是只让判据"看一眼 URL 形态"：只判形态时，
+ * 「随便挂一条别的公开评论」与「这条记录真的对应那次公开复核」在字节上无法区分，
+ * 而这一档存在的唯一理由就是那次公开复核。绑进来之后换 findings 或换 URL 都会失配 ⇒ 降档。
+ * ⚠ 与 `delivery@` 同级：这是**可互验的自洽**，不是签名、不防伪造（任何填写方一条命令可重算）。
+ */
+function adjudicationDigest (findings, url) {
+  return ADJ_PREFIX + sha256Hex(deliveryEvidence(findings) + '\0' + String(url || ''))
+}
+
+function isAdjudicationEvidenceShape (evidence) {
+  return typeof evidence === 'string' && evidence.startsWith(ADJ_PREFIX) && HEX64.test(evidence.slice(ADJ_PREFIX.length))
+}
+
+/** 就地重算：从记录自身的 evidence(URL) + findings 推回绑定值。取不到一律 false（不抛）。 */
+function matchesAdjudicationDigest (dr) {
+  if (!dr || typeof dr !== 'object') return false
+  if (!isAdjudicationEvidenceShape(dr.adjudicationDigest)) return false
+  const url = dr.evidence
+  if (typeof url !== 'string' || url.trim() === '') return false
+  try {
+    return adjudicationDigest(dr.findings, url) === dr.adjudicationDigest
+  } catch {
+    return false
+  }
+}
+
+/**
  * `deepReview` 的语义指纹：**去掉 `at`** 再规范化哈希。
  * 动因（跨家族评审 i1，Critical）：引擎每个写回站点都写 `at: new Date().toISOString()`，
  * 所以"字节变了"只证明"写过一次"，不证明"有新交付"。条件④必须有这条才能把
@@ -101,10 +131,14 @@ function sha256Hex (s) {
 
 module.exports = {
   DELIVERY_PREFIX,
+  ADJ_PREFIX,
   canonicalize,
   cmpCodePoints,
   deliveryDigest,
   deliveryEvidence,
+  adjudicationDigest,
+  isAdjudicationEvidenceShape,
+  matchesAdjudicationDigest,
   deepReviewFingerprint,
   sha256Hex,
   isDeliveryEvidenceShape,
