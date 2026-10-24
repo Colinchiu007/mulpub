@@ -63,7 +63,7 @@ async function fillTencentVideo (win, data, opts) {
 
   // 1) 填「视频描述」= textarea（真机 ta=1）；没有 textarea 时退回 contenteditable
   const descCode = '(function(){'
-    + 'var el=document.querySelector("div.input-editor")||document.querySelector("[contenteditable=\"true\"]");/*input-editor-target*/'
+    + 'var el=document.querySelector("div.input-editor")||document.querySelector("[contenteditable]");/*input-editor-target*/'
     + 'var ta=null;'
     + 'if(!el)return "NO_EDITOR";'
     + 'var v=' + JSON.stringify(content) + ';'
