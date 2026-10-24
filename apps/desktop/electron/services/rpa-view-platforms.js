@@ -334,6 +334,18 @@ const platformsMixin = {
           await this._sleep(1000)
         }
       }
+      // wait-upload-done（2026-10-24 截图实证）：页面在上传完成前就填字段，
+      // 而上传会长时间卡在「取消上传」态 ⇒ 表单永远不可发布、面板不弹。
+      // 先轮询等「取消上传」消失（或出现视频时长），最多 240s。
+      try {
+        let _up = 'pending'
+        for (let _u = 0; _u < 48; _u++) {
+          _up = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return "no-shadow";var t=h.shadowRoot.textContent||"";if(t.indexOf("取消上传")>=0)return "uploading";return "done"})()', true)
+          if (_up === 'done') break
+          await this._sleep(5000)
+        }
+        log.info('RpaView', '[tencent_video] wait-upload-done state=' + _up)
+      } catch (_eU) { log.warn('RpaView', '[tencent_video] wait-upload-done failed: ' + String((_eU && _eU.message) || '').slice(0, 60)) }
     } else if (platform === 'tencent_video' && article.video_path) {
       let tr = await Promise.race([
         require('./tencent-video-frame').fillTencentVideo(win, article, { log, platform }),
