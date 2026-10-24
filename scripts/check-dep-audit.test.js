@@ -1181,3 +1181,60 @@ test('刷新正文：没有失效结论时那一档必须说「无」（不留�
   assert.ok(body.includes('刷新后的基线自洽'), '应当明说没有失效结论');
   assert.ok(!body.includes('| 判据 | 说明 |'), '不得留一张空表');
 });
+
+// ── 多族公告（同一 GHSA 多个修复族）：npm 域必须与 v2 域同口径合并，不能覆盖 ──
+
+test('npm 域多族公告：同一 GHSA 的多个修复族必须合并成并集（不得只记一族）', () => {
+  // 动因（2026-10-24 实测）：公告库对同一 GHSA 的每个修复族**各报一条**，
+  // 实测 brace-expansion 5 条公告**每条都是两族**（1.x 族 + 5.x 族，命中树里不同的 copy）。
+  // 旧实现 `out.set(id, entry)` 覆盖 ⇒ 只记了后一族 ⇒ 另一族的命中从台账上消失（债被低估），
+  // 且同一条公告的 patched 会随 advisory 枚举顺序在两轮扫描间**翻转**
+  // ⇒ 人被迫反复把 targetVersion 追着上游改写跑（台账里那几条 note 的现场）。
+  const report = {
+    advisories: {
+      1: {
+        github_advisory_id: 'GHSA-X', module_name: 'brace-expansion', severity: 'high',
+        patched_versions: '>=1.1.16', findings: [{ paths: ['apps__desktop>x>brace-expansion'] }],
+      },
+      2: {
+        github_advisory_id: 'GHSA-X', module_name: 'brace-expansion', severity: 'high',
+        patched_versions: '>=5.0.7', findings: [{ paths: ['.>brace-expansion'] }],
+      },
+    },
+  };
+  const out = D.parseNpmAudit(report);
+  assert.equal(out.length, 1, '同一 GHSA 只能有一条台账条目');
+  const e = out[0];
+  assert.equal(e.patched, '>=1.1.16, >=5.0.7', '两个族的修复下界都要在（取其一 = 债被低估）');
+  assert.deepEqual(e.roots, ['.', 'apps__desktop'], '受影响路径也要全（合并，不是覆盖）');
+  // 合并后「逐段都逃出」的语义给出正确承诺：只闭一族的 targetVersion 必须被判红
+  const bad = D.checkTargetEscapes({ source: 'npm', id: 'GHSA-X', patched: e.patched, decision: 'upgrade-tracked', targetVersion: '1.1.16' });
+  assert.ok(bad && bad.includes('DECISION_CONTRADICTS_PATCHED'), '只闭一族的承诺必须判红：' + bad);
+  assert.equal(D.checkTargetEscapes({ source: 'npm', id: 'GHSA-X', patched: e.patched, decision: 'upgrade-tracked', targetVersion: '5.0.7' }), null, '逃出全部族才算闭得上');
+});
+
+test('npm 域与 v2 域对「同一件事」必须同口径（多族合并），否则同一 GHSA 在两个域给出两个答案', () => {
+  // 口径漂移的形态：v2 域（parseNpmAuditV2）本来就是合并的，npm 域（pnpm v1 advisories）原来是覆盖的
+  // ⇒ 同一个 GHSA 在两个扫描域会给出两个不同的 patched。
+  const v1 = D.parseNpmAudit({
+    advisories: {
+      1: { github_advisory_id: 'GHSA-X', module_name: 'm', severity: 'high', patched_versions: '>=1.1.16', findings: [{ paths: ['a>m'] }] },
+      2: { github_advisory_id: 'GHSA-X', module_name: 'm', severity: 'high', patched_versions: '>=5.0.7', findings: [{ paths: ['.>m'] }] },
+    },
+  });
+  const v2 = D.parseNpmAuditV2({
+    vulnerabilities: {
+      m: {
+        severity: 'high', effects: [],
+        via: [
+          { source: 1, url: 'https://github.com/advisories/GHSA-X', severity: 'high', range: '>=1.0.0 <1.1.16' },
+          { source: 2, url: 'https://github.com/advisories/GHSA-X', severity: 'high', range: '>=3.0.0 <5.0.7' },
+        ],
+      },
+    },
+  }, 'npm-opscenter');
+  // 只比 patched：它是**驱动判定的那个字段**（决定「这笔账闭不闭得上」）。
+  // roots 不比 —— 两种报告格式里 roots 的**语义本来就不同**
+  // （v1 advisories 的 roots = 依赖路径；v2 的 roots = effects 包），不是口径漂移。
+  assert.equal(v1[0].patched, v2[0].patched, '两个域的 patched 必须一致：' + v1[0].patched + ' vs ' + v2[0].patched);
+});

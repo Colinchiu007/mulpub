@@ -268,7 +268,27 @@ function ghsaFromUrl (url) {
   return m ? m[0].toUpperCase() : null;
 }
 
-/** pnpm/npm audit JSON → 归一化条目。按 GHSA id 去重（同一公告可能命中多个 workspace）。 */
+/**
+ * pnpm/npm audit JSON → 归一化条目。按 GHSA id 去重（同一公告可能命中多个 workspace）。
+ *
+ * ⛔ **同 id 多条必须合并，不能覆盖**（2026-10-24 实测修正）：
+ * 公告库对**同一个 GHSA 的多个修复族**会分别报条目，各自带自己的 `patched_versions` 与
+ * 受影响的依赖链。实测 brace-expansion 5 条公告**每条都是两族**：
+ *   GHSA-3jxr-9vmj-r5cp → `>=1.1.16`（apps__desktop 那条链命中 brace-expansion@1.1.15）
+ *                        → `>=5.0.7` （根那条链命中 brace-expansion@5.0.6）
+ * 旧实现用 `out.set(id, entry)` ⇒ **后一族把前一族整个覆盖掉** ⇒ 台账里只记了一族的修复下界
+ * ⇒ ①**债务被低估**（另一族命中从台账上消失）；②`checkTargetEscapes` 只按剩下那族判
+ * ⇒ 人写一个只闭一族的 `targetVersion` 也能过门禁（**该闭的账没闭**）。
+ *
+ * 而且覆盖顺序取决于 advisory 对象的枚举顺序 ⇒ 同一条公告的 `patched` 在两轮扫描间可能**翻转**
+ * ⇒ 人被迫反复「把 targetVersion 同步到新下界」（基线里那几条 note 里的
+ * 「上游公告 patched 区间已改写为 >=5.0.10，targetVersion 同步更新」就是这个循环的现场）。
+ *
+ * 修法：与**同文件里 v2 域的 `parseNpmAuditV2` 逐字同口径**合并（patched 取并集、roots 取并集、
+ * module 取并集）—— 两个域对「同一件事」必须是同一套口径，否则同一个 GHSA 在两个域给出两个答案。
+ * 合并后 `patched` = `>=1.1.16, >=5.0.7`，而 `checkTargetEscapes` 的「逐段都逃出」语义
+ * 恰好给出正确承诺：**要闭账就得升到能同时满足所有族的下界**（此处 5.0.7）。
+ */
 function parseNpmAudit (report) {
   const advisories = (report && report.advisories) || {};
   const out = new Map();
@@ -287,6 +307,21 @@ function parseNpmAudit (report) {
       patched,
       roots: prev ? [...new Set(prev.roots.concat(roots))].sort() : roots,
     };
+    if (prev) {
+      // 多族合并（口径与 parseNpmAuditV2 逐字同源，见函数头注释）：
+      // patched 取**并集**（', ' 连接，与 v2 域同形）——不是取其一。
+      // 取其一 ⇒ 台账只记一族 ⇒ 另一族的命中从账上消失，且同一公告的 `patched` 会在两轮扫描间翻转
+      // （覆盖顺序取决于对象枚举顺序）⇒ 人被迫反复把 targetVersion 追着上游改写跑。
+      out.set(id, {
+        source: 'npm',
+        id,
+        module: prev.module !== entry.module ? prev.module + ',' + entry.module : entry.module,
+        severity: entry.severity || prev.severity,
+        patched: mergePatched(prev.patched, patched),
+        roots: entry.roots,
+      });
+      continue;
+    }
     out.set(id, entry);
   }
   return [...out.values()];
@@ -297,6 +332,25 @@ function normalizePatched (p) {
   const s = String(p || '').trim();
   if (!s || s === '<0.0.0') return '';
   return s;
+}
+
+/**
+ * 多个修复族的 `patched` 取**并集**（', ' 连接），与 v2 域的合并口径同形。
+ * 空串（无修复版本）不参与合并：它表示「这条没有修复版」，不是「另一族的修复版」。
+ * 合并后 `checkTargetEscapes` 的「逐段都逃出」语义给出正确承诺：要闭账就得升到能**同时**满足所有族的下界。
+ */
+function mergePatched (a, b) {
+  const x = String(a || '').trim();
+  const y = String(b || '').trim();
+  if (!x) return y;
+  if (!y) return x;
+  if (x === y) return x;
+  const segs = new Set();
+  for (const s of (x + ', ' + y).split(',')) {
+    const t = s.trim();
+    if (t) segs.add(t);
+  }
+  return [...segs].join(', ');
 }
 
 /** pip-audit JSON → 归一化条目（pip-audit 不给严重度，统一 unknown，由人工在基线里补注）。 */
