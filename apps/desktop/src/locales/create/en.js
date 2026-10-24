@@ -4,6 +4,7 @@
  */
 import avatarEn from './avatar/en'
 import uiEn from './ui/en'
+import hiflyExtraEn from './hifly-extra/en'
 
 export default {
     // ── AI 讲解视频（animated-explainer）专属：视觉模式 ──────────────────────
@@ -327,6 +328,7 @@ export default {
         ...uiEn,
         // Digital human (avatar-spokesperson): single source is create/avatar/en.js
         ...avatarEn,
+    ...hiflyExtraEn,
       },
       tpl: {
         navBack: "Back",
