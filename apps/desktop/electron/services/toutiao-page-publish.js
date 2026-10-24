@@ -50,12 +50,15 @@ async function publishViaPage (accountId, path, bodyJson, opts) {
     await win.loadURL(PAGE_URL)
     // 等 secsdk 初始化（页面自身的请求会带 csrf 头是初始化完成的标志，这里给固定等待）
     await sleep(Number(o.warmupMs) || 15000) // 2026-10-24：5s 时页面 secsdk 尚未完成签名初始化（实测 403 invalid csrf token）
-    const code = '(async function(){try{' +
-      'var r=await fetch(' + JSON.stringify(path) + ',{method:"POST",credentials:"include",' +
-      'headers:{"Content-Type":"application/json","Accept":"application/json"},' +
-      'body:' + JSON.stringify(bodyJson) + '});' +
-      'var t=await r.text();return JSON.stringify({status:r.status,body:t.slice(0,2000)})' +
-      '}catch(e){return JSON.stringify({status:0,body:"ERR:"+e.message})}})()'
+    // xhr-first（2026-10-24）：字节 secsdk 主要拦 XMLHttpRequest；用 fetch 时头没被签名 ⇒ 403 invalid csrf token。
+    const code = '(function(){return new Promise(function(resolve){try{' +
+      'var x=new XMLHttpRequest();x.open("POST",' + JSON.stringify(path) + ',true);' +
+      'x.withCredentials=true;x.setRequestHeader("Content-Type","application/json");' +
+      'x.setRequestHeader("Accept","application/json");' +
+      'x.onload=function(){resolve(JSON.stringify({status:x.status,body:String(x.responseText||"").slice(0,2000)}))};' +
+      'x.onerror=function(){resolve(JSON.stringify({status:0,body:"XHR_ERROR"}))};' +
+      'x.send(' + JSON.stringify(bodyJson) + ')' +
+      '}catch(e){resolve(JSON.stringify({status:0,body:"ERR:"+e.message}))}}})})()'
     const raw = await win.webContents.executeJavaScript(code, true)
     const out = JSON.parse(String(raw))
     if (log) log.info('RpaView', 'toutiao page-publish status=' + out.status)
