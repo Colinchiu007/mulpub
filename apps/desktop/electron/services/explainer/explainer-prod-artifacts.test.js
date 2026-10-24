@@ -651,7 +651,7 @@ describe('explain publish_log', () => {
 
 describe('explain 场景来源解析与 compose 输出合并', () => {
   const { resolveSceneSource, adaptScenesForAssets } = require('./explainer-prod-stages')
-  const { composeOutputWithArtifacts } = require('./explainer-review-stages')
+  const { composeOutputWithArtifacts, assetManifestToLegacyScenes } = require('./explainer-review-stages')
 
   const planObject = {
     version: '1.0',
@@ -689,6 +689,26 @@ describe('explain 场景来源解析与 compose 输出合并', () => {
     expect(adapted.scenes).toHaveLength(2)
     expect(adapted.scenes[0].prompt).toContain('镜头：medium')
     expect(adapted.scenes[0].text).toContain('第一段')
+  })
+
+  it('★ asset_manifest → 内置 compose 的旧形态（消费点适配）', () => {
+    const manifest = {
+      version: '1.0',
+      assets: [
+        { id: 'asset-scene-1-image', type: 'image', path: '/a1.png', source_tool: 'sd', scene_id: 'scene-1' },
+        { id: 'asset-scene-1-narration', type: 'narration', path: '/a1.mp3', source_tool: 'tts', scene_id: 'scene-1', duration_seconds: 5.8 },
+        { id: 'asset-scene-2-image', type: 'image', path: '/a2.png', source_tool: 'sd', scene_id: 'scene-2' },
+        { id: 'asset-scene-2-narration', type: 'narration', path: '/a2.mp3', source_tool: 'tts', scene_id: 'scene-2', duration_seconds: 7.6 },
+      ],
+      total_cost_usd: 0,
+    }
+    const legacy = assetManifestToLegacyScenes(manifest, planObject, script)
+    expect(legacy).toHaveLength(2)
+    expect(legacy[0].imagePath).toBe('/a1.png')
+    expect(legacy[0].audioPath).toBe('/a1.mp3')
+    // ⚠ duration 取**旁白真实时长**（不是计划时长）⇒ 内置 compose 按实际音频对齐
+    expect(legacy[0].duration).toBe(5.8)
+    expect(legacy[0].text).toContain('第一段')
   })
 
   it('★ compose 输出必须保留原始 videoPath（内置 publish 阶段从 context.compose 读它）', () => {
