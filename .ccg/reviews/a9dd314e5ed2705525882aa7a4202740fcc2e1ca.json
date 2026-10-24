@@ -1,0 +1,60 @@
+{
+  "sha": "a9dd314e5ed2705525882aa7a4202740fcc2e1ca",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 960 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 960,
+    "fileCount": 16,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T19:51:36.068Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": null,
+    "requiresExternalReview": [],
+    "findings": "第 1 轮评审产出 8 条（6 Warning + 2 Info），6 条 Warning 进入裁决并 **6/6 全部 upheld**：① 非法入参静默丢弃 ⇒ 改为动作为零 + 出声（M12）；② 验收表 V9 表述自相矛盾 + 驱动域声明缺失 ⇒ 改写为已归因口径并在 PRD 顶部明写驱动只覆盖 3 个文件；③ 驱动存在死探针与「≥1 命中即 CAUGHT」⇒ 加死探针预筛（取不到读数即 rc=2）与严格命中档（新增 PARTIAL_RED）；④ 「找不到 home 标签」分支与本单元要消灭的缺陷同形且无日志 ⇒ 该分支加告警 + 对称双锁（M11）；⑤ 「只有一个发送方」前提经检索为假 ⇒ 改为发送方/渲染层订阅方/定向 IPC 消费方三条集合锁（M13）；⑥ 「不得有第二份判断」比宣称弱 ⇒ 取体改括号配对 + 跳字符串并配自证用例（M14/M13）。引擎的机器判定为 self_play（minScore=6），不是外部评审通过 —— 逐条处置见执行记录 §五与 PRD §8。",
+    "template": null,
+    "note": null,
+    "at": null,
+    "closureNote": "【第 1 轮 / 引擎收敛判定为 self_play、写回停在 self_play_pending —— 由仓库所有者授权后由 agent 代为回写为 self_play_resolved】评审**真的跑过**：critic=claude(anthropic) / proposer=opencode(deepseek)，跨家族归属现场见 `.ccg/reviews/visible-nav-r1-family-snapshot.json`，评审原文见 `.ccg/reviews/visible-nav-r1-critique.md`（两份都在本次变更集内，可逐条复核）。\n\n引擎现场读数：评审产出 **8 条**（6 Warning + 2 Info），其中 **6 条 Warning 进入裁决，6/6 verdict 全部 upheld**；另 2 条 Info 未进裁决。逐条处置（成立的部分 / 本批实际改了什么 / 由哪条反证钉住 M11–M14）落盘于 `openspec/records/ux-audit-keyboard-nav.md` §五「第一轮」表与 `01-docs/PRD-VISIBLE-NAVIGATION-2026-10-21.md` §8。\n\n为什么引擎的写回停在 self_play_pending：引擎把「自扮演」当收敛判定（`status=self_play reason=selfPlay minScore=6`），**不把自扮演当外部评审通过**，因此状态字段停在 pending ⇒ 机械闸门 `check-pr-exec-record --mode=enforce` 仍报一条深度审查欠账。\n\n本条**不声称**任何外部评审通过：findings 保持 null（引擎未产出结构化 findings），逐条处置在执行记录与 PRD 里。\n**tier 刻意保持缺席** —— 缺席表示「未声明过外部评审出处」；写成 external/或任何值都是把「自扮演」冒充成「外部评审」。\n处置依据是门禁自述的出口②（非高危面写 closureNote）：本 PR `requiresExternalReview` 为空、不触高危面（无 workflow、无判据本体、无凭证面）。\n**由仓库所有者授权处理需要人判断的项后，agent 代为回写。**"
+  }
+}

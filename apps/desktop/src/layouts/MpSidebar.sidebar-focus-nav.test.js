@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import i18n from '@/i18n'
 
@@ -127,6 +127,9 @@ describe('MpSidebar 共享侧边栏驱动聚焦标签', () => {
     await nextTick()
 
     await sidebar.get('[data-testid="mp-primary-accounts"]').trigger('click')
+    // 共享实现（useVisibleNavigation）比原先的内联版本多几层 await，trigger 只等到
+    // 一次渲染 flush；回退链上的 push 会晚一个微任务。不断干就变成间歇性假红。
+    await flushPromises()
 
     expect(navShellMock).toHaveBeenCalledWith('/accounts')
     expect(pushMock).not.toHaveBeenCalled()
@@ -139,6 +142,9 @@ describe('MpSidebar 共享侧边栏驱动聚焦标签', () => {
     await nextTick()
 
     await sidebar.get('[data-testid="mp-primary-accounts"]').trigger('click')
+    // 共享实现（useVisibleNavigation）比原先的内联版本多几层 await，trigger 只等到
+    // 一次渲染 flush；回退链上的 push 会晚一个微任务。不断干就变成间歇性假红。
+    await flushPromises()
 
     expect(navShellMock).not.toHaveBeenCalled()
     expect(switchToTabMock).toHaveBeenCalledWith('home')
@@ -163,6 +169,9 @@ describe('MpSidebar 共享侧边栏驱动聚焦标签', () => {
     await nextTick()
 
     await sidebar.get('[data-testid="mp-primary-accounts"]').trigger('click')
+    // 共享实现（useVisibleNavigation）比原先的内联版本多几层 await，trigger 只等到
+    // 一次渲染 flush；回退链上的 push 会晚一个微任务。不断干就变成间歇性假红。
+    await flushPromises()
 
     expect(navShellMock).toHaveBeenCalledWith('/accounts')
     expect(pushMock).toHaveBeenCalledWith('/accounts')

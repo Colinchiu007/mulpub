@@ -1,0 +1,60 @@
+{
+  "sha": "c61a925e3b0ebb47e42eabdbd037d3e8fbadf75b",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1159 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1159,
+    "fileCount": 17,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T20:25:11.696Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": null,
+    "requiresExternalReview": [],
+    "findings": "第 2 轮评审产出 8 条，**8 条全部 upheld**：① 默认告警出口不分 arity 打出尾随 undefined ⇒ 默认值按 arity 分派 + 两条不打桩直调默认实现的用例（M16）；② navigateVisibly 无串行化 ⇒ 同实例尾部串接 + 连发只切一次 + 后一个目标最终生效（M15/M17）；③ M7 注入体同时改两个变量 ⇒ M7 改为整块换序；④ 文档计数集体漂移 ⇒ 全部改到当场实测读数且不再写死变异条数；⑤ PRD §3.3「三条 [sidebar]」与实现六条不符 ⇒ 逐条枚举并写明前缀分工；⑥ 结构锁/集合锁以 process.cwd() 定位被扫文件 ⇒ 锚点改 import.meta.url 并加「chdir 到盘符根仍成立」的坐标无关用例；⑦ 空串与非字符串共用文案 ⇒ 拆两条文案 + 断言互不混用（M18）；⑧ 探针与用例标题纯子串耦合 ⇒ 预筛逐条打印 needle → 完整标题。",
+    "template": null,
+    "note": null,
+    "at": null,
+    "closureNote": "【第 2 轮 / 引擎写回停在 self_play_pending —— 由仓库所有者授权后由 agent 代为回写为 self_play_resolved】第 2 轮同样真跑过：critic=claude / proposer=opencode，家族归属现场见 `.ccg/reviews/visible-nav-r2-family-snapshot.json`，评审原文见 `.ccg/reviews/visible-nav-r2-critique.md`（在本次变更集内）。\n\n第 2 轮产出 **8 条，8 条全部 upheld**（无一条被「看起来没问题」打发）。逐条处置（指控要点 / 可验证落点 / 对应反证 M15–M18）落盘于\n`openspec/records/ux-audit-keyboard-nav.md` §五「第二轮」表（i1–i8 逐条齐全）。\n\n本条**不声称**外部评审通过：findings 保持 null，逐条处置在执行记录里；**tier 刻意保持缺席**（缺席 = 未声明过外部评审出处）。\n第 1 轮的 6 条 upheld 结论同时仍然有效、且未被本轮改动。处置依据同第 1 轮（门禁自述出口② + 本 PR 非高危面）。\n**由仓库所有者授权处理需要人判断的项后，agent 代为回写。**"
+  }
+}

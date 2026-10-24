@@ -137,6 +137,10 @@ scripts/*.js
 # 被忽略的症状与上面几族完全同形 —— 本地全绿、CI 上 Cannot find module（#3011 / Gate 2c3 /
 # precommit-spawn-budget / same-type-risk-locks / 引导按钮名同族，第 6 次）。
 !scripts/check-mask-coverage.js
+# 可见导航反证驱动本体（UX 审计 1.5）：第 106 行 scripts/*.js 会把它静默忽略，
+# 而 openspec 变更的 tasks 与执行记录都按路径点名它做反证取证 —— 漏反选的症状与同族前 7 次完全同形
+# （本地全绿、CI / 他人会话 Cannot find module）。
+!scripts/visible-navigation-contract-mutate.js
 # 引导文案按钮名同步锁本体：第 106 行 scripts/*.js 会把它静默忽略，而 quality-gate.yml
 # 的 changes job 按路径点名它 —— 漏这条 negation 的症状是本地全绿、CI 上 Cannot find
 # module（#3011 / Gate 2c3 / precommit-spawn-budget / same-type-risk-locks 同族，第 5 次）。
