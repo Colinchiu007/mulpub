@@ -1,0 +1,28 @@
+[mut-dr] repoDirTail=mp-shard-audit-transient-retry mutations=8
+[mut-dr] 控制跑(全绿前置) audit rc=0 fail=0 | step rc=0 fail=0
+[mut-dr] M10 i2 反证：摘掉 rawStderr ⇒ 判据退回只看截断后的 200 字符
+[mut-dr]   rc=1 fail=1 红集=r2-i2 回归：判定读完整 stderr，打印才截断 —— 签名落在第 200 字符之后不得被判成"一次就抛"
+[mut-dr] M10 逐字节还原: OK
+[mut-dr] M11 i2 对偶反证：判据恒真 ⇒ "404 藏在长 stderr 尾部"被洗成概率事件
+[mut-dr]   rc=1 fail=4 红集=瞬时故障分类 · 判据类失败一律不得判瞬时（重试它们就是把红藏起来） | 判据类失败只试一次：HTTP 404 不得被重试洗成"多跑几次就绿了" | i4 回归：HTTP 5xx 的多种真实形态都要判瞬时，而 4xx 与毫秒数不得被误判 | r2-i2 对偶：全文判定不得变宽判据 —— 404 藏在长 stderr 尾部仍一次就抛，且打印仍然截断
+[mut-dr] M11 逐字节还原: OK
+[mut-dr] M12 i4 反证：摘掉退避总预算 ⇒ "有界"退回输入的善意假设
+[mut-dr]   rc=1 fail=1 红集=r2-i4 回归：退避总时长有硬上限 —— attempts=100 / baseMs=30000 不得把人质成 42 小时
+[mut-dr] M12 逐字节还原: OK
+[mut-dr] M13 i8 反证：把空串退回静默回落（被禁的旧形态本身）
+[mut-dr]   rc=1 fail=1 红集=r2-i8 回归：空串是最容易手滑的"关掉重试"写法，必须回落默认并出声（静默吞掉等于配置坏了没人知道）
+[mut-dr] M13 逐字节还原: OK
+[mut-dr] M14 i11 反证：摘掉参数点名 ⇒ 坏 attempts 演成 TypeError
+[mut-dr]   rc=1 fail=1 红集=r2-i11 回归：makeGhApi 收到 attempts<1 必须当场点名，不得抛"读 undefined.message"的 TypeError
+[mut-dr] M14 逐字节还原: OK
+[mut-dr] M15 i7 反证：整段退回"守卫不存在 + opts.api 旁路"
+[mut-dr]   rc=1 fail=1 红集=r2-i7 回归：取数面只剩一条 —— collect 不得再接受能整体绕过重试与非法值校验的 opts.api
+[mut-dr] M15 逐字节还原: OK
+[mut-dr] M16 i3 反证：扶正分支摘掉样本量下限 ⇒ 8 片档照样能扶正
+[mut-dr]   rc=1 fail=1 红集=册子里更新的一档要么已被扶正、要么样本量确实更小（既挡悄悄漂移，也让"够了就换"可达）
+[mut-dr] M16 逐字节还原: OK
+[mut-dr] M17 i10 反证：从新档读数里抹掉分布下界 ⇒ 字段锁必须红
+[mut-dr]   rc=1 fail=1 红集=provenance 是一册 append-only 读数账，顶部的数必须能在册子里对上号
+[mut-dr] M17 逐字节还原: OK
+[mut-dr] 红集互不相同: YES 空集=无 MISSED=0
+[mut-dr] 收尾自检 与开局快照不同的文件=无

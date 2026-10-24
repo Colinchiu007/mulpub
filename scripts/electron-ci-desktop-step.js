@@ -54,6 +54,37 @@ const STEP_BUDGET_PROVENANCE = {
    * 而取 2700s ≈ `max × 1.94`，给同-runner 争用留约一倍空间；第一次真跑后按打印的逐片 `elapsed=` 重定数。 */
   contentionNote: '样本取自「每片独占一个 runner」（QG Desktop Shards）；本步是同 runner 两片并行 ⇒ 争用倍数未测',
   runnerShape: '2 shards / 1 job / 1 runner',
+  /**
+   * append-only 读数账（2026-10-22 起）。顶部那几个数 = 本册中被**扶正**的那一条；
+   * 新读数先入账、就先进判据（`预算 ≥ max(全部读数) × 倍数`），样本量够了才换顶部值 ——
+   * 那是个显式动作，由 electron-ci-desktop-step.test.js 的两条 provenance 锁守着，
+   * 不允许它跟着册子悄悄漂移。
+   */
+  readings: [
+    {
+      collectedAt: '2026-10-21',
+      runnerShape: '1 shard / 1 job / 1 runner（QG Desktop Shards 矩阵，每片独占 runner ⇒ 不含争用，是下界）',
+      runs: 7,
+      shards: 14,
+      minShardMin: 11.2,
+      p50ShardMin: 18.6,
+      maxShardMin: 23.2,
+      source: 'quality-gate.yml main push 里 name 以 "QG Desktop Shards" 开头且 conclusion=success 的'
+        + '作业 started_at/completed_at（复测入口 scripts/electron-ci-shard-audit.js 的第②档）',
+    },
+    {
+      collectedAt: '2026-10-22',
+      runnerShape: '2 shards / 1 job / 1 runner（**本步真实形状** ⇒ 含两片争用）',
+      runs: 10,
+      shards: 8,
+      minShardMin: 19.4,
+      p50ShardMin: 22.1,
+      maxShardMin: 23.6,
+      source: 'node scripts/electron-ci-shard-audit.js 逐字读数（不是手填）：runs=10 shards=8 min=19.4 '
+        + 'p50=22.1 max=23.6 budgetFloorSec=2122 stepBudgetSec=2700 verdict=OK，'
+        + '全部(分钟)=22.9,20.2,23.6,20.6,22.1,19.4,23.3,20.8',
+    },
+  ],
   source: '复测入口 scripts/electron-ci-shard-audit.js：① 新形状上线后读 electron-ci.yml push 的 '
     + 'electron-tests 作业日志里 `[electron-ci-step] shard=… elapsed=…ms` 逐片墙钟；'
     + '② 上线前的替代基线读 quality-gate.yml 里 name 以 "QG Desktop Shards" 开头且 conclusion=success '

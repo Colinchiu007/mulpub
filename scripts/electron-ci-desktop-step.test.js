@@ -31,6 +31,9 @@ const mod = require('./electron-ci-desktop-step.js');
 
 const ESC = String.fromCharCode(27);
 
+/** 样本量下限的单一出处：顶部读数与「新档够格扶正」两处必须用同一个数，抄两份必然漂移。 */
+const MIN_GOVERNING_SAMPLES = 10;
+
 test('分片参数：两片各自独立且必须带齐既有旗标，--shard 不得落在独立 "--" 之后', () => {
   const a1 = mod.buildShardArgs(1, 2);
   const a2 = mod.buildShardArgs(2, 2);
@@ -234,7 +237,7 @@ test('预算取值必须有实测出处，且判据是「≥ max×倍数」而�
   const p = mod.STEP_BUDGET_PROVENANCE;
   assert.equal(typeof p.maxObservedShardMin, 'number');
   assert.ok(Number.isFinite(p.maxObservedShardMin) && p.maxObservedShardMin > 0, 'max 必须是正数');
-  assert.ok(p.shards >= 10, '样本量下限：' + p.shards + ' 个分片样本不足以定预算');
+  assert.ok(p.shards >= MIN_GOVERNING_SAMPLES, '样本量下限：' + p.shards + ' 个分片样本不足以定预算');
   assert.ok(p.runs >= 5, 'run 数下限：' + p.runs);
   assert.ok(p.safetyMultiplier >= 1.5, '安全倍数不得低于 1.5（与 gate-budget.js 同源口径）');
   assert.ok(typeof p.collectedAt === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.collectedAt), '必须带采集日期');
@@ -270,3 +273,92 @@ test('接线：electron-ci 的那一步必须调用本脚本，且不得再自�
   assert.equal(mod.SHARD_TIMEOUT_MS, mod.STEP_BUDGET_MS,
     '共享预算下允许单片跑满整步；这一格必须显式相等，否则上一条「不倒挂」的断言是空话');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-22（任务 #94 第二件）：审计入口第一次跑通，产出**本步真实形状**的第一批读数
+// （同 runner 两片并行，10 趟 / 8 片 / max 23.6min）。它必须进 provenance，
+// 但**不得**取代旧读数成为定预算的依据 —— 8 片 < 样本量下限 10，把它扶正当场就该红。
+// 所以这里要的不是"多写一段注释"，而是让 append 进来的读数**被门禁读**。
+// 三条各自独立成 test：一个 it 里放两条理由 ⇒ 首条失败即中止，第二格证据被藏住（本仓老坑）。
+// 原始现场（逐字抄自审计输出，不是手填）：
+//   [shard-audit] runs=10 shards=8 minShardMin=19.4 p50ShardMin=22.1 maxShardMin=23.6
+//     budgetFloorSec=2122 stepBudgetSec=2700 safetyMultiplier=1.5
+//     source=new-shape(per-shard elapsed / 1 runner) verdict=OK
+//   [shard-audit] 全部(分钟)=22.9,20.2,23.6,20.6,22.1,19.4,23.3,20.8
+test('provenance 是一册 append-only 读数账，顶部的数必须能在册子里对上号', () => {
+  const p = mod.STEP_BUDGET_PROVENANCE
+  assert.ok(Array.isArray(p.readings), 'readings 必须是数组（单值写回会抹掉历史测量的出处）')
+  assert.ok(p.readings.length >= 2, '至少要有"每片独占 runner"与"同 runner 两片并行"两档形状：' + p.readings.length)
+  const KEYS = ['collectedAt', 'runnerShape', 'runs', 'shards', 'minShardMin', 'p50ShardMin', 'maxShardMin', 'source']
+  for (const r of p.readings) {
+    for (const k of KEYS) {
+      assert.ok(r[k] != null && r[k] !== '', '某条读数缺字段 ' + k + '：' + JSON.stringify(r).slice(0, 120))
+    }
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(r.collectedAt), '每条读数都要带采集日期（活数没时间戳就没人知道它多旧）')
+    assert.ok(r.shards >= 1 && r.runs >= 1, 'shards/runs 必须是正整数，不得用"很多"这种词')
+  }
+  const hit = p.readings.find((r) => r.maxShardMin === p.maxObservedShardMin && r.shards === p.shards && r.runs === p.runs)
+  assert.ok(hit, '顶部的 max/shards/runs 在册子里找不到对应条目 ⇒ 两份事实已经分叉')
+});
+
+test('新形状读数参与判据：预算 ≥ max(全部读数) × 倍数，而不只是 ≥ 顶部那一档', () => {
+  const p = mod.STEP_BUDGET_PROVENANCE
+  const maxAll = Math.max(...p.readings.map((r) => r.maxShardMin))
+  assert.ok(mod.STEP_BUDGET_MS >= maxAll * 60000 * p.safetyMultiplier,
+    '有一档形状的 max×倍数 已超过预算 ⇒ 该抬预算或加片数；把这条断言改宽就是把预算墙读成用例坏')
+  assert.ok(mod.STEP_BUDGET_MS > maxAll * 60000, '预算必须大于**任何一档**观测最大值本身')
+});
+
+test('册子里更新的一档要么已被扶正、要么样本量确实更小（既挡悄悄漂移，也让"够了就换"可达）', () => {
+  const p = mod.STEP_BUDGET_PROVENANCE
+  // 规则（生产方只有一份，写在测试里因为这是"锁自身的可达性"问题）：
+  //   最新一档 == 扶正档 **且**其样本量 ≥ 下限 ⇒ 通过（够了才换，换了也须够格）
+  //   最新一档样本量 < 扶正档          ⇒ 通过（还没资格换，正是本次 8 片 < 14 片的处境）
+  //   否则                              ⇒ 红（有更厚的读数却没扶正 = 悄悄漂移）
+  const governingIsCurrent = (prov) => {
+    const newest = prov.readings.reduce((a, r) => (r.collectedAt > a.collectedAt ? r : a))
+    // r2-i3：「已扶正」这一支必须同时过样本量下限，否则记录里「8 片扶正当场就该红」
+    // 那句声称的判据在锁里不存在 —— 任意一片（哪怕 shards=2）写上顶部日期都能全绿。
+    const promotedAndEligible = newest.collectedAt === prov.collectedAt
+      && newest.shards >= MIN_GOVERNING_SAMPLES
+    return promotedAndEligible || newest.shards < prov.shards
+  }
+  assert.ok(governingIsCurrent(p), '当前读数账的扶正关系不成立 ⇒ 要么换顶部值，要么删掉那条更新读数')
+
+  // 正控（出路可达）：**样本量够**的新档被显式扶正 ⇒ 必须仍然通过。
+  // 上一版把它写成「任何扶正都通过」，于是记录里那句「8 片 < 样本量下限 10，把它扶正
+  // 当场就该红」在锁里根本没有执行体（外部评审第 2 轮 i3）。
+  const thickNewest = {
+    collectedAt: '2026-11-05', shards: 12, runs: 6, maxObservedShardMin: 25.0,
+    readings: [
+      { collectedAt: '2026-10-21', shards: 14 },
+      { collectedAt: '2026-11-05', shards: 12 },
+    ],
+  }
+  assert.ok(governingIsCurrent(thickNewest),
+    '样本量达标的新档被扶正 ⇒ 必须是允许的动作，否则这条锁在禁止它自己声明的修复路径')
+
+  // 反控 A（记录里那句「当场就该红」的执行体）：不足下限的一档即使被扶正也必须红。
+  const thinPromoted = {
+    collectedAt: '2026-11-05', shards: 8, runs: 4, maxObservedShardMin: 23.6,
+    readings: [
+      { collectedAt: '2026-10-21', shards: 14 },
+      { collectedAt: '2026-11-05', shards: 8 },
+    ],
+  }
+  assert.equal(governingIsCurrent(thinPromoted), false,
+    '把 8 片档写上顶部日期就当成定预算依据 ⇒ 必须红；这里放行就是装饰性锁')
+
+  // 反控：更新一档明显更厚却没扶正 ⇒ 必须判不成立（证明正控不是恒真）
+  const drifted = {
+    collectedAt: '2026-10-21', shards: 8,
+    readings: [
+      { collectedAt: '2026-10-21', shards: 8 },
+      { collectedAt: '2026-10-30', shards: 20 },
+    ],
+  }
+  assert.equal(governingIsCurrent(drifted), false,
+    '更厚的新读数摆在册子里却不扶正 ⇒ 必须红，不然整条锁是装饰')
+});
+
+
