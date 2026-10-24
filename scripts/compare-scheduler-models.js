@@ -23,6 +23,47 @@ const { runSelfCheck, clampConcurrency } = require('../apps/desktop/electron/ser
 const DEFAULT_PYTHON_TIMEOUT_MS = 30000
 const PYTHON_SIMULATE_TIMEOUT_MS = resolveSpawnTimeout(process.env.MP_PARITY_PYTHON_TIMEOUT_MS)
 
+// 主干红 run 40108163214 那一档 `signal=SIGTERM timeout=30000ms` 当时既无时长样本、也分不开
+// 「解释器被饿死（该重跑）」与「模拟器跑不完（该修代码）」。本切片补可归因，不调宽预算。
+const DEFAULT_PYTHON_ATTEMPTS = 2
+const PYTHON_MAX_ATTEMPTS = resolveMaxAttempts(process.env.MP_PARITY_PYTHON_ATTEMPTS)
+const PYTHON_PROBE_TIMEOUT_MS = 8000
+/** 探针只回答一件事：这台机器现在能不能把 python 拉起来。它必须是**零依赖**的一行。 */
+const PYTHON_PROBE_SCRIPT = 'import sys;print(1)'
+/**
+ * 预算的出处必须连预算一起写在这里。域要说清：max=400ms 是**本机**一次真实 runParity 的 6 个样本；
+ * runner 侧分布不自称已有——那 6 行 `[parity-timing]` 正是本切片开始采的。它只锁一件事：
+ * 工作量是 0.1s 量级 ⇒ 30s 不是在保护算法，主干那次超时只可能是环境被饿死，故只对环境档重试一次。
+ * 改预算必须先重跑下面的 recheckCmd，并把新的 max/样本数一起改这里。
+ */
+const PARITY_PYTHON_TIMEOUT_PROVENANCE = {
+  localMaxMs: 400, localSamples: 6, localRuns: 1, collectedAt: '2026-10-25', marginMultiplier: 20,
+  recheckCmd: "node -e \"require('./scripts/compare-scheduler-models').runParity(1500)\"",
+}
+const pythonTimingLedger = []
+
+/** 重试上限同口径：`0` 等于关掉重试判据、非整数会让比较恒假而无限重试，两者都回落默认并出声。 */
+function resolveMaxAttempts (raw, warns) {
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_PYTHON_ATTEMPTS
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 1) {
+    const msg = '[parity] MP_PARITY_PYTHON_ATTEMPTS=' + raw + ' 非法 ⇒ 回落 ' + DEFAULT_PYTHON_ATTEMPTS
+      + '（0 等于关掉重试判据，非整数会让 attempts 比较恒假而无限重试）'
+    if (Array.isArray(warns)) warns.push(msg)
+    else console.warn(msg)
+    return DEFAULT_PYTHON_ATTEMPTS
+  }
+  return n
+}
+
+/** 时长样本只由**真实** spawn 记；注入的 spawnImpl 一律不进台账（假样本会让"预算是否贴脸"的活体检查退化成恒真）。 */
+const recordPythonTiming = (entry) => { pythonTimingLedger.push(entry) }
+const pythonTimingSnapshot = () => pythonTimingLedger.slice()
+const resetPythonTimingLedger = () => { pythonTimingLedger.length = 0 }
+
+/** 只有「被 timeout 杀掉」这一档长成这样：status 为 null 且有 signal。ENOENT（signal 为 null）与真崩（status 非 null）天然落不进来。 */
+const isEnvTimeout = (res) => !!(res && res.status === null && res.signal)
+
 /**
  * total_duration_ms 的容差口径。
  *
@@ -236,11 +277,13 @@ const KNOWN_DIFF_CASES = [
  * ⛔ 刻意不引入 skip：对拍只在 main push 跑（`if: event != pull_request`），
  *    静默 skip 等于把守门关掉还报通过——那是本仓记过的「装饰性门禁」同型。
  * @param {object} res spawnSync 的结果对象
- * @param {{timeoutMs?: number}} [ctx]
+ * @param {{timeoutMs?: number, attempts?: number, probe?: {ok: boolean, ms: number, code: string}|null}} [ctx]
  * @returns {string} 永不为空
  */
 function formatSpawnFailure (res, ctx) {
   const timeoutMs = (ctx && ctx.timeoutMs) || PYTHON_SIMULATE_TIMEOUT_MS
+  const attempts = (ctx && ctx.attempts) || 1
+  const probe = ctx && ctx.probe
   const tail = (s) => String(s || '').trim().split(/\r?\n/).slice(-6).join(' | ').slice(0, 400)
   const status = res.status === null || res.status === undefined ? 'null' : String(res.status)
   const code = (res.error && res.error.code)
@@ -251,8 +294,15 @@ function formatSpawnFailure (res, ctx) {
       + '核验命令：python --version（Windows runner 上由 setup-python 提供，缺失时先查该步是否被改动）'
   }
   if (code === 'ETIMEDOUT' || (res.error && res.status === null && res.signal)) {
-    return base + ' cause=ETIMEDOUT ⇒ 子进程在预算内没跑完，属 runner **负载/抖动**（同作业重跑即可归因），'
-      + '不是模拟器算错。stderr=' + (tail(res.stderr) || '(空)')
+    const retryNote = ' attempts=' + attempts + '/' + PYTHON_MAX_ATTEMPTS
+    if (probe && probe.ok) {
+      return base + retryNote + ' cause=ETIMEDOUT ⇒ 探针 PROBE_OK（解释器 ' + probe.ms + 'ms 就能拉起）'
+        + '而模拟器在预算内跑不完 ⇒ 这不是负载，是真缺陷：查 simulate() 的耗时或这组参数'
+    }
+    return base + retryNote + ' cause=ETIMEDOUT ⇒ 连探针（python 只打印一个字面量）都没能在预算内返回'
+      + '（探针用时=' + (probe ? probe.ms + 'ms' : '未执行') + '）'
+      + ' ⇒ 解释器启动本身被饿死，属 runner 负载/抖动，同作业重跑即可归因，不是模拟器算错。'
+      + 'stderr=' + (tail(res.stderr) || '(空)')
   }
   return base + ' ⇒ python 侧真实报错（非零退出）：' + (tail(res.stderr) || tail(res.stdout) || '(stderr/stdout 均空，只有 status 可看)')
 }
@@ -305,12 +355,48 @@ function pythonSimulate (params, opts) {
     exceed_5h: params.limitPer5h != null,
     cooldown_ms: params.cooldownMs != null ? params.cooldownMs : 30000,
   }
-  const res = spawn('python', ['-c', script, JSON.stringify(pyParams)], {
-    cwd: path.resolve(__dirname, '..'),
-    encoding: 'utf8',
-    timeout: PYTHON_SIMULATE_TIMEOUT_MS,
-  })
-  if (!res || res.status !== 0) throw new Error('python simulator failed: ' + formatSpawnFailure(res || {}, { timeoutMs: PYTHON_SIMULATE_TIMEOUT_MS }))
+  const attemptsCap = (opts && opts.maxAttempts) || PYTHON_MAX_ATTEMPTS
+  const log = (opts && opts.logImpl) || ((s) => console.log(s))
+  const caseName = (opts && opts.caseName) || '-'
+  const isRealSpawn = !opts || !opts.spawnImpl
+  const startedAt = {}
+  let res = null
+  let attempts = 0
+  let envTimeout = false
+  while (attempts < attemptsCap) {
+    attempts++
+    const t0 = process.hrtime.bigint()
+    res = spawn('python', ['-c', script, JSON.stringify(pyParams)], {
+      cwd: path.resolve(__dirname, '..'), encoding: 'utf8', timeout: PYTHON_SIMULATE_TIMEOUT_MS,
+    })
+    const ms = Number((process.hrtime.bigint() - t0) / 1000000n)
+    const ok = !!(res && res.status === 0)
+    envTimeout = isEnvTimeout(res)
+    // 这一行是"预算是否贴脸"的唯一现场证据：没有它，下一次红还是同一句无法归因的话。
+    log('[parity-timing] case=' + caseName + ' python_ms=' + ms + ' budget_ms=' + PYTHON_SIMULATE_TIMEOUT_MS
+      + ' attempts=' + attempts + ' status=' + (ok ? 'ok' : envTimeout ? 'timeout' : 'fail'))
+    if (isRealSpawn) recordPythonTiming({ case: caseName, ms, attempts, ok, envTimeout, budgetMs: PYTHON_SIMULATE_TIMEOUT_MS })
+    if (ok) break
+    // 只有环境档值得重来：ENOENT（signal 为 null）与真崩（status 非 null）都落不进 isEnvTimeout，
+    // 给它们重试等于把"python 没装"读成"再试一次也许就好了"。
+    if (envTimeout && attempts < attemptsCap) {
+      log('[parity] python 第 ' + attempts + ' 次在 ' + PYTHON_SIMULATE_TIMEOUT_MS + 'ms 预算内未返回 ⇒ 同预算重试（上限 ' + attemptsCap + '）')
+      continue
+    }
+    break
+  }
+  if (!res || res.status !== 0) {
+    // 最终仍失败且属超时档时补一次探针：它把"该重跑"与"该修代码"分开，而这两种处置完全相反。
+    // 探针只在这条失败路径上执行，happy path 一个多余子进程都不起。
+    let probe = null
+    if (envTimeout) {
+      const p0 = process.hrtime.bigint()
+      let pr = null
+      try { pr = spawn('python', ['-c', PYTHON_PROBE_SCRIPT], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8', timeout: PYTHON_PROBE_TIMEOUT_MS }) } catch (e) { pr = null }
+      probe = { ok: !!(pr && pr.status === 0), ms: Number((process.hrtime.bigint() - p0) / 1000000n) }
+    }
+    throw new Error('python simulator failed: ' + formatSpawnFailure(res || {}, { timeoutMs: PYTHON_SIMULATE_TIMEOUT_MS, attempts, probe }))
+  }
   const lines = String(res.stdout || '').trim().split('\n')
   let parsed
   try {
@@ -331,7 +417,7 @@ function pythonMetrics (params) {
 async function runParity (toleranceMs = PARITY_TOLERANCE_FLOOR_MS) {
   const results = []
   for (const c of CASES) {
-    const sim = pythonSimulate(c.params)
+    const sim = pythonSimulate(c.params, { caseName: c.name })
     const py = sim.metrics
     const real = await runSelfCheck(c.params)
     // 下限取调用方传入值（默认 1500ms），并按期望耗时放大比例余量；
@@ -446,7 +532,7 @@ async function main () {
   process.exit(ok ? 0 : 1)
 }
 
-module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionSetMatches, completionOrderSequenceMatches, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, formatSpawnFailure, resolveSpawnTimeout, PYTHON_SIMULATE_TIMEOUT_MS, DEFAULT_PYTHON_TIMEOUT_MS, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
+module.exports = { runParity, CASES, runKnownDiffs, KNOWN_DIFF_CASES, durationTolerance, concurrencyCheck, deferralEvidence, completionOrder, completionSetMatches, completionOrderSequenceMatches, effectiveMaxConcurrent, pythonMetrics, pythonSimulate, formatSpawnFailure, resolveSpawnTimeout, resolveMaxAttempts, isEnvTimeout, recordPythonTiming, PARITY_PYTHON_TIMEOUT_PROVENANCE, pythonTimingSnapshot, resetPythonTimingLedger, PYTHON_SIMULATE_TIMEOUT_MS, DEFAULT_PYTHON_TIMEOUT_MS, PYTHON_MAX_ATTEMPTS, DEFAULT_PYTHON_ATTEMPTS, PYTHON_PROBE_SCRIPT, PYTHON_PROBE_TIMEOUT_MS, PARITY_TOLERANCE_FLOOR_MS, PARITY_TOLERANCE_RATIO }
 
 if (require.main === module) {
   main().catch((e) => { console.error(e); process.exit(1) })

@@ -409,9 +409,96 @@ describe('pythonSimulate 失败必须可归因（三档分开，不再抛空消�
     const src = fs.readFileSync(require.resolve('./compare-scheduler-models'), 'utf8')
     assert.ok(!/python simulator failed: '? \+ \(res\.stderr \|\| res\.stdout\)/.test(src),
       '又回到 `+ (res.stderr || res.stdout)` ⇒ 三档重新塌成一句空消息')
-    // 正向锚：抛错处必须真的调用格式化器（"文件里出现过这个函数名"不构成接线）
-    assert.match(src, /function pythonSimulate[\s\S]{0,1400}throw new Error\('python simulator failed: ' \+ formatSpawnFailure\(/,
+    // 正向锚：抛错处必须真的调用格式化器（"文件里出现过这个函数名"不构成接线）。
+    // ⚠ 判据取数域改过：旧写法是 `function pythonSimulate[\s\S]{0,1400}throw …`，
+    //    那个 1400 是当时手写的窗口，**没有任何实测依据**，于是"在函数里加一段重试循环"这种
+    //    与语义无关的成长会把锚点整条剪断（本仓记过的「锚点指向的窗口过期」同型）。
+    //    正解是按语法边界取域：取 pythonSimulate 函数体本身，再在里面找那次调用。
+    const bodyStart = src.indexOf('function pythonSimulate')
+    assert.ok(bodyStart >= 0, 'pythonSimulate 不在了')
+    // 闭合括号按**工作区真实行尾**匹配（本仓 checkout 侧是 CRLF，写 '\n}\n' 会恒不命中）
+    const closeMatch = /\r?\n\}\r?\n/.exec(src.slice(bodyStart))
+    assert.ok(closeMatch, '取不到 pythonSimulate 的函数闭合，本条不得继续判')
+    const body = src.slice(bodyStart, bodyStart + closeMatch.index)
+    // 反失明正控：取到的函数体必须真的包含这段工作要做的事，否则"匹配不到"是探针坏而不是没接线
+    assert.ok(body.length > 400, '函数体长度异常（' + body.length + '），切片口径已失效')
+    assert.match(body, /spawn\('python'/, '函数体里必须真的有那次子进程调用')
+    assert.match(body, /throw new Error\('python simulator failed: ' \+ formatSpawnFailure\(/,
       'pythonSimulate 没有走 formatSpawnFailure ⇒ 上报只是存在，没在跑')
   })
 })
 
+
+// ── python 子进程的「预算 / 重试 / 时长样本」三件套（主干红 40108163214 的归因缺口）──
+// 旧实现只说"属负载/抖动"，既没记一次真实时长、也分不开「解释器被饿死」与「模拟器真跑不完」。
+// 本切片补的是**可归因**，不是把断言调宽。
+describe('python 子进程预算与重试（parity 主干红归因）', () => {
+  const { pythonSimulate, pythonTimingSnapshot, resetPythonTimingLedger, PYTHON_MAX_ATTEMPTS, PYTHON_PROBE_SCRIPT, resolveMaxAttempts } = require('./compare-scheduler-models')
+  const params = { rpm: 6, maxConcurrent: 1, requestCount: 2, requestDurationMs: 20 }
+  const timeouts = () => ({ status: null, signal: 'SIGTERM', error: Object.assign(new Error('ETIMEDOUT'), { code: 'ETIMEDOUT' }), stdout: '', stderr: '' })
+  const enoent = () => ({ status: null, signal: null, error: Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }), stdout: '', stderr: '' })
+  const crashed = () => ({ status: 1, signal: null, stdout: '', stderr: 'Traceback: bad' })
+  const okRun = () => ({ status: 0, stdout: JSON.stringify({ metrics: {}, timeline: [] }), stderr: '' })
+  // 探针调用是 spawn('python', ['-c', PROBE])，真跑是 ['-c', script, json] ⇒ 第 2 个参数才是分界
+  const isProbe = (args) => args[1] === PYTHON_PROBE_SCRIPT
+
+  it('只有环境档（超时）才重试，ENOENT 与真崩一律当场抛（重试会把"python 没装"读成"再试一次"）', () => {
+    let calls = 0
+    // 探针也走同一个注入后端 ⇒ 计数必须只数真跑那一次，否则"重试 1 次 + 探针 1 次"会被读成"跑了 3 次"
+    assert.throws(() => pythonSimulate(params, { spawnImpl: (cmd, args) => { if (!isProbe(args)) calls++; return timeouts() } }), /ETIMEDOUT|SIGTERM/)
+    assert.equal(calls, PYTHON_MAX_ATTEMPTS, '超时档必须用满重试上限')
+    calls = 0
+    assert.throws(() => pythonSimulate(params, { spawnImpl: () => { calls++; return enoent() } }), /ENOENT/)
+    assert.equal(calls, 1, '解释器不存在是永久成因，不得重试')
+    calls = 0
+    assert.throws(() => pythonSimulate(params, { spawnImpl: () => { calls++; return crashed() } }), /status=1/)
+    assert.equal(calls, 1, '真崩不是抖动，不得重试')
+  })
+
+  it('第一次超时、第二次成功 ⇒ 不抛且真跑两次；注入的 spawnImpl 一律不进台账（假样本会让贴脸检查恒真）', () => {
+    resetPythonTimingLedger()
+    let n = 0
+    const out = pythonSimulate(params, { spawnImpl: (cmd, args) => { if (isProbe(args)) return okRun(); n++; return n === 1 ? timeouts() : okRun() } })
+    assert.ok(out && out.metrics, '恢复后必须照常返回结果')
+    assert.equal(n, 2)
+    assert.equal(pythonTimingSnapshot().length, 0, '假后端不得进台账')
+  })
+  it('两次超时后必须做解释器探针，并按探针结果分档说成因：探针也超时=环境饿死；探针可启动=模拟器真跑不完', () => {
+    const env = timeouts()
+    let msgEnv = ''
+    try { pythonSimulate(params, { spawnImpl: () => env }) } catch (e) { msgEnv = e.message }
+    assert.match(msgEnv, /探针/)
+    assert.match(msgEnv, /饿死|负载/)
+    let msgReal = ''
+    try { pythonSimulate(params, { spawnImpl: (cmd, args) => isProbe(args) ? okRun() : env }) } catch (e) { msgReal = e.message }
+    assert.match(msgReal, /PROBE_OK/)
+    assert.match(msgReal, /真缺陷|不是负载/)
+    assert.notEqual(msgEnv, msgReal, '两种成因塌成一句话就是把"该重跑"读成"该修代码"')
+  })
+  it('每次真实调用都打一行 [parity-timing]，带 python_ms / budget_ms / attempts（没这行就没有分布可采）', () => {
+    const lines = []
+    pythonSimulate(params, { spawnImpl: () => okRun(), logImpl: (s) => lines.push(s) })
+    const joined = lines.join('\n')
+    assert.match(joined, /\[parity-timing\][\s\S]*python_ms=\d+/)
+    assert.match(joined, /budget_ms=30000/)
+    assert.match(joined, /attempts=1/)
+  })
+  it('重试上限可被 env 覆盖，非法值必须回落默认并出声（与预算档同口径）', () => {
+    const warns = []
+    assert.equal(resolveMaxAttempts('', warns), 2)
+    assert.equal(resolveMaxAttempts('0', warns), 2, '0 会让"永不重试"伪装成可配置')
+    assert.equal(resolveMaxAttempts('abc', warns), 2)
+    assert.equal(resolveMaxAttempts('3', warns), 3)
+    assert.ok(warns.length >= 2, '回落必须出声，否则本机一直带着一个非法值也不会有人知道')
+  })
+  // 出处必须可重跑：写下「30s 够用」不是证据，样本才是。域要如实——这 6 例是**本机**样本，
+  // runner 侧分布由上线后的 [parity-timing] 行自采；本条只锁「工作量是 0.1s 量级 ⇒ 预算不是在保护算法」。
+  it('python 预算必须带实测出处与裕度倍数（改预算先重跑复测命令）', () => {
+    const { PARITY_PYTHON_TIMEOUT_PROVENANCE: p, PYTHON_SIMULATE_TIMEOUT_MS } = require('./compare-scheduler-models')
+    assert.ok(p.localMaxMs > 0, '零样本的"分布"不是分布')
+    assert.ok(p.localSamples >= 6, '样本数下限 6（每组一条）')
+    assert.ok(PYTHON_SIMULATE_TIMEOUT_MS >= p.localMaxMs * p.marginMultiplier, '预算必须 ≥ 实测 max × 裕度倍数')
+    assert.match(p.recheckCmd, /runParity/, '复测入口必须是一句能在仓库里重跑的命令')
+    assert.ok(p.collectedAt, '出处必须带采集日期')
+  })
+})
