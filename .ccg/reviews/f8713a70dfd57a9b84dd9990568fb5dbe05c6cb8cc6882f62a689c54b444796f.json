@@ -1,0 +1,57 @@
+{
+  "sha": "1d6722ae68056b06897a3acfb614d196ce393d36",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 10 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 10,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "f8713a70dfd57a9b84dd9990568fb5dbe05c6cb8cc6882f62a689c54b444796f",
+  "decidedAt": "2026-10-24T05:33:58.326Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
