@@ -1,0 +1,142 @@
+{
+  "sha": "8808bd5bffab7043f75bcd783e52f716794e39ec",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 388 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 388,
+    "fileCount": 8,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| 第一性原因（QM-5 ①） | PASS | 不是\"网络坏\"，是**取数路径上没有任何重试**：`grep -na \"attempt\\|retries\\|backoff\" scripts/electron-ci-shard-audit.js` 在改动前实测 **0 命中**。同一台机器、同一凭据、同一条命令，2026-10-22 连续 4 次 SELF_FAULT（rc=2），第 5 次成功 —— 断点还会飘：3 次落在 `api repos/{owner}/{repo}/actions/jobs/<id>/logs`（目标是 `productionresultssa*.blob.core.windows.net`），1 次落在 `--runs=3` 的**第一条** `gh run list`（`read tcp …->198.18.0.241:443: wsarecv: An existing connection was forcibly closed`）。追溯到 `1dc7417ed`（#4192 第二笔）引入该入口时就是单发 `spawnSync`，即缺陷自引入起存续，不是后来被改坏 |",
+      "改动前后各跑一次同一条命令，同一台机器、同一凭据：",
+      "- **现场**：`node scripts/electron-ci-shard-audit.js`（#4192 第二笔落的\"重定预算前必须先跑\"的入口）在一台机器、一份凭据下**连吃 4 次 SELF_FAULT（rc=2）、第 5 次才成功**，断点还在 `run list` 与 `jobs/<id>/logs` 之间飘。根因不是 GitHub 坏，是脚本里**零重试**（`grep -na \"attempt|retries|backoff\"` 改动前实测 0 命中）——一个 5:1 成功率的采集入口，等于把 #4192 刚消灭的\"凭手感调预算\"请回来。"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"| 第一性原因（QM-5 ①） | PASS | 不是\\\"网络坏\\\"，是**取数路径上没有任何重试**：`grep -na \\\"attempt\\\\|retries\\\\|backoff\\\" scripts/electron-ci-shard-audit.js` 在改动前实测 **0 命中**。同一台机器、同一凭据、同一条命令，2026-10-22 连续 4 次 SELF_FAULT（rc=2），第 5 次成功 —— 断点还会飘：3 次落在 `api repos/{owner}/{repo}/actions/jobs/<id>/logs`（目标是 `productionresultssa*.blob.core.windows.net`），1 次落在 `--runs=3` 的**第一条** `gh run list`（`read tcp …->198.18.0.241:443: wsarecv: An existing connection was forcibly closed`）。追溯到 `1dc7417ed`（#4192 第二笔）引入该入口时就是单发 `spawnSync`，即缺陷自引入起存续，不是后来被改坏 |\",",
+      "      \"改动前后各跑一次同一条命令，同一台机器、同一凭据：\",",
+      "      \"- **现场**：`node scripts/electron-ci-shard-audit.js`（#4192 第二笔落的\\\"重定预算前必须先跑\\\"的入口）在一台机器、一份凭据下**连吃 4 次 SELF_FAULT（rc=2）、第 5 次才成功**，断点还在 `run list` 与 `jobs/<id>/logs` 之间飘。根因不是 GitHub 坏，是脚本里**零重试**（`grep -na \\\"attempt|retries|backoff\\\"` 改动前实测 0 命中）——一个 5:1 成功率的采集入口，等于把 #4192 刚消灭的\\\"凭手感调预算\\\"请回来。\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-24T14:57:02.154Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "执行记录（本 diff 内含）§3 仍写「2700 ≥ 24.5×60×1.5 = 2209」，但 24.5×60×1.5 = 2205；§1 第 5 行 max=23.6、floor=2122，而 23.6×60×1.5 = 2124。两个等式都只能由未舍入的 max（≈24.544、≈23.578）解释——这正是上一轮外部评审 i5 指出的「把显示值当精确值复算对不上」问题，而 e7b39a894 的提交信息声称已「回填活路径实测读数」，等式却原样保留在最终交付文件里。后续任何人照式子复算都会复核失败，与记录自封的「可验证」标准直接冲突。",
+        "highRiskDomains": [],
+        "prosecution": "记录 §3 把显示值当精确值写进等式：`24.5×60×1.5 = 2209`（实算 2205）、§1 第 5 行 `max=23.6 / floor=2122`（实算 2124）。任何人照式子复算都失败，与记录自称的\"可验证\"直接冲突；且第 1 轮 i5 已指出同族问题，本轮原样保留。",
+        "defense": "数字是逐字抄自审计输出、没有抄错；显示精度是一位小数是既有的打印约定。",
+        "verdict": "upheld",
+        "rationale": "抄写正确不等于等式正确：`budgetFloorSec = round(max × 60 × 倍数)` 用的是未舍入分钟数，打印才 `toFixed(1)`。落地=记录 §3 改为按区间陈述（`floor=2209` ⇔ 未舍入 max ∈ [24.5389, 24.5500)；`2122` ⇔ [23.5722, 23.5834)），并写明精确复算要重跑入口取原始 `elapsed=…ms`。可核对物：`grep -c 显示值 ≠ 判据用的未舍入值 openspec/records/shard-audit-transient-retry.md`。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "`runGhOnce` 把 stderr 截到 200 字符后才构造 Error message，而 `withTransientRetry` 和 `isTransientGhFailure` 只能看到这个截断文本（`String(r && r.stderr).slice(0, 200)`）。真实 gh/Go 报错若在 stderr 第 200 字节之后才出现瞬时签名（长堆栈、多行输出，本仓实测的 `read tcp ...: wsarecv` 现场签名长度已接近该窗口），该类故障会被判成「非瞬时、一次就抛」——恰与本改动要治的抖动相反。上一轮评审 i7 已指出此事，本轮 diff 未做任何修改：分类路径仍然只消费截断文本。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "prosecution": "`runGhOnce` 先把 stderr 截到 200 字符再造 Error，判据 `isTransientGhFailure` 只能看到截断文本；本仓 2026-10-22 现场签名是两行、`wsarecv` 在尾部，真实 gh/Go 报错常把签名推到 200 字符之后 ⇒ 要治这一类故障的判据对它完全失明。",
+        "defense": "实测那一条签名长度 < 200，本仓现场不会命中，属理论情形。",
+        "verdict": "upheld",
+        "rationale": "长度是巧合不是性质：同一条命令在别的失败点（长堆栈、多行输出）就会错位，而且失败模式是\"一次就抛\"，恰好伪装成\"这不是瞬时故障\"。落地=判据读 `e.rawStderr` 全文、打印仍截断；两条锁一正一反（长尾签名必须重试满 attempts / 404 藏在 5000 字符尾部仍只试一次且文案仍短），M10、M11 各实测变红、红集互不相同（见 `.ccg/reviews/shardaudit-r2-mutations.txt`）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "「册子里更新的一档要么已被扶正、要么样本量确实更小」这条锁的扶正分支只要求 `newest.collectedAt === prov.collectedAt`，完全不校验样本量下限。记录和测试注释反复声称「8 片 < 样本量下限 10，把它扶正当场就该红」，但锁本身允许任何片数的读数被扶正（把顶部 collectedAt/值改成新条目即可）：shards=2 的新读数照样能全绿。且扶正靠的仍是改写 `prov.collectedAt` 这一普通字段，没有任何显式 `promoted` 标记——「样本量够才算扶正合法」这一核心声明仍无门禁可读。",
+        "highRiskDomains": [],
+        "prosecution": "「新档不得被悄悄扶正」那条锁只比 `collectedAt` 与片数大小，不查样本量下限 ⇒ 记录声称的\"8 片 < 下限 10，把它扶正当场就该红\"在锁里没有执行体：把任意一片（哪怕 shards=2）写上顶部日期照样全绿。",
+        "defense": "当前数据上它是绿的，行为看起来正确；上限那格由另一条 `p.shards >= 10` 守着。",
+        "verdict": "upheld",
+        "rationale": "另一条只守**顶部现值**，守不住\"把不够格的一档换成顶部\"这个动作——正是第 1 轮 i2 我补正控时写反的方向。落地=下限提为 `MIN_GOVERNING_SAMPLES = 10` 并与顶部那条共用同一常量，进入\"已扶正\"这一支；正控换成\"样本达标的新档被扶正\"，另加反控\"把 8 片档扶正必须红\"；M16 实测只红在\"要么已被扶正、要么样本量确实更小\"那条。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`resolvePositiveInt` 只要求正整数，无上限；退避总时长随 attempts 按 Σk 呈 O(n²) 增长。`MP_AUDIT_GH_ATTEMPTS=100`/`MP_AUDIT_GH_BACKOFF_MS=30000` 的一次 CI 配置手滑 = 30000×5050 ≈ 42 小时挂起；更大的值可达数天到数月。代码与文案反复宣称「有界重试」，但界只存在于对人类输入合法值的善意假设里，跟上一轮评审 i6 指出的问题完全一致，本轮未加任何钳制。",
+        "highRiskDomains": [],
+        "prosecution": "`resolvePositiveInt` 只要求正整数、无上界，退避总时长是 Σ k·baseMs（O(n²)）：`MP_AUDIT_GH_ATTEMPTS=100` 叠 `…_BACKOFF_MS=30000` ≈ 42 小时，而代码与文案都称\"有界重试\"。",
+        "defense": "env 是人手为排障设的，不会设到那么大；默认值 5×1.5s 总睡 15 秒。",
+        "verdict": "upheld",
+        "rationale": "\"有界\"不能建立在输入的善意上：这条判据的整条理由就是\"下一次调预算的人只看文案\"。落地=新增 `GH_RETRY_BACKOFF_BUDGET_MS_DEFAULT = 120s`，预算不足即停手、出声 `退避预算耗尽 slept=… next=… budget=…`、并把 `sleptMs/backoffBudget` 写进抛错文案；对偶锁保证默认档仍能重试满两次（没为安全把重试砍成一次不试）；M12 实测变红。如实声明边界：这条只约束**退避**，单次 gh 调用挂死仍未设超时（见执行记录 §4 遗留 4）。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "crypto"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核",
+    "at": "2026-10-24T15:39:44.374Z"
+  }
+}

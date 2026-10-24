@@ -75,30 +75,31 @@ test('锚必须解析得动 runStep **真打印**的那一行（生产者↔消�
 
 test('采样两档不得混记：新形状有样本时一次都不查 legacy；legacy 必须自报"下界"', () => {
   let legacyQueried = 0;
-  const api = {
-    ghJson: (args) => {
-      if (args[0] === 'run' && String(args[2]).indexOf('electron-ci.yml') >= 0) return [{ databaseId: 1, status: 'completed' }];
-      if (args[0] === 'run') { legacyQueried++; return []; }
-      return { jobs: [{ id: 9, name: 'electron-tests', conclusion: 'success' }] };
-    },
-    ghText: () => '[electron-ci-step] shard=--shard=1/2 verdict=ok elapsed=1200000ms completed=1 summary=1\n',
+  // 夹具改注入 spawnImpl（而不是整份取数面）：这样重试、退避上限、非法值校验与 JSON.parse
+  // 都真的跑一遍——注入 api 的那条路曾在 collect 里旁通一切（外部评审 r2-i7）。
+  const okJson = (v) => ({ status: 0, stdout: JSON.stringify(v), stderr: '' });
+  const okText = (t) => ({ status: 0, stdout: t, stderr: '' });
+  const SHARD_LOG = '[electron-ci-step] shard=--shard=1/2 verdict=ok elapsed=1200000ms completed=1 summary=1\n';
+  const spawnImpl = (cmd, args) => {
+    if (String(args[1]).indexOf('/logs') >= 0) return okText(SHARD_LOG);
+    if (args[0] === 'run' && String(args[2]).indexOf('electron-ci.yml') >= 0) return okJson([{ databaseId: 1, status: 'completed' }]);
+    if (args[0] === 'run') { legacyQueried++; return okJson([]); }
+    return okJson({ jobs: [{ id: 9, name: 'electron-tests', conclusion: 'success' }] });
   };
-  const s = audit.collect({ runs: 2, api });
+  const s = audit.collect({ runs: 2, spawnImpl, notice: () => {} });
   assert.equal(s.shards, 1);
   assert.equal(legacyQueried, 0, '新形状已有逐片实测时退回 legacy 会把"每片独占 runner"的下界当现场');
   assert.match(String(s.source), /new-shape/);
 
-  const api2 = {
-    ghJson: (args) => {
-      if (args[0] === 'run' && String(args[2]).indexOf('electron-ci.yml') >= 0) return [{ databaseId: 1, status: 'completed' }];
-      if (args[0] === 'run') return [{ databaseId: 7, status: 'completed' }];
-      if (String(args[1]).indexOf('runs/1/') >= 0) return { jobs: [{ id: 9, name: 'electron-tests', conclusion: 'success' }] };
-      return { jobs: [{ name: 'QG Desktop Shards (1/2)', conclusion: 'success',
-        started_at: '2026-10-21T00:00:00Z', completed_at: '2026-10-21T00:20:00Z' }] };
-    },
-    ghText: () => '本趟没有新形状自证行\n',
+  const spawnImpl2 = (cmd, args) => {
+    if (String(args[1]).indexOf('/logs') >= 0) return okText('本趟没有新形状自证行\n');
+    if (args[0] === 'run' && String(args[2]).indexOf('electron-ci.yml') >= 0) return okJson([{ databaseId: 1, status: 'completed' }]);
+    if (args[0] === 'run') return okJson([{ databaseId: 7, status: 'completed' }]);
+    if (String(args[1]).indexOf('runs/1/') >= 0) return okJson({ jobs: [{ id: 9, name: 'electron-tests', conclusion: 'success' }] });
+    return okJson({ jobs: [{ name: 'QG Desktop Shards (1/2)', conclusion: 'success',
+      started_at: '2026-10-21T00:00:00Z', completed_at: '2026-10-21T00:20:00Z' }] });
   };
-  const s2 = audit.collect({ runs: 2, api: api2 });
+  const s2 = audit.collect({ runs: 2, spawnImpl: spawnImpl2, notice: () => {} });
   assert.match(String(s2.source), /legacy/);
   assert.match(String(s2.source), /下界|不含争用/, 'legacy 档必须自己说明它是下界，否则会被读成实测争用值');
 });
@@ -311,3 +312,99 @@ test('i4 回归：HTTP 5xx 的多种真实形态都要判瞬时，而 4xx 与毫
   }
 });
 
+
+test('r2-i2 回归：判定读完整 stderr，打印才截断 —— 签名落在第 200 字符之后不得被判成"一次就抛"', () => {
+  // 动因（外部评审第 2 轮 i2）：runGhOnce 原先把 stderr 截到 200 字符**之后**才造 Error，
+  // 于是 isTransientGhFailure 只能看见截断文本。真实 gh / Go 报错常把
+  // `wsarecv: … forcibly closed` 写在多行输出末尾（本仓 2026-10-22 现场就是两行），
+  // 那条签名一旦落在 200 字符之后，要治这一类故障的判据对它完全失明。
+  const longTail = 'gh: could not complete the request\n'.repeat(12)
+    + 'read tcp 192.168.6.204:54852->198.18.0.241:443: wsarecv: An existing connection was forcibly closed by the remote host.'
+  assert.ok(longTail.length > 200,
+    '夹具必须真的把签名推到 200 字符之后，否则这条锁测不到任何东西：len=' + longTail.length)
+  const sleeps = []
+  let calls = 0
+  const api = audit.makeGhApi({
+    spawnImpl: () => { calls++; return { status: 1, stderr: longTail, stdout: '' } },
+    sleepImpl: (ms) => sleeps.push(ms),
+    notice: () => {},
+    attempts: 3, baseMs: 10,
+  })
+  assert.throws(() => api.ghJson(['run', 'list']), /attempts=3/)
+  assert.equal(calls, 3,
+    '只试了 ' + calls + ' 次 ⇒ 截断把瞬时签名挡在判据之外，这条重试对本仓真实报错形态完全失效')
+  assert.equal(sleeps.length, 2)
+})
+
+test('r2-i2 对偶：全文判定不得变宽判据 —— 404 藏在长 stderr 尾部仍一次就抛，且打印仍然截断', () => {
+  const noise = 'y'.repeat(5000) + ' HTTP 404 Not Found'
+  let calls = 0
+  const api = audit.makeGhApi({
+    spawnImpl: () => { calls++; return { status: 1, stderr: noise, stdout: '' } },
+    sleepImpl: () => {}, notice: () => {}, attempts: 3, baseMs: 10,
+  })
+  let msg = ''
+  try { api.ghJson(['run', 'list']) } catch (e) { msg = String(e.message) }
+  assert.equal(calls, 1, '判据类失败（404）不得因为"读全文"被洗成概率事件')
+  assert.ok(msg.length < 400, '归因文案必须仍然截断，否则一次 gh 失败能把日志刷出几十 KB：len=' + msg.length)
+})
+
+test('r2-i4 回归：退避总时长有硬上限 —— attempts=100 / baseMs=30000 不得把人质成 42 小时', () => {
+  const notes = []
+  const sleeps = []
+  const api = audit.makeGhApi({
+    spawnImpl: () => ({ status: 1, stderr: 'wsarecv: An existing connection was forcibly closed', stdout: '' }),
+    sleepImpl: (ms) => sleeps.push(ms),
+    notice: (l) => notes.push(l),
+    attempts: 100, baseMs: 30000,
+  })
+  assert.throws(() => api.ghJson(['run', 'list']), /backoffBudget=/)
+  const total = sleeps.reduce((a, b) => a + b, 0)
+  assert.ok(total <= audit.GH_RETRY_BACKOFF_BUDGET_MS_DEFAULT,
+    '退避总时长 ' + total + 'ms 超过硬上限 ⇒ 注释里的"有界"只是对善意输入的假设')
+  assert.ok(sleeps.length < 99, '预算耗尽后必须停手，而不是按配置把 100 次硬等下去')
+  assert.ok(notes.some((l) => /退避预算/.test(l)), '停止原因必须出声，否则下一次只看到"重试了几次"')
+})
+
+test('r2-i4 对偶：默认档配置不受上限影响（不得为了安全把正常重试砍成一次都不试）', () => {
+  const sleeps = []
+  let calls = 0
+  const api = audit.makeGhApi({
+    spawnImpl: () => {
+      calls++
+      return calls < 3 ? { status: 1, stderr: 'EOF', stdout: '' } : { status: 0, stdout: '[]' }
+    },
+    sleepImpl: (ms) => sleeps.push(ms), notice: () => {},
+    attempts: audit.GH_RETRY_ATTEMPTS_DEFAULT, baseMs: audit.GH_RETRY_BASE_MS_DEFAULT,
+  })
+  assert.deepEqual(api.ghJson(['run', 'list']), [])
+  assert.equal(calls, 3)
+  assert.equal(sleeps.length, 2)
+})
+
+test('r2-i8 回归：空串是最容易手滑的"关掉重试"写法，必须回落默认并出声（静默吞掉等于配置坏了没人知道）', () => {
+  const notes = []
+  assert.equal(audit.resolvePositiveInt('', 5, 'MP_AUDIT_GH_ATTEMPTS', (l) => notes.push(l)), 5)
+  assert.equal(notes.length, 1,
+    'MP_AUDIT_GH_ATTEMPTS= 与"未设置"必须可区分：' + JSON.stringify(notes))
+  // 未设置才是安静路径（每次正常跑都是它），不能被这条改动变成噪音。
+  const quiet = []
+  assert.equal(audit.resolvePositiveInt(undefined, 5, 'MP_AUDIT_GH_ATTEMPTS', (l) => quiet.push(l)), 5)
+  assert.equal(quiet.length, 0, '未设置 ⇒ 静默取默认；只有"写了但写坏"才要出声')
+})
+
+test('r2-i11 回归：makeGhApi 收到 attempts<1 必须当场点名，不得抛"读 undefined.message"的 TypeError', () => {
+  const api = audit.makeGhApi({
+    spawnImpl: () => ({ status: 0, stdout: '[]' }),
+    sleepImpl: () => {}, notice: () => {}, attempts: 0, baseMs: 10,
+  })
+  assert.throws(() => api.ghJson(['run', 'list']), /BAD_GH_API_OPTS[\s\S]*attempts/,
+    '循环体一次都不执行时，抛出的必须是"参数不合法"，不是 TypeError —— 后者读起来像引擎坏了')
+})
+
+test('r2-i7 回归：取数面只剩一条 —— collect 不得再接受能整体绕过重试与非法值校验的 opts.api', () => {
+  assert.throws(
+    () => audit.collect({ runs: 1, api: { ghJson: () => [], ghText: () => '' } }),
+    /opts\.api/,
+    '注入整份取数面 ⇒ attempts/baseMs 的校验与重试全部被绕开，而代码注释声称只有一条默认路')
+})

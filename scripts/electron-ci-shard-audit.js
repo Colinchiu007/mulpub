@@ -35,6 +35,14 @@ const FIELDS = ['runs', 'shards', 'minShardMin', 'p50ShardMin', 'maxShardMin',
  */
 const GH_RETRY_ATTEMPTS_DEFAULT = 5
 const GH_RETRY_BASE_MS_DEFAULT = 1500
+/**
+ * 退避**总时长**的硬上限。只限 attempts 与 baseMs 是不够的：总睡时是 Σ k·baseMs，
+ * 随 attempts 呈 O(n²) 增长 —— `MP_AUDIT_GH_ATTEMPTS=100` 叠 `…_BACKOFF_MS=30000`
+ * 就是 30000×5050 ≈ 42 小时。"有界"必须由这条上限保证，而不是由输入够不够善意保证。
+ * ⛔ 这条只治**退避**；单次 gh 调用挂死不在本判据覆盖内（spawnSync 没有传 timeout），
+ *    那是另一维，如实写在执行记录的残留里，不在这里谎称已闭合。
+ */
+const GH_RETRY_BACKOFF_BUDGET_MS_DEFAULT = 120000
 
 /** Actions 作业日志每行前缀是 `2026-10-21T07:52:30.4123456Z ` —— 不剥掉它任何 `^` 锚点都恒不命中。 */
 function stripLogNoise (text) {
@@ -120,10 +128,18 @@ const TRANSIENT_PATTERNS = [
 /**
  * @param {string|Error|null|undefined} failure gh 的报错文本或 Error
  * @returns {boolean} true = 可以重试；false = 一次就该抛
+ *
+ * 判定读**完整** stderr + 消息，打印才截断（外部评审 r2-i2）。
+ * 截断文本只用于归因文案；拿截断文本当判据，等于把落在 200 字符之后的
+ * `wsarecv: … forcibly closed`（本仓 2026-10-22 现场正是两行）判成"一次就抛"。
  */
 function isTransientGhFailure (failure) {
-  const msg = String(failure && failure.message != null ? failure.message : failure == null ? "" : failure)
-  return TRANSIENT_PATTERNS.some((re) => re.test(msg))
+  const raw = failure && failure.rawStderr != null ? String(failure.rawStderr) : ''
+  const head = failure && failure.message != null
+    ? String(failure.message)
+    : String(failure == null ? '' : failure)
+  const text = raw + '\n' + head
+  return TRANSIENT_PATTERNS.some((re) => re.test(text))
 }
 
 /**
@@ -132,7 +148,9 @@ function isTransientGhFailure (failure) {
  * 等于关掉重试还谎称"按配置走了"，设成 NaN 会让循环整条失效。
  */
 function resolvePositiveInt (raw, dflt, name, notice) {
-  if (raw === undefined || raw === null || raw === '') return dflt
+  // 只有"根本没设置"才是安静路径（每次正常跑都走它）；空串是写了但写坏，
+  // 也正是最容易手滑打出来的"关掉重试"写法 ⇒ 必须走下面的出声分支（外部评审 r2-i8）。
+  if (raw === undefined || raw === null) return dflt
   const n = Number(raw)
   if (!Number.isFinite(n) || n < 1) {
     notice('[shard-audit] ' + name + '=' + raw + ' 非法 ⇒ 回落 ' + dflt +
@@ -152,12 +170,16 @@ function sleepSync (ms) {
   }
 }
 
-/** 一次真正的 gh 调用：非零即抛，文案保住 args 前三段 + stderr（归因全靠它）。 */
+/** 一次真正的 gh 调用：非零即抛。文案截到 200 字符（归因够用又不刷日志），
+ * 但把**完整** stderr 挂在 `rawStderr` 上交给判据 —— 截断只准影响打印。 */
 function runGhOnce (spawnImpl, args) {
   const r = spawnImpl('gh', args)
   if (r && r.error) throw new Error('GH_SPAWN_FAILED ' + r.error.message)
   if (!r || r.status !== 0) {
-    throw new Error('GH_FAILED ' + args.slice(0, 3).join(' ') + ' :: ' + String(r && r.stderr).slice(0, 200))
+    const raw = String(r && r.stderr)
+    const e = new Error('GH_FAILED ' + args.slice(0, 3).join(' ') + ' :: ' + raw.slice(0, 200))
+    e.rawStderr = raw
+    throw e
   }
   return r
 }
@@ -168,21 +190,37 @@ function runGhOnce (spawnImpl, args) {
  * 判据类失败（404 / 未知旗标 / GH011 / 解析失败）走 isTransientGhFailure=false 那条，**一次就抛**。
  */
 function withTransientRetry (spawnImpl, args, ctx) {
+  // 工厂被直接调用时没有 resolvePositiveInt 兜底，坏参数必须当场点名
+  // （否则循环体一次不跑、末尾读 undefined.message 抛 TypeError，看起来像引擎坏了）（r2-i11）。
+  if (!Number.isInteger(ctx.attempts) || ctx.attempts < 1) {
+    throw new Error('BAD_GH_API_OPTS attempts=' + String(ctx.attempts) +
+      '（必须是 ≥1 的整数；0 等于关掉重试还谎称"按配置走了"）')
+  }
   let last
+  let slept = 0
   for (let k = 1; k <= ctx.attempts; k++) {
     try {
       return runGhOnce(spawnImpl, args)
     } catch (e) {
       last = e
       if (!isTransientGhFailure(e)) throw e
+      const next = ctx.baseMs * k
+      // 硬上限在这里，不在"输入的善意"里：预算不够就停手并点名原因。
+      if (slept + next > ctx.backoffBudgetMs) {
+        ctx.notice('[shard-audit] 退避预算耗尽 slept=' + slept + 'ms next=' + next +
+          'ms budget=' + ctx.backoffBudgetMs + 'ms ⇒ 停止重试（不再按配置硬等）')
+        break
+      }
       if (k < ctx.attempts) {
         ctx.notice('[shard-audit] gh 重试 attempt=' + (k + 1) + '/' + ctx.attempts +
           ' 因=' + String(e.message).slice(0, 120))
-        ctx.sleepImpl(ctx.baseMs * k)
+        slept += next
+        ctx.sleepImpl(next)
       }
     }
   }
-  throw new Error(last.message + ' attempts=' + ctx.attempts)
+  throw new Error(last.message + ' attempts=' + ctx.attempts +
+    ' sleptMs=' + slept + ' backoffBudget=' + ctx.backoffBudgetMs + 'ms')
 }
 
 /**
@@ -192,6 +230,7 @@ function withTransientRetry (spawnImpl, args, ctx) {
 function makeGhApi (ctx) {
   const call = (args) => withTransientRetry(ctx.spawnImpl, args, {
     attempts: ctx.attempts, baseMs: ctx.baseMs, sleepImpl: ctx.sleepImpl, notice: ctx.notice,
+    backoffBudgetMs: ctx.backoffBudgetMs || GH_RETRY_BACKOFF_BUDGET_MS_DEFAULT,
   })
   return {
     ghJson: (args) => JSON.parse(call(args).stdout),
@@ -204,7 +243,14 @@ function makeGhApi (ctx) {
 function collect (opts) {
   // notice 默认落 stderr：重试过几次必须当场看得见，否则下一次调预算的人只能猜。
   const notice = opts.notice || ((line) => process.stderr.write(line + '\r\n'))
-  const api = opts.api || makeGhApi({
+  // 取数面只剩一条：注入整份 api 会绕过重试与 attempts/baseMs 校验，而注释声称
+  // `makeGhApi` 是唯一默认取数面（外部评审 r2-i7）。要注入就注入 spawnImpl —— 那条路上
+  // 重试、退避上限、非法值校验和 JSON.parse 都真的跑一遍。
+  if (opts.api) {
+    throw new Error('BAD_COLLECT_OPTS opts.api 已移除：取数面只有 makeGhApi 一条，' +
+      '注入整份 api 会绕过重试与非法值校验 ⇒ 请改注入 spawnImpl')
+  }
+  const api = makeGhApi({
     spawnImpl: opts.spawnImpl ||
       ((cmd, args) => cp.spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 27 })),
     sleepImpl: opts.sleepImpl || sleepSync,
@@ -297,6 +343,6 @@ function main (argv, opts) {
   return 0;
 }
 
-module.exports = { FIELDS, STEP, parseShardElapsed, stripLogNoise, summarize, format, collect, main, parseArgs, isTransientGhFailure, TRANSIENT_PATTERNS, withTransientRetry, makeGhApi, resolvePositiveInt, GH_RETRY_ATTEMPTS_DEFAULT, GH_RETRY_BASE_MS_DEFAULT };
+module.exports = { FIELDS, STEP, parseShardElapsed, stripLogNoise, summarize, format, collect, main, parseArgs, isTransientGhFailure, TRANSIENT_PATTERNS, withTransientRetry, makeGhApi, resolvePositiveInt, GH_RETRY_ATTEMPTS_DEFAULT, GH_RETRY_BASE_MS_DEFAULT, GH_RETRY_BACKOFF_BUDGET_MS_DEFAULT };
 
 if (require.main === module) { process.exitCode = main(); }

@@ -66,6 +66,7 @@ const STEP_BUDGET_PROVENANCE = {
       runnerShape: '1 shard / 1 job / 1 runner（QG Desktop Shards 矩阵，每片独占 runner ⇒ 不含争用，是下界）',
       runs: 7,
       shards: 14,
+      minShardMin: 11.2,
       p50ShardMin: 18.6,
       maxShardMin: 23.2,
       source: 'quality-gate.yml main push 里 name 以 "QG Desktop Shards" 开头且 conclusion=success 的'
@@ -76,6 +77,7 @@ const STEP_BUDGET_PROVENANCE = {
       runnerShape: '2 shards / 1 job / 1 runner（**本步真实形状** ⇒ 含两片争用）',
       runs: 10,
       shards: 8,
+      minShardMin: 19.4,
       p50ShardMin: 22.1,
       maxShardMin: 23.6,
       source: 'node scripts/electron-ci-shard-audit.js 逐字读数（不是手填）：runs=10 shards=8 min=19.4 '
