@@ -279,3 +279,115 @@ async def test_engine_token_never_leaks_into_response(fake_engine):
     out = await create_redeem_batch({"plan": "pro", "durationDays": 30, "count": 1})
     blob = repr(out)
     assert "engine-token-xyz" not in blob, "engine token 泄漏到响应体"
+
+
+# --- 发放对象（issued_to）：snake → camel 转换点（第 2 轮对抗审查补） ---
+
+
+@pytest.mark.asyncio
+async def test_issued_to_snake_key_is_mapped_to_camel_for_engine(fake_engine):
+    """前端表单发的是 snake（issued_to），engine 只认 camel（issuedTo）。
+
+    ⚠️ 这个转换点是**唯一**的：ops 转发层不读 snake 键 ⇒ engine 收到 issuedTo:null
+    ⇒ 发放对象**静默丢失**（前端还提示「已签发」）。上一轮实测：把这个转换点删掉，
+    53 个 ops 用例**全绿** ⇒ 零保护。本条把它钉住。
+    """
+    fake = fake_engine(body={"success": True, "batch": "b-1", "codes": []})
+    from services.redeem_batch_service import create_redeem_batch
+
+    await create_redeem_batch({
+        "plan": "pro", "durationDays": 30, "count": 1, "issued_to": "渠道A",
+    })
+
+    payload = fake.calls[0]["json"]
+    assert payload["issuedTo"] == "渠道A", "snake 的 issued_to 必须转成 camel 的 issuedTo"
+    assert "issued_to" not in payload, "不得把 snake 键原样透传给 engine（engine 不认）"
+
+
+@pytest.mark.asyncio
+async def test_issued_to_camel_key_accepted_directly(fake_engine):
+    """camel 键也要能用（脚本化调用方可能直接发 camel）。"""
+    fake = fake_engine(body={"success": True, "batch": "b-1", "codes": []})
+    from services.redeem_batch_service import create_redeem_batch
+
+    await create_redeem_batch({
+        "plan": "pro", "durationDays": 30, "count": 1, "issuedTo": "渠道B",
+    })
+
+    assert fake.calls[0]["json"]["issuedTo"] == "渠道B"
+
+
+@pytest.mark.asyncio
+async def test_issued_to_blank_is_dropped_not_forwarded_as_empty(fake_engine):
+    """空白 ⇒ 视为未填（与 expires_at 同语义）⇒ 不得发空串（engine 会当成「填了空」）。"""
+    fake = fake_engine(body={"success": True, "batch": "b-1", "codes": []})
+    from services.redeem_batch_service import create_redeem_batch
+
+    await create_redeem_batch({
+        "plan": "pro", "durationDays": 30, "count": 1, "issued_to": "   ",
+    })
+
+    assert "issuedTo" not in fake.calls[0]["json"]
+
+
+@pytest.mark.asyncio
+async def test_issued_to_non_string_rejected_locally(fake_engine):
+    """非字符串 ⇒ 前置拒绝，不静默吞。"""
+    from services.redeem_batch_service import create_redeem_batch
+    from services.redeem_batch_service import EngineAdminError
+
+    fake_engine(body={"success": True})
+    with pytest.raises(EngineAdminError) as exc:
+        await create_redeem_batch({
+            "plan": "pro", "durationDays": 30, "count": 1, "issued_to": 123,
+        })
+    assert exc.value.status == 400
+    assert exc.value.code == "ISSUED_TO_INVALID"
+
+
+@pytest.mark.asyncio
+async def test_incomplete_payload_carries_batch(fake_engine):
+    """⚠️ 补足失败时，**已签发出去、仍可兑**的那部分码必须带 batch。
+
+    engine 的 409 响应体带 batch；转发层此前只透传 requested/generated/rounds/codes
+    ⇒ 运营既拿不到可交付的码、也不知道它属于哪一批 ⇒ 泄漏后无从定位、无从批量作废。
+    """
+    from services import redeem_batch_service
+    from services.redeem_batch_service import EngineAdminError
+
+    fake_engine(status_code=409, body={
+        "error": "REDEEM_BATCH_INCOMPLETE",
+        "message": "批量签发未补足",
+        "requested": 10, "generated": 2, "rounds": 10,
+        "codes": ["ABCD-EFGH-JKMN"], "batch": "B-PARTIAL",
+    })
+
+    with pytest.raises(EngineAdminError) as exc:
+        await redeem_batch_service.create_redeem_batch({
+            "plan": "pro", "durationDays": 30, "count": 10,
+        })
+
+    err = exc.value
+    assert err.payload["batch"] == "B-PARTIAL", "补足失败的载荷必须带 batch"
+    assert err.payload["codes"] == ["ABCD-EFGH-JKMN"]
+    assert err.detail, "必须带人可读的原因（此前被丢弃 ⇒ 前端只剩一个错误码）"
+
+
+def test_router_forwards_detail_as_message():
+    """router 层：detail（人可读原因）必须透传成 message，不能被丢弃。"""
+    from routers.redemption_codes import _raise_http
+    from services.redeem_batch_service import EngineAdminError
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        _raise_http(EngineAdminError(
+            409, "REDEEM_BATCH_INCOMPLETE",
+            detail="批量签发未补足，请按已签发码交付或重试",
+            payload={"codes": ["ABCD-EFGH-JKMN"], "batch": "B-1"},
+        ))
+
+    body = exc.value.detail
+    assert body["error"] == "REDEEM_BATCH_INCOMPLETE"
+    assert body["message"], "人可读的原因必须透传"
+    assert body["codes"] == ["ABCD-EFGH-JKMN"]
+    assert body["batch"] == "B-1"

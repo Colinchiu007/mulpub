@@ -241,7 +241,10 @@ async function loadList() {
 function describeError(e) {
   const detail = e?.response?.data?.detail
   // 补足失败时后端返回的是结构化 payload（error + 已签发码），不是字符串
-  if (detail && typeof detail === 'object' && detail.error) return detail.error
+  if (detail && typeof detail === 'object' && detail.error) {
+    // 有 message 就给人话（后端固定文案），没有才退回错误码
+    return detail.message || detail.error
+  }
   return detail || e?.message || '未知错误'
 }
 
@@ -317,7 +320,8 @@ async function generate() {
       showGenerate.value = false
       showResult.value = true
       ElMessage.warning(
-        `补足失败：请求 ${detail.requested} 个，实际签发 ${detail.generated} 个，已列出可交付的码`
+        `补足失败：请求 ${detail.requested} 个，实际签发 ${detail.generated} 个`
+        + `${detail.batch ? `（批次 ${detail.batch}）` : ''}，已列出可交付的码`
       )
       loadList()
       return

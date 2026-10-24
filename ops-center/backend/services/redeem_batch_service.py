@@ -99,14 +99,20 @@ async def _call_engine(method: str, path: str, **kwargs) -> dict:
             code = "ENGINE_ADMIN_ERROR"
         # 只有引擎明确带了业务载荷才原样带回，其余错误只透传 code——
         # 不把 engine 的原始响应体整包转发，避免泄露内部字段。
+        # ⚠️ batch 必须在白名单里：engine 已签发出去、**仍可兑**的那部分码
+        # 只在响应体里带 batch ⇒ 不透传它，运营既不知道这批码属于哪一批，
+        # 泄漏后也无从定位、无从批量作废。
         extra = {
             k: body[k]
-            for k in ("requested", "generated", "rounds", "codes")
+            for k in ("requested", "generated", "rounds", "codes", "batch")
             if k in body
         }
         raise EngineAdminError(
             resp.status_code,
             code,
+            # 失败原因用**本层固定文案**，不转发 engine 的原始 message：
+            # 转发整包响应体会泄露内部字段，而 message 是 engine 的自由文本。
+            detail="批量签发未补足，请按已签发码交付或重试" if code == "REDEEM_BATCH_INCOMPLETE" else "",
             payload=extra if code == "REDEEM_BATCH_INCOMPLETE" else None,
         )
 
