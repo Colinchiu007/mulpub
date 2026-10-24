@@ -38,7 +38,9 @@ function install (opts) {
         try {
           const s = typeof chunk === 'string' ? chunk : String(chunk)
           const line = s.replace(/\s+$/, '')
-          if (line) logger[method](tag, line)
+          // already-formatted filter：包内 logger 已产出 [ts] [LEVEL] [tag] 形态，直接透传不再加壳
+          if (line && !/^\[\d{4}-\d{2}-\d{2}T[^\]]*\] \[(INFO|WARN|ERROR|DEBUG)\] \[/.test(line)) logger[method](tag, line)
+          else if (line) logger[method]('Pkg', line)
         } catch (_e) {
           // 日志桥自身失败绝不能影响主流程
         } finally {
