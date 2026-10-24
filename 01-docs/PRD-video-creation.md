@@ -4357,3 +4357,187 @@ UI 选「动效标题卡」
 4. **不覆盖竖屏专有排版**。`9:16` 沿用 §13.10 第 5 条的同一套版面规则。
 5. **不改动 `story2video-compose` 的「创作模式」**。两者语义不同（画面来源 vs 素材是否自选），
    合流会引入「标题卡 × 素材自选」的组合爆炸，本片明确不做。
+
+
+## 15. 上游 artifact schema 契约与零依赖校验器（explainer-schema-contracts，2026-10-24）
+
+### 15.1 目标与范围
+
+**目标**：把 OpenMontage 的「AI 讲解视频」阶段产物契约（13 个 JSON Schema）**逐字 1:1** 搬进本仓，
+并提供一个**零外部依赖**的校验器，使后续每个阶段（research / proposal / script / scene_plan /
+assets / edit / compose / publish）的产物都能被**机械校验**。
+
+**本片范围**：
+- ✅ 13 个 schema 文件落地（逐字副本，sha256 与上游一致）
+- ✅ 校验器（手写 draft 2020-12 子集，零新依赖）
+- ✅ **关键字覆盖自检**（防「schema 演进、校验器静默不校验」的假绿）
+- ✅ 上游同步 / 漂移检测脚本
+- ❌ **不改任何阶段实现**（阶段产物 1:1 对齐在 P2a / P2b）
+- ❌ **不改任何 UI**（本片零交互变化）
+
+### 15.2 落点与文件清单
+
+| 文件 | 说明 |
+|---|---|
+| `apps/desktop/electron/services/explainer/schemas/artifacts/*.schema.json` | 上游 `schemas/artifacts/` 的 10 个逐字副本 |
+| `apps/desktop/electron/services/explainer/schemas/checkpoints/checkpoint.schema.json` | 上游 `schemas/checkpoints/` |
+| `apps/desktop/electron/services/explainer/schemas/pipelines/pipeline_manifest.schema.json` | 上游 `schemas/pipelines/` |
+| `apps/desktop/electron/services/explainer/schemas/styles/playbook.schema.json` | 上游 `schemas/styles/` |
+| `apps/desktop/electron/services/explainer/artifact-schema-validator.js` | 零依赖校验器 |
+| `apps/desktop/electron/services/explainer/artifact-schema-validator.test.js` | 行为锁 + 关键字触达自检 |
+| `scripts/sync-openmontage-schemas.js` | 上游同步 / 漂移检测（内联 sha256 清单） |
+
+⚠ **为什么放 `services/explainer/` 新目录**：`services/` 下已是 100+ 个平铺文件，
+再往里堆会加剧债务；而「explainer 的产物契约」本身是一个**内聚的能力单元** ⇒ 独立目录更合适。
+
+⚠ **打包**：`electron-builder` 的 `files` 含 `electron/**/*` ⇒ schema 会被打进 `app.asar`；
+运行时用 `fs.readFileSync(path.join(__dirname, 'schemas', ...))` 读取 ⇒ Electron 的 fs 支持 asar 路径 ✓。
+
+### 15.3 数据合同：13 个 schema
+
+| schema | required | 关键字段（节选） |
+|---|---|---|
+| `research_brief` | version / topic / research_date / landscape / **data_points** / **audience_insights** / **angles_discovered** / **sources** | `sources[].url`（format uri）、`research_date`（format date）、`trending` / `expert_voices` / `visual_references` / `research_summary` |
+| `proposal_packet` | version / **concept_options** / selected_concept / **production_plan** / **cost_estimate** / **approval** | `concept_options[].concept_id`、`cost_estimate.line_items`、`approval.status`（approved / approved_with_changes / rejected） |
+| `script` | version / title / **total_duration_seconds** / sections | `sections[].{id,text,start_seconds,end_seconds,speaker_directions,delivery_cues,enhancement_cues}`、`voice_performance.{pacing_profile,sample_section_id}` |
+| `scene_plan` | version / scenes | `scenes[].{id,type(9 选 1),description,start_seconds,end_seconds,script_section_id,framing,movement,shot_language}` |
+| `asset_manifest` | version / assets | `assets[].{path,type,quality_score(0~1)}`、`total_cost_usd` |
+| `edit_decisions` | version / **cuts** / **render_runtime** | `cuts[]`（剪辑决策）、`overlays[]` / `subtitles` / `music`（含 ducking）/ `transitions` / `renderer_family` / `composition_mode` / `slideshow_risk_score` / `end_tag` |
+| `render_report` | version / outputs | `outputs[].{path,format,resolution,duration_seconds}`、`render_time_seconds` / `warnings` / `verification_notes` / `render_grammar` / `decision_log_ref` / `final_review_ref` |
+| `final_review` | version / output_path / status / checks | `checks[]`、`issues_found`、`recommended_action` |
+| `publish_log` | version / entries | `entries[].{timestamp(format date-time),...}` |
+| `decision_log` | version / project_id / decisions | `decisions[]`（EP 每次门决策留痕） |
+| `checkpoint` | — | 审批门载体 |
+| `pipeline_manifest` | — | 流水线清单（`stages[].oneOf`） |
+| `playbook` | — | 风格 playbook（`chart_palette[].format` 用 pattern `^#[0-9A-Fa-f]{6}$`） |
+
+⚠ 全部 schema 为 **draft 2020-12**；`version` 字段是 `const: "1.0"`（**不是**自由字符串）。
+
+### 15.4 校验器的行为合同
+
+**输入**：`validate(artifact, schemaName)` / `validateAgainstSchema(value, inlineSchema)`
+**输出**：`{ ok: boolean, errors: Array<{ path, keyword, message }>, schema }`
+
+| 项 | 约定 |
+|---|---|
+| **不抛错** | 调用方自己决定 fail-closed 还是降级（阶段执行器一律 fail-closed） |
+| **错误 path** | JSON Pointer 风格：`concept_options[0].cost_estimate.line_items[2].tool`；根用 `$` |
+| **错误 keyword** | 直接给出被违反的关键字（`required` / `enum` / `const` / `type` / `minimum` / `pattern` / `format` / `oneOf` …） |
+| **未知 schema 名** | `ok: false` + `keyword: 'schema'`，**不抛** |
+| **schema 未载入** | 同上（`ok: false`）⇒ 上游文件缺失会被看见，不会「静默放行」 |
+
+**实现的断言性关键字**（34 个）：
+`type` / `required` / `properties` / `additionalProperties` / `items` / `enum` / `const` /
+`minimum` / `maximum` / `exclusiveMinimum` / `exclusiveMaximum` / `multipleOf` /
+`minLength` / `maxLength` / `pattern` / `minItems` / `maxItems` / `uniqueItems` /
+`minProperties` / `maxProperties` / `patternProperties` /
+`oneOf` / `anyOf` / `allOf` / `not` / `if` / `then` / `else` / `contains` / `prefixItems` /
+`format` / `$ref` / `$defs`
+
+**`format` 的处理**：上游实际用到 `date` / `date-time` / `uri`（另有 `url` / `email` 可用）⇒ 全部**真正校验**；
+未登记的 format 名**不报错**（JSON Schema 规定 format 默认是「提示」而非「断言」），但登记过的必须真校验。
+
+**元数据关键字**（不参与断言，但必须被显式登记，否则「漏实现」与「不需要实现」无法区分）：
+`$schema` / `$id` / `title` / `description` / `default` / `examples` / `deprecated` / `readOnly` / `writeOnly` / `nullable`
+
+### 15.5 关键字覆盖自检（防假绿的核心）
+
+⚠ **问题**：若上游 schema 新增一个关键字，而本校验器不认识它 ⇒ 校验器**静默跳过** ⇒
+产物「校验通过」但那个约束**根本没被检查** ⇒ **假绿**。
+
+⇒ 三条锁并存：
+
+| 锁 | 作用 | 手段 |
+|---|---|---|
+| ① 关键字**触达**自检 | schema 用到的每个**违规类**关键字，必须被至少一个用例**真正触发过** | 跑完全部用例后统计 `errors[].keyword` 的实际集合，与「schema 用到的违规类关键字」求差 ⇒ 差集非空即红 |
+| ② **结构锁** | 「已声明支持」的每个关键字，源码里必须有实现痕迹 | 读源码断言包含该关键字 |
+| ③ **未知关键字**检查 | schema 用到的关键字必须 ⊆ (已实现 ∪ 元数据) | 集合差为空 |
+
+⚠ **容器类关键字**（`properties` / `items` / `$ref` / `$defs` / `additionalProperties` /
+`patternProperties` / `prefixItems` / `contains`）违规时冒出来的是**内层**关键字（如 `required` / `type`）
+⇒ **不会**出现在 `errors[].keyword` 里 ⇒ 触达自检只管违规类；容器类由 ② + 负例的 **path 断言**覆盖
+（如 `scenes[0].description` 这条 path 同时证明了 `items` / `properties` 确实被穿过）。
+
+⚠ **锁的强度说明**：① 覆盖「schema 用到的」，② 覆盖「声明支持的」，两者**必须并存** ——
+只做 ① 会漏掉「声明支持但没实现」，只做 ② 会漏掉「实现了但从没被触发」。
+
+### 15.6 上游同步与漂移检测
+
+```bash
+node scripts/sync-openmontage-schemas.js            # 默认 --check：本地文件 vs 内联 sha256 清单（离线）
+node scripts/sync-openmontage-schemas.js --refresh   # 从上游拉取并刷新清单（需外网）
+```
+
+| 项 | 约定 |
+|---|---|
+| 清单位置 | **内联在脚本里**（`EXPECTED` 常量）⇒ 期望值与判据**同源**，不会漂移成两份真源 |
+| 默认行为 | **离线** ⇒ 可进 CI（不依赖 GitHub 可用性） |
+| 漂移时报错 | 逐个列出哪个 schema 的期望/实际 sha256 前 12 位，并**提示刷新后必须跑关键字覆盖自检** |
+| 上游地址 | 常量（`calesthio/OpenMontage` 的 `main` 分支 `schemas/`）⇒ **不接受任意 URL** |
+
+### 15.7 流程（本片的实际操作序列）
+
+```
+① 从上游拉 13 个 schema 落盘（一次性）
+② 算 sha256 → 内联进同步脚本
+③ 写校验器（零依赖）
+④ 写测试：正例（13 个 schema 的最小合法实例） + 负例（逐类违规） + 触达自检
+⑤ 跑 node scripts/sync-openmontage-schemas.js --check ⇒ 13/13 一致
+⑥ 跑 vitest ⇒ 30 例全绿
+⑦ 门禁全跑 → 提交 → PR → CI → 合并
+```
+
+### 15.8 交互逻辑 / 显示项 / 提示文字
+
+⚠ **本片零 UI 变化** ⇒ 无新增控件、无新增文案、无 i18n 键。
+
+**唯一面向人的输出是错误信息**（由校验器产生，阶段执行器将来会把它包进阶段失败信息）：
+
+| 场景 | 错误信息形态（示例） |
+|---|---|
+| 缺必填字段 | `缺少必填字段 data_points`（path 为 `$.data_points`） |
+| 枚举值非法 | `取值不在允许集合 ["talking_head","broll",...] 内，实际为 "xxx"` |
+| 常量不符 | `取值必须为 "1.0"，实际为 "9.9"` |
+| 类型不符 | `类型应为 array，实际为 string` |
+| 嵌套缺字段 | path 为 `scenes[0].description` ⇒ `缺少必填字段 description` |
+| 数值越界 | `数值 -1 小于下限 0` |
+| 格式不符 | `字符串不满足 uri 格式` |
+| oneOf 多命中 | `取值必须恰好满足 oneOf 中的一个分支，实际满足 2 个` |
+
+⚠ **错误信息必须带 path**：上游 YAML 的 success_criteria 是「Schema-valid」这种**整体说法**，
+没有 path 就无法定位到「哪个字段的哪个约束」⇒ 阶段失败时用户/agent 只能看到「产物不合法」而无法修。
+
+### 15.9 测试与验收矩阵
+
+| 层级 | 必测场景 | 判据 |
+|---|---|---|
+| **正例** | 13 个 schema 的「最小合法实例」 | 全部 `ok: true` ⇒ 同时证明 **schema 可满足**（若某 required 字段无法构造合法值 ⇒ schema 与实现矛盾，会当场红） |
+| **负例·required** | 删一个 required 字段 | 报 `required` 且 path 指名字段 |
+| **负例·enum** | 枚举字段填非法值 | 报 `enum` |
+| **负例·const** | `version` 改值 | 报 `const` |
+| **负例·type** | 数组字段塞字符串 | 报 `type` |
+| **负例·嵌套** | 嵌套 items 内层缺字段 | path 精确到 `scenes[0].description`（**不是**笼统顶层报错） |
+| **负例·additionalProperties** | 加一个 schema 未声明的字段 | 报 `additionalProperties`（不被静默吞掉） |
+| **负例·$ref** | 破坏被 `$defs` 引用的对象的必填字段 | 报 `required` ⇒ **引用不是免检区** |
+| **负例·pattern** | 非法颜色值 | 报 `pattern` |
+| **负例·format** | 非法 uri | 报 `format` |
+| **负例·minimum / maximum / exclusiveMinimum** | 越界数值 | 报对应关键字 |
+| **负例·oneOf** | 同时满足两个分支 | 报 `oneOf`（**恰好一个**） |
+| **自检①触达** | schema 用到的违规类关键字 | 每个都**至少被一个用例真正触发过**（差集为空） |
+| **自检②结构** | 已声明支持的关键字 | 源码里都有实现痕迹 |
+| **自检③未知** | schema 用到的关键字 | ⊆ 已实现 ∪ 元数据 |
+| **同步** | `--check` | 13/13 与上游逐字节一致（sha256） |
+
+### 15.10 已知限制与未闭合
+
+1. **本片不接线**：校验器已就位但**尚无阶段调用它**（阶段产物 1:1 对齐在 P2a / P2b）⇒
+   本片是「零行为变更」的地基，**不产生任何用户可见变化**。
+2. **schema 是「契约」不是「实现」**：schema 只说「产物长什么样」，**不说怎么产**（那是 director skill 的事）⇒
+   P2a/P2b 实施时需逐个对读上游 `skills/pipelines/explainer/*-director.md`。
+3. **未登记的 format 不报错**：符合 JSON Schema 规范（format 默认是提示）⇒
+   上游若新增 format 名，须在 `FORMATS` 里登记才能真正校验（覆盖自检会红，因为 `format` 已在已实现集内，但**新增的 format 值**需要人工补 ⇒
+   **登记在 PRD §15.4 的清单里，改这里要同步改本节**）。
+4. **`$ref` 只支持本地引用**（`#/$defs/<name>` / `#/definitions/<name>`）⇒ 上游当前 schema 全部是本地引用 ✓；
+   若上游引入跨文件引用，需扩展（本片未做）。
+5. **上游漂移需人工 review**：`--refresh` 只会刷新文件与 sha256 ⇒ **新增/删除的关键字必须人工判断**
+   （脚本会在漂移时提示「必须跑关键字覆盖自检」）。
