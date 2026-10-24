@@ -90,20 +90,6 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-333x-w4r6-6crp",
-      "module": "fast-uri",
-      "severity": "low",
-      "patched": ">=3.1.9",
-      "targetVersion": "3.1.9",
-      "roots": [
-        ".",
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-24 机械登记（**未经可利用性评估**）：本仓 pnpm-lock.yaml 解析出 fast-uri@3.1.8，低于公告修复下界 3.1.9 ⇒ 按 upgrade-tracked 登记为「待升级」，目标版本 3.1.9。动作 = 升级 fast-uri 至 >=3.1.9 并刷新 lockfile。公告的可达性与可利用性、以及升级排期待人工复核；复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-36fh-84j7-cv5h",
       "module": "jszip",
       "severity": "moderate",
@@ -140,21 +126,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "qs 为 packages/ai-writer-api 的 express 传递依赖；升级 PR 提到 >=6.16.0。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-4qv8-2p9j-2685",
-      "module": "undici",
-      "severity": "moderate",
-      "patched": ">=7.30.1",
-      "targetVersion": "7.30.1",
-      "roots": [
-        "apps__desktop",
-        "packages__rpa-engine",
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-24 机械登记（**未经可利用性评估**）：本仓 pnpm-lock.yaml 解析出 undici@7.30.0，低于公告修复下界 7.30.1 ⇒ 按 upgrade-tracked 登记为「待升级」，目标版本 7.30.1。动作 = 升级 undici 至 >=7.30.1 并刷新 lockfile。公告的可达性与可利用性、以及升级排期待人工复核；复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
     },
     {
       "source": "npm",
@@ -223,21 +194,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "browserslist 第二条公告，与 GHSA-73wf 同一升级动作覆盖。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-f72v-6w45-q472",
-      "module": "undici",
-      "severity": "moderate",
-      "patched": ">=7.30.1",
-      "targetVersion": "7.30.1",
-      "roots": [
-        "apps__desktop",
-        "packages__rpa-engine",
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-24 机械登记（**未经可利用性评估**）：本仓 pnpm-lock.yaml 解析出 undici@7.30.0，低于公告修复下界 7.30.1 ⇒ 按 upgrade-tracked 登记为「待升级」，目标版本 7.30.1。动作 = 升级 undici 至 >=7.30.1 并刷新 lockfile。公告的可达性与可利用性、以及升级排期待人工复核；复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
     },
     {
       "source": "npm",
@@ -418,34 +374,6 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-w74x-v6f9-j3xg",
-      "module": "fast-uri",
-      "severity": "moderate",
-      "patched": ">=3.1.9",
-      "targetVersion": "3.1.9",
-      "roots": [
-        ".",
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-24 机械登记（**未经可利用性评估**）：本仓 pnpm-lock.yaml 解析出 fast-uri@3.1.8，低于公告修复下界 3.1.9 ⇒ 按 upgrade-tracked 登记为「待升级」，目标版本 3.1.9。动作 = 升级 fast-uri 至 >=3.1.9 并刷新 lockfile。公告的可达性与可利用性、以及升级排期待人工复核；复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-wjr9-j795-jxcr",
-      "module": "fast-uri",
-      "severity": "moderate",
-      "patched": ">=3.1.9",
-      "targetVersion": "3.1.9",
-      "roots": [
-        ".",
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-24 机械登记（**未经可利用性评估**）：本仓 pnpm-lock.yaml 解析出 fast-uri@3.1.8，低于公告修复下界 3.1.9 ⇒ 按 upgrade-tracked 登记为「待升级」，目标版本 3.1.9。动作 = 升级 fast-uri 至 >=3.1.9 并刷新 lockfile。公告的可达性与可利用性、以及升级排期待人工复核；复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-x5fp-wj9c-mxmx",
       "module": "qs",
       "severity": "moderate",
@@ -456,35 +384,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "qs 第二条公告，与 GHSA-4mjr 同一升级动作覆盖（取更高修复版本）。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-xhq7-xmqj-769h",
-      "module": "fast-uri",
-      "severity": "low",
-      "patched": ">=3.1.9",
-      "targetVersion": "3.1.9",
-      "roots": [
-        ".",
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-24 机械登记（**未经可利用性评估**）：本仓 pnpm-lock.yaml 解析出 fast-uri@3.1.8，低于公告修复下界 3.1.9 ⇒ 按 upgrade-tracked 登记为「待升级」，目标版本 3.1.9。动作 = 升级 fast-uri 至 >=3.1.9 并刷新 lockfile。公告的可达性与可利用性、以及升级排期待人工复核；复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-xjj6-f33q-929c",
-      "module": "undici",
-      "severity": "high",
-      "patched": ">=7.30.1",
-      "targetVersion": "7.30.1",
-      "roots": [
-        "apps__desktop",
-        "packages__rpa-engine",
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-24 机械登记（**未经可利用性评估**）：本仓 pnpm-lock.yaml 解析出 undici@7.30.0，低于公告修复下界 7.30.1 ⇒ 按 upgrade-tracked 登记为「待升级」，目标版本 7.30.1。动作 = 升级 undici 至 >=7.30.1 并刷新 lockfile。公告的可达性与可利用性、以及升级排期待人工复核；复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
     },
     {
       "source": "pip",
