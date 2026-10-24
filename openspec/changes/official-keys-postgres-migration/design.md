@@ -66,7 +66,7 @@
 | 新增依赖注入 | `get_pg_db()`（FastAPI `Depends`），与 `get_db()` 并列 |
 | **`OfficialKey` 必须换 DeclarativeBase** | 一个 ORM 类**不能绑两个库**。需为 Postgres 侧建独立 Base（或独立 metadata），`OfficialKey` 挂到它下面 |
 | `Base.metadata.create_all` 的归属 | `database.py:31` 那句会**把 Postgres 的表顺手建到 SQLite 里** ⇒ 必须把两边的 metadata 分开，`create_all` 各自只对自己的 engine |
-| 驱动 | `asyncpg`（倾向，见 proposal OQ2） |
+| 驱动 | **`psycopg[binary]`**（PostgreSQL 官方维护，**无需编译工具链** —— `binary` extra 即为此准备；原提案「psycopg 需编译」的表述有误，已更正，见 proposal OQ2） |
 | 启动顺序 | 两个 engine 都要在 startup 建好；**Postgres 连接失败时的行为需定义**（fail-closed 还是回落 SQLite？）⇒ 见 D6 |
 
 ## D6 · 迁移期与切换期的**失败语义**（必须显式定义，不能靠默认）
@@ -84,9 +84,10 @@
 ## D7 · SQLite 侧旧表的处理：**只读存档，不删**
 
 - **不删表**：它是 S4 之后的回滚退路。
-- `ensure_official_key_columns`（`key_service.py:140-166`）**保留函数但不再调用**：
-  它只 ALTER SQLite 表；停写后 SQLite 的 schema 漂移已无实际影响。
+- `ensure_official_key_columns`（`key_service.py:140-166`）**保留函数但不再调用**
+  （**OQ3 已定案**）：它只 ALTER SQLite 表；停写后 SQLite 的 schema 漂移已无实际影响。
   **但不能直接删函数** —— 存量 SQLite 库若缺列，删了函数就再没人补，运维工具会踩。
+  保留一个**不调用的**函数零成本；删掉后想恢复只能改代码发版。
 
 ## D8 · 迁移编号：**本 change 优先占号**
 
@@ -114,7 +115,17 @@
 - 只读副本 / 逻辑导出是否需要脱敏？
 - 审计日志里会不会出现 Fernet 密文本身？（不应）
 
-**⇒ 这些必须写进部署文档，并在 OQ1 里由部署方确认。**
+**⇒ 这些必须写进部署文档。**
+
+**OQ1 已定案（2026-10-24）**：
+1. **数据导出必须剔除 `official_keys` 表** —— 任何定期导出/分析用快照都不得含该表
+   （导出通常没有细粒度权限管控，是最容易外流的一路）；
+2. **表级读权限沿用现有 Postgres 权限模型**，不为此新建高权限账号；
+3. **备份与只读副本按现有 Postgres 库的统一策略走**，但**必须在部署文档登记**
+   「本库含密钥材料密文」这一事实。
+
+**注意这不是新增攻击面**：密文从 SQLite 挪到 Postgres，两者都是「密文 + 主密钥 = 明文」；
+差别只在**数据流向变多**（备份 / 副本 / 导出 / 日志）。
 本 change **不新增任何明文落点**（Fernet 密文在 Postgres 里仍是密文）。
 
 ## D10 · 迁移的数据校验（三层，逐层可独立失败）
@@ -148,3 +159,140 @@
 ⇒ **本 change 的验收不得包含「reserve 选到 Key」** ——
 `reserve` 还不存在（信封 change 的第 3 组才有）。
 本 change 的验收只到「**Key 状态在 Postgres 里，且 Node 侧可读（未被熔断的能查到）」**。
+
+---
+
+## D13 · **落地对象是独立仓 `Colinchiu007/ops-center`，不是本 monorepo**（评审 C5）
+
+**取证**：`docs/ops-center-ecs-deployment.md:35` 明写「`deploy.sh` 从 `/root/ops-center`
+（克隆自独立仓 `github.com/Colinchiu007/ops-center.git`）拉取部署，而本 monorepo 的 `ops-center/`
+只是**镜像**」。
+
+**⇒ 本 change 原先全部任务都指向了错误的落地对象。** monorepo 里的改动**不生效**。
+
+**修正后的落地模型**：
+
+| 环节 | 动作 | 归属 |
+|---|---|---|
+| 实现 | 改 `ops-center` 的源码 | **独立仓 `Colinchiu007/ops-center`** |
+| 镜像 | 同步到 monorepo | monorepo `ops-center/`（**同步方向与机制必须先确认**） |
+| 部署 | ECS 上 `git pull` + 重启 | 独立仓 |
+
+**⇒ 动手前必须先回答（P1）**：
+1. monorepo 的 `ops-center/` 是**单向镜像**（独立仓 → monorepo）还是**双向**？
+2. 谁负责同步、什么节奏？**若不同步，monorepo 里的改动永远不生效。**
+3. 两边的**迁移台账**（`identity_schema_migrations`）是同一个 Postgres 库吗？
+   **若不是两个库 ⇒ 本 change 的迁移在两处都要落，且顺序必须对齐。**
+
+**没有这三条，本 change 的任何实现都是空转。**
+
+---
+
+## D14 · D1 的「只搬一张表」被本 change 自己制造的跨库读点证伪（评审 C1/C2）
+
+**取证**：
+
+| 跨库读点 | 证据 | 冲突 |
+|---|---|---|
+| `pool_summary(db)` | `key_service.py:210` 查 `OfficialKey`（要迁 PG）+ `:219-223` 查 `ModelUsageDaily`（留 SQLite），**同一 session** | **必然跨库** |
+| `test_provider_connection` | `model_preset_service.py:1097` 读 `ModelPreset`（SQLite）+ `:1114-1119` 读 `OfficialKey`（PG） | **必然跨库** |
+
+**⇒ D1 那句「其余表**不需要**跨库事务」在本 change 落地后会变成假话。**
+
+**修正**：**`ModelUsageDaily` 一并迁入 Postgres**（它本来就是成本台账，官方算力上线后它必须在 PG，
+和 `official_keys` 在同一个库才能做 `pool_summary` 的单 session 聚合）。
+`ModelPreset` **不迁**（它是模型目录，属于配置面），但 `test_provider_connection` 改为
+**两段独立 session + 显式比对**（PG 侧查 Key、SQLite 侧查 Preset），**不要求跨库事务**。
+
+**⇒ 跨库事务禁令的准确表述**：*「不得设计任何需要**同时写** PG 表与 SQLite 表的操作」*
+（读可以分两段，**写不行**）。`pool_summary` / `test_provider_connection` 改为分两段读。
+
+---
+
+## D15 · 迁移编号的真实约束是「**FK 建表顺序 = 文件名 localeCompare 序**」，不是「撞号」（评审 C4）
+
+**取证**：`postgres-migrations.js:28` `.sort((left, right) => left.name.localeCompare(right.name))`，
+`:102` `for (const migration of migrations)` 按该序执行。
+
+**实测结论（评审探针）**：
+
+| 场景 | 结果 |
+|---|---|
+| 同前缀不同名（`006_official_keys.sql` + `006_payment_orders.sql`） | **共存不报错** —— 台账锁的是**全文件名 + checksum**（`:51-63`），不是数字前缀 |
+| `official_keys` 的号**大于**信封表的号 | **硬失败** `42P01 relation "official_keys" does not exist`（FK 在被引用表建好之前就执行了） |
+| 已应用文件改内容 | `MIGRATION_CHECKSUM_MISMATCH` |
+
+**⇒ 真正的硬约束只有一条：被 FK 引用方的文件名字典序必须小于引用方。**
+
+**编号分配（修正）**：
+
+```
+006_official_keys.sql        ← 与 006_payment_orders.sql 同前缀不同名，共存不报错
+                                  且 'o'(official) < 'p'(payment) ⇒ 它先执行 ✅
+007_official_key_envelopes.sql ← 信封表，依赖 official_keys，'007' > '006' ✅
+```
+
+**⇒ 顺带作废我在 AGENTS.md 里写错的那条纪律**（PR #4315 写的「撞号 ⇒ 启动期硬失败」是误诊），
+需另开 PR 订正为「**FK 建表顺序 = 文件名 localeCompare 序**」。
+
+---
+
+## D16 · `create_all` 的归属：Postgres 侧**不得**跑（评审 C3）
+
+**取证**：`database.py:31` `await conn.run_sync(Base.metadata.create_all)`，
+且 `:24-26` 里有 `PRAGMA journal_mode=WAL` / `PRAGMA foreign_keys=ON` —— **SQLite 专属**。
+
+**⇒ 两个后果**：
+
+1. **Postgres 侧不能复用 `init_db()`**（`PRAGMA` 在 Postgres 上直接语法错）。
+2. **Postgres 侧更不能跑 `create_all`** —— 若跑了，表会被建出来但**迁移台账里没有记录**
+   ⇒ `assertReady`（`allowPending:false`）看到「有表无台账」⇒ 行为诡异（`MIGRATION_PENDING`）。
+   **Postgres 侧只认迁移文件。**
+
+**⇒ `database.py` 必须拆成两个模块**（`database.py` 留 SQLite / 新增 `database_pg.py`），
+而不是在一个文件里塞两个 engine —— 后者会让 `create_all` 的归属继续含混。
+
+---
+
+## D17 · 密钥前置必须核对「**能解出现存密文**」，不是「key 存在」（评审 C6）
+
+**取证**：`key_service.py:41-48`
+
+```python
+except (ValueError, Exception):
+    derived = hashlib.sha256(key.encode() ...).digest()
+    valid = base64.urlsafe_b64encode(derived).decode()
+    settings.encryption_key = valid      # ← 静默改写
+```
+
+**任何**异常（含 `Fernet(key)` 构造失败）都走 sha256 派生，**且改写 `settings.encryption_key`**。
+
+**⇒ 迁移前置检查必须升级为**：
+1. `OPS_ENCRYPTION_KEY` 已配置且**固定**（非 ephemeral）；
+2. **用这个 key 能解开现存的至少一条 Fernet 密文**（round-trip 成功）；
+3. **禁止**「key 看起来对」就开跑 —— 配错会静默派生成一个**从未加密过任何数据**的新 key。
+
+---
+
+## D18 · 迁移的数据校验补第四层：**跨库表示等价**（评审 C8）
+
+**实测的三种类型选错即炸**：
+
+| 列 | SQLite 现状 | 选错的后果 |
+|---|---|---|
+| `models`（`models.py:124`，存 JSON 字符串的 TEXT） | `json.loads(key.models)` | 若 PG 用 `jsonb` ⇒ 传入 dict ⇒ `TypeError: the JSON object must be str...` ⇒ **列表页 100% 500** |
+| `expires_at`（`models.py:129`，String，**字符串字典序比较**） | `key.expires_at <= in30`（`key_service.py:215`） | 若 PG 用 `date` ⇒ `TypeError: '<=' not supported between 'datetime.date' and 'str'` ⇒ **summary 500** |
+| `created_at` / `updated_at`（String，naive ISO） | `datetime.utcnow().isoformat()`（**tzinfo=None**） | 若 PG 用 `timestamptz` ⇒ naive 值按会话 TimeZone 静默偏移 ⇒ **漂移巡检每行都报差异，永红**，真漂移被淹没 |
+
+**⇒ 第四层校验**：除 `api_key` 外**全部列**在两库间做**原始值逐列比对**（不是语义比对），
+且 `tasks 2.1` 必须给出**完整 PG DDL**（每个列的类型 + DEFAULT + NOT NULL）。
+
+**⇒ 顺带修正三处我写错的事实**：
+- 列数是 **17 列**不是 15（`rate_per_minute` / `daily_limit` / `alert_threshold_cost` / `note` 是运行时补的）
+- `rotate` 方法**不存在**（`key_service.py` 无此函数）
+- `BUSINESS_DATABASE_URL` 违反本仓 `OPS_` 前缀约定（`requirements.txt:1-7`）⇒ 本 change 的 DSN 键名要按 ops-center 约定定
+
+**⇒ 另修两处「与现状相反」的写法**：
+- `priority` 现状排序是 **ASC**（`key_service.py:306` 与 `:373`）⇒ 方案写的 `priority DESC` **与现状相反且未说明**
+- `key_service.py:360` 的 `get_active_keys_for_tier` **生产引用数为 0**（只有测试引用）⇒ 不能拿它当索引依据
+

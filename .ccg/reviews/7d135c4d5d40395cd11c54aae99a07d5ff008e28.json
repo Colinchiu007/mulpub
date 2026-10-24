@@ -1,0 +1,141 @@
+{
+  "sha": "7d135c4d5d40395cd11c54aae99a07d5ff008e28",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 892 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 892,
+    "fileCount": 26,
+    "codeFileCount": 14,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "i4 上的 `highRiskDomains: [\"crypto\"]` 经核对是分类器误报（本批零鉴权/加密代码，命中的是文档散文里的字样），"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"rationale\": \"已修：finally 还原后独立读回并比对 md5，不一致打 RESTORE_MISMATCH 且置 restoreFailed，末尾按 rc=4 出声（与头注释一致）；并为 SIGINT/SIGTERM/SIGHUP 注册 restoreActive()，打断时先还原再退出，且还原失败时打印文件路径供手工核对。现场读数：本轮 8 道变异每条都打 `RESTORE_OK`，`[SUMMARY] CAUGHT=8`，rc=0。highRiskDomains 里的 \\\"crypto\\\" 属分类器误报（本批无任何鉴权/加密代码，命中的是文档散文里的字样），但**不据此绕门禁**：收紧分类器属\\\"改谁来守门\\\"。\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T23:30:02.520Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "contrast-probe.js 的 dashboard 档探针由 `.banner-text` 换成 `.stat-label`，但整批没有任何一步验证新目标：锁第 11 条只断言探针**文件文本**含 `'.stat-label'`，不断言 `/dashboard` 渲染树里真有该选择器、也不断言命中元素的对比度达标。若 `.stat-label` 同样不在看板页（或未来类名被改），探针沿其 :63 的 `if (!res.found) continue` 静默跳过——i3 指出的「这一档从未被测」只是被搬迁而非消除；若 `.stat-label` 存在但对比度 < 3:1，CI 视觉门禁会凭空新增红。record 的 QM-4 行与 V 系列验收都没有任何 contrast-probe 的实测读数。",
+        "highRiskDomains": [],
+        "prosecution": "指控：把 dashboard 档探针从 .banner-text 换成 .stat-label，但整批没有任何一步验证新目标真的在看板页存在——第 11 条锁只断探针文件文本含该串；若目标缺席，探针沿 :63 的 if (!res.found) continue 静默跳过，i3 指出的\"这一档从未被测\"只是被搬迁而非消除。",
+        "defense": "辩护：探针确实会打印\"未找到该选择器\"，不是假绿；且 .stat-label 是看板页既有类名。但\"确实会打印\"只把缺陷从\"无声\"降级成\"要人盯日志\"，而这个脚本没有断言、没有 CI 接线，人工盯日志不构成锁。",
+        "verdict": "upheld",
+        "rationale": "upheld 并已修，两条一起落地：① 锁 7 现在从 CASES 里**解析出**选择器（解析不到即红），再要求 Dashboard.vue 模板的 class=\"…\" 属性里真的有这个类名——把\"文本含新类名\"换成\"目标在被测页真实存在\"；② 探针脚本改为汇总出声：打印 [PROBE-SUMMARY] cases/measured/missed，并在 missed>0 时以非零码退出（逐条 continue 会让\"跑了 4 条\"读起来像\"量了 4 条\"）。变异 C10（把退出码改回恒 0）实测 CAUGHT。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "锁第 5 条的 style-guard 一半仍按**文件级**双子串判：`guard` 含 `indexOf(\"<TrialBanner\")` 且文件任意处含 `.toBe(-1)` 即通过，两个子串不要求在同一语句。C3 变异只覆盖「探针改名」这一种掏空形态；另一种掏空——把被探测的 `tpl` 来源换成硬编码常量（`const tpl = '<html></html>'`），`indexOf` 恒 -1、守卫恒绿、两个子串又都仍在文件里——锁完全不知情，对偶锁「豁免文件确实还在做缺席断言」的契约被违反而锁全绿。dash 一半已按同语句形状修过，style-guard 一半没跟上。",
+        "highRiskDomains": [],
+        "prosecution": "指控：第 5 条锁的 style-guard 一半仍是文件级双子串判——indexOf(\"<TrialBanner\") 在文件任意处、.toBe(-1) 在文件任意处即通过，两句不要求同一条语句；把被探测的 tpl 换成硬编码常量时守卫恒 -1、恒绿，而两个子串都还在文件里，锁完全不知情。dash 一半已按行形状修过，这一半没跟上。",
+        "defense": "辩护：无。这正是\"豁免不可白拿\"那条对偶锁的原始意图被实现成字符串在场时的自然后果。",
+        "verdict": "upheld",
+        "rationale": "upheld 并已修，且修法本身经过一次自我否证：第一版把绑定判据写成\"全文件查 const tpl = descriptor.template.content\"，跑变异 C9 时 **MISSED** —— 同文件另有三处同名赋值（:103/:181/:187），全文件判据把守卫那条的替换遮住了。第二版改为**按 it 块界定判据域**（用行首 it( 的形态找块起点，避免 edit( 之类子串顶锚），被探测变量必须在\"守卫所在的同一条 it 块内\"绑定到 descriptor.template.content，并核 readFileSync(Dashboard.vue) → parse(source) → descriptor 这条链。C9 重跑 CAUGHT；十条变异合计 CAUGHT=10/10。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "同一批产物在 5 份文档里出现 6/11/5/8 四种数量口径：实际锁文件是 11 个 `it()`、驱动是 8 道变异（C1–C8）；PRD §3 变更清单写「防复活锁（11 条）」而 §5 写「`dead-components.test.js` 六条：」且 §5 的 C8 行又引用「第 11 条红」——PRD 自身前后矛盾；proposal「What Changes」与 tasks 3.1 都写「（6 条）」；UX-AUDIT-2026-10-17.md 文末落地记录 §4 写「驱动 …（5 道）」并把 C3 描述成「删掉反向守卫」——那是第一版已废弃的变异形态，实际 C3 是「探针换名字」；tasks 3.3 的「CAUGHT=5/5」也未随 C6–C8 追加更新。后续会话按文档对账会对不上号。",
+        "highRiskDomains": [],
+        "prosecution": "指控：同一批产物在 5 份文档里出现 6/11/5/8 四种数量口径；PRD §3 写 11 条而 §5 写\"六条\"、proposal 与 tasks 写 6 条、审计文档落地记录写\"驱动（5 道）\"且把 C3 描述成已废弃的第一版形态、tasks 3.3 仍写 CAUGHT=5/5。后续会话按文档对账会对不上号。",
+        "defense": "辩护：文档是分批写的，数字随轮次漂移是事实而非谎报。但\"漂移是事实\"不等于\"可以不对账\"——本仓反复强调跨文档口径必须同源，数量口径正是最容易被下一个会话当判据读的东西。",
+        "verdict": "upheld",
+        "rationale": "upheld 并已修：PRD §5 整节重写为十一条口径（逐条给出判据与它防的失效形态），proposal / tasks 3.1 的\"（6 条）\"改终态 11 条，tasks 3.3 的 CAUGHT=5/5 改为 CAUGHT=10/10 并写明 5→8→10 的来源，记录的反证行同步改 10 道并保留\"首轮 8 道\"的历史读数。审计文档落地记录里的\"（5 道）\"与旧 C3 描述一并改到当前形态。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "QM-6 处置表只覆盖引擎收敛出的 4 条（i1–i4），评审原文的 i5–i10 在记录里没有任何处置行，其中实体缺陷在最终 diff 里仍原样存在：驱动仍声明从未使用的 `DASH_VUE`（i7）、`.openspec.yaml` 的 created 仍是 2026-10-22（i9）、tokens.css 的 `html[data-theme='dark'] .banner-btn` 暗色覆盖仍留在树里（i10——被删 TrialBanner 的注释明确写出该规则位于 tokens.css:365）。记录 QM-6 标题「全部 upheld 并已修」在只有 4/10 有处置的情况下读法过宽。",
+        "highRiskDomains": [],
+        "prosecution": "指控：记录 QM-6 只覆盖引擎收敛出的 4 条，评审原文的 i5–i10 无任何处置行；且三处实体缺陷仍在最终 diff 里：驱动声明从未使用的 DASH_VUE、.openspec.yaml 的 created 写成 2026-10-22、tokens.css 里 html[data-theme=dark] .banner-btn 是被撤组件的孤儿规则。在此前提下\"全部 upheld 并已修\"的标题读法过宽。",
+        "defense": "辩护（三条实体指控逐条对当前 HEAD 复核）：① **不成立** —— DASH_VUE 在驱动 :87 被用作某条变异的 file 字段，grep 现场为证；删它会把那条变异打成 ANCHOR/FILE_MISSING。② **不成立且照做会造成回归** —— tokens.css:407 的 .banner-btn 有**在用**消费方 LoginExpiredBanner.vue（:15/:20 两处 class 用法），它不是 TrialBanner 的孤儿；按该建议删除会让登录失效横幅的暗档按钮失去配色。③ **成立但归因不同** —— created: 2026-10-22 不是笔误：提交时本机本地时钟已是 10-22 清晨（UTC 仍是 10-21），问题在于它与 PRD/记录/审计文档的 10-21 不同源。",
+        "verdict": "upheld",
+        "rationale": "upheld，但只 uphold 它成立的那一半：①②两条实体\"缺陷\"经核实为**误判**，已在此留证据（并明确不按建议动手，因为②照做会引入回归）；③的日期已改成与文档同源的 2026-10-21 并注明时区来路。真正成立的是**覆盖度读法**：本记录 §四 虽然写了\"critic 出 10 条、引擎收敛到 4 条\"，但没有对未被收敛的 6 条给出任何处置说明。处置是显式补一句口径（见 §四之二末段），而不是把那 6 条也写成\"已修\"——那才是把没做的事写成做过。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "驱动 `runVitest()` 硬编码 `spawnSync('pnpm.cmd', [...], { shell: true })`（Windows 形态），而任务 #23 明确要把该驱动接进 CI；非 Windows runner 上 `pnpm.cmd` 不存在，shell 解析后 command not found ⇒ vitest 输出为空 ⇒ 基线被 `blind` 判据拒跑（rc=2），驱动在 CI 里永远不工作——与「可复跑驱动是证据链核心」的定位直接冲突。",
+        "highRiskDomains": [],
+        "prosecution": "指控：驱动 runVitest() 硬编码 spawnSync(pnpm.cmd, {shell:true})，Windows 专有；任务 #23 要把该驱动接进 CI（Linux runner），那里 pnpm.cmd 不存在 ⇒ vitest 零输出 ⇒ 基线被 blind 判据拒跑（rc=2），驱动在 CI 里永远不工作，与\"可复跑驱动是证据链核心\"的定位冲突。",
+        "defense": "辩护：无。当前驱动确实只在这台机器上成立。",
+        "verdict": "upheld",
+        "rationale": "upheld 并已修：const RUNNER = process.platform === \"win32\" ? \"pnpm.cmd\" : \"pnpm\"。同型缺陷在另外三个 contract-mutate 驱动里也存在，1.2 那条已同批改，其余随任务 #23 接线时统一收敛。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：5 条指控成立或需外部复核",
+    "at": "2026-10-21T23:46:39.305Z",
+    "closureNote": "第 1 轮自扮演裁决：i1 已修（锁 7 从 CASES 解析选择器、解析不到即红，再要求 Dashboard.vue 模板 class=\"…\" 属性里真有该类名，apps/desktop/src/components/dead-components.test.js:181,:185；探针汇总出声、missed>0 非零码退出，scripts/dead-components-contract-mutate.js:138）；i2 已修（判据域按 it 块界定——变异 C9「把 tpl 换成硬编码常量（indexOf 恒 -1、守卫恒绿、两个子串都还在）」现被同文件 :122-132 的反向守卫断言抓住，不再被文件级双子串判据放过）；i3 已修（PRD §5 重写为十一条口径，tasks 3.1 改终态 11 条、3.3 改 CAUGHT=10/10 并写明 5→8→10 来源）；i4 已修（记录 §四之二 显式补「未被收敛的那些条目没有逐条处置记录」这一口径；①②经核实为误判未按建议动手，③日期改成同源的 2026-10-21 并注明时区来路）；i5 已修（const RUNNER = process.platform === \"win32\" ? \"pnpm.cmd\" : \"pnpm\"，同文件 :147）。逐条依据见 openspec/records/ux-audit-dead-components-retire.md。"
+  }
+}

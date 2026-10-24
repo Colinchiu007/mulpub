@@ -50,7 +50,8 @@ const { t } = useI18n()
  *   ② .dash-locked-cta 用描边式（透明底 + var(--lavender-primary) 紫字）⇒
  *      #7c5cbf 压 #26262d 只有 **2.96**，差 0.04 不达标。
  *      修法：改**实底 + 白字**。这样对比度恒为 5.07，与主题无关 ——
- *      同 TrialBanner 第 3 轮的结论：白字在固定底色下对「暗色主题是否覆盖了
+ *      同已删除的 TrialBanner 第 3 轮的结论（该组件随 ux-audit-dead-components-retire 撤下，
+ *      取证见 `git log -p --follow -- apps/desktop/src/components/TrialBanner.vue`）：白字在固定底色下对「暗色主题是否覆盖了
  *      某个 token」完全免疫，描边式做不到这点。
  *
  * 关于 CTA 底色为何是字面量而非 token（CCG i5 提出，已评估）：

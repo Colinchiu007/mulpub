@@ -151,6 +151,9 @@ export default {
     durationMin: (ctx) => ctx.named('minutes') + ' 分 ' + ctx.named('seconds') + ' 秒',
     durationSec: (ctx) => ctx.named('seconds') + ' 秒',
     // 合成时间参考口径（2026-08-17）：产品约定参考区间，非精确估算
+    // 排队提示（2026-10-24）：本地限流器排队期间的用户可见反馈
+    modelQueueEta: (ctx) => '排队中，预计还要 ' + ctx.named('eta') + ' 才能开始',
+    modelQueueWaiting: (ctx) => '排队中，当前有 ' + ctx.named('count') + ' 个请求在等待',
     timeGuidanceTitle: '合成时间说明',
     timeGuidanceIntro: '整体完成时间与视频时长有关：时长越长，合成越久；同时与内容的复杂程度、大模型的推理时间长短也有关系。',
     timeGuidanceRef1min: '1 分钟视频：合成时长 5–8 分钟',

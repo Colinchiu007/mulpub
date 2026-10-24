@@ -185,7 +185,8 @@ function registerHandlers(ipcMain, deps) {
       // 运行无 createdAt 时由 snapshotSince 回退全量快照，不隐藏警告。
       const { providerAnomalyBus } = require('../services/provider-anomaly')
       const providerWarnings = providerAnomalyBus.snapshotSince(snapshot.createdAt)
-      return { code: 0, data: providerWarnings.length > 0 ? { ...snapshot, providerWarnings } : snapshot }
+      const merged = providerWarnings.length > 0 ? { ...snapshot, providerWarnings } : snapshot
+      return { code: 0, data: withQueue(merged) }
     } catch (e) { log.warn('[ipc:pipeline]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message, errorCode: e?.errorCode || e?.code || null, errorParams: e?.errorParams || null } }
   }))
 
@@ -322,6 +323,16 @@ function registerHandlers(ipcMain, deps) {
   let pushBridgeInstalled = false
   const pushOffFns = []
 
+  // 排队快照（本地 governor）：附在运行快照上，让界面能显示「排队中，约 X 秒后开始」。
+  // ⚠️ **总是带这个字段**（无排队时 entries 为空）：否则渲染层会保留上一次的 queue，
+  // 排队结束后提示不消失。渲染层按 entries 为空即"无排队"处理。
+  const withQueue = (snapshot) => {
+    if (!snapshot || typeof snapshot !== 'object') return snapshot
+    const gov = pipelineEngine.governor
+    const queue = gov && typeof gov.getQueueSnapshot === 'function' ? gov.getQueueSnapshot() : null
+    return queue ? { ...snapshot, queue } : snapshot
+  }
+
   const getMainWindow = () => {
     const wins = BrowserWindow.getAllWindows()
     return wins.find(w => !w.isDestroyed() && !w.webContents.isDestroyed() && w.isVisible()) ||
@@ -335,7 +346,7 @@ function registerHandlers(ipcMain, deps) {
         : null
       if (!snapshot) return
       const win = getMainWindow()
-      if (win) win.webContents.send(PUSH_CHANNEL, snapshot)
+      if (win) win.webContents.send(PUSH_CHANNEL, withQueue(snapshot))
     } catch (e) {
       log.warn('[pipeline:push] send failed:', e && e.message ? e.message : String(e))
     }

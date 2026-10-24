@@ -34,6 +34,7 @@ const {
   retryAfterMs,
 } = require('./governor-constants')
 const { createObservabilityTracker } = require('./governor-observability')
+const { buildQueueSnapshot } = require('./governor-queue-snapshot')
 
 /**
  * 重入保护：记录当前 async 调用链已持有调度的 key 集合。
@@ -149,6 +150,9 @@ class ApiUsageGovernor {
   }
 
   /** 诊断：当前 key 的并发/排队/冷却/预算状态（不含密钥） */
+  /** 聚合本地排队快照（界面「排队中」提示用）。实现与口径见 governor-queue-snapshot.js */
+  getQueueSnapshot() { return buildQueueSnapshot(this._state, Date.now()) }
+
   getStatus(key) {
     const st = this._state.get(key)
     if (!st) return { key, active: 0, queued: 0, inCooldown: false, rateFactor: 1 }
