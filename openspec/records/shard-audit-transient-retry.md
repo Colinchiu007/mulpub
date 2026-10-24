@@ -58,7 +58,14 @@ date: 2026-10-24
 
 - `node --test scripts/electron-ci-shard-audit.test.js` ⇒ **17 pass / 0 fail**（起点 9）
 - `node --test scripts/electron-ci-desktop-step.test.js` ⇒ **15 pass / 0 fail**（起点 12）
-- 活路径（真实 gh，走重构后的默认取数面）：见本文件末尾补记
+- 活路径（真实 gh，走重构后的默认取数面，一次通过、未手跑第二次）：
+  `node scripts/electron-ci-shard-audit.js` ⇒ rc=0
+  `runs=5 shards=10 min=12.8 p50=21.8 max=24.5 budgetFloorSec=2209 stepBudgetSec=2700 verdict=OK`，
+  全部(分钟)=24.5,21.8,15.0,12.8,23.8,21.2,23.9,21.2,24.2,21.5
+  ⚠ 这批与 §1 第 5 行**不是同一个窗口**：审计取的是「最近 N 趟 push」的滑窗，两天过去后窗口整体换了一批样本
+  （max 23.6 → 24.5、shards 8 → 10、runs 10 → 5）。所以引用 provenance 读数必须连**窗口与日期**一起引，
+  不能只引一个 max —— 这也是本轮把 provenance 改成"带 collectedAt/runnerShape 的一册账"而不是"一个数"的原因。
+  两批都判 OK：`2700 ≥ 24.5×60×1.5 = 2209`，且未贴 `floor×1.1 = 2430` 的贴脸线。
 - `check-unwired-tests` / `check-step-failfast` / `check-debt-budget`（`maxFileLines 5356 ≤ 基线 5359`、`filesOver500 95 ≤ 95`）/ `check-doc-abs-paths` 全部 rc=0
 
 ## 4. 遗留（不假装已闭合）
