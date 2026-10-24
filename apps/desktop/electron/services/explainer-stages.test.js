@@ -42,6 +42,112 @@ function makeAi(content) {
   }
 }
 
+/**
+ * P2a 契约变更后的**输入夹具**（2026-10-24）。
+ *
+ * ⚠ 改的是**输入形态**（LLM 从「散文」改为「上游 artifact 的 JSON」），
+ *   **不是**改断言意图 —— 原用例在意的仍是「research 能用默认 LLM 产出结果」
+ *   「proposal 依赖 context.research」「script 依赖 context.proposal」「空内容会重试」。
+ * ⚠ 夹具必须**同时满足**上游 schema 与计数型 success_criteria
+ *   （research_brief：≥3 data_points / ≥3 angles / ≥5 条带 url 的 sources；
+ *     proposal_packet：≥3 concept_options + ≥1 条 line_items + selected_concept 有效引用）。
+ */
+function makeResearchBriefJson () {
+  const sources = [1, 2, 3, 4, 5].map(i => ({ url: 'https://example.com/s' + i, title: '来源' + i, reliability: 'primary' }))
+  const dataPoints = [1, 2, 3].map(i => ({
+    claim: i === 1 ? '起源' : '数据点' + i,
+    source_url: 'https://example.com/d' + i,
+    credibility: 'primary_source',
+    surprise_factor: 'notable',
+  }))
+  const angles = [1, 2, 3].map(i => ({
+    name: '角度' + i,
+    hook: '钩子' + i,
+    type: 'trending',
+    why_now: '因为研究结论' + i,
+    grounded_in: ['data_points[0]'],
+  }))
+  return JSON.stringify({
+    topic: '人工智能的历史',
+    research_date: '2026-10-24',
+    landscape: {
+      existing_content: [{ title: '既有内容', url: 'https://example.com/e1', source: 'ex', angle: '历史' }],
+      saturated_angles: ['已被讲透的角度'],
+      underserved_gaps: ['被忽略的角度'],
+    },
+    data_points: dataPoints,
+    audience_insights: {
+      common_questions: ['这和我有什么关系？'],
+      misconceptions: [{ myth: '误解', reality: '事实', source: 'https://example.com/m1' }],
+      knowledge_level: '入门',
+      pain_points: ['看不懂术语'],
+    },
+    angles_discovered: angles,
+    sources: sources,
+    research_summary: '人工智能的历史可分三段。',
+  })
+}
+
+function makeProposalPacketJson () {
+  const concept = (id, title, narrative) => ({
+    id, title, hook: '钩子-' + title,
+    narrative_structure: narrative,
+    visual_approach: '时间线 + 数据卡',
+    suggested_playbook: 'clean-professional',
+    target_audience: '泛科技读者',
+    target_platform: 'youtube',
+    target_duration_seconds: 60,
+    key_points: ['要点1', '要点2'],
+    core_message: '核心信息',
+    tone: '平实',
+    grounded_in: ['data_points[0]'],
+    why_this_works: '因为有研究支撑',
+  })
+  return JSON.stringify({
+    concept_options: [
+      concept('c1', '历史主线', 'journey'),
+      concept('c2', '算力视角', 'problem_solution'),
+      concept('c3', '产业视角', 'debate'),
+    ],
+    selected_concept: { concept_id: 'c1', rationale: '覆盖面最广', modifications: [] },
+    production_plan: {
+      pipeline: 'animated-explainer',
+      playbook: 'clean-professional',
+      stages: [{ stage: 'assets', tools: ['image_selector', 'tts_selector'], approach: '逐场景生成' }],
+      quality_tradeoffs: [{ tradeoff: '速度 vs 质量', recommendation: '优先质量', quality_impact: 'medium' }],
+      alternative_paths: [],
+      delivery_promise: { promise_type: 'data_explainer', motion_required: true, source_required: false, tone_mode: 'conversational', quality_floor: 'presentable' },
+      renderer_family: 'explainer-data',
+      render_runtime: 'remotion',
+      composition_mode: 'templated',
+      art_direction: '冷静克制',
+      voice_selection: { provider: 'edge-tts', voice_id: 'zh-CN-XiaoxiaoNeural', rationale: '中文女声', sample_approval_required: true },
+    },
+    cost_estimate: {
+      total_estimated_usd: 0,
+      line_items: [{ tool: 'image_selector', operation: 'per scene', quantity: 8, estimated_usd: 0, notes: '单价未知（无价格卡）' }],
+      budget_verdict: 'within_budget',
+    },
+    approval: { status: 'pending', user_notes: '' },
+  })
+}
+
+function makeScriptJson () {
+  return JSON.stringify({
+    title: '人工智能的历史',
+    total_duration_seconds: 60,
+    voice_performance: { performance_intent: '讲清楚', pacing_profile: 'conversational', energy_curve: '平→高→平', pause_policy: '段落间停 0.4s', sample_section_id: 'section-1', provider_notes: { key: 'value' } },
+    sections: [
+      {
+        id: 'section-1', label: '起源', text: '人工智能的故事要从图灵讲起。', start_seconds: 0, end_seconds: 20,
+        speaker_directions: '平缓',
+        delivery_cues: { pace: 'measured', energy: '中', emphasis_words: ['图灵'], pause_before_seconds: 0, pause_after_seconds: 0.4, delivery_note: '句末略停', provider_text: '人工智能的故事要从图灵讲起。' },
+        enhancement_cues: [{ type: 'overlay', description: '时间线', duration_seconds: 3 }],
+      },
+    ],
+  })
+}
+
 function makeAiSequence(contents) {
   const calls = []
   return {
@@ -68,7 +174,7 @@ describe('animated-explainer 阶段执行器', () => {
 
   describe('research 阶段', () => {
     it('用默认 LLM 生成大纲', async () => {
-      const ai = makeAi('1. 起源：…\n2. 发展：…')
+      const ai = makeAi(makeResearchBriefJson())
       const { get } = makePipeline(ai)
       const result = await get(EXPLAINER_STAGE_TYPES.RESEARCH)({
         stage: {},
@@ -76,7 +182,8 @@ describe('animated-explainer 阶段执行器', () => {
         context: {},
       })
       expect(result.success).toBe(true)
-      expect(result.output).toContain('起源')
+      // ⚠ 契约变更：research 的产物从「散文大纲」变成**上游 research_brief 对象**
+      expect(result.output.data_points[0].claim).toContain('起源')
       expect(ai.generateWithDefault).toHaveBeenCalledWith('llm', expect.objectContaining({
         messages: expect.arrayContaining([
           expect.objectContaining({ role: 'user', content: expect.stringContaining('人工智能的历史') }),
@@ -85,7 +192,7 @@ describe('animated-explainer 阶段执行器', () => {
     })
 
     it('用结构化 key 上报开始与完成摘要', async () => {
-      const { get } = makePipeline(makeAi('1. 起源：…'))
+      const { get } = makePipeline(makeAi(makeResearchBriefJson()))
       const progress = vi.fn()
       const result = await get(EXPLAINER_STAGE_TYPES.RESEARCH)({
         stage: {}, params: { text: '主题' }, context: {}, onProgress: progress,
@@ -130,25 +237,25 @@ describe('animated-explainer 阶段执行器', () => {
 
   describe('proposal / script 阶段', () => {
     it('proposal 依赖 context.research', async () => {
-      const { get } = makePipeline(makeAi('分镜1：… | 要点'))
+      const { get } = makePipeline(makeAi(makeProposalPacketJson()))
       const missing = await get(EXPLAINER_STAGE_TYPES.PROPOSAL)({
         stage: {}, params: {}, context: {},
       })
       expect(missing.success).toBe(false)
       const ok = await get(EXPLAINER_STAGE_TYPES.PROPOSAL)({
-        stage: {}, params: {}, context: { research: '大纲' },
+        stage: {}, params: {}, context: { research: JSON.parse(makeResearchBriefJson()) },
       })
       expect(ok.success).toBe(true)
     })
 
     it('script 依赖 context.proposal', async () => {
-      const { get } = makePipeline(makeAi('第一段旁白。\n\n第二段旁白。'))
+      const { get } = makePipeline(makeAi(makeScriptJson()))
       const missing = await get(EXPLAINER_STAGE_TYPES.SCRIPT)({
         stage: {}, params: {}, context: {},
       })
       expect(missing.success).toBe(false)
       const ok = await get(EXPLAINER_STAGE_TYPES.SCRIPT)({
-        stage: {}, params: {}, context: { proposal: '方案' },
+        stage: {}, params: {}, context: { proposal: JSON.parse(makeProposalPacketJson()) },
       })
       expect(ok.success).toBe(true)
     })
@@ -317,14 +424,18 @@ describe('generate_assets 适配与 editing', () => {
 
 describe('LLM 调用容错（2026-08-11 E2E 复盘）', () => {
   it('callDefaultLlm 空内容时重试直到拿到非空内容', async () => {
-    const ai = makeAiSequence(['', '1. 主题：测试大纲'])
+    // ⚠ 契约变更：research 的产物是**上游 research_brief 对象** ⇒ 第二次返回必须是
+    //   合法 JSON（原用例返回的是散文）⇒ 改**输入**，断言「第二次拿到非空内容」的意图不变。
+    const ai = makeAiSequence(['', makeResearchBriefJson()])
     const { get } = makePipeline(ai)
     const result = await get(EXPLAINER_STAGE_TYPES.RESEARCH)({
       stage: {}, params: { text: '测试主题' },
     })
     expect(result.success).toBe(true)
     expect(ai.calls).toHaveLength(2)
-    expect(ai.calls[1]).toContain('测试大纲')
+    // ⚠ 契约变更：第二次返回的是**上游 research_brief JSON**（原用例返回散文「1. 主题：测试大纲」）
+    //   ⇒ 断言的**形态**变（查 JSON 里的 topic），**意图**不变（第二次调用拿到了非空的有效内容）。
+    expect(ai.calls[1]).toContain('人工智能的历史')
   })
 
   it('callDefaultLlm 连续空内容达到上限后失败（不再无限重试）', async () => {
