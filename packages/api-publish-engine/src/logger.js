@@ -17,7 +17,7 @@ const _path = require('path')
 const _os = require('os')
 // file-mirror（2026-10-24）：包内 logger 只写 stdout，而应用日志不收 stdout ⇒ 诊断永远不可见。
 // 这里再写一份到临时文件，作为唯一可靠的可观测出口（可用 MP_PKG_LOG 覆盖路径）。
-const _LOG_FILE = process.env.MP_PKG_LOG || _path.join(_os.tmpdir(), 'mp-api-engine.log')
+const _LOG_FILE = process.env.MP_PKG_LOG || 'D:/Temp/mp-api-engine.log'
 function _toFile(line) { try { _fs.appendFileSync(_LOG_FILE, line + '\n') } catch (_e) {} }
 
 const logger = {
