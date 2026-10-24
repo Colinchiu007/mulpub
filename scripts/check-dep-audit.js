@@ -584,6 +584,13 @@ function buildRefreshReport (oldBase, newBase, opts) {
   // 待补结论 = 现存条目里 decision 仍是 TODO 的（含此前就没人补的，不只本轮新增）
   const needDecision = newList.filter((e) => !e.decision || e.decision === 'TODO');
   const addedKeys = new Set(added.map((e) => e.source + '/' + e.id));
+  // ⛔ 「刷新后仍会判红」的条目必须**逐条带上**：刷新会改事实（patched 随公告库变），
+  // 事实一变，**已有结论可能就闭不上了**（实测 2026-10-24：brace-expansion 的 patched 从
+  // >=1.1.16 变成 >=5.0.7，而人写的 targetVersion 还是 1.1.16 ⇒ 门禁判 DECISION_CONTRADICTS_PATCHED）。
+  // 只列「decision 还是 TODO 的」会漏掉这一类 ⇒ 正文会说「无需补结论」而门禁其实红着。
+  // 而**机器人开的 PR 永远不跑 CI**（GITHUB_TOKEN 触发的事件不再触发工作流）⇒
+  // **正文是人的唯一信号** ⇒ 这一档漏不得。
+  const violations = Array.isArray(o.violations) ? o.violations.slice() : [];
   return {
     scanAt: o.scanAt || new Date().toISOString(),
     changed: added.length > 0 || cleared.length > 0 || migrated.length > 0,
@@ -593,6 +600,7 @@ function buildRefreshReport (oldBase, newBase, opts) {
     cleared: cleared.map((e) => Object.assign(briefEntry(e), { isNew: false })),
     migrated,
     needDecision: needDecision.map((e) => Object.assign(briefEntry(e), { isNew: addedKeys.has(e.source + '/' + e.id) })),
+    violations,
   };
 }
 
@@ -648,6 +656,7 @@ function renderRefreshBody (report, opts) {
   L.push('- 挂账复核日 `reviewBy`：`' + cell(r.reviewBy) + '` —— **本作业不会推进这个日期**（复核日是「人看过这批账」的证明，机器续期等于把复核变成永续挂账）；是否顺延由人决定。');
   L.push('');
   const need = r.needDecision || [];
+  const viol = r.violations || [];
   if (need.length) {
     L.push('### 待人工补结论（' + need.length + ' 条）');
     L.push('');
@@ -662,7 +671,29 @@ function renderRefreshBody (report, opts) {
   } else {
     L.push('### 待人工补结论');
     L.push('');
-    L.push('- 无。基线里每条挂账都已有合法 `decision` 与 `note`。');
+    L.push('- 无「decision 还是 TODO」的条目。');
+    L.push('');
+  }
+  if (viol.length) {
+    L.push('### ⚠️ 刷新后门禁仍会判红（' + viol.length + ' 条）—— 这些**已有结论已经失效**，必须改');
+    L.push('');
+    L.push('| 判据 | 说明 |');
+    L.push('|---|---|');
+    for (const v of viol) {
+      // 判据名 = 首个空格前的部分（去掉尾冒号）；说明 = 整句原话（门禁怎么说的就怎么转述）
+      const rule = String(v).split(' ')[0].replace(/[:：]\s*$/, '');
+      L.push('| ' + cell(rule) + ' | ' + cell(String(v)) + ' |');
+    }
+    L.push('');
+    L.push('> 这一档**不是「还没给结论」**，而是「**给了、但刷新之后闭不上了**」：');
+    L.push('> 机器刷新会改事实（公告库把 `patched` 的修复下界改了），事实一变，');
+    L.push('> 人之前写的 `targetVersion` / `decision` 就可能不再满足判据。');
+    L.push('> ⇒ **不要因为上一节写「无」就以为没事** —— 上面这几条是门禁会判红的原话。');
+    L.push('');
+  } else {
+    L.push('### ⚠️ 刷新后门禁仍会判红的条目');
+    L.push('');
+    L.push('- 无。刷新后的基线自洽：`decision` 合法、`note` 非空、`targetVersion` 仍逃得出修复下界。');
     L.push('');
   }
   const cleared = r.cleared || [];
@@ -993,7 +1024,10 @@ function runCheck (opts = {}) {
     // 刷新报告 / PR 正文：给人做决定用的读数。相对**合成底**算（不是相对主干），
     // 否则分支上人已经补好的结论会被算成「本轮新增」⇒ 待办清单永远清不空。
     if (opts.refreshReport || opts.refreshBody) {
-      const report = buildRefreshReport(base, body, { scanAt: opts.scanAt });
+      // 刷新后的基线**自己也可能被门禁判红**（事实变了 ⇒ 旧结论闭不上了）⇒ 把门禁的原话带进报告。
+      // 不带的话正文会说「无需补结论」而门禁其实红着，而机器人开的 PR 又永远不跑 CI（正文是唯一信号）。
+      const judged = evaluate(body, found, undefined, scannedSources);
+      const report = buildRefreshReport(base, body, { scanAt: opts.scanAt, violations: judged.violations });
       if (opts.refreshReport) {
         fs.writeFileSync(opts.refreshReport, JSON.stringify(report, null, 2) + '\n', 'utf8');
         log('刷新报告已写入', opts.refreshReport);

@@ -1109,7 +1109,7 @@ test('PR 正文：没有任何待补条目时不得留一张空表冒充待办',
     {},
   );
   const body = D.renderRefreshBody(r, {});
-  assert.ok(body.includes('基线里每条挂账都已有合法'), '应当明说无需补结论');
+  assert.ok(body.includes('无「decision 还是 TODO」的条目'), '应当明说没有待补结论的条目');
   assert.ok(!body.includes('| source/id | 包 | 严重度 | 修复版本 | 本轮新登记 | 要填 |'), '不得留空待办表');
 });
 
@@ -1146,4 +1146,38 @@ test('刷新路径：合成底喂给「0 产出」那道闸时必须更保守（
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('刷新报告：必须带上「刷新后仍会判红」的条目（结论已失效 ≠ 还没给结论）', () => {
+  // 动因（2026-10-24 首次真实运行实测）：公告库把 patched 的修复下界改了
+  // （brace-expansion >=1.1.16 → >=5.0.7），人写的 targetVersion 还是 1.1.16
+  // ⇒ 门禁判 DECISION_CONTRADICTS_PATCHED。而刷新报告若只列「decision 还是 TODO 的」，
+  // 正文会说「无需补结论」而门禁其实红着 —— 而机器人开的 PR 永远不跑 CI（正文是唯一信号）。
+  const e = Object.assign(ledger('npm', 'GHSA-3jxr-9vmj-r5cp'), {
+    decision: 'upgrade-tracked', targetVersion: '1.1.16', patched: '>=5.0.7', note: '原有结论',
+  });
+  const viol = [D.checkTargetEscapes(e)].filter(Boolean);
+  assert.equal(viol.length, 1, '这条必须真被判红：' + JSON.stringify(e));
+  const r = D.buildRefreshReport(
+    { reviewBy: FUTURE, advisories: [e] },
+    { reviewBy: FUTURE, advisories: [e] },
+    { violations: viol },
+  );
+  assert.deepEqual(r.needDecision.map((x) => x.key), [], '它不是「还没给结论」（decision 合法且非 TODO）');
+  assert.equal(r.violations.length, 1, '但必须被单独列出来');
+  const body = D.renderRefreshBody(r, {});
+  assert.ok(body.includes('DECISION_CONTRADICTS_PATCHED'), '正文必须带上门禁的原话：\n' + body);
+  assert.ok(body.includes('刷新后门禁仍会判红'), '正文必须有这一档的标题');
+  assert.ok(body.includes('不要因为上一节写「无」就以为没事'), '正文必须点破两档的区别');
+});
+
+test('刷新正文：没有失效结论时那一档必须说「无」（不留空表冒充待办）', () => {
+  const r = D.buildRefreshReport(
+    { reviewBy: FUTURE, advisories: [] },
+    { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-x'), { decision: 'accepted-risk', note: '有结论' })] },
+    { violations: [] },
+  );
+  const body = D.renderRefreshBody(r, {});
+  assert.ok(body.includes('刷新后的基线自洽'), '应当明说没有失效结论');
+  assert.ok(!body.includes('| 判据 | 说明 |'), '不得留一张空表');
 });
