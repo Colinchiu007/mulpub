@@ -1521,6 +1521,15 @@ IPC 次数本身未降（本轮是「按需申请」，单段仍 5 次 IPC；服
 - 变异面：`rewrite-engine-limits.test.js` 结构锁×2（改一边必红）；横幅出现/缺省两态断言。
 - `build:vue` rc=0；`electron-builder --dir` rc=0；asar 实测含 `MAX_INPUT_CHARS = 50000` / `MAX_OUTPUT_CHARS = 50000` / `outputTruncated`。
 - 文档：`01-docs/PRD-REWRITE-LIMITS-50000-2026-10-19.md`（限额体系/数据校验/交互/显示项/流程全量）。
+# [未发布] feat(gate): 债务基线「被调大」从此必须留下机器可查的证据 —— 点名指标 / 接受漂移 / 点名被推迟的清理 / 上限等于实测（debt-baseline-increase-lock）
+
+- **动因不是新发明的规范**：要求清单逐字来自 PR #4012 执行记录的待办第 2 条（「正解不是禁掉调大，而是要求调大时点名是哪条真实清理没做」，并点名可抄先例 `check-doc-abs-paths.js` 的 `judgeLedgerDrift`）。`debt-baseline.json` 的 `--update` 是"重算即接受"，而"为了让自己的 PR 不红而把数改大"这件事历史上没有任何东西在看。
+- **为什么不直接禁掉调大**：主干上他人已合并的增长确实需要如实记账（#4012 的正当性就在这条）。把正当路径焊死的后果不是"没人再调大"，而是逼出 `--no-verify` 或拆单绕行。所以四条要求里只有前三条是纸面痕迹（点名键 / 写「接受漂移」 / 写「跟进」），**真正有牙的是第四条：调大后的上限必须等于当场实测** —— 它把"多留 500 行以防以后红"这条路堵死，而留余量不是保守，是把未来的增长提前免检。
+- **实测复用同一份实现**：判据 require `check-debt-budget.js` 的 `collectMetrics`，不自建第二份数行数逻辑；另有结构锁禁止本文件出现 `countFilesByMinLines` 或 `readdirSync`（磁盘域比 CI 检出多算被忽略的产物，是 #3876 的同型）。
+- **退出码三档不得混用**：0 合规/未触及/非 PR；1 发现违规；2 判据自身故障（merge-base 取不到、blob 读不到、基线 JSON 解析不了、未知旗标）。`git cat-file -e` 只看 rc 不看 stdout（它成功时什么都不打印），rc=1 与 rc=128 分属"该 rev 没这个路径"与"ref 不可解析"两档 —— 混为一谈会把取证失败读成"首次新建基线"。
+- **30 例回归 + 九道变异全部 CAUGHT**（红集互不相同，`RESTORED_OK=true`）：其中 MU-A（给 R4 加 500 行"保守余量"）**只红端到端那条"上限只多留 1 行"** —— 单测用的是 641 行余量，两种 slack 差 500 都区分不出来；这就是"合规/违规两侧只差那 1 的 A/B 对偶"必须存在的位置。另有一条专门验"合规形态必须绿"：上限=实测且记录齐全时判据必须 exit 0，否则本锁会把自己的正当修复路径焊死。
+- **接线落点**：`quality-gate.yml` 的 `changes` 作业 Gate 2c7，base/head 复用 `classify` step 的产出经 env 注入，不自算第二套取源；反向锁同时禁止把它挂到会被 docs-only 短路的 `static-gates`（"顺手把账本改宽"最可能就出现在纯文档类 PR 上）。`.gitignore` 补两条 negation —— `scripts/*.js` 默认忽略新脚本，被吞掉的文件 CI 永远拿不到，接线锁也就锁不住。
+- **本 PR 刻意没做的事**：① 没动 `debt-baseline.json` 的任何数值 —— 把 re-sync 和加锁混进同一个 PR 会让锁的 A/B 失去对照组（合规那侧的用例将由同一个改动造出来）；② 没实现任务标题字面的"调大必须与真实清理同 PR"，理由见上；③ 没同步 `PRD-UX-AUDIT-IMPLEMENT` —— 那份 PRD 目前只在 `ux-audit-impl`（PR #3898）分支上，主干没有，在别的分支各写一版会造出两份并行文档，待 #3898 合并后由后续 PR 在同一份里把待办 #11 标成已落地。
 
 # [未发布] feat(侧栏): 折叠按钮改为可表意的语义化图标并补齐可发现性（sidebar-toggle-ux）
 
