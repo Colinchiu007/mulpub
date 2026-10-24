@@ -117,6 +117,48 @@ test('collectDeltaDeclarations：标题里出现 Requirement 字样不会被误�
   assert.equal(d.renamedFrom.size, 0);
 });
 
+test('collectDeltaDeclarations：`**REMOVED**:` 标记按 Requirement::Scenario 复合键收集', () => {
+  const d = collectDeltaDeclarations([
+    '## MODIFIED Requirements',
+    '',
+    '### Requirement: 甲需求',
+    '正文',
+    '',
+    '#### Scenario: 场景一',
+    '**REMOVED**: 要删的理由',
+    '- **WHEN** a',
+    '',
+    '#### Scenario: 场景二',
+    '- **WHEN** b',
+    '',
+    '### Requirement: 乙需求',
+    '正文',
+    '',
+    '#### Scenario: 场景一',
+    '**REMOVED**: 同名 Scenario，不同 Requirement ⇒ 另一个键',
+    '- **WHEN** c',
+    '',
+  ].join('\n'));
+  assert.deepEqual([...d.removedScenarios].sort(),
+    ['乙需求::场景一', '甲需求::场景一'].sort(),
+    '标记必须按 Requirement::Scenario 复合键收集（同名 Scenario 在不同 Requirement 下是两回事）');
+  assert.equal(d.removedScenarios.has('甲需求::场景二'), false, '没标记的 Scenario 不得进集合');
+});
+
+test('collectDeltaDeclarations：标记只在 MODIFIED 段内生效', () => {
+  const d = collectDeltaDeclarations([
+    '## ADDED Requirements',
+    '',
+    '### Requirement: 新需求',
+    '',
+    '#### Scenario: 新场景',
+    '**REMOVED**: ADDED 段里的标记不算',
+    '- **WHEN** a',
+    '',
+  ].join('\n'));
+  assert.equal(d.removedScenarios.size, 0);
+});
+
 // ------------------------------------------------------- ② 夹具仓库端到端
 
 function gitIn(dir, args, env) {
@@ -276,6 +318,74 @@ test('端到端：新增主规格（无基线）⇒ rc=0，不误报', () => {
   commitAll(f.dir, f.env, 'head');
   const r = runGate(f.dir, 'main', 'HEAD');
   assert.equal(r.code, 0, r.out);
+});
+
+test('端到端：delta 声明了 `**REMOVED**:` 的 Scenario ⇒ 合法删除不红', () => {
+  // 有意删除某条 Scenario 的声明方式：Scenario **仍列在 MODIFIED 块里**，
+  // 正文首行写 `**REMOVED**: <理由>`。
+  // 为何不能「另起一个 ## REMOVED Scenarios 段」：那样被删的 Scenario 就不在 MODIFIED 块里，
+  // 而 openspec validate / archive 会判「drops a scenario the main spec still has」⇒ 工具直接红。
+  const f = makeFixture();
+  const p = path.join(f.dir, f.specRel);
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8')
+    .replace('#### Scenario: 基线场景二\n- **WHEN** b\n\n', ''), 'utf8');
+  const deltaDir = path.join(f.dir, 'openspec', 'changes', 'demo-change', 'specs', 'demo');
+  fs.mkdirSync(deltaDir, { recursive: true });
+  fs.writeFileSync(path.join(deltaDir, 'spec.md'), [
+    '## MODIFIED Requirements',
+    '',
+    '### Requirement: 甲需求',
+    '甲的正文',
+    '',
+    '#### Scenario: 基线场景一',
+    '- **WHEN** a',
+    '',
+    '#### Scenario: 基线场景二',
+    '**REMOVED**: 该场景描述的行为已由「出片台账批次重试成功」取代',
+    '- **WHEN** b',
+    '',
+  ].join('\n'), 'utf8');
+  commitAll(f.dir, f.env, 'head');
+  const r = runGate(f.dir, 'main', 'HEAD');
+  assert.equal(r.code, 0, r.out);
+});
+
+test('端到端：未声明就删掉 Scenario ⇒ 红（标记不是可选的）', () => {
+  const f = makeFixture();
+  const p = path.join(f.dir, f.specRel);
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8')
+    .replace('#### Scenario: 基线场景二\n- **WHEN** b\n\n', ''), 'utf8');
+  commitAll(f.dir, f.env, 'head');
+  const r = runGate(f.dir, 'main', 'HEAD');
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /基线场景二/);
+  assert.match(r.out, /REMOVED/, '红的时候必须告诉作者怎么声明删除意图');
+});
+
+test('端到端：声明了但该 Scenario 不在 MODIFIED 块里 ⇒ 仍红（声明必须自洽）', () => {
+  // 声明写在**别的** Requirement 下 ⇒ 复合键不匹配 ⇒ 不得豁免。
+  // 这条锁住「不能靠随便写一行 REMOVED 就绕过门禁」。
+  const f = makeFixture();
+  const p = path.join(f.dir, f.specRel);
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8')
+    .replace('#### Scenario: 基线场景二\n- **WHEN** b\n\n', ''), 'utf8');
+  const deltaDir = path.join(f.dir, 'openspec', 'changes', 'demo-change', 'specs', 'demo');
+  fs.mkdirSync(deltaDir, { recursive: true });
+  fs.writeFileSync(path.join(deltaDir, 'spec.md'), [
+    '## MODIFIED Requirements',
+    '',
+    '### Requirement: 乙需求',
+    '乙的正文',
+    '',
+    '#### Scenario: 基线场景二',
+    '**REMOVED**: 写在别的 Requirement 下的声明不算数',
+    '- **WHEN** b',
+    '',
+  ].join('\n'), 'utf8');
+  commitAll(f.dir, f.env, 'head');
+  const r = runGate(f.dir, 'main', 'HEAD');
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /基线场景二/);
 });
 
 test('端到端：base 分支前进（他人先合了新 Scenario）⇒ 不得误报', () => {
