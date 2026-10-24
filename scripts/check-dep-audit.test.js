@@ -1112,3 +1112,38 @@ test('PR 正文：没有任何待补条目时不得留一张空表冒充待办',
   assert.ok(body.includes('基线里每条挂账都已有合法'), '应当明说无需补结论');
   assert.ok(!body.includes('| source/id | 包 | 严重度 | 修复版本 | 本轮新登记 | 要填 |'), '不得留空待办表');
 });
+
+test('刷新路径：合成底喂给「0 产出」那道闸时必须更保守（分支上有、主干上没有的域也别被静默清空）', () => {
+  // 动因：--merge-from 之后，零产出守卫看到的底从「主干那份」变成「主干 ∪ 分支」。
+  // 这一格若判错方向，刷新就会把「这轮没量到」当成「已修」——那正是这道闸存在的理由。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-refresh-zero-'));
+  const bp = path.join(dir, 'baseline.json');
+  const branchBp = path.join(dir, 'branch-baseline.json');
+  // 主干：没有 npm-opscenter 的条目；分支：有（上一轮刷新登记的）
+  fs.writeFileSync(bp, JSON.stringify({ reviewBy: FUTURE, advisories: [] }, null, 2), 'utf8');
+  fs.writeFileSync(branchBp, JSON.stringify({
+    reviewBy: FUTURE,
+    advisories: [Object.assign(ledger('npm-opscenter', 'GHSA-x'), { decision: 'TODO', note: '待补结论（新公告）' })],
+  }, null, 2), 'utf8');
+  try {
+    const before = fs.readFileSync(bp, 'utf8');
+    const out = [];
+    const code = D.runCheck({
+      isUpdate: true,
+      baselinePath: bp,
+      mergeFrom: branchBp,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push('ERR ' + a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: npmJsonOf([]) }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }), // 扫成了，但 0 产出
+        pip: () => ({ ok: true, json: { dependencies: [] } }),
+      },
+    });
+    assert.equal(code, 1, '分支上挂着、而该域本轮 0 产出 ⇒ 必须拒写（未证实 ≠ 已修）');
+    assert.ok(out.some((l) => l.includes('拒绝写基线')), '必须点名拒绝：\n' + out.join('\n'));
+    assert.equal(fs.readFileSync(bp, 'utf8'), before, '拒写时基线一字节不变');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

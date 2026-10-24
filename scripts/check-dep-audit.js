@@ -706,7 +706,6 @@ function renderRefreshBody (report, opts) {
   L.push('```');
   L.push('');
   L.push('本机没有 `pip-audit` 时 `pip` 域会报 `SCANNER_UNAVAILABLE`（该域本轮不判），其余两域照常判。');
-  if (o.extraNote) { L.push(''); L.push(o.extraNote); }
   return L.join('\n') + '\n';
 }
 
@@ -1000,7 +999,7 @@ function runCheck (opts = {}) {
         log('刷新报告已写入', opts.refreshReport);
       }
       if (opts.refreshBody) {
-        fs.writeFileSync(opts.refreshBody, renderRefreshBody(report, { extraNote: opts.refreshNote }), 'utf8');
+        fs.writeFileSync(opts.refreshBody, renderRefreshBody(report), 'utf8');
         log('PR 正文已写入', opts.refreshBody);
       }
     }
