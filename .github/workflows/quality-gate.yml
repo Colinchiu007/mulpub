@@ -21,6 +21,9 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:  # 必需保留，用于手动触发质量节拍检查
+  # change: coverage-nightly-only —— 覆盖率改按天跑（详见 coverage job 的注释）
+  schedule:
+    - cron: '0 18 * * *'  # 每天 02:00（北京）
 
 # 并发控制：同一 PR 多次推送只保留最新一次（避免旧 run 继续占用并发额度）；
 # main push 不取消（保发布链路完整性）。
@@ -1597,8 +1600,13 @@ jobs:
     name: QG Coverage
     runs-on: windows-latest
     needs: [changes]
-    if: needs.changes.outputs.docs-only != 'true'
-    # 40 → 60（2026-10-18）：40 这一档实测撞死过两趟 main push（run 39037127191 = PR #3836 的收口证据、
+    # change: coverage-nightly-only（人工授权 2026-10-24）
+    #
+    # job 级 if 保持原样：workflow-contract.test.js 的结构锁要求它精确等于
+    # `needs.changes.outputs.docs-only != 'true'`（防止有人悄悄摘掉 docs-only 短路）。
+    # 真正的降级放在最后一个 step 上 —— 被 if 跳过的 step 不影响 job 结论，
+    # job 仍 success，required check 照样满足；而 44 分钟的覆盖率跑不再发生。
+    if: needs.changes.outputs.docs-only != 'true'    # 40 → 60（2026-10-18）：40 这一档实测撞死过两趟 main push（run 39037127191 = PR #3836 的收口证据、
     # run 39084091986），后果不是"跑挂"而是 main 侧证据永久丢失；同一窗口里成功样本的尾部是 39.4/39.5/39.7，
     # 也就是**贴着天花板过线**。
     # 60 → 65（2026-10-19 复测）：60 这一档**没有**被杀过（cancelled 最大 38.9），但真实耗时涨了 ——
@@ -1644,7 +1652,12 @@ jobs:
           pnpm --filter @multi-publish/desktop run build:paginator
 
       # --- Gate 5: Coverage 检查（单 worker 串行，独立 job 避免与 Gate 4 争资源）---
+      # change: coverage-nightly-only —— 覆盖率只在 schedule/手动触发时真跑。
+      # 目标：把本 job 从 ~44 分钟压到 setup 的 ~2 分钟，让主干 quality-gate
+      # 的排队时间与提交间隔重新对齐（2026-10-24 因二者倒挂导致全部 PR 卡死）。
+      # 代价（人工授权并接受）：PR 与 main push 不再看覆盖率，回退只能次日 nightly 发现。
       - name: "Gate 5 - Test coverage check"
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: pnpm --filter @multi-publish/desktop test:coverage -- --coverage.reporter=text-summary
 
   visual:

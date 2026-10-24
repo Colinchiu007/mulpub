@@ -1,0 +1,60 @@
+{
+  "sha": "94b36a9f14f23e5a31e36cc585383f3ad3ebacb7",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 17 行（≤ 200）但命中 auth/数据库/加密：敏感内容 2 处",
+  "stats": {
+    "changedLines": 17,
+    "fileCount": 2,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 授权 | ✅ **用户明确授权**（2026-10-24 21:30 「A 授权改 CI」） |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "a454f8d9c43008e3b16933ef38f59ea03a543985501e4de0eced34aeeb9f3da0",
+  "decidedAt": "2026-10-24T13:22:12.022Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n⚠️ 本 PR 是门禁变更（.github/workflows/quality-gate.yml），按 AGENTS「PR 自动合并」禁止清单，必须人工过目，不自动合并。\n\n授权来源：用户 2026-10-24 明确指令「A 授权改 CI」。\n\n改动：\n1. QG Coverage 的核心步骤（Gate 5 - Test coverage check）加 if，只在 schedule / workflow_dispatch 时执行；\n2. on 段新增 schedule（cron 0 18 * * *，即北京 02:00），覆盖率每天仍真跑一次。\n\n为什么改 step 而不改 job 级 if：\nworkflow-contract.test.js 有结构性锁 assert.equal(job.if, \"needs.changes.outputs.docs-only != 'true'\")，精确相等。第一版加 && 当场被判红（46→45 pass/1 fail）。没有去改那条锁——它防的是「有人悄悄摘掉 docs-only 短路」，是正当保护。改法改为保留 job 级 if、降级落在最后一个 step：被 if 跳过的 step 不影响 job 结论 ⇒ job 仍 success ⇒ required check 照样满足。这与本文件 changes job 既有口径（skipped 满足 required）同源，因此不需要动 GitHub 的 required status checks 列表——那才是爆炸半径最大的改法，本次刻意避开。\n\n动因（实测数据）：\n主干单次 quality-gate 排队 1~2 小时，而主干提交间隔十几分钟 —— 两个量倒挂，导致「主干是否能合」永远读不到读数（check-main-red 连续 7 轮 rc=3 baseKind=unknown），4 个已完成的 PR 全部卡死。QG Coverage 自身约 44 分钟，是最长的 job。\n\n代价（已在记录中明确列出，用户接受）：\nPR 与 main push 不再看覆盖率；覆盖率回退只能次日 nightly 发现，最长延迟约 24 小时；nightly 失败目前无自动告警。\n\n验证：\nnode --test .github/scripts/workflow-contract.test.js → pass 46 / fail 0\njs-yaml 解析通过：coverage.if 与原值逐字相同、gate5.if 已加、schedule 已注册。\n\n回滚方式：删掉 Gate 5 的 if 即恢复每次 PR/push 都跑覆盖率。"
+  }
+}
