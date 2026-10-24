@@ -1,0 +1,3 @@
+# Remotion 渲染产物：packages/remotion-composer/package.json 的 build 脚本默认输出到 out/
+# （未忽略 ⇒ 跑一次官方构建就会把成片带进提交）
+out/

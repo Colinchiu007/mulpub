@@ -3,11 +3,40 @@
  * 渲染 IPC handlers
  */
 
+// 快速渲染 AI 视频的默认参数
+// 时长：Agnes Video 2.5 系列要求 4–12 秒（字符串），默认 5；此处沿用快速渲染历史的 8 秒
+const DEFAULT_AI_VIDEO_SECONDS = 8
+// 画幅：缺省 9:16 竖屏（与流水线 story2video-compose 默认一致）
+const DEFAULT_AI_VIDEO_ASPECT_RATIO = '9:16'
+
+/**
+ * 画幅 → 像素宽高（供只认 width/height 的 provider 适配器使用）。
+ * Agnes 系适配器优先用显式 aspect_ratio，本表只在未显式传画幅时兜底推导。
+ */
+const AI_VIDEO_ASPECT_SIZES = Object.freeze({
+  '21:9': { width: 1680, height: 720 },
+  '16:9': { width: 1280, height: 720 },
+  '4:3': { width: 1280, height: 960 },
+  '1:1': { width: 1024, height: 1024 },
+  '3:4': { width: 960, height: 1280 },
+  '9:16': { width: 720, height: 1280 },
+})
+
+/**
+ * @param {string} aspectRatio
+ * @returns {{width: number, height: number}}
+ */
+function sizeForAspectRatio (aspectRatio) {
+  return AI_VIDEO_ASPECT_SIZES[aspectRatio] || AI_VIDEO_ASPECT_SIZES[DEFAULT_AI_VIDEO_ASPECT_RATIO]
+}
+
 function registerHandlers(ipcMain, deps) {
   const EC = require('../core/error-codes').ERROR
   const { withSenderCheck } = require('./helpers')
   const { renderEngine, BrowserWindow, log, modelProviderManager, generateSceneVideo: injectedGenerateSceneVideo, cardCapture: injectedCardCapture } = deps
   const { generateSceneVideo: generateSceneVideoFromStages } = require('../services/story2video-stages')
+  const { validateVideoRequest } = require('@multi-publish/shared-utils/src/agnes-video-request')
+  const { describeVideoCapabilities } = require('../services/model-provider-video-capabilities')
   const { resolveProviderDefaultModel } = require('../services/model-provider-manager')
   // 卡片分页渲染（P2-3）：offscreen 窗口截图。按 deps 注入以便测试替换。
   const cardCaptureFromService = require('../services/card-capture')
@@ -35,15 +64,86 @@ function registerHandlers(ipcMain, deps) {
   }))
 
   /**
-   * 快速渲染 text 模式：调用 AI 视频生成模型（提交 + 轮询 + 下载），返回本地视频路径。
+   * 快速渲染 AI 视频：查询当前视频 provider 的**能力描述**。
+   *
+   * 渲染层据此决定展示哪些模式与参数（首尾帧 / 参考素材 / 时长 / 分辨率档位）。
+   * 能力判据落在适配器的协议属性上（adapter.videoProtocol），非 Agnes 协议一律保守
+   * 默认（只支持文生视频）⇒ 界面不会出现「给了参考图、适配器根本不认」的错位。
+   */
+  ipcMain.handle('render:ai-video-capabilities', withSenderCheck(async () => {
+    try {
+      if (!modelProviderManager || typeof modelProviderManager.getDefault !== 'function') {
+        return { code: EC.REQUEST_ERROR, message: 'AI 视频生成服务不可用，请在模型设置中启用视频供应商' }
+      }
+      const provider = modelProviderManager.getDefault('video')
+      if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) {
+        return { code: 0, data: { providerId: '', model: '', capabilities: null } }
+      }
+      const model = resolveProviderDefaultModel(provider, 'video')
+      const capabilities = describeVideoCapabilities(model)
+      return { code: 0, data: { providerId: provider.id.trim(), model, capabilities } }
+    } catch (err) {
+      log.error('[render] render:ai-video-capabilities error:', err)
+      return { code: EC.REQUEST_ERROR, message: err.message }
+    }
+  }))
+
+  /**
+   * 快速渲染 AI 视频生成：调用 AI 视频生成模型（提交 + 轮询 + 下载），返回本地视频路径。
    * 复用流水线 generate_assets 阶段的 generateSceneVideo 契约（同一 provider 适配器能力）。
    * 进度经 render:progress 推送（percent 0-100，stage 为阶段文案）。
+   *
+   * 入参（2026-10-23 扩展）：
+   *   prompt       必填，生成提示词
+   *   mode         text / keyframe / reference；缺省时按媒体推导
+   *   images[]     reference 模式参考图（URL 或 data URI）
+   *   audios[]     reference 模式参考音频
+   *   videos[]     reference 模式参考视频（仅支持该能力的 provider）
+   *   firstFrame   keyframe 首帧
+   *   lastFrame    keyframe 尾帧
+   *   aspectRatio  画幅（16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 21:9）
+   *   seconds      时长 4–12
+   *   seed         随机种子（0 是合法值）
+   *
+   * 失败时 message 可能是**领域码**（如 keyframe-requires-frame）——
+   * 渲染层据此取本地化文案，不要把英文原样透给用户。
    */
   ipcMain.handle('render:start-ai-video', withSenderCheck(async (event, data) => {
     try {
-      if (!data || typeof data !== 'object' || typeof data.prompt !== 'string' || !data.prompt.trim()) {
+      // ① 入参形状校验：逐层 fail-closed
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        return { code: EC.VALIDATION_ERROR, message: '缺少 data 参数（应为对象）' }
+      }
+      if (typeof data.prompt !== 'string' || !data.prompt.trim()) {
         return { code: EC.VALIDATION_ERROR, message: '缺少 prompt 参数' }
       }
+      // ② 模式 ↔ 媒体契约：与渲染层共用同一判据（packages/shared-utils/src/agnes-video-request.js）
+      const contract = validateVideoRequest({
+        mode: data.mode,
+        images: data.images,
+        audios: data.audios,
+        videos: data.videos,
+        firstFrame: data.firstFrame,
+        lastFrame: data.lastFrame,
+      })
+      if (!contract.ok) {
+        return { code: EC.VALIDATION_ERROR, message: contract.code }
+      }
+      // ③ 时长：4–12 秒，越界本地拒收（不静默夹取）
+      let seconds = DEFAULT_AI_VIDEO_SECONDS
+      if (data.seconds !== undefined && data.seconds !== null && data.seconds !== '') {
+        const parsed = Number(data.seconds)
+        if (!Number.isFinite(parsed) || parsed < 4 || parsed > 12) {
+          return { code: EC.VALIDATION_ERROR, message: 'VIDEO_SECONDS_OUT_OF_RANGE' }
+        }
+        seconds = Math.round(parsed)
+      }
+      // ④ 画幅：缺省 9:16（与既有快速渲染默认一致）
+      const aspectRatio = typeof data.aspectRatio === 'string' && data.aspectRatio.trim()
+        ? data.aspectRatio.trim()
+        : DEFAULT_AI_VIDEO_ASPECT_RATIO
+      const size = sizeForAspectRatio(aspectRatio)
+
       const win = BrowserWindow.fromWebContents(event.sender)
       const onProgress = (percent, stage) => { win?.webContents.send('render:progress', { percent, stage }) }
       if (!modelProviderManager || typeof modelProviderManager.callAdapter !== 'function' ||
@@ -55,12 +155,8 @@ function registerHandlers(ipcMain, deps) {
         return { code: EC.REQUEST_ERROR, message: '未配置可用的视频供应商，请在模型设置中启用视频生成能力' }
       }
       const model = resolveProviderDefaultModel(provider, 'video')
-      // 快速渲染默认 9:16 竖屏（与流水线 story2video-compose 默认一致），长边封顶 1280
-      const size = { width: 720, height: 1280 }
-      const fps = 30
-      const seconds = 8
       const runDir = path.join(os.tmpdir(), 'story2video', 'quick-render', 'ai-video')
-      onProgress(1, '提交视频生成任务')
+      onProgress(2, '提交视频生成任务')
       const outcome = await generateSceneVideo({
         manager: modelProviderManager,
         providerId: provider.id.trim(),
@@ -69,9 +165,21 @@ function registerHandlers(ipcMain, deps) {
         index: 0,
         seconds,
         size,
-        fps,
+        fps: 30,
         runDir,
         pollIntervalMs: 10000,
+        mode: contract.mode,
+        images: data.images,
+        audios: data.audios,
+        videos: data.videos,
+        firstFrame: data.firstFrame,
+        lastFrame: data.lastFrame,
+        aspectRatio,
+        // 分辨率档位（sizeTier）：只有模型声明支持多档时才会有值；不被支持的档位由适配器按能力描述拒收
+        sizeTier: typeof data.size === 'string' && data.size.trim() ? data.size.trim() : undefined,
+        // seed=0 是合法值 ⇒ 用 != null 判空，不能用 ||
+        seed: data.seed !== undefined && data.seed !== null ? data.seed : undefined,
+        onProgress,
       })
       if (!outcome || !outcome.success || !outcome.path) {
         const message = (outcome && (outcome.error || outcome.message)) || 'AI 视频生成失败'

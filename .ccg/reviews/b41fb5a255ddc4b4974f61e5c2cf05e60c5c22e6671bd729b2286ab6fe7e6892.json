@@ -1,0 +1,58 @@
+{
+  "sha": "502062b27aa806e73484291cc70f9c2a1530ab54",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1218 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1218,
+    "fileCount": 9,
+    "codeFileCount": 6,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b41fb5a255ddc4b4974f61e5c2cf05e60c5c22e6671bd729b2286ab6fe7e6892",
+  "decidedAt": "2026-10-24T08:27:51.210Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：本 commit 只改 apps/desktop/electron/services/adapters/ 下 6 个文件\n（2 个新 mixin + 2 个新测试 + hifly.js 挂载 + _base/base.js 登记）+ 1 篇 PRD\n+ user-manual 一节 + 1 篇执行记录。\n不触及 .github/workflows、凭证/登录态、判据本体。\n\n内容：补齐飞影官方剩余 11 个端点，使能力面完整覆盖（唯一不做的是「消息回调」——\n那是服务端推送，桌面客户端没有公网回调地址，且轮询已能拿到结果，理由已写进 PRD §5.1）。\n\n11 个端点分两类：\n  辅助与作品管理（5 个，全免费）：getAccountCredit / listLivelyTemplates /\n    listCoverStyles / createCover / deleteWork\n  收费创作模式（6 个）：createVideoByAudio（声音驱动）/ createVideoByTemplate（网感模板）/\n    translateVideo / createVideoBySing（唱歌）/ createVideoByImage（图片驱动）/ createAudioByTts\n\n代码结构：hifly.js 已 465 行（max-lines 硬线 500），11 个端点约 650 行必须外置，\n拆成 hifly-extra.js（292 行）与 hifly-create-modes.js（354 行），\n用 prototype mixin 挂载（与 hifly-clone.js 同型）；hifly.js 只加 4 行。\n\n几个关键设计判断（详见 PRD）：\n1. 查询类接口在 data 非数组时抛错而不返回 []——空列表会被 UI 读成「平台没有内容」，\n   把一次解析失败伪装成业务结论；同理 getAccountCredit 的 left 缺失不兜底成 0\n   （那会显示「没积分了」）。\n2. createCover 是**免费**的——全项目唯一的免费创建类端点，与视频创作相反，已在 PRD 单列。\n3. createVideoByTemplate 的 voice/avatar 是**条件必填**（取决于是否给了 videoFileId），\n   这是唯一一组有条件必填的参数，测试锁了两种情形。\n4. deleteWork 官方只支持普通视频创作任务，adapter 不记录任务来源无法本地判定，\n   所以「只对文本驱动作品显示删除入口」是 UI 的责任，已写进 PRD §3.5/§5.3。\n5. 收费端点失败不自动重试（重试可能重复计费）。\n\nKNOWN_METHODS 登记后实跑 supports() 逐个核对：11/11 全 true，capabilities() 22 项。\n（本仓曾因只读注释得出「未登记」的错误结论，这次直接实跑。）\n\n验证：hifly-extra.test.js 19 例 + hifly-create-modes.test.js 25 例，先 RED 后 GREEN；\n3 个 adapter 测试文件 85/85 全绿；8 个相关文件 215/215 全绿；\nmax-lines（hifly.js 469≤500、新文件 292/354）/ debt / doc-abs / brand / dep-audit / r3(18) 全过。\n\n已知缺口（如实记录）：11 个端点里只有 account/credit 做过真实调用（left=1582），\n其余 10 个只按官方文档实现、未花积分验证（6 个收费 + 3 个依赖真实模板 id）。\n本轮明确不做 UI 入口与 IPC 层——需先定 UI 形态，且 11 个端点的界面工作量远大于 adapter 层。"
+  }
+}

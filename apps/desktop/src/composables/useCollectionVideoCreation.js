@@ -1,0 +1,456 @@
+// @ts-check
+/**
+ * useCollectionVideoCreation — 采集页「去发布 → 视频创作」的就地编排
+ * （fix-collection-rewrite-publish-flow，2026-10-20）。
+ *
+ * ## 为什么不再跳视频创作页
+ * 用户反馈：点「视频创作」后跳到视频创作页，用户还得再点一次「启动」，
+ * 而**文案带入的还是上一次改写的结果**。期望的交互是：
+ * 点「视频创作」→ 发布浮层消失 → **就地弹出视频创作流水线的执行进度浮层**。
+ *
+ * 本 composable 就是那个「就地执行 + 进度浮层」的状态机：
+ * 采集页把**当前这次改写的结果**交给它，它启动流水线并跟踪到终态。
+ *
+ * ## 复用而非重写
+ * 热门选题「一键成片」（`useHotTopicsGenVideo.js`）已有同型编排，但它自带
+ * 「改写 → 存草稿」前置（热门选题是「选题 → 改写 → 视频」，采集页是
+ * 「已改写 → 视频」）。因此这里**只复用它的纯函数契约与跟踪层**，不复制一份实现：
+ *  - 阶段跟踪纯函数：`features/hot-topics/gen-video-stage-tracking.js`
+ *  - 展示派生纯函数：`features/hot-topics/gen-video-view-model.js`
+ *  - 启动参数构造：`features/hot-topics/gen-video-pipelines.js` 的 `buildGenVideoStartParams`
+ *  - run 跟踪层（推送 + 3s 轮询兜底）：`composables/useGenVideoRunTracking.js`
+ *  - 成片路径提取：`features/pipeline/run-context-video-path.js`
+ *  - 发布出口 query：`composables/useGenVideoPublishTitle.js`
+ */
+import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+// ⚠️ 用**命名空间**导入而非逐个具名导入：具名导入在 setup 期被解包成常量，
+// 而测试里的 `vi.mock('@/api/publisher', () => ({ ...局部桩 }))` 会对**未提供的导出**
+// 抛「No X export is defined on the mock」——具名解包会在**组件挂载时**就炸，
+// 让那些只关心别的功能的用例整片红。惰性取用（箭头函数在调用时才取属性）
+// 把「取不到就报错」推迟到真正要用流水线的那一刻。
+//
+// **本模块依赖的导出契约**（来自 `@/api/publisher`，缺一即在调用时抛）：
+//   pipelineStartOrchestrated(name, params) → { code, data: { runId, success, stages } }
+//   pipelineCancelRun(runId)                → { code }
+//   pipelineGetRunContext(runId)            → { code, data: { runId, status: { status, progress, stages } } }
+//   onPipelineUpdate(cb)                    → 取消订阅函数
+//   storeGetSetting(key)                    → 设置值
+// 测试可用 `opts.deps` 覆盖其中任意一项（见下方 `deps` 合并处）。
+import * as publisherApi from '@/api/publisher'
+import { resolveCollectionVideoStartSnapshot } from '@/features/collection/collection-video-config-profile'
+import {
+  buildGenVideoStartParams,
+  DEFAULT_GEN_VIDEO_PIPELINE,
+} from '@/features/hot-topics/gen-video-pipelines'
+import {
+  stageNamesForPipeline,
+  markFirstGenVideoStageRunning,
+  markFirstGenVideoStageFailed,
+  resetGenVideoStagesToPending,
+  completeUnfinishedGenVideoStages,
+  finalizeGenVideoTerminalStages,
+  cancelGenVideoStages,
+} from '@/features/hot-topics/gen-video-stage-tracking'
+import {
+  buildGenVideoPipelineLabel,
+  computeGenVideoProgressPercent,
+  isGenVideoTerminalPhase,
+  canRetryGenVideo,
+  canCancelGenVideo,
+  canBackgroundGenVideo,
+  isGenVideoResultReady,
+} from '@/features/hot-topics/gen-video-view-model'
+import { useGenVideoRunTracking } from '@/composables/useGenVideoRunTracking'
+import { extractRunContextVideoPath } from '@/features/pipeline/run-context-video-path'
+import { buildGenVideoPublishQuery } from '@/composables/useGenVideoPublishTitle'
+import { getAppLocale } from '@/i18n'
+import { DEFAULT_STORY2VIDEO_TEXT_LIMIT } from '@/story2video/story-text-limit'
+
+/**
+ * 把文案裁到「故事讲述」流水线的生效上限（码点，不切 UTF-16）。
+ *
+ * 上限取**内置默认**（10000 码点）：运营中心可下发 `storyTextLimit` 覆盖，
+ * 但采集页不订阅运营中心运行时块，这里用默认上限保证「至少不会把超长文案
+ * 直接灌进流水线」。裁切发生时必须**如实告知用户**（否则用户会以为
+ * 视频用的是完整文案）。
+ *
+ * @param {string} text
+ * @param {number} [maxChars]
+ * @returns {{text: string, truncated: boolean, originalLength: number}}
+ */
+export function clampStory2VideoText (text, maxChars = DEFAULT_STORY2VIDEO_TEXT_LIMIT.maxChars) {
+  const source = typeof text === 'string' ? text : ''
+  const characters = Array.from(source)
+  const limit = Number(maxChars) > 0 ? Number(maxChars) : DEFAULT_STORY2VIDEO_TEXT_LIMIT.maxChars
+  if (characters.length <= limit) {
+    return { text: source, truncated: false, originalLength: characters.length }
+  }
+  return {
+    text: characters.slice(0, limit).join(''),
+    truncated: true,
+    originalLength: characters.length,
+  }
+}
+
+/**
+ * @param {object} [opts]
+ * @param {() => boolean} [opts.isDisposed] 视图卸载标记（in-flight 响应不再写回状态）
+ * @param {object} [opts.deps] 测试注入（API 覆盖；未覆盖的项走真实 API）
+ *
+ * ## 并发模型（明确记录，别让它变成「靠运气」）
+ *
+ * 「同一时刻只允许一个视频创作 run」由 **UI 层按钮禁用**串行化
+ * （`AI改写` / `一键改写` 按钮的 `:disabled="rewriting || oneClickRewriting"`），
+ * **不是**靠序号强制。本模块内的 `videoSeq` 是**第二道**防线：它让在途响应在
+ * 「序号已前进」时**作废**（`seq !== videoSeq` ⇒ 直接丢弃该响应），而不是让过期响应覆盖新状态。
+ *
+ * 现状（单一 run 形态）另有**第三道**、且是唯一能真正**停掉**前一个 run 的那道：
+ * 入口在启动新 run 前**显式终止**上一轮（`pipelineCancelRun(prevRunId)`，见 `startPipelineRun`）——
+ * 因为**丢弃响应 ≠ 停止前一个 run**（前者只改前端状态，后者才停主进程里的编排）。
+ *
+ * 若将来引入「后台重试 / 多路并行视频创作」，上面三道都不够用：那时每条 run 要**各自持有
+ * 取消句柄**（run 的 token 独立化），入口那次「终止前一轮」也不再成立（并行时本就该都活着），
+ * UI 层的禁用同样不再成立。那是**另一个产品形态**，需要另设判据，不在本刀范围内。
+ */
+export function useCollectionVideoCreation (opts = {}) {
+  const router = useRouter()
+  const { t } = useI18n()
+  const isDisposed = typeof opts.isDisposed === 'function' ? opts.isDisposed : () => false
+
+  const deps = {
+    // 惰性取用：调用时才访问 publisherApi 的导出（理由见 import 处的注释）
+    pipelineStartOrchestrated: (...args) => publisherApi.pipelineStartOrchestrated(...args),
+    pipelineCancelRun: (...args) => publisherApi.pipelineCancelRun(...args),
+    pipelineGetRunContext: (...args) => publisherApi.pipelineGetRunContext(...args),
+    onPipelineUpdate: (...args) => publisherApi.onPipelineUpdate(...args),
+    storeGetSetting: (...args) => publisherApi.storeGetSetting(...args),
+    story2videoConfigProfileList: (...args) => publisherApi.story2videoConfigProfileList(...args),
+    ...(opts.deps || {}),
+  }
+
+  // ── 状态 ──
+  const videoModalOpen = ref(false)
+  const videoBusy = ref(false)
+  const videoPhase = ref('idle') // idle | starting | running | completed | failed | cancelled
+  const videoStages = ref([])
+  const videoRunId = ref(null)
+  const videoRunProgress = ref(null)
+  const videoErrorText = ref('')
+  const videoStartedAt = ref(0)
+  const videoPipelineName = ref('')
+  const videoCompletedVideoPath = ref('')
+  const videoCompletedProjectId = ref('')
+  const videoCompletedProject = ref(null)
+  /** 文案裁切披露：文案被裁到流水线上限时如实告知（否则用户以为用的是完整文案） */
+  const videoTextTruncated = ref(false)
+  const videoTextTruncatedLength = ref(0)
+  const videoTextLimit = ref(DEFAULT_STORY2VIDEO_TEXT_LIMIT.maxChars)
+  /**
+   * 配置档案套用失败的可见提示（**非致命**：视频照常出，但必须告诉用户
+   * 「你选的配置没生效」——静默回退默认值就是主干修过的「选了等于没选」）。
+   */
+  const videoConfigProfileWarning = ref('')
+  const videoTick = ref(0)
+  let videoSeq = 0
+  /** 本次编排使用的文案（发布出口的标题/正文来源） */
+  let videoSourceText = ''
+  let videoSourceTitle = ''
+  /** 本次编排使用的配置档案 id（重试时复用同一个） */
+  let videoConfigProfileId = ''
+
+  // ── 计算属性 ──
+  const videoPipelineLabel = computed(() => buildGenVideoPipelineLabel(t, videoPipelineName.value))
+  const videoProgressPercent = computed(() => computeGenVideoProgressPercent({
+    phase: videoPhase.value,
+    stages: videoStages.value,
+    runProgress: videoRunProgress.value,
+  }))
+  const videoElapsedMs = computed(() => {
+    void videoTick.value
+    return videoStartedAt.value > 0 ? Math.max(0, Date.now() - videoStartedAt.value) : null
+  })
+  const videoTerminal = computed(() => isGenVideoTerminalPhase(videoPhase.value))
+  const videoCanRetry = computed(() => canRetryGenVideo(videoPhase.value))
+  const videoCanCancel = computed(() => canCancelGenVideo(videoPhase.value))
+  const videoCanBackground = computed(() => canBackgroundGenVideo(videoPhase.value, videoRunId.value))
+  const videoResultReady = computed(() => isGenVideoResultReady(videoPhase.value, videoCompletedVideoPath.value))
+
+  // ── 跟踪层 ──
+  const tracking = useGenVideoRunTracking({
+    runId: videoRunId,
+    tick: videoTick,
+    progress: videoRunProgress,
+    stages: videoStages,
+    onCompleted: (data) => finishCompleted(data),
+    onTerminal: (status, data) => finishTerminal(status, data),
+    deps: {
+      isDisposed,
+      // 同样惰性：跟踪层只在真正启动流水线时才取这两个 API
+      onPipelineUpdate: (...args) => deps.onPipelineUpdate(...args),
+      pipelineGetRunContext: (...args) => deps.pipelineGetRunContext(...args),
+    },
+  })
+
+  /**
+   * 解析本次启动用的配置快照（判据与 IO 都在 features/collection 的独立模块里，
+   * 这里只做依赖注入 —— 编排层不直接知道「配置档案」这回事）。
+   */
+  function resolveStartSnapshot (pipelineName) {
+    return resolveCollectionVideoStartSnapshot({
+      profileId: videoConfigProfileId,
+      pipelineId: pipelineName,
+      listConfigProfiles: () => deps.story2videoConfigProfileList(),
+      readLastOptions: () => deps.storeGetSetting('story2video.lastOptions.v1'),
+    })
+  }
+
+  /** 组装启动参数并启动流水线（启动 / 重试共用这一条路径，避免两份实现漂移） */
+  async function startPipelineRun (seq, text) {
+    // 入口显式终止**前一轮** run（第二道防线）。
+    // 当前产品形态下它不可达（UI 按钮禁用已把「同一时刻一个 run」串行化，
+    // 重试只发生在 failed 态 ⇒ 前一轮已结束），但编排层管理的是**外部进程**，
+    // 「启动 ⇒ 其它 run 一定不在跑」这条不变量值得在边界上写死：
+    // 万一将来加了「后台重试 / 多路并行」，前一个 run 会被显式停掉，
+    // 而不是只靠「丢弃过期响应」让它在后台空转。
+    if (videoRunId.value) {
+      const previousRunId = videoRunId.value
+      videoRunId.value = null
+      try {
+        await deps.pipelineCancelRun(previousRunId)
+      } catch (_e) { /* 取消失败不阻断新 run：前一轮的响应会被 seq 守卫丢弃 */ }
+    }
+    const { snapshot, warningKey } = await resolveStartSnapshot(videoPipelineName.value || DEFAULT_GEN_VIDEO_PIPELINE)
+    if (isDisposed() || seq !== videoSeq) return false
+    videoConfigProfileWarning.value = warningKey ? t(warningKey) : ''
+
+    const clamped = clampStory2VideoText(text, videoTextLimit.value)
+    if (clamped.truncated) {
+      videoTextTruncated.value = true
+      videoTextTruncatedLength.value = clamped.originalLength
+    }
+    const params = buildGenVideoStartParams({
+      pipelineName: videoPipelineName.value || DEFAULT_GEN_VIDEO_PIPELINE,
+      text: clamped.text,
+      snapshot,
+      uiLocale: getAppLocale(),
+    })
+    if (!params) throw new Error('invalid pipeline or empty text')
+
+    markFirstGenVideoStageRunning(videoStages.value)
+    const res = await deps.pipelineStartOrchestrated(
+      videoPipelineName.value || DEFAULT_GEN_VIDEO_PIPELINE,
+      params,
+    )
+    if (isDisposed() || seq !== videoSeq) return false
+    const outcome = res && res.data
+    if (res && res.code === 0 && outcome && typeof outcome.runId === 'string'
+      && outcome.runId.trim() && outcome.success !== false) {
+      videoRunId.value = outcome.runId.trim()
+      videoPhase.value = 'running'
+      if (Array.isArray(outcome.stages) && outcome.stages.length > 0) {
+        tracking.mergeGenStages(outcome.stages)
+      }
+      tracking.startGenVideoTracking()
+      return true
+    }
+    throw new Error((res && res.message) || (outcome && outcome.error) || 'pipeline start failed')
+  }
+
+  /**
+   * 启动视频创作流水线（就地执行，不跳页）。
+   *
+   * @param {object} input
+   * @param {string} input.text 当前改写结果（**必须是最新那次**，不是旧草稿）
+   * @param {string} [input.pipelineName] 流水线名（默认 story2video-compose）
+   * @param {string} [input.title] 标题（发布出口兜底用）
+   * @param {string} [input.configProfileId] 「去发布」弹窗里选中的配置档案 id
+   *   （空串 = 不套用任何配置，沿用「上次选项」）
+   * @returns {Promise<boolean>} 是否真正进入编排
+   */
+  async function startVideoCreation ({ text, pipelineName = DEFAULT_GEN_VIDEO_PIPELINE, title = '', configProfileId = '' } = {}) {
+    if (videoBusy.value) return false
+    const source = typeof text === 'string' ? text.trim() : ''
+    if (!source) return false
+
+    videoSeq += 1
+    const seq = videoSeq
+    videoPipelineName.value = typeof pipelineName === 'string' && pipelineName.trim()
+      ? pipelineName.trim()
+      : DEFAULT_GEN_VIDEO_PIPELINE
+    videoSourceText = source
+    videoSourceTitle = typeof title === 'string' ? title : ''
+    videoConfigProfileId = typeof configProfileId === 'string' ? configProfileId.trim() : ''
+    videoRunId.value = null
+    videoRunProgress.value = null
+    videoErrorText.value = ''
+    videoCompletedVideoPath.value = ''
+    videoCompletedProjectId.value = ''
+    videoCompletedProject.value = null
+    videoStartedAt.value = Date.now()
+    videoTextTruncated.value = false
+    videoTextTruncatedLength.value = 0
+    videoConfigProfileWarning.value = ''
+    // 阶段列表：只有流水线自身的阶段（采集页的改写**已经**完成，不再有 rewrite_copy 阶段）
+    videoStages.value = stageNamesForPipeline(videoPipelineName.value).map((name) => ({
+      id: name,
+      name,
+      status: 'pending',
+      startedAt: null,
+      completedAt: null,
+      progress: null,
+    }))
+    videoModalOpen.value = true
+    videoBusy.value = true
+    videoPhase.value = 'starting'
+
+    try {
+      return await startPipelineRun(seq, source)
+    } catch (e) {
+      if (isDisposed() || seq !== videoSeq) return false
+      markFirstGenVideoStageFailed(videoStages.value, e)
+      videoPhase.value = 'failed'
+      videoErrorText.value = t('collection.videoCreate.pipelineFailed')
+      videoBusy.value = false
+      return false
+    }
+  }
+
+  /** 完成：提取成片路径，落终态产物 */
+  function finishCompleted (data) {
+    const context = data && typeof data.context === 'object' ? data.context : null
+    const videoPath = extractRunContextVideoPath(context)
+    tracking.stopGenVideoTracking()
+    completeUnfinishedGenVideoStages(videoStages.value)
+    videoPhase.value = 'completed'
+    videoBusy.value = false
+    videoCompletedVideoPath.value = videoPath || ''
+    videoCompletedProjectId.value = (context && context.story2videoProject && context.story2videoProject.projectId) || ''
+    videoCompletedProject.value = (context && context.story2videoProject && typeof context.story2videoProject === 'object')
+      ? context.story2videoProject
+      : null
+    if (!videoPath) {
+      // 成片缺失：保持失败态，两个出口按钮保持灰显（不伪造可点击）
+      videoPhase.value = 'failed'
+      videoErrorText.value = t('collection.videoCreate.pipelineFailed')
+    }
+  }
+
+  /** 终态：failed / cancelled */
+  function finishTerminal (status, data) {
+    tracking.stopGenVideoTracking()
+    finalizeGenVideoTerminalStages(videoStages.value, status, data && data.error)
+    videoPhase.value = status === 'cancelled' ? 'cancelled' : 'failed'
+    videoErrorText.value = status === 'cancelled'
+      ? t('collection.videoCreate.cancelled')
+      : t('collection.videoCreate.pipelineFailed')
+    videoBusy.value = false
+  }
+
+  /** 取消：流水线已启动 ⇒ 调 pipelineCancelRun；未启动 ⇒ 只收前端态 */
+  async function cancelVideoCreation () {
+    if (!videoCanCancel.value) return
+    videoSeq += 1
+    tracking.stopGenVideoTracking()
+    if (videoPhase.value === 'running' && videoRunId.value) {
+      try {
+        await deps.pipelineCancelRun(videoRunId.value)
+      } catch (_e) { /* 取消失败也按前端取消处理 */ }
+    }
+    cancelGenVideoStages(videoStages.value)
+    videoPhase.value = 'cancelled'
+    videoErrorText.value = t('collection.videoCreate.cancelled')
+    videoBusy.value = false
+  }
+
+  /** 重试：从流水线启动开始（文案仍在手上，无需重新改写） */
+  async function retryVideoCreation () {
+    if (videoPhase.value !== 'failed') return
+    videoSeq += 1
+    const seq = videoSeq
+    videoBusy.value = true
+    videoErrorText.value = ''
+    videoRunId.value = null
+    videoRunProgress.value = null
+    videoCompletedVideoPath.value = ''
+    videoCompletedProjectId.value = ''
+    videoCompletedProject.value = null
+    videoStartedAt.value = Date.now()
+    resetGenVideoStagesToPending(videoStages.value)
+    try {
+      await startPipelineRun(seq, videoSourceText)
+    } catch (e) {
+      if (isDisposed() || seq !== videoSeq) return
+      markFirstGenVideoStageFailed(videoStages.value, e)
+      videoPhase.value = 'failed'
+      videoErrorText.value = t('collection.videoCreate.pipelineFailed')
+      videoBusy.value = false
+    }
+  }
+
+  /** 前端跟踪态复位（主进程 run 不受影响） */
+  function resetVideoState () {
+    videoSeq += 1
+    tracking.stopGenVideoTracking()
+    videoModalOpen.value = false
+    videoPhase.value = 'idle'
+    videoStages.value = []
+    videoRunId.value = null
+    videoRunProgress.value = null
+    videoStartedAt.value = 0
+    videoErrorText.value = ''
+    videoCompletedVideoPath.value = ''
+    videoCompletedProjectId.value = ''
+    videoCompletedProject.value = null
+    videoBusy.value = false
+    videoTextTruncated.value = false
+    videoTextTruncatedLength.value = 0
+    videoConfigProfileWarning.value = ''
+    videoSourceText = ''
+    videoSourceTitle = ''
+    videoConfigProfileId = ''
+  }
+
+  /** 关闭浮层：终态 ⇒ 复位关闭；运行中 ⇒ 关闭浮层但主进程继续跑（后台运行） */
+  function handleVideoClose () {
+    resetVideoState()
+  }
+
+  /** 【查看视频】：跳视频创作页的历史（已完成）视图 */
+  function viewVideoInHistory () {
+    if (!videoResultReady.value) return
+    resetVideoState()
+    router.push({ path: '/create', query: { view: 'history', filter: 'completed' } })
+  }
+
+  /** 【去发布】：成片进发布页（与热门选题一键成片同源出口） */
+  async function publishVideoResult () {
+    if (!videoResultReady.value) return
+    if (videoBusy.value) return
+    videoBusy.value = true
+    try {
+      const query = await buildGenVideoPublishQuery({
+        videoPath: String(videoCompletedVideoPath.value || ''),
+        project: videoCompletedProject.value,
+        topicText: String(videoSourceTitle || videoSourceText || ''),
+        bodyText: String(videoSourceText || ''),
+      })
+      resetVideoState()
+      router.push({ path: '/publish', query })
+    } finally {
+      videoBusy.value = false
+    }
+  }
+
+  return {
+    videoModalOpen, videoBusy, videoPhase, videoStages, videoRunId, videoRunProgress,
+    videoErrorText, videoPipelineName, videoCompletedVideoPath, videoCompletedProjectId,
+    videoCompletedProject, videoTextTruncated, videoTextTruncatedLength, videoTextLimit,
+    videoConfigProfileWarning,
+    videoProgressPercent, videoElapsedMs, videoPipelineLabel,
+    videoTerminal, videoCanRetry, videoCanCancel, videoCanBackground, videoResultReady,
+    startVideoCreation, cancelVideoCreation, retryVideoCreation,
+    handleVideoClose, resetVideoState, viewVideoInHistory, publishVideoResult,
+  }
+}

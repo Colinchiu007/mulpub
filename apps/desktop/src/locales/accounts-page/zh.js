@@ -196,6 +196,18 @@ export default {
     reloginFailed: '重新登录失败',
     verifyFailed: '验证失败',
     goLogin: '去登录',
+    // 重新登录二次确认（2026-10-24，account-card-login-button）：
+    // 账号已显示「已登录」时点「登录」会覆盖现有凭证 ⇒ 不可逆一步 ⇒ 先告知再执行。
+    // checkedAt 为空串时表示「从未检测过」，此时不输出「最近检测」那一段。
+    reloginConfirmTitle: '重新登录',
+    reloginConfirmMessage: (ctx) => {
+      const at = ctx.named('checkedAt')
+      const when = at ? '（最近检测：' + at + '）' : ''
+      return '账号「' + ctx.named('name') + '」当前显示为「已登录」' + when +
+        '。重新登录会打开' + ctx.named('platform') + '登录页，需要你重新完成登录流程；' +
+        '登录成功后会覆盖该账号现有的凭证。是否继续？'
+    },
+    reloginConfirmAction: '继续登录',
     accountIncomplete: '账号信息不完整',
     creatorUnsupported: '暂不支持该平台的创作者中心',
     cardCreatorTitle: '点击打开创作者中心',
@@ -307,7 +319,9 @@ export default {
       unknownDate: '未知日期',
       settings: '设置',
       verify: '验证',
-      goLogin: '去登录',
+      // 「登录」常驻（2026-10-24）：原「去登录」是条件式按钮，已被本按钮取代。
+      login: '登录',
+      loginTitle: '重新登录该账号：会打开平台登录页，登录成功后覆盖该账号现有凭证',
       delete: '删除',
       accountLoginStatus: (ctx) => '账号登录状态：' + ctx.named('status'),
       selectAccount: (ctx) => '选择 ' + ctx.named('name'),

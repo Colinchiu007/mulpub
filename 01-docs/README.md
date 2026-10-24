@@ -57,7 +57,7 @@
 | **URL 内容采集** | 输入链接自动提取标题/正文/封面，创建草稿 |
 | **批量发布** | 多篇文章批量编辑，每篇独立选平台+定时 |
 | **任务队列** | 3 任务并发，失败自动重试，崩溃恢复 |
-| **SQLite 存储** | 6 表统一存储，better-sqlite3 引擎 |
+| **SQLite 存储** | 26 表统一存储，better-sqlite3 引擎 |
 | **系统托盘** | 最小化到托盘，后台运行，托盘菜单 |
 | **全局快捷键** | 6 组 Ctrl+Alt+... 导航快捷键 |
 | **自动更新** | 启动自动检测新版本，后台下载静默安装 |
@@ -66,31 +66,39 @@
 
 ```
 ┌──────────────────────────────────────────┐
-│  apps/desktop/                    ← Electron 33 + Vue 3 UI
-│  ├── electron/                ← 主进程：30+ 个模块
+│  apps/desktop/                    ← Electron 43 + Vue 3 UI
+│  ├── electron/                ← 主进程
 │  │   ├── main.js              ← 入口 + IPC 注册
-│  │   ├── preload.js           ← contextBridge
-│  │   ├── store.js             ← SQLite 统一存储
-│  │   ├── webview-manager.js   ← 分屏监控
-│  │   ├── qrcode-login.js      ← 扫码登录
-│  │   ├── oauth-manager.js     ← OAuth 认证
-│  │   ├── batch-manager.js     ← 批量发布
-│  │   ├── url-collector.js     ← URL 采集
-│  │   ├── hotkeys.js           ← 快捷键
-│  │   ├── system-tray.js       ← 托盘
-│  │   └── ...                  ← 定时/发布/更新等
-│  └── src/                     ← Vue 3 前端（7 页面）
+│  │   ├── index.js             ← 进程入口
+│  │   ├── bootstrap.js         ← 分阶段装配（phase1/phase4…）
+│  │   ├── preload/             ← contextBridge 暴露面（32 个模块）
+│  │   ├── services/            ← 业务服务（311 个模块）
+│  │   ├── ipc-handlers/        ← IPC 通道（75 个模块）
+│  │   ├── publishers/          ← 账号管理 / 登录检查
+│  │   ├── core/                ← 容器装配
+│  │   └── ...                  ← stealth / film-kit / startup 等
+│  └── src/                     ← Vue 3 前端
 │      ├── views/               ← Home/Dashboard/Publish/Accounts/Collection/Monitor/FirstRun
+│      ├── features/            ← 按域拆分的业务组件（collection/dashboard/member…）
 │      ├── components/          ← ArticleEditor
 │      ├── api/                 ← IPC 封装
 │      └── styles/              ← Cohere 设计系统
 ├──────────────────────────────────────────┤
-│  packages/rpa-engine/         ← RpaViewManager RPA（12 平台）
-│  │  ├── playwright-manager.js
-│  │  └── publishers/           ← 12 个平台发布器 + API 适配器
-│  packages/shared-utils/       ← 任务队列（并发3+持久化）
+│  packages/rpa-engine/         ← RpaViewManager RPA 引擎
+│  │   ├── platform-selectors.js            ← 平台选择器
+│  │   ├── publish-selectors-by-content-type.js
+│  │   └── toutiao-direct-publish.js       ← 头条直发桥
+│  packages/api-publish-engine/ ← API 发布轨（13 个平台适配器）
+│  packages/rewrite-engine/     ← 改写引擎（去 AI 味 / 分句 / 质量评分）
+│  packages/collection-engine/  ← 采集引擎
+│  packages/shared-utils/       ← 平台元数据单一真源 + 任务队列
 └──────────────────────────────────────────┘
 ```
+
+> 平台元数据的**唯一真源**是
+> `packages/shared-utils/src/platform-display-definitions.json`（`PLATFORM_NAMES`，**15 个**）
+> 与 `config/platforms.yaml`（平台级配置，一级键即平台标识）。
+> 架构与模块清单的完整真相见根目录 `AGENTS.md`。
 
 Monorepo 结构，独立 npm workspace 管理。
 
@@ -133,7 +141,7 @@ multi-publish/
 
 ## 📊 功能列表
 
-- ✅ **12 个平台发布**（含 B站 API+RPA）
+- ✅ **15 个平台发布**（含 B站 API+RPA）
 - ✅ **多账号同平台**（切换 + 同时发布）
 - ✅ **分屏监控**（2/3/4/6 分屏）
 - ✅ **实时回调**（HTTP POST 回调 :16521）

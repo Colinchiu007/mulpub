@@ -1,0 +1,181 @@
+{
+  "sha": "b6a78361104b07d827c2c1955f5b7a26584b4c8f",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1236 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1236,
+    "fileCount": 21,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "| ⑥ 授权 | `ipc-handlers/license-access-control.js:22` | `hotkeys:list` 在 public 清单里（未登录也可读） | 直接读文件 |",
+      "**结论**：这是一条「装饰性链路」在 UI 层的复发——四端（注册 / IPC / preload / 授权）全部就绪，",
+      "   `--update-baseline` 都不是合法来源 ⇒ 本 PR 不自称\"视觉无回归\"，基线刷新另片走 CI artifact。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T21:14:40.477Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "组件测试平台相关且不可注入：`HotkeysSettings.test.js` 里 5+ 条断言硬编码非 mac 期望（`'Ctrl + Alt + P'`、`'Ctrl + ,'`），而 `HotkeysSettings.vue` 的 `detectMac()` 在挂载时读 `navigator.platform` 实时判定。在 macOS 上挂载同一实例会产出 `⌘ ⌥ P`，这些断言全部变红；且变异驱动 `runTests` 的基线检查要求 `[BASELINE] rc=0 failed=0`，在 mac 环境下整条反证管线直接以「基线不干净」退出（exit 2），12 道变异全部无法归因 —— 反证证据只对 Windows 单 OS 成立，而本批却为 mac 显式实现了展示逻辑（MAC_TOKENS/MAC_ORDER 与 `isMac` 分支）。另外 `navigator.platform` 本身是 deprecated API。",
+        "highRiskDomains": [],
+        "prosecution": "组件用例把非 mac 期望写死（'Ctrl + Alt + P'），而组件挂载时用 navigator.platform 实时探测平台 ⇒ 同一份代码换到 mac runner 上整片变红；更糟的是反证驱动的基线门（failed=0）会因此以 rc=2 退出，12 道变异全部不可归因 —— 本批为 mac 专门实现了展示逻辑（MAC_TOKENS/MAC_ORDER/isMac 分支），却没有一条用例能测到那个分支。",
+        "defense": "本仓 CI 目前跑 windows-latest / ubuntu，短期不会显红；且 formatAccelerator 的单元测试已直接传 isMac 覆盖两档。",
+        "verdict": "upheld",
+        "rationale": "单元层覆盖了，**组件层没有**：面板\"到底有没有把平台传下去\"这件事在用例里不可表示，而这正是装饰性接线的形状（注册了、实现了、没接）。处置：给组件加显式可注入的 isMac prop（默认 null 才回落宿主探测），既有断言改为显式传 false 使结论与 runner 无关，另补一条 mac 档用例；变异 N13 把注入打回\"只信探测\"，那条 mac 用例必须红，否则 prop 只是装饰。navigator.platform 已 deprecated 这点登记为遗留（换成 UA-Client-Hints 要单独取证）。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "跨包对齐的「源解析 + missing 检查」在 `hotkey-labels.test.js` 与 `HotkeysSettings.test.js` 里各抄了一份，且两份已经发散：`HotkeysSettings.test.js` 那份既没有 `expect(end >= 0)` 终点锚存在断言（正是本批 N3 记录里被实测 MISSED 过的「负数终点被 slice 静默放大区间」失效形态，N3 变异只打 `hotkey-labels.test.js`，这一份永远不被变异覆盖到），也没有 extra 方向（孤儿项）检查。这与本批反复声称的「单一实现」「读对方源码而非复制常量」口径直接冲突 —— 两处解析逻辑一旦漂移，对齐锁的保护面就只由其中一份决定，另一份变成装饰。",
+        "highRiskDomains": [],
+        "prosecution": "跨包对齐的「读主进程源码 + missing 判定」在 hotkey-labels.test.js 与 HotkeysSettings.test.js 各抄一份且**已经发散**：组件侧那份没有终点锚存在断言（正是本批 N3 实测过的失效形态），也没有 extra 方向。两处一漂移，对齐锁的保护面只由其中一份决定。",
+        "defense": "两份都读同一个源文件，结论迟早一致；重复的是实现不是判据。",
+        "verdict": "upheld",
+        "rationale": "重复实现迟早不一致是本仓反复记录的成因，不是假设。处置：解析收敛到 `main-shortcuts-harness.js` 一份，两个测试文件都调它；N3 的落点随之搬到 harness。并新增一条**防复发锁**（测试文件里再出现内联解析即红）+ 变异 N14 注入被禁形态验证这条锁有牙。该锁第一次实现踩了两个同源坑并当场被自己的红抓到：判据把解释性注释里的字面量算成违规、又把自己代码里的判据字符串算成 offender —— 修法是按代码行筛 + 判据串拆开拼。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "这份变更自己的落底记录与其代码自相矛盾：执行记录写「组件不 import `@/api/electron-bridge`（沿用 1.5 的教训：mock 桥接层的夹具会在访问期抛 'No export is defined'），宿主对象一律经 `window.electronAPI` 惰性取」，但 `HotkeysSettings.vue` 实际是 `import { getApi } from '@/api/electron-bridge'` 并在 `onMounted` 里调 `getApi()`。若 1.5 教训仍然成立，这个模块级 import 正是记录声称规避的风险；若 `getApi()` 是惰性读 `window.electronAPI`，则记录说法与代码不符 —— 而本批的核心叙事恰恰是「说明书落后于实现的文档漂移」类缺陷（hotkeys.js 文件头），这里自身又制造了一处。",
+        "highRiskDomains": [],
+        "prosecution": "执行记录 §四 写「组件不 import @/api/electron-bridge（沿用 1.5 的教训：mock 桥接层的夹具会在访问期抛 No export is defined）」，但 HotkeysSettings.vue:55 就是 `import { getApi } from '@/api/electron-bridge'`。本批的核心叙事恰恰是\"说明书落后于实现\"，这里自己又造了一处。",
+        "defense": "措辞是笔误级别的问题，不影响行为。",
+        "verdict": "upheld",
+        "rationale": "笔误正是这类缺陷的起点，且本批专门修了 hotkeys.js 的过期注释 —— 自己的文档漂移必须同标准处理。核实后的事实是：本批的组件测试**不** mock 桥接模块（用真实 getApi 读 window.electronAPI），所以 1.5 那条约束在这里不构成风险；记录必须这么写，而不是写一条与代码不符的\"规避了风险\"。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "locales 成对判据（「每个展示键在 zh 与 en 里都成对存在」）实现过弱：`src.slice(src.indexOf('hotkeys:'))` 取「第一个 hotkeys: 之后的整个文件」，然后 `expect(block).toContain(''+leaf+':')` 只验证该叶子串出现在区块里任意位置——不要求在 `action:` 子块内、不要求值是非空字符串（`home: ''` 会通过而 UI 渲染出空动作单元格）、且若值文本偶然包含 `'Press Ctrl+Home: …'` 这类串也会误通过。这使「三方逐项对齐」的声明含金量低于字面。",
+        "highRiskDomains": [],
+        "prosecution": "locale 成对判据实现过弱：`src.slice(src.indexOf('hotkeys:'))` 取\"第一个 hotkeys: 之后的整个文件\"，再 toContain('leaf:') —— 不要求在 action 子块内、不要求值非空（`home: ''` 会通过而界面渲染空单元格），且值文本里出现同名字串也会误通过。",
+        "defense": "CI 的 Gate 7 本来也只查根级文件，这条已经是加强。",
+        "verdict": "upheld",
+        "rationale": "\"比装饰性门禁强一点\"不是达标线。另外这次核对还暴露出更硬的一格：`indexOf` 落空返回 -1 时 `slice(-1)` 取**最后一个字符**，于是 `block.length > 0` 恒真——\"这个文件根本没有 hotkeys 块\"会被判成通过。处置：新增 `readHotkeyActionBlock()` 只取 action 子块、取不到即返回 null 并断言非 null，再逐个要求值 trim 后非空。"
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "跨包对齐锁没有「唯一性」断言。若主进程 SHORTCUTS 表未来出现同一 accelerator 注册两条（不同 route），regex 解析出重复项（`['…P','…P',…]`），两份锁的 `hasOwnProperty` 检查全部通过（因为该 accelerator 在映射里），而 `normalizeHotkeyList` 的 `seen` 去重只保留首条——面板对其中一条动作静默失明，锁零红，且没有任何测试覆盖「主进程真实重复 + 锁不拦」这条路径（现有去重用例只喂了测试自造的报文）。",
+        "highRiskDomains": [],
+        "prosecution": "对齐锁没有唯一性断言：主进程表若同一 accelerator 出现两条（不同 route），正则解析出重复项，hasOwnProperty 检查全过，而 normalizeHotkeyList 的 seen 去重只留首条 ⇒ 面板对第二条动作静默失明且无测试覆盖。",
+        "defense": "现有去重用例已覆盖\"报文里重复\"这一形态。",
+        "verdict": "upheld",
+        "rationale": "那条用例喂的是测试自造的报文，**主进程表真的重复时没有任何东西会红** —— 这正是\"接缝没有被真实产出穿过\"。处置：对齐锁里加 `new Set(list).size === list.length`，判据源自主进程解析结果本身。"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "finding": "`.gitignore` 的 `!scripts/hotkey-labels-contract-mutate.js` 反选规则脆弱：反选只在该排它规则位于**同一文件**且在该行之前时才生效；若 `scripts/*.js` 的忽略来自嵌套 .gitignore 或排除了父目录，git 不允许反包括被排除目录下的文件，这条 `!` 就是死规则或无效规则。同时与本仓 1.5 驱动 `visible-navigation-contract-mutate.js` 的先例关系不明（它是否同样被反选/被跟踪），本批文档多次把两者判据并提。",
+        "highRiskDomains": [],
+        "prosecution": "`.gitignore` 的 `!scripts/hotkey-labels-contract-mutate.js` 反选可能无效（若忽略来自嵌套 .gitignore 或父目录被排除，git 不允许反 include），且与 1.5 驱动的先例关系不明。",
+        "defense": "本仓惯例就是在同一文件里为新建脚本补 `!` 反选。",
+        "verdict": "dismissed",
+        "rationale": "**当场实测否证**：`git check-ignore --no-index scripts/hotkey-labels-contract-mutate.js` 返回 rc=1（不再被忽略）；`scripts/*.js` 的忽略规则与本条反选同在根 `.gitignore`（第 106 行在前、反选在后），不存在\"父目录被排除\"的形态；1.5 的 `scripts/visible-navigation-contract-mutate.js` 已 `git ls-files` 命中并随 PR #4209 入库，是同一机制的在案先例。该风险在本仓库形态下不可达，故不改动；但\"新脚本必须当场验 check-ignore\"这条已由本批实际执行，不是靠记忆。"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "finding": "变异驱动的 CAUGHT 判定是 needle 级而不是标题级：`matched = expect.filter(needle => run.failed.some(n => n.includes(needle)))`——只要红集里存在一条含该 needle 即计为命中，而同一 needle 可以命中两个用例标题（例如 `绝不进展示面` 同时出现在 `hotkey-labels.test.js` 的逻辑层用例和 `HotkeysSettings.test.js` 的组件层用例标题里，`[PROBE-MAP]` 也显示 `[2 条]`）。于是「预期两条都红，实际只红一条」会被读成 CAUGHT，与 spec/驱动注释声称的「变红…必须命中全部声明的预期探针」语义有偏差。",
+        "highRiskDomains": [],
+        "prosecution": "CAUGHT 判定是 needle 级：`mu.expect.filter(needle => run.failed.some(n => n.includes(needle)))`。同一 needle 可命中多条用例标题（N11 的『绝不进展示面』就打印出 [2 条]），于是\"声明两条该红、实际只红一条\"会被读成 CAUGHT，与 spec/驱动注释声称的\"必须命中全部声明的预期探针\"不符。",
+        "defense": "驱动已经打印红集与非预期红，人工可读回。",
+        "verdict": "upheld",
+        "rationale": "可读回不等于判定正确；而且这条是**我自己上一轮写的严格判据的漏洞**——严格到 needle 却没严格到标题，正好漏掉\"一 needle 多标题\"这一格。处置：预筛阶段已有的标题域现在用于判定——把 needle 展开成它解析到的标题全集，逐条要求在红集里，缺任一条判 PARTIAL_RED 并点名沉默的**标题**（不再只点名 needle）。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "finding": "`formatAccelerator` 的未知 token 策略是 `t.toUpperCase()` 整词大写，作为「展示面唯一实现」会在任何新增键上直接漏出含糊/不可读文本（`Shift+Plus` → `Shift + +`、`MediaPlayPause` → `MEDIAPLAYPAUSE`、`PrintScreen` → `PRINTSCREEN`），没有像修饰键表那样的显式登记通道；`NAMED_KEYS` 只覆盖 6 个具名键。结合 `detectMac()` 依赖 deprecated 的 `navigator.platform`，这一层的可维护冗余偏低。",
+        "highRiskDomains": [],
+        "prosecution": "formatAccelerator 对未知 token 一律 `t.toUpperCase()`：`MediaPlayPause → MEDIAPLAYPAUSE`、`PrintScreen → PRINTSCREEN`，作为\"展示面唯一实现\"会漏出含糊文本；NAMED_KEYS 只登记 6 个具名键。",
+        "defense": "未知 token 原样保留是刻意设计，丢弃才是更坏的形态；大写只是观感。",
+        "verdict": "upheld",
+        "rationale": "\"不丢弃\"这半成立，\"整词大写\"这半没道理：大写的价值在单字符键（p → P），对多字符标识只做噪声。处置：`t.length === 1 ? t.toUpperCase() : t`，并补三条用例（单字符仍大写、MediaPlayPause/PrintScreen 原样、显式 not.toBe 全大写）。N5 的锚点随之改写，否则变异会 locate 失败。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i7",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：7 条指控成立或需外部复核 ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T21:40:34.753Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：tier 与 evidence 均**未**由外部评审产出，本条是门禁自述的「代用出口」而非合规路径，如实标注。逐条处置：i1 已修（给组件加显式可注入的 isMac prop，默认 null 才回落宿主探测，既有断言改为显式传 false 使结论与 runner 无关，并补一条 mac 档用例，apps/desktop/src/components/HotkeysSettings.vue:60,:67,:93）；i2 已修（解析收敛到 main-shortcuts-harness.js 一份、两个测试文件都调它，apps/desktop/src/utils/hotkey-labels.test.js:19，并新增一条防复发锁：测试文件里再出现内联解析即红，同文件 :207「QM-6 i2 的**防复发**那一半」；变异 N14 注入被禁形态验证这条锁有牙）；i3 已修（记录如实写「本批的组件测试**不 mock 该模块**（用真实 getApi 读 window.electronAPI），因此模块级 import 在此不构成风险」，openspec/records/ux-audit-hotkeys-settings.md:82-83，未写成与代码不符的「规避了风险」）；i4 已修（新增 readHotkeyActionBlock() 只取 action 块，修掉 indexOf 落空返回 -1 时 slice(-1) 取最后一个字符、导致「这个文件根本没有 hotkeys 块」被判成通过的那一格，apps/desktop/src/utils/hotkey-labels.test.js:197）；i5 已修（对齐锁里加 new Set(list).size === list.length，判据源自主进程解析结果本身，同文件 :174）；i7 已修（预筛阶段已有的标题域现在用于判定——把 needle 展开成它解析到的标题全集，逐条要求在红集里，缺任一条判 PARTIAL_RED 并点名沉默的**标题**，scripts/hotkey-labels-contract-mutate.js:8,:231）；i8 已修（单字符键才大写：t.length === 1 ? t.toUpperCase() : t，apps/desktop/src/utils/hotkey-labels.js:74，并补三条用例）。i6 裁决为不成立，维持原样。逐条现场依据与反证读数见 openspec/records/ux-audit-hotkeys-settings.md 的处置表。"
+  }
+}

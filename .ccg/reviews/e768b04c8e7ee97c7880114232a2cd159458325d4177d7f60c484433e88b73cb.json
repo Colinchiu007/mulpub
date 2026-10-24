@@ -1,0 +1,154 @@
+{
+  "sha": "2d609c050672bd9d7d15e8bce5c55be2499c6176",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 21603 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 21603,
+    "fileCount": 521,
+    "codeFileCount": 198,
+    "sensitivePathHits": [
+      "migrations/postgresql/006_payment_orders.sql",
+      "packages/api-publish-engine/src/auth/payment-providers/index.js",
+      "packages/api-publish-engine/src/auth/payment-providers/wechat-native.js",
+      "packages/api-publish-engine/src/auth/payment-schema.js",
+      "packages/api-publish-engine/src/auth/postgres-commerce-store.js",
+      "packages/api-publish-engine/src/auth/postgres-identity-repository.js",
+      "packages/api-publish-engine/src/auth/postgres-webhook-store.js",
+      "packages/api-publish-engine/src/auth/production-config.js",
+      "packages/api-publish-engine/src/auth/publish-api-payment.js",
+      "packages/api-publish-engine/src/auth/subscription-payment.js",
+      "packages/api-publish-engine/src/auth/subscription-service.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 193,
+    "docSensitiveContentHits": 257,
+    "docSensitiveContentSample": [
+      "      \"suggestion\": \"Move evidence assets to external artifact storage (e.g., CI artifact URL) and keep only the manifest + 1 representative pair in repo; update .gitignore comment to reference external URL.\"",
+      "+      \"defense\": \"部分不成立。高危域标签是由关键词匹配打的（正文里出现「授权」「auth」即命中），本轮 i1/i4 的实际内容是「审计记录元数据口径」与「暗色 token 同构断言」，都不涉及加密算法或鉴权逻辑；用自扮演裁决处理它们，风险面是流程性的而非安全性的。但规则本身不区分标签来源 —— 既然引擎打了高危域，就必须按高危域走，否则这套标记就没有约束力。\",",
+      "+      \"defense\": \"本轮 diff 不引入任何鉴权或加密逻辑（全是 CSS/DOC/测试脚本），安全面仅限两处：① 巡检脚本 accept-baselines.js 用文件名拼 RegExp（第一轮 i6 已修，补了 escapeRegExp）；② 巡检脚本 curate-ui-audit-evidence.js 的文件名拼路径（不经正则，无注入面）。因此「security 6 分」评的是评审面而非产品面。\","
+    ],
+    "ccgSensitiveContentHits": 181,
+    "ccgSensitiveContentSample": [
+      "      \"+ .cohere-select {\",",
+      "      \"+ .cohere-select:focus {\",",
+      "      \"+      \\\"+      \\\\\\\"| 失败 | 用户可行动作优先 | 「发布失败：账号授权已过期，请到『账号管理』重新授权后再试。」 |\\\\\\\",\\\",\""
+    ],
+    "lineReadGaps": [
+      "\"01-docs/research/oss-reinforcement-2026-10-13/GitHub-\\351\\241\\271\\347\\233\\256\\345\\210\\206\\346\\236\\220\\346\\212\\245\\345\\221\\212-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/GitHub-\\351\\241\\271\\347\\233\\256\\345\\210\\227\\350\\241\\250-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/\\345\\206\\263\\347\\255\\226\\347\\202\\271\\345\\210\\206\\346\\236\\220\\344\\270\\216\\345\\273\\272\\350\\256\\256-2026-10-13.md\"",
+      "\"01-docs/research/oss-reinforcement-2026-10-13/\\345\\256\\236\\346\\226\\275\\350\\256\\241\\345\\210\\222-2026-10-13.md\""
+    ]
+  },
+  "stagedDiffHash": "e768b04c8e7ee97c7880114232a2cd159458325d4177d7f60c484433e88b73cb",
+  "decidedAt": "2026-10-22T08:43:53.826Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6368372014",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "本 PR 的差集是否触及高危域（鉴权 / 凭证 / 加密 / 数据迁移 / 判据本体）。",
+        "highRiskDomains": [
+          "auth",
+          "crypto",
+          "datamigration"
+        ],
+        "prosecution": "本记录的差集是 21603 行 / 521 个文件，其中包含 packages/api-publish-engine/src/auth/**、migrations/postgresql/006_payment_orders.sql、.github/workflows/** 等高危域文件。若本 PR 对这些文件有贡献，即属高危面改动，须外部独立复核才能收口。",
+        "defense": "该差集是 merge(main) 带入的**主干提交**，不是本 PR 的代码改动；本 PR 自身改动的 19 个非评审产物文件（apps/desktop/** 15 + 文档 4）与该差集**零交集**。第 4 次独立外部复核（claude 2.1.303，在隔离只读副本里逐条核对 8 条高危前缀）给出的结论同样是**零命中**；本 PR 新增的 features/collection/collection-video-config-profile.js 是业务配置解析（选哪份流水线配置模板 + 套用快照），不涉及认证 / 凭证 / 密钥。",
+        "verdict": "dismissed",
+        "rationale": "可复算依据：① 本 PR 相对 main 的 46 个改动文件对高危前缀（apps/desktop/electron/services/credential- / account-state-lock.js / packages/api-publish-engine/src/auth/ / packages/shared-utils/src/login-state.js / .github/workflows/ / scripts/check- / scripts/ccg-review- / scripts/lib/ccg-review- / scripts/deep-review* / 含 fingerprint 的源码）**零命中**；② 第 4 次外部复核（PR #4114 评论 https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6368372014 ，评论正文 sha256=ab3c8acb77efa5ca5b8b0f45575a07dd3a547e50efa36bc194002c865060958b ）在**隔离只读副本**里独立核对后给出同一结论。⇒ 高危面在本 PR 上不成立，本条驳回。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "合并提交形态下，本 PR 是否把自己的改动混进了并入主干的高危域文件。",
+        "highRiskDomains": [
+          "auth",
+          "crypto",
+          "datamigration"
+        ],
+        "prosecution": "本记录由一次 merge(main) 触发，其差集天然含主干的敏感文件；合并时若冲突处置不慎，本 PR 的改动可能被并进那些文件，而记录层面看不出来。",
+        "defense": "合并对 4 个双方都改过的文件（01-docs/learnings.md、CHANGELOG.md、locales/collection/{zh,en}.js）零冲突自动合并，其余文件本 PR 未触及；合并后的树上，高危域文件与 origin/main **逐字相同**（`git diff origin/main...HEAD -- <高危前缀>` 为空）。本 PR 在合并中真正做的冲突处置只有 `onPublishVideo` 一处（采集页的就地执行形态 + 兑现主干的 configProfileId），属业务交互层，不在高危域。",
+        "verdict": "dismissed",
+        "rationale": "可复算依据：① `git diff --name-only origin/main...HEAD` 对全部高危前缀**零命中**；② `git diff origin/main...HEAD -- packages/api-publish-engine/src/auth/ migrations/postgresql/ .github/workflows/ apps/desktop/electron/services/credential-` 为空 ⇒ 并入主干的高危域文件与主干逐字相同，本 PR 对其贡献为零；③ 合并冲突处置只有 `onPublishVideo` 一处，处理结论已如实写进 PRD §3 F4 / §5.5 与执行记录「合并 main（publish-config-picker）时的 onPublishVideo 冲突处置」一节。⇒ 本条驳回。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "外部复核曾指出：采集页发布出口把「文案」与「成片」存在两处可变状态，可能把上一轮的成片配上这一轮的新文案。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "文案存在函数作用域的可变 let（videoSourceText / videoSourceTitle），成片存在另一个 ref（videoCompletedVideoPath）；发布出口在用户点按钮的那一刻才组装 topicText / bodyText。若其间启动过新一轮，就可能把旧成片配上新文案发出去。",
+        "defense": "该路径不可达：① 跟踪层用 **runId 身份**挡过期响应（useGenVideoRunTracking.js:68 请求前、:71 await 之后、:94 推送快照，三处都是 runId.value !== id / snapshot.runId !== id）⇒ 旧 run 的完成回调不可能落到新 run 的状态上；② 新一轮启动会清空成片路径（useCollectionVideoCreation.js:288 startVideoCreation、:376 retryVideoCreation）⇒ 成片缺失时 isGenVideoResultReady（features/hot-topics/gen-video-view-model.js:47-48）为假 ⇒ publishVideoResult（:428）首行即返回。",
+        "verdict": "dismissed",
+        "rationale": "第 4 次独立外部复核在隔离只读副本里**逐行核对**了上述三处并给出同一结论（「路径不可达，驳回指控，不引入装饰性守卫符合仓库纪律」），证据见 PR #4114 评论 https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6368372014 。⇒ 本 PR **不引入**「文案按 run 绑定」的快照守卫：给不可达路径加装饰性守卫会制造第二份同义状态，与本仓纪律相反。处置理由与可复算行号已如实写进执行记录「本轮收尾 · ②『成片 ↔ 文案同源』的复核结论」。⇒ 本条驳回。"
+      }
+    ],
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 15,
+      "codeTotalLines": 2306,
+      "allFileCount": 43,
+      "allTotalLines": 6272,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）",
+    "engineStatusBeforeClear": "pending",
+    "engineRequiresExternalReviewBeforeClear": [],
+    "confidenceWeight": 0.6,
+    "closureNote": "第 14 轮（交付前最终形态）：3 条争议项逐条裁决 —— i1 高危面零命中、驳回；i2 合并提交未把本 PR 改动混进主干高危域文件、驳回；i3 成片↔文案同源路径经 runId 身份守卫与成片路径清空逐行核对后确认不可达、驳回。外部独立复核（claude 2.1.303，隔离只读副本，公开评论 6368372014）逐条独立核对后给出同一结论；本轮外部复核另抓到本刀执行记录里两个过期行号并已订正。",
+    "clearedBy": "agent",
+    "clearedAt": "2026-10-23T15:40:16.528Z",
+    "clearedReason": "本记录的差集是 merge(main) 带入的主干提交（21603 行 / 521 文件），不是本 PR 的代码改动；本 PR 自身改动的 19 个非评审产物文件与该差集零交集，且对 8 条高危前缀零命中（可复算：git diff --name-only origin/main...HEAD 对高危前缀的差集为空）。高危域结论由第 4 次独立外部复核承担并公开留痕（PR #4114 评论 #issuecomment-6368372014，正文 sha256=ab3c8acb77efa5ca5b8b0f45575a07dd3a547e50efa36bc194002c865060958b，可由 gh api 取回正文重算核对）。引擎原值（status=pending）保留在 engineStatusBeforeClear；findings 为本刀逐条裁决（3 条全部 dismissed，各附可复算行号与外部复核证据），引擎写回的 stats 未改一字。",
+    "externallyReviewed": [
+      {
+        "id": "i1,i2,i3",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6368372014",
+        "reviewedAt": "2026-10-23T15:24:16Z",
+        "evidenceDigestSha256": "ab3c8acb77efa5ca5b8b0f45575a07dd3a547e50efa36bc194002c865060958b",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
+      }
+    ]
+  }
+}

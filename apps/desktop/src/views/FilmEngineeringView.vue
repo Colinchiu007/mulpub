@@ -3,6 +3,7 @@
     <h1 v-if="!embedded" class="fe-title">{{ t('filmEngineering.title') }}</h1>
     <p v-if="!embedded" class="fe-subtitle">{{ t('filmEngineering.subtitle') }}</p>
 
+    <FilmKitImportBar :on-imported="refreshAll" />
     <ConfigProfileManager
       pipeline-id="film-engineering"
       :pipeline-label="t('pipelines.names.film-engineering')"
@@ -471,6 +472,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useFilmEngineering } from '@/composables/useFilmEngineering'
+import FilmKitImportBar from '@/components/FilmKitImportBar.vue'
 import ConfigProfileManager from '@/components/ConfigProfileManager.vue'
 import { useRouter } from 'vue-router'
 import { useFilmVideoGen, FILM_MAX_VIDEO_BATCH } from '@/composables/useFilmVideoGen'

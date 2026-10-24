@@ -34,6 +34,7 @@ const { getFilmMediaRoot } = require('../services/film-engineering/film-render')
 const { saveReference } = require('../services/film-engineering/reference-store')
 const {
   runProduction, planBatches, loadLedger, resolveResumePlan, buildRenderManifest, shotFileName, PRODUCTION_BATCH_SIZE,
+  isSafeTaskId,
 } = require('../services/film-engineering/production-driver')
 const { registerProductionHandlers } = require('./film-engineering-production')
 const { runBatchViaVideoGen } = require('../services/film-engineering/production-runner')
@@ -297,7 +298,7 @@ function registerHandlers (ipcMain, deps) {
   ipcMain.handle('film-engineering:download-recycled', withSenderCheck(async (_event, payload) => {
     const params = payload || {}
     const taskId = params.taskId
-    if (typeof taskId !== 'string' || !taskId.trim() || taskId !== path.basename(taskId)) {
+    if (!isSafeTaskId(taskId)) {
       return { code: EC.VALIDATION_ERROR, message: 'taskId 必须为非空且路径安全的字符串' }
     }
     const items = params.items

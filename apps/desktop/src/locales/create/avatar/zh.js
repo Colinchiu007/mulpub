@@ -54,6 +54,33 @@ export default {
   avatarCloneDeleteConfirm: '删除后该形象将不能再用，确定删除吗？',
   avatarCloneEmpty: '还没有克隆形象',
   avatarCloneEmptyHint: '上传一张照片或一段视频，克隆出一个可长期复用的数字人形象',
+  // change: digital-human-multiprovider —— 声音克隆入口提示。
+  // 声音克隆的 UI 在「配音 → 音色复制/克隆」面板（S2vConfigPanels），
+  // 与形象克隆是两条独立链路；这里只负责告知用户「本服务商支持自己的声音」。
+  avatarCloneVoiceHint: '本服务商还支持克隆你自己的声音：在下方「数字人音色」旁的「音色复制 / 克隆」里上传录音即可，克隆成功后即可在此选择。',
+  avatarCloneVoiceUnsupported: '当前服务商不支持克隆声音，只能使用它提供的现成音色。',
+  // 声音克隆内联区（change: hifly-voice-subtitle-parity）：入口从配音面板
+  // 收敛到数字人面板，provider/model 由当前数字人服务商决定、不给用户选。
+  avatarCloneVoiceTitle: '克隆我的声音',
+  avatarCloneVoiceHintInline: '上传一段录音即可克隆出你自己的声音，克隆成功后可在上方「数字人音色」中选择。',
+  // change: avatar-voice-clone-bundled —— 声音与形象绑在一次创建里
+  avatarCloneVoiceHintBundled: '选一段录音，与形象一起创建。创建成功后可直接在上方「数字人音色」中选用；不选则只克隆形象。',
+  avatarCloneVoiceChooseMedia: '选择本地录音文件',
+  // change: hifly-clone-material-hints —— 素材要求提示。
+  // 飞影克隆失败不返回原因（实测 message 空串），故三个硬约束 + 「必须含人声」都要主动告知。
+  avatarCloneVoiceMaterialHint: '要求 mp3 / m4a / wav，≤20MB，时长 5 秒～3 分钟，且必须包含清晰人声（静音或纯音乐会导致克隆失败）。',
+  avatarCloneVoiceSelected: '已选录音',
+  // 字幕（change: hifly-voice-subtitle-parity）：仅飞影支持（官方 create_by_tts 的
+  // st_* 字段族）；HeyGen 无对应契约，故面板对不支持的 provider 整个不渲染。
+  avatarSubtitleShow: '添加字幕',
+  avatarSubtitleHide: '收起字幕设置',
+  avatarSubtitleHint: '开启后会在成片上烧录字幕，样式即时生效，无需重新生成形象。',
+  avatarSubtitleFontName: '字体',
+  avatarSubtitleFontNamePlaceholder: '留空使用服务商默认字体',
+  avatarSubtitleFontSize: '字号',
+  avatarSubtitlePrimaryColor: '文字颜色',
+  avatarSubtitleOutlineColor: '描边颜色',
+  avatarSubtitleAdvancedNote: '字幕位置与区域大小使用服务商默认值，暂不在应用内调整。',
   avatarCloneCreating: '正在创建克隆形象…',
   avatarCloneChooseMedia: '选择{media}',
   avatarCloneErrInvalidArgs: '参数不合法',
@@ -63,7 +90,9 @@ export default {
   avatarCloneErrDuplicate: '该形象已存在',
   avatarCloneErrNotFound: '形象不存在',
   avatarCloneErrStore: '本地存储不可用',
-  avatarCloneErrProvider: 'HeyGen 暂时不可用，请稍后重试',
+  // {name} 由调用点代入当前数字人服务商名（change: hifly-voice-subtitle-parity）。
+  // 此前写死「HeyGen」——切到飞影后报这个错会把人指错方向。
+  avatarCloneErrProvider: '{name}暂时不可用，请稍后重试',
   avatarCloneErrUnknown: '未知错误',
   avatarCloneNoticeTitle: '关于克隆形象与声音',
   avatarCloneNoticeBody: '克隆功能会把上传的照片/视频/录音用于训练你自己的数字人形象与音色。请确认你已获得其中人物（包括你自己）的授权；使用他人肖像或声音产生的法律责任由使用者承担。',

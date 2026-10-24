@@ -1,8 +1,8 @@
 # PRD：账号资料（昵称 / 头像 / 粉丝数）补全与「错误头像」治理
 
-> 文档版本：v1.0（2026-10-22）
+> 文档版本：v1.1（2026-10-22 初版；2026-10-23 补 §4.5 公众号模板取值与校验细则、§9 竞品交叉互证）
 > 关联 change：`openspec/changes/fix-account-profile-avatar/`
-> 关联执行记录：`openspec/records/fix-account-profile-avatar.md`
+> 关联执行记录：`openspec/records/fix-account-profile-avatar.md`、`openspec/records/fix-account-profile-extra-endpoints.md`
 > 状态：已实现（随 PR #待补 落地）
 
 ---
@@ -118,7 +118,7 @@ B 站 `relation/stat.follower`、视频号 `finderUser.fansCount` 都不在昵�
 | 知乎 | `GET www.zhihu.com/api/v4/me` | `name` | `avatar_url` | — | `id`（兜底 `url_token`） |
 | 视频号 | `POST channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/auth/auth_data` | `data.finderUser.nickname` | —（走 DOM） | `data.finderUser.fansCount` | `data.finderUser.uniqId` |
 | 快手 | （无纯 HTTP 端点，需签名） | —（走 DOM） | —（走 DOM） | — | Cookie 派生 `userId` |
-| 微信公众号 | `GET mp.weixin.qq.com/cgi-bin/loginpage`（HTML 同页） | `nick_name` | —（走 DOM） | — | `uin` |
+| 微信公众号 | `GET mp.weixin.qq.com/cgi-bin/loginpage`（HTML 同页） | `nick_name_decode`（回落 `real_nick_name` → `nick_name`） | **`head_img` / `head_url`** | — | `uin` |
 
 > ⚠️ **本轮推翻了仓库里三处「静态 bundle 推断」的字段名**（它们此前一直没人验证）：
 > 小红书 `data.nickname`/`data.images` → 实测 `data.userName`/`data.userAvatar`；
@@ -143,6 +143,69 @@ B 站 `relation/stat.follower`、视频号 `finderUser.fansCount` 都不在昵�
 - **移除 `og:image` 兜底**（站点品牌图 ≠ 用户头像）——直接修掉头条的 logo 头像。
 - 头像改为**收集全部候选**（`src` / `data-src` / `data-original` / `background-image:url()`），
   由 Node 侧剔除品牌图后取第一个；**全部是品牌图时不产出头像**（宁可空着，不显示错图）。
+
+### 4.5 公众号登录页模板的取值与校验细则（2026-10-23 补）
+
+取值来源只有一个：`window.wx.commonData.data`（登录页 HTML 内嵌对象，**零新增请求**）。
+
+| 目标字段 | 取值键（按优先级） | 形态判定 | 不合格时的行为 |
+|---|---|---|---|
+| 昵称 | `nick_name_decode`（函数调用形态 `handlerNickname("值", false)`）→ `real_nick_name` → `nick_name` | 长度 ≤ 40；不含控制字符（U+0000–U+001F）；非模板占位值 `{{…}}` | 跳过该候选、继续下一个；三个候选都不合格 ⇒ **不产出昵称键**（键缺席 = 不修改） |
+| 头像 | `head_img` → `head_url` | 归一后 scheme **必须是** `http`/`https`；**且主机必须是公网主机形态**（拒绝 IP 字面量、单标签主机、`localhost` / `.local` / `.internal` / `.lan` / `.home.arpa`）；`javascript:` / `data:` / `file:` 一律拒绝 | 该候选被拒 ⇒ 回落下一个候选；两个都被拒 ⇒ **不产出头像键** |
+| 平台 ID | `uin` | `normalizeUid` 形态白名单（纯数字；占位值 `0` / `null` / `{{userId}}` 拒绝） | 不合格 ⇒ 不产出 |
+
+**为什么头像要卡主机形态（而不是只卡 scheme）**：头像 URL 最终进 `<img :src>`，由**用户本机**发起请求。
+只判 scheme 的话，`https://192.168.1.1/x`、`https://svc.internal/...` 这类地址会原样通过 ——
+页面内容一旦被污染，桌面端就会替用户去访问内网 / 跟踪地址。
+
+**为什么不用域名闭集**：公众号头像走平台自己的图片 CDN，该域名**不在**平台的 Cookie 域名表里
+（`PLATFORM_COOKIE_DOMAINS.wechat_mp` 只有 `mp.weixin.qq.com` / `weixin.qq.com`），
+闭集会把**所有真头像**判死（误杀），与本仓「宁可漏判不误杀」的取舍相反。
+故只挡「**不可能是公网 CDN**」的形态：真头像一个都不误伤，内网探测 / IP 外泄被堵住。
+
+**引号闭合规则（关键，容易写错）**：字段值按「**同种引号闭合**」取 ——
+双引号值用 `"…"` 配对，单引号值用 `'…'` 配对 —— 因此值里可以含**异种**引号。
+若把两种引号合并成一个字符类（`[^"']*`），含引号的昵称会在第一个引号处被**静默截断**
+（显示出来的名字少半截，且没有任何报错可查）。
+真实模板里同种引号若要出现在值中必须被转义（模板的转义形态是 HTML 实体 `&quot;`），
+所以同种引号闭合**不会漏掉真值**。
+
+**模板微调容忍**：函数名与左括号之间允许有空白（`handlerNickname ("名字", false)` 同样能取到）——
+模板什么时候改不由我方决定，一个空格不该让昵称静默消失。
+
+**登录页关键词只有一份**：登录页判定关键词（`扫码登录` / `请使用微信扫码` / `请登录` / `welcome_login`）
+由解析器**导出唯一一份**，资料侧与登录判定侧都引用它 ——
+各抄一份的话，改了其中一处就会让「判定未登录」与「不产出资料」给出相反结论。
+
+**页面体积上限**：超过 **2MB（按 UTF-8 字节计）** 的页面**整体不解析**。
+判据按**字节**而不是 `String.length`（UTF-16 单元数）—— 中文页面按字符数会低估真实体积
+（150 万个汉字 = 150 万单元，但 UTF-8 是 450 万字节）。
+超限时**不截断而是整体放弃**：截断会把 `head_img` 之类的字段切掉，
+制造「解析不出」与「字段不在」两种难以区分的假空值。
+
+**登录页形态优先短路**：页面出现「扫码登录 / 请使用微信扫码 / 请登录 / welcome_login」时，
+即便页面里同时出现示例 `uin` / `nick_name`，也**一律不产出**任何资料字段。
+
+**结构化失败原因**（落进日志，用于区分两类问题）：
+
+| `reason` | 含义 | 该怎么修 |
+|---|---|---|
+| `no_html` | 没拿到页面 | 查网络/端点 |
+| `login_page` | 是未登录的登录页 | 重新登录 |
+| `page_too_large` | 页面异常大 | 查是否被劫持/注入 |
+| `identity_fields_missing` | 页面不像登录页，且**身份字段根本不存在** | **多半是模板改版** |
+| `identity_fields_invalid` | 字段**在**，但值形态全不合格（含模板占位值 `{{…}}`） | 查取值规则 / 服务端是否渲染了 |
+| `nickname_invalid` | 昵称字段在但形态不合格（超长 / 含控制字符 / 占位值），其余字段正常 | 查形态白名单 |
+| `avatar_rejected_scheme` | 头像字段在，但 scheme 或主机形态不合法 | 查白名单 |
+
+> 「模板改版」与「字段值不合法」的修法完全不同（前者改解析、后者改校验），
+> 所以失败原因必须**结构化**，不能只记一句「解析失败」。
+> 另注：模板占位值（`{{nickname}}`）算「**值不合格**」而不是「字段缺失」——
+> 把两者混为一谈会把「这次没渲染出昵称」误报成「模板改版」，把排查引向错误方向。
+
+**夹具纪律**：测试夹具里的昵称 / 账号 ID / 头像 URL **全部是虚构值**（保留域 `example.invalid`），
+解析规则与真实模板同构（字段名、赋值形态、转义形态一致）但**值是假的** ——
+真实账号昵称/ID 属用户数据，不得进仓库。
 
 ---
 
@@ -224,12 +287,13 @@ B 站 `relation/stat.follower`、视频号 `finderUser.fansCount` 都不在昵�
 
 | 缺口 | 原因 | 现状 |
 |---|---|---|
-| 公众号头像 | 会话已失效，`cgi-bin/home` 返回错误页；该页不提供头像 | 仍走 DOM 采集（平台模板含 `img.user_avatar`），重新登录后可得 |
+| ~~公众号头像~~ | **已闭合（2026-10-23 补）** | 登录页模板内嵌 `window.wx.commonData.data` 的 `head_img` / `head_url` ⇒ **零新增请求**即可取到（详见 §9） |
+| 公众号昵称的空格 | **已闭合（2026-10-23 补）** | 模板的 `nick_name` 是「encode 一次」的结果（空格等会被转义），改为优先取 `nick_name_decode`（平台自己 decode 过） |
 | 公众号粉丝数 | 无只读取证 | 留空 |
 | 百家号昵称/头像/粉丝 | 本机无可用会话（分区无 Cookie） | 仍走 DOM 采集 |
 | 知乎粉丝数 | `/api/v4/me` 不含粉丝数；未找到可只读取证的端点 | 留空 |
-| 快手粉丝数 | `home/infoV2` 需 `__NS_sig3` 签名，本轮未接线 | 留空 |
-| 小红书头像端到端复验 | 已取得 API 真值，但**尚未在应用内跑通一次完整回填** | 需真机验收 |
+| 快手粉丝数 | 账号端点 `authority/account/current` **直连被拒**（实测 `{"result":500002,"message":"请稍后重试"}`）⇒ 必须带 `__NS_sig3` 签名 | 留空；需用已合入的 `kuaishou-sig3.js` 单独接一轮（竞品用「页面注入 + 拦 XHR」绕开签名，因为签名由页面自己的 JS 算） |
+| 头条 / 抖音的**兜底资料源** | 已实测存在等价端点（见 §9），但加兜底需要先有「按需取数」机制（只在主源缺字段时才请求），否则每次检测都多一次请求 | 记入 backlog，本轮不加 |
 
 ---
 
@@ -243,5 +307,72 @@ B 站 `relation/stat.follower`、视频号 `finderUser.fansCount` 都不在昵�
 - [x] 单来源失败不牵连其它来源（粉丝端点挂了，昵称头像仍要拿到）。
 - [x] 取不到就留空 + 提示下一步，绝不猜值。
 - [x] 既有断言的每一次变更都在代码内写明**理由与证据**。
+- [x] **我方已登记的字段路径被第三方端点独立互证**（见 §9）—— 抖音/头条各有两个互不相干的端点给出同一组数值。
 - [ ] 真机复验：点「验证」后账号卡上出现真昵称、真头像、粉丝数。
-- [ ] 公众号/百家号/知乎/快手四个缺口在后续迭代闭合。
+- [ ] 百家号/知乎/快手三个缺口在后续迭代闭合。
+
+---
+
+## 9. 与竞品逆向成果的交叉互证（2026-10-23 补）
+
+两个**参考产品**的逆向成果给了两样东西：**端点清单**与**注入规则**。
+（参考产品 A = 页面注入式；参考产品 B = 平台 API 式。下同。）
+本轮把它们当**候选**逐个实测，结论分三类：互证通过、可用但无净收益、已失效。
+
+### 9.1 互证通过（最有力的一类：两个互不相干的来源给出同一组数值）
+
+| 平台 | 我方登记的端点 → 实测值 | 竞品来源的端点 → 实测值 | 结论 |
+|---|---|---|---|
+| 抖音 | `GET creator.douyin.com/web/api/media/user/info/` → `user.nickname` / `user.follower_count=266` | `GET creator.douyin.com/aweme/v1/creator/user/info/` → `user_profile.nick_name` / `user_profile.follower_count=266` | **同一昵称、同一粉丝数** ⇒ 端点与字段路径正确 |
+| 头条 | `GET mp.toutiao.com/mp/agw/statistic/v2/fans/latest_stat` → `fans_stat.total_fans_count=369` | `GET mp.toutiao.com/mp/agw/creator_center/user_info` → `total_fans_count=369` | **同一粉丝数** ⇒ 正确 |
+| 头条头像 | `get_media_info` → `data.media.https_avatar_url` = `/img/user-avatar/910883f6…~300x300.image` | `creator_center/user_info` → `avatar_url` = **同一路径** | 正确 |
+| 知乎 / B 站 / 快手 / 视频号 | 我方端点 | 竞品注入规则命中**同一 URL**（`/api/v4/me`、`/x/web-interface/nav`、`authority/account/current`、`auth/auth_data`） | 正确 |
+
+> 竞品的端点与本仓的端点**由两个互不相干的来源独立得出**，这比任何单方文档都硬。
+
+### 9.2 可用但**无净收益**（故不登记）
+
+| 候选端点 | 实测 | 为什么不登记 |
+|---|---|---|
+| 头条 `mp/agw/creator_center/user_info` | ✅ 昵称 + 头像 + 粉丝数**一个端点全给** | 与我方现有两个端点字段等价；加进来要么每次多一次请求，要么把现有端点挤成死代码。保留「拆成两个端点」更健壮（一个改版不影响另一个） |
+| 抖音 `/aweme/v1/creator/user/info/` | ✅ 昵称 + 头像 + 粉丝数一个端点全给 | 同上（且它的头像是 100×100，比我方 1080×1080 更小） |
+
+### 9.3 已失效 / 不可用（排除）
+
+| 候选端点 | 实测 | 结论 |
+|---|---|---|
+| 视频号 `auth/get_auth_info` | 返回 **HTML 页面**（非 JSON） | 端点已改版，排除 |
+| 抖音 `/aweme/v1/creator/pc/user/info/` | 只回 `{status_code, uid}`，**无 user 对象** | 印证「判定端点不含资料」⇒ 它只能当登录判定用 |
+| 快手 `authority/account/current`（直连） | `{"result":500002,"message":"请稍后重试"}` | 未带 `__NS_sig3` 签名被拒 ⇒ 粉丝数需签名器接线 |
+
+### 9.4 ★ 意外收获：公众号头像在同一页就有
+
+竞品字符串表里有 `mp.weixin.qq.com/misc/getheadimg?fakeid=`（公众号头像端点线索）。
+实测**页面模板本身就内嵌账号资料对象** `window.wx.commonData.data`，字段（模板自带注释）：
+
+```
+uin              账号 ID（数字）
+user_name        用户名
+nick_name        // encode 一次            → 只 encode 过，可能是转义残渣
+nick_name_decode // encode 一次 decode 一次，因为空格需要特殊转义处理 → 显示用这个
+real_nick_name   // 真实 nick_name，后台无兜底逻辑，未设置则返回空
+head_img         // ''.replace('http://', 'https://')  → 头像
+head_url         → 头像的另一种 URL 形态
+alias / verify_status / sp_user_name / sp_nick_name …
+```
+
+⇒ **公众号头像零新增请求即可拿到**（我方本来就在抓这一页），且**不需要** `getheadimg?fakeid=` 那个端点。
+⇒ 昵称应取 `nick_name_decode`（平台自己 decode 过，空格是真空格），否则带空格的昵称会显示成转义残渣。
+⇒ `head_img` 的 `http://` → `https://` 归一照做（平台模板自己就这么写，说明它知道这个头图在 https 页面里会被当混合内容拒）。
+
+### 9.5 机制差异（为什么我方比竞品轻）
+
+| | 参考产品 A（页面注入式） | 参考产品 B（平台 API 式） | 我方 |
+|---|---|---|---|
+| 取数机制 | **浏览器注入 + 拦平台自己的 XHR** | 平台 API（RPA 适配器） | **Node 直连 + Cookie**（无浏览器） |
+| 粉丝数来源 | 数据看板**页面**上读数字 | 数据概览 API | 只读统计 API |
+| 签名平台 | 注入页自带签名（快手 sig3 由页面算） | 自己算 | 需单独接签名器（快手） |
+| 快路径 | 慢 | 中 | 快（<1s/平台） |
+
+> 这也解释了**为什么我方快手只能走 DOM 路径**：`authority/account/current` 直连被拒（需 sig3），
+> 而 DOM 路径在页面内执行、签名由页面自己算。竞品用注入同样受益于这一点。

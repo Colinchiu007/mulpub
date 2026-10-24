@@ -1,0 +1,60 @@
+{
+  "sha": "3f0f2c86f69fd56a5c46fc5d930bb93a5d0ed5ee",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 修复 + 回归保护（QM-5 ④） | PASS | ① `judge()` 新增可选入参 `mainBaselineKind` / `mainBaselineStaleness`，在差集之前单独拦一档 `too-stale ⇒ INCOMPLETE(3)` + `newRedComputed=false`（读数行打 `newRed=na`），与既有 `mainMoved` 档同族（基准不可用 ⇒ 未证实，且不报新增红）。② `createGhCollector` 的 `run()` 加**逐次** gh 调用重试（2 次 × 1.2s），只对瞬时错误（`wsarecv`/`ECONNRESET`/`ETIMEDOUT`/`socket hang up`/`EOF`/`timeout`/502-504）重试，**不重试** 401/403/404（凭据或路径错重试只会把「配置错」拖成「慢失败」）。③ 回归锁新增 2 例：`too-stale ⇒ rc=3`（即使 rows 全绿）、`too-stale` 时读数行必须 `newRed=na` 且点名 staleness。**变异反证**：删掉 too-stale 拦截档 ⇒ 2 例当场红（`not ok 16`、`not ok 17`），还原后 19/19 |",
+      "  凭据/路径错仍然立刻失败。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e68e1fdbc4a266ea427246c683c1b832684eac6ffbda015579f32fbd4de47bef",
+  "decidedAt": "2026-10-22T09:09:25.988Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "skipped_by_mode",
+    "performedBy": null,
+    "findings": null,
+    "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+    "at": "2026-10-22T09:11:24.175Z"
+  }
+}

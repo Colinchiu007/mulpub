@@ -65,11 +65,25 @@
 
 ## PR-3b · F-J 资产导入（严格模式；写路径，单独过安全评审）
 
-- [ ] 3b.1 **设计**：导入面设计（选目录 → `requireAssets: true` 校验 → 原子落盘 → 失效缓存）+ 写路径安全清单（只拷白名单文件 / 不跟随符号链接 / 半份 kit 不留 / 失败回滚）
-- [ ] 3b.2 **决策层评审**：写路径单独一轮对抗性审查（不与只读接线混批）
-- [ ] 3b.3 **TDD-RED**：`kit-import.test.js` —— 严格模式校验失败 ⇒ 不落盘；成功 ⇒ userData/film-kit 齐备且 service 缓存已失效；符号链接 ⇒ 拒绝；中途失败 ⇒ 无半份 kit
-- [ ] 3b.4 实现：`kit-import.js`（新建）+ IPC `film-engineering:import-kit` + service 缓存失效
-- [ ] 3b.5 i18n + UI 入口 + 文档同步 + 执行记录 + 门禁 + PR-3b
+> 方案：**`pr3b-import-design.md`**（决策清单形态；已按 28 轮双家族对抗评审定稿）。
+> 逐轮证据：**`pr3b-import-critiques.md`**（逐条原文 + 处置 + 收敛结论）；逐轮叙述：`pr3b-import-review-record.md`。
+> 独立 worktree：`film-kit-import`（`D:\Data\projects\mp-worktrees\mp-film-kit-import`，**非 C 盘**）。
+> **已由用户确认的四个决策**：① 成功后 `.bak` 立即删（回滚也失败时保留）；② 上限 单文件 32 MB / 整包 256 MB；③ 入口在「项目案例」标签顶部；④ `images/` 不进首批白名单。
+
+- [x] 3b.1 **设计**：导入面设计（选目录 → `requireAssets: true` 校验 → 原子落盘 → 失效缓存）+ 写路径安全清单 —— 产出 `pr3b-import-design.md`（已核实：目标目录 `container.setup.js` 传 `userDataKitDir`；严格模式 `kit-loader.js` 的 `requireAssets`；白名单真源 `kit-import-scan.js` 导出；缓存是 service 实例字段；选目录先例 `ipc-handlers/pipeline.js` 的 `story2video:pick-batch-files`；kit 体积实测 2.848 MB / 最大单文件 2.530 MB ⇒ 上限 256 MB / 32 MB）
+- [x] 3b.2 **决策层评审**：写路径单独一轮对抗性审查（不与只读接线混批）—— **28 轮**（critic=claude 26 轮 + critic=codex 2 轮）双家族对抗评审，**221 条**意见：**220 条成立并全部采纳、1 条不采纳（附证据：i7 磁盘空间预检）**、零「无证据驳回」；逐条原文 + 处置 + 收敛结论见 `pr3b-import-critiques.md`；**跨家族必要性已实证**：codex 抓到 claude 三轮没抓到的「**递归删目录违反本仓 R0 铁律**」
+- [x] 3b.3 **TDD-RED + 实现（5 模块）**：`kit-import-scan.js`（白名单 + 两遍扫描 + 哈希）/ `kit-import-lock.js`（锁 + **租约心跳** + nonce 认领）/ `kit-import-audit.js`（审计 + 阈值判法）/ `kit-import-swap.js`（第二遍拷贝 + 换入 + 回滚 + **精确清单清理**）/ `kit-import.js`（编排 ⓪-⑦）**5 个模块 + 5 个测试文件（55 例）**
+- [x] 3b.3b **TDD-RED 补 4 条**（覆盖最易漏的写路径纪律）：白名单外的文件**不**被拷入（且不递归进入其子目录）；超限文件 ⇒ 拒绝且**未开始拷**；导入过程中**没有**写到 staging/.bak/.import-lock/审计文件之外；换入失败后旧 kit 仍在原处且内容**逐字相同**
+- [x] 3b.4 **集成层**：`film-engineering-service.js`（缓存失效**四字段**含 `_loadError` 失败缓存 + 导入标记 + **按锁重建标记** + 过期锁自愈）+ `ipc-handlers/film-engineering-import.js`（**新建**，避开 auto handler 的 446/500 行线）+ `ipc-handlers/index.js` 接线；用例：IPC 11 例 + service 5 例
+- [x] 3b.4b **preload 两处同步**：`access-control.js`（登记 `filmEngineering.importKit`）+ `preload/film-engineering.js`（`importKit()` **空参**调用）+ `src/api/publisher.js`（`filmEngineeringImportKit()` 桥接）
+      ⚠ **2026-10-23 验证层外部双家族评审修正**（claude i1 / codex i1 **两家独立命中**）：初版把 `filmEngineering.importKit` **登记进了 `PUBLIC_METHODS`**（而它**上面那段注释白纸黑字写着「不登记为 public」** ⇒ 注释与代码自相矛盾）⇒ 破坏性写操作事实上对未登录态开放。**已移除该登记**（落进「不在名单内 ⇒ 默认 authenticated」那一档）+ 补机械锁（`preload.test.js`「资产导入不得登记为 public」，含主进程侧 `film-engineering:import-kit` 同样非 public）
+- [x] 3b.5 **i18n + UI**：`FilmEngineeringView.vue` 顶部入口 + **确认框**（用户意图闸门）+ **不可中断模态**（无关闭/无取消）+ 失败**恢复指引告警** + **成功但有残留**的告警 + **审计不完整**告警；`locales/film-engineering/{zh,en}.js` **22 键**成对（初版 20 键 + 验证层评审新增 `residue` / `auditLost`）；视图用例 7 例
+- [x] 3b.6 **契约**：`film-kit/SCHEMA.md`「文件清单」表加「**导入**」列（9 项 ✅ + `images/` ❌ 排除项清单）+ 新增「**十一、导入契约**」小节（白名单/形状/链与魔数/上限/reason 18 值/审计与示例行/对应表/三档恢复/取舍）+ `kit-mirror-check.js`（**镜像断言**：代码白名单 == SCHEMA.md 标 ✅ 行）+ `kit-schema-contract.test.js`（**第二道断言**：契约小节非空、reason 闭集逐值一致）
+- [x] 3b.7 **文档**：PRD §9.c（目标与范围 / 七步流程 / **数据校验逐条** / 交互逻辑 / 显示项 / **提示文字全量 22 键** / 验收 **36 条**（26 + 验证层外部评审新增 10 条）/ 明确不做）+ 本 tasks + 执行记录
+- [x] 3b.8 **验证层评审**（**双家族外部评审，claude + codex**）+ 本地门禁 + PR-3b + CI 全绿后 squash 合并
+      - **引擎缺陷与绕法（如实记录）**：`scripts/deep-review.sh` 的**验证层**把**整份 PR diff**（343 KB，其中 47 KB 是评审史文档）当 proposal 喂给 critic ⇒ claude 回退到**决策层词表**（consistency/feasibility/…）⇒ 引擎维度校验失败（「Critique校验失败」）；`--critic codex` **不被 diff 层应用**（覆盖块只挂决策层分支，引擎自认的缺陷）。
+        **绕法（不改仓库判据）**：用**同一个引擎**（`model-call.js::callCritic`）+ **正确的 diff 层维度**（correctness/security/performance/maintainability）+ **只含实现代码的 diff**（143 KB）分别跑 claude 与 codex ⇒ 两个家族都真的出了意见（claude 6 条 3 Critical、codex 8 条 3 Critical）⇒ 逐条取证 → 修 → 复审。
+      - **逐条处置**：**11 条成立并全部修复**（3 Critical：写路径被登记为 public / `.bak` 递归删除违反 R0 / 审计写失败仍计数；8 条 Warning：残留档位丢失、审计结果行被吞、重叠判据前缀是死的、跨目录硬链误拒、任务库形状静默跳过、早退路径无审计、service 审计失败被吞、`existsSync` 同步阻塞）；**另 1 条自查发现**（回滚失败档位被标成 `BAK_LEFT` ⇒ 渲染端会叫用户「可安全删除」**旧资产仅存的一份** ⇒ 数据丢失级误导，已改为 `MISSING_KIT`）；**SCHEMA §11.6 的崩溃点编号过期**（按旧编号写的 ⇒ 与当前 ⓪–⑦ 顺序对不上）也已更正。
 
 ## PR-4 · F-E 锁镜 / F-G 乐观锁 / G-8 时长落盘
 

@@ -26,7 +26,6 @@ import { createFailureDraftSaver } from './services/publish-failure-draft-saver'
 import { useRiskStore } from './stores/risk'
 import { useNotify } from './composables/useNotify'
 import EmptyState from './components/EmptyState.vue'
-import LoadingState from './components/LoadingState.vue'
 import UiSkeleton from './components/UiSkeleton.vue'
 
 const app = createApp(App)
@@ -60,7 +59,9 @@ app.use(i18n)
 // 而本仓只用 36 个。清单与理由见 ./plugins/element-plus.js。
 app.use(elementPlusOnDemand)
 app.component('EmptyState', EmptyState)
-app.component('LoadingState', LoadingState)
+// ux-audit-dead-components-retire：`LoadingState` 曾在此全局注册，但全仓 `<LoadingState>` 用法为 0
+// （grep 实测），且组件自身的测试是**自己 mount 它**——于是它在界面上永不可达，
+// 却每次启动都占一份全局注册与打包体积。骨架屏实际由 EmptyState / UiSkeleton 承担。
 app.component('UiSkeleton', UiSkeleton)
 app.mount('#app')
 

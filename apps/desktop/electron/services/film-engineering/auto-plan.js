@@ -33,6 +33,13 @@ const {
   sha256, buildShotFingerprint, buildPayloadHash, buildPlanId, buildRefsFingerprint,
 } = require('./auto-plan-fingerprint')
 const { resolveShotDurationMs, DEFAULT_TIERS: DEFAULT_DURATION_TIERS } = require('./shot-duration')
+const {
+  MIN_SENTENCE_CHUNK_LENGTH,
+  splitIntoChunks,
+  buildShotDurationWarnings,
+  evaluateCapacity,
+  buildShortCountWarning,
+} = require('./auto-beat-splitter')
 const { buildPlanPromptContext, buildShotTaskVars, computePromptRenderHash } = require('./shot-prompt-task')
 
 const MAX_AUTO_SHOTS = 120
@@ -56,7 +63,6 @@ const DISK_ESTIMATE_BYTES_PER_SHOT = 8 * 1024 * 1024
 const WALLCLOCK_SECONDS_PER_SHOT = 300
 const PRODUCTION_BATCH_SIZE = 10
 const WALLCLOCK_WARN_SECONDS = 2 * 60 * 60
-const MIN_SENTENCE_CHUNK_LENGTH = 2
 
 /** 目标时长 ÷ 单镜秒数 → 目标镜数（四舍五入并 clamp；非法输入回落 1，fail-closed 不抛） */
 function planShotCount (targetDurationSec, shotSeconds, opts = {}) {
@@ -120,11 +126,6 @@ function splitAutoBeats (script) {
   return beats.map((b, i) => ({ index: i + 1, title: b.title || '', text: b.text || '' }))
 }
 
-/** 按句末标点切块（保留标点在前块） */
-function splitIntoChunks (text) {
-  const raw = String(text || '').match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || []
-  return raw.map((s) => s.trim()).filter((s) => s.length > 0)
-}
 
 /** 把 chunks 均分成 parts 组（保序、非空、不丢字） */
 function groupChunks (chunks, parts) {
@@ -270,13 +271,18 @@ function planAutoShots (input) {
         tiers: durationTiers,
         maxSec: durationMaxSec,
         defaultSec: Number(o.seconds),
-        // v7 对抗评审第二轮 i4：自动模式的 beat.text 常常是纯动作描述。
-        // 没有引号就说明这句话不会被念出来，按「字/秒」折算等于给动作配了语速，
-        // 于是 120 字的无台词动作镜会触发「必须拆解台词」——误导用户去拆一个没有台词的镜头。
-        // 要求必须有引号才走 formula，否则退到档位兜底（tier）。
+        // M0′（2026-10-24）：容量基准 = **用户所选的单镜档位**，不是物理上限——
+        // 出片镜长用的是全局 o.seconds（auto-runner.js:163/231），不是逐镜推算值。
+        capacitySec: Number(o.seconds),
+        // v7 对抗评审第二轮 i4：beat.text 常是纯动作描述 ⇒ 没有引号就不走 formula，
+        // 否则会给动作配语速、让 120 字的无台词动作镜误触发「必须拆解台词」。
         requireQuotedDialogue: true,
       },
     )
+    // M0′.1：容量不足的镜要**逐镜**给出可执行出口（R3.5）——
+    // 逐镜是消费方唯一能看到「哪一镜念不完」的粒度（plan 级只给汇总）。
+    const capacityOverflow = duration.ok && duration.capacityOverflow === true
+    const shotWarnings = buildShotDurationWarnings(duration, { selectableSeconds: AUTO_SHOT_SECONDS })
     return {
       index: i,
       shotId: 'auto-' + String(i).padStart(3, '0'),
@@ -310,7 +316,10 @@ function planAutoShots (input) {
       durationSec: duration.ok ? duration.durationSec : Number(o.seconds),
       durationSource: duration.ok ? duration.source : 'tier',
       durationRawSec: duration.ok && Number.isFinite(duration.rawSec) ? duration.rawSec : null,
-      durationWarnings: duration.ok ? duration.warnings : [duration.error],
+      // M0′：本镜的容量判定结果与基准（供 plan 级汇总与 UI 逐镜展示）
+      capacityOverflow,
+      capacitySec: duration.ok && Number.isFinite(duration.capacitySec) ? duration.capacitySec : Number(o.seconds),
+      durationWarnings: shotWarnings,
       status: 'pending',
     }
   })
@@ -402,6 +411,28 @@ function planAutoShots (input) {
     ...durationWarnings,
     ...planPrompt.warnings,
   ]
+
+  /**
+   * M0′.4 / R14：少产镜数 ⇒ 报告原因（不阻断，成片能念完）。
+   * M0′.2 / R3.3：容量不足 ⇒ fail-closed（阻断，成片一定念不完）。
+   * 顺序：先报少产、再判容量 ⇒ 容量不足时返回的 warnings 也带着少产信息。
+   */
+  const shortCountWarning = buildShortCountWarning({ shots, targetCount, beats: baseBeats })
+  if (shortCountWarning) warnings.push(shortCountWarning)
+  const capacityVerdict = evaluateCapacity({
+    shots,
+    capacitySec: Number(o.seconds),
+    selectableSeconds: AUTO_SHOT_SECONDS,
+  })
+  if (capacityVerdict.blocked) {
+    return {
+      ok: false,
+      errorCode: capacityVerdict.errorCode,
+      message: capacityVerdict.message,
+      shots,
+      warnings,
+    }
+  }
 
   return {
     ok: true,

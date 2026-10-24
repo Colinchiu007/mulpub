@@ -28,6 +28,16 @@ vi.mock('@/api/publisher', async (importOriginal) => {
 
 import SettingsDialog from './SettingsDialog.vue'
 
+/**
+ * 按标签取 Tab（ ux-audit-hotkeys-settings 起）：原先的 findAll()[i] 索引选择
+ * 在导航里插一个新 Tab 就会整体漂一位，把"点禁用 Tab 不切换"这类锁指向错误的按钮。
+ */
+function tabByLabel (wrapper, label) {
+  const hit = wrapper.findAll('.settings-tab').find((t) => t.text().includes(label))
+  if (!hit) throw new Error('找不到 Tab：' + label + '；实际：' + wrapper.findAll('.settings-tab').map((t) => t.text()).join(' / '))
+  return hit
+}
+
 function mountDialog (locale = 'zh') {
   i18n.global.locale.value = locale
   return mount(SettingsDialog, {
@@ -51,10 +61,10 @@ describe('SettingsDialog', () => {
     }
   })
 
-  it('渲染六个 Tab，默认选中模型设置；发布设置为可用、账号设置仍禁用', () => {
+  it('渲染七个 Tab，默认选中模型设置；发布/快捷键设置为可用、账号设置仍禁用', () => {
     const wrapper = mountDialog()
     const tabs = wrapper.findAll('.settings-tab')
-    expect(tabs).toHaveLength(6)
+    expect(tabs).toHaveLength(7)
     expect(tabs[0].text()).toContain('模型设置')
     expect(tabs[1].text()).toContain('通用设置')
     expect(tabs[2].text()).toContain('飞书 API')
@@ -63,10 +73,15 @@ describe('SettingsDialog', () => {
     expect(tabs[4].text()).toContain('发布设置')
     expect(tabs[4].text()).not.toContain('敬请期待')
     expect(tabs[4].attributes('disabled')).toBeUndefined()
-    // 账号设置仍禁用（未在本变更范围内）
-    expect(tabs[5].text()).toContain('账号设置')
-    expect(tabs[5].text()).toContain('敬请期待')
-    expect(tabs[5].attributes('disabled')).toBeDefined()
+    // ux-audit-hotkeys-settings（阶段 1.6）：快捷键是**可用** Tab，且排在禁用项之前 ——
+    // 「能用的都排在前面，占位项垫底」是这个导航的既有排序意图，插到中间会读起来像坏了。
+    expect(tabs[5].text()).toContain('快捷键')
+    expect(tabs[5].text()).not.toContain('敬请期待')
+    expect(tabs[5].attributes('disabled')).toBeUndefined()
+    // 账号设置仍禁用（未在本变更范围内）；索引因上面新增项整体后移一位
+    expect(tabs[6].text()).toContain('账号设置')
+    expect(tabs[6].text()).toContain('敬请期待')
+    expect(tabs[6].attributes('disabled')).toBeDefined()
     expect(wrapper.get('.settings-tab.active').text()).toContain('模型设置')
   })
 
@@ -81,14 +96,14 @@ describe('SettingsDialog', () => {
 
   it('点击禁用 Tab（账号设置）不切换激活态', async () => {
     const wrapper = mountDialog()
-    await wrapper.findAll('.settings-tab')[5].trigger('click')
+    await tabByLabel(wrapper, '账号设置').trigger('click')
     await nextTick()
     expect(wrapper.get('.settings-tab.active').text()).toContain('模型设置')
   })
 
   it('点击发布设置切换到发布频率策略面板', async () => {
     const wrapper = mountDialog()
-    await wrapper.findAll('.settings-tab')[4].trigger('click')
+    await tabByLabel(wrapper, '发布设置').trigger('click')
     await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
     await nextTick()
@@ -98,7 +113,7 @@ describe('SettingsDialog', () => {
 
   it('点击知乎 API 切换到知乎配置面板', async () => {
     const wrapper = mountDialog()
-    await wrapper.findAll('.settings-tab')[3].trigger('click')
+    await tabByLabel(wrapper, '知乎 API').trigger('click')
     await nextTick()
     await new Promise(resolve => setTimeout(resolve, 0))
     await nextTick()
@@ -139,7 +154,7 @@ describe('SettingsDialog', () => {
   it('每个 Tab 渲染图标位（.tab-icon）', () => {
     const wrapper = mountDialog()
     const icons = wrapper.findAll('.settings-tab .tab-icon')
-    expect(icons).toHaveLength(6)
+    expect(icons).toHaveLength(7)
   })
 
   it('en 语言下 Tab 为英文，发布设置不再是 Coming Soon', () => {
@@ -148,6 +163,8 @@ describe('SettingsDialog', () => {
     expect(tabs[0].text()).toContain('Model Settings')
     expect(tabs[3].text()).toContain('Zhihu API')
     expect(tabs[4].text()).toContain('Publish Settings')
-    expect(tabs[5].text()).toContain('Coming Soon')
+    // 快捷键 Tab 挤在「账号设置」之前：Coming Soon 只有最后一个（账号）该有
+    expect(tabs[5].text()).toContain('Keyboard shortcuts')
+    expect(tabs[6].text()).toContain('Coming Soon')
   })
 })

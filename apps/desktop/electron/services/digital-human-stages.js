@@ -108,7 +108,13 @@ function resolveDigitalHumanInputs (params, stage, context) {
     || nonEmpty(box.script)
     || nonEmpty(params && params.text)
   if (!character || !voice || !script) return null
-  return { character, voice, script }
+  // 字幕配置（change: hifly-voice-subtitle-parity）：对象字段，不能走 nonEmpty。
+  // 候选顺序同三要素：params（流水线启动参数）优先，stage options / avatar_select 兜底。
+  // 只接受「非数组的普通对象」——其它形态（字符串/数组/null）一律不认，
+  // 由 adapter 的 buildSubtitleFields 去做字段级校验。
+  const subtitle = [params && params.subtitle, stage && stage.options && stage.options.subtitle, box.subtitle]
+    .find((value) => value && typeof value === 'object' && !Array.isArray(value)) || null
+  return { character, voice, script, subtitle }
 }
 
 function getRunDir (runId) {
@@ -163,6 +169,11 @@ async function runDigitalHumanGenerate (options) {
       character: inputs.character,
       voice: inputs.voice,
       script: inputs.script,
+      // 字幕配置（change: hifly-voice-subtitle-parity）：可选字段。
+      // 主进程不做字段级校验——那是 adapter 的职责（飞影校 #rrggbb 与整数），
+      // 这里只负责「前端给了就透传，没给就不出现这个键」。
+      // 不认字幕的 provider（HeyGen）会忽略未知字段，不会因此失败。
+      ...(inputs.subtitle ? { subtitle: inputs.subtitle } : {}),
       ...(digitalHuman.model ? { model: digitalHuman.model } : {}),
     }, { providerRunContext })
   } catch (error) {

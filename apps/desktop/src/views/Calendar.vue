@@ -20,7 +20,7 @@
       <div style="flex:2;min-width:0">
         <div class="calendar-grid">
           <div class="cal-header" v-for="d in dayNames" :key="d">{{ d }}</div>
-          <div
+          <div role="button" tabindex="0" @keydown.enter.prevent="selectDay(day)" @keydown.space.prevent="selectDay(day)"
             v-for="(day, i) in calendarDays"
             :key="i"
             class="cal-day"

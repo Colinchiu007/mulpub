@@ -69,15 +69,18 @@ vi.mock('@/stores/serviceStatus', () => ({
 }))
 
 // 组件（方案 B）新增 useTabStore 依赖：本测试不装 pinia，按既有 store mock 风格提供聚焦态
+// 2026-10-23：改为可变的模块级状态对象，供「升级 Pro 入口」可见性回归用例切换到
+// 「外部网页标签活动」现场（外部网页由原生 WebContentsView 承载，页面须先切回首页标签才可见）。
+const tabState = vi.hoisted(() => ({
+  activeTabIsHomeShell: false,
+  isHomeTab: true,
+  activeTab: { tabId: 'home', spaRoute: '', isHome: true },
+  tabs: [{ tabId: 'home', isHome: true }],
+  activeTabId: 'home',
+  switchToTab: vi.fn(),
+}))
 vi.mock('@/stores/tab', () => ({
-  useTabStore: () => ({
-    activeTabIsHomeShell: false,
-    isHomeTab: true,
-    activeTab: { tabId: 'home', spaRoute: '', isHome: true },
-    tabs: [{ tabId: 'home', isHome: true }],
-    activeTabId: 'home',
-    switchToTab: vi.fn(),
-  }),
+  useTabStore: () => tabState,
 }))
 
 import MpSidebar from './MpSidebar.vue'
@@ -88,6 +91,14 @@ beforeEach(() => {
   // 默认：主进程返回成功的版本响应；个别用例可覆盖为失败码/不可用/异常
   invokeMock.mockReset()
   invokeMock.mockResolvedValue({ code: 0, data: '2.3.53' })
+  // 标签态复位为「首页虚拟标签活动」
+  tabState.activeTabIsHomeShell = false
+  tabState.isHomeTab = true
+  tabState.activeTab = { tabId: 'home', spaRoute: '', isHome: true }
+  tabState.tabs = [{ tabId: 'home', isHome: true }]
+  tabState.activeTabId = 'home'
+  tabState.switchToTab.mockReset()
+  tabState.switchToTab.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -279,6 +290,28 @@ describe('MpSidebar', () => {
     expect(push).toHaveBeenCalledWith('/member-center')
     // 跳转后仍不该出现弹窗（防止有人把模板加回来）
     expect(sidebar.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(false)
+  })
+
+  // 2026-10-23 缺陷回归：升级入口与「会员中心」同根因。
+  // 裸 router.push 会让会员中心页面渲染在外部网页标签的原生 WebContentsView 背后
+  // （原生图层永远压在 DOM 之上，CSS z-index 无效）⇒ 用户表现为「点了没反应」。
+  // 正确行为：走侧边栏唯一的可见导航范式 onNavClick —— 先切回首页标签
+  // （让壳态切到 workbench、隐藏原生视图），再路由跳转。
+  it('升级 Pro 入口：当前活动标签是外部网页标签时，先切回首页标签再跳转会员中心', async () => {
+    push.mockClear()
+    tabState.activeTabIsHomeShell = false
+    tabState.isHomeTab = false
+    tabState.activeTab = { tabId: 'tab-2', spaRoute: '', isHome: false }
+    tabState.tabs = [{ tabId: 'home', isHome: true }, { tabId: 'tab-2', isHome: false }]
+    tabState.activeTabId = 'tab-2'
+
+    const sidebar = mountSidebar('/accounts')
+    await sidebar.get('[data-testid="profile-menu-stub-upgrade"]').trigger('click')
+    await flushPromises()
+
+    expect(tabState.switchToTab).toHaveBeenCalledWith('home')
+    expect(push).toHaveBeenCalledWith('/member-center')
+    expect(tabState.switchToTab.mock.invocationCallOrder[0]).toBeLessThan(push.mock.invocationCallOrder[0])
   })
 
   it('routes the add button to the publish editor', async () => {

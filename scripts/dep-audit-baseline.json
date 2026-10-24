@@ -1,5 +1,5 @@
 {
-  "//": "依赖漏洞审计挂账清单（audit-batch-4）。升级/新增依赖后请跑：node scripts/check-dep-audit.js --update 并补齐 decision/note。",
+  "//": "依赖漏洞审计挂账清单（audit-batch-4）。新条目由机器预填「已登记、待升级」+ 修复下界 + 到期日；请确认承诺版本兜得住（兜不住就改 decision 并写清理由）。跑 node scripts/check-dep-audit.js --update 刷新。",
   "reviewBy": "2026-12-31",
   "advisories": [
     {
@@ -29,7 +29,7 @@
       "decision": "upgrade-tracked",
       "note": "npm-opscenter 域首条登记。该域审计 ops-center/frontend/package-lock.json（npm，非 pnpm），实测解析到 @vue/server-renderer@3.5.41、vue@3.5.41，差一个补丁版本。ops-center/frontend/package.json 声明 vue ^3.5.0，caret 已覆盖 >=3.5.42，仅 lockfile 未刷新。动作=在该目录 npm install 刷新 lockfile。与 npm 域那条（3.5.35）判据同形但版本与载体都不同，故必须分域各登记一条——两域基线键不共用。"
     },
-    {
+        {
       "source": "npm",
       "id": "GHSA-2883-xcg3-v3hh",
       "module": "js-yaml",
@@ -37,6 +37,7 @@
       "patched": ">=4.3.2",
       "targetVersion": "4.3.2",
       "roots": [
+        ".",
         "apps__desktop",
         "packages__api-publish-engine",
         "packages__shared-utils"
@@ -87,33 +88,7 @@
       "decision": "upgrade-tracked",
       "note": "jszip 由 apps/desktop 的文档导入链引入；升级 PR 提到 >=3.8.0。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-3jxr-9vmj-r5cp",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=1.1.16",
-      "targetVersion": "1.1.16",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 为 minimatch/glob 传递依赖，仅影响构建期文件匹配；升级 PR 提到 >=1.1.18。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-4mjr-xmp4-gh2g",
-      "module": "qs",
-      "severity": "moderate",
-      "patched": ">=6.16.0",
-      "targetVersion": "6.16.0",
-      "roots": [
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "qs 为 packages/ai-writer-api 的 express 传递依赖；升级 PR 提到 >=6.16.0。"
-    },
-    {
+        {
       "source": "npm",
       "id": "GHSA-5p4m-2wfm-xmqj",
       "module": "js-yaml",
@@ -121,6 +96,7 @@
       "patched": ">=4.3.1",
       "targetVersion": "4.3.1",
       "roots": [
+        ".",
         "apps__desktop",
         "packages__api-publish-engine",
         "packages__shared-utils"
@@ -141,19 +117,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "lockfile 实测解析到 source-map-js@1.2.1，差一个补丁版本。纯构建期传递依赖：来源为 vue-i18n / @vue/compiler-core（经 packages__ui 的 storybook 链），本仓 manifest 零声明、代码零引用，不进生产运行时产物。动作=刷新 lockfile 收敛到 >=1.2.2。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-6j4f-fj2g-mc7p",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=5.0.10",
-      "targetVersion": "5.0.10",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.19。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.10，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
     },
     {
       "source": "npm",
@@ -210,59 +173,7 @@
       "decision": "upgrade-tracked",
       "note": "lockfile 实测解析到 @vue/server-renderer@3.5.35。本仓三处 manifest 声明 vue ^3.5.0（apps/desktop、ops-center/frontend、packages/ui），caret 区间已覆盖 >=3.5.42，仅 lockfile 未刷新；且它作为 vue 的 peer 引入，本仓不直接声明该包。动作=刷新 lockfile（pnpm update vue），无需改 manifest。注意与本仓 SSR 用法解耦：server-renderer 只在 storybook/SSR 构建链出现，不影响 Electron 渲染进程运行时。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-jqcg-44mw-7w3h",
-      "module": "proxy-addr",
-      "severity": "critical",
-      "patched": ">=2.0.8",
-      "targetVersion": "2.0.8",
-      "roots": [
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "critical 级，但 lockfile 实测解析到 proxy-addr@2.0.7，仅差一个补丁版本。来源链单一：ai-writer-api 直接依赖 express@4.22.2（manifest ^4.18.0），proxy-addr 由 express 传递引入，本仓零直接引用（git grep sprintf/proxy-addr 无命中）。动作=刷新 lockfile 收敛 express 的传递依赖到 >=2.0.8，无需改 manifest；无法在本 PR 内完成是因为该 PR 不带依赖变更，单独开刀。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-mh99-v99m-4gvg",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=5.0.8",
-      "targetVersion": "5.0.8",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.8，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-q2hr-2g5m-vwhr",
-      "module": "brace-expansion",
-      "severity": "moderate",
-      "patched": ">=5.0.12",
-      "targetVersion": "5.0.12",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.21。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.12，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-qhr7-859c-m2p7",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=5.0.11",
-      "targetVersion": "5.0.11",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.20。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.11，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
-    },
-    {
+                {
       "source": "npm",
       "id": "GHSA-r28c-9q8g-f849",
       "module": "postcss",
@@ -279,19 +190,6 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-rgw5-rvv9-x895",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=1.1.18",
-      "targetVersion": "1.1.18",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 第三条公告，与 GHSA-3jxr 同一升级动作覆盖（取更高修复版本）。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-rj75-hqrm-r3gf",
       "module": "postcss-selector-parser",
       "severity": "moderate",
@@ -303,20 +201,7 @@
       "decision": "upgrade-tracked",
       "note": "lockfile 实测解析到 postcss-selector-parser@7.1.4，差两个补丁版本。纯构建期传递依赖：本仓 manifest 零声明，来源为 eslint-plugin-vue（desktop devDeps）、css-loader / @remotion/bundler（remotion-composer 链），不进入运行时产物。动作=刷新 lockfile 收敛到 >=7.1.6。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-v422-hmwv-36x6",
-      "module": "body-parser",
-      "severity": "low",
-      "patched": ">=1.20.6",
-      "targetVersion": "1.20.6",
-      "roots": [
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "body-parser 为 ai-writer-api 的 express 传递依赖，低风险；升级 PR 提到 >=1.20.6。"
-    },
-    {
+        {
       "source": "npm",
       "id": "GHSA-w5vr-8v7q-w6rv",
       "module": "baseline-browser-mapping",
@@ -329,20 +214,7 @@
       "decision": "upgrade-tracked",
       "note": "baseline-browser-mapping 与 browserslist 同族构建期数据包；升级 PR 提到 >=2.11.0。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-x5fp-wj9c-mxmx",
-      "module": "qs",
-      "severity": "moderate",
-      "patched": ">=6.15.4",
-      "targetVersion": "6.15.4",
-      "roots": [
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "qs 第二条公告，与 GHSA-4mjr 同一升级动作覆盖（取更高修复版本）。"
-    },
-    {
+        {
       "source": "pip",
       "id": "PYSEC-2026-1325",
       "module": "ecdsa",
@@ -352,7 +224,11 @@
         "ops-center/backend"
       ],
       "decision": "no-fix-available",
-      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
+      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。",
+      "aliases": [
+        "CVE-2024-23342",
+        "GHSA-wj6h-64fc-37mp"
+      ]
     },
     {
       "source": "pip",
@@ -364,7 +240,11 @@
         "ops-center/backend"
       ],
       "decision": "not-exploitable",
-      "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。"
+      "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。",
+      "aliases": [
+        "CVE-2026-85394",
+        "GHSA-3qf3-8w2g-rqmx"
+      ]
     }
   ]
 }

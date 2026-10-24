@@ -67,6 +67,9 @@ function registerAllHandlers(ipcMain, deps) {
   // 影视工程「自动」模式（film-auto-mode）：规划/执行/片段编辑/收口校验
   // 注意：执行不经 pipeline 引擎（直连 production-driver + auto-runner），合成仍走既有 manifest 通道
   require('./film-engineering-auto')(ipcMain, deps)
+  // 影视工程「资产导入」写路径（PR-3b · F-J）：整体替换 userData/film-kit
+  // ⚠ 与上面的只读/自动模式**分文件**（写路径独立 ⇒ 不把 446 行的 auto handler 顶过 500 行门禁）
+  require('./film-engineering-import')(ipcMain, deps)
   require('./aggregation')(ipcMain, deps)
   // 博主监控与采集（PRD-CREATOR-WIRING-2026-10-07）。
   // 必须注册：缺了它，渲染端点「博主监控」会拿到 Electron 原生的

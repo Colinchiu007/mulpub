@@ -1,0 +1,61 @@
+{
+  "sha": "1dea01f587e7a5275e7eb5b0ab2a9ba409328bce",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| **C 已显式声明的边界与取舍** | 跨目录硬链（**无判据**）/ 不做磁盘空间预检 / 不做组件级授权 / 不做磁盘加密 / 不引入 `images-manifest.json` 契约 | 全部写进 §四 取舍 + §十 附录（`SCHEMA.md` 契约结构），**要么有补偿控制、要么有诚实声明（含漏判方向）** |",
+      "**取舍（写进 `SCHEMA.md`，防被误读为遗漏）**：⓪ **禁止递归删除目录**（本仓 R0 铁律）—— staging/`.bak` 的清理一律**按精确文件清单**逐个 `unlink` + 空目录 `rmdir`；ⓘ **不做磁盘空间预检**（`statfs`）—— ENOSPC 发生在**拷贝阶段** ⇒ 导入失败 + 按清单清 staging + **旧 kit 未动**（S3/S4 兜底）⇒ 只是失败得晚一点，**不产生损坏**：ENOSPC 发生在**拷贝阶段（②）** ⇒ 拷贝中止 ⇒ **③④ 未执行 ⇒ `.bak` 未动** ⇒ 审计写 `post_check=FAIL_WITH_RECOVERY` + `recovery_state=LOCK_LEFT`（锁仍在）⇒ 按 S15 档位③处理；① 跨目录硬链判据（`nlink`）**已移出安全清单**（S2 只留可靠判据）⇒ 理由与补偿见 ③；② 崩溃残留三档恢复路径（S15）；③ **跨目录硬链 = 非防篡改边界**（**刻意不进安全清单**：该维度**无判据**——`nlink` 在 FAT/exFAT/网络盘恒为 1 ⇒ 跨目录硬链**永远漏判**；同目录硬链已由 S2 的 `(dev,ino)` 覆盖；补偿四条：S21 限额只管源目录、S22 只收本机本地目录源、审计固定记 `hardlink_check=best-effort`（不虚报已防护）、`SCHEMA.md` 明写「非防篡改边界」）ⓘ 窗口级/组件级授权**不在本批** —— 本批做 `withSenderCheck` + **S20 的 sender 路由前缀硬断言**（路由不在 `/film-engineering` ⇒ 拒绝；**前缀**匹配 ⇒ 三个标签页都放行、**不误伤合法调用**），但**组件级授权做不了也不假装做**（同一文档承载三标签页，路由判不出组件）；缓解四层（**受信来源 = preload 白名单登记的 `filmEngineering.importKit` 接口**（`access-control.js` 的 `PUBLIC_METHODS` 登记 ⇒ 未登记的方法默认不可达）+ **路由前缀断言**（S20，写路径解析不出路由即拒）+ **目录只能由用户原生选**（入参不含路径 ⇒ 无法指定替换内容）+ 严格校验不落盘 + 全量审计），信任域内的越权**由审计可见**。",
+      "**取舍（写进 `SCHEMA.md`，防被误读为遗漏）**：⓪ **禁止递归删除目录**（本仓 R0 铁律）—— staging/`.bak` 的清理一律**按精确文件清单**逐个 `unlink` + 空目录 `rmdir`；ⓘ **不做磁盘空间预检**（`statfs`）—— ENOSPC 发生在**拷贝阶段** ⇒ 导入失败 + 按清单清 staging + **旧 kit 未动**（S3/S4 兜底）⇒ 只是失败得晚一点，**不产生损坏**：ENOSPC 发生在**拷贝阶段（②）** ⇒ 拷贝中止 ⇒ **③④ 未执行 ⇒ `.bak` 未动** ⇒ 审计写 `post_check=FAIL_WITH_RECOVERY` + **`recovery_state=PRE_SWAP`**（**不是 `LOCK_LEFT`** —— 换入尚未发生，`film-kit` 仍是旧的，**不能按档位③「资产已就位」去恢复**）；① 跨目录硬链判据（`nlink`）**已移出安全清单**（S2 只留可靠判据）⇒ 理由与补偿见 ③；② 崩溃残留三档恢复路径（S15）；③ **跨目录硬链 = 非防篡改边界**（**刻意不进安全清单**：该维度**无判据**——`nlink` 在 FAT/exFAT/网络盘恒为 1 ⇒ 跨目录硬链**永远漏判**；同目录硬链已由 S2 的 `(dev,ino)` 覆盖；补偿四条：S21 限额只管源目录、S22 只收本机本地目录源、审计固定记 `hardlink_check=best-effort`（不虚报已防护）、`SCHEMA.md` 明写「非防篡改边界」）ⓘ 窗口级/组件级授权**不在本批** —— 本批做 `withSenderCheck` + **S20 的 sender 路由前缀硬断言**（路由不在 `/film-engineering` ⇒ 拒绝；**前缀**匹配 ⇒ 三个标签页都放行、**不误伤合法调用**），但**组件级授权做不了也不假装做**（同一文档承载三标签页，路由判不出组件）；缓解四层（**受信来源 = preload 白名单登记的 `filmEngineering.importKit` 接口**（`access-control.js` 的 `PUBLIC_METHODS` 登记 ⇒ 未登记的方法默认不可达）+ **路由前缀断言**（S20，写路径解析不出路由即拒）+ **目录只能由用户原生选**（入参不含路径 ⇒ 无法指定替换内容）+ 严格校验不落盘 + 全量审计），信任域内的越权**由审计可见**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "ecdc0e8c52566f91056d02a92cab4cd1801ebe25c01ce7dc64f266113cb69c39",
+  "decidedAt": "2026-10-23T05:38:45.937Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

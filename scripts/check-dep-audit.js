@@ -27,6 +27,12 @@
  *   node scripts/check-dep-audit.js               # 检查（CI）
  *   node scripts/check-dep-audit.js --update      # 扫描并把新公告并入基线
  *   node scripts/check-dep-audit.js --json        # JSON 输出
+ *
+ * 刷新路径（定时作业 .github/workflows/dep-audit-refresh.yml 用）：
+ *   node scripts/check-dep-audit.js --update --merge-from=<分支基线.json> \
+ *        --refresh-report=<报告.json> --refresh-body=<PR 正文.md>
+ *   --merge-from  = 刷新分支上那份基线。合成底 = 主干基线 ∪ 分支基线（保住人已补的结论）。
+ *   --refresh-report / --refresh-body = 本轮「变了什么」的机器可读报告 + 给人做决定的 PR 正文。
  */
 
 'use strict';
@@ -262,6 +268,61 @@ function ghsaFromUrl (url) {
   return m ? m[0].toUpperCase() : null;
 }
 
+/**
+ * 比较两个「修复下界」段（形如 `>=1.1.16`）：按版本号**数值**升序，解析不出时降级为字符串比较。
+ * 为什么要数值排序而不是字典序：`>=10.2.0` 在字典序里排在 `>=5.0.7` 前面 ⇒ 基线 diff 会随顺序抖动。
+ */
+function cmpPatchedBound (a, b) {
+  const num = (s) => {
+    const m = />=\s*(\d+)\.(\d+)\.(\d+)/.exec(String(s || ''));
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  };
+  const na = num(a); const nb = num(b);
+  if (na && nb) {
+    for (let i = 0; i < 3; i += 1) {
+      if (na[i] !== nb[i]) return na[i] - nb[i];
+    }
+    return 0;
+  }
+  return String(a).localeCompare(String(b));
+}
+
+/**
+ * 合并「同一 GHSA 的多个修复族」的修复下界。
+ *
+ * 为什么必须合并（2026-10-24 实测，判据侧的真缺陷）：
+ * npm/pnpm 对**一个 GHSA 的多条易感区间**（不同版本线各有自己的修复版）会返回**多条** advisory，
+ * 它们共享同一个 `github_advisory_id`。`parseNpmAuditV2`（npm v2 域）用「去重后 join」合并它们，
+ * 而本函数（pnpm 域）原先是**覆盖** —— 只留最后读到的那一个
+ * ⇒ 记录下来的下界取决于 **npm 响应里这些族的先后顺序** ⇒ 该字段**非确定**：
+ * 同一份锁、同一批公告，两次 `--update` 可能写出不同的 `patched`。
+ *
+ * 危害不是「值不好看」，而是**它会与人工写的 `targetVersion` 配对**：
+ * `checkTargetEscapes` 判「目标版本低于修复下界 ⇒ 这笔账永远闭不了」。
+ * 于是一次纯粹的响应顺序抖动，就能让**人已经判过的账**当场判红 ——
+ * 实测现场：`GHSA-3jxr-9vmj-r5cp`（brace-expansion）的 `patched` 在 `>=1.1.16` 与 `>=5.0.7`
+ * 之间来回跳，而人写的 `targetVersion` 是 `1.1.16` ⇒ 刷成 `>=5.0.7` 时立刻
+ * `DECISION_CONTRADICTS_PATCHED`。机器人自己刷出来的那份基线就是这个形态。
+ *
+ * 合并口径（逐条写死，避免"看起来合了"）：
+ *   · **任一族没有修复版本（空）⇒ 合并结果也是空**（= 没有修复版本）：
+ *     有一条线无解 ⇒ 整本账无解 ⇒ 保守侧（`no-fix-available`）才是诚实答案；
+ *   · 否则取所有族的下界**去重**，再按**版本号升序**排列。
+ *     排序是让输出与响应顺序无关的那一步（`checkTargetEscapes` 逐段比较，与顺序无关；
+ *     但顺序稳定才能让基线 diff 不抖动）。
+ */
+function mergePatchedBounds (prev, next) {
+  // prev 为 undefined/null ⇒ 这是该 GHSA 的第一个族，直接取它。
+  if (prev === undefined || prev === null) return String(next || '');
+  const segs = (s) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const a = segs(prev);
+  const b = segs(next);
+  // 一族无解 ⇒ 整本无解（保守：宁可让人改判 no-fix-available，也不让"看起来有修复版"蒙混过关）。
+  if (!a.length || !b.length) return '';
+  const all = [...new Set(a.concat(b))].sort(cmpPatchedBound);
+  return all.join(', ');
+}
+
 /** pnpm/npm audit JSON → 归一化条目。按 GHSA id 去重（同一公告可能命中多个 workspace）。 */
 function parseNpmAudit (report) {
   const advisories = (report && report.advisories) || {};
@@ -278,7 +339,9 @@ function parseNpmAudit (report) {
       id,
       module: raw.module_name || 'unknown',
       severity: raw.severity || 'unknown',
-      patched,
+      // 同一 GHSA 的多个修复族要**合并**（见 mergePatchedBounds）：覆盖会让这个字段取决于
+      // npm 响应里各族的先后顺序 ⇒ 非确定 ⇒ 与人工 targetVersion 配对时随机判红。
+      patched: mergePatchedBounds(prev ? prev.patched : undefined, patched),
       roots: prev ? [...new Set(prev.roots.concat(roots))].sort() : roots,
     };
     out.set(id, entry);
@@ -392,9 +455,26 @@ function matchLedgerKey (index, e) {
   return hit.length ? hit[0] : null;
 }
 
-/** 基线落盘：新增条目只带 TODO 决策（必须人工补结论，否则 META_INVALID 立刻拦下）。 */
-function writeBaseline (found, old, p) {
+/**
+ * 基线落盘。
+ *
+ * **新条目的预填（2026-10-24 起）**：新公告不再一律写 `decision: 'TODO'`（那会让门禁立刻判红，
+ * 而实测涌入速率是 2–7 条/小时 ⇒ 门禁在主干上长期红，全仓 PR 周期性 BLOCKED）。
+ * 改为由机器**预填一个机械可判的承诺**：`upgrade-tracked` + `targetVersion`（= 各族修复下界的最大值）
+ * + `dueBy`（到期日）+ 标准 note。
+ *
+ * 口径边界（写死，避免"看起来省了事"）：
+ *   · 预填的是**「已登记、待升级」**（本仓既有语义），**不是「风险已被接受」** ——
+ *     `accepted-risk` / `not-exploitable` / `no-fix-available` 三种是真正的风险判断，**一律留给人**。
+ *   · 推不出 `targetVersion`（无修复版本 / 规格形状不认识）⇒ **不预填**，保持 `TODO` ⇒ 门禁照红等人判断。
+ *   · `dueBy` **只在首次登记时**给出，**永不由机器延长**（续期 = 把复核变成永续挂账）。
+ *   · 机器只**收紧**承诺（把 `targetVersion` 抬到事实要求的下限），**绝不放宽**（人抬得更高的一律保留）。
+ *   · 机器只托管**自己预填过**的条目（带 `prefilled` 标记）；**人的条目机器不碰**。
+ */
+function writeBaseline (found, old, p, opts) {
+  const o = opts || {};
   const file = p || BASELINE_PATH;
+  const today = o.today || new Date().toISOString().slice(0, 10);
   const prevList = (old && old.advisories) || [];
   const prev = new Map(prevList.map((e) => [e.source + '/' + e.id, e]));
   // 裁决 i2：已被某条 found 认领/合并掉的基线键。writeBaseline 按 found 全量重写，
@@ -454,6 +534,14 @@ function writeBaseline (found, old, p) {
       }
       if (aliases.length) merged.aliases = aliases;
       else delete merged.aliases; // 别名没了就别留陈的，否则会认领到不该认领的公告
+      // 机器托管的条目（自己预填过的）：事实长大时把 targetVersion **收紧**到当前派生值，
+      // 绝不放宽（人抬得更高的一律保留）。`dueBy` 不在这里动 —— 到期日只由人顺延。
+      if (merged.prefilled) {
+        const derived = deriveTargetVersion(e.patched);
+        if (derived && (!merged.targetVersion || compareVersions(merged.targetVersion, derived) < 0)) {
+          merged.targetVersion = derived;
+        }
+      }
       return merged;
     }
     const fresh = {
@@ -461,17 +549,383 @@ function writeBaseline (found, old, p) {
       patched: e.patched, roots: e.roots, decision: 'TODO', note: '待补结论（新公告）',
     };
     if (aliases.length) fresh.aliases = aliases;
+    // 预填：推得出机械承诺就预填，推不出就保持 TODO（等人判断）。
+    const prefill = buildPrefill(e, today);
+    if (prefill) Object.assign(fresh, prefill);
     return fresh;
   });
   // 裁决 i2：被合并掉的 found（上面返回 null）不落盘，否则就是把同一旧行复制成多份。
   const advisories = sortEntries(rawAdvisories.filter(Boolean));
   const body = {
-    '//': '依赖漏洞审计挂账清单（audit-batch-4）。升级/新增依赖后请跑：node scripts/check-dep-audit.js --update 并补齐 decision/note。',
+    '//': '依赖漏洞审计挂账清单（audit-batch-4）。新条目由机器预填「已登记、待升级」+ 修复下界 + 到期日；'
+      + '请确认承诺版本兜得住（兜不住就改 decision 并写清理由）。跑 node scripts/check-dep-audit.js --update 刷新。',
     reviewBy: (old && old.reviewBy) || '',
     advisories,
   };
   fs.writeFileSync(file, JSON.stringify(body, null, 2) + '\n', 'utf8');
   return body;
+}
+
+/** 两个 YYYY-MM-DD 取更晚的那个。格式非法时返回**合法**的那一个（不让坏值盖好值）。 */
+function laterDate (a, b) {
+  const x = String(a || '').trim();
+  const y = String(b || '').trim();
+  const ok = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (ok(x) && ok(y)) return x > y ? x : y;
+  if (ok(x)) return x;
+  if (ok(y)) return y;
+  return x || y;
+}
+
+/** 'x.y.z' → [x,y,z]；形状不认识返回 null（**不猜**：宁可推不出承诺，也不给一个错的）。 */
+function parseVersion (v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v || '').trim());
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
+/** a < b ⇒ -1；a > b ⇒ 1；相等 ⇒ 0。形状不认识 ⇒ 视为「更大」（保守：别用坏值盖好值）。 */
+function compareVersions (a, b) {
+  const x = parseVersion(a);
+  const y = parseVersion(b);
+  if (!x || !y) return 0;
+  for (let i = 0; i < 3; i++) {
+    if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * 从 `patched`（可能多段，形如 `>=1.1.16, >=5.0.7`）派生**承诺版本**。
+ *
+ * 口径与 `checkTargetEscapes` 的「逐段都逃出」**同源**：要闭掉这条公告的账，
+ * 承诺版本必须**同时**逃出每一族的下界 ⇒ 取各族下界的**最大值**。
+ * （例：`>=1.1.16, >=5.0.7` ⇒ 5.0.7 —— 树里既有 brace-expansion@1.1.15 也有 @5.0.6，
+ *  只抬到 1.1.16 闭不上 @5.0.6 那份。）
+ *
+ * 形状不认识（无修复版本 / 非 `>=x.y.z` 段）⇒ 返回空串 ⇒ **不预填**（宁可等人判断，也不给个错的承诺）。
+ */
+function deriveTargetVersion (patched) {
+  const segs = String(patched || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!segs.length) return '';
+  let best = null;
+  for (const seg of segs) {
+    const m = />=\s*(\d+)\.(\d+)\.(\d+)/.exec(seg);
+    if (!m) return '';
+    const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (!best || compareVersions(v.join('.'), best.join('.')) > 0) best = v;
+  }
+  return best ? best.join('.') : '';
+}
+
+/** 机器预填的到期窗口（天）。到期未修完 ⇒ 该条判红（DECISION_OVERDUE）⇒ 逼人回来处理。 */
+const PRE_FILL_GRACE_DAYS = 14;
+
+/** 今天 + N 天（YYYY-MM-DD）。日期算不出来时返回空串（⇒ 不预填，不猜）。 */
+function addDays (dateStr, days) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || '').trim());
+  if (!m) return '';
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * 机器给新公告的**预填**：一个机械可判的承诺（不是风险判断）。
+ * 推不出承诺（无修复版本 / 形状不认识）⇒ 返回 null ⇒ 条目保持 `TODO`，等人判断。
+ */
+function buildPrefill (e, today) {
+  const tv = deriveTargetVersion(e && e.patched);
+  if (!tv) return null;
+  const dueBy = addDays(today, PRE_FILL_GRACE_DAYS);
+  if (!dueBy) return null;
+  return {
+    decision: 'upgrade-tracked',
+    targetVersion: tv,
+    dueBy,
+    prefilled: true,
+    note: '机械登记（机器按公告修复下界预填，未经可利用性评估）：动作=升级到 ' + tv
+      + '（公告修复下界，各族取最高）；到期日 ' + dueBy + ' 前未修完则本条判红。',
+  };
+}
+
+/**
+ * 合成「主干基线」与「刷新分支上的基线」—— 定时刷新作业在**保住人工结论**的前提下刷新基线。
+ *
+ * 为什么这一步是必需的（不是"稳妥"）：刷新作业把产物落在**分支**上，而那条分支正是上一次刷新的
+ * 产物 —— 人在这条分支上补过 decision/note。若直接拿主干基线当 `--update` 的底：
+ *   ① 人刚补的结论会被**冲成 TODO**（writeBaseline 只认"底里有"的条目）；
+ *   ② 人**在主干上**补的结论（别人合的 PR 带进来的）会因为分支上还没有而被判成**新公告**
+ *      ⇒ 同一份结论要再补一遍。
+ * 两件事的共同点是：把「人的结论」当成可再生的中间产物 —— 而它是这份台账里唯一不可再生的部分。
+ *
+ * 合成口径（逐条写死，避免"看起来合了"）：
+ *   · 条目集合取**并集**（主干 ∪ 分支）：任一侧有就要在，绝不因另一侧缺而丢；
+ *   · 人工字段（decision / note / targetVersion）以**分支**为准 —— 它更新（人刚在刷新 PR 里补的）；
+ *   · `reviewBy` 取**较晚**的那个：挂账复核日只能由人顺延，机器不得缩短；也不得替人续期
+ *     （writeBaseline 原样保留它，所以这一格由本函数说话）。
+ */
+function mergeBaselines (main, branch) {
+  const list = (b) => (b && Array.isArray(b.advisories)) ? b.advisories : [];
+  const index = new Map();
+  for (const e of list(main)) {
+    if (e && e.source && e.id) index.set(e.source + '/' + e.id, Object.assign({}, e));
+  }
+  for (const e of list(branch)) {
+    if (!e || !e.source || !e.id) continue;
+    const k = e.source + '/' + e.id;
+    const prev = index.get(k);
+    if (!prev) { index.set(k, Object.assign({}, e)); continue; }
+    const merged = Object.assign({}, prev);
+    for (const f of ['decision', 'note', 'targetVersion', 'dueBy']) {
+      const v = e[f];
+      if (v !== undefined && v !== null && String(v).trim() !== '') merged[f] = v;
+    }
+    // `prefilled` 是**标记**（不是待办文本）：机器只托管自己预填过的条目。
+    // 合成时以分支上的为准 —— 人的分支上若把 prefilled 改掉/删掉，那边说了算。
+    if (e.prefilled === true) merged.prefilled = true;
+    else if (e.prefilled === false) delete merged.prefilled;
+    index.set(k, merged);
+  }
+  return {
+    '//': (main && main['//']) || (branch && branch['//']) || '',
+    reviewBy: laterDate((main && main.reviewBy) || '', (branch && branch.reviewBy) || ''),
+    advisories: sortEntries([...index.values()]),
+  };
+}
+
+/** 报告/正文里用的条目摘要（只留要给人看的字段，避免把整条基线塞进 PR 正文）。 */
+function briefEntry (e) {
+  return {
+    key: e.source + '/' + e.id,
+    source: e.source,
+    id: e.id,
+    module: e.module || 'unknown',
+    severity: e.severity || 'unknown',
+    patched: e.patched || '',
+    decision: e.decision || '',
+    note: e.note || '',
+    targetVersion: e.targetVersion || '',
+    dueBy: e.dueBy || '',
+    prefilled: e.prefilled === true,
+    roots: Array.isArray(e.roots) ? e.roots : [],
+  };
+}
+
+/**
+ * 刷新报告：这一轮相对**合成底**变了什么。
+ *
+ * 三类分开是刻意的 —— 它们的处置完全不同，混成一句「基线变了」会把两件事说成一件事：
+ *   · added        新公告：机器登记好了，**等人给结论**；
+ *   · cleared      清账：原来挂着、这轮不再命中 —— 要确认是「真修好了」而不是「这轮没量到」；
+ *   · migrated     公告换号：同一条公告换了主 id，**结论沿用**，不算新增也不算清账。
+ */
+function buildRefreshReport (oldBase, newBase, opts) {
+  const o = opts || {};
+  const oldList = (oldBase && oldBase.advisories) || [];
+  const newList = (newBase && newBase.advisories) || [];
+  const oldIndex = new Map(oldList.map((e) => [e.source + '/' + e.id, e]));
+  const newKeys = new Set(newList.map((e) => e.source + '/' + e.id));
+  const claimedOld = new Set();
+  const migrated = [];
+  for (const e of newList) {
+    const own = e.source + '/' + e.id;
+    for (const k of matchLedgerKeys(oldIndex, e)) {
+      if (k === own) continue;
+      claimedOld.add(k);
+      migrated.push({ from: k, to: own, source: e.source });
+    }
+  }
+  const migratedTargets = new Set(migrated.map((m) => m.to));
+  const added = newList.filter((e) => {
+    const k = e.source + '/' + e.id;
+    return !oldIndex.has(k) && !migratedTargets.has(k);
+  });
+  const cleared = oldList.filter((e) => {
+    const k = e.source + '/' + e.id;
+    return !newKeys.has(k) && !claimedOld.has(k);
+  });
+  // 待补结论 = 现存条目里 decision 仍是 TODO 的（含此前就没人补的，不只本轮新增）
+  const needDecision = newList.filter((e) => !e.decision || e.decision === 'TODO');
+  // 机器已预填、等人确认 = 带 `prefilled` 标记的条目（机器给了机械承诺，人只需确认/改写）。
+  // 这一档**必须单独列出来**：预填之后新公告不再是 TODO，若只列 TODO，人会以为「没东西要做」，
+  // 而实际上这些条目要么到期会判红、要么承诺的版本需要人确认兜不兜得住。
+  const prefilled = newList.filter((e) => e.prefilled === true);
+  const addedKeys = new Set(added.map((e) => e.source + '/' + e.id));
+  // ⛔ 「刷新后仍会判红」的条目必须**逐条带上**：刷新会改事实（patched 随公告库变），
+  // 事实一变，**已有结论可能就闭不上了**（实测 2026-10-24：brace-expansion 的 patched 从
+  // >=1.1.16 变成 >=5.0.7，而人写的 targetVersion 还是 1.1.16 ⇒ 门禁判 DECISION_CONTRADICTS_PATCHED）。
+  // 只列「decision 还是 TODO 的」会漏掉这一类 ⇒ 正文会说「无需补结论」而门禁其实红着。
+  // 而**机器人开的 PR 永远不跑 CI**（GITHUB_TOKEN 触发的事件不再触发工作流）⇒
+  // **正文是人的唯一信号** ⇒ 这一档漏不得。
+  const violations = Array.isArray(o.violations) ? o.violations.slice() : [];
+  return {
+    scanAt: o.scanAt || new Date().toISOString(),
+    changed: added.length > 0 || cleared.length > 0 || migrated.length > 0,
+    reviewBy: (newBase && newBase.reviewBy) || '',
+    total: newList.length,
+    added: added.map((e) => Object.assign(briefEntry(e), { isNew: true })),
+    cleared: cleared.map((e) => Object.assign(briefEntry(e), { isNew: false })),
+    migrated,
+    needDecision: needDecision.map((e) => Object.assign(briefEntry(e), { isNew: addedKeys.has(e.source + '/' + e.id) })),
+    prefilled: prefilled.map((e) => Object.assign(briefEntry(e), { isNew: addedKeys.has(e.source + '/' + e.id) })),
+    violations,
+  };
+}
+
+/**
+ * 刷新 PR 的正文（人机分工说明 + 待办清单）。
+ *
+ * 这一段文字是**给人做决定用的**，不是给人看机器日志用的，所以它必须写清三件事：
+ *   ① 机器已经做了什么、没做什么（边界写死，免得读的人以为结论也是机器给的）；
+ *   ② 具体到每一条要填哪个字段、合法取值是什么；
+ *   ③ 两处会让"看着像挂了"其实是正常现象的机制（GITHUB_TOKEN 不触发 CI、main-red 豁免出口）。
+ */
+function renderRefreshBody (report, opts) {
+  const o = opts || {};
+  const r = report || { added: [], cleared: [], migrated: [], needDecision: [], total: 0 };
+  const L = [];
+  const cell = (s) => String(s === undefined || s === null ? '' : s).replace(/\|/g, '\\|');
+  L.push('## 依赖漏洞基线自动刷新');
+  L.push('');
+  L.push('> 本 PR 由定时作业 `依赖漏洞基线自动刷新`（`.github/workflows/dep-audit-refresh.yml`）自动生成并维护。');
+  L.push('> 每次刷新都会**重写本节** —— 请不要把结论写在这里，结论写在 `scripts/dep-audit-baseline.json` 里。');
+  L.push('');
+  L.push('**机器已经做完的**：在真联网环境跑完三域扫描（`npm` / `npm-opscenter` / `pip`），执行');
+  L.push('`node scripts/check-dep-audit.js --update`，把结果落进 `scripts/dep-audit-baseline.json`：');
+  L.push('');
+  L.push('- 新公告由机器**预填**一个机械可判的承诺（`upgrade-tracked` + 公告修复下界 + 到期日）—— '
+    + '预填的是「已登记、待升级」，**不是**风险判断（`accepted-risk` / `not-exploitable` / `no-fix-available` 一律留给人）；');
+  L.push('- 已不再命中的挂账被清掉（请确认是「真修好了」而不是「这轮没量到」）；');
+  L.push('- 已有人工结论（`decision` / `note` / `targetVersion`）**原样保留**。');
+  L.push('');
+  L.push('**必须由人补的**：给每条待补条目写 `decision` + `note`。');
+  L.push('');
+  L.push('| decision | 什么时候选它 | 额外必填 |');
+  L.push('|---|---|---|');
+  L.push('| `upgrade-tracked` | 已决定升级、正在跟进 | `targetVersion`（`x.y.z` 字面量，且必须真的逃出下表的修复版本） |');
+  L.push('| `accepted-risk` | 评估过、接受风险 | 无 |');
+  L.push('| `not-exploitable` | 当前不可达 | 无 |');
+  L.push('| `no-fix-available` | 上游没有修复版本 | 无 |');
+  L.push('');
+  L.push('不补 ⇒ `依赖漏洞审计` 门禁以 `BASELINE_META_INVALID` 判红。');
+  L.push('');
+  L.push('> ⚠️ 说清门禁的**分量**：`依赖漏洞审计` 目前**不在仓库的 required checks 名单里**');
+  L.push('> （名单只有 QG Static / QG Unit Tests / electron-tests / 文档同步检查 / 债务熔断检查 / 单元测试+Lint / GUI Gate Result）。');
+  L.push('> ⇒ 它是**纪律**（本仓合并纪律：门禁未绿不合并），不是 GitHub 层面**拦得住**的硬闸。');
+  L.push('> 补结论这件事因此仍然要靠人自觉 —— 想把它变成硬闸，得把该检查加进分支保护规则，');
+  L.push('> 而那属于「改谁来守门」，按 AGENTS.md 归人工拍板，本作业不代劳。');
+  L.push('');
+  L.push('### 本轮扫描结果');
+  L.push('');
+  L.push('- 扫描时间：' + cell(r.scanAt));
+  L.push('- 新登记（等人给结论）：' + (r.added || []).length + ' 条');
+  L.push('- 清账（已不再命中）：' + (r.cleared || []).length + ' 条');
+  L.push('- 公告换号（结论沿用）：' + (r.migrated || []).length + ' 条');
+  L.push('- 基线现存挂账：' + (r.total || 0) + ' 条');
+  L.push('- 挂账复核日 `reviewBy`：`' + cell(r.reviewBy) + '` —— **本作业不会推进这个日期**（复核日是「人看过这批账」的证明，机器续期等于把复核变成永续挂账）；是否顺延由人决定。');
+  L.push('');
+  const need = r.needDecision || [];
+  const viol = r.violations || [];
+  if (need.length) {
+    L.push('### 待人工补结论（' + need.length + ' 条）');
+    L.push('');
+    L.push('| source/id | 包 | 严重度 | 修复版本 | 本轮新登记 | 要填 |');
+    L.push('|---|---|---|---|---|---|');
+    for (const e of need) {
+      L.push('| `' + cell(e.key) + '` | ' + cell(e.module) + ' | ' + cell(e.severity) + ' | '
+        + (e.patched ? '`' + cell(e.patched) + '`' : '无修复版本') + ' | ' + (e.isNew ? '是' : '否（此前就没人补）')
+        + ' | `decision` + `note`' + (e.decision === 'upgrade-tracked' ? ' + `targetVersion`' : '') + ' |');
+    }
+    L.push('');
+  } else {
+    L.push('### 待人工补结论');
+    L.push('');
+    L.push('- 无「decision 还是 TODO」的条目。');
+    L.push('');
+  }
+  const prefilled = r.prefilled || [];
+  if (prefilled.length) {
+    L.push('### 机器已预填、等你确认（' + prefilled.length + ' 条）');
+    L.push('');
+    L.push('| source/id | 包 | 严重度 | 修复版本 | 预填承诺 | 到期日 | 要确认 |');
+    L.push('|---|---|---|---|---|---|---|');
+    for (const e of prefilled) {
+      L.push('| `' + cell(e.key) + '` | ' + cell(e.module) + ' | ' + cell(e.severity) + ' | '
+        + (e.patched ? '`' + cell(e.patched) + '`' : '无修复版本') + ' | ' + (e.targetVersion ? '`>=` ' + cell(e.targetVersion) : '—')
+        + ' | ' + (e.dueBy ? cell(e.dueBy) : '—')
+        + ' | 这个版本兜得住吗？兜不住就改成别的 decision（并写清理由） |');
+    }
+    L.push('');
+    L.push('> 机器填的是**「已登记、待升级」**（机械可判的那部分），**不是风险判断**：');
+    L.push('> `targetVersion` 取公告各修复族下界的**最高**（要同时闭掉树里每一份命中的 copy）；');
+    L.push('> **到期日只由人顺延** —— 机器不续期，续期等于把复核变成永续挂账。');
+    L.push('> `accepted-risk` / `not-exploitable` / `no-fix-available` 三种是真正的风险判断，**机器不代填**。');
+    L.push('');
+  }
+  if (viol.length) {
+    L.push('### ⚠️ 刷新后门禁仍会判红（' + viol.length + ' 条）—— 这些**已有结论已经失效**，必须改');
+    L.push('');
+    L.push('| 判据 | 说明 |');
+    L.push('|---|---|');
+    for (const v of viol) {
+      // 判据名 = 首个空格前的部分（去掉尾冒号）；说明 = 整句原话（门禁怎么说的就怎么转述）
+      const rule = String(v).split(' ')[0].replace(/[:：]\s*$/, '');
+      L.push('| ' + cell(rule) + ' | ' + cell(String(v)) + ' |');
+    }
+    L.push('');
+    L.push('> 这一档**不是「还没给结论」**，而是「**给了、但刷新之后闭不上了**」：');
+    L.push('> 机器刷新会改事实（公告库把 `patched` 的修复下界改了），事实一变，');
+    L.push('> 人之前写的 `targetVersion` / `decision` 就可能不再满足判据。');
+    L.push('> ⇒ **不要因为上一节写「无」就以为没事** —— 上面这几条是门禁会判红的原话。');
+    L.push('');
+  } else {
+    L.push('### ⚠️ 刷新后门禁仍会判红的条目');
+    L.push('');
+    L.push('- 无。刷新后的基线自洽：`decision` 合法、`note` 非空、`targetVersion` 仍逃得出修复下界。');
+    L.push('');
+  }
+  const cleared = r.cleared || [];
+  if (cleared.length) {
+    L.push('### 本轮被清掉的挂账（请确认是「确实修好了」）');
+    L.push('');
+    L.push('| source/id | 包 | 原结论 | 原 note |');
+    L.push('|---|---|---|---|');
+    for (const e of cleared) {
+      L.push('| `' + cell(e.key) + '` | ' + cell(e.module) + ' | ' + cell(e.decision) + ' | ' + cell(e.note) + ' |');
+    }
+    L.push('');
+    L.push('> 判据里对这一档有专门防护（`UNVERIFIED_ZERO_SCAN`）：「本轮 0 命中但基线里仍有挂账」会**拒写基线**并报错，');
+    L.push('> 所以下面这些条目是**扫到了别的公告**才被清掉的；但「某条公告从清单里消失」与「那条公告被修了」仍不是同一件事，');
+    L.push('> 请扫一眼包名与版本，确认不是解析口径变化导致的漏报。');
+    L.push('');
+  }
+  const migrated = r.migrated || [];
+  if (migrated.length) {
+    L.push('### 公告换号（结论沿用，无需重新给结论）');
+    L.push('');
+    for (const m of migrated) L.push('- `' + cell(m.from) + '` → `' + cell(m.to) + '`');
+    L.push('');
+  }
+  L.push('### 合并前请注意三处「看起来像挂了，其实是机制」的坑');
+  L.push('');
+  L.push('1. **本 PR 首轮不会自动跑 CI。** 分支与 PR 都是用仓库自带的 `GITHUB_TOKEN` 推的，');
+  L.push('   而 GitHub 规定「由 `GITHUB_TOKEN` 触发的事件不再触发工作流」（`workflow_dispatch` / `repository_dispatch` 除外）。');
+  L.push('   ⇒ **你推第一次 decision 改动之后，CI 才会跑起来**（那次推送是人的推送，会正常触发 `pull_request` 事件）。');
+  L.push('2. **主干此刻可能正红着，而红的就是本 PR 要修的那条。** `scripts/check-main-red.js` 的 `rc=2` 档');
+  L.push('   会在「主干有红」时挡住合并，唯一的出口是本 PR 正是去修那条红时显式传');
+  L.push('   `--allow-main-red "<逐条点名主干红 + 归因>"`（例如点名 `依赖漏洞审计`）。');
+  L.push('3. **本 PR 自身的 `依赖漏洞审计` 门禁在 decision 补齐前是红的**，而该检查不在 required checks 名单里');
+  L.push('   （见上文「门禁的分量」）。⇒ 合并前请自己确认那一条已经绿了。');
+  L.push('');
+  L.push('### 本地复核');
+  L.push('');
+  L.push('```bash');
+  L.push('node scripts/check-dep-audit.js          # 判定（不联网的部分照常判）');
+  L.push('node scripts/check-dep-audit.js --json   # 机器可读');
+  L.push('```');
+  L.push('');
+  L.push('本机没有 `pip-audit` 时 `pip` 域会报 `SCANNER_UNAVAILABLE`（该域本轮不判），其余两域照常判。');
+  return L.join('\n') + '\n';
 }
 
 /**
@@ -588,8 +1042,33 @@ function evaluate (baseline, found, today, scannedSources) {
       // 没有修复版本就根本不该挂这个 decision。判据全部在 checkTargetEscapes 里，
       // 这里只调一次 —— 同一条违规的文案不得取决于调用点（用例直接测纯函数时必须拿到同一句话）。
       // 动因（实测）：axios 的 12 条公告曾被登记成 upgrade-tracked 挂账，而修复版 1.20.0 早已发布。
-      const bad = checkTargetEscapes(item);
+      //
+      // ⛔ 校验用的必须是**扫描现值**的 `patched`，不是基线自己记的那个（2026-10-24 实测修正）：
+      // 基线里的 `patched` 是**上一次**刷新时抄下来的快照，可能已经陈旧；
+      // 拿陈旧事实校验承诺 ⇒ 「台账记的下界偏小」会被当成真下界 ⇒ **一个实际闭不上的承诺也能过门禁**
+      // （实测 2 笔：brace-expansion 的两族下界分别是 >=1.1.16 / >=5.0.7，基线只记了 1.1.16 那一族）。
+      // ⇒ 事实以扫描为准（扫描就是「现在的真相」），机器刷新的事实才真正成为承诺的校验基准。
+      const bad = checkTargetEscapes(Object.assign({}, item, { patched: e.patched }));
       if (bad) violations.push(bad);
+    }
+  }
+
+  // ⛔ 到期即红（2026-10-24 起）：机器预填的条目带 `dueBy`（到期日）。
+  // 机器**不续期**（续期 = 把复核变成永续挂账）⇒ 到期仍未修完就必须出声。
+  // 这条是「机器预填」能成立的前提：没有它，预填就等于永久放行。
+  for (const item of list) {
+    const dueBy = String(item.dueBy || '').trim();
+    if (!dueBy) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueBy)) {
+      violations.push('BASELINE_META_INVALID: ' + item.source + '/' + item.id
+        + ' 的 dueBy=' + JSON.stringify(dueBy) + ' 非法（必须是 YYYY-MM-DD）');
+      continue;
+    }
+    if (dueBy < now) {
+      violations.push('DECISION_OVERDUE: ' + item.source + '/' + item.id
+        + ' 的到期日 ' + dueBy + ' 已过（今天 ' + now + '）—— 这条承诺（' + item.decision
+        + ' → ' + (item.targetVersion || '未填') + '）到今天还没兑现：要么真的升级掉它，'
+        + '要么改成别的 decision 并写清理由（机器不续期，续期等于把复核变成永续挂账）');
     }
   }
 
@@ -661,6 +1140,13 @@ function runCheck (opts = {}) {
   const runners = opts.runners || createDefaultRunners(registry);
   const parsers = opts.parsers || PARSERS;
   const bp = opts.baselinePath || BASELINE_PATH;
+  const mergeFrom = opts.mergeFrom || '';
+  // --merge-from 只对刷新路径有意义：判定路径的底必须是**主干**那份，否则「这条公告登记过没有」
+  // 这个事实会跟着分支漂移。误用直接拒，不静默忽略（静默忽略 = 判据把自己的输入换掉了还不吭声）。
+  if (mergeFrom && !isUpdate) {
+    error('--merge-from 只能与 --update 同用（它是「刷新时保住人工结论」的底，不是判定底）');
+    return 1;
+  }
 
   const results = {};
   const unavailable = [];
@@ -716,7 +1202,18 @@ function runCheck (opts = {}) {
       + ' —— 该域本轮不判（其挂账条目也不判成"已不再命中"），已扫描域照常判违规');
   }
 
-  const base = readBaseline(bp);
+  let base = readBaseline(bp);
+  if (mergeFrom) {
+    // 刷新路径的底 = 主干基线 ∪ 分支基线（mergeBaselines）。读不到分支那份 ⇒ 拒刷：
+    // 拿主干当底硬刷会把人刚补的结论冲成 TODO，而那正是这份台账里唯一不可再生的部分。
+    const branchBase = readBaseline(mergeFrom);
+    if (!branchBase) {
+      error('MERGE_BASELINE_UNREADABLE: 读不到分支基线 ' + mergeFrom
+        + ' ⇒ 拒绝刷新（拿主干当底硬刷会把人刚补的 decision/note 冲成 TODO）');
+      return 1;
+    }
+    base = mergeBaselines(base, branchBase);
+  }
   if (isUpdate) {
     // 这条守卫与 evaluate 里的 UNVERIFIED_ZERO_SCAN 是一对，且**必须成对存在**：
     // 红文案本身会喊「请 --update 清账」，而 CI 那种空测量域恰恰会让人在那一刻按下 --update。
@@ -735,8 +1232,24 @@ function runCheck (opts = {}) {
         + '确认「确实都修了」之后再重跑 --update。');
       return 1;
     }
-    const body = writeBaseline(found, base, bp);
-    log('基线已写入', bp, '（' + body.advisories.length + ' 条；新增条目 decision=TODO 必须补结论）');
+    const body = writeBaseline(found, base, bp, { today: opts.today });
+    log('基线已写入', bp, '（' + body.advisories.length + ' 条；新增条目已预填机械承诺 + 到期日，请确认或改写）');
+    // 刷新报告 / PR 正文：给人做决定用的读数。相对**合成底**算（不是相对主干），
+    // 否则分支上人已经补好的结论会被算成「本轮新增」⇒ 待办清单永远清不空。
+    if (opts.refreshReport || opts.refreshBody) {
+      // 刷新后的基线**自己也可能被门禁判红**（事实变了 ⇒ 旧结论闭不上了）⇒ 把门禁的原话带进报告。
+      // 不带的话正文会说「无需补结论」而门禁其实红着，而机器人开的 PR 又永远不跑 CI（正文是唯一信号）。
+      const judged = evaluate(body, found, undefined, scannedSources);
+      const report = buildRefreshReport(base, body, { scanAt: opts.scanAt, violations: judged.violations });
+      if (opts.refreshReport) {
+        fs.writeFileSync(opts.refreshReport, JSON.stringify(report, null, 2) + '\n', 'utf8');
+        log('刷新报告已写入', opts.refreshReport);
+      }
+      if (opts.refreshBody) {
+        fs.writeFileSync(opts.refreshBody, renderRefreshBody(report), 'utf8');
+        log('PR 正文已写入', opts.refreshBody);
+      }
+    }
     return 0;
   }
   if (!base) {
@@ -779,7 +1292,20 @@ function runCheck (opts = {}) {
 
 function main () {
   const args = process.argv.slice(2);
-  return runCheck({ isUpdate: args.includes('--update'), isJson: args.includes('--json') });
+  // --xxx=<值> 形态的取值：只认带等号的那种。写成 `--xxx 值` 会被当成未知开关静默忽略 ⇒
+  // 那正是「把配置错误变成永久沉默」的同型，所以这里一律取不到就当没给（由下面的校验出声）。
+  const opt = (name) => {
+    const hit = args.find((a) => a.startsWith('--' + name + '='));
+    return hit ? hit.slice(name.length + 3) : '';
+  };
+  return runCheck({
+    isUpdate: args.includes('--update'),
+    isJson: args.includes('--json'),
+    mergeFrom: opt('merge-from') || undefined,
+    refreshReport: opt('refresh-report') || undefined,
+    refreshBody: opt('refresh-body') || undefined,
+    scanAt: opt('scan-at') || undefined,
+  });
 }
 
 if (require.main === module) process.exitCode = main();
@@ -796,6 +1322,8 @@ module.exports = {
   patchedFromRange,
   runCheck,
   parseNpmAudit,
+  mergePatchedBounds,
+  cmpPatchedBound,
   parsePipAudit,
   parseNpmAuditV2,
   patchedFromRange,
@@ -812,4 +1340,9 @@ module.exports = {
   VALID_DECISIONS,
   DEFAULT_REGISTRY,
   BASELINE_PATH,
+  // 刷新路径（定时作业）专用：合成底、刷新报告、PR 正文渲染。
+  mergeBaselines,
+  buildRefreshReport,
+  renderRefreshBody,
+  laterDate,
 };

@@ -20,6 +20,8 @@
  */
 const test = require('node:test')
 const assert = require('node:assert')
+const fs = require('node:fs')
+const path = require('node:path')
 
 const { pickBaseline } = require('./lib/main-red')
 
@@ -210,6 +212,37 @@ test('接线锁：采集层缺 mainBaseline ⇒ rc=4 硬失败（不得静默回
   assert.strictEqual(code, 4, '缺 mainBaseline 必须 rc=4；实到 ' + code)
 })
 
+// ─── 7b. too-stale 必须在 main() 侧拦成 rc=3（2026-10-22 真机暴露的 Critical） ───
+// 现场形态：`baseline=98e94bc3b staleness=4 baseKind=too-stale` 却给了 `verdict=OK exit=0`。
+// 根因：too-stale 的 rows 是**全绿**的（确实找到了绿基线，只是太旧），judge 只看 rows ⇒ 判绿
+// ⇒ `maxStale` 成了装饰。它不是「绿得远」而是「基准不可用」，必须 fail-closed。
+test('接线锁：baseline=too-stale ⇒ main() 必须判 rc=3，即使 rows 全绿', async () => {
+  const code = await run(['--pr', '7', '--retry-seconds', '0'], baseMock(
+    { kind: 'too-stale', sha: 'oldgreen', staleness: 4, rows: [passRow('A'), passRow('B')] },
+    [passRow('A')]
+  ))
+  assert.strictEqual(code, 3, 'too-stale 必须 rc=3（fail-closed），实到 ' + code + '（说明 maxStale 是装饰）')
+})
+
+test('接线锁：baseline=too-stale 时读数为 newRed=na（未计算），不得涂成 0', async () => {
+  const m = baseMock(
+    { kind: 'too-stale', sha: 'oldgreen', staleness: 9, rows: [passRow('A')] },
+    [passRow('A')]
+  )
+  const lines = []
+  const orig = console.log
+  console.log = (...a) => lines.push(a.map(String).join(' '))
+  try {
+    await run(['--pr', '7', '--retry-seconds', '0'], m)
+  } finally {
+    console.log = orig
+  }
+  const out = lines.join('\n')
+  assert.match(out, /newRed=na/, 'too-stale 必须打印 newRed=na；实到：' + out)
+  assert.match(out, /staleness=9/, '必须点名落后的提交数')
+})
+
+
 // ─── 8. 读数行：newRed 的「未计算」不得涂成 0（CCG i4） ──────────────────
 const { readout } = require('./lib/main-red')
 
@@ -229,4 +262,26 @@ test('readout：newRedComputed 缺省（正常算出）时仍打印真实数字'
   )
   assert.match(s, /newRed=0/, '算出来的 0 必须照常打印；实到：' + s)
 })
+
+// ─── 9. 网络重试的两条结构锁（外部评审 #2/#3/#4） ──────────────────────
+// `run()` 是采集层闭包内的函数，注入不了假 gh；这两条用结构锁钉住「顺序」与「退化路径」，
+// 因为两者的失败形态都是**静默变慢**（不会红、只会把确定性失败拖成慢失败 / 加速触发限流），
+// 靠人读代码发现不了。
+test('结构锁：确定性错误（401/403/404）必须先于瞬时错误判定 —— 否则 404 里的 "timeout" 会被重试 3 轮', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-main-red.js'), 'utf8')
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n')
+  const iDefinite = code.indexOf('DEFINITE_RE.test(')
+  const iTransient = code.indexOf('!TRANSIENT_RE.test(')
+  assert.ok(iDefinite > 0, '必须存在 DEFINITE_RE 判定')
+  assert.ok(iTransient > 0, '必须存在 TRANSIENT_RE 判定')
+  assert.ok(iDefinite < iTransient, 'DEFINITE_RE 必须排在 TRANSIENT_RE 之前（短路优先），实到 definite@' + iDefinite + ' transient@' + iTransient)
+})
+
+test('结构锁：Atomics.wait 不可用时必须退化为「带截止时间的忙等」，不得直接重试', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'check-main-red.js'), 'utf8')
+  const m = src.match(/catch \(_\) \{\s*([\s\S]{0,200}?)\s*\}/)
+  assert.ok(m, '必须存在 Atomics.wait 的 catch 退化分支')
+  assert.match(m[1], /while\s*\(\s*Date\.now\(\)\s*</, '退化分支必须是带 Date.now() 截止的忙等；实到：' + JSON.stringify(m[1]))
+})
+
 

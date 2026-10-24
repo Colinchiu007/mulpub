@@ -95,7 +95,7 @@ module.exports = {
       editor: ['div.input-editor', '.weui-desktop-form__textarea [contenteditable="true"]', '[contenteditable="true"]', '.ql-editor', 'div[contenteditable]'],
       // 封面（若页面存在 image input 则可用；无则由封面步骤 warn）
       cover_input: ['input[type="file"][accept*="image"]'],
-      publish_btn: ['button:has-text("发表")', 'button:has-text("发布")', '[class*="publish"] button', '.submit-btn', '[class*="submit"] button', 'button[class*="primary"]'],
+      publish_btn: ['button:text-is("发表")', 'div:text-is("发表")', 'button:text-is("发布")', '[class*="publish"] button', '.submit-btn', '[class*="submit"] button', 'button[class*="primary"]'],
     },
     kuaishou: {
       upload_btn: ['button:has-text("上传视频")', '[class*="upload"]', 'a:has-text("上传视频")'],

@@ -46,7 +46,7 @@
             {{ $t('autoPipeline.urlCount', { count: config.urls.length }) }}：
             <span v-for="(u, i) in config.urls" :key="i" class="ap-url-chip">
               {{ u.slice(0, 50) }}{{ u.length > 50 ? '...' : '' }}
-              <span @click="removeUrl(i)" class="ap-url-remove">×</span>
+              <span role="button" tabindex="0" @keydown.enter.prevent="removeUrl(i)" @keydown.space.prevent="removeUrl(i)" @click="removeUrl(i)" class="ap-url-remove">×</span>
             </span>
           </div>
         </div>

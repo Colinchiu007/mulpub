@@ -151,6 +151,9 @@ export default {
     durationMin: (ctx) => ctx.named('minutes') + 'm ' + ctx.named('seconds') + 's',
     durationSec: (ctx) => ctx.named('seconds') + 's',
     // Reference ranges for composition time (2026-08-17): product guidance, not exact estimates
+    // Queue hint (2026-10-24): user-visible feedback while the local rate limiter queues
+    modelQueueEta: (ctx) => 'Queued — about ' + ctx.named('eta') + ' before it can start',
+    modelQueueWaiting: (ctx) => 'Queued — ' + ctx.named('count') + ' request(s) waiting',
     timeGuidanceTitle: 'About composition time',
     timeGuidanceIntro: 'Overall completion time is related to video duration — the longer the video, the longer it takes to compose — and also to content complexity and LLM inference time.',
     timeGuidanceRef1min: '1-minute video: 5–8 min',

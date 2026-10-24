@@ -365,7 +365,7 @@ function registerAutoHandlers (ipcMain, deps) {
           shotIds,
           ledgerDir: projectDir(home, taskId),
           mediaRoot,
-          runIdFor: (t, batchIndex) => autoRunIdFor(t, batchIndex),
+          runIdFor: (t, batchIndex) => autoRunIdFor(t, batchIndex, project.runSeq),
           probe,
           runOnlyBatch: null,
           // 停止（批间生效）：已开始的批跑完，未开始的批保持 pending；已完成的镜不会被重做

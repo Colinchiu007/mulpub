@@ -15,6 +15,7 @@ const path = require('node:path')
 
 const {
   AVATAR_MEDIA_EXTENSIONS,
+  AVATAR_AUDIO_EXTENSIONS,
   DELETE_STATES,
   TRAINING_STATES,
 } = require('./avatar-clone-registry')
@@ -74,16 +75,27 @@ const helpers = {
       deletionState: avatar.deletionState === undefined ? DELETE_STATES.ACTIVE : avatar.deletionState,
       createdAt: avatar.createdAt,
       sampleCount: avatar.sampleStorage ? avatar.sampleStorage.sampleCount : 0,
+      // change: avatar-voice-clone-bundled —— 配套声音 id 一并暴露，
+      // 前端生成视频时可直接取用，不需要再去声音克隆列表里找。
+      ...(avatar.voiceId ? { voiceId: avatar.voiceId } : {}),
     }
     if (avatar.invalidReason) out.invalidReason = avatar.invalidReason
     return out
   },
 
   /** 素材扩展名白名单（图片/视频；非法扩展名在入参归一阶段就被拒） */
+  /**
+   * 素材扩展名白名单。
+   *
+   * change: avatar-voice-clone-bundled —— 从「图片+视频」扩到「图片+视频+音频」：
+   * 克隆现在可同时带一段录音作为配套声音素材，`.mp3/.m4a/.wav` 必须过这道闸。
+   * 具体的类型配对校验（photo 只能图片、voice 只能音频）在归一层做，
+   * 这里只负责「是不是受支持的素材扩展名」。
+   */
   _safeExtension (fileName) {
     if (typeof fileName !== 'string') return null
     const ext = path.extname(fileName).toLowerCase()
-    return AVATAR_MEDIA_EXTENSIONS.includes(ext) ? ext : null
+    return AVATAR_MEDIA_EXTENSIONS.includes(ext) || AVATAR_AUDIO_EXTENSIONS.includes(ext) ? ext : null
   },
 }
 

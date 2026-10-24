@@ -1,0 +1,103 @@
+{
+  "sha": "3e61e81fa7e85cdbc44d4009f422d7d1bae8fcc0",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 91 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 91,
+    "fileCount": 3,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "fcb04c7500f315dd2c35c460cfdc9b36590b82bf4d596a43ccccd26c77b6a18a",
+  "decidedAt": "2026-10-22T09:05:19.687Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "external(claude -p)",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4238#issuecomment-6337500097",
+    "confidenceWeight": 1,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "e1",
+        "severity": "Info",
+        "finding": "too-stale 插入位置正确（差集前拦截、newRedComputed:false 正确），但下游若只看 newRed.length===0 会误读为零新增红。",
+        "verdict": "dismissed",
+        "disposition": "已被双重防御覆盖，无需动作",
+        "rationale": "judge() 侧置 newRedComputed:false，readout() 侧打 newRed=na；并有测试「newRedComputed=false 时必须打印 newRed=na 且不得出现 newRed=0」锁住。"
+      },
+      {
+        "id": "e2",
+        "severity": "High",
+        "finding": "TRANSIENT_RE 反向污染：瞬时关键词出现在非瞬时错误里（例：404 的说明含 timeout）。",
+        "verdict": "upheld",
+        "disposition": "已修：新增 DEFINITE_RE 并排在 TRANSIENT_RE 之前短路",
+        "rationale": "DEFINITE_RE = /\\b(401|403|404)\\b|Not Found|Bad credentials|Resource not accessible|Could not resolve to a/i，命中即立刻抛不重试。结构锁断言两个判断的下标顺序；变异 E 调序 ⇒ not ok 20 当场红。"
+      },
+      {
+        "id": "e3",
+        "severity": "High",
+        "finding": "Atomics.wait 不可用时重试间隔消失 ⇒ 3 次调用背靠背，加速触发 429。",
+        "verdict": "upheld",
+        "disposition": "已修：退化路径改为带截止时间的忙等",
+        "rationale": "catch 分支改为 while (Date.now() < until) 忙等，保证 1.2s 间隔仍在。结构锁断言 catch 分支必须含 while (Date.now() <；变异 F 改成空 catch ⇒ not ok 21 当场红。"
+      },
+      {
+        "id": "e4",
+        "severity": "High",
+        "finding": "重试把确定性失败拖成慢失败（3 轮 × 1.2s）。",
+        "verdict": "upheld",
+        "disposition": "已修：与 e2 同根因，由 DEFINITE_RE 短路解决",
+        "rationale": "确定性错误不再进入重试路径，因此不会被拖慢；瞬时错误仍保留 2 次重试（这是它存在的目的）。"
+      },
+      {
+        "id": "e5",
+        "severity": "Info",
+        "finding": "新入参默认值：typeof ... === 'string' ? ... : '' 安全，旧调用方行为不变。",
+        "verdict": "dismissed",
+        "disposition": "与评审一致，无动作",
+        "rationale": "既有 53 例（含不传 mainBaselineKind 的历史夹具）全绿即为证。"
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-fcb04c75\\adjudication.json",
+    "note": "外部评审 claude -p（与出方案侧不同家族）对累积 diff 86 行做对抗审查：correctness=8 security=7 performance=6 maintainability=8，6 条具体发现。处置：e2/e4（确定性错误被瞬时关键词污染 ⇒ 慢失败）由新增 DEFINITE_RE 短路解决；e3（Atomics 缺失时无间隔）由忙等兜底解决；e1/e5 确认无问题（e1 已被 newRed=na 双重防御覆盖，e5 由 53 例历史夹具全绿为证）。两条修复各带一条结构锁，变异 E/F 分别让 not ok 20 / not ok 21 当场红，还原后 21/21。",
+    "at": "2026-10-22T09:31:48.673Z"
+  }
+}

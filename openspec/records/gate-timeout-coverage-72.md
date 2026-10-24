@@ -1,6 +1,6 @@
 ---
 record: gate-timeout-coverage-72
-task: QG Coverage 作业超时预算按实测分布重定数（65→72）+ 修掉 10 处指向不存在脚本的坏指针
+task: QG Coverage 作业超时预算按实测分布重定数（65→72）+ 修掉 12 处指向不存在脚本的坏指针
 date: 2026-10-24
 branch: gate-timeout-coverage-72
 ---
@@ -25,15 +25,30 @@ CI 变更（改了 `.github/workflows/quality-gate.yml`）⇒ **不走 docs-only
 | `01-docs/PRD-GATE-TIMEOUT-GOVERNANCE-2026-10-20.md` | 逐格数值表里 `QG Coverage` 那行同步为 65→72 / 53→51 / 43.3→47.37 / 41.4→45.27 / 65→72 / 0→0 | 避免 PRD 与现场脱节（该表是"来路与设计取舍"的载体） |
 | `openspec/changes/gate-timeout-coverage-72/`（新增四件套） | proposal / design / tasks / specs | CI 变更按仓内先例建 openspec change（先例：`gate-timeout-all-cells`） |
 
-**坏指针共 10 处在代码路径上全改净**（全仓 `gate-timeout-sample` / `check-gate-timeouts` 两个不存在的路径）：
+**坏指针共 12 处在代码路径上全改净**（全仓 `gate-timeout-sample` / `check-gate-timeouts` 两个不存在的路径）：
 注册表顶层 note 1 处、注册表 schedule-heartbeat 条目 note 1 处、加载器 `remeasureCommand` 1 处、
-采样器注释 3 处 + **采样器实际输出** 1 处、判据提示文案 2 处、锁注释 1 处。
+采样器注释 3 处 + **采样器实际输出** 1 处、判据提示文案 2 处、锁注释 1 处
+（以上 10 处见首个提交 `e77ffd668`），
+**外加主干 `f10847fae` 新引入的 2 处**（见「合并主干」一节）。
 改动后在 `.github/` 与 `scripts/` 全量复查两个路径 ⇒ **0 命中**。
 
 **残留 3 处不在代码路径上，本次不改**：`openspec/records/schedule-heartbeat-lock.md:61`、
 `openspec/records/schedule-heartbeat-lock.md:70`、`openspec/changes/schedule-heartbeat-lock/tasks.md:100`
 —— 那是**在途 change 的任务清单与历史执行记录**，改它等于替别人的 change 改口径；且其中
 「必须用 `scripts/gate-timeout-sample.js` 重采」这条指引会误导执行者 ⇒ **已登记**，等该 change 自己收口时一并订正。
+
+## ★ 合并主干：主干在修复前又新增了 2 处同类坏指针
+
+- **base 前进**：推之前 `git fetch` 发现 `origin/main` 已从 `281203419` 前进到 `f10847fae`（20 个提交）。
+- **合并无冲突**：`git merge origin/main` **未产生冲突** —— 注册表是「每个 job 压成一行」的紧凑格式，
+  本 PR 改的是 `coverage` 那一行、主干加的是 `dep-audit-refresh` 那一行 ⇒ Git 按行自动合并。
+  合并后复查：coverage 行是新值（`timeoutMinutes: 72` + 新 provenance），主干的 `dep-audit-refresh` 行也在。
+- ⚠️ **主干在修复前又引入了 2 处同样的坏指针**（本 PR 的存在意义正是治这个病，故一并修掉）：
+  ① `.github/workflows/dep-audit-refresh.yml:53` 的注释「30 天宽限期内必须用 `scripts/gate-timeout-sample.js` 重采」；
+  ② `scripts/gate-timeout-registry.json` 里 `dep-audit-refresh` 那条登记的 `provenance.note` 文本中的同一句。
+- ⚠️ **第 ② 处的修法受 parity 锁约束**：那行本来就在 `provenance` 里带 `note` 字段
+  ⇒ 只能**改 note 的文本内容**（脚本名）⇒ **既不能删 `note`、也不能新增字段** ⇒ 字段集不变 ⇒ 不撞 parity 锁。
+- ⇒ 坏指针代码路径总数：**10 → 12 处**。
 
 ## ★ 本次踩到的三个坑（自己引入、自己抓出）
 
@@ -48,14 +63,16 @@ CI 变更（改了 `.github/workflows/quality-gate.yml`）⇒ **不走 docs-only
   移除 `note` 后回到 **26/26**。⇒ 因果确凿，不是主干存量红。
 - ⚠️ 仓里有个**误导性先例**：`schedule-heartbeat` 那一格的 provenance 里就带 `note`，
   但那一格**永远不会被 `coverageProvenance()` 取到** ⇒ 不构成「可以往 provenance 塞 note」的依据。
+  （主干新加的 `dep-audit-refresh` 那格同理。）
 
 **坑二：`git add -A` 会把门禁自己的变异探针扫进提交 ⇒ PR 必红。**
 
 - `scripts/check-text-encoding-integrity.test.js`（第 73-89 行）会**故意写一个含 U+FFFD 的文件**
-  `01-docs/__encoding-gate-mutation-probe.md` 并 `git add -N` ⇒ **跑完残留在工作区**。
+  `01-docs/__encoding-gate-mutation-probe.md` 并 `git add -N` ⇒ **跑完残留在工作区与暂存区**。
 - 被 `git add -A` 扫进提交后：`node scripts/check-text-encoding-integrity.js` 当场 `EXIT=1`「新增 1 处编码损坏」
   ⇒ changes job 红 ⇒ 8 个重型作业被 needs 跳过 ⇒ gate-result exit 1 ⇒ **PR 必红**。
-- 修法：**提交前用明确文件清单 `git add`，不用 `-A`**；跑完该门禁后 `git status` 复查并清残渣。
+- 修法：**提交前用明确文件清单 `git add`，不用 `-A`**；跑完该门禁后 `git status` 复查，
+  并用 `git rm --cached` + `rm` 清掉被 `git add -N` 标记的残渣。
 
 **坑三：改「看起来是 JSON 的台账」不能整文件重写。**
 
@@ -77,31 +94,12 @@ CI 变更（改了 `.github/workflows/quality-gate.yml`）⇒ **不走 docs-only
   「记录里出现该步骤标记」⇒ 一条都没有 ⇒ 不进域、不要求补齐步骤。
   ⇒ 本篇记录**不得**写入该形态的标记，否则会立刻要求四步齐全而当场红。
 
-## 验证
-
-| 项 | 命令 | 结果 |
-|---|---|---|
-| 预算判据的锁 | `node --test scripts/check-coverage-budget.test.js` | **26/26 pass** |
-| 预算门禁本体 | `node scripts/check-coverage-budget.js` | **OK 全部 25 格**；coverage 读数 `timeout=72 需≥72 余量=0 floor=47.37 samples=51 max=47.37 p90=45.27` |
-| 逐文件行数门禁 | `node .github/scripts/check-max-lines.js` | ✅ 无新增超大文件 |
-| 编码完整性 | `node --test scripts/check-text-encoding-integrity.test.js` | **5/5 pass** |
-| 文档绝对路径 | `node --test scripts/check-doc-abs-paths.test.js` | **52/52 pass** |
-| 未接线测试 | `node --test scripts/check-unwired-tests.test.js` | **39/39 pass** |
-| 定时心跳 | `node --test scripts/check-schedule-heartbeat.test.js` | **16/16 pass** |
-| 执行记录欠账 | `node --test scripts/check-gate-record-debt.test.js` | **122/122 pass** |
-| 债务预算 | `node scripts/check-debt-budget.js` | ✅ 绿 |
-| openspec 变更完整性 | `node scripts/openspec-sync-check.js` | ✅ `OK: 387 tasks, 102 active changes, 243 archives` |
-| QM-1 佐证 | `node --test scripts/qm1-child-env.test.js` / `qm1-paths.test.js` | **7/7**、**10/10** |
-| 文档-only 判定 | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` | `docs-only=false`（混合 PR） |
-| 行尾与编码 | `git ls-files --eol` / U+FFFD 扫描 | 全 `w/lf`、U+FFFD **0** |
-| 改动面（单提交） | `git diff --stat origin/main..HEAD` | 8 文件 **+77 / −14** |
-| 改动面（PR 总 diff） | `git diff --stat origin/main` | **12 文件 / 约 +340 行 / −14 行** ⇒ 按 `scripts/ccg-review-decider.js` 的 `dualLineThreshold: 200` ⇒ 判 **dual**（见下节） |
-
 ## CCG 双审查（dual）的执行与边界声明
 
-- **判定口径（按 PR 总 diff）**：PR 总 diff = `git diff --stat origin/main` ⇒ **12 文件 / 约 +340 行 / −14 行**；
-  `scripts/ccg-review-decider.js` 的 `dualLineThreshold = 200` ⇒ 按此口径**应判 dual**
-  （触发条件是「变更行数超阈值」，本次不碰 auth / 数据库 / 加密）。
+- **两个判据口径不同，不可混为一谈**：
+  ① `scripts/ccg-review-decider.js` 的 `dualLineThreshold = 200` 是**变更行数**判据 ⇒ 本 PR 总 diff 超阈值 ⇒ 按此口径**应判 dual**；
+  ② `scripts/check-pr-exec-record.js` 的 `TIER-COVERAGE` 统计的是**已闭合记录的 tier 分布**（本 PR 读数 `dual-closed total=0`）
+  ⇒ 它**不判**「本 PR 是否需要双审查」。二者不矛盾。
 - **本地实跑读数（如实记录）**：`node scripts/ccg-review-decider.js --base origin/main` ⇒
   该脚本判的是**暂存区** diff（`--base` 只用于命名回退）⇒ 暂存区空时它只看到 27 行 / 6 个源文件 ⇒ 判 **SINGLE**；
   同时它探测后端 CLI（claude / opencode）**均不可用** ⇒ 输出
@@ -118,6 +116,29 @@ CI 变更（改了 `.github/workflows/quality-gate.yml`）⇒ **不走 docs-only
   坏指针计数与明细不一致（汇总写 8、明细列 10）⇒ 三个坑都是「独立审查 + 实跑复验」抓出来的，不是自审发现的。
 - **未闭合项**：原生 CCG 双后端评审**在本沙箱未执行**（无 Windows + PowerShell + 已配置后端 CLI），
   本条**不声称已闭合**，需在具备该环境处补跑。
+
+## 验证
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 预算判据的锁 | `node --test scripts/check-coverage-budget.test.js` | **26/26 pass** |
+| 预算门禁本体 | `node scripts/check-coverage-budget.js` | **OK 全部 25 格**；coverage 读数 `timeout=72 需≥72 余量=0 floor=47.37 samples=51 max=47.37 p90=45.27` |
+| 逐文件行数门禁 | `node .github/scripts/check-max-lines.js` | ✅ 无新增超大文件 |
+| 编码完整性 | `node --test scripts/check-text-encoding-integrity.test.js` | **5/5 pass** |
+| 文档绝对路径 | `node --test scripts/check-doc-abs-paths.test.js` | **52/52 pass** |
+| 未接线测试 | `node --test scripts/check-unwired-tests.test.js` | **39/39 pass** |
+| 定时心跳 | `node --test scripts/check-schedule-heartbeat.test.js` | **16/16 pass** |
+| 执行记录欠账 | `node --test scripts/check-gate-record-debt.test.js` | **122/122 pass** |
+| 债务预算 | `node scripts/check-debt-budget.js` | ✅ 绿 |
+| openspec 变更完整性 | `node scripts/openspec-sync-check.js` | ✅ `OK: 387 tasks, 102 active changes, 243 archives` |
+| QM-5 行集棘轮 | `node scripts/check-record-qm5-rows.js` | ✅ 绿 |
+| PR 执行记录门禁 | `node scripts/check-pr-exec-record.js --base=origin/main --head=HEAD` | ✅ `OK: 本 PR 携带执行记录或带原因的豁免`（13 文件 A=5 M=8） |
+| CCG 判据回归锁 | `node --test scripts/ccg-review-decider.test.js` | **71/71 pass** |
+| QM-1 佐证 | `node --test scripts/qm1-child-env.test.js` / `qm1-paths.test.js` | **7/7**、**10/10** |
+| 文档-only 判定 | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` | `docs-only=false`（混合 PR） |
+| 坏指针复查 | `grep -rn "gate-timeout-sample\|check-gate-timeouts" .github scripts` | **0 命中** |
+| 行尾与编码 | `git ls-files --eol` / U+FFFD 扫描 | 全 `w/lf`、U+FFFD **0** |
+| 改动面（单提交） | `git diff --stat origin/main..HEAD` | 13 文件 **+369 / −16** |
 
 ## 待办 / 未纳入
 

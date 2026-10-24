@@ -41,6 +41,22 @@
       </li>
     </ul>
 
+    <!-- 声音素材（change: avatar-voice-clone-bundled）：
+         支持时内联上传入口，不支持时只给一句说明。整个区块按能力显隐，
+         不置灰——置灰会让用户以为「再点点就能用」。 -->
+    <template v-if="voiceCloneSupported">
+      <AvatarVoiceClone
+        :creating="creating"
+        :voice-selection-id="voiceSelectionId"
+        :create-error="voiceCreateError"
+        :provider-name="providerName"
+        @choose-voice-media="$emit('choose-voice-media')"
+      />
+    </template>
+    <p v-else class="config-hint" data-testid="avatar-clone-voice-unsupported">
+      {{ t('avatarCloneVoiceUnsupported') }}
+    </p>
+
     <!-- 创建：名称 + 两种素材入口（照片 / 视频） -->
     <div class="clone-create">
       <input
@@ -68,12 +84,14 @@
       >{{ t('avatarCloneTypeVideo') }}</button>
     </div>
     <span v-if="createError" class="inline-error" data-testid="avatar-clone-create-error">
-      {{ t(createError) }}
+      {{ t(createError).replace('{name}', providerName) }}
     </span>
   </div>
 </template>
 
 <script>
+import AvatarVoiceClone from './AvatarVoiceClone.vue'
+
 export default {
   name: 'AvatarClonePanel',
   props: {
@@ -84,7 +102,24 @@ export default {
     createError: { type: String, default: '' },
     /** 失效标记 → locale key 的映射函数（逻辑在 useAvatarClone，这里只调用） */
     invalidKeyOf: { type: Function, default: () => '' },
+    /** 当前数字人服务商是否支持克隆声音（父组件按 tts-voice-catalog 判定后传入） */
+    voiceCloneSupported: { type: Boolean, default: false },
+    /**
+     * 当前数字人服务商显示名（change: hifly-voice-subtitle-parity）。
+     * 用于代入文案里的 {name} 占位符——错误提示要点名是哪一家不可用，
+     * 但不能在 locale 里写死任何一家。
+     */
+    providerName: { type: String, default: '' },
+    /** 已选中的录音 selectionId（change: avatar-voice-clone-bundled） */
+    voiceSelectionId: { type: String, default: '' },
+
+    voiceCreateError: { type: String, default: '' },
+
   },
+  emits: ['choose-voice-media'],
+  // 同步 import 而非异步：这是个常驻小块（克隆面板的一个区），
+  // 异步加载会让「打开面板那一刻它还没就绪」，用户看到面板缺一块。
+  components: { AvatarVoiceClone },
   methods: {
     t(key) {
       return typeof this.$t === 'function' ? this.$t('create.story2video.ui.' + key) : key

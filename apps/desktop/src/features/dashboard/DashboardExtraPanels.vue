@@ -150,7 +150,8 @@ const { t } = useI18n()
  * :global(:root) 里写死的**亮色值**，暗色主题下不切换 —— 结果是在暗色卡片里放出一块
  * 浅紫亮斑（对比度虽高，但视觉突兀）。改用「半透明主色叠色 + 语义文字色」：
  * 叠色在亮暗底上都自然过渡，且无需主题分支（scoped 内 [data-theme] 分支实测不可靠，
- * 见 TrialBanner.vue 的三轮注释）。实测对比度：亮 13.54:1 / 暗 11.23:1。
+ * 见已删除的 TrialBanner 的三轮注释——该组件随 ux-audit-dead-components-retire 撤下，
+ * 历史取证用 `git log -p --follow -- apps/desktop/src/components/TrialBanner.vue`）。实测对比度：亮 13.54:1 / 暗 11.23:1。
  * .ok/.bad/.unknown 用语义 token，tokens.css 亮暗双档均有定义，
  * 暗色实测 ok 8.09 / bad 5.34 / unknown 6.12，均 ≥ 3:1。 */
 .dash-health-chip {

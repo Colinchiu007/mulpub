@@ -385,3 +385,28 @@ describe('film_generate_videos - 画布参考图输入（tasks 4.3：引擎侧�
     expect(engine._calls.length).toBe(0)
   })
 })
+
+// ===== M0′.5：12 秒档的帧数映射（2026-10-24）=====
+// 旧表 `d > 10 → 441`：441 是**适配器上限**（8n+1 且 ≤441），不是 12 秒的映射 ——
+// 441 帧 @24fps = 18.375 秒，比目标时长长 53%。
+// 且 12 秒档**今天就会走到**（DEFAULT_TIERS = [5,8,10,12]）⇒ 提交 441 帧 ⇒ 成片超时。
+// 正确映射 = 12s × 24fps = 288，取 8n+1 ⇒ 289（289/24 = 12.0417 秒）。
+describe('pickFilmFrameCount：12 秒档映射', () => {
+  it('12 秒 → 289 帧（8n+1、≤441、≈12.04 秒）', () => {
+    expect(pickFilmFrameCount(12)).toBe(289)
+    expect((289 - 1) % 8).toBe(0)
+    expect(289).toBeLessThanOrEqual(441)
+    expect(Math.abs(289 / 24 - 12)).toBeLessThan(0.05)
+  })
+
+  it('既有档位映射不变（5/8/10 → 121/201/241）', () => {
+    expect(pickFilmFrameCount(5)).toBe(121)
+    expect(pickFilmFrameCount(8)).toBe(201)
+    expect(pickFilmFrameCount(10)).toBe(241)
+  })
+
+  it('超过 12 秒仍回落到适配器上限 441（不越界）', () => {
+    expect(pickFilmFrameCount(15)).toBe(441)
+    expect(pickFilmFrameCount(30)).toBe(441)
+  })
+})

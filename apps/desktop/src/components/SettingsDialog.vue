@@ -29,6 +29,8 @@
         <!-- 知乎 API 紧随飞书 API 之下：两者都是「第三方开放平台凭据」，同类相邻 -->
         <ZhihuSettingsTab v-else-if="activeTab === 'zhihu'" />
         <PublishFrequencySettings v-else-if="activeTab === 'publish'" />
+        <!-- 快捷键：只读展示面，数据来自热更新的主进程注册表（UX 审计 1.6） -->
+        <HotkeysSettings v-else-if="activeTab === 'hotkeys'" />
         <div v-else class="placeholder-panel">
           <div class="placeholder-icon"><el-icon><Compass /></el-icon></div>
           <p>{{ t('settings.placeholder') }}</p>
@@ -48,7 +50,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Connection, Setting, Link, Reading, Upload, User, Compass } from '@element-plus/icons-vue'
+import { Connection, Setting, Link, Reading, Upload, User, Compass, Key } from '@element-plus/icons-vue'
 import UiModal from './UiModal.vue'
 import ModelProviders from '@/views/ModelProviders.vue'
 import LogsSettings from './LogsSettings.vue'
@@ -56,6 +58,7 @@ import FeishuSettingsTab from './FeishuSettingsTab.vue'
 import ZhihuSettingsTab from './ZhihuSettingsTab.vue'
 // publish-frequency-policy-v2：发布频率策略（含紧急放行出口）——原 publish tab 由 disabled 转为可用
 import PublishFrequencySettings from './PublishFrequencySettings.vue'
+import HotkeysSettings from './HotkeysSettings.vue'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -72,6 +75,7 @@ const { t } = useI18n()
     { key: 'feishu', label: t('knowledgeBase.feishuApi'), icon: Link, disabled: false },
     { key: 'zhihu', label: t('knowledgeBase.zhihuApi'), icon: Reading, disabled: false },
     { key: 'publish', label: t('settings.tabPublish'), icon: Upload, disabled: false },
+    { key: 'hotkeys', label: t('settings.tabHotkeys'), icon: Key, disabled: false },
     { key: 'account', label: t('settings.tabAccount'), icon: User, disabled: true },
   ])
 

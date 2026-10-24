@@ -1,0 +1,74 @@
+{
+  "sha": "08ea9c3761f2b350f6bfa08e8571f2ae4ea853cb",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 26 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 26,
+    "fileCount": 9,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 2,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"轮5 外部 claude 交付 8 条（其中 7 条进裁决）：7 条 dismissed 各附可复算实测证据（JSON.sha==merge-base、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、seq 守卫已实装、类型守卫已实现且经变异反证 M5 验证、模块级 let 已按 i5 改为 ref）；i1/i6 属评审口径问题（口径已复算、未闭合项从未被冒充为已验证、pending 出口不在门禁闭环白名单内）；i7 属引擎高危域 datamigration，已由**独立外部模型 claude** 自行读代码复核并公开原文（https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6302916932，结论「不破坏、无需向后兼容」），逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-46021e05/adjudication.json；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。 外部复核正文的 sha256 摘要已写入对应 findings.externalReview.evidenceDigestSha256（URL 可点开 + 摘要可离线重算核对）。\",",
+      "    \"closureNote\": \"轮6 外部 claude 交付 8 条（其中 7 条进裁决，0 条高危域命中）：7 条 dismissed 各附可复算实测证据（JSON.sha==merge-base 且已写入「审计口径的显式声明」小节给出两条复算命令、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、seq 守卫已实装、类型守卫已实现且经变异反证 M5 验证、模块级 let 已按 i5 改为 ref）；3 条建议被直接采纳并已实现：①i8 交错边界用例（程序赋值后立即手改 ⇒ 归因链被清、不假挂；手改后程序赋值 ⇒ 不再作废归因链）、②i1 审计口径显式声明、③i4 CHANGELOG 迁移影响面；逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-7f23b3bd/adjudication.json；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "67c3698869bda83d2875756d965005a0ffc2e6d66706f727d56528e3cb91b044",
+  "decidedAt": "2026-10-21T05:24:37.739Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null,
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 15,
+      "codeTotalLines": 2306,
+      "allFileCount": 43,
+      "allTotalLines": 6272,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
+  }
+}

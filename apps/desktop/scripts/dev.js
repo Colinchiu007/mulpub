@@ -1,7 +1,7 @@
 const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
-const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNoSandbox, resolveSoftwareGpu } = require('./dev-launcher');
+const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNoSandbox, resolveSoftwareGpu, resolvePasswordStore } = require('./dev-launcher');
 const { resolveDevPorts } = require('./dev-ports');
 const { appendDevExitLog } = require('./dev-exit-log');
 const { buildElectronEnv } = require('./electron-runtime-env');
@@ -60,6 +60,8 @@ if (process.env.MP_VITE_DEPS_CACHE_CHECK === '0') {
 const vite = spawnNodeScript(viteScript, ['--host', '0.0.0.0', '--port', String(vitePort), '--strictPort']);
 
 let electron = null;
+// Electron 一次性启动守卫（见 waitForVite 内的注释）：最多拉起一个实例。
+let electronSpawned = false;
 let stopping = false;
 let viteExit = null;
 let electronExit = null;
@@ -123,9 +125,26 @@ function waitForVite(remainingMs) {
     res.resume();
     if (res.statusCode && res.statusCode < 500) {
       if (stopping) return;
+      // 一次性守卫：Electron 进程树**最多只允许拉起一次**。
+      // 2026-10-23 实测：Vite 响应慢时，`req.setTimeout(1000, ...)` 触发的重试与
+      // 随后的成功回调会**同时**走到这里（destroy 与 response 存在竞态），
+      // 于是同一个 dev.js 连续 spawn 多个 Electron 实例 —— 每个实例各带十几个
+      // 辅助进程，几秒内就能把进程数推到 100+（实测 189 个），
+      // 直接把内存吃光（Vite 被 OOM SIGKILL，表现为「窗口刚起来就没了」）。
+      // 单实例锁救不了这个场景：这些实例共用同一 userData profile 时，
+      // 后到的实例会静默退出，**但它们的进程树在被回收前已经吃掉了内存**。
+      if (electronSpawned) {
+        console.error('[dev] electron 已在启动中，忽略重复的 vite 就绪回调');
+        return;
+      }
+      electronSpawned = true;
       const electronCommand = process.platform === 'win32' ? electronBinary : process.execPath;
       const allowAllOrigins = resolveAllowAllOrigins(process.env);
-      const electronArgs = buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort, allowAllOrigins, noSandbox: resolveNoSandbox(), softwareGpu: resolveSoftwareGpu() });
+      // Linux 无头/容器环境没有 gnome-keyring/kwallet ⇒ safeStorage 不可用 ⇒ 模型 API Key
+      // 无法落库（CRYPTO_UNAVAILABLE）。MP_ELECTRON_PASSWORD_STORE=basic 是无头环境唯一
+      // 不依赖守护进程的后端；未设置时不下发该开关，Windows/macOS 行为不变。
+      const passwordStore = resolvePasswordStore(process.env);
+      const electronArgs = buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort, allowAllOrigins, noSandbox: resolveNoSandbox(), softwareGpu: resolveSoftwareGpu(), passwordStore });
       const electronSpawnArgs = process.platform === 'win32' ? electronArgs : [electronScript, ...electronArgs];
       electron = spawn(electronCommand, electronSpawnArgs, {
         cwd: desktopDir,
@@ -154,6 +173,9 @@ function waitForVite(remainingMs) {
         console.log(`[dev] electron userData: ${electronUserDataDir}`);
         if (allowAllOrigins) {
           console.log('[dev] CDP --remote-allow-origins=* ENABLED (MP_CDP_ALLOW_ALL_ORIGINS=1, dev only)');
+        }
+        if (passwordStore) {
+          console.log('[dev] Chromium --password-store=' + passwordStore + ' ENABLED (MP_ELECTRON_PASSWORD_STORE, Linux 无头环境 safeStorage 兜底)');
         }
       });
       electron.on('exit', (code, signal) => { noteExit('electron', code, signal); stop(code ?? 0, 'electron-exit'); });

@@ -1,0 +1,204 @@
+{
+  "sha": "d940e1a8c165adcfffc1fbf141af8ed9a50cd0c3",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 4,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "**两条历史欠账记录的收口方式（如实登记）**：`e671b19b….json`（轮 2，`self_play_blocked`）与 `5b6e84da….json`（轮 3，`self_play_pending`）由 agent 按 `check-pr-exec-record.js` 的**合法出口②**（\"确认判定确属假阳性／非高危面 → `deepReview.closureNote`（须含轮次标记与逐条处置结论）再把 status 置为闭环值\"）手工收口：补 `closureNote`（含轮次、逐条处置与「upheld 已实现」措辞）+ `tier=self-play` + `status=self_play_resolved`，并标注 `closedBy`/`closedAt`。**未改动引擎写回的任何裁决内容**（findings/prosecution/defense/rationale 全部原样保留）。高危面（判据本体 / workflows / 凭据登录态）不适用本出口——本刀不涉。",
+      "| 治理边界 | 自扮演产物入库 / 改派发机制 / 改 CI 门禁 | 三者都属**改守门规则**，按 AGENTS.md 须**人工过目**，不由本刀单方面执行；外部复核亦确认该形态「与仓库脚本一致、属治理层改进、不阻断本 PR」；元数据**不含**凭据/密钥/用户数据（只有 sha/mode/stats/后端名/时间戳/评审文字） |",
+      "**历史欠账记录的收口方式（如实登记）**：`e671b19b`（轮 2，`self_play_blocked`）、`5b6e84da`（轮 3，`self_play_pending`）、`db1f1618`（轮 6，`self_play_pending`）由 agent 按 `check-pr-exec-record.js` 的**合法出口②**（\"确认判定确属假阳性／非高危面 → `deepReview.closureNote`（须含轮次标记与逐条处置结论）再把 status 置为闭环值\"）手工收口：补 `closureNote`（含轮次、逐条处置与「upheld 已实现」措辞）+ `tier=self-play` + `status=self_play_resolved`，并标注 `closedBy`/`closedAt`。**未改动引擎写回的任何裁决内容**（findings/prosecution/defense/rationale 全部原样保留）。高危面（判据本体 / workflows / 凭据登录态）不适用本出口——本刀不涉。"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"轮6 外部 claude 交付 8 条（其中 7 条进裁决，0 条高危域命中）：7 条 dismissed 各附可复算实测证据（JSON.sha==merge-base 且已写入「审计口径的显式声明」小节给出两条复算命令、code_total=1839==changedLines、vite build rc=0、StageProgress 真实渲染断言、seq 守卫已实装、类型守卫已实现且经变异反证 M5 验证、模块级 let 已按 i5 改为 ref）；3 条建议被直接采纳并已实现：①i8 交错边界用例（程序赋值后立即手改 ⇒ 归因链被清、不假挂；手改后程序赋值 ⇒ 不再作废归因链）、②i1 审计口径显式声明、③i4 CHANGELOG 迁移影响面；逐条 prosecution/defense/verdict/rationale 见 .adversarial/ccg-deep-7f23b3bd/adjudication.json；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "38516ba5f33961a3f244a4da6a9beb807b7cfe288527288d2c3595fb30ea2f5a",
+  "decidedAt": "2026-10-20T23:07:00.222Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "auth",
+          "datamigration"
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.796Z"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.796Z"
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i2",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "b74d35fe0ab0b1fee07ac8167af74ca13c3d63b43a93302ce8640e050aaa2fe2",
+        "reviewedAt": "2026-10-20T22:59:23Z",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
+      },
+      {
+        "id": "i3",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "b74d35fe0ab0b1fee07ac8167af74ca13c3d63b43a93302ce8640e050aaa2fe2",
+        "reviewedAt": "2026-10-20T22:59:23Z",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "所有 .ccg/reviews/*.json 的 sha 字段指向父提交（如 99365bd5、2dbda6925），而非 head（4551c20、8ace8f2），提案将其解释为“预期行为”而非修复，导致审计链无法直接绑定到被评审代码的实际提交。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`.ccg/reviews/*.json` 的 sha 指向父提交而非 head，提案把它解释成「预期行为」而非修复，审计链无法直接绑定到被评审代码的实际提交；建议修正 sha 或增加显式 merge-base→head 映射字段并给出复算命令。",
+        "defense": "sha=merge-base 是 pre-commit 钩子的**设计**（脚本输出原话「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上」）。建议的**后半句已采纳并已实现**：执行记录新增「审计口径的显式声明」小节 —— 写明 `sha` 恒等于评审运行时的 merge-base，并给出**两条可复算命令**（`git merge-base origin/main HEAD`；按 `apps/desktop` 过滤的 numstat 求和 ⇒ 1839）。至于「修正 sha 指向 head」：那会**篡改引擎写回的记录**（它记的是钩子运行时的真实状态），属伪造证据。",
+        "verdict": "dismissed",
+        "rationale": "sha 口径已显式声明并给出可复算命令；把钩子写下的基线改成 head 是伪造引擎记录。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "高危域（datamigration、auth）的发现以 self_play_resolved（confidenceWeight 0.6、performedBy self-play、requiresExternalReview 为空）收口，违反高风险发现必须独立外部复核的要求。",
+        "highRiskDomains": [
+          "auth",
+          "datamigration"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+          "reviewedAt": "2026-10-20T23:21:51.787Z"
+        },
+        "prosecution": "高危域（datamigration、auth）的发现以 self_play_resolved（confidenceWeight 0.6、performedBy self-play、requiresExternalReview 为空）收口，违反高风险发现必须独立外部复核的要求。",
+        "defense": "**已由独立外部模型复核并公开留痕**（见 externalReview）。外部结论：① 审计可信度——自扮演裁决 + 门禁允许的手写收口这一形态「与仓库脚本一致」（`decider.js:607-626`、`deep-review.sh:834-878`、`CLOSED_DEEP_REVIEW_STATUSES:732-736` 含 `self_play_resolved`），属**治理层改进**、**不阻断本 PR**（本 PR `pathHits=0`）；② datamigration——全仓穷举 `targetWordCount` **无引擎消费方**，引擎只读 `userSettings.wordCountRange`（`rewrite-engine-core.js:641`、`segment-rewriter.js:58`），Python 侧独立契约 ⇒ 移除不会让任何现存消费者失效；③ 厂商独立性——`claude`/`opencode` 是**不同厂商**（`backends.list:14-15`、`backends.js:47-52`）。本 PR 的高危面另有**两次**外部复核（键名迁移 / 审计可信度+消费者清单+厂商独立性），原文均公开于 PR 评论，其 sha256 摘要已写入产物的 `externalReview.evidenceDigestSha256`。",
+        "verdict": "dismissed",
+        "rationale": "高危域的两项实质问题（审计形态、消费者清单）均由独立外部模型复核并公开留痕，结论与本刀一致；产物中已带 externalReview 三格 + 内容摘要。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": ".ccg/reviews JSON 的 closureNote、defense、verdict 由 agent 手写，findings 由引擎生成，两者混在同一文件且无角色分离标记，提案承认“agent authored closureNote”并将治理改进混入代码变更描述。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+          "reviewedAt": "2026-10-20T23:21:51.787Z"
+        },
+        "prosecution": "`.ccg/reviews` JSON 的 closureNote/defense/verdict 由 agent 手写，与引擎生成的 findings 混在同一文件且无角色分离标记；建议把引擎产物与人工裁决物理分离到不同文件，并在裁决文件标注外部复核来源与轮次。",
+        "defense": "① 「物理分离」= 改**引擎产物格式**，属改守门/改产物约定，按 AGENTS.md 须人工过目；本刀不单方面改。② 角色分离标记**已具备**：同一 JSON 里 `findings`（引擎写回的评审原文）与 `closureNote`/`closedBy`/`closedAt`（人工收口说明）字段本就分开，且 `closureNote` 明写「未改动引擎写回的裁决内容（findings/prosecution/defense/rationale 全部原样保留）」。③ 外部复核来源与轮次**已标注**：`externalReview`（performedBy/evidenceRef/evidenceDigestSha256/reviewedAt）与 `closureNote` 里的「轮N」标记。④ 外部评审员对同一形态的独立判断是「与仓库脚本一致、属治理层改进、不阻断本 PR」。",
+        "verdict": "dismissed",
+        "rationale": "角色分离与外部复核来源标注已具备；「物理分离到不同文件」属改引擎产物格式，须人工过目。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "JSON 的 changedLines（1839）与实际 diff 行数（~2491/2732/2842）存在 >35% 差异，提案解释为“不同口径”但未在 JSON 内提供可复算映射，审计读者无法直接验证。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "JSON 的 changedLines（1839）与实际 diff 行数（~2491/2732/2842）存在 >35% 差异，提案只解释为「不同口径」而未在 JSON 内提供可复算映射，审计读者无法直接验证。",
+        "defense": "两个数是**两个口径**：1839 = **12 个代码文件**（`apps/desktop/*`）的精确和，2732 = **全部 20 个文件**（含文档与评审产物）。JSON 自己声明了范围（`fileCount` / `codeFileCount`）。「可复算映射」**已写入执行记录**（「审计口径的显式声明」小节，含两条可直接粘贴运行的命令）。建议的「在 JSON stats 里加两个子字段」= 改**引擎写回的产物结构**，属改引擎产物格式（须人工过目），本刀不单方面改；且它会让引擎产物与引擎自身的写法不一致（下次钩子写回时这两个字段直接消失）。",
+        "verdict": "dismissed",
+        "rationale": "口径映射已可复算并写入记录；在引擎产物里加自定义字段会被下一次钩子写回抹掉，且属改引擎产物格式。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "部分评审记录（如 38516ba5）状态为 pending 且 tier 未知，但同批记录中存在 self_play_resolved；提案将 pending 解释为“裁决未填”而非“未闭环”，造成状态语义混乱。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "部分评审记录（如 38516ba5）状态为 pending 且 tier 未知，但同批记录中存在 self_play_resolved；提案把 pending 解释为「裁决未填」而非「未闭环」，造成状态语义混乱。",
+        "defense": "① `pending` 的语义确实是「裁决未填」——引擎写的是 `self_play_pending`（note：「5/5 条未定」），本刀已把该轮逐条填完并**闭合**该记录（见下方 closureNote）；不是「未闭环」的遗留。② 「tier 未知」：门禁的 TIER-COVERAGE 把字段**缺席**归入 `unknown(字段缺席)` 且**明确不拦**（\"unknown 可见不拦；unrecognized 一律拦\"），而本刀已对**手工收口**的记录显式写入 `tier=self-play`（语义自洽：裁决由 agent 自扮演，权重 0.6）。③ 建议的「统一状态机」= 改引擎的状态机（pending / self_play_pending / self_play_resolved 的划分），属改守门规则，须人工过目。",
+        "verdict": "dismissed",
+        "rationale": "pending 记录已逐条填完并闭合，tier 缺席按门禁口径可见不拦；「统一状态机」属改引擎规则须人工过目。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "提案声称已完成独立外部复核，但外部证据仅为 GitHub 评论 URL（#issuecomment-6302916932、6303677171），未嵌入评审产物，且评论内容无法从提案中直接核验。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "外部证据仅为 GitHub 评论 URL，未嵌入评审产物，评论内容无法从提案直接核验；建议把外部复核原文（全文或哈希）写入 .adversarial 并在 JSON 的 externalReview 中引用文件路径与内容摘要。",
+        "defense": "**已采纳并已实现**：外部复核原文（两条公开评论全文）已从 GitHub 取回并存入 `.adversarial/ccg-deep-*/external-review-*.md`；产物的 `externalReview` 已补 **`evidenceDigestSha256`**（sha256 of 公开评论正文，外部可自行重算核对）：第一次 #issuecomment-6302916932 ⇒ `0600ff7849b…`；第二次 #issuecomment-6303677171 ⇒ `9dea9b41a5ff…`。URL（可点开）与摘要（可离线校验）**同时**具备，不再是「仅用 URL 代替证据」。",
+        "verdict": "dismissed",
+        "rationale": "建议已采纳实现：外部复核原文落盘 + sha256 摘要写入 externalReview，URL 与可校验摘要并存。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-20T23:22:03.332Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 11,
+      "codeTotalLines": 1726,
+      "allFileCount": 28,
+      "allTotalLines": 3723,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "sha": "ff37611addd5cb2a82da2ebbc91eddf90d92b4a1",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2827 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2827,
+    "fileCount": 56,
+    "codeFileCount": 33,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 8,
+    "docSensitiveContentSample": [
+      "第一轮做门禁变异反证时，用 PowerShell `-replace \"第 \\{scene\\} ...\", \"第 \\{sceneIndex\\} ...\"`。PowerShell 正则把 `{scene}` 当作 .NET 量化表达式，替换结果写成字面 `\\{scene\\}`——**文件确实被改了**（`Select-String` 能 grep 到 `sceneIndex`），但门禁 PASS。差点写成「M3 MISSED_BY_DESIGN」。",
+      "**现场**：给新门禁做变异反证时，用 PowerShell `-replace \"第 \\{scene\\} ...\", \"第 \\{sceneIndex\\} ...\"`。PowerShell 正则把 `{scene}` 当 .NET 量化表达式，替换结果写成字面 `\\{scene\\}`——**文件确实被改了**（`Select-String` 能 grep 到 `sceneIndex`），但门禁 PASS。差点写成「M3 MISSED_BY_DESIGN」把假阴性当设计豁免。",
+      "- **动因是我自己写下的一条假边界**：#4001 记录里我写「`main()` 无 `--root` 注入点 ⇒ 造不出\"夹具里确有阻断\"的行为态，补成行为锁须人工过目」。前半句真（取证根写死在仓库根），**后半句被本仓自己的代码否证**——既有 `端到端：真历史上一笔回填 PR 必须让 CLI 判红并点名那篇记录` 一直经 `--base-ref`/`--head-ref` spawn 真进程并断言 `rc===1`。所以本刀不是补缺口，是把\"少一个旗标\"造成的不可测消掉，并顺手删掉那条不存在的技术边界。授权：2026-10-20 用户明示「第 2、3 条授权你改判据」。"
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "db2d749a52adf987820950b52df246f115a215c06abcbc92162df053efa1cff8",
+  "decidedAt": "2026-10-20T13:45:12.646Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "self-play",
+    "evidence": "openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round2.md",
+    "findings": null,
+    "engineVerdictBeforeClosure": "self_play",
+    "externalAdjudicationNote": "外部件：critic=claude（scripts/deep-review.sh 真实调用），两轮原文已入库：\n  openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round1.md（第 1 轮，6 条，最低分 4）\n  openspec/records/ci-infra-shard-and-review-audit.evidence/critique-round2.md（第 2 轮，审已修版本，6 条，最低分 5）\n本记录对应「合并 origin/main」的同步提交：它**不引入任何新的生产行为**，只把主干\n领先的 5 个提交吸收进来（自动合并、零冲突）。合并后已在合并树上重跑三把锁：\n  audit 10/10、check-pr-exec-record 133/133（原 113 + 主干新增 20）、decider 52/52。\n裁决件：由引擎第三档出口（self-play）生成。本记录不声称外部模型批准了闭环；\ntier=external 的含义是「闭环依据含可核的外部评审产物」，不是「外部模型签署了闭环」。",
+    "closedAt": "2026-10-20T13:45:41.284Z"
+  }
+}

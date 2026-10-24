@@ -1,0 +1,61 @@
+{
+  "sha": "5f2fe0513b04c01fc19ef626144663eb8f28b2a2",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| S20 | **写路径的 sender 路由断言**：`film-engineering:import-kit` 在 `withSenderCheck` 之外**追加**断言 —— 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，`pathname` 恒为 `/`）⇒ 取出路由路径，断言命中 `/film-engineering` 或 `/film-engineering/classic`（**路由注册表** `src/router/index.js` 里这两条就是影视工程入口）⇒ 不命中 ⇒ **拒绝**（IPC 返回与 `withSenderCheck` 同形的 AUTH_ERROR + 审计行 `reason=UNAUTHORIZED_SENDER`，含 sender URL）；⚠ **诚实边界**：该断言证明的是「调用方**当前位于**影视工程路由」，**不是**「调用来自某个具体组件」（SPA 同一文档承载三个标签页，组件级归属**无法**从 sender URL 判别）⇒ 组件级授权仍留后续切片；⚠ 开发态 URL 形如 `http://localhost:<port>/#/film-engineering` ⇒ 同样取 `#` 段解析 |",
+      "**三处取舍写进 `SCHEMA.md`**（防被误读为遗漏）：① `nlink > 1` **一律拒绝**是设计选择（不做跨目录 inode/dev 对比）；② `.bak` 残留的两种恢复路径（S15）；③ **窗口级写限制是后续切片** —— 本批只做 `withSenderCheck` + 审计，**不**假装已有视图级授权；`SCHEMA.md` 追加 **sender URL 白名单**（实施时从**路由注册表**取影视工程相关路由，不手写字符串）作为过渡；缓解仅三层（受信来源 / 严格校验不落盘 / 全量审计），信任域内的越权**由审计可见**。",
+      "**三处取舍写进 `SCHEMA.md`**（防被误读为遗漏）：① `nlink > 1` **一律拒绝**是设计选择（不做跨目录 inode/dev 对比）；② `.bak` 残留的两种恢复路径（S15）；③ **窗口级写限制是后续切片** —— 本批只做 `withSenderCheck` + **S20 的 sender 路由断言** + 审计，**不**假装已有**组件级**授权；`SCHEMA.md` 追加 **sender 路由白名单**（实施时从**路由注册表** `src/router/index.js` 取影视工程路由，不手写字符串）作为过渡；缓解四层（受信来源 / 路由断言 / **目录只能由用户原生选**（renderer 不能传路径）/ 严格校验不落盘 + 全量审计），信任域内的越权**由审计可见**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9714cb97b71947810c5beabd81fa094f53605014a36718c982ad9dd2d53af8f8",
+  "decidedAt": "2026-10-22T21:34:27.258Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

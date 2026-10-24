@@ -1,8 +1,20 @@
 # 会员中心（MemberCenter）模块深度审查与优化方案
 
-> 审查日期：2026-10-19
-> 范围：`apps/desktop/src/views/MemberCenter.vue`、`apps/desktop/src/views/member-center/*`（7 个子视图 + labels + entitlement-gate）、`apps/desktop/src/stores/member.js`、`apps/desktop/src/stores/identity.js`、`apps/desktop/src/components/UpgradeModal.vue`、入口组件（MpSidebar / ProfileMenu / Dashboard）、`apps/desktop/src/styles/member-center.css`、`apps/desktop/src/locales/member-center/*`
+> 审查日期：2026-10-19（v4 修订：2026-10-23，纳入另一会话的支付功能线影响评估）
+> 范围：`apps/desktop/src/views/MemberCenter.vue`、`apps/desktop/src/views/member-center/*`（7 个子视图 + labels + entitlement-gate）、`apps/desktop/src/stores/member.js`、`apps/desktop/src/stores/identity.js`、`apps/desktop/src/components/UpgradeModal.vue`、`apps/desktop/src/components/WeChatPayDialog.vue`（#4252 新增）、入口组件（MpSidebar / ProfileMenu / Dashboard）、`apps/desktop/src/styles/member-center.css`、`apps/desktop/src/locales/member-center/*`、`packages/api-publish-engine/src/auth/*`
 > 性质：只读审查，无代码变更。结论均已逐文件核实到行号。
+> **版本说明**：v4 之前的所有「现状」描述均截至 2026-10-19 基线 `668b3c00c`。2026-10-20 起另一会话落地整条支付/档位功能线（#4051/#4075/#4187/#4219/#4252/#4269/#4286，origin/main 前进 240 个提交），本版 §9 记录对原方案的影响判定与修订。**引用现状行号时必须注明基线**，v1~v3 的行号对当前 main 可能已失效。
+
+---
+
+## 0. v4 修订摘要（2026-10-23）
+
+| 判定 | 条目 |
+|------|------|
+| **删除**（对方已做且更完整） | ① §3.1-2 的「rank 契约前置任务」——#4051 已实现 PLAN_RANK + limits.plan_rank + planRank() 降级保护；② Phase 2「订单 tab 保留占位」——#4219 已做实订单表 + 空态双引导 + navigate 契约；③ 升级 CTA「两步走」——改为一步：直接用 `limits.plan_rank < 2` |
+| **保留**（对方未触及） | P0-1（壳层 plans/redeem 悬挂，且新增双入口混乱）、P0-2（壳层区块零 CSS）、P0-3（planLabelOf 无 standard）、P0-4（feature/quota 裸渲染）、P0-5（错误断链）、§8 MAJOR-1（member.js 零 catch）、§7/§7b 全部评审裁决 |
+| **重写** | P0-6（UpgradeModal）：退役理由从「死胡同」升级为「假陈述」——文案已被对方改成「在线支付已开通，请前往会员中心购买」，方向反了 |
+| **新增** | §9.3 支付线引入的 4 项新问题（三处定价 UI 冲突、假陈述文案债、权益刷新链路静默失败、graceUntil/previousPlan 零展示） |
 
 ---
 
@@ -126,26 +138,36 @@
 │                        不再整卡复制（消除 P1-1）
 ├─ AccountSecurity    = 账号卡（唯一所在）+ 设备会话（服务端 is_current 标记当前设备
 │                        + error 展示修复）
-├─ Subscription 订阅  = 权益卡 + ★套餐对比（服务端 plans 迁入）+ ★兑换码入口（迁入）
-│                        + 升级说明（消除 P0-1）
+├─ Subscription 订阅  = 权益卡 + ★套餐对比（服务端 plans 迁入，**v4：升级为可购买卡片**
+│                        ——点卡直接 openPay(plan, period)，金额/勾选态用服务端数据，
+│                        与 WeChatPayDialog 打通，消灭「只看不买」目录与双入口）
+│                        + ★兑换码入口（迁入；保留订单页 navigate('redeem') → 本页契约）
 ├─ OrdersBilling      = 保留占位但明确空态设计（图标+一句解释），或暂时从导航隐藏
 ├─ UsageQuota         = quota key→i18n 映射 + 数值格式化，未知 key 原样回退
 ├─ Messages           = 列表 + i18n 化错误（复用兑换的 code→key 映射模式）
 └─ HelpSupport        = 版本 + 帮助入口；checkUpdates 要么接线要么删键
 
-UpgradeModal：退役
+UpgradeModal：退役（v4：理由升级为「假陈述」——见 §9.3-2）
   侧边栏/头像/仪表盘升级入口统一 → /member-center?section=subscription
   （若需保留弹窗形态，改为渲染服务端 plans 三档 + 直达兑换码，不再硬编码 2 张卡）
 ```
 
+**v4 新增：到期宽限态展示（#4075 契约已就绪，UI 零消费）**
+
+standard/pro 到期用户当前看到的是「免费版」，与服务端「降级不是悬崖」设计意图相悖：
+- identity store 已透传 `entitlement.graceUntil`（ISO 字符串）与 `entitlement.previousPlan`（identity.js 归一化白名单，#4051 加入）
+- 服务端 `PLAN_EXPIRY_GRACE_DAYS = 7`（subscription-service.js）：到期后保留只读 + 队列收尾，配额按免费档
+- 需补：权益卡在 `graceUntil` 存在时显示「已到期，宽限期至 {date}（只读）」中性态 + previousPlan 用于文案「{previousPlan} 已到期」
+- **禁止**把宽限期渲染成「正式权益」——配额按免费档是服务端真源，UI 不得暗示满血
+
 ### 3.1 配套改造点
 
-1. **feature/quota 本地化**：新增 `memberCenter.feature.cloud_publish`、`memberCenter.quota.credits` 等映射（zh/en 成对），子视图经 `t()` 渲染；未知 key 回退原始串（服务端未来加新 feature 不至于开天窗）。
-2. **状态文案单一真源**：labels.js `statusLabelOf` 提为 `useIdentityLabels()` composable；ProfileMenu 弃用自己的那份映射（消除 P1-3 两套矛盾实现）。**统一方向裁决（评审 C1-08）**：取 ProfileMenu 语义——composable 的 `statusLabelOf` 增加可选 `hasSessionIdentity` 参数，error 态按「有会话身份→已连接（操作可重试）/ 无身份→需要重试」二分；**禁止**统一成 labels.js 的无条件「需要重试」（那会把网络抖动但会话有效的用户状态从「已连接」退化，引入新误导）。**升级 CTA 的档位判定（对抗评审 MISS-1 修订后的两步走）**：① Phase 1 短期把 `plan !== 'pro'` 改为**正向名单** `['free','standard'].includes(entitlement?.plan)`（显式过渡写法，含 entitlement 缺失中性处理）；② **契约前置任务**：服务端 plan-matrix 增加 rank 字段（或 pro 专属 feature）→ identity 归一化白名单同步透传 → 渲染层 CTA 改用 `hasFeatureOf(rank)` 替换 ①。当前 features 契约下 standard/pro 不可区分（plan-matrix.js:150-153），**禁止在无契约改动时直接改 feature 判定**；「plan 序比较」备选已删除（评审 C1-04：渲染层无 PLAN_IDS 顺序契约，硬编码序会造出第二套判定）。
+1. **feature/quota 本地化**：新增 `memberCenter.feature.cloud_publish`、`memberCenter.quota.*` 等映射（zh/en 成对），子视图经 `t()` 渲染；未知 key 回退原始串（服务端未来加新 feature 不至于开天窗）。**⚠️ v4 更正（原评审 C1-09）**：quota 真实键形是 `${feature}_monthly`（plan-matrix.js 派生段：cloud_publish_monthly / ai_write_monthly / video_create_monthly / official_credit_monthly），**不得**按测试 mock 的 `credits/used` 造 i18n 键——上线后真实键会全走「未知 key 回退原文」路径，P0-4 等于没修。映射键清单须与 plan-matrix 派生段对齐核对。
+2. **状态文案单一真源**：labels.js `statusLabelOf` 提为 `useIdentityLabels()` composable；ProfileMenu 弃用自己的那份映射（消除 P1-3 两套矛盾实现）。**统一方向裁决（评审 C1-08）**：取 ProfileMenu 语义——composable 的 `statusLabelOf` 增加可选 `hasSessionIdentity` 参数，error 态按「有会话身份→已连接（操作可重试）/ 无身份→需要重试」二分；**禁止**统一成 labels.js 的无条件「需要重试」（那会把网络抖动但会话有效的用户状态从「已连接」退化，引入新误导）。**升级 CTA 的档位判定（v4 修订，MISS-1/C1-04 已由 #4051 闭环）**：服务端 plan-matrix v2.0 已落地 `PLAN_RANK`（free:0/standard:1/pro:2，不可被 overrides 覆盖）并透传 `entitlement.limits.plan_rank`——**契约已就绪，但渲染层尚未引用**（`grep plan_rank` 在 member-center 零命中，当前仍为 `plan !== 'pro'`，v4 评审 E1 实证）。CTA 改造即渲染层切换：改为 `entitlement?.limits?.plan_rank < 2`（PLAN_RANK 最大值），**一步到位、无需两步走过渡名单**；原「rank 契约前置任务」随之删除（#4051 已实现且实现质量高于原建议：PLAN_RANK 独立于 BASE_MATRIX 且不可配）。entitlement 未加载时 CTA 不渲染（不猜档位）。
 3. **member store 生命周期**：壳层 watch identity 登录态，`signed_out / disabled` 或切换账号（user.sub 变化）时调用 `memberStore.$reset()`。
-4. **planLabelOf 补 standard**（P0-3 直修）。
-5. **兑换体验**：`maxlength` + 宽松格式前置校验，本地校验失败立即提示不浪费请求；成功后自动切到 subscription 并高亮权益卡。**⚠️ 对抗评审 MISS-9 修正（推翻本条原正则）**：服务端真实校验是**排除易混淆字符**的字母表 `'ABCDEFGHJKMNPQRSTUVWXYZ23456789'`（subscription-service.js:12-14），先前给出的 `[A-Z0-9]` 宽松版**并非同型**——会放过服务端必拒的含 O/I/0/1 的码，前置校验形同虚设。前端必须采用与服务端**逐字符相同**的字符类；正则本体应由 `packages/api-publish-engine` 导出共享常量（或经契约镜像锁引用），**禁止两端各自手写字面量**。
-6. **会话契约**：短期方案——主进程 `identitySessions` 归一化时按请求附带的 X-Device-Id（member-api-service.js:61）比对 device_id 标记 `is_current`；前端弃用 `index === 0`。**边界（评审 C1-13）**：`is_current` 全 false 是合法态（当前设备行未 upsert 或不在返回列表），前端此时显示「未识别当前设备」中性态，**禁止回退顺序猜测**；主进程侧新增一条 IPC 测试覆盖该分支。主进程归一化改动需同步 IPC 测试。
+4. **planLabelOf 补 standard**（P0-3 直修）。**v4 补**：已知悉 #4051 之后 plan-matrix 仍有且仅有 free/standard/pro 三档，补 standard 分支后与价目区服务端 label 即一致；`trial` 分支保留不动（plan-matrix 无 trial，属防御性死分支，Phase 3 死键清理时一并评估）。
+5. **兑换体验**：`maxlength` + 格式前置校验，本地校验失败立即提示不浪费请求；成功后自动切到 subscription 并高亮权益卡。**⚠️ 对抗评审 MISS-9 修正（推翻本条原正则）**：服务端真实校验是**排除易混淆字符**的字母表 `'ABCDEFGHJKMNPQRSTUVWXYZ23456789'`（subscription-service.js:14，显式排除 I/O/0/1），先前给出的 `[A-Z0-9]` 宽松版**并非同型**——会放过服务端必拒的含 O/I/0/1 的码，前置校验形同虚设。前端必须采用与服务端**逐字符相同**的字符类；正则本体应由 `packages/api-publish-engine` 导出共享常量（或经契约镜像锁引用），**禁止两端各自手写字面量**。
+6. **会话契约**：短期方案——主进程 `identitySessions` 归一化时按请求附带的 X-Device-Id（member-api-service.js:61）比对 device_id 标记 `is_current`；前端弃用 `index === 0`。**边界（评审 C1-13）**：`is_current` 全 false 是合法态（当前设备行未 upsert 或不在返回列表），前端此时显示「未识别当前设备」中性态，**禁止回退顺序猜测**；主进程侧新增一条 IPC 测试覆盖该分支。主进程归一化改动需同步 IPC 测试。**v4 待核**：#4075 引入 maxDevices 上限（服务端会话表可强制），需下一轮核实其是否已顺带实现 is_current 标记——若已实现，本条降级为「前端消费」。
 
 ---
 
@@ -155,14 +177,14 @@ UpgradeModal：退役
 
 | # | 动作 | 对应问题 |
 |---|------|----------|
-| 1 | plans/redeem 区块迁入 Subscription 子视图；补齐全部缺失 CSS（或复用 `member-center-card` 包裹） | P0-1, P0-2 |
+| 1 | plans/redeem 区块迁入 Subscription 子视图；补齐全部缺失 CSS（或复用 `member-center-card` 包裹）；**v4：价目卡升级为可购买卡片**——点卡 = `openPay(plan, period)` 打通 WeChatPayDialog，与 Subscription tab 已有的购买按钮区合并为同一交互（消灭壳层价目「只看不买」与双入口）。**约束（v4 评审 E6）**：价目卡与订阅页购买按钮**共用同一 `openPay(plan, period)` 入口与同一个 WeChatPayDialog 实例**，参数同源于服务端 `plans`（不硬编码）——严禁出现「壳层卡片→dialog」与「订阅页按钮→dialog」两条并行支付路径。兑换区随迁，保留订单页 `navigate('redeem')` → 订阅页契约 | P0-1, P0-2 |
 | 2 | `planLabelOf` 补 standard；去掉 `value \|\| 'free'` 兜底（plan 缺失/未知返回中性文案）；currentPlanId 无 entitlement 或 plan 未知时**不渲染「（当前）」标记** | P0-3, MISS-4 |
-| 3 | feature/quota i18n 映射 | P0-4 |
+| 3 | feature/quota i18n 映射（键形按 plan-matrix 派生段 `${feature}_monthly`，不用测试 mock 键） | P0-4, C1-09 |
 | 4 | Messages / AccountSecurity 错误展示修复（error 码走 i18n 映射，不再跨 tab 串显）；revoke 失败的 revoked=0 语义反馈；**member.js 异步路径统一 try/catch 包装（LicensePermissionError → MEMBER_PERMISSION_REQUIRED 专属码 + i18n）** | P0-5, §8 MAJOR-1 |
-| 5 | UpgradeModal 冲突消解：壳层不再渲染 modal（升级 CTA 行为见 §3.1 第 2 条两步走）；**modal 退役后 DEV trial 通路维持休眠**（不删 `licenseManager.activateTrial()`——license.js:37-44 注释已声明保留依据，不复活入口，处置写入 openspec/records）；doDeactivate 注销许可证入口随 modal 消失（DEV-only 能力，退役决策记录写明去向，暂不迁移）。**退役同步动作清单（评审 C1-03）**：① 删 `components/UpgradeModal.vue` 与 `UpgradeModal.test.js`；② `more-tests.test.js:23` 移除 import；③ `icon-usage.test.js:30` FILES 收敛清单移除登记行（否则 readFileSync ENOENT 整套件红）；④ MemberCenter.test.js:134-145 改写（见回归测试要求） | P0-6, MISS-5, C1-03, C1-12 |
-| 6 | 升级 CTA 短期改正向名单 `['free','standard'].includes(entitlement?.plan)`；契约前置任务（rank 字段）单列 | P1-10, MISS-1 |
+| 5 | UpgradeModal 冲突消解：壳层不再渲染 modal；**v4：退役理由升级为「假陈述」**——其 `paymentChannelUnavailable` 文案已被 #4252 改成「在线支付已开通，请前往会员中心购买」（zh/en.js:103，v4 评审 E2 实证），一个死胡同弹窗自称已开通并指路会员中心（方向反了），必须随退役一并删除该假陈述。**同步删三个 locale 键**（zh/en 成对，CI Gate 7）：`paymentChannelUnavailable`、`activationCodeMigrated`、`trialUnavailable`——「筹备中」语境消失后均为冗余死键（评审 E2 连带项）。**modal 退役后 DEV trial 通路维持休眠**（不删 `licenseManager.activateTrial()`——license.js:37-44 注释已声明保留依据，不复活入口，处置写入 openspec/records）；doDeactivate 注销许可证入口随 modal 消失（DEV-only 能力，退役决策记录写明去向，暂不迁移）。**退役同步动作清单（评审 C1-03）**：① 删 `components/UpgradeModal.vue` 与 `UpgradeModal.test.js`；② `more-tests.test.js:23` 移除 import；③ `icon-usage.test.js:30` FILES 收敛清单移除登记行（否则 readFileSync ENOENT 整套件红）；④ MemberCenter.test.js:134-145 改写（见回归测试要求）。**v4 新增避坑**：删除/新建支付相关命名时避开 `payment[A-Z]\w+` 模式（`buyout-removal.contract.test.js:86` 的买断形态锁，v4 评审 E5 实证），对方已示范用 `wechatPay*` 命名 | P0-6, MISS-5, C1-03, C1-12, E2 |
+| 6 | 升级 CTA 改用 `entitlement?.limits?.plan_rank < 2`（**服务端契约已就绪——#4051 已透传 limits.plan_rank；渲染层尚未引用**——当前仍 `plan !== 'pro'`，本动作即渲染层切换 + 回归断言，勿因摘要误判为已完成而跳过，v4 评审 E1）；entitlement 未加载不渲染 CTA | P1-10, MISS-1, E1 |
 
-**回归测试要求**（补逃逸链）：壳层结构锁（plans 区块不得渲染于 shell 层）、planLabelOf('standard') 用例、planLabelOf(undefined) 中性态用例、feature 映射用例、Messages/AccountSecurity 错误展示用例、**MemberCenter.test.js:134 现有「CTA 打开 UpgradeModal」用例必须同步改写为「CTA 存在且不渲染 UpgradeModal」负向断言**（MISS-3）、DoD 增补壳层模板不得渲染 `<UpgradeModal>` 的结构锁（对称于 Dashboard.style-guard.test.js:278-283）。
+**回归测试要求**（补逃逸链）：壳层结构锁（plans 区块不得渲染于 shell 层）、planLabelOf('standard') 用例、planLabelOf(undefined) 中性态用例、feature/quota 映射用例（含 `${feature}_monthly` 真实键形）、Messages/AccountSecurity 错误展示用例、**MemberCenter.test.js:134 现有「CTA 打开 UpgradeModal」用例必须同步改写为「CTA 存在且不渲染 UpgradeModal」负向断言**（MISS-3）、DoD 增补壳层模板不得渲染 `<UpgradeModal>` 的结构锁（对称于 Dashboard.style-guard.test.js:278-283）。**v4 新增**：① 价目卡点击 → WeChatPayDialog 打开且携带正确 plan/period 的用例；② `limits.plan_rank` 缺失/未加载时 CTA 不渲染的用例；③ 宽限期展示用例（graceUntil 存在时权益卡显示中性态而非「免费版」）。
 
 ### Phase 2（信息架构重排）
 
@@ -171,6 +193,9 @@ UpgradeModal：退役
 - member store 生命周期复位；未读角标进入页面预取。
 - **未加载态中性化（评审 C1-11 扩面）**：`currentPlanId` 去掉盲目 `'free'` 兜底，且 `planLabelOf` 的 null 语义一并处理（null→中性占位而非 'free'），核对 labels.js 全部 null 回退路径（含 isProActiveOf:32 的 licenseStore 二值回退）——否则 entitlement 未加载瞬间价目区中性了、权益卡仍写「免费版」，矛盾换位置存在。
 - 状态文案单一真源（composable 化，方向见 §3.1 第 2 条 C1-08 裁决）。
+- **v4 调整**：原「订单 tab 保留占位」条目**删除**——#4219 已做实订单表 + 空态双引导 + navigate 契约；本条改为「订单 tab 与 Subscription 的交叉引流校准」（订单空态按钮的跳转目标、pending 订单继续支付的 dialog 复用，与 Phase 1 迁入后的兑换区落点对齐）。
+- **v4 新增：graceUntil/previousPlan 宽限期展示**（#4075 契约已就绪、UI 零消费）：权益卡在 `graceUntil` 存在时显示「已到期，宽限期至 {date}（只读）」中性态；用 previousPlan 生成「{previousPlan} 已到期」文案；**禁止**把宽限期渲染成正式权益（配额按免费档是服务端真源）。
+- **v4 新增：权益刷新链路加固**：WeChatPayDialog 的 `onPaid → identityStore.load()` 在 identity 侧 `runExclusive` 被占用时静默返回 false（identity.js:112-123）——支付成功页可能不刷新权益。加固：onPaid 后若 load() 返回 false，用 `onIdentityStateChanged` 单次监听兜底（服务端落账后 state-changed 会推），或重试一次；不得让用户停留在「支付成功但显示免费版」。
 
 ### Phase 3（打磨）
 
@@ -236,6 +261,25 @@ claude CLI 轮之外，另一名全新上下文的评审员（DWS subagent 8248d
 
 > 方法论记录：两条独立通道（跨家族 claude CLI + 同家族子代理）在同一版文档上分别独立抓出同一处正则错误与同一处拦截面遗漏——独立复核交叉命中，显著提升了本文修订后的可信度。本目录 `.ccg/` 在共享根写保护放行清单内，产物随 docs-only PR 入库。
 
+## 7c. v4 修订记录（2026-10-23，支付线冲击 + 跨家族对抗评审）
+
+**触发**：用户指出另一会话已落地整条支付功能线（#4051~#4286）。先执行 §9 的冲击调查（240 提交窗口比对），再按用户确认的 v4 方向修订本文。
+
+**修订内容**（详见 §0 摘要表与 §9）：
+- **删三条**：rank 契约前置任务（#4051 已实现且更完整）、Phase 2 订单占位（#4219 已做实）、CTA 两步走（改为 `limits.plan_rank < 2` 一步判定）
+- **改两条**：价目区升级为可购买卡片（消灭壳层「只看不买」与双入口）；UpgradeModal 退役理由升级为「假陈述」（对方把文案改成「已开通」但弹窗仍是死胡同）
+- **补四项**：三处定价 UI 冲突、假陈述文案债、onPaid 刷新链路静默失败、graceUntil/previousPlan 零展示
+
+**v4 修订的对抗评审**：按用户「应用质量节拍」要求，v4 修订稿经跨家族 claude CLI 独立评审（全新上下文、可读仓库），重点核查三条：① §9 影响判定的证据真伪；② 修订是否引入新假陈述；③ Phase 1 动作是否踩对方新落地的机械锁（buyout-removal 命名锁、navigate 契约、style-guard 锁）。评审产物配对落盘 `.ccg/adversarial/member-center-audit-v4/`（critique-v4.md / rebuttal-v4.md）。
+
+**v4 评审结果**：6 条 issue（1 critical / 3 major / 1 minor / 1 确认性），三维评分 9/9/8，最低 8 ≥ 阈值，**converge=true**。两条实质发现已并入正文：
+- **E1（已/待实现混淆，接受）**：`limits.plan_rank` 服务端已透传但**渲染层零引用**（grep 实证）——文档「一步到位」措辞有被执行者误读为「已完成」而跳过 Phase 1 动作 6 的风险。已在 §3.1-2、Phase 1 动作 6、DoD 三处补显式标注「契约已就绪、渲染层待改」。
+- **E6（双路径风险，接受）**：价目卡可购买若另起 dialog 调用路径，会复现「双入口」形态。已补约束：与订阅页按钮共用同一 `openPay(plan, period)` 入口与 WeChatPayDialog 实例。
+- **E2（critical，反证支持 v4 定性）**：评审独立核实「假陈述」成立（locale 新文案 + 组件仍无购买能力），并给出连带项——退役时同步删三个 locale 键，已并入 Phase 1 动作 5。
+- E3/E4/E5 三条（P0-3 证据、member.js 零 catch、四项机械锁）经复核**核实为准确**，无新问题。
+
+**教训沉淀**：本次冲击暴露一个模式——**方案文档的「现状」断言有时效性**。v1~v3 的全部行号结论在 4 天后仍成立（对方未触碰 P0-1~P0-5 区域），但「契约前置任务」这类**前瞻性假设**被对方的并行推进直接作废。后续凡带「契约前置/待服务端支持」字样的方案条目，执行前必须重新核验主干，不能照 4 天前的结论开工。
+
 ---
 
 ## 8. CTO 扫描补充发现（QM-2 维度，2026-10-19 第 2 轮自评新增）
@@ -263,7 +307,59 @@ claude CLI 轮之外，另一名全新上下文的评审员（DWS subagent 8248d
 
 ---
 
-## 6. 验收标准（DoD）
+## 9. 支付功能线冲击调查（2026-10-23，v4 新增专章）
+
+### 9.1 调查背景与方法
+
+用户指出另一会话已修改大量会员中心支付相关功能。调查方法：`git fetch` 后以本方案 v1 落盘基线 `668b3c00c`（2026-10-19）对比 `origin/main`，定位该窗口内全部支付/档位相关提交与文件改动，逐项评估对原方案前提的冲击。
+
+**规模**：窗口内 origin/main 前进 **240 个提交**，其中一条完整商业化闭环（7 个 PR，2026-10-20 ~ 10-23）：
+
+| PR | 内容 | 关键产物 |
+|---|---|---|
+| #4051 | 会员档位机制落地 | `plan-matrix` v2.0：`PLAN_RANK` 档位序、rank/maxDevices/maxCloudAccounts/batchSizePerRun/modelTier 进 limits、到期宽限 7 天（graceUntil/previousPlan）、pro 涨价 ¥79→¥119、standard video 500→300 |
+| #4075 | 档位上限服务端硬门禁 | limits 硬门禁 + 客户端宽限判活；maxDevices 服务端可强制 |
+| #4187 | 微信 Native 支付数据层 | `payment-providers/{index,wechat-native,wechat-native-factory}.js` + `subscription-payment.js` mixin（createCheckout/settlePaymentWebhook；金额服务端真源、验签、幂等） |
+| #4219 | 订单页 | `OrdersBilling.vue` 14 行占位 → 205 行真实订单表（pending 可「继续支付」复用订单号、空态双引导去购买/用激活码）+ 130 行测试；壳层新增 `onChildNavigate` |
+| #4252 | 支付发起 | `WeChatPayDialog.vue`（二维码+轮询+成功/失败/过期态）、`wechatPay*` IPC 三方法、Subscription.vue 长出购买区（standard/pro × month/year 四按钮） |
+| #4269/#4286 | 回调留痕 + mock 预演 | `identity_webhook_events` outbox；本地 mock 微信预演（抓出 SIGN_ERROR 被吞的真 bug） |
+
+openspec 变更：`wechat-native-payment`（status: in-progress，含对上游 MoR 设计的 9 项显式偏离：无自动续费/无 proration/无自助退款/无试用/无 coupon/无门户/单通道硬编码微信）。
+
+### 9.2 对原方案的逐条影响判定
+
+| 原方案条目 | 判定 | 依据 |
+|---|---|---|
+| §3.1-2「rank 契约前置任务」 | **删除** | #4051 已实现 PLAN_RANK（独立于 BASE_MATRIX、不可被 overrides 覆盖）+ limits.plan_rank 透传 + planRank() 降级保护。实现质量高于原建议（原建议只说「加 rank 字段」） |
+| §3.1-2 升级 CTA「两步走」 | **改为一步** | `entitlement.limits.plan_rank < 2` 直接判定；MISS-1/C1-04 的可行性扣分点（standard/pro features 相同导致 feature 判定不可行）随之消解 |
+| Phase 2「订单 tab 保留占位」 | **删除** | #4219 已做实订单表 + 空态双引导（`navigate('subscription')`/`navigate('redeem')`）+ 子视图 navigate 事件（壳层已接 `onChildNavigate`，redeem→subscription 映射） |
+| P0-1 壳层 plans/redeem 悬挂 | **保留且升级** | 对方未触碰壳层；且现在壳层价目区（真实价、无跳转）与 Subscription 购买按钮区（能买、不显示金额）**双入口并存**——原「迁入」方向升级为「价目卡即可购买卡片」 |
+| P0-6 UpgradeModal 退役 | **保留，理由升级** | 对方只改文案未退役；其 `paymentChannelUnavailable` 现为「在线支付已开通，请前往会员中心购买」——**假陈述**（弹窗自身仍是死胡同），详见 §9.3-2 |
+| P0-3/P0-2/P0-4/P0-5/§8 MAJOR-1 | **原样保留** | labels.js 无 diff（planCustom 仍在）；壳层 plans/redeem 区块零样式；feature/quota 裸渲染；member.js 无 diff（零 catch）——对方完全未触碰这些 |
+| P1-10 CTA 硬判 | **保留** | MemberCenter.vue 的 `plan !== 'pro'` 仍在（diff 仅 8 行且全是 navigate 相关），仍待改为 plan_rank 判定 |
+
+### 9.3 支付线引入的新问题（原方案未覆盖，v4 新增）
+
+1. **三处定价 UI 冲突（P0-6 升级形态）**：壳层价目区（服务端真实价、只读）vs UpgradeModal（硬编码免费/Pro 两卡、「¥0」、硬编码 feature 清单）vs Subscription 购买按钮（不显示金额）。同一「升级」语义三种呈现。修法随 Phase 1 动作 1/5 一并收口。
+2. **UpgradeModal 假陈述文案债**：`paymentChannelUnavailable` = 「在线支付已开通，请前往会员中心购买。」——写在一个**不能购买**的弹窗里，且「去会员中心购买」的指引方向与「Sidebar/ProfileMenu/Dashboard 入口跳会员中心」重复叠加，用户绕圈。随 modal 退役删除；**连带删三个 locale 键**（zh/en 成对）：`paymentChannelUnavailable`、`activationCodeMigrated`、`trialUnavailable`——「筹备中」语境消失后均为冗余死键（v4 评审 E2 连带项）。
+3. **权益刷新链路静默失败风险（#4252 引入）**：`WeChatPayDialog` 的 `onPaid → identityStore.load()`；而 identity store 的 `runExclusive` 被占用时 `load()` 直接返回 false 且**不重试**（identity.js:112-123）——支付成功但权益不刷新的用户会看到「支付成功，权益已开通」+ 界面仍显示免费版。需兜底（state-changed 单次监听或重试）。
+4. **graceUntil/previousPlan 零展示（#4075 引入）**：服务端已按「降级不是悬崖」设计（7 天只读宽限 + previousPlan），identity store 已透传两字段，但 UI 无任何消费——到期用户看到「免费版」，与服务端设计意图相悖。属信息展示缺失，列入 Phase 2。
+
+### 9.4 交叉风险与避坑（执行 Phase 1 前必读）
+
+- **命名锁**：删除/新建支付相关标识符时避开 `payment[A-Z]\w+` 模式——`buyout-removal.contract.test.js` 用该正则锁「买断形态不回归」。对方的解法是 `wechatPay*`（见 preload/wechat-pay.js 头部注释）。
+- **导航契约**：订单页空态已按 `navigate('redeem')` 约定发射（壳层映射 redeem→subscription，因为「激活码卡片常驻订阅页上方」）。Phase 1 迁入兑换区时必须保持该落点，否则订单页两个空态按钮半价失效。
+- **is_current 待核**：#4075 的 maxDevices（服务端会话表可强制）可能顺带改变了 sessions 返回结构。执行 Phase 3 前需重新核实 `identitySessions` 是否已带 is_current——若已实现，§3.1-6 降级为「前端消费」。
+- **异步组件先例**：对方已用 `defineAsyncComponent` 懒加载 WeChatPayDialog（避免会员中心挂载即加载二维码链，实测 MemberCenter.test.js 未登录用例 7.4s/10s 超时边缘）。Phase 1 迁入价目卡时若引入重组件，沿用该先例。
+- **档位常量**：pro 价格已变 ¥119/月（#4051 结构 A），若我方任何文档/测试引用旧价 ¥79 需同步（本方案正文仅 plan-matrix.js:23 的三档结论，无硬编码金额，不受影响）。
+
+### 9.5 结论
+
+原方案的技术判断（根因、架构方向、评审裁决）**全部维持有效**；需执行的是「**删三条、改两条、补四项**」：删除对方已完成的 rank 契约/订单占位/CTA 两步走；把价目区升级为可购买卡片、把 UpgradeModal 退役理由升级为假陈述；补支付线引入的三处定价冲突、文案债、刷新链路、宽限展示四项新问题。修订后的分阶段计划见 §4（Phase 1/2/3 已按 v4 就位）。
+
+---
+
+## 10. 验收标准（DoD）
 
 - [ ] 价目与兑换入口只出现在「订阅与方案」tab；切 tab 不再重复渲染。
 - [ ] 价目/兑换区块在 light/dark 主题下样式完整（有 CSS 定义，非裸控件）。
@@ -276,3 +372,9 @@ claude CLI 轮之外，另一名全新上下文的评审员（DWS subagent 8248d
 - [ ] 登出/切换账号后 member store 数据清空（无残留通知/会话）。
 - [ ] Phase 1 各项均有对应回归测试；member-center 子视图测试覆盖不再为零。
 - [ ] zh/en locale 同步（CI Gate 7 绿）。
+- [ ] 【v4】价目卡点击可直达微信支付弹窗（plan/period 正确传递）；壳层不再有「只看不买」的价目区。
+- [ ] 【v4】升级 CTA **渲染层引用已切换**为 `limits.plan_rank < 2`（服务端契约早已就绪，勿因「已透传」误判为已完成）；standard 用户看到升级入口且文案指向 pro 的配额增量（非泛化「升级解锁」）。
+- [ ] 【v4】价目卡与订阅页购买按钮共用同一 `openPay` 入口与 WeChatPayDialog 实例（无第二条并行支付路径）。
+- [ ] 【v4】UpgradeModal 退役时三个 locale 键（paymentChannelUnavailable / activationCodeMigrated / trialUnavailable）zh/en 成对删除。
+- [ ] 【v4】graceUntil 存在时权益卡显示宽限期中性态；`paymentChannelUnavailable` 假陈述文案随 modal 退役删除。
+- [ ] 【v4】支付成功回调后权益刷新有兜底（load() 返回 false 时不停留在「支付成功但显示免费版」）。

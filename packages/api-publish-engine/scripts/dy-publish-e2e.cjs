@@ -59,7 +59,15 @@ async function main () {
   console.log('视频: ' + VIDEO + ' (' + (fs.statSync(VIDEO).size / 1024).toFixed(0) + ' KB)')
 
   const { chromium } = require('playwright')
-  const browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+  let browser
+  try {
+    browser = await chromium.connectOverCDP('http://127.0.0.1:' + CDP_PORT)
+  } catch (e) {
+    console.error('无法连接应用 CDP（127.0.0.1:' + CDP_PORT + '）: ' + String(e.message).split('\n')[0])
+    console.error('最常见原因：**应用未启动**（electron 进程不存在）。请先启动应用再跑本脚本。')
+    console.error('若应用已启动，请用 DY_CDP_PORT=<端口> 指定实际 CDP 端口。')
+    process.exit(1)
+  }
   const ctx = browser.contexts()[0]
   const pg = ctx.pages().find((x) => /5231/.test(x.url() || ''))
   if (!pg) { console.error('未找到应用页（5231）'); await browser.close(); process.exit(1) }
@@ -99,6 +107,11 @@ async function main () {
         return JSON.stringify({ h: h.data || [], s: s.data || {} })
       } catch (e) { return 'ERR ' + e.message }
     })
+    if (/^ERR /.test(st) && /closed|Target page|ECONNREFUSED|connect/i.test(st)) {
+      console.log("=== 应用已退出或 CDP 断开 ===")
+      console.log("任务 " + TARGET + " **无终态**（进程中断不会入历史，见 PRD §16.20.1）")
+      break
+    }
     let d
     try { d = JSON.parse(st) } catch (_e) { continue }
     const mine = (d.h || []).find((t) => t.id === TARGET)

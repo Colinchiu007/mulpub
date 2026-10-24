@@ -1,0 +1,61 @@
+{
+  "sha": "15c83eecbea789463ba3a52d5273a3ada6e0947d",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| S20 | **写路径的 sender 路由断言（硬）**：`film-engineering:import-kit` 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，**`pathname` 恒为 `/` ⇒ 不参与判断**）—— **解析口径写死**：`new URL(url).hash` ⇒ 去前导 `#` ⇒ 取 `?` 之前的部分 ⇒ 去尾斜杠 ⇒ 与前缀 `/film-engineering` 比较；**写路径一律 fail-closed**：路由前缀不匹配**或**路由解析不出（`hash` 缺失/为空）⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：该断言只能判到「调用方**当前在**影视工程路由」，**判不到组件**（SPA 同一文档承载三标签页）⇒ **组件级授权仍不做**；⚠ **另一道不依赖 URL 的屏障**：handler **入参为空**、路径只能来自原生对话框 ⇒ 任意可信渲染进程**无法指定替换内容** |",
+      "| S20 | **写路径的 sender 授权断言（硬）** —— 两条：① **只允许主框架调用**：`event.senderFrame.parent` 存在 ⇒ **子框架** ⇒ **拒绝**（`reason: UNAUTHORIZED_SENDER`）⇒ iframe/嵌入页打不到写路径；② **路由前缀断言**：解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，**`pathname` 恒为 `/` ⇒ 不参与判断**）—— **解析口径写死**：`new URL(url).hash` ⇒ 去前导 `#` ⇒ 取 `?` 之前的部分 ⇒ 去尾斜杠 ⇒ 与前缀 `/film-engineering` 比较；**写路径一律 fail-closed**：前缀不匹配**或**路由解析不出（`hash` 缺失/为空）⇒ **拒绝**（`UNAUTHORIZED_SENDER`）+ 审计行（含 sender URL 与路由）；⚠ **诚实边界**：同一文档内的注入**仍可**触达本通道（同源 ⇒ 路由可伪造 ⇒ 判不到组件）⇒ 真正的屏障是「**目录只能由用户原生选**」+ 严格校验不落盘 + 全量审计 |",
+      "**取舍（写进 `SCHEMA.md`，防被误读为遗漏）**：⓪ **禁止递归删除目录**（本仓 R0 铁律）—— staging/`.bak` 的清理一律**按精确文件清单**逐个 `unlink` + 空目录 `rmdir`；ⓘ **不做磁盘空间预检**（`statfs`）—— ENOSPC 发生在**拷贝阶段** ⇒ 导入失败 + 按清单清 staging + **旧 kit 未动**（S3/S4 兜底）⇒ 只是失败得晚一点，**不产生损坏**；① `nlink` 判据 = **最佳努力、非防篡改边界**（S2）；② 崩溃残留三档恢复路径（S15）；③ **跨目录硬链 = 非防篡改边界**（**刻意不进安全清单**：该维度**无判据**——`nlink` 在 FAT/exFAT/网络盘恒为 1 ⇒ 跨目录硬链**永远漏判**；同目录硬链已由 S2 的 `(dev,ino)` 覆盖；补偿四条：S21 限额只管源目录、S22 只收本机本地目录源、审计固定记 `hardlink_check=best-effort`（不虚报已防护）、`SCHEMA.md` 明写「非防篡改边界」）ⓘ 窗口级/组件级授权**不在本批** —— 本批做 `withSenderCheck` + **S20 的 sender 路由前缀硬断言**（路由不在 `/film-engineering` ⇒ 拒绝；**前缀**匹配 ⇒ 三个标签页都放行、**不误伤合法调用**），但**组件级授权做不了也不假装做**（同一文档承载三标签页，路由判不出组件）；缓解四层（**受信来源 = preload 白名单登记的 `filmEngineering.importKit` 接口**（`access-control.js` 的 `PUBLIC_METHODS` 登记 ⇒ 未登记的方法默认不可达）+ **路由前缀断言**（S20，写路径解析不出路由即拒）+ **目录只能由用户原生选**（入参不含路径 ⇒ 无法指定替换内容）+ 严格校验不落盘 + 全量审计），信任域内的越权**由审计可见**。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1afe24a371a43f6a3da64d90158ed077b03c4006372462cb665f833099e3e631",
+  "decidedAt": "2026-10-23T01:50:29.431Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

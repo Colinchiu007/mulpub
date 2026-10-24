@@ -1,0 +1,60 @@
+{
+  "sha": "3de13a330b008f115017dae9ae67005d12294064",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "> 其 `X-Arguments` 与本项目 `buildXArguments` 逐字一致 ⇒ 主机与鉴权头配套使用即可。",
+      "> **方法论**：探测受鉴权保护的接口时，缺头返回的 404 **不能**用来证明端点不存在。 目的：把 `D:\\Data\\reverse-two-competitors` 里**可直接落地**的结论抽成一张表，避免再次出现「凭我们自己的代码猜方向」。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "978e0febb08c7632657f6f5034a846711b846e0380d2e938b9f26d64cda38303",
+  "decidedAt": "2026-10-23T05:16:16.321Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

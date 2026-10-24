@@ -119,7 +119,7 @@
             <p class="config-hint">{{ mediaRequirementsAudioText }}</p>
           </div>
           <div v-if="inputMode === 'video' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
-            <div class="upload-zone" @click="$refs.pipelineVideoInput?.click()">
+            <div role="button" tabindex="0" @keydown.enter.prevent="$refs.pipelineVideoInput?.click()" @keydown.space.prevent="$refs.pipelineVideoInput?.click()" class="upload-zone" @click="$refs.pipelineVideoInput?.click()">
               <p v-if="!pipelineVideo">点击上传参考视频（用于电影感/蒙太奇流水线）</p>
               <p v-else>✅ {{ pipelineVideo.name }}</p>
             </div>
@@ -189,6 +189,17 @@
               </select>
               <span class="config-hint">自动：短文案（≤80 字）创意拓展，长文案（≥300 字）按原文保真，中间态混合；分镜会按原文提取关键人物/事件并对齐校验。</span>
             </div>
+            <!-- 画面模式（仅 AI 讲解视频）：AI 生成 / 动效标题卡
+                 文案全部走 locale 键（create.explainer.visualMode.*）：.vue template 块里的
+                 中文字面量会被 check-locale-sync --cjk 的基线增量比对判为新增硬编码而拦下。 -->
+            <div class="config-item" v-if="isExplainerPipeline(selectedPipeline?.name)">
+              <label>{{ $t('create.explainer.visualMode.label') }}</label>
+              <select v-model="explainerVisualMode" class="form-select" data-testid="explainer-visual-mode-select">
+                <option value="ai">{{ $t('create.explainer.visualMode.ai') }}</option>
+                <option value="title-card">{{ $t('create.explainer.visualMode.titleCard') }}</option>
+              </select>
+              <span class="config-hint" data-testid="explainer-visual-mode-hint" v-if="explainerVisualMode === 'title-card'">{{ $t('create.explainer.visualMode.hint') }}</span>
+            </div>
           </div>
         </div>
 
@@ -244,6 +255,22 @@
                 </select>
                 <span v-if="!avatarLoading && avatarVoiceOptions.length === 0 && !avatarError" class="config-hint" data-testid="avatar-voice-empty">{{ avatarText('avatarVoiceEmpty') }}</span>
               </div>
+              <!-- 字幕面板（change: hifly-voice-subtitle-parity）：仅对支持字幕的
+                   服务商渲染。HeyGen 的 create_by_tts 没有 st_* 字段，
+                   给它看字幕选项等于骗人，所以整个不渲染而非置灰。 -->
+              <AvatarSubtitlePanel
+                v-if="avatarSubtitleSupported"
+                :show="avatarSubtitleShow"
+                :font-name="avatarSubtitleFontName"
+                :font-size="avatarSubtitleFontSize"
+                :primary-color="avatarSubtitlePrimaryColor"
+                :outline-color="avatarSubtitleOutlineColor"
+                @update:show="val => (avatarSubtitleShow = val)"
+                @update:fontName="val => (avatarSubtitleFontName = val)"
+                @update:fontSize="val => (avatarSubtitleFontSize = val)"
+                @update:primaryColor="val => (avatarSubtitlePrimaryColor = val)"
+                @update:outlineColor="val => (avatarSubtitleOutlineColor = val)"
+              />
               <div class="config-item">
                 <button
                   type="button"
@@ -270,8 +297,13 @@
               :creating="avatarCloneCreating"
               :create-error="avatarCloneCreateError"
               :invalid-key-of="avatarCloneInvalidKey"
+              :voice-clone-supported="avatarVoiceCloneSupported"
+              :provider-name="avatarProviderName"
+              :voice-selection-id="avatarCloneVoiceSelectionId"
+              :voice-create-error="avatarCloneVoiceCreateError"
               @ack-notice="avatarCloneNoticeAcked = true"
               @update:nameDraft="val => (avatarCloneNameDraft = val)"
+              @choose-voice-media="avatarCloneApi.chooseVoiceMedia(avatarProviderId)"
               @create="type => createAvatarClone(type)"
               @delete="id => removeAvatarClone(id)"
             />
@@ -382,48 +414,8 @@
 
     <!-- ==================== 快速渲染视图 ==================== -->
     <div v-if="view === 'quick'" class="quick-render">
-      <div class="mode-tabs">
-        <button v-for="m in quickModes" :key="m.value" :class="['mode-tab', { active: quickMode === m.value }]" @click="quickMode = m.value">{{ m.label }}</button>
-      </div>
-      <div class="form-group" v-if="quickMode === 'text'">
-        <label>输入文案</label>
-        <textarea v-model="quickText" placeholder="输入视频文案，每行一个场景..." rows="8" class="form-input textarea"></textarea>
-        <button class="btn-secondary" @click="aiWrite" :disabled="aiLoading">{{ aiLoading ? '生成中...' : 'AI 写稿' }}</button>
-      </div>
-      <div class="form-group" v-if="quickMode === 'gallery'">
-        <label>上传图片</label>
-        <div class="upload-zone" @click="$refs.quickFileInput?.click()" @dragover.prevent @drop.prevent="handleQuickDrop">
-          <p v-if="quickImages.length === 0">点击或拖拽图片到此处</p>
-          <div v-else class="image-grid">
-            <div v-for="(img, i) in quickImages" :key="i" class="image-thumb">
-              <img :src="img.preview" />
-              <button class="remove-btn" @click.stop="quickImages.splice(i, 1)">×</button>
-              <span class="image-index">{{ i + 1 }}</span>
-            </div>
-          </div>
-        </div>
-        <input ref="quickFileInput" type="file" accept="image/*" multiple style="display:none" @change="handleQuickFiles" />
-      </div>
-      <div class="form-group">
-        <label>输出平台</label>
-        <UiSelect v-model="quickProfile" :options="profileOptions" />
-      </div>
-      <div class="form-group">
-        <label>视频主题</label>
-        <UiSelect v-model="quickTheme" :options="themeOptions" />
-      </div>
-      <div class="actions">
-        <UiButton @click="startQuickRender" :disabled="!canQuickRender || quickRendering">{{ quickRendering ? '渲染中...' : '开始渲染' }}</UiButton>
-        <button v-if="quickRendering" class="btn-secondary" @click="cancelQuickRender">取消</button>
-      </div>
-      <div v-if="quickRendering" class="progress-section">
-        <div class="progress-bar"><div class="progress-fill" :style="{ width: quickProgress + '%' }"></div></div>
-        <p class="progress-text">{{ quickProgress }}% — {{ quickStage }}</p>
-      </div>
-      <div v-if="quickResult" class="result-banner success"><p>视频渲染完成</p><UiButton @click="viewQuickResult">查看视频</UiButton></div>
-      <div v-if="quickError" class="result-banner error"><p>{{ quickError }}</p><button class="btn-secondary" @click="quickError = null">重试</button></div>
+      <QuickRenderPanel @view-result="viewQuickResult" />
     </div>
-
 
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
@@ -480,6 +472,7 @@
           :show-time-guidance="isOrchestratedPipeline(selectedPipeline?.name)"
           :orchestration-context="orchestrationContext"
           :checkpoint="pipelineRunStatus?.checkpoint || null"
+          :queue="pipelineRunStatus?.queue || null"
         />
         <div
           v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineProgressStages.length === 0 && pipelineRunStatus && pipelineRunStatus.progress !== undefined"
@@ -996,7 +989,6 @@ import '@/styles/create-view.css'
 import '@/styles/avatar-clone-panel.css'
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
-import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { extractRunContextVideoPath } from '@/features/pipeline/run-context-video-path'
@@ -1013,8 +1005,8 @@ import {
 } from '@multi-publish/story2video-engine/template-library'
 
 import {
-  renderStart, renderStartAiVideo, renderCancel, renderGetStatus, renderInstallDeps,
-  onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress, onPipelineUpdate,
+  renderGetStatus, renderInstallDeps,
+  onRenderInstallProgress, onPipelineUpdate,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
   pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineConfirmSceneAssets, pipelineGetRunContext,
@@ -1037,6 +1029,9 @@ import { avatarCatalogRefs, avatarCatalogComputeds, avatarCatalogMethods } from 
 import { avatarCloneRefs, avatarCloneComputeds, avatarCloneMethods } from './video-creation/composables/useAvatarClone'
 import AvatarClonePanel from './video-creation/AvatarClonePanel.vue'
 import AvatarProviderPicker from './video-creation/AvatarProviderPicker.vue'
+// 快速渲染（AI 视频生成）面板：模式/参数/素材/进度自成一体，CreateView 只做编排
+import QuickRenderPanel from './video-creation/QuickRenderPanel.vue'
+import AvatarSubtitlePanel from './video-creation/AvatarSubtitlePanel.vue'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
@@ -1140,7 +1135,9 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { AvatarProviderPicker, AvatarClonePanel, UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
+  // 三侧合并：HEAD 的 QuickRenderPanel + 本分支的 AvatarSubtitlePanel。
+  // 注意不要引入本分支之外不存在的组件（UiSelect 属另一未合并分支，加了会 ReferenceError）。
+  components: { AvatarProviderPicker, AvatarClonePanel, QuickRenderPanel, AvatarSubtitlePanel, UiButton, UiModal, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
   // 配置面板子树的受控访问入口：白名单由 s2v-panel-contract 单一来源定义，
   // 这里只转发，不复制任何 optionKey 语义（见该文件头注释）。
   provide() {
@@ -1183,6 +1180,17 @@ export default {
       // 注意 avatarProviderOptions 是 computed（见 computed 区），不在此处声明。
       avatarProviderId: '',
       avatarProviderSwitched: false,
+      // 当前服务商是否支持克隆声音（probeAvatarVoiceCloneSupport 探测，拿不到保守 false）
+      avatarVoiceCloneSupported: false,
+      // 两者可并行操作（共用 creating 会造出「传照片时不能同时传录音」的假约束）
+      avatarCloneVoiceNameDraft: '',
+      // 字幕（change: hifly-voice-subtitle-parity）：仅飞影支持。
+      // 默认关闭 ⇒ 不下发 subtitle 字段，让服务商用它自己的默认语义。
+      avatarSubtitleShow: false,
+      avatarSubtitleFontName: '',
+      avatarSubtitleFontSize: 100,
+      avatarSubtitlePrimaryColor: '#ffffff',
+      avatarSubtitleOutlineColor: '#000000',
       // 带文案进入（/create?draft=xxx 预填成功）：非文案型流水线在选择列表中灰显不可选
       textPrefilledFromDraft: false,
       // 配置
@@ -1192,15 +1200,14 @@ export default {
       checkpointPolicy: 'guided',
       // 分镜双模式（video-content-fidelity）：auto 自动判定 / creative 创意拓展 / fidelity 按原文保真 / hybrid 混合
       storyboardMode: 'auto',
+      // 画面模式（仅 AI 讲解视频 animated-explainer）：
+      //   ai        = AI 生成画面（调模型设置里的默认生图模型，消耗积分/额度）
+      //   title-card= 动效标题卡（本地 ffmpeg 渲染，不消耗积分；表现形式单一：只是图片展示文字）
+      explainerVisualMode: 'ai',
       outputConfig: { resolution: '1920x1080', fps: 30, format: 'mp4' },
       s2vOutputConfig: { resolution: '720x1280', fps: 30, format: 'mp4' },
       // 输出分辨率能力开关（运营后台）：'1080p'（默认，前端不出现 4K）| '4k'
       maxOutputResolution: '1080p',
-      // 快速渲染
-      quickMode: 'text', quickText: '', quickImages: [],
-      quickProfile: 'youtube-landscape', quickTheme: 'clean-professional',
-      quickRendering: false, quickProgress: 0, quickStage: '', quickResult: null, quickError: null,
-      aiLoading: false,
       // Remotion 状态
       renderStatus: null, installing: false, installLog: '',
       // S2V 编排模式（story2video-compose）
@@ -1314,13 +1321,6 @@ export default {
     }
   },
   computed: {
-    // 快速渲染的模式标签（data 阶段 this.$t 不可用 → 移到 computed，locale 切换也能响应）
-    quickModes() {
-      return [
-        { value: 'text', label: this.$t('create.story2video.ui.quickModeText') },
-        { value: 'gallery', label: this.$t('create.story2video.ui.quickModeGallery') },
-      ]
-    },
     // ── 批量创作域（useBatchCreate，拆分方案 v3 §2.2 第 3 步）────────────────
     // 状态桥接：整体赋值经 setter 替换 ref.value；原地变异要求 getter 返回 ref 内对象本身。
     s2vBatchDialogOpen: { get() { return batchCreateRefs.s2vBatchDialogOpen.value }, set(v) { batchCreateRefs.s2vBatchDialogOpen.value = v } },
@@ -1372,6 +1372,44 @@ export default {
     avatarClones: { get() { return avatarCloneRefs.clones.value } },
     avatarCloneCreating: { get() { return avatarCloneRefs.creating.value } },
     avatarCloneCreateError: { get() { return avatarCloneRefs.createError.value } },
+    // 声音克隆区（change: hifly-voice-subtitle-parity）
+    avatarCloneVoiceCreating: { get() { return avatarCloneRefs.voiceCreating.value } },
+    avatarCloneVoiceCreateError: { get() { return avatarCloneRefs.voiceCreateError.value } },
+    // change: avatar-voice-clone-bundled —— 两条素材的 selectionId 由 composable 持有，
+    // 这里桥接出来供模板绑定（与 voiceCreating 等同型）。
+    avatarCloneVoiceSelectionId: { get() { return avatarCloneRefs.voiceSelectionId.value } },
+    // change: avatar-voice-clone-bundled —— composable 的方法桥接到模板作用域。
+    // import 进来的名字不会自动进模板（只有 data/computed/props/methods 会），
+    // 所以这里显式暴露一个只读引用。
+    avatarCloneApi: () => avatarCloneMethods,
+    avatarCloneVoiceCreatedName: { get() { return avatarCloneRefs.voiceCreatedName.value } },
+    /**
+     * 当前服务商是否支持字幕（change: hifly-voice-subtitle-parity）。
+     *
+     * 判据是 providerId 白名单而非「读一份能力表」：字幕是飞影独有的契约字段，
+     * 官方文档只在他家的 create_by_tts 里出现；HeyGen 没有对应参数。
+     * 接第三家时若也支持字幕，把 id 加进来即可。
+     */
+    avatarSubtitleSupported() {
+      return this.avatarProviderId === 'hifly'
+    },
+    /**
+     * 下发给流水线的字幕配置。
+     *
+     * 关闭时返回 **undefined** 而非 `{show:false}`：请求体里根本不出现 subtitle 键，
+     * 让服务商用它自己的「默认不显示」语义。发 `{show:false}` 会让 adapter 白算一次
+     * 校验，也会让「用户没碰过字幕」和「用户显式关掉」在日志里无法区分。
+     */
+    avatarSubtitlePayload() {
+      if (!this.avatarSubtitleShow) return undefined
+      return {
+        show: true,
+        fontName: this.avatarSubtitleFontName,
+        fontSize: this.avatarSubtitleFontSize,
+        primaryColor: this.avatarSubtitlePrimaryColor,
+        outlineColor: this.avatarSubtitleOutlineColor,
+      }
+    },
     avatarCloneNoticeAcked: { get() { return avatarCloneRefs.noticeAcknowledged.value }, set(v) { avatarCloneRefs.noticeAcknowledged.value = v } },
     isAvatarPipeline() { return this.selectedPipeline?.name === 'avatar-spokesperson' },
     /**
@@ -1574,19 +1612,6 @@ export default {
       )
     },
     s2vPlatforms() { return S2V_PLATFORMS },
-    profileOptions() {
-      return [
-        { value: 'youtube-landscape', label: this.$t('create.story2video.ui.quickProfileYouTube') },
-        { value: 'youtube-shorts', label: 'YouTube Shorts (1080x1920)' },
-        { value: 'tiktok', label: this.$t('create.story2video.ui.quickProfileTikTok') },
-        { value: 'bilibili', label: 'Bilibili (1920x1080)' },
-        { value: 'wechat', label: this.$t('create.story2video.ui.quickProfileWechat') },
-        { value: 'xiaohongshu', label: this.$t('create.story2video.ui.quickProfileXiaohongshu') },
-      ]
-    },
-    themeOptions() {
-      return STYLES.map(s => ({ value: s.value, label: s.label }))
-    },
     canStartPipeline() {
       if (!this.selectedPipeline) return false
       if (!this.pipelineAvailable(this.selectedPipeline.name)) return false
@@ -2000,12 +2025,6 @@ export default {
         messageParams: { count },
       }).message
     },
-    canQuickRender() {
-      if (this.quickRendering) return false
-      if (this.quickMode === 'text') return this.quickText.trim().length > 0
-      if (this.quickMode === 'gallery') return this.quickImages.length > 0
-      return false
-    },
 
     // M-12：S2V 选项的浅层快照，供 watch 比较用。
     //
@@ -2020,6 +2039,13 @@ export default {
     },
   },
   watch: {
+    // 数字人服务商定下后探测声音克隆能力（change: hifly-voice-subtitle-parity）。
+    // 为什么需要它：loadS2VProviders 是异步的，selectPipeline 那一刻 provider 列表
+    // 往往还没回来，探测拿到空值被保守判 false；等默认 providerId 在这里写入后再探
+    // 一次，「先打开创作页、再切数字人流水线」的用户才能拿到正确读数。
+    avatarProviderId(providerId) {
+      if (this.isAvatarPipeline && providerId) this.probeAvatarVoiceCloneSupport(providerId)
+    },
     // 「返回」跳 /create?view=history 与直接输入地址时同步历史记录视图（2026-08-16 术语统一）
     '$route.query.view'(value) {
       if (value === 'history' && this.view !== 'history') {
@@ -2117,10 +2143,23 @@ export default {
         avatarCloneMethods.loadAvatarClones({ providerId: this.avatarProviderId })
       }
     },
+    /**
+     * 创建克隆形象（change: avatar-voice-clone-bundled）。
+     *
+     * 用户约束：**声音与形象绑在同一家 provider 下一次创建**，这样才用得上
+     * 飞影的整体克隆能力。所以这里把形象的 selectionId 与录音的
+     * voiceSelectionId 一起交给主进程，由 service 在同一次编排里建完两样。
+     *
+     * 录音没选也能建（voiceSelectionId 为空）——向后兼容「只克隆形象」。
+     */
     async createAvatarClone(type) {
       const name = String(this.avatarCloneNameDraft || '').trim()
       if (!name) { this.avatarCloneNameDraft = ""; return }
-      const result = await avatarCloneMethods.createAvatarClone({ type, name, providerId: this.avatarProviderId })
+      const result = await avatarCloneMethods.createAvatarClone({
+        type,
+        name,
+        providerId: this.avatarProviderId,
+      })
       if (result && result.success) {
         this.avatarCloneNameDraft = ""
         this.avatarClonePanelOpen = false
@@ -2129,10 +2168,37 @@ export default {
     async removeAvatarClone(avatarId) {
       await avatarCloneMethods.removeAvatarClone(avatarId, { providerId: this.avatarProviderId })
     },
+    /**
+     * 创建克隆声音（change: hifly-voice-subtitle-parity）。
+     *
+     * providerId/model 由当前数字人服务商决定，不交给用户选——数字人面板的
+     * 声音必须与形象同源，让用户在别处选个 TTS provider 会造出
+     * 「HeyGen 的形象配 ElevenLabs 的声音」这种服务商不认的组合。
+     */
     avatarCloneInvalidKey(avatar) { return avatarCloneMethods.invalidReasonKey(avatar) },
     /** 克隆形象 + 公共目录合并后的形象下拉（合并逻辑在 useAvatarClone，可独立测） */
     mergedAvatarOptions() {
       return avatarCloneMethods.buildMergedAvatarOptions(this.avatarOptions, (k) => this.avatarText(k))
+    },
+
+    /**
+     * 探测当前数字人服务商是否支持克隆声音（change: digital-human-multiprovider）。
+     *
+     * 能力目录（tts-voice-catalog）在主进程，且「支持克隆」还要看该 provider 是否
+     * 已配置可用 Key，故走 IPC 拿 requirements 是唯一权威来源。拿不到时保守判
+     * false——显示「不支持」比谎称支持好（用户点了才发现不能克隆更糟）。
+     */
+    async probeAvatarVoiceCloneSupport(providerId, model) {
+      try {
+        const { getTtsVoiceCloneRequirements } = await import('@/api/tts-voice-clone')
+        const result = await getTtsVoiceCloneRequirements({ providerId, model: model || `${providerId}-video` })
+        const capability = result && result.code === 0 ? result.data : null
+        this.avatarVoiceCloneSupported = Boolean(
+          capability && capability.type === 'user_clone' && capability.clone && capability.clone.enabled === true
+        )
+      } catch (_) {
+        this.avatarVoiceCloneSupported = false
+      }
     },
 
     /**
@@ -2156,6 +2222,8 @@ export default {
       // 两份列表独立容错：形象目录失败不连带克隆列表也不刷新
       try { await this.loadAvatarCatalog() } catch (_) { /* 失败由 avatarError 呈现 */ }
       await this.loadAvatarClones({ providerId })
+      // 两家的声音克隆能力可能不同（hifly 有、第三方未必有），必须重探测
+      await this.probeAvatarVoiceCloneSupport(providerId)
     },
     /**
      * 错误文案：composable 存的是「locale key 或原始错误码」，这里翻译成人话。
@@ -2393,6 +2461,15 @@ export default {
         this.avatarClonesLoadedOnce = true
         this.loadAvatarClones({ providerId: this.avatarProviderId })
       }
+      // 声音克隆能力探测（change: hifly-voice-subtitle-parity）。
+      // 只在这里做不够：loadS2VProviders 是异步的，选中数字人流水线那一刻
+      // provider 列表往往还没回来，探测拿到空值被保守判 false，
+      // 克隆面板的声音区就恒不渲染。所以这里只负责「已就绪则立即探」，
+      // 未就绪时由 watch avatarProviderId 兜底（见 watch 块）。
+      if (p?.name === 'avatar-spokesperson') {
+        const providerId = this.avatarProviderId || (this.avatarProviderOptions[0] && this.avatarProviderOptions[0].id)
+        if (providerId) this.probeAvatarVoiceCloneSupport(providerId)
+      }
       // 选中编排流水线时执行生效上限（默认 10000，可被运营中心 storyTextLimit 覆盖）码点截断
       // （含带文案预填场景：预填时不截断，选中时统一截断+提示）
       if (this.isOrchestratedPipeline(p?.name)) this.enforceStory2VideoTextLimit()
@@ -2474,6 +2551,9 @@ export default {
       })
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
+    // AI 讲解视频（animated-explainer）：唯一支持「画面模式」二选一的流水线。
+    // 注意 startExplainerPipeline 同时服务 avatar-spokesperson（数字人）⇒ 那条路不显示画面模式。
+    isExplainerPipeline(name) { return name === 'animated-explainer' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke', 'documentary-montage', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(name) },
     isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic', 'talking-head', 'localization-dub'].includes(name) },
     pipelineAvailable(name) {
@@ -2632,13 +2712,30 @@ export default {
           aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
           fps: output.fps, format: output.format,
         }
+        // 画面模式（仅 AI 讲解视频）：
+        //   'ai'        = AI 生成画面 → 调模型设置里的默认生图模型（消耗积分/额度）
+        //   'title-card' = 动效标题卡 → 本地 ffmpeg 渲染，不调 provider ⇒ 不产生模型调用日志
+        //                   ⇒ 不进入算力成本归集 ⇒ 不消耗积分；表现形式单一（只是图片展示文字）。
+        // 只在 explainer 流水线下发：avatar-spokesperson 复用本方法但没有这个选项。
+        if (this.isExplainerPipeline(this.selectedPipeline.name)) {
+          params.visualMode = this.explainerVisualMode === 'title-card' ? 'title-card' : 'ai'
+        }
         // 数字人（avatar-spokesperson）：下发生成的三要素来源。
         // 不能复用 s2vConfig.voiceId —— 那是 story2video 专属，靠
         // story2videoTextConfig 下发，本流水线走 startExplainerPipeline 根本不读。
         if (this.selectedPipeline.name === 'avatar-spokesperson') {
           params.avatarId = String(this.avatarId || '').trim()
           params.voiceId = String(this.avatarVoiceId || '').trim()
-          params.videoProvider = 'heygen'
+          // provider 取当前选中的那家（change: digital-human-multiprovider）。
+          // 此前这里写死 'heygen'：用户切到飞影后启动仍发 heygen，
+          // 主进程会拿 HeyGen adapter 去解析飞影的 avatar id ⇒ 报错还指不到真正原因。
+          // 回落 'heygen' 而非留空：provider 列表还没加载完（或 IPC 失败）时
+          // 不能把空串发下去——主进程会解析不到 provider 而整条流水线失败；
+          // 主进程 resolveDigitalHumanProviderId 的兜底也是这一家，两边一致。
+          params.videoProvider = String(this.avatarProviderId || '').trim() || 'heygen'
+          // 字幕配置（change: hifly-voice-subtitle-parity）：关闭时不下发该键，
+          // 让服务商用它自己的「默认不显示」语义；只有飞影认这组字段。
+          if (this.avatarSubtitlePayload) params.subtitle = this.avatarSubtitlePayload
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
@@ -3600,6 +3697,11 @@ export default {
         if (!this.avatarProviderId && this.avatarProviderOptions.length > 0) {
           this.avatarProviderId = this.avatarProviderOptions[0].id
         }
+        // provider 定下后**再探一次**：selectPipeline 那次可能拿到空 providerId
+        // （列表异步还没回来），结果被保守判成 false，这里用确切值覆盖它。
+        if (this.isAvatarPipeline && this.avatarProviderId) {
+          this.probeAvatarVoiceCloneSupport(this.avatarProviderId)
+        }
         // 视频生成器与图片对齐（2026-08-12 审查 M2）：陈旧 provider 清空（含 videoModel），
         // 未显式选择时默认取模型设置里 video 能力的默认 provider（2026-10-18 起同源修复）。
         const videoProviderIds = new Set(this.s2vVideoProviders.map(p => p.id))
@@ -4282,11 +4384,17 @@ export default {
       const checkpoint = hasOwn(snapshot, 'checkpoint')
         ? snapshot.checkpoint
         : (hasOwn(snapshot.status, 'checkpoint') ? snapshot.status.checkpoint : prevStatus.checkpoint)
+      // 排队快照（本地 governor 的排队状态）：推送与轮询两条路径都会带，
+      // 合并时取「新快照有就用新的、否则沿用上一次的」，避免排队结束后提示残留。
+      const queue = hasOwn(snapshot, 'queue')
+        ? snapshot.queue
+        : (hasOwn(snapshot.status, 'queue') ? snapshot.status.queue : prevStatus.queue)
       const normalized = normalizePipelineStatusSnapshot({
         ...prevStatus,
         ...snapshot.status,
         stages: incomingStages,
         checkpoint,
+        queue,
       }, this.orchestrationStages)
       if (!normalized) return
       this.orchestrationStages = mergePipelineStages(this.orchestrationStages, normalized.stages)
@@ -5240,46 +5348,9 @@ export default {
     requestBgmDelete(item) { return bgmLibraryMethods.requestBgmDelete(item) },
     closeBgmDeleteDialog() { return bgmLibraryMethods.closeBgmDeleteDialog() },
     async confirmBgmDelete() { return bgmLibraryMethods.confirmBgmDelete() },
-    handleQuickFiles(e) {
-      Array.from(e.target.files || []).forEach(file => {
-        const reader = new FileReader()
-        reader.onload = (ev) => { this.quickImages.push({ name: file.name, preview: ev.target.result }) }
-        reader.readAsDataURL(file)
-      })
-    },
-    handleQuickDrop(e) {
-      Array.from(e.dataTransfer?.files || []).forEach(file => {
-        if (!file.type.startsWith('image/')) return
-        const reader = new FileReader()
-        reader.onload = (ev) => { this.quickImages.push({ name: file.name, preview: ev.target.result }) }
-        reader.readAsDataURL(file)
-      })
-    },
+    // 快速渲染：成片查看（子组件 QuickRenderPanel 通过 view-result 事件回传路径）
+    viewQuickResult(path) { this.$router.push({ path: '/create/result', query: { path: path || '' } }) },
 
-    // 快速渲染
-    async startQuickRender() {
-      this.quickRendering = true; this.quickProgress = 0; this.quickStage = '开始渲染'; this.quickError = null; this.quickResult = null
-      try {
-        // text 模式调用 AI 视频生成（主进程提交+轮询+下载）；gallery 模式本地 Remotion 图片轮播
-        const res = this.quickMode === 'text'
-          ? await renderStartAiVideo({ prompt: this.quickText.split('\n').filter(l => l.trim()).join('。').trim() })
-          : await renderStart({ props: { cuts: this.quickImages.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 })), theme: this.quickTheme, renderer_family: 'explainer-data' }, profile: this.quickProfile })
-        if (res?.code === 0) { this.quickResult = res.data; this.quickRendering = false }
-        else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
-      } catch (e) { this.quickError = '渲染异常: ' + formatUserError(e, { fallback: '未知错误' }).message; this.quickRendering = false }
-    },
-    cancelQuickRender() { renderCancel(); this.quickRendering = false },
-    viewQuickResult() { this.$router.push({ path: '/create/result', query: { path: this.quickResult?.outputPath || '' } }) },
-    async aiWrite() {
-      this.aiLoading = true
-      try {
-        const { aiGenerate, modelProviderGetDefault } = await import('@/api/publisher')
-        const def = await modelProviderGetDefault('llm'), providerId = def?.code === 0 && def.data?.id ? def.data.id : null
-        const r = await aiGenerate('llm', providerId, { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
-        if (r?.code === 0 && r.data?.content) this.quickText = r.data.content // P0-1: content 非 text
-      } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
-      finally { this.aiLoading = false }
-    },
     // Remotion 安装
     async installDeps() {
       this.installing = true; this.installLog = ''
@@ -5460,11 +5531,8 @@ export default {
     // 背景音乐素材库（2026-08-14）：静默加载，失败不打扰创作主流程（弹窗打开时再提示）
     this.loadS2VBgmLibrary({ silent: true })
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
-    this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
-    this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
     // 流水线阶段进度实时推送（openspec pipeline-progress-real-time-push）：事件驱动更新，3s 轮询兜底
     this.cleanups.push(onPipelineUpdate((snapshot) => this.handlePipelinePush(snapshot)))
-    this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = formatUserError(err, { fallback: '渲染错误' }).message }))
     this.cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
     // 改写页跳转预填充：加载草稿文案并自动选择流水线
     const rewriteDraftId = this.$route?.query?.draft

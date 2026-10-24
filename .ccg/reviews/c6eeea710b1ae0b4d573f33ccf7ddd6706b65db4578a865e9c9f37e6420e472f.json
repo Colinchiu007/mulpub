@@ -1,0 +1,73 @@
+{
+  "sha": "84a4f91acf04e597db840755bfd66536bbd41f63",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 50 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 50,
+    "fileCount": 23,
+    "codeFileCount": 9,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"轮9 外部 claude 交付 7 条（其中 6 条进裁决，1 条高危 datamigration/auth）：6 条 dismissed 各附可复算实测证据（JSON.sha==merge-base 且执行记录已给出两条复算命令、skip 记录 required=false 与主干同形态逐字一致、外部复核原文已落盘并写入 externalReview.evidenceDigestSha256、过期响应在应用前即被丢弃、clampStory2VideoText 的 typeof 与 Number(...)=0 两道守卫已在实现里、locale 结构锁与构建产物命中读数全在）；本轮评审对象早于与 #4111 的合并（已撤回重复的字数区间实现），哪些结论仍在最终代码里成立见执行记录「与 #4111 的合并（如实登记）」段；本记录非门禁所指高危面（未触判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "c6eeea710b1ae0b4d573f33ccf7ddd6706b65db4578a865e9c9f37e6420e472f",
+  "decidedAt": "2026-10-21T04:41:07.318Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null,
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 15,
+      "codeTotalLines": 2306,
+      "allFileCount": 43,
+      "allTotalLines": 6272,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
+  }
+}

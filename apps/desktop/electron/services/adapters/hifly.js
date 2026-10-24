@@ -37,14 +37,103 @@ const DEFAULT_TIMEOUT = 60000
  * 数字人配置区要的是「用户自己克隆的形象优先，公共形象兜底」，故取 **1**；
  * 若取默认值 2 会把用户刚克隆的形象整批漏掉（最坏故障形态：克隆成功但下拉里看不见）。
  */
-const AVATAR_KIND = '1'
-/** 音色列表 kind：官方 voice/list 示例值 */
-const VOICE_KIND = '1'
 /**
+ * 列表 kind 参数（官方文档 + **真实 Token 核对 2026-10-24**）：
+ *
+ * avatar/list：
+ *   0: 全部（自己的排在前面）
+ *   1: 自己的数字人
+ *   2: 公共数字人（不传时的默认值）
+ *
+ * voice/list（实测三种取值）：
+ *   0: 返回 0 条
+ *   1: 自己的克隆音色（未克隆时为 0 条）
+ *   2: 公共音色（20 条）
+ *
+ * 数字人配置区要的是「用户自己克隆的优先，公共兜底」，故：
+ *   - 形象取 **1**（自己的）。取默认值 2 会把用户刚克隆的形象整批漏掉——
+ *     最坏故障形态是「克隆成功但下拉里看不见」。
+ *   - 音色取 **2**（公共）。取 1 在没克隆过音色时会拿到 0 条，
+ *     用户连一个音色都选不了。
+ */
+const AVATAR_KIND = '1'
+const VOICE_KIND = '2'
 /** 列表分页大小（飞影 size 上限 200，取 100 留余量） */
 const LIST_PAGE_SIZE = 100
 /** 翻页上限：防止服务端 total 异常时无限翻 */
 const MAX_LIST_PAGES = 20
+
+/**
+ * 字幕字段映射与校验（change: hifly-voice-subtitle-parity）。
+ *
+ * 官方 `create_by_tts` 的 9 个 st_* 字段（见官方文档「视频创作（文本驱动）」）：
+ *   st_show / st_font_name / st_font_size / st_primary_color / st_outline_color /
+ *   st_width / st_height / st_pos_x / st_pos_y
+ *
+ * 设计要点：
+ *  - **全部可选**：subtitle 缺省时返回 `{}`，让飞影用它自己的「默认不显示」语义；
+ *  - **给了就校验**：颜色必须是 `#rrggbb`、数值必须是有限整数。非法值抛错并把
+ *    字段名点出来——静默丢弃会让用户以为字幕生效了，结果成片没有；
+ *  - 纯函数抽出来是为了能脱离 adapter 单测（字段多、边界多）。
+ *
+ * @param {unknown} subtitle 上层传入的字幕配置
+ * @returns {Record<string, number|string>} 可直接 Object.assign 进请求体的 st_* 字段
+ */
+function buildSubtitleFields (subtitle) {
+  if (subtitle === undefined || subtitle === null) return {}
+  if (typeof subtitle !== 'object' || Array.isArray(subtitle)) {
+    throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'params.subtitle must be an object')
+  }
+
+  const out = {}
+  // st_show：只有显式给了布尔值才发。0/1 之外的值不接受（官方是 int 枚举）
+  if (subtitle.show !== undefined) {
+    if (typeof subtitle.show !== 'boolean') {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'subtitle.show must be a boolean')
+    }
+    out.st_show = subtitle.show ? 1 : 0
+  }
+
+  if (subtitle.fontName !== undefined) {
+    if (typeof subtitle.fontName !== 'string' || !subtitle.fontName.trim() || subtitle.fontName.length > 100) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'st_font_name must be a non-empty string (<=100 chars)')
+    }
+    out.st_font_name = subtitle.fontName.trim()
+  }
+
+  // 数值字段：有限整数，且不允许负数（坐标/宽高/字号都没有负值语义）
+  const numericFields = [
+    ['fontSize', 'st_font_size'],
+    ['width', 'st_width'],
+    ['height', 'st_height'],
+    ['posX', 'st_pos_x'],
+    ['posY', 'st_pos_y'],
+  ]
+  for (const [inputKey, apiKey] of numericFields) {
+    const value = subtitle[inputKey]
+    if (value === undefined) continue
+    if (!Number.isInteger(value) || value < 0) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, `${apiKey} must be a non-negative integer`)
+    }
+    out[apiKey] = value
+  }
+
+  // 颜色字段：#rrggbb（官方文档示例即此格式；不接受颜色名或 #rgb）
+  const colorFields = [
+    ['primaryColor', 'st_primary_color'],
+    ['outlineColor', 'st_outline_color'],
+  ]
+  for (const [inputKey, apiKey] of colorFields) {
+    const value = subtitle[inputKey]
+    if (value === undefined) continue
+    if (typeof value !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value)) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, `${apiKey} must be in #rrggbb form`)
+    }
+    out[apiKey] = value
+  }
+
+  return out
+}
 
 const HIFLY_MODELS = [
   { id: 'hifly', name: '飞影 HiFly', description: '飞影数字人视频生成' },
@@ -198,6 +287,10 @@ class HiFlyAdapter extends BaseAdapter {
     if (typeof params.title === 'string' && params.title.trim()) {
       body.title = params.title.trim()
     }
+    // 字幕参数（change: hifly-voice-subtitle-parity）：官方 9 个 st_* 字段。
+    // 全部为可选——缺省整个不发，让飞影用它自己的「默认不显示」语义；
+    // 一旦给了 subtitle 就逐字段校验，非法值直接拒（不猜、不静默丢弃）。
+    Object.assign(body, buildSubtitleFields(params.subtitle))
 
     const resp = await this._request('/video/create_by_tts', {
       method: 'POST',
@@ -252,8 +345,8 @@ class HiFlyAdapter extends BaseAdapter {
    * @returns {Promise<Array<{id: string, name: string, previewUrl: string, gender: string}>>}
    */
   async listAvatars () {
-    // 官方字段：avatar（标识）/ title（名称）/ kind（1自己的 / 2公共）
-    return this._listCatalog('/avatar/list', AVATAR_KIND, ['avatar', 'avatar_id', 'id'], ['title', 'avatar_name', 'name'], 'preview_url')
+    // 真实字段（Token 核对）：avatar（标识）/ title（名称）/ cover_url（封面图）/ kind（1自己的 / 2公共）/ tags / description
+    return this._listCatalog('/avatar/list', AVATAR_KIND, ['avatar', 'avatar_id', 'id'], ['title', 'avatar_name', 'name'], 'cover_url')
   }
 
   /**
@@ -273,11 +366,12 @@ class HiFlyAdapter extends BaseAdapter {
       const items = this._listPageItems(decoded.data)
       for (const item of items) {
         if (!item || typeof item !== 'object') continue
-        const id = String(item.voice_id || item.id || '').trim()
+        // 真实字段（Token 核对）：voice（标识）/ title（名称）/ preview_url / type / rate / pitch / volume / tags
+        const id = String(item.voice || item.voice_id || item.id || '').trim()
         if (!id) continue
         out.push({
           id,
-          name: String(item.name || item.display_name || id).trim() || id,
+          name: String(item.title || item.name || item.display_name || id).trim() || id,
           language: String(item.language || '').trim(),
           gender: String(item.gender || '').trim(),
         })
@@ -339,8 +433,10 @@ class HiFlyAdapter extends BaseAdapter {
    * @private
    */
   _listPageHasMore (data, fetchedSoFar, pageSize) {
-    const total = data && typeof data === 'object' ? Number(data.total) : NaN
-    if (Number.isFinite(total)) return fetchedSoFar < total
+    // 真实响应（Token 核对）**没有 total 字段**——data 直接是数组。
+    // 所以翻页判据只能是「本页是否翻满」：翻满说明可能还有下一页，
+    // 没翻满说明已经是最后一页。靠 total 判会在没有该字段时提前终止，
+    // 表现是「永远只拿到第一页」。
     return pageSize >= LIST_PAGE_SIZE
   }
 
@@ -365,5 +461,9 @@ class HiFlyAdapter extends BaseAdapter {
 
 // 形象/声音克隆方法在 hifly-clone.js（max-lines 拆分，与 heygen-clone 同型）
 Object.assign(HiFlyAdapter.prototype, require('./hifly-clone').cloneMethods)
+// 辅助与作品管理端点（积分/模板/封面/删除作品）在 hifly-extra.js
+Object.assign(HiFlyAdapter.prototype, require('./hifly-extra').extraMethods)
+// 6 个收费创作模式（声音驱动/网感模板/翻译/唱歌/图片驱动/音频）在 hifly-create-modes.js
+Object.assign(HiFlyAdapter.prototype, require('./hifly-create-modes').createModeMethods)
 
 module.exports = { HiFlyAdapter, HIFLY_MODELS }

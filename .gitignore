@@ -112,6 +112,11 @@ scripts/*.js
 # 与 gui-ci-exit-contract.test.js 都按路径点名它 —— 漏这条 negation 的症状是本地全绿、CI 上
 # Cannot find module（#3011 / Gate 2c3 同族，第三次）。
 !scripts/ci-gui-relevance.js
+# 主规格基线零覆盖门禁本体（2026-10-24）：第 108 行 scripts/*.js 会把判据本体静默忽略。
+# 症状形态与上面几条同族：本地全绿（文件在工作区跑得通），但**文件没进仓** ⇒
+# CI 上 workflow 点名它时 Cannot find module。测试文件不单独反选 ——
+# `!scripts/*.test.js` 的通用例外已兜住（同上方各条注释口径）。
+!scripts/check-spec-delta-coverage.js
 # pre-commit 进程创建预算锁本体：第 106 行 scripts/*.js 会把判据本体静默忽略（CI 上 Cannot find module）。
 # 测试文件不单独反选 —— 第 204 行 !scripts/*.test.js 的通用例外已兜住（同上方各条注释口径）。
 !scripts/check-precommit-spawn-budget.js
@@ -257,6 +262,9 @@ scripts/*.js
 # 会把它静默忽略 —— 漏 negation 时 `git status` 里它根本不存在：本地在盘、`node --test` 跑得通，
 # 而 Gate 2b6 在 CI 上以 MODULE_NOT_FOUND 红在**别人的**文件上，读起来像"探针坏了"。
 !scripts/ccg-convergence-probe.js
+!scripts/qm6-exit-capabilities.js
+!scripts/qm6-exit-capabilities.test.js
+!scripts/qm6-exit-capabilities.mutation.js
 # scripts/*.js is ignored wholesale above, so every tracked script needs its own
 # negation. That per-file allowlist silently loses NEW test files (git add won't
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.
@@ -503,6 +511,14 @@ shared-user-data.backups/
 !scripts/check-schedule-heartbeat.js
 !scripts/check-schedule-heartbeat.test.js
 !scripts/check-schedule-heartbeat.mutation.js
+# QM-6 外部出处覆盖率水位 + 假想 enforce 扫描的本体（2026-10-23，change: qm6-tier-watermark）。
+# 同一个坑第三次兑现：规则 scripts/*.js 静默忽略新建脚本，而 !scripts/*.test.js 那条通用例外把
+# 测试文件兜住 ⇒ 只补本体这两条 negation，否则"测试在盘、判据不在盘"，
+# 本地全绿而 CI 以 Cannot find module 红（#3011 家族）。本刀实测踩过：前三笔提交只带了测试。
+# 刻意不写行号：本仓这份文件很长、行号会漂；判据在 scripts/qm6-tier-watermark.test.js 的
+#   「negation 必须各自存在」那条锁里，它按模式匹配 negation 清单，不依赖任何行位置。
+!scripts/qm6-tier-watermark.js
+!scripts/qm6-enforce-preview.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）
@@ -516,3 +532,10 @@ apps/desktop/electron/home-shell-preload.bundle.js
 apps/desktop/electron/monitor-preload.bundle.js
 apps/desktop/electron/services/generated/card-paginator.iife.js
 apps/desktop/electron/services/stealth/stealth-preload-enhanced.bundle.js
+!scripts/offline-live-contract-mutate.js
+
+# UX 审计 1.6：快捷键显示面反证驱动（scripts/*.js 的默认忽略会把它静默排除在 git 之外 ⇒ CI 永远不跑）
+!scripts/hotkey-labels-contract-mutate.js
+
+# UX 审计 1.3：防复活锁的反证驱动（scripts/*.js 默认忽略会把它静默排除在 git 之外 ⇒ CI 永远不跑）
+!scripts/dead-components-contract-mutate.js

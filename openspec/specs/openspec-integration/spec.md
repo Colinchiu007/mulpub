@@ -1,7 +1,7 @@
 # openspec-integration Specification
 
 ## Purpose
-定义 openspec-integration 的行为契约，判据只认下列 Requirement 与其 Scenario：「三层机制分工」、「OpenSpec change 生命周期」、「适用范围约束」等，共 12 条。本规格由归档 change `openspec-integration` 产生，第 12 条由归档 change `spec-purpose-tbd-gate` 追加。
+定义 openspec-integration 的行为契约，判据只认下列 Requirement 与其 Scenario：「三层机制分工」、「OpenSpec change 生命周期」、「适用范围约束」等，共 13 条。本规格由归档 change `openspec-integration` 产生，第 12 条由归档 change `spec-purpose-tbd-gate` 追加，第 13 条为「delta 删除意图的声明方式」。
 ## Requirements
 ### Requirement: 三层机制分工
 系统开发流程 SHALL 由三层机制分工协作：CCG 负责决策/执行编排（复杂度/风险评估、双模型分析审查、task.json 生命周期），质量节拍负责流程门禁（Phase 0-5 阶段检查、7 步日常循环、QM-1~4），OpenSpec 负责规格工件（change 生命周期与 specs 真相源）。三层职责不得相互替代。
@@ -46,6 +46,21 @@ change 完成时 SHALL 三同步归档：OpenSpec archive（规格）、CCG task
 #### Scenario: 三同步完成
 - **WHEN** 一个 change 的实现完成并通过全部门禁
 - **THEN** OpenSpec change 归档、对应 CCG task 移入 `.ccg/tasks/archive/<yyyy-mm>/`、质量节拍复盘记录 learnings，三者以同一 commit 提交
+
+### Requirement: delta 删除意图的声明方式
+本仓 SHALL 用「标记式」表达"有意删除某条 Scenario"的意图：被删的 Scenario **仍列在** change delta 的 `## MODIFIED Requirements` 段内，并在其正文首行写 `**REMOVED**: <理由>`；同步方见到该标记 SHALL 从主规格删除这条 Scenario。
+
+理由：openspec 工具侧的约定是「MODIFIED 块携带全部**存活**的 Scenario」，且 `openspec validate` 与 `openspec archive` 会拒绝「丢了主规格仍有的 Scenario」的块（`openspec-sync-specs/SKILL.md` 的 Key Principle 一节明写）。若把被删的 Scenario 移出 MODIFIED 块（另起 `## REMOVED Scenarios` 段或直接省略），工具会直接判红 —— 故"删除"不能靠"不在块里"表达，只能靠"在块里但带标记"表达。
+
+标记 SHALL 只在该 Scenario 所属的 Requirement 内生效（同一 Scenario 标题可能出现在不同 Requirement 下）；标记 SHALL 附删除理由；标记 SHALL 出现在该 Scenario 正文首行。
+
+#### Scenario: 有意删除某条 Scenario
+- **WHEN** 一个 change 需要删除主规格里某条已存在的 Scenario
+- **THEN** 该 Scenario 仍列在 delta 的 `## MODIFIED Requirements` 块内、正文首行写 `**REMOVED**: <理由>`；同步后主规格不再含这条 Scenario，且 `openspec validate` 不因该块判红
+
+#### Scenario: 未声明的 Scenario 消失按丢失处理
+- **WHEN** 合并后主规格相对基线少了某条 Scenario，而本 PR 的 delta 未在对应 Requirement 下用 `**REMOVED**:` 标记声明
+- **THEN** 主规格基线零覆盖门禁（`scripts/check-spec-delta-coverage.js`）判红并点名该 Scenario 与所属 Requirement
 
 ### Requirement: 规格层选型决策记录
 规格层 SHALL 记录选型决策与备选方案。当前决策：采用 OpenSpec（@fission-ai/openspec CLI，本地化、多 IDE 自动集成、schema 版本化）；备选 GitHub Spec Kit（quality-rhythm-sdd Preset，质量节拍 5.4 已定义但 CLI 未安装）暂不启用，切换时须更新本 spec。

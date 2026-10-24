@@ -82,9 +82,12 @@ const { tabs, activeTabId } = storeToRefs(tabStore)
 
 
   function getTabLabel(tab) {
-    if (tab.isHome) return '首页'
+    // 标签文字一律走 locales：这两处字面量是渲染端 CJK 扫描基线里的存量（阶段 3.1）。
+    // '首页' 与 sidebar 那份 '主页' 指的是同一个 '/'，两份真源的收敛属阶段 3.2，
+    // 本批只把字面量换成既有键，**不改可见文案**。
+    if (tab.isHome) return t('nav.home')
     if (tab.title && tab.title.trim() && tab.title !== 'New Tab') return tab.title
-    if (!tab.url || tab.url === 'about:blank') return '新标签页'
+    if (!tab.url || tab.url === 'about:blank') return t('tabs.newTabTitle')
     try {
       const url = new URL(tab.url)
       return url.hostname

@@ -65,6 +65,8 @@ test('PostgresIdentityRepository', async (t) => {
       'cloud_accounts', 'cloud_account_tombstones',
       // 006 微信 Native 支付：新表进 readiness 清单（缺一张即 ready 检查发现不了生产缺表）
       'identity_payment_customers',
+      // 008 积分账户与不可变账本：同样进 readiness 清单（运行时要求存在 ⇒ 生产迁移必须建出来）
+      'identity_credit_accounts', 'identity_credit_ledger',
     ]
     const pool = {
       async query(text, values) {
@@ -99,6 +101,8 @@ test('PostgresIdentityRepository', async (t) => {
       'cloud_accounts', 'cloud_account_tombstones',
       // 006 微信 Native 支付：新表进 readiness 清单（缺一张即 ready 检查发现不了生产缺表）
       'identity_payment_customers',
+      // 008 积分账户与不可变账本：同样进 readiness 清单（运行时要求存在 ⇒ 生产迁移必须建出来）
+      'identity_credit_accounts', 'identity_credit_ledger',
     ]
     const makeRepository = (ledgerRows) => {
       const pool = {
@@ -144,7 +148,7 @@ test('PostgresIdentityRepository', async (t) => {
 
   await t.test('生产 PostgreSQL 迁移与运行时所需表保持一致', () => {
     const migrationDirectory = path.resolve(__dirname, '../../../migrations/postgresql')
-    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql', '004_member_commerce.sql', '005_cloud_accounts.sql', '006_payment_orders.sql']
+    const sql = ['002_logto_identity.sql', '003_logto_webhook_events.sql', '004_member_commerce.sql', '005_cloud_accounts.sql', '006_payment_orders.sql', '008_credit_ledger.sql']
       .map((name) => fs.readFileSync(path.join(migrationDirectory, name), 'utf8'))
       .join('\n')
     for (const table of [
@@ -153,6 +157,7 @@ test('PostgresIdentityRepository', async (t) => {
       'identity_orders', 'identity_redeem_codes', 'identity_notifications',
       'cloud_accounts', 'cloud_account_tombstones',
       'identity_payment_customers',
+      'identity_credit_accounts', 'identity_credit_ledger',
     ]) {
       assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`))
     }

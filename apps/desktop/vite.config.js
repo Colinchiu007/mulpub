@@ -93,6 +93,15 @@ export default defineConfig({
       // CJS 主进程版而跨边界（由 scripts/check-renderer-cjs-boundary 静态拦截）。
       '@multi-publish/shared-utils/src/article-body-format':
         path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/article-body-format.browser.js'),
+      // Agnes Video 2.5 请求契约（AI 视频生成「模式 ↔ 媒体」判据）：渲染进程消费 ESM 孪生版。
+      // 未登记此 alias 时渲染层会拉到 CJS 主进程版，vite dev server 在运行时抛
+      // 「does not provide an export named 'AGNES_VIDEO_REQUEST_ERRORS'」
+      // → **整个 /create 页面挂载失败**（2026-10-23 Browser E2E 实测：/create 18 项全红、
+      // 流水线卡片 count=0，失败形态与「视频能力缺失」毫无关联，排查成本极高）。
+      // 与主进程版的漂移由 shared-utils 的 __tests__/agnes-video-request-parity.test.js
+      // 逐行锁定；未登记 alias 本身由 scripts/check-renderer-cjs-boundary.js 静态拦截。
+      '@multi-publish/shared-utils/src/agnes-video-request':
+        path.resolve(__dirname, '..', '..', 'packages/shared-utils/src/agnes-video-request.browser.js'),
     }
   },
   // workspace 包不在 node_modules 下，开发服务器不会默认预构建其 CommonJS 入口。

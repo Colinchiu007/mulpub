@@ -23,6 +23,11 @@
 | Postgres 侧**无该表** | `packages/api-publish-engine/src/auth/postgres-identity-repository.js` 的 `SCHEMA` 数组共 11 张表（`identity_users` / `identity_entitlement_snapshots` / `identity_subscriptions` / `identity_entitlement_usage` / `identity_webhook_events` / `identity_user_sessions` / `identity_orders` / `identity_redeem_codes` / `identity_notifications` / `cloud_accounts` / `cloud_account_tombstones`），**无 `official_keys`** |
 | 迁移目录同样没有 | `migrations/postgresql/` 只有 `002`–`006`，无 `official_keys` 建表语句 |
 
+**⚠️ 另有一处更根本的事实（2026-10-24 对抗评审 C5 补入）**：
+`docs/ops-center-ecs-deployment.md:35` 明写 ECS 上部署的 ops-center 克隆自**独立仓
+`Colinchiu007/ops-center.git`**，**本 monorepo 的 `ops-center/` 只是镜像**。
+⇒ 本 change 的落地对象是**独立仓**，monorepo 侧改动**不生效**（同步机制待确认，见 design.md D13）。
+
 **⇒ 现在落那个信封迁移文件会在部署时炸**：
 `relation "official_keys" does not exist` ⇒ 迁移失败 ⇒
 `postgres-identity-repository.js` 的 `assertReady`（`allowPending:false`）硬失败 ⇒
@@ -76,6 +81,7 @@
 | **迁移** | 新增 `migrations/postgresql/00X_official_keys.sql`（编号见 tasks 1.1） |
 | **部署** | 主密钥 `OPS_ENCRYPTION_KEY` 位置不变；**Postgres 的访问控制清单需扩充**（见 D9） |
 | **客户端** | 零改动 |
+| **落地对象** | **独立仓 `Colinchiu007/ops-center`**（生产实际部署源，design.md D13）<br>monorepo 的 `ops-center/` 为镜像，同步机制待确认 |
 
 ---
 
@@ -103,15 +109,15 @@
 
 ---
 
-## 未决问题
+## 原未决问题（2026-10-24 已定案）
 
-| # | 问题 | 备注 |
-|---|---|---|
-| **OQ1** | **Postgres 的访问控制清单**：Fernet 密文迁进 Postgres ⇒ 密钥材料的暴露面从「一个 SQLite 文件」扩大到「一个 Postgres 库」。**谁能读 `official_keys` 表、备份怎么管、只读副本要不要脱敏** —— 需与部署方确认并写进部署文档。 | 影响安全评估，不影响实现 |
-| **OQ2** | **ops-center 的第二个连接用 `asyncpg` 还是 `psycopg[binary]`**？ | 倾向 `asyncpg`（与 Node 侧生态一致、纯 Rust 实现、无 C 扩展依赖，Windows 部署不需编译工具链） |
-| **OQ3** | **迁移期间 ops-center 要不要保留 SQLite 侧的 `ensure_official_key_columns` 运行时 ALTER**？ | 倾向：保留函数但**不再调用**（它只 ALTER SQLite 表；停写后 SQLite schema 漂移已无影响） |
+> 三个问题全部按推荐收口，**不再阻塞实施**。
 
----
+| # | 问题 | **定案** | 理由 |
+|---|---|---|---|
+| **OQ1** | **Postgres 的访问控制清单**：Fernet 密文迁进 Postgres ⇒ 密钥材料的暴露面从「一个 SQLite 文件」扩大到「一个库 + 其备份 / 只读副本 / 导出」 | ① **数据导出必须剔除 `official_keys` 表**（导出通常无权限管控，最易外流）<br>② **表级读权限**：只允许 ops-center 的 Key 管理面账号 SELECT；**禁止**新建 superuser 或超出表 owner 的宽权限账号<br>③ **属主**：与 ops-center 服务账号同权限级，不额外提权<br>④ **备份链路**：按现有 Postgres 库策略走，但**部署文档必须登记**「本库含密钥材料密文」<br>⑤ **SQLite 侧现状补测**：`stat -c %a data/config.db` 取实际权限并登记（`ops-center.service` 无 `UMask=`、无 chmod 600） | 密文从 SQLite 挪到 Postgres **不是新增攻击面**（两者都是「密文 + 主密钥 = 明文」）。差别只在**数据流向变多**。<br>⚠️ **评审指出「沿用现有权限模型」无可沿用之物** —— 全仓 `.sql` **零条 GRANT / CREATE ROLE** ⇒ 判据已从「沿用」改为**五条可核对的判据**。 |
+| **OQ2** | **ops-center 的第二个连接用 `asyncpg` 还是 `psycopg[binary]`**？ | **`psycopg[binary]`**（PostgreSQL 官方维护） | ⚠️ **原提案写「`asyncpg` 无 C 扩展依赖、psycopg 需编译工具链」是错的** —— `psycopg[binary]` 那个 extra **正是为「不想编译」准备的**，两者都无需编译工具链。<br>且「与 Node 侧生态一致」也错（Node 侧用的是 `pg`，不是 asyncpg）。<br>**真实理由**：① 官方维护，长期无兼容风险；② SQLAlchemy 文档默认推荐；③ `binary` extra 带预编译 wheel，ECS 上 `pip install` 免编译；④ 补版本上下界 + 确认 `check-dep-audit.js` 门禁兼容；⑤ `psycopg` 与 `psycopg-binary` 两个包都要写入。 |
+| **OQ3** | **SQLite 侧 `ensure_official_key_columns` 运行时 ALTER 的处置** | **保留函数，但迁移完成后不再调用** | 保留一个**不调用的**函数零成本；删掉后想恢复只能改代码发版。<br>Postgres 侧的表由**迁移文件**建，4 个补列直接含在表定义里（tasks 2.2），**不依赖运行时 ALTER**。 |
 
 ## 验收
 
@@ -119,6 +125,11 @@
 2. 迁移执行后：Postgres 行数 = SQLite 行数，**逐行 Fernet 解密成功**（用当前 `OPS_ENCRYPTION_KEY`）；
 3. ops-center 的 `/api/v1/secrets/*` 全量 CRUD 功能不变（前端零改动即证明）；
 4. `/api/v1/model-presets/{id}/test` 的 Key 回退路径功能不变；
-5. `reserve`（信封 change 的第 3 组落地后）能读到 Postgres 的 Key；
-6. 改 `is_active=0` 后 ≤1s 内新 `reserve` 选不到该 Key（熔断即时性）；
-7. SQLite 侧 `official_keys` 只读存档完好，**回滚路径可用**。
+5. SQLite 侧 `official_keys` 只读存档完好，**回滚路径可用**；
+6. **跨库表示等价**：除 `api_key` 外 17 列在两库间原始值逐列一致（design.md D18 第四层）；
+7. **熔断信息确实随表迁移**：`is_active` 在 Postgres 侧可读到且与迁移前一致（这是「不回落 SQLite」这条防线成立的前提）。
+
+> ⚠️ **原验收 5/6（`reserve` 选到 Key / 熔断 ≤1s 生效）已移出本 change**（评审 C9）：
+> `reserve` 属信封 change 的第 3 组及之后，本 change 落地时它**还不存在**，
+> 把「验收必须包含一个尚不存在的功能」写进本 change 是自相矛盾。
+> 这两条验收归到 `compute-key-envelope-migration`。

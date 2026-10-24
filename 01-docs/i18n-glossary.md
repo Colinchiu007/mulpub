@@ -3,6 +3,7 @@
 > i18n-content-sync L3：产品名词的 zh/en 翻译集中维护。修改任一术语时，zh/en 两侧文案必须同步更新，
 > 由 `apps/desktop/src/i18n/glossary.test.js` 自动校验（术语在 zh/en locale 文案中的出现状态必须一致，
 > 防止「只改了中文没改英文」）。机器 ID 为稳定标识，**不得改名**。
+> **判据读取口径（2026-10-19 起，写成明文是因为它踩过一次）**：`glossary.test.js` 只把**表头为 `| zh | en | … |` 的表**当术语表来读；本文件里其它说明性表格（例如「首页 / 主页 术语边界」那张`| 位置 | 现值 | 语义 | 处置 |`）**不会**被当成术语对。此前判据是"凡是 `|` 开头、第二列不叫 `zh` 的行都算术语"，于是有人加了一张说明表、**表头自己变成了一条术语「位置 / 现值」**，被拿去 locale 里配对并当场判红。新增术语请写进 `| zh | en |` 那张表（或多张同类表），说明表随便加。
 
 | zh | en | 机器 ID（稳定，不改名） |
 |----|----|--------------------------|
@@ -106,6 +107,15 @@
 | 流水线：{pipeline} | Pipeline: {pipeline} | hotTopics.genVideoPipelineLabel |
 | 收起左侧菜单 | Collapse sidebar | tabBar.collapseSidebar |
 | 展开左侧菜单 | Expand sidebar | tabBar.expandSidebar |
+| 文生视频 | Text to video | quickRender.mode.text |
+| 首尾帧 | Keyframes | quickRender.mode.keyframe |
+| 参考素材 | References | quickRender.mode.reference |
+| 参考图 | Reference images | quickRender.referenceImages |
+| 参考音频 | Reference audio | quickRender.referenceAudio |
+| 视频提示词 | Video prompt | quickRender.prompt |
+| 首帧 | First frame | quickRender.firstFrame |
+| 尾帧 | Last frame | quickRender.lastFrame |
+| 随机种子 | Random seed | quickRender.seed |
 
 > **「侧边栏 / Sidebar」暂不登记为表行**：本次按钮文案使用「左侧菜单」措辞（与既有「左侧菜单」「主导航」一致），
 > 而 `glossary.test.js` 要求术语在 zh/en locale 字符串值中的出现状态一致；当前 en 侧因
@@ -129,3 +139,23 @@
 - **口播式**（`talking_head` 类别，外显「口播视频」/「数字人口播」）：画面有说话人（真人视频或数字人），文案角色 = 口播台词。
 - 两者共享 TTS 人声能力，但成片语义不同：旁白 = voice-over；口播 = 人物出镜说话。
 - 若需新增「旁白式」「口播式」「图片轮播」等 UI 文案：先在本表登记，并同步 `zh.js` / `en.js` 成对加入。
+
+## 首页 / 主页 术语边界（2026-10-19，UX 审计阶段 3.1 部分落地）
+
+「同一个路由 `/` 有两个名字」不是风格问题，是**真源问题**：它会让"该高亮哪个入口""该显示哪个标签"这类判断在不同文件里各对一半。
+
+| 位置 | 现值 | 语义 | 处置 |
+|---|---|---|---|
+| `locales/nav/zh.js` → `nav.home` | 首页 / Home | 浏览器式首页标签与侧栏「首页」入口 | **保留为对外术语**（已被 NavBar 占位符、TabBar fallback 消费） |
+| `locales/sidebar/zh.js` → `...home: 主页` | 主页 / Home | 侧边栏同一目标 `/` 的第二份标签 | **待收敛**：与 `nav.home` 同指一个路由，两份 locale 各写一个词 |
+| `stores/tab.js:97 / :220` | `title: ‘首页’` 字面量 | home 标签的可见标题（**优先级高于组件 fallback**） | **待收敛**：属持久化标签数据，改成随语言要走 3.2 的数据语义决策 |
+| `components/TabBar.vue` `getTabLabel` fallback | ~~‘首页’ / ‘新标签页’~~ → `t(‘nav.home’)` / `t(‘tabs.newTabTitle’)` | title 为空时的兜底文案 | **本批已收**（可见文案逐字不变 ⇒ 像素中性） |
+
+**写作规范（本批起生效）**：新增导航/标签类文案一律取 `nav.home`（首页），不得再造第三个词；需要区分"首页标签"与"侧栏入口"时改的是**键名**不是**词**。
+
+**为什么本批不一次改完**：`stores/tab.js` 的 title 会被写进标签持久化数据，"改了之后旧数据要不要改名"是产品语义问题（阶段 3.2 的四份真源收敛必须一起答），不是翻译问题。
+为防它被悄悄改掉而不交代，`TabBar.test.js` 里加了一条**层间关系用例**：title 非空时可见文案取 title —— 谁把 title 也改成随语言走，那条会立刻变红，逼那次改动显式改判据并说明迁移。
+
+### 审计稿 3.1 里已被实况否证的一条
+
+审计稿写的是「`MpModuleNav.vue:37-47`、`TabBar.vue:79` 硬编码进 locales」。实测 origin/main：`MpModuleNav.vue` **已不存在**（由 #3951『S1 导航收敛』删除，`git log origin/main --diff-filter=D -- apps/desktop/src/layouts/MpModuleNav*` 取证），其 4 处账号域标签随组件一起消失 ⇒ 该半条无需再做。**写作时按 `git ls-files` 核在位状态，别按审计稿的行号。**

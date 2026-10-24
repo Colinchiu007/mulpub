@@ -90,10 +90,16 @@ describe('弹窗互斥：静态链路完整性', () => {
   //
   // 本文件的目的没变：全屏浮层必须处理内嵌 WebContentsView 遮挡。只是 MpSidebar
   // 这一处不再是浮层。
-  it('MpSidebar：升级入口走路由跳转，不再有升级弹窗需要挂起内嵌视图', () => {
+  //
+  // 2026-10-23 追加：升级入口与「会员中心」入口同根因 —— 裸 router.push 会让会员中心
+  // 页面渲染在外部网页标签的原生图层背后（用户表现为「点了没反应」）。
+  // ⇒ 断言从「裸 router.push」升级为「走可见的应用内导航原语」，并加反向锁防止退回。
+  it('MpSidebar：升级入口走「可见的应用内导航」，不再有升级弹窗需要挂起内嵌视图', () => {
     const src = fs.readFileSync(path.join(ROOT, 'src/layouts/MpSidebar.vue'), 'utf8')
     // ① 正向锁：必须真的走路由跳转（防「既没弹窗也没跳转」的空洞）
-    expect(src).toMatch(/@upgrade="router\.push\('\/member-center'\)"/)
+    expect(src).toMatch(/@upgrade="onNavClick\('\/member-center'\)"/)
+    // 反向锁：不得退回裸 router.push（那正是 2026-10-23 缺陷的形态）
+    expect(src).not.toMatch(/@upgrade="router\.push/)
     // ② 弹窗已移除 ⇒ 不得再有针对它的挂起/释放
     expect(src).not.toMatch(/watch\(showUpgradeModal/)
     expect(src).not.toMatch(/suspendEmbeddedViewsForOverlay\('upgrade-modal'\)/)
@@ -194,6 +200,31 @@ describe('弹窗互斥：静态链路完整性', () => {
     // 卸载兜底
     expect(src).toMatch(/onBeforeUnmount\(\(\) => \{ releaseOverlay\(\) \}\)/)
     // owner 一律经命名常量传递
+    expect(src).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
+  })
+
+  // owner 登记表：「故事讲述」异步完成通知模态（ResultView）。
+  // 这个模态**不是被用户点击打开的**，而是被后台生成任务的完成回调打开
+  // （场景视频/图片/字幕/配音生成返回后）—— 生成耗时以分钟计，期间用户可能切到
+  // 自媒体创作者中心这类外部网页标签（原生 WebContentsView 盖住居中模态）⇒
+  // 「生成完成」信号丢失。owner 唯一、suspend/release 成对、卸载兜底。
+  it('ResultView：故事讲述异步完成通知模态接入挂起，owner 为 story2video-notification-dialog', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'src/views/ResultView.vue'), 'utf8')
+    expect(src).toMatch(/const STORY2VIDEO_NOTIFICATION_OVERLAY_OWNER = ['"]story2video-notification-dialog['"]/)
+
+    // 逐函数取块（不用跨函数的懒惰匹配，否则锁会在实现被拆开时假绿）
+    const suspendBlock = src.match(/showStory2VideoNotification\(notification = \{\}\) \{[\s\S]*?\n    \}/)
+    const releaseBlock = src.match(/async closeStory2VideoNotificationDialog\(\) \{[\s\S]*?\n    \}/)
+    // 打开路径：模态状态**同步**置位（既有契约「调用后模态立即可见」不变），
+    // 挂起内嵌视图同步发起但不 await —— 顺序安全见该函数内注释
+    expect(suspendBlock && suspendBlock[0]).toContain('suspendEmbeddedViewsForOverlay(STORY2VIDEO_NOTIFICATION_OVERLAY_OWNER)')
+    expect(suspendBlock && suspendBlock[0]).toMatch(/this\.story2videoNotificationDialog = \{ visible: true/)
+    expect(releaseBlock && releaseBlock[0]).toContain('await releaseEmbeddedViewsForOverlay(STORY2VIDEO_NOTIFICATION_OVERLAY_OWNER)')
+
+    // 卸载兜底：组件被销毁时 visible 不经过 false，少这条就是残留挂起计数
+    expect(src).toMatch(/unmounted \(\) \{[\s\S]*?releaseEmbeddedViewsForOverlay\(STORY2VIDEO_NOTIFICATION_OVERLAY_OWNER\)/)
+
+    // owner 一律经命名常量传递：出现字面量即意味着绕过登记直接塞了个 owner
     expect(src).not.toMatch(/EmbeddedViewsForOverlay\(['"]/)
   })
 

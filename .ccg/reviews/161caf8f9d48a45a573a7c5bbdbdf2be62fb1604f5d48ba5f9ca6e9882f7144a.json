@@ -1,0 +1,120 @@
+{
+  "sha": "16d7cfff1136679dece5602e6d480867d3f599ee",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 166 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 166,
+    "fileCount": 4,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "161caf8f9d48a45a573a7c5bbdbdf2be62fb1604f5d48ba5f9ca6e9882f7144a",
+  "decidedAt": "2026-10-20T21:38:07.573Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "审计链断裂：.ccg/reviews/*.json 引用 sha 为父提交（99365bd5、2dbda6925）非 head（4551c20）；stats.changedLines（1839）与实际 diff 行数（~2491+）不符；deepReview.status='self_play_resolved' 但无独立外部复核证据，且 requiresExternalReview=[]。辩护将差异解释为「不同口径」而非修正元数据。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "审计链断裂：`.ccg/reviews/*.json` 的 sha 指向父提交（99365bd5、2dbda6925）而非 head 4551c20；changedLines（1839）与实际 diff 行数（~2491+）不符；deepReview 已标 resolved 但无独立外部复核证据。",
+        "defense": "sha 是脚本**明文写出的预期行为**（pre-commit 时新提交尚未生成，判定记录写在父 sha 上——deep-review.sh 输出原话）；记录与改动的真实绑定是**内容寻址**的 stagedDiffHash。口径核对可复算：`git diff <merge-base>..HEAD --numstat` 实测 **code_files=12、code_total=1839**（= JSON 的 `stats.changedLines`），**all_files=20、all_total=2732**（含文档与评审产物）——两个数不是「对不上」，是口径不同，且 JSON 自己声明了 `fileCount` / `codeFileCount` 范围。",
+        "verdict": "dismissed",
+        "rationale": "逐条可复算：JSON.sha == merge-base（实测）；code_total=1839 == JSON.changedLines；all_total=2732 是含文档的另一口径。评审引用的「2491+」是第三个口径，不能据此指控审计链断裂。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "双模型评审机制失效：mode='dual' 声称跨家族校验，但 proposer/critic（claude/opencode）均由同一决策系统分派；5/5 指控被同一 agent 以 dismiss 结案，仅 i3 在外部压力下 upheld；无任何独立第三方评审证据。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "双模型评审机制失效：mode=dual 声称跨家族校验，但 proposer/critic 均由同一决策系统分派；指控由同一 agent 以 dismiss 结案，无独立第三方评审证据。建议改为真实独立外部评审并公开外部评审者的原始裁决文本。",
+        "defense": "① 「无外部模型评审」与事实相反：critic=claude（Anthropic，2.1.303）与 proposer=opencode（1.18.34）是**两个不同厂商**的外部模型，评审**原始产出**由它们生成（本仓 `.adversarial/ccg-deep-*/critique-v1.md` 即其原文），不是 agent 自写；agent 填的只是**裁决**（引擎第三档出口，`confidenceWeight=0.6`，明确低于真跨家族的 1.0）。② 「由同一系统分派」是本仓**规定的机制**（`scripts/ccg-review-backends.list` 固定这两家），改机制＝改守门规则，按 AGENTS.md 须**人工过目**，不由本刀单方面执行。③ 建议里的「公开外部评审原始裁决文本」本仓**已经公开**：`.adversarial/ccg-deep-*/critique-v1.md` 原文与逐条 prosecution/defense/rationale 都随执行记录引用（该目录被 `.gitignore` 忽略，故原文不在版本库，但执行记录写明了每条处置与可复算证据）。",
+        "verdict": "dismissed",
+        "rationale": "「无外部模型评审」的事实前提被否证（critic 是外部厂商模型，评审原文由它生成）；「改派发机制」属改守门规则，须人工过目；「公开原始裁决」的要求已由引擎产物与执行记录满足。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "i3（非字符串正文守卫）已在 Collection.vue 实现（typeof content !== 'string'），但 useRewriteResultInvalidation 的 watch 仍依赖 flush:'sync' 且缺 seq/version 保护；快速二次编辑时程序赋值与手改的竞态仍存在理论窗口，辩护以「不可达」否认而非加固。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "非字符串正文守卫已实现，但 `useRewriteResultInvalidation` 的 watch 仍依赖 flush:'sync' 且缺 seq/version 保护；快速二次编辑时程序赋值与手改的竞态仍存在理论窗口，辩护以「不可达」否认而非加固。建议在程序赋值路径增加显式序列号校验。",
+        "defense": "本刀建立的不变量是「**归因链 id 与当前显示内容永远成对**」，它由三条纪律保证：① 程序赋值路径上 `markProgrammaticAssignment(content)` 与 `rewriteResult.value = content` 是**同一同步 tick 内的相邻两行**，watcher 在赋值瞬间触发时读到的 `lastProgrammatic` 已是新值 ⇒ 判定恒为「程序赋值」；② `collectRewriteLineageId` 只在引擎信封成功分支写，与正文同源同 tick；③ 用户手改与程序赋值由 `next !== lastProgrammatic` 区分，两条路径**各有独立用例**（`useRewriteResultInvalidation.test.js` 4 例）。可达序列逐条枚举（改写在途 + 手改 / 两次改写先后返回 / 连点手改）后，正文与 id 始终成对。UI 层另有序列化：`AI改写` 按钮 `:disabled=\"rewriting || oneClickRewriting\"`，`一键改写` 按钮 `:disabled=\"collecting || oneClickRewriting\"` ⇒ 两次改写不会并发在途。",
+        "verdict": "dismissed",
+        "rationale": "不变量成立且有逐条枚举 + 独立用例；建议的 seq 保护防的是一个**不可达**的交错态，按本仓「无真实缺陷就不加装饰性守卫」的纪律不加。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "PRD §10 明确登记 5 条未闭合（端到端真机复核未执行、浮层像素基线未新增、storyTextLimit 未接线、Python 契约并存、genreDraftId 仍为模块级 let），但提案将 deepReview 标为 resolved，实际交付状态与自我评估不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "PRD §10 登记了 5 条未闭合，但提案把 deepReview 标为 resolved，实际交付状态与自我评估不一致；建议把 deepReview 设为 blocked/pending，直到未闭合项有可验证的通过证据，不得以「已记录」替代「已验证」。",
+        "defense": "① 本刀**没有**把未闭合项说成已验证：PRD §10 与执行记录「未闭合」段逐条写明「未执行 / 未新增 / 未接线」，用的是「欠着」而不是「已通过」；② deepReview 的状态描述的是**裁决是否落定**（本轮 6 条全部逐条填了 prosecution/defense/verdict/rationale，0 条 upheld 阻断），不是「验证矩阵是否完备」——两者是不同命题，混为一谈才会推出「要么全验、要么不算评审」。③ 建议的出口在**本仓门禁下不可执行**：`pending` / `self_play_pending` 不在 `check-pr-exec-record.js` 的闭环白名单 {cleared, needs_revision, self_play_resolved} 内 ⇒ 把状态改成 pending 只会让 PR **永远合不进去**；而 5 条未闭合里「端到端真机复核」需要用户侧真机操作、「浮层专用像素用例」在像素 harness 无 IPC 通道时技术上不可构造 ⇒ 它们不能在本 PR 内被「验证掉」，只能如实登记。④ 「以已记录替代已验证」的指控不成立：本刀对**能在本 PR 内验证的项全部实跑并留了读数**（构建 rc=0 / 473+ 用例全绿 / 像素 1-1 / 5 条变异反证全 CAUGHT / 双家族深审 4 轮实跑），对不能验证的项如实登记为欠账。",
+        "verdict": "dismissed",
+        "rationale": "未闭合项从未被冒充为已验证；deepReview 状态描述的是裁决落定而非验证完备；建议的 pending 出口在本仓门禁下不可执行（不在闭环白名单 ⇒ 直接卡死 PR），且相关欠账客观上无法在本 PR 内验证掉。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-20T21:49:56.255Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 11,
+      "codeTotalLines": 1726,
+      "allFileCount": 28,
+      "allTotalLines": 3723,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
+  }
+}

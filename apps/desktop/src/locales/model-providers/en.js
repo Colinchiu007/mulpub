@@ -26,8 +26,12 @@ export default {
     configuredBadge: 'Configured',
     customBadge: 'Custom',
     presetBadge: 'Preset',
-    enabled: 'Enabled',
-    disabled: 'Disabled',
+    // 配置状态三态（utils/provider-status.js）：未配置 ≠ 被禁用
+    // 旧的 enabled/disabled 两个徽标键已删——它们是 `enabled` 布尔位的直译，
+    // 「未配置」被说成「已禁用」。同义的第二套词汇留着必然漂移。
+    statusEnabled: 'Enabled',
+    statusDisabled: 'Disabled',
+    statusNotConfigured: 'Not configured',
     baseUrlLabel: 'Base URL',
     modelsLabel: 'Models',
     capabilityLabel: 'Capabilities',

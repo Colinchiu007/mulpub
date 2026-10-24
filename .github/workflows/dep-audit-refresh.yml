@@ -1,0 +1,169 @@
+name: 依赖漏洞基线自动刷新
+
+# 为什么存在：`scripts/dep-audit-baseline.json` 这份挂账台账此前全靠人肉追 ——
+#   新公告发布 → 人**记得**去跑 `node scripts/check-dep-audit.js --update` →
+#   人**记得**给每条补 decision/note → 人**记得**看 reviewBy 到期没有。
+# 漏掉任何一步，审计结论就静默过期；更糟的是「没量到」会被读成「已修」（本仓反复踩的同型）。
+#
+# 本作业把第一步（追公告 + 刷新基线）交给机器，把第二步（给结论）留给人 —— 这是唯一不能自动化的那一步：
+# `decision` / `note` 是**风险判断**（"为什么不马上修"、"什么时候回来处理"），机器替人做等于把台账变成摆设。
+#
+# 机械分工（与 scripts/check-dep-audit.js 的既有判据一一对应，不另立规矩）：
+#   机器：`--update` 扫描三域（npm / npm-opscenter / pip）并把结果落进基线 ——
+#         新公告由机器**预填**「已登记、待升级」+ 公告修复下界（承诺版本）+ 到期日（到期即红）；
+#         已不再命中的挂账被清掉；已有的 decision/note/targetVersion 原样保留。
+#   人：给每条新公告补 `decision` + `note`（选 upgrade-tracked 时还必须写 targetVersion）。
+#       不补 ⇒ `依赖漏洞审计` 门禁以 BASELINE_META_INVALID 判红 ⇒ 本 PR 合不掉。
+#
+# 三条硬约束（每条都对应既有判据，不是本作业新加的）：
+#   1. 扫描器不可用、或出现「本轮 0 命中但该域仍有挂账」时，`--update` **拒写基线**并判红
+#      （check-dep-audit.js 里的两道 fail closed 闸）。本作业不得绕开它们 ——
+#      绕开就等于把「没量到」当成「已修」，把仍然有效的挂账从安全基线里抹掉。
+#   2. 产物落在**分支**上，永不直推 main（分支保护也拒）。
+#   3. 本作业**不推进 reviewBy**（挂账复核日）：复核日是「人看过这批账」的证明，
+#      机器续期等于把复核变成永续挂账。是否顺延由人决定。
+#
+# 周期：每天 03:17 UTC（刻意避开整点 —— GitHub 的整点是定时拥堵高峰）。
+#   为什么每天而不是每周：追公告的延迟上限就是「新公告多久没人知道」，每周一次意味着最长 7 天的暴露窗口；
+#   且 dep-audit.yml 那条每周一次的作业跑的是**检查**（判红），本作业跑的是**刷新**（把结论准备好）——
+#   两者不是一回事，节奏也不必一样。
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+# ⛔ 只给「推分支 + 开 PR」这两件事的权限。不给 issues、不给 packages、不给 actions。
+#    本作业不处理来自不可信输入的内容（触发器只有定时与手动），但权限仍按最小面给。
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  # 串行而非取消：并发两轮刷新会在同一条分支上互相踩（后一轮基于前半轮的结果再刷一次），
+  # 而"取消前一轮"会让前一轮的推送停在半路（分支存在、PR 正文没更新）。串行最省心。
+  group: dep-audit-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: 依赖漏洞基线刷新
+    runs-on: ubuntu-latest
+    # 预算依据：本作业的扫描部分与 dep-audit.yml 同一形态（实测该 job 整轮 43 秒，其中 npm ci 7 秒），
+    # 多出来的是「git worktree + 提交 + 推送 + 开/改 PR」这一段 Actions 侧耗时（**未实测**）。
+    # 本格首次登记为 seeded（样本 0），30 天宽限期内必须用 scripts/coverage-budget-sample.js 重采并如实升级。
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # pnpm audit 默认走 .npmrc 里的镜像源，而 npmmirror 没有 /-/npm/v1/security/advisories 端点
+      # （ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS）⇒ 必须显式走官方 registry，与 dep-audit.yml 同口径。
+      NPM_AUDIT_REGISTRY: https://registry.npmjs.org
+      # 刷新分支是**常驻**的一条：人工补的 decision 就在这条分支上，
+      # 常驻分支才能让下一轮刷新"在人的结论之上"继续刷（换分支 = 人的结论丢一次）。
+      BRANCH: chore/dep-audit-refresh
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 全历史：后面要把刷新分支接到 origin 上，还要用 merge-base 语义看主干基线。
+          fetch-depth: 0
+          ref: main
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # 与根 package.json 的 packageManager 字段保持一致
+          version: 11.13.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+
+      # 三个扫描域的**测量域**必须都真实存在，否则会踩 UNVERIFIED_ZERO_SCAN 那道闸
+      # （「本轮 0 命中但该域仍有挂账」= 测量域为空，不是公告消失）——
+      # 那道闸会拒写基线并判红，是对的：宁可不刷，也不要把没量到当成已修。
+      # ops-center/frontend 不在 pnpm workspace 内（自带 package-lock.json 由 npm 管理），
+      # 装它是为了让 npm-opscenter 域真的扫得到东西（不装则该域 0 命中）。
+      - name: 安装 ops-center/frontend 生产依赖（给 npm-opscenter 域一个真实的测量对象）
+        working-directory: ops-center/frontend
+        run: npm ci --omit=dev --no-audit --no-fund
+
+      - name: 判据用例（判定逻辑，不联网）
+        run: node --test scripts/check-dep-audit.test.js
+
+      - name: 取刷新分支上的基线（合成底的一半：保住人已补的结论）
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || true
+          if git rev-parse --verify "refs/remotes/origin/$BRANCH" >/dev/null 2>&1; then
+            git show "refs/remotes/origin/$BRANCH:scripts/dep-audit-baseline.json" > "$RUNNER_TEMP/branch-baseline.json"
+            echo "MERGE_FROM=--merge-from=$RUNNER_TEMP/branch-baseline.json" >> "$GITHUB_ENV"
+            echo "HAS_BRANCH=1" >> "$GITHUB_ENV"
+          else
+            echo "MERGE_FROM=" >> "$GITHUB_ENV"
+            echo "HAS_BRANCH=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: 刷新基线（--update；扫描器不可用或测量域为空时脚本会拒写并判红）
+        run: |
+          set -euo pipefail
+          node scripts/check-dep-audit.js --update ${MERGE_FROM} \
+            --refresh-report="$RUNNER_TEMP/refresh-report.json" \
+            --refresh-body="$RUNNER_TEMP/pr-body.md"
+
+      - name: 推送刷新结果（只推基线文件；**绝不 force push**）
+        run: |
+          set -euo pipefail
+          NEW="$RUNNER_TEMP/new-baseline.json"
+          cp scripts/dep-audit-baseline.json "$NEW"
+          # 基准 = 刷新分支（存在时）否则主干：判「有没有变化」要跟**将要推送的那个点**比，
+          # 跟主干比会把「分支上人已经补好的结论」算成变化 ⇒ 天天推一个空提交。
+          BASE_REF="HEAD"
+          if [ "$HAS_BRANCH" = "1" ]; then
+            BASE_REF="refs/remotes/origin/$BRANCH"
+          fi
+          if git show "$BASE_REF:scripts/dep-audit-baseline.json" | diff -q - "$NEW" >/dev/null 2>&1; then
+            echo "CHANGED=0" >> "$GITHUB_ENV"
+            echo "本轮刷新结果与基准一致 ⇒ 不推送"
+            exit 0
+          fi
+          echo "CHANGED=1" >> "$GITHUB_ENV"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 用独立 worktree 提交：不碰主工作区的 HEAD，也就不会把「扫描用的主干检出」与
+          # 「要推的分支」搅在一起。-B 把本地分支重置到基准点（远端存在时即远端那份）。
+          WT="$RUNNER_TEMP/wt"
+          git worktree add "$WT" -B "$BRANCH" "$BASE_REF"
+          cp "$NEW" "$WT/scripts/dep-audit-baseline.json"
+          git -C "$WT" add scripts/dep-audit-baseline.json
+          git -C "$WT" commit -m "chore(deps): 依赖漏洞基线自动刷新（$(date -u +%Y-%m-%dT%H:%M:%SZ)）"
+          # 快进推送，**不带 --force**：人在这条分支上补的提交必须原样留在历史里。
+          # 刷新是"在人的结论之上再叠一层"，不是"覆盖掉人的结论"。
+          git -C "$WT" push origin "$BRANCH"
+
+      - name: 开/更新刷新 PR（正文 = 给人做决定的清单）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr edit "$PR_NUMBER" --body-file "$RUNNER_TEMP/pr-body.md"
+            echo "已更新 PR #$PR_NUMBER 的正文（待办清单随本轮刷新重算）"
+          elif [ "$CHANGED" = "1" ]; then
+            gh pr create --head "$BRANCH" --base main \
+              --title "chore(deps): 依赖漏洞基线自动刷新 —— 待人工补 decision" \
+              --body-file "$RUNNER_TEMP/pr-body.md"
+            echo "已开刷新 PR"
+          else
+            # 没有变化 ⇒ 没有可开的 PR（GitHub 也不允许开零差异的 PR）。
+            # 但基线里可能仍有 decision=TODO 的条目 —— 那说明这些待补结论**已经在主干上**
+            # （多半是有人没补结论就把上一轮刷新 PR 合了）。机器给不出结论，只能如实报出来。
+            PENDING=$(node -e "const r=require(process.env.RUNNER_TEMP+'/refresh-report.json');process.stdout.write(String((r.needDecision||[]).length))")
+            echo "::warning::基线已是最新，但仍有 $PENDING 条挂账没有 decision（decision=TODO）——它们已在主干上，本作业无法代为决策，请人工处理"
+          fi

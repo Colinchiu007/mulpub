@@ -7,7 +7,9 @@
  *   计划文件   <mediaRoot>/auto/_plans/<planId>.json      服务端派生、TTL/consumed 生命周期（D17/i8）
  *   项目文件   <mediaRoot>/auto/<taskId>/project.json     唯一「可编辑内容真源」（提示词/参考/秒数）
  *   台账       <mediaRoot>/auto/<taskId>/ledger.json      执行真源（由 production-driver 写）
- *   产物       <mediaRoot>/auto/<taskId>/shot_NNN.mp4     结果真源（磁盘为真）
+ *   产物       <mediaRoot>/auto/<taskId>/b<N>/shot_NNN.mp4          结果真源（磁盘为真）
+ *              轮次 ≥2 时目录带轮次号：auto/<taskId>/r<runSeq>/b<N>/（2026-10-23）
+ *              —— 同一 taskId 以 overwrite 重新 plan 时，旧轮次产物不得被新轮次采纳
  *   归档       <mediaRoot>/auto/<taskId>/archive/<runSeq>/  overwrite 时保留旧一轮审计链（D27）
  *
  * 关键不变量：

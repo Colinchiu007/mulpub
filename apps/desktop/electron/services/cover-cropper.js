@@ -11,6 +11,7 @@
  */
 const { BrowserWindow } = require('electron')
 const { extToMime, IMAGE_EXT_TO_MIME } = require('@multi-publish/shared-utils/src/image-mime')
+const { readImageSize, describeImageSizeError } = require('@multi-publish/shared-utils/src/image-size')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -64,21 +65,27 @@ function computeTargetSize(rect, imageWidth, imageHeight, outputWidth) {
 
 /**
  * JPEG 质量自适应：从 90 向下二分，直到体积 ≤ maxBytes 或达到 minQuality。
- * @param {(quality:number)=>Buffer} encodeFn 按质量编码返回 buffer
+ * @param {(quality:number)=>Buffer|Promise<Buffer>} encodeFn 按质量编码返回 buffer（可为 Promise）
  * @param {number} maxBytes 体积上限
  * @param {number} [minQuality=30]
- * @returns {{quality:number, buffer:Buffer, overLimit:boolean}}
+ * @returns {Promise<{quality:number, buffer:Buffer, overLimit:boolean}>}
  */
-function pickJpegQuality(encodeFn, maxBytes, minQuality = 30) {
+// ⛔ 必须是 async（回归锁「二分值码器返回 Promise 时不得把 Promise 当 Buffer」）。
+// 原实现是同步函数，而唯一真实消费者 cropImageFile 传进来的 encode 包的是
+// webContents.executeJavaScript —— 它返回 Promise。`promise.length` 是 undefined，
+// `undefined <= maxBytes` 恒为 false，于是二分一路退到最低质量，最后
+// fs.writeFileSync(path, picked.buffer) 拿到的是一个 Promise 而抛 ERR_INVALID_ARG_TYPE。
+// 这一层缺陷此前不可见，因为上游 normalizeRect 先把整条链挡在「图片尺寸无效」上。
+async function pickJpegQuality(encodeFn, maxBytes, minQuality = 30) {
   let lo = minQuality
   let hi = 90
-  let best = { quality: 90, buffer: encodeFn(90), overLimit: false }
+  let best = { quality: 90, buffer: await encodeFn(90), overLimit: false }
   if (best.buffer.length <= maxBytes) return best
   best = { quality: hi, buffer: best.buffer, overLimit: true }
   let iter = 0
   while (lo <= hi && iter < 20) {
     const mid = Math.round((lo + hi) / 2)
-    const buf = encodeFn(mid)
+    const buf = await encodeFn(mid)
     iter++
     if (buf.length <= maxBytes) {
       best = { quality: mid, buffer: buf, overLimit: false }
@@ -89,7 +96,7 @@ function pickJpegQuality(encodeFn, maxBytes, minQuality = 30) {
   }
   if (best.overLimit) {
     // 最低质量仍超限：返回最低质量（由调用方决定是否接受）
-    return { quality: minQuality, buffer: encodeFn(minQuality), overLimit: true }
+    return { quality: minQuality, buffer: await encodeFn(minQuality), overLimit: true }
   }
   return best
 }
@@ -164,7 +171,7 @@ async function cropImageFile(imagePath, options = {}) {
     }
     const encode = (q) => win.webContents.executeJavaScript('window.__encode(' + q + ')')
       .then((dataUrl) => Buffer.from(String(dataUrl).replace(JPEG_MIME, ''), 'base64'))
-    const picked = pickJpegQuality(encode, maxBytes)
+    const picked = await pickJpegQuality(encode, maxBytes)
     fs.writeFileSync(outputPath, picked.buffer)
     log.info('CoverCropper', 'Crop saved: ' + outputPath + ' (' + picked.buffer.length + ' bytes, q=' + picked.quality + ')')
     return {
@@ -198,7 +205,21 @@ function readImageAsDataUrl(imagePath) {
     const mime = extToMime(ext)
     if (!mime) return { ok: false, error: '不支持的图片格式: ' + ext }
     const buf = fs.readFileSync(imagePath)
-    return { ok: true, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64'), sizeBytes: buf.length }
+    // ⛔ 必须把宽高一起带出去（回归锁 cover-cropper.test.js「readImageAsDataUrl 必须带出真实宽高」）。
+    // 本函数原先只返回 {dataUrl,sizeBytes}，而 cropImageFile 把 read.width/read.height 喂给
+    // normalizeRect —— undefined 经 `Number(x) || 0` 变 0，于是每一次裁剪都恒返回「图片尺寸无效」，
+    // 该功能自 PR #1174 起从未可用。纯函数测试直接传 1920/1080，从没测过这条缝，所以全绿躺了很久。
+    const size = readImageSize(buf)
+    if (!size) {
+      return { ok: false, error: '无法解析图片尺寸（' + describeImageSizeError(buf) + '，不是"图片坏了"而是"读不出尺寸"）' }
+    }
+    return {
+      ok: true,
+      dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64'),
+      sizeBytes: buf.length,
+      width: size.width,
+      height: size.height,
+    }
   } catch (e) {
     return { ok: false, error: e.message }
   }

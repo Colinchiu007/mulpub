@@ -280,7 +280,6 @@
               @configure-proxy="openProxyDialog"
               @check-login="checkLogin"
               @open-login="reloginAccount"
-              :checked-expired-ids="checkedExpiredIds"
               @remove="removeAccount"
             @open-creator="openCreatorCenter"
             />
@@ -388,6 +387,7 @@ import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatform
 import { formatUserError } from '@/utils/user-facing-error'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { needsCleanLoginSession } from '@/utils/account-status'
+import { useReloginGuard } from '@/features/accounts/composables/useReloginGuard'
 import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
 import { FEATURE_FLAG_ACCOUNT_CLOUD_SYNC, useFeatureFlag } from '@/composables/useFeatureFlag'
@@ -515,10 +515,14 @@ let resolveAuthorizationGuide = null
 platformStore.load()
 
 const accountEvents = useAccountEvents({
-  onCompleted: async (_data, mode) => {
+  onCompleted: async (data, mode) => {
     // 成功提示由 useAccountEvents.complete() 统一弹出（「xx 登录凭证已自动保存」），
     // 此处不再重复提示，仅刷新账号列表。避免登录成功后顶部弹出两个重复提示。
     pendingAuthAction.value = null
+    // 重新登录成功 ⇒ 该账号「本会话已确认失效」的结论作废，必须移出集合。
+    // 不移出的后果（D-A）：needsCleanLoginSession 继续返回 true ⇒ 用户刚登录成功，
+    // 点卡片打开创作者中心却走**干净会话** ⇒ 平台把他当未登录 ⇒ 看到的是登录页。
+    if (data?.accountId) checkedExpiredIds.value.delete(data.accountId)
     await refresh()
   },
   onStatusChanged: async data => {
@@ -539,6 +543,10 @@ const {
   start: startAccountEvents,
   stop: stopAccountEvents,
 } = accountEvents
+
+// 重新登录（重建会话）的门禁与执行收在 useReloginGuard 里（2026-10-24）：
+// 已登录态要先二次确认（会覆盖现有凭证，不可逆），其余登录态直接进登录链路。
+const { reloginAccount } = useReloginGuard({ pendingAuthAction, loginMode, checkedExpiredIds, platformLabel })
 
 const authViewVisible = computed({
   get: () => loginVisible.value,
@@ -895,26 +903,6 @@ function addAccountForPlatform (platform) {
   newPlatform.value = platform
   selectedLoginMode.value = 'browser'
   showAddDialog.value = true
-}
-
-async function reloginAccount (account) {
-  if (!account?.platform) return
-  pendingAuthAction.value = 'relogin'
-  loginMode.value = 'browser'
-  try {
-    const result = await accountActions.openLogin('browser', account.platform, account.id)
-    if (result?.cancelled) {
-      checkedExpiredIds.value.delete(account.id)
-      pendingAuthAction.value = null
-    } else if (result?.code !== 0) {
-      pendingAuthAction.value = null
-      notifyError('accountsPage.reloginFailed', { message: formatUserError(result, { fallback: result?.message || t('accountsPage.reloginFailed') }).message })
-    }
-    // 登录成功由 useAccountEvents.onCompleted 处理（notifySuccess + refresh）
-  } catch (error) {
-    pendingAuthAction.value = null
-    notifyError('accountsPage.reloginFailed', { message: formatUserError(error, { fallback: t('accountsPage.reloginFailed') }).message })
-  }
 }
 
 // closeAuthView 已移除：登录标签通过 TabBar × 关闭

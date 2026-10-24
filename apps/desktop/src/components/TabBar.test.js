@@ -113,3 +113,58 @@ describe('TabBar 加载态徽标（转圈只在真加载中出现）', () => {
     expect(tabbarSrc).toMatch(/prefers-reduced-motion/)
   })
 })
+
+describe('TabBar 标签文字随语言切换（阶段 3.1：字面量收进 locales）', () => {
+  // 为什么必须有这条：把 '首页' 换成 t('nav.home') 之后，zh 档下新旧实现**产出完全相同**，
+  // 既有全部用例照绿 —— 也就是说"抽取是否真的接上了 i18n"这件事，只在非 zh 档才可观。
+  // 所以判别性的那一条是 en 档；结构锁只是它的备份（防止有人把 t() 换回字面量、
+  // 而那一轮恰好没跑 en 用例）。
+  function mountWithLocale(locale) {
+    i18n.global.locale.value = locale
+    const store = useTabStore()
+    store.tabs = [
+      { tabId: 'home', url: '', title: '', isHome: true, loading: false },
+      { tabId: 'blank', url: 'about:blank', title: '', isHome: false, loading: false },
+    ]
+    store.activeTabId = 'home'
+    const w = mount(TabBar, { global: { plugins: [i18n] } })
+    return { text: (id) => w.get('[data-testid="tab-' + id + '"]').text() }
+  }
+
+  it('zh 档：首页标签显示「首页」，空白标签显示「新标签页」', () => {
+    const { text } = mountWithLocale('zh')
+    expect(text('home')).toContain('首页')
+    expect(text('blank')).toContain('新标签页')
+  })
+
+  it('en 档：同一份代码必须产出英文文案 —— 字面量写死时这条必红', () => {
+    const { text } = mountWithLocale('en')
+    expect(text('home')).toContain('Home')
+    expect(text('blank')).toContain('New Tab')
+    expect(text('home')).not.toContain('首页')
+    expect(text('blank')).not.toContain('新标签页')
+  })
+
+  it('结构锁：getTabLabel 只能从 locales 取词，不得自带字面量', () => {
+    const start = tabbarSrc.indexOf('function getTabLabel')
+    expect(start).toBeGreaterThan(-1)
+    const body = tabbarSrc.slice(start, start + 700)
+    expect(body).toContain("t('nav.home')")
+    expect(body).toContain("t('tabs.newTabTitle')")
+    expect(body).not.toMatch(/return\s*'首页/)
+    expect(body).not.toMatch(/return\s*'新标签页/)
+  })
+})
+
+  it('层间关系（阶段 3.2 的入口证据）：title 非空时可见文案取 title，getTabLabel 只是 fallback', () => {
+    i18n.global.locale.value = 'en'
+    const store = useTabStore()
+    store.tabs = [{ tabId: 'home', url: '', title: '首页', isHome: true, loading: false }]
+    store.activeTabId = 'home'
+    const w = mount(TabBar, { global: { plugins: [i18n] } })
+    expect(w.get('[data-testid="tab-home"]').text()).toContain('首页')
+    // 这不是「en 档应显示 Home」的缺陷断言。stores/tab.js 的 title 目前是写死的字面量，
+    // 把语言决策放进 store 会牵动已持久化标签数据的语义，属阶段 3.2（首页/主页 四份真源收敛）。
+    // 本批只把 fallback 接上 locales。这条用例的作用是：谁把 title 也改成随语言走，它会立刻变红，
+    // 逼那次改动显式改判据并交代持久化数据的迁移，而不是让"标签已国际化"这句话悄悄变成假的。
+  })

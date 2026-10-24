@@ -144,7 +144,28 @@ test('每一个 axios 直接消费方的声明区间与实际解析版本都必�
 // 它与其他三条形态不同：undici / fast-uri / axios 是**传递依赖**，electron 是 workspace 根与
 // apps/desktop 的 devDependency，同时又是 rpa-engine / shared-utils 的 optional peer —— 后两条的
 // 区间（>=33.0.0 / >=20.0.0）本来就包含修复版，pnpm 会沿用旧解，只有 override 能同时按住这四条路径。
-const OVERRIDE_FLOORS = { undici: '7.29.1', 'fast-uri': '3.1.7', axios: AXIOS_FLOOR, electron: '43.5.0' }
+// undici / fast-uri 的地板在 2026-10-24 抬过一次（#4361）：GitHub Advisory Database 当日新增
+// undici 3 条（GHSA-xjj6-f33q-929c high / GHSA-4qv8-2p9j-2685 / GHSA-f72v-6w45-q472，修复下界 >=7.30.1）
+// 与 fast-uri 4 条（GHSA-w74x-v6f9-j3xg / GHSA-wjr9-j795-jxcr / GHSA-333x-w4r6-6crp / GHSA-xhq7-xmqj-769h，
+// 修复下界 >=3.1.9），使依赖漏洞审计门禁在 main 上以 7 条 NEW_ADVISORY 连红。
+// 地板必须跟着公告的修复下界走：地板停在 7.29.1 / 3.1.7 时，锁里解析到 7.30.0 / 3.1.8
+// （都在地板之上、都在修复下界之下）⇒ 这条棘轮判绿、审计门禁判红，两条判据各说各话。
+// brace-expansion 的两条是 **parent>child 限定式**（2026-10-24 引入）：6 条 high 公告
+// （GHSA-3jxr-9vmj-r5cp / GHSA-mh99-v99m-4gvg / GHSA-rgw5-rvv9-x895 / GHSA-q2hr-2g5m-vwhr /
+// GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p）的修复下界分两条线：1.x 线 >=1.1.21、4.x/5.x 线 >=5.0.12；
+// 2.x/3.x 无公告。两个槽位的消费方要求的**导出形状不同**（minimatch@3 把 require 结果当函数调、
+// minimatch@10 用 .expand）⇒ 必须各钉在自己 major 内，不能平铺。
+// zod：GHSA-mrhx-c7xc-m3w5（CVE-2023-54404）修复下界 4.6.6；
+// electron：GHSA-jr5w-w6x2-84p9（CVE-2026-115570）修复下界 43.8.1。
+const OVERRIDE_FLOORS = {
+  undici: '7.30.1',
+  'fast-uri': '3.1.9',
+  axios: AXIOS_FLOOR,
+  electron: '43.8.1',
+  'minimatch@3>brace-expansion': '1.1.21',
+  'minimatch@10>brace-expansion': '5.0.12',
+  zod: '4.6.6',
+}
 
 function readOverridesBlock(text, label) {
   const lines = text.split(/\r?\n/)
@@ -157,7 +178,12 @@ function readOverridesBlock(text, label) {
     // 拿 /^[^\s]/ 直接 break 会在第一条注释处停下 —— 这个 bug 由本测试自己抓到过（读到 2 条而不是 3 条）。
     if (/^#/.test(l) || /^\s*#/.test(l) || l.trim() === '') continue
     if (/^[^\s]/.test(l)) break
-    const m = /^\s{2}'?([\w./-]+)'?:\s*(.+?)\s*$/.exec(l)
+    // 键有两种形态：**平铺**（`undici: '^7.30.1'`）与 **parent>child 限定式**
+    // （`'minimatch@3>brace-expansion': '^1.1.21'`）。后者是 pnpm 的官方覆写语法，
+    // 用于「同一个包在不同父级下必须落在不同 major」的情形（2026-10-24 引入 brace-expansion 时用到：
+    // minimatch@3 要 CJS 的函数导出、minimatch@10 要 5.x 的具名导出 ⇒ 平铺会打断其中一方）。
+    // ⇒ 键的字符类必须收下 `@` 与 `>`，否则这两行会被判「解析不了」而把整条用例打红。
+    const m = /^\s{2}'?([\w./@>-]+)'?:\s*(.+?)\s*$/.exec(l)
     assert(m, `${label} overrides 段第 ${i + 1} 行解析不了：${JSON.stringify(l)} —— 解析不了即拦，禁止静默跳过`)
     out[m[1]] = m[2].replace(/^['"]|['"]$/g, '')
   }
@@ -172,7 +198,7 @@ test('每条 pnpm override 都必须有上界（裸 >= 下限一律判红）', (
   for (const [name, range] of Object.entries(overrides)) {
     assert(
       hasUpperBound(range),
-      `override ${name}: "${range}" 没有上界。override 是整体替换依赖区间，写 >=x.y.z 就等于允许下一次非 --frozen-lockfile 的 install 把它静默抬到新 major（实测 registry：undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，而锁里是 7.30.0 / 3.1.8）。${boundedHint()}。`,
+      `override ${name}: "${range}" 没有上界。override 是整体替换依赖区间，写 >=x.y.z 就等于允许下一次非 --frozen-lockfile 的 install 把它静默抬到新 major（实测 registry：undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，而锁里是 7.30.1 / 3.1.9）。${boundedHint()}。`,
     )
   }
   for (const [name, floor] of Object.entries(OVERRIDE_FLOORS)) {
@@ -196,6 +222,31 @@ test('收上界不得改变解析结果：锁里 undici / fast-uri 仍落在同�
     for (const v of versions) {
       assert(isAtLeast(v, OVERRIDE_FLOORS[name]), `锁里 ${name}@${v} 低于修复下限 ${OVERRIDE_FLOORS[name]}`)
       assert(String(v).startsWith(`${major}.`), `锁里 ${name}@${v} 跨出了 major ${major} —— 本次改动只收上界、不抬 major，出现跨 major 说明有人在同一次改动里夹带了升级`)
+    }
+  }
+})
+test('brace-expansion 的两个槽位必须各自落在自己 major 的修复版上（parent>child 覆写必须真的生效）', () => {
+  // 动因（2026-10-24）：6 条 high 公告覆盖 brace-expansion 的两条修复线
+  // （1.x 线 >=1.1.21、4.x/5.x 线 >=5.0.12），而**两个槽位的消费方要求的导出形状不同**
+  // （minimatch@3 把 require 结果当函数调、minimatch@10 用具名 .expand）⇒ 只能各钉在自己 major 内。
+  // 这条用例守的是「覆写真的生效」：override 写对了但锁里没落到修复版（pnpm 复用旧解、或键写错被忽略），
+  // 公告照旧命中 ⇒ 主干红。
+  const lock = fs.readFileSync(path.join(ROOT, 'pnpm-lock.yaml'), 'utf8')
+  const versions = [...lock.matchAll(/^\s{2}brace-expansion@(\d+\.\d+\.\d+):/gm)].map((m) => m[1])
+  assert(versions.length > 0, 'pnpm-lock.yaml 里找不到 brace-expansion 的解析条目（锁形态变更需同步本判据）')
+  const majors = new Set(versions.map((v) => v.split('.')[0]))
+  // 两个槽位都必须还在：少一个 ⇒ 某个消费方换了 major ⇒ 那条线的公告会重新命中
+  assert(majors.has('1'), `锁里没有 brace-expansion 的 1.x 槽位（实际解析 ${versions.join(', ')}）—— 1.x 线公告的修复下界是 >=1.1.21`)
+  assert(majors.has('5'), `锁里没有 brace-expansion 的 5.x 槽位（实际解析 ${versions.join(', ')}）—— 4.x/5.x 线公告的修复下界是 >=5.0.12`)
+  for (const v of versions) {
+    const major = v.split('.')[0]
+    if (major === '1') {
+      assert(isAtLeast(v, '1.1.21'), `锁里 brace-expansion@${v} 低于 1.x 线修复下界 1.1.21`)
+    } else if (major === '4' || major === '5') {
+      assert(isAtLeast(v, '5.0.12'), `锁里 brace-expansion@${v} 低于 4.x/5.x 线修复下界 5.0.12`)
+    } else {
+      // 2.x / 3.x 不在任何一条公告的易感区间里（实测易感区间只有 `<1.1.x` 与 `>=4.0.0 <5.0.x`）
+      assert(major === '2' || major === '3', `锁里 brace-expansion@${v} 落在未登记的 major ${major}：1.x 与 4.x/5.x 两条线都有公告，2.x/3.x 没有 —— 出现别的 major 说明有人夹带了升级`)
     }
   }
 })

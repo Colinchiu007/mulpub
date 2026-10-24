@@ -351,16 +351,16 @@ global.__resetElectronMock = resetElectronMock
 // 不在此处自动调用 reset，避免干扰测试文件自己的 beforeEach 顺序
 
 // ─── 全局组件注册（镜像 main.js 的全局注册） ───
-// 确保 <EmptyState>/<LoadingState>/<UiSkeleton> 在单测中可被解析，与运行态一致。
+// 确保 <EmptyState>/<UiSkeleton> 在单测中可被解析，与运行态一致。
 // 否则 3.3 收编的视图测试会因组件无法解析而断言失败。
+// ux-audit-dead-components-retire：`LoadingState` 曾在此并列注册，但全仓 `<LoadingState>`
+// 模板用法为 0 ⇒ 注册只是"与 main.js 一样"的镜像，没有任何测试真的依赖它解析（已实跑验证）。
 import { config as vtConfig } from '@vue/test-utils'
 import EmptyState from './src/components/EmptyState.vue'
-import LoadingState from './src/components/LoadingState.vue'
 import UiSkeleton from './src/components/UiSkeleton.vue'
 vtConfig.global.components = {
   ...(vtConfig.global.components || {}),
   EmptyState,
-  LoadingState,
   UiSkeleton,
 }
 

@@ -7,10 +7,10 @@
 
 /**
  * 构造 Electron 开发启动参数（不含 node/electron 可执行文件本身）。
- * @param {{ electronUserDataDir: string, electronCacheDir: string, desktopDir: string, cdpPort?: number, platform?: NodeJS.Platform, allowAllOrigins?: boolean }} options
+ * @param {{ electronUserDataDir: string, electronCacheDir: string, desktopDir: string, cdpPort?: number, platform?: NodeJS.Platform, allowAllOrigins?: boolean, passwordStore?: string }} options
  * @returns {string[]}
  */
-function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort = 9222, platform = process.platform, allowAllOrigins = false, noSandbox = true, softwareGpu = true }) {
+function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, cdpPort = 9222, platform = process.platform, allowAllOrigins = false, noSandbox = true, softwareGpu = true, passwordStore = '' }) {
   // Windows 无可用 GPU 时，进程内 GPU + SwiftShader 会让窗口只合成背景层。
   // 显式禁用 GPU 与 GPU 合成，走软件合成，否则 Electron 窗口显示空白。
   const switches = [
@@ -41,6 +41,12 @@ function buildElectronArgs({ electronUserDataDir, electronCacheDir, desktopDir, 
   // 外部 CDP 客户端（诊断脚本 / agent）握手时带 Origin 头，Chromium 的 origin 校验会直接 403。
   // 只在显式开启时放行，且必须排在 desktopDir 之前 —— desktopDir 是应用路径，永远保持末位。
   if (allowAllOrigins === true) switches.push('--remote-allow-origins=*')
+  // Chromium 口令存储后端（Linux 专用）：无头/容器环境没有 gnome-keyring / kwallet，
+  // safeStorage.isEncryptionAvailable() 返回 false ⇒ 模型 API Key 无法落库
+  // （model-provider-manager 的 updateProvider 走 crypto.encrypt，遇不可用直接
+  // CRYPTO_UNAVAILABLE 拒收），「配置模型」整条链在无头 Linux 上不可用。
+  // `basic` 后端不需要任何守护进程，是无头环境唯一可用的选择。
+  if (passwordStore) switches.push('--password-store=' + passwordStore)
   return [...switches, desktopDir]
 }
 
@@ -98,4 +104,41 @@ function resolveSoftwareGpu(env = process.env) {
   return raw !== '0'
 }
 
-module.exports = { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNoSandbox, resolveSoftwareGpu, DEFAULT_USER_DATA_DIR }
+/**
+ * Chromium 口令存储后端白名单（Linux 专用）。
+ * 取值与 Chromium `--password-store` 的合法值一一对应；`basic` 不依赖任何守护进程，
+ * 是无头/容器环境唯一可用的后端。
+ */
+const PASSWORD_STORES = Object.freeze({
+  basic: 'basic',
+  'gnome-libsecret': 'gnome_libsecret',
+  kwallet: 'kwallet',
+  kwallet5: 'kwallet5',
+  kwallet6: 'kwallet6',
+})
+
+/**
+ * 解析 Chromium 口令存储后端。
+ *
+ * 未设置 ⇒ 返回 ''（不下发该开关，Windows/macOS 行为完全不变）。
+ * 显式设置但不在白名单 ⇒ **抛错**而不是静默忽略：静默忽略会让「我明明配了口令存储」
+ * 变成「配置形同虚设」（与本文件既有的「开关静默失效」教训同族），且失败点会推迟到
+ * 保存 API Key 时才以 CRYPTO_UNAVAILABLE 现身，排查成本高得多。
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string} '' 或白名单内的后端名
+ */
+function resolvePasswordStore(env = process.env) {
+  const raw = typeof env.MP_ELECTRON_PASSWORD_STORE === 'string' ? env.MP_ELECTRON_PASSWORD_STORE.trim() : ''
+  if (!raw) return ''
+  const mapped = PASSWORD_STORES[raw.toLowerCase()]
+  if (!mapped) {
+    throw new Error(
+      'MP_ELECTRON_PASSWORD_STORE 取值非法：' + raw +
+      '（可选：' + Object.keys(PASSWORD_STORES).join(' / ') + '）'
+    )
+  }
+  return mapped
+}
+
+module.exports = { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNoSandbox, resolveSoftwareGpu, resolvePasswordStore, PASSWORD_STORES, DEFAULT_USER_DATA_DIR }

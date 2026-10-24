@@ -27,6 +27,7 @@ on:
       "Cleanup Artifacts",
       "时钟位移引信巡检",
       "依赖漏洞审计门禁",
+      "依赖漏洞基线自动刷新",
       "Sidecar Parity (cross-repo)",
       "定时作业心跳巡检",
     ]

@@ -2565,3 +2565,55 @@ test('4.1c 文案锁：delivery 降档必须说"重算值不符"，不得说"伪
     assert.ok(!near.includes(bad), `降档文案附近出现了 ${bad} —— delivery 摘要任何人可自算，判的是自洽不是真伪`)
   }
 })
+
+// ── 合取③ 第二出口的分档必须在这把判据里可见（2026-10-24 用户裁决授权放宽） ──────
+const DIG = require('./lib/ccg-delivery-digest.js')
+const ADJ_URL_T = 'https://github.com/o/r/pull/4308#issuecomment-1'
+const ADJ_F = [{ id: 'i1', severity: 'Critical', finding: 'A', verdict: 'dismissed', rationale: '轮 6 现场判据' }]
+
+function adjudicatedDr (over) {
+  return Object.assign({
+    tier: 'external',
+    evidence: ADJ_URL_T,
+    tierBasis: 'adjudicated-self-play',
+    adjudicationDigest: DIG.adjudicationDigest(ADJ_F, ADJ_URL_T),
+    findings: ADJ_F.map((f) => Object.assign({}, f))
+  }, over || {})
+}
+
+test('自扮演收口 + 有效绑定 ⇒ external；换掉 URL 或 findings 后必须降 external-unverified', () => {
+  assert.strictEqual(mod.classifyEvidenceTier(adjudicatedDr()), 'external')
+  // 只判形态时这两件事逐字同形："这次真公开复核过"与"挂了另一条也长得像评论的 URL"。
+  // 绑进哈希之后任一侧变动都失配 —— 降档而不是指控伪造（与 delivery@ 同一口径）。
+  assert.strictEqual(mod.classifyEvidenceTier(adjudicatedDr({ evidence: 'https://github.com/o/r/pull/9999#issuecomment-2' })),
+    'external-unverified', '换 URL 仍算 external ⇒ 绑定没生效')
+  assert.strictEqual(mod.classifyEvidenceTier(adjudicatedDr({ findings: [] })),
+    'external-unverified', '换 findings 仍算 external ⇒ 绑定没生效')
+  assert.strictEqual(mod.classifyEvidenceTier(adjudicatedDr({ adjudicationDigest: 'adjudicated@' + '0'.repeat(64) })),
+    'external-unverified')
+  // 自扮演档的 evidence 必须是**公开可点的 URL**：拿仓内路径冒充公开复核，等于把这一格降级回"我自己说的"
+  assert.strictEqual(mod.classifyEvidenceTier(adjudicatedDr({ evidence: 'a.md', adjudicationDigest: DIG.adjudicationDigest(ADJ_F, 'a.md') })),
+    'external-unverified')
+})
+
+test('tierBasis 出现未知值 ⇒ unrecognized（新字段同样是闭集，别让它变成自由文本）', () => {
+  assert.strictEqual(mod.classifyEvidenceTier(adjudicatedDr({ tierBasis: 'self-declared' })), 'unrecognized')
+  assert.strictEqual(mod.classifyEvidenceTier(adjudicatedDr({ tierBasis: '' })), 'external',
+    '空串按"没有这个字段"处理（与 tier 的空白归一同口径），不得判 unrecognized')
+})
+
+test('覆盖率读数必须把 external 拆成直签 / 自扮演+公开复核，且两子读数之和等于 external', () => {
+  const recs = [
+    adjudicatedDr(),
+    { tier: 'external', evidence: DIG.deliveryEvidence(ADJ_F), findings: ADJ_F.map((f) => Object.assign({}, f)) },
+    { tier: 'external', evidence: 'PR #3900', findings: ADJ_F },
+    adjudicatedDr({ evidence: 'https://github.com/o/r/pull/1#issuecomment-1' }),
+  ]
+  const s = mod.summarizeTierCoverage(recs)
+  assert.strictEqual(s.by.external, 3)
+  assert.strictEqual(s.by['external(直签)'] + s.by['external(自扮演+公开复核)'], s.by.external,
+    '两子读数之和 != external ⇒ 分档在撒谎（被放宽的合取③ 就此不可见）')
+  assert.strictEqual(s.by['external(自扮演+公开复核)'], 1)
+  assert.strictEqual(s.by['external-unverified'], 1, '第 4 条：URL 换了但绑定没跟着换 ⇒ 降档')
+  assert.match(s.line, /\[external\(直签\)=2 external\(自扮演\+公开复核\)=1\]/, s.line)
+})

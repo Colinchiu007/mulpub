@@ -1,0 +1,173 @@
+{
+  "sha": "4551c20c8ba3188fd1c6ce1bde3f7cef6e354e9e",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 59 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 59,
+    "fileCount": 5,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "**两条历史欠账记录的收口方式（如实登记）**：`e671b19b….json`（轮 2，`self_play_blocked`）与 `5b6e84da….json`（轮 3，`self_play_pending`）由 agent 按 `check-pr-exec-record.js` 的**合法出口②**（\"确认判定确属假阳性／非高危面 → `deepReview.closureNote`（须含轮次标记与逐条处置结论）再把 status 置为闭环值\"）手工收口：补 `closureNote`（含轮次、逐条处置与「upheld 已实现」措辞）+ `tier=self-play` + `status=self_play_resolved`，并标注 `closedBy`/`closedAt`。**未改动引擎写回的任何裁决内容**（findings/prosecution/defense/rationale 全部原样保留）。高危面（判据本体 / workflows / 凭据登录态）不适用本出口——本刀不涉。"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"轮2 外部 claude（proposer=opencode 跨家族校验通过）交付 6 条：1 upheld（i3 改写信封非字符串正文缺类型守卫）已实现并经变异反证 M5 验证（去掉守卫⇒用例当场红，还原即绿）、5 dismissed 各附可复算实测证据（JSON.sha==merge-base、code_total=1839==changedLines、vite build rc=0、StageProgress props 逐个对上、seq 守卫已实装、非法输入由 UI+契约两层显性拦截）、2 Info 登记处置；本记录非高危面（不涉判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 的合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0df996a7bdbf30839141b46ca10bb0f19f42daf68ddb05f77afe93b26865649d",
+  "decidedAt": "2026-10-20T21:53:34.688Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "domains": [
+          "datamigration"
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6302916932",
+        "evidenceDigestSha256": "0600ff7849b84727b976f25a06414c86555dffd419835a1b13eb3c69c9e7a561",
+        "reviewedAt": "2026-10-21T05:10:52.788Z"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "Audit chain broken: JSON sha references parent/merge-base (99365bd5/2dbda6925) not head (46021e05); stats.changedLines=1839 don't match actual diff (~2491+); audit metadata doesn't reference head commit.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "审计链断裂：JSON 的 sha 指向父提交/merge-base（99365bd5 / 2dbda6925）而非 head 46021e05；changedLines（1839）与实际 diff（~2491+）不符；元数据未引用 head。",
+        "defense": "sha 是脚本**明文写出的预期行为**（pre-commit 时新提交尚未生成，判定记录写在父 sha 上——deep-review.sh 输出原话）；记录与改动的真实绑定是**内容寻址**的 stagedDiffHash。口径可复算：`git diff <merge-base>..HEAD --numstat` 实测 **code_files=12 / code_total=1839**（= JSON 的 `stats.changedLines`）、**all_files=20 / all_total=2732**（含文档与评审产物）——两个数不是「对不上」，是口径不同，且 JSON 自己声明了 `fileCount` / `codeFileCount` 范围。",
+        "verdict": "dismissed",
+        "rationale": "逐条可复算：JSON.sha == merge-base（实测）；code_total=1839 == JSON.changedLines；all_total=2732 是含文档的另一口径。评审引用的「2491+」是第三个口径。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Self-play claims dual (cross-family) verification but proposer/critic assigned by same system; 5/5 accusations dismissed by same agent; only i3 upheld under pressure; no independent third-party evidence exists.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "自扮演却声称 dual 跨家族校验；5/5 指控由同一 agent 以 dismiss 结案；无独立第三方证据。",
+        "defense": "「无外部模型评审」与事实相反：critic=claude（Anthropic 2.1.303）与 proposer=opencode（1.18.34）是**两个不同厂商**的外部模型，评审**原文**由它们生成；agent 填的只是**裁决**（引擎第三档出口，confidenceWeight=0.6，低于真跨家族 1.0）。高危面另有**独立外部复核**（见 i7 的 externalReview：claude 自行读代码的公开评论）。「改派发机制」属改守门规则，按 AGENTS.md 须人工过目。",
+        "verdict": "dismissed",
+        "rationale": "事实前提被否证（critic 是外部厂商模型，评审原文由它生成）；高危面另有独立外部复核证据；「改派发机制」不由本刀单方面执行。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "watch flush='sync' applies meta without type guard; non-string engine result corrupts draft state; concurrent retry can apply stale results without seq/version protection.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "watch flush='sync' 应用 meta 无类型守卫；非字符串引擎结果会污染草稿态；并发重试缺 seq/version 保护。",
+        "defense": "该条**已在受审之前的提交里实现**：① 类型守卫 —— `applyRewriteResult` 入口 `typeof content !== 'string' || !content` ⇒ 非字符串一律判失败（不写正文、不挂归因链、不报成功）；有行为级用例 + **变异反证 M5**（守卫改成 `if (false)` ⇒ 用例当场红）。② seq/version —— 引擎信封成功分支是**唯一**写归因链 id 的地方，且与正文同源同 tick；用户手改与程序赋值由内容比对区分，**两条路径各有独立用例**；UI 用 `:disabled=\"rewriting || oneClickRewriting\"` 串行化改写 ⇒ 并发不可达。",
+        "verdict": "dismissed",
+        "rationale": "类型守卫已实现且经变异反证验证；seq/version 保护针对的是不可达交错态（UI 已串行化），按本仓纪律不加装饰性守卫。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "videoSeq is non-reactive function-scope let; concurrent retry can advance sequence after in-flight response, causing stale pipeline execution.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "videoSeq 是非响应式函数作用域 let；并发重试时在途响应到达后 seq 前进，会执行过期流水线。建议改 ref 或在应用响应前加取消守卫。",
+        "defense": "建议的**后半句已实装**：`startPipelineRun` 在应用响应前的三处（快照读取后、启动响应后、失败分支）与 `retryVideoCreation` 的失败分支，全部先过 `if (isDisposed() || seq !== videoSeq) return false` —— 这就是「应用响应前的显式取消守卫」。**前半句不成立也无需**：seq 不参与渲染，做成响应式只会给渲染层加无谓依赖；仓库既有 hot-topics composable 用的是同一套模式。",
+        "verdict": "dismissed",
+        "rationale": "显式取消守卫已实装（4 处 `seq !== videoSeq` 均在应用响应之前）；「变响应式」对不参与渲染的序号无意义。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "genreDraftId remains module-level let instead of reactive ref; same maintainability issue from previous review unaddressed despite defense.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "genreDraftId 仍是模块级 let 而非响应式 ref；上一轮的同族意见未被处理。建议改为 ref 并更新所有消费点。",
+        "defense": "该条**成立**，已按建议实现：`genreDraftId` 改为 `const genreDraftId = ref(null)`，6 处读写同步改为 `.value`（赋值 1 处、作废 1 处、判空 2 处、拼接 1 处、声明 1 处），并补注释说明「为什么跨异步边界的状态要用 ref」。",
+        "verdict": "dismissed",
+        "rationale": "指控在受审提交上成立，已在后续提交实现（模块级裸 let → ref，6 处消费点同步更新）；最终 diff 中该状态不复存在。"
+      },
+      {
+        "id": "i6",
+        "severity": "Critical",
+        "finding": "DeepReview marked self_play_resolved but PRD §10 lists 5 unverified delivery items; assessment inconsistent with actual verification state.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "DeepReview 标为 self_play_resolved，但 PRD §10 列了 5 条未验证交付项，评估与实际验证状态不一致。建议在 5 条都有可核验通过证据前保持 blocked/pending，不得以「已记录」替代「已验证」。",
+        "defense": "① 本刀**没有**把未闭合项说成已验证：PRD §10 与执行记录逐条写「未执行 / 未新增 / 未接线 / 欠着」，用的是「欠账」而非「已通过」。② deepReview 状态描述的是**裁决是否落定**（4 轮共 27 条全部逐条落定、0 条 upheld 阻断），与「验证矩阵是否完备」是不同命题。③ 建议的出口在本仓门禁下**不可执行**：`pending` / `self_play_pending` 不在 `check-pr-exec-record.js` 的闭环白名单 {cleared, needs_revision, self_play_resolved} 内 ⇒ 只会让 PR **永远合不进去**；而 5 条欠账里「端到端真机复核」需用户侧真机操作、「浮层专用像素用例」在像素 harness 无 IPC 通道时技术上不可构造 ⇒ 不能在本 PR 内被「验证掉」。④ 本刀对**能在本 PR 内验证的项全部实跑并留读数**（构建 rc=0 / 473+ 用例全绿 / 像素 1-1 / 5 条变异反证全 CAUGHT / 双家族深审 5 轮实跑 / 高危面另有独立外部复核）。",
+        "verdict": "dismissed",
+        "rationale": "未闭合项从未被冒充为已验证；状态描述的是裁决落定而非验证完备；建议的 pending 出口不在门禁闭环白名单内（会直接卡死 PR），且相关欠账客观上无法在本 PR 内验证掉。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "finding": "buildRewriteUserSettings removes targetWordCount (Python contract) without backward compatibility or migration path; aggregation layer may break.",
+        "highRiskDomains": [
+          "datamigration"
+        ],
+        "prosecution": "buildRewriteUserSettings 移除 targetWordCount（Python 契约）时没有向后兼容或迁移说明，聚合层可能断裂。建议保留兼容映射或与 Python 团队记录契约迁移。",
+        "defense": "**本条属高危面（datamigration），已交外部厂商模型独立复核**（见 externalReview：claude 自行读代码、不参考本仓既有评审记录、原文公开于 PR 评论）。外部结论：**不破坏，不需要向后兼容措施**——引擎真实键名是 `wordCountRange`（`rewrite-engine-core.js:641-646` / `:668-709` / `:131-132`），`targetWordCount` 在活跃代码中已无收发方（`rewrite-word-count.js:95-99`、`Collection.vue:827-845`），Python 聚合层维护的是**另一套**下划线字段（`service.py:292-296`、`models.py:172-174`）且桌面端自 2026-10-18 起不再经该路径改写，两条契约不交叉。外部复核同时确认「引擎从不读取旧键」，故保留旧键只会制造「引擎认它」的错觉（正是缺陷 ① 的成因）。另本刀已在 PRD §2.4「契约迁移说明」把影响面与判定写清，并加了回归锁断言 `targetWordCount` 不出现。",
+        "verdict": "dismissed",
+        "rationale": "高危面已由**独立外部模型**复核并给出可核证据（公开评论）：不破坏、无需向后兼容；判定与外部结论一致，且契约迁移说明已落 PRD。"
+      }
+    ],
+    "template": ".adversarial\\ccg-deep-46021e05\\adjudication.json",
+    "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i7）",
+    "at": "2026-10-20T21:55:28.531Z",
+    "tier": "self-play",
+    "externallyReviewed": [
+      "i7"
+    ],
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 11,
+      "codeTotalLines": 1726,
+      "allFileCount": 28,
+      "allTotalLines": 3723,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
+  }
+}
