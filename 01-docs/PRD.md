@@ -20405,6 +20405,213 @@ LLM 空输出/报告缺失时，审计 job 会往 job 汇总写 `AUTONOMOUS_VERD
 - 判据与测试坐标见新 PRD §10/§11；门禁与真机证据见新 PRD §12；交付记录见 §13。
 - 采集页文案：`collection.collectErrors.security_challenge`（更新）、`collection.draftBlockedSecurityChallenge`（新增）；
   改写错误码文案：`userErrors.LLM_NOT_CONFIGURED`（新增）——三项均 zh/en 成对。
+## 键盘可达与可访问名合同（2026-10-19，UX 审计阶段 3.6 / 4.3 / 4.4 / 4.5）
+
+本节把已落地与在途的四组无障碍行为写成产品合同：显示项、交互逻辑、数据校验、提示文字各自写清，避免后续实现"看着做了、用户仍拿不到"。
+
+### 一、焦点可见性（WCAG 2.4.7）
+
+**显示项**
+- 焦点环：`2px` 实线 `outline`，`outline-offset: 2px`；颜色**只能**取单一令牌 `--color-focus-ring`，不得写十六进制字面量。
+- 令牌双档取值（浅暗两档都必须显式声明，缺暗色即失效）：亮色档解析为 `--color-primary-hover`，实测对页面画布底色 **6.05:1**；暗色档取 `--color-primary-dark-tint`，实测对暗色画布 **4.78:1**、对卡片底 **4.30:1**。暗色**不得**沿用亮色值——同色在 `#1a1a1e` 上实测约 1.9:1，等于"有焦点环但看不见"。
+- 只对 `:focus-visible` 生效（键盘进入显示，鼠标点击不显示），不得给任何按钮规则加 `outline: none`。
+
+**交互逻辑**
+- 焦点规则必须显式写 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`。原因：组件族普遍带 `transition: all`，会把 `outline-*` 一并纳入过渡 ⇒ 键盘 Tab 后 **0ms 读到的是过渡起点**（实测 `3px currentColor` / offset `0`），视觉上"焦点慢半拍"。判据必须同时读 t=0 与稳态两个时刻，只读稳态会抹掉这条差异的证据。
+- 覆盖范围：按钮族规则必须**逐个变体类**都写。实测 180 个 `.vue` 模板中 134 处按钮的 `class` **只带变体类**（如 `cohere-btn-primary`），没有一处带基类 `cohere-btn` ⇒ 把规则写在基类上等于零覆盖；而 `UiButton` 一族的根节点 `classes` 恒含基类 `ui-btn`，基类规则对它确实有效。**"基类 = 公共形态"是心智模型，不是事实。**
+
+**数据校验（门禁）**
+- 变体域由**模板扫描**派生（按 class 挂在什么元素上分类），禁止按类名前缀猜 ⇒ 前缀法会把 `ui-btn-spinner` 这类 `aria-hidden` 装饰节点与 `el-button`、`router-link` 混进域内（实测 150 条里 109 条假阳性）。
+- 域内每个变体类必须有对应规则，缺任一即判红；并配**规模下界**（模板数、class 属性数、变体数各自 > 阈值），否则"扫描器退化成空集合"会读成"零问题"。
+- 像素基线门禁对焦点态**结构性失明**（截图时无键盘焦点），因此"CI 视觉绿"不能作为"焦点环生效"的证据；该证据只能来自真实渲染引擎读计算样式。
+
+**提示文字**：焦点环是视觉属性，不承载文字，本项**不新增 locale 键**。
+
+### 二、「更多」菜单的键盘可达（roving tabindex）
+
+- **交互逻辑**：同一时刻只有当前项 `tabindex="0"`，其余为 `-1`（否则 Tab 会把整个菜单一项项念完）；`↑/↓` 在项间移动，`Home/End` 跳首尾；`Esc` 关闭菜单，并且**焦点必须归还触发按钮**——不归还时键盘用户的焦点会被丢回文档开头，等于"关掉菜单后不知道自己在哪"。
+- **显示项**：无视觉变化；`aria-haspopup` / `aria-expanded` 沿用既有语义。
+- **范围边界**：菜单项里「CLI」标签的改名与分组属产品决策，不在该批；不可由实现侧自行改词。
+
+### 三、非按钮可点元素的键盘可达（WCAG 2.1.1）
+
+- **修法固定为四件套**：`role="button"` + `tabindex="0"` + `@keydown.enter.prevent` + `@keydown.space.prevent`，且两个 keydown 的表达式必须与 `@click` **逐字一致**（抄一份近似逻辑就是两套行为）。
+- **硬禁令（本批实测制造过的次生缺陷）**：已补 `role="button"` 的元素**不得有可见、可聚焦的后代**。`button` 是 leaf 角色，取得该角色后其子树在无障碍树上呈现为 presentational ⇒ 容器内原有的真按钮**从 a11y 树上消失**，而视觉、鼠标、属性写入、单测、构建全都不报错。实测 21 处补全里有 3 处属此类（两处上传区的「移除」按钮、一处列表项内 3 个动作按钮），处置是撤销补全并登记为技术债，而不是"补个 role 再想办法救回来"。
+- **验证手法**：反证不能只"摘掉判据看是否红"，必须**把被撤销的那个错误形态原样重造一遍**（K3），否则判据被放宽后锁仍显示绿。
+- **属性存在 ≠ 行为通畅**：既有测试只做 `trigger('click')`，键盘路径在测试里不可表示。必须补行为用例断言 Enter 与 Space **各自**触发同一 emit，并配一条负控"只有 `@click` 时按 Enter 必须不产生事件"——否则该用例会退化成"测 mount 的副作用"。
+
+
+- **第二批（2026-10-20，分支 `ux-audit-nonbutton-keys`）落点：采集页「快捷采集 / 草稿箱 / 来源入口」6 张卡片**（`Collection.vue` 的 `.col-stat-card-click`：`createDraft`、`importFromClipboard`、`switchTab('drafts')`、`openCollection('weibo'|'baidu'|'toutiao')`）。四件套照 §三 原样写，`@keydown.enter.prevent` 与 `@keydown.space.prevent` 的表达式与 `@click` **逐字一致**（不写近似逻辑，`.prevent` 是 Space 不滚页的前提）。
+- **守卫判据必须读 `innerHTML`，不得读 `wrapper.html()`**：`html()` 含元素**自己**的 `tabindex="0"`，用它做「不得有可聚焦后代」的判据会把 §三 要求的**正确修法**当场判成缺陷（本批第一版实测红在这一格，不是代码错、是探针错）。后代判据 = 标签名白名单 `<button|a|input|select|textarea>` + `tabindex`（排除 `tabindex="-1"`）。
+- **行为断言的可观测出口要选路由/状态，不要选样式**：本批用 `data-testid="quick-drafts-box"` 卡片，`switchTab('drafts')` 的真实出口是 `router.push('/publish?tab=drafts')`，配既有 `useRouter` mock 即可断言；Enter 与 Space **分别**各断一次（少写一个就是「键盘路径断裂」的另一半）。
+- **反证形态按 §三 的口径重造**：不是「摘掉判据看红」，而是把**未补全的原始标签**原样写回去再跑 —— 实测指名红 2 条（结构锁 + 行为锁），还原后逐字节相同。
+- **⛔ 存量违规（本批清点出、未在本批修，属交互设计裁决项）**：静态清点 182 个 `.vue` 中 `role="button"` 共 **17 处**，其中 **3 处**的子树里有可聚焦后代，按 §三 硬禁令它们会把子树从无障碍树上抹掉：`AccountManagementCard.vue`（批量模式的 `<input type=checkbox>`，且带 `@change` 与 `@click.stop`）、`CopyLibraryView.vue`（播客单集入口 `<button>`，`v-if=canShowEpisodeEntry` 时才出现）、`Collection.vue` 记录卡片（标签编辑区里的 `<button>`）。三处均已逐个读到源码确认，非扫描器假阳。**为什么不顺手改**：正解要么撤销 `role`（键盘可达性回退，与本批方向相反），要么把主行动做成卡内真按钮（改交互与信息层级）—— 属产品/设计裁决，不属机械收敛。
+
+### 三-A、可聚焦 = 必须能看见焦点（WCAG 2.4.7；PR #4088 的 QM-6 评审 i1 补）
+
+- **契约**：凡模板里出现 `tabindex="0"` 的元素，CSS 里必须有**一条** `:focus-visible` 规则**整词命中它的类名**，且环色取 `--color-focus-ring` 单一真源。「补了 tabindex 但没有任何环」是**键盘用户的隐形故障**：焦点确实移动了，屏幕上看不见。
+- **为什么会漏（本批的因果链，不是修辞）**：阶段 3.6 的环锁 `styles/focus-ring.test.js` 判定域**按设计只收按钮类**，它自己的头注释写着「`<div class="cohere-btn-*" @click>` ⇒ 属阶段 4.4，不在本判据域内」；而 4.4 的键盘锁只看四件套。于是 4.4 把 6 张卡片变成可聚焦元素时，**两把锁之间留了一条缝** —— 视觉、鼠标、单测、构建全都不报错。本节的锁就是来闭这条缝的：`src/focusable-ring-contract.test.js`，判定域 = 全仓模板里所有 `tabindex="0"` 的元素。
+- **交互逻辑**：`Tab` / `Shift+Tab` 走到卡片时绘制 2px 实线环 + 2px 外偏移；**鼠标点击不出现环**（`:focus-visible` 的语义就是只在键盘这类「需要可见焦点」的交互后绘制，给鼠标用户画环是噪声）。
+- **显示项与颜色真源**：环色由 `tokens.css` 的 `--color-focus-ring` 持有，**浅/暗两档各有映射** ⇒ 业务规则里**不得**再写 `[data-theme="dark"]` 覆盖 —— 另写一份就是 3.6 那把锁要防的双轨漂移。除环之外不改任何颜色、尺寸、间距，故本批不重捕像素基线（焦点态本身对全页像素回归结构性失明：徽标占页面积 < 0.1%，且基线截图里没有焦点态）。
+- **提示文字**：无新增文案（焦点环不承载文本），因此不动 locales。
+- **数据校验（锁的判据，四条）**
+  1. 判定域**必须非空**且每次跑都打印现场读数 —— 实测 `.vue=186 可聚焦站点=17 缺环=1 环色违规=10`。没有这行打印，「0 违规」与「探针没扫到」在产物里同形。
+  2. 注释里的 `tabindex` 示例必须**等长涂白**（文档散文不得变成站点）。
+  3. 类名匹配必须**整词**：`selector.includes('.' + cls)` 会把 `.col-stat-card-click-ghost:focus-visible` 读成「这张卡有环」 ⇒ 把环挂到一个不存在的类上，锁照样绿。这条是反证 M10 实测抓出来的（第一版 MISSED）。
+  4. 结构锁与棘轮锁**共用同一个** `ringHits()` 实现，禁止两份命中判据漂移。
+- **欠账口径（两种形态分开记）**：「缺环」按**文件**登记（`FOCUSABLE_DEBT`，当前 1 条：`components/SidebarServiceStatus.vue` —— 该 `span` 的 `tabindex="0"` 早于本批，补环会改渲染结果，须与像素门禁同批）。清单**只能缩小**，条目修好后不删即报「陈旧」。**「环色不走令牌」按计数基线**（当前 10）：逐条理由会写成十份同样的散文，只会稀释信号；改为棘轮后每次跑打印 `[RING-TOKEN-DEBT] 实测=… 基线=…` 并逐条点名站点。
+- **反证（`node scripts/keyboard-cards-contract-mutate.js`，与两把键盘锁同一驱动）**：M8 摘掉整条规则 / M9 环色硬编码 / M10 选择器写成前缀扩展的假类名 / M12 把基线从 10 调到 12 / M13 摘掉欠账登记 / M14 匹配器退回子串 —— 各让它指名的那一格红，且源文件按字节还原。M9 与 M12 互为对偶：**违规上涨**由计数上界拦，**额度被调松**由「基线不得变松」拦；只锁其中一个，另一格就是恒绿的装饰。
+
+### 三-B、键盘激活的浏览器时序口径（评审 i2 / i7，2026-10-21 真 Chromium 实测）
+
+- **实测条件**：真 Chromium（Playwright 本机缓存，版本目录 `chromium-1228`，headless），最小静态夹具 = `<div role="button" tabindex="0">` 同时挂 `keydown`/`keyup`/`click` 三个监听，用键盘按 `Enter` / `Space`；对照组为原生 `<button>`。
+- **读数（逐字）**：
+  - `div[role=button]` 按 Enter ⇒ `["keydown:Enter","keyup:Enter"]`；按 Space ⇒ `["keydown:Space","keyup:Space"]`。**两条都没有 click。**
+  - 原生 `button` 按 Enter ⇒ `["keydown:Enter","click(detail=0)","keyup:Enter"]`（**keydown 时激活**）；按 Space ⇒ `["keydown:Space","keyup:Space","click(detail=0)"]`（**keyup 时激活**）。
+- **三条结论**：
+  1. 浏览器**不会**为 `role="button"` 的 div 合成 click ⇒ 「keydown 处理器 + 浏览器合成 click ⇒ 双重激活」这一路径在 Chromium 上**不可达**。反向读更重要的一句：四件套里那两个 keydown 处理器是**唯一**的键盘通路，少写一个就是断裂，**没有任何东西会替我们补上**。
+  2. 原生按钮 Enter 走 keydown、Space 走 keyup（后者支持「按住后移开焦点即取消」）。
+  3. **本批 Space 采用 keydown 立即激活**，与原生时序不同 ⇒ **不提供「按住移焦取消」**。取舍理由：`.prevent` 必须挂在 **keydown** 才挡得住 Space 的默认滚动，若把动作挪到 `keyup`，就得在 keydown 上留一条只为 `.prevent` 的空处理器，那会破坏「keydown 表达式与 `@click` **逐字一致**」这条可机械核对的契约 —— 两条真源必然漂移。代价如实写明：按下 Space 即刻跳转，无法通过移焦撤销。
+- **断言纪律（i2 的可执行部分）**：行为锁必须断**恰一次**（`toHaveBeenCalledTimes(1)`），不得用 `toHaveBeenLastCalledWith` —— 后者对「重复触发但参数相同」结构性免疫。反证 M7 实测：把同一次触发改成调用两次下游，只有计数断言会红。
+- **残余（不假装已闭合）**：本批的键盘取证停在「JSDOM 行为锁 + 静态夹具的真 Chromium 事件语义」两层，**没有**做「登录态整页、真浏览器按 Enter」的端到端 —— 那需要 dev server 与登录态，而本仓没有任何 vitest 用例启动浏览器，接入等于把一条 required check 绑到 Chromium 存在性上。
+
+### 三-C、守卫自身的形态依赖（评审 i3 / i4 / i6 / i8）
+
+- **结构判据读 `@vue/compiler-sfc` 模板 AST，不读源码行**。第一版是「按行 split + 整行正则」+「用属性名拼 `new RegExp`」，两个毛病：① 模板被格式化折行 ⇒ 标签不再整行命中 ⇒ **假红**（判据绑排版）；② 属性名里的 `.` 未转义 ⇒ `@keydown.xenter.prevent` 也算命中（判据比字面宽）。AST 层判据与排版彻底解耦，并能区分修饰符链（`click` / `keydown:enter.prevent` / `keydown:space.prevent`）。
+- **判定域按身份逐张点名，不做「≥6 张」数量保底**。清单 = `(data-testid ↔ @click 表达式 ↔ 该卡自己的可观测出口)` 六元组，与 AST 扫描结果**双向**对账：新增卡片不登记即红（反证 M6），漏 `data-testid` 也红（行为锁定位不到）。六张：`quick-create-draft` / `quick-clipboard-import` / `quick-drafts-box` / `source-entry-weibo` / `source-entry-baidu` / `source-entry-toutiao`。数量保底对「第 7 张卡换了 class 写法」结构性失明 —— 漏的那张不会让任何断言变红。
+- **行为锁覆盖六张而不是一张**：每张按 `click` / `keydown.enter` / `keydown.space` 各触发一次，断**同一个下游恰好被调用一次**。来源卡断 `pageManager.createNewTabPage` 的 **url 逐平台不同**（微博/百度/头条各一条）—— 这比「调用过 createTab」强：表达式把来源 id 抄错时 url 就变了。
+- **断言归一化后的目的地，不钉 `router.push` 的入参写法**（i6）：`'/publish?tab=drafts'` 与 `{ path:'/publish', query:{ tab:'drafts' } }` 必须得到同一个串；正控 M11 实测「改成对象形态时锁保持绿」。取不到的形态**一律抛错**，不得静默返回空串 —— 那会把「断言没比上任何东西」读成通过。
+- **反向禁令**：不得再挂一条**没有 `.prevent`** 的 `@keydown.enter` / `@keydown.space`（半条键盘通路：能触发但 Space 连带滚页）。
+
+#### 三-A 补（二轮评审 i1/i4）：焦点环还有第二条硬要求，且判据必须走 AST
+
+- **环写对了颜色还不够**：§一「交互逻辑」早就写明，焦点规则必须显式写
+  `transition: outline-color 0s, outline-width 0s, outline-offset 0s` —— 组件族普遍带 `transition: all`，
+  会把 `outline-*` 一并纳入过渡，键盘 Tab 后 **0ms 读到的是过渡起点**（实测 `3px currentColor` / offset `0`），
+  用户看到的现象是「焦点慢半拍」。本批第一版只写了环、没写 override，**而 §三-A 的锁完全不看这一项** ⇒
+  契约自己跟自己对不上账，且没有任何门禁可见。现在规则里补上那行，并把这一项也做成计数棘轮。
+- **两格欠账必须分开记**（实测都是 10，但不是巧合）：存量那 10 处焦点环是阶段 3.6 批写的，
+  当时既没走令牌也没写 override，两格量的是同一批历史遗留的两个侧面。
+  **但两格必须各自成账** —— 收敛其中一格不该让另一格自动变松。每次跑打印
+  `[RING-TOKEN-DEBT]` 与 `[RING-TRANSITION-DEBT]` 两行现值并逐个点名站点。
+  反证 M9（环色硬编码）与 M15（摘掉 override）各测「违规上涨」，M12（环色基线调大）与 M16（transition 基线调大）
+  各测「额度被调松」—— **四道两两对偶**；缺任一个方向，对应那一格就是恒绿的装饰。
+- **判据层：环锁也从源码正则迁到 `@vue/compiler-sfc`**（二轮 i4）。这条是被自我一致性逼出来的：
+  §三-C 刚因为同一句话把键盘锁的整行正则退役掉，而环锁自己还在用
+  `<([a-zA-Z][\w-]*)\b([^>]*)>` 扫文本、并把**整份 SFC 当 CSS** 喂进选择器解析器。三处具体空窗：
+  ① 属性跨行的标签匹配不到（`[^>]*` 不跨行）—— **实测因此漏掉一个真站点**：
+  `views/CreateHistory.vue` 的运行中横幅，它的 `tabindex="0"` 写在换行后的属性里，旧判据从未看见它，
+  而它确实没有焦点环（现已按文件登记为欠账）；
+  ② `<script>` 里出现的 `tabindex` 字符串会变成**假站点**；
+  ③ 模板/脚本里写着 `:focus-visible {` 的字面量会变成**伪规则** —— 注意伪规则只会让「缺环」计数**变小**，
+  属于「只会放行、不会报错」的那一类错误，比漏扫更危险，因为它读起来完全像通过。
+  现在站点取模板 AST、CSS 只取 `descriptor.styles` 块与 `.css` 文件，三条各有一条 fixture 钉住
+  （M17 就是把 styles 换回整份文本，指名红）。
+- **入域与不入域要写明**：`:tabindex="expr"` 动态绑定**刻意不入域**（静态判据无法知道它是否真的可聚焦）；
+  `:class="fn()"` 这类取不到字面量类名的站点归 `__NO_CLASS__` 并**计入缺环账**（保守红，不静默放行）；
+  SCSS 式 `&:focus-visible` 嵌套展开不做（本仓渲染层为纯 CSS，实测无该写法）——
+  这三条是边界，不是遗漏，写在这里防止下一批把它当"顺手能补"的事。
+
+#### 三-A 补二（三轮评审 i1/i2/i3）：注释不是声明；两格判据必须与"注释走私"和"注释里的花括号"同时绝缘
+
+三轮评审对同一把环锁提出 5 条，其中 3 条落在判据层。逐条口径如下，**采纳的写实现、否证的写证据**，
+不允许"看起来有道理就顺手加一份判据"。
+
+- **i1（采纳并修）：CSS 注释里的令牌不算声明。** 前两版的 `focusVisibleRules` 只对
+  **选择器**那一段剥注释，`body` 原样保留，而两格欠账判据是 `body.includes('--color-focus-ring')`
+  与 `body.includes(TRANSITION_OVERRIDE)`。于是这条写法能同时骗过两格：
+
+  ```css
+  .col-stat-card-click:focus-visible {
+    outline: 2px solid #ff0055;              /* 正文：硬编码，暗色档不跟随令牌 */
+    /* var(--color-focus-ring) 以及 outline-color 0s, outline-width 0s, outline-offset 0s */
+  }
+  ```
+
+  用户拿到的是粉色焦点环，而 `[RING-TOKEN-DEBT]` 读数从 10 掉到 9 —— **看起来像收敛了一处**。
+  修法是在**规则切分之前**把注释按原长度整段涂白（`' '.repeat(m.length)`，不位移偏移量），
+  一次解决两个互不相干的病因：
+  ① 判据侧 —— `body` 不再带着注释文本，`includes` 只能读到真实声明；
+  ② 解析侧 —— `[^{}]+{…}` 对**注释里的花括号**没有免疫力，
+  `/* .ghost:focus-visible { outline: 1px solid } */ .real:focus-visible {…}` 在旧实现里
+  会被切成一条选择器为 `/* .ghost:focus-visible` 的**伪规则**进判定域。
+  伪规则只会让「缺环」计数**变小**（与 §三-A ③ 同一类"只会放行"的错误），
+  且这一格是本条里**唯一必须当场实测**才能确认的部分 —— 旧实现下探针读数确实是
+  `['/* .ghost:focus-visible', …]`，不是推测。
+- **两条理由必须拆成两个 `it`。** 合写在一条里时 vitest 在首个失败断言即中止，
+  变异反证只会显出**第一条**红 ⇒ 解析侧那一格永远拿不到自己的现场证据。
+  现在 M20（把涂白退回"只剥选择器"这一被禁形态本身）实测红 2 条、指名命中 2/2，
+  两条各测一格理由。**每条变异各测一处，不合并计一条。**
+- **i2（否证，附落点）：令牌"有没有被声明"这一格不在本锁，也不是空缺。**
+  本锁只查规则**引用**了令牌字符串，这是事实；但该指控隐含的前提「无人守这一格」经核实为假 ——
+  `apps/desktop/src/styles/focus-ring.test.js:109` 的用例即「`--color-focus-ring` 在浅色与暗色两个块内
+  各声明恰一次」，`:130-131` 另断暗色块必须显式声明。令牌一旦被删或改名，那把锁先红。
+  本锁里**不补**这一格，理由是两条既有纪律：不得把同一判据抄成第二份真源（两份必然漂移），
+  也不得写"断言对方源码里出现了某种读法"的记录性断言。
+  可执行的整改是消除"不可见"：本锁头注释点名该落点，防止下一个会话重新怀疑此处空着。
+- **i3（采纳为文档修正，判据一字未动）：欠账基线的语义是"钉死当前实测"，不是"全时上限"。**
+  本文件对每格跑**方向相反的两条**断言 —— `实测 ≤ 基线`（上涨即红）与 `基线 ≤ 实测`
+  （基线比实测宽即红），合取在代数上就是 `实测 === 基线`。**这是有意的**：
+  只留前一半，「只能缩小」就没有执行体 —— 有人修好 3 处却把常量留在 10，
+  后续 3 处新违规会被"还剩 7 个额度"合法吃掉。因此**收敛一批必须同一次提交把常量改小**，
+  那条红是契约的落地方式，不是假红。三轮评审指出注释把它写成"上限"属**描述失真**，
+  已按上述口径改写两条基线的注释，并把残余风险（常量仍可被同案改写，
+  M12/M16 靠的是打印现值而非代数关系自证）如实写进注释，不再声称机械闭合。
+
+#### 三-B 补（二轮 i3）：键盘自动重复——本批时序取舍的代价不止「无法移焦取消」
+
+- **实测口径**：浏览器对**按住不放**的键会连发 `keydown`（`KeyboardEvent.repeat = true`），
+  而 `.prevent` 只挡默认滚动、**不挡重复**。原生 `<button>` 因为 Enter 在 keydown、Space 在 keyup 激活，
+  按住 Space 只产出**一次** keyup ⇒ 只激活一次；本批把 Space 也放在 keydown ⇒ **按住即连发**。
+  这是「三-B」上表那条时序取舍没写完的另一半，如实补上。
+- **后果按路径分两种，不得混写**：
+  - 「新建草稿」「剪贴板导入」——落库走 `draftSave` 的**内容指纹幂等**（AGENTS 既有契约：同内容原地更新、
+    返回 `{draftId, reused}`），连发只是重复命中同一份草稿 ⇒ **用户不会拿到 N 份草稿**；
+  - 「微博 / 百度 / 头条来源入口」——`createNewTabPage` **没有幂等键**，连发一次就多开一个标签页。
+    这是本批**已知、未修**的代价，用户侧表现为「按住空格不放 → 后面排开一串来源页」。
+- **为什么不在本批顺手加 `event.repeat` 守卫**：守卫必须拿到事件对象，而模板表达式一旦写成
+  `@keydown.space.prevent="openCollection('weibo', $event)"` 就不再与 `@click` **逐字一致** ——
+  那条可机械核对的契约（§三「修法固定为四件套」）正是为了消灭「两套近似逻辑」而立的。
+  改它属**契约变更 + 交互设计裁决**，上报不代拍。
+- **锁里的落点（三轮 i5 修正：代价在哪张卡上就钉哪张）**：`Collection.keyboard-cards.test.js`
+  有一条**边界锁**断言「连发两次 keydown ⇒ 触发两次」，注释写明"将来加 repeat 守卫时这条必须同步改成不触发"。
+  它不是"希望如此"的行为锁，而是**把已知代价钉在测试里**，防止下一批把它读成已修。
+  **但本条第一版钉错了卡**：它只 trigger `quick-drafts-box`（草稿箱），而那张的重复代价是
+  「对同一个 tab 再 push 一次」—— 无害；上面写明的真代价在**来源卡**。结果是文档自称
+  "把已知代价钉住"而测试钉的是无害路径，将来给来源卡加守卫时**全仓不会因此变红**。
+  现在这条分两段：先在 `source-entry-weibo` 连发两次 Enter，断 `createNewTabPage` **恰 2 次**
+  （当场实跑确认为真 —— 即"多开标签页"这笔代价现在在测试面可见，不是从文档抄来的推测），
+  再保留草稿箱那半段作为无害侧对照。
+- **一处如实的未覆盖（不写成已闭合）**：i5 的修法**没有对应的变异反证**。
+  「删掉新加的那半段、其余全绿」在反证驱动语义里是 **MISSED** 而不是 CAUGHT ——
+  它证明的是两条断言相互独立，不是"锁有牙"。这条断言的价值是**前瞻性的**
+  （将来真加 `event.repeat` 守卫时它必须变红），因此不入库为变异、只在此登记。
+  对比：同轮 i1 有 M20（被禁形态本身，红 2 条指名 2/2），差别要读对——**不是每条采纳的评审意见都能配反证，
+  但配不上的必须点名，不能沉默。**
+
+### 四、标签 ↔ 控件的可访问名（WCAG 1.3.1 / 4.1.2）
+
+- **显示项**：`<label>` 文本就是控件的可访问名。**禁止**用 `placeholder` 承担名称（用户一开始输入它就消失），也禁止只靠 `aria-label` 复制一份标签文本（两份口径必然漂移）。
+- **交互逻辑**：点击标签把焦点送进对应控件；读屏在控件上念出标签文本，而不是"编辑框，未标注"。
+- **数据校验（六条）**
+  1. 关联是否成立只认 **DOM 事实**：`control.labels` 命中该 label、`label.htmlFor === control.id`。"源码里 `for=` 与 `id=` 都出现过"不是证据——**写得越像修好的，字符串判据越看不见**。
+  2. `for` 的合法目标（labelable）是封闭清单：`button`、`input`（`type=hidden` 除外）、`meter`、`output`、`progress`、`select`、`textarea`。指向 `div`/`span` **不是降级而是规范级无效**：浏览器不报错、不关联、也不回退到相邻文本。本仓两种真实成因：① 自研 `UiInput` 曾无 `id` prop ⇒ 调用方写的 `id` 走属性透传落到根 `div`；② 组件库丢弃该属性。
+  3. **第三方组件的属性转发面必须实测**（`mount` 一次、打印根节点与内层控件三层落点）：Element Plus 的 `ElInput` **丢弃 `id`**（根 div 与内层 `input`/`textarea` 三处皆空），但转发 `aria-labelledby` / `aria-label` / `name` / `autocomplete` ⇒ 表单容器的统一修法是「label 自带 `id` + 控件用 `aria-labelledby` 指认它」，且该宿主行为要钉成契约锁（EP 升级后若开始转发 `id`，锁会红，正解同时变回 `for`+`id`）。
+  4. 控件 `id` 的来源优先级固定：**显式传入的 `id` > 框架实例级生成**（Vue 3.5 `useId()`）。**禁止 `Math.random()` 造 id**：同页多实例可撞车，而撞车时 `label[for]` 会指向别人的控件（浏览器取文档首个匹配），比缺失更坏。
+  5. **表单容器（`UiField`）不得代调用方造 id 当标签目标**。容器不渲染控件、控件在 slot 里，而 slot 里的组件是**另一个实例**、`useId()` 得到**另一个**值 ⇒ 容器把自造值发射成 `for` 时，那是一条指向不存在元素的**死 `for`**（屏读宣布一个不存在的控件、点击标签不聚焦，WCAG 4.1.2）。合规形态只有两种，且必须显式选一：**① 认领式** —— 控件把自己的 id 经一条 `Symbol` 的 provide/inject 通道**反向登记**给容器，容器发射"实际被认领的那个 id"；**② 门控式** —— 容器只在调用方**显式给了值**时才发射 `for`（`:for="forId || undefined"`），没给就**不发射**。两条同判据：**宁可没有 `for`，也不能有一个指向不存在元素的 `for`**。不得要求调用方"自己想起来传 `forId`"（该 prop 实测恒空即等同契约不存在），但 prop 恒空的正解是改契约形态，**不是**替调用方编一个值。
+  6. "必填"的语义必须落在**控件**上（`aria-required="true"`），视觉上那颗红色 `*`（`aria-hidden`）只是装饰；`required` 为假时**不得残留** `aria-required`。
+- **存量与节奏**：孤岛 `<label>`（既无 `for`/`:for`、内部也不包裹控件）按**逐文件**基线登记，只能缩小；2026-10-19 实测 **139 → 127**（23 个文件）。基线判据必须同时认识合法替代通道（`aria-labelledby` 等），否则会把一次合规修复计成退化。**并且必须把「缺失」与「指空」分成两态**：一条有 `for` 但目标不存在的 label 会从"孤岛"计数里**消失**，读起来像改善，实际是更糟的伪装态 —— 因此指空要由另一条判据（死 `for` 扫描）单独阻断，豁免只能**按目标逐个**登记、不得整文件豁免。`UiField` 的 26 处带 label 用法**不在**上述 127 里（那是 `<UiField label="…">` 的 prop，不是字面 `<label>` 标签，扫描器对它天然失明），逐点绑定另批做。
+- **提示文字**：本项是属性面改造，**不新增 locale 键、不改任何用户可见文案**（zh/en 成对要求因此不触发）；标签文本、`hint`、错误文案全部沿用既有 i18n 键。
+
+### 五、验收锚点
+
+- 焦点环：`apps/desktop/src/styles/focus-ring.test.js`（12 条，含变体域派生、双档令牌声明恰好一次、禁十六进制、2px/offset 唯一性、禁 `outline:none`）+ 真 Chromium 计算样式取证（8 类控件 × 浅暗两档 × t=0/稳态）。
+- 菜单键盘：`apps/desktop/src/components/MpSidebar.more-keyboard.test.js`（13 条）。
+- 可点元素：`apps/desktop/src/clickable-roles.contract.test.js`（7 条，含 leaf 角色不变式与只可缩小的债务登记）+ `clickable-roles.behavior.test.js`（3 条，真 i18n 插件、Enter/Space 各自 emit、`@click`-only 负控）。
+- 标签关联：`apps/desktop/src/label-association.contract.test.js`（19 条，含 C1 回归锁与门控结构锁）+ `apps/desktop/src/element-plus-attr-forwarding.test.js`（3 条）+ 基线 `apps/desktop/src/label-association-baseline.json`。⚠ 这里的条数是**当日读数**，会随锁增删漂移；判定一律以门禁当场执行的通过数为准，不以本文数字作验收证据。
+- 令牌：`apps/desktop/src/styles/token-scales.test.js`（6 条）+ 真引擎逐槽变量链对账。
+- 共同要求：上述每条锁都要做**写回被禁形态**的变异反证（不是"摘掉判据"），且红必须红在指名的那条用例上。
+
 
 ## 账号同平台多账号去重契约（2026-10-21，fix-multi-account-same-platform）
 
@@ -20531,6 +20738,58 @@ DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底
 `fillProfileFromHttpApi` 调用，前两例当场变红。
 
 
+**交互逻辑**
+- 焦点规则必须显式写 `transition: outline-color 0s, outline-width 0s, outline-offset 0s`。原因：组件族普遍带 `transition: all`，会把 `outline-*` 一并纳入过渡 ⇒ 键盘 Tab 后 **0ms 读到的是过渡起点**（实测 `3px currentColor` / offset `0`），视觉上"焦点慢半拍"。判据必须同时读 t=0 与稳态两个时刻，只读稳态会抹掉这条差异的证据。
+- 覆盖范围：按钮族规则必须**逐个变体类**都写。实测 180 个 `.vue` 模板中 134 处按钮的 `class` **只带变体类**（如 `cohere-btn-primary`），没有一处带基类 `cohere-btn` ⇒ 把规则写在基类上等于零覆盖；而 `UiButton` 一族的根节点 `classes` 恒含基类 `ui-btn`，基类规则对它确实有效。**"基类 = 公共形态"是心智模型，不是事实。**
+
+**数据校验（门禁）**
+- 变体域由**模板扫描**派生（按 class 挂在什么元素上分类），禁止按类名前缀猜 ⇒ 前缀法会把 `ui-btn-spinner` 这类 `aria-hidden` 装饰节点与 `el-button`、`router-link` 混进域内（实测 150 条里 109 条假阳性）。
+- 域内每个变体类必须有对应规则，缺任一即判红；并配**规模下界**（模板数、class 属性数、变体数各自 > 阈值），否则"扫描器退化成空集合"会读成"零问题"。
+- 像素基线门禁对焦点态**结构性失明**（截图时无键盘焦点），因此"CI 视觉绿"不能作为"焦点环生效"的证据；该证据只能来自真实渲染引擎读计算样式。
+
+**提示文字**：焦点环是视觉属性，不承载文字，本项**不新增 locale 键**。
+
+### 二、「更多」菜单的键盘可达（roving tabindex）
+
+- **交互逻辑**：同一时刻只有当前项 `tabindex="0"`，其余为 `-1`（否则 Tab 会把整个菜单一项项念完）；`↑/↓` 在项间移动，`Home/End` 跳首尾；`Esc` 关闭菜单，并且**焦点必须归还触发按钮**——不归还时键盘用户的焦点会被丢回文档开头，等于"关掉菜单后不知道自己在哪"。
+- **显示项**：无视觉变化；`aria-haspopup` / `aria-expanded` 沿用既有语义。
+- **范围边界**：菜单项里「CLI」标签的改名与分组属产品决策，不在该批；不可由实现侧自行改词。
+
+### 三、非按钮可点元素的键盘可达（WCAG 2.1.1）
+
+- **修法固定为四件套**：`role="button"` + `tabindex="0"` + `@keydown.enter.prevent` + `@keydown.space.prevent`，且两个 keydown 的表达式必须与 `@click` **逐字一致**（抄一份近似逻辑就是两套行为）。
+- **硬禁令（本批实测制造过的次生缺陷）**：已补 `role="button"` 的元素**不得有可见、可聚焦的后代**。`button` 是 leaf 角色，取得该角色后其子树在无障碍树上呈现为 presentational ⇒ 容器内原有的真按钮**从 a11y 树上消失**，而视觉、鼠标、属性写入、单测、构建全都不报错。实测 21 处补全里有 3 处属此类（两处上传区的「移除」按钮、一处列表项内 3 个动作按钮），处置是撤销补全并登记为技术债，而不是"补个 role 再想办法救回来"。
+- **验证手法**：反证不能只"摘掉判据看是否红"，必须**把被撤销的那个错误形态原样重造一遍**（K3），否则判据被放宽后锁仍显示绿。
+- **属性存在 ≠ 行为通畅**：既有测试只做 `trigger('click')`，键盘路径在测试里不可表示。必须补行为用例断言 Enter 与 Space **各自**触发同一 emit，并配一条负控"只有 `@click` 时按 Enter 必须不产生事件"——否则该用例会退化成"测 mount 的副作用"。
+
+
+- **第二批（2026-10-20，分支 `ux-audit-nonbutton-keys`）落点：采集页「快捷采集 / 草稿箱 / 来源入口」6 张卡片**（`Collection.vue` 的 `.col-stat-card-click`：`createDraft`、`importFromClipboard`、`switchTab('drafts')`、`openCollection('weibo'|'baidu'|'toutiao')`）。四件套照 §三 原样写，`@keydown.enter.prevent` 与 `@keydown.space.prevent` 的表达式与 `@click` **逐字一致**（不写近似逻辑，`.prevent` 是 Space 不滚页的前提）。
+- **守卫判据必须读 `innerHTML`，不得读 `wrapper.html()`**：`html()` 含元素**自己**的 `tabindex="0"`，用它做「不得有可聚焦后代」的判据会把 §三 要求的**正确修法**当场判成缺陷（本批第一版实测红在这一格，不是代码错、是探针错）。后代判据 = 标签名白名单 `<button|a|input|select|textarea>` + `tabindex`（排除 `tabindex="-1"`）。
+- **行为断言的可观测出口要选路由/状态，不要选样式**：本批用 `data-testid="quick-drafts-box"` 卡片，`switchTab('drafts')` 的真实出口是 `router.push('/publish?tab=drafts')`，配既有 `useRouter` mock 即可断言；Enter 与 Space **分别**各断一次（少写一个就是「键盘路径断裂」的另一半）。
+- **反证形态按 §三 的口径重造**：不是「摘掉判据看红」，而是把**未补全的原始标签**原样写回去再跑 —— 实测指名红 2 条（结构锁 + 行为锁），还原后逐字节相同。
+- **⛔ 存量违规（本批清点出、未在本批修，属交互设计裁决项）**：静态清点 182 个 `.vue` 中 `role="button"` 共 **17 处**，其中 **3 处**的子树里有可聚焦后代，按 §三 硬禁令它们会把子树从无障碍树上抹掉：`AccountManagementCard.vue`（批量模式的 `<input type=checkbox>`，且带 `@change` 与 `@click.stop`）、`CopyLibraryView.vue`（播客单集入口 `<button>`，`v-if=canShowEpisodeEntry` 时才出现）、`Collection.vue` 记录卡片（标签编辑区里的 `<button>`）。三处均已逐个读到源码确认，非扫描器假阳。**为什么不顺手改**：正解要么撤销 `role`（键盘可达性回退，与本批方向相反），要么把主行动做成卡内真按钮（改交互与信息层级）—— 属产品/设计裁决，不属机械收敛。
+### 四、标签 ↔ 控件的可访问名（WCAG 1.3.1 / 4.1.2）
+
+- **显示项**：`<label>` 文本就是控件的可访问名。**禁止**用 `placeholder` 承担名称（用户一开始输入它就消失），也禁止只靠 `aria-label` 复制一份标签文本（两份口径必然漂移）。
+- **交互逻辑**：点击标签把焦点送进对应控件；读屏在控件上念出标签文本，而不是"编辑框，未标注"。
+- **数据校验（六条）**
+  1. 关联是否成立只认 **DOM 事实**：`control.labels` 命中该 label、`label.htmlFor === control.id`。"源码里 `for=` 与 `id=` 都出现过"不是证据——**写得越像修好的，字符串判据越看不见**。
+  2. `for` 的合法目标（labelable）是封闭清单：`button`、`input`（`type=hidden` 除外）、`meter`、`output`、`progress`、`select`、`textarea`。指向 `div`/`span` **不是降级而是规范级无效**：浏览器不报错、不关联、也不回退到相邻文本。本仓两种真实成因：① 自研 `UiInput` 曾无 `id` prop ⇒ 调用方写的 `id` 走属性透传落到根 `div`；② 组件库丢弃该属性。
+  3. **第三方组件的属性转发面必须实测**（`mount` 一次、打印根节点与内层控件三层落点）：Element Plus 的 `ElInput` **丢弃 `id`**（根 div 与内层 `input`/`textarea` 三处皆空），但转发 `aria-labelledby` / `aria-label` / `name` / `autocomplete` ⇒ 表单容器的统一修法是「label 自带 `id` + 控件用 `aria-labelledby` 指认它」，且该宿主行为要钉成契约锁（EP 升级后若开始转发 `id`，锁会红，正解同时变回 `for`+`id`）。
+  4. 控件 `id` 的来源优先级固定：**显式传入的 `id` > 框架实例级生成**（Vue 3.5 `useId()`）。**禁止 `Math.random()` 造 id**：同页多实例可撞车，而撞车时 `label[for]` 会指向别人的控件（浏览器取文档首个匹配），比缺失更坏。
+  5. **表单容器（`UiField`）不得代调用方造 id 当标签目标**。容器不渲染控件、控件在 slot 里，而 slot 里的组件是**另一个实例**、`useId()` 得到**另一个**值 ⇒ 容器把自造值发射成 `for` 时，那是一条指向不存在元素的**死 `for`**（屏读宣布一个不存在的控件、点击标签不聚焦，WCAG 4.1.2）。合规形态只有两种，且必须显式选一：**① 认领式** —— 控件把自己的 id 经一条 `Symbol` 的 provide/inject 通道**反向登记**给容器，容器发射"实际被认领的那个 id"；**② 门控式** —— 容器只在调用方**显式给了值**时才发射 `for`（`:for="forId || undefined"`），没给就**不发射**。两条同判据：**宁可没有 `for`，也不能有一个指向不存在元素的 `for`**。不得要求调用方"自己想起来传 `forId`"（该 prop 实测恒空即等同契约不存在），但 prop 恒空的正解是改契约形态，**不是**替调用方编一个值。
+  6. "必填"的语义必须落在**控件**上（`aria-required="true"`），视觉上那颗红色 `*`（`aria-hidden`）只是装饰；`required` 为假时**不得残留** `aria-required`。
+- **存量与节奏**：孤岛 `<label>`（既无 `for`/`:for`、内部也不包裹控件）按**逐文件**基线登记，只能缩小；2026-10-19 实测 **139 → 127**（23 个文件）。基线判据必须同时认识合法替代通道（`aria-labelledby` 等），否则会把一次合规修复计成退化。**并且必须把「缺失」与「指空」分成两态**：一条有 `for` 但目标不存在的 label 会从"孤岛"计数里**消失**，读起来像改善，实际是更糟的伪装态 —— 因此指空要由另一条判据（死 `for` 扫描）单独阻断，豁免只能**按目标逐个**登记、不得整文件豁免。`UiField` 的 26 处带 label 用法**不在**上述 127 里（那是 `<UiField label="…">` 的 prop，不是字面 `<label>` 标签，扫描器对它天然失明），逐点绑定另批做。
+- **提示文字**：本项是属性面改造，**不新增 locale 键、不改任何用户可见文案**（zh/en 成对要求因此不触发）；标签文本、`hint`、错误文案全部沿用既有 i18n 键。
+
+### 五、验收锚点
+
+- 焦点环：`apps/desktop/src/styles/focus-ring.test.js`（12 条，含变体域派生、双档令牌声明恰好一次、禁十六进制、2px/offset 唯一性、禁 `outline:none`）+ 真 Chromium 计算样式取证（8 类控件 × 浅暗两档 × t=0/稳态）。
+- 菜单键盘：`apps/desktop/src/components/MpSidebar.more-keyboard.test.js`（13 条）。
+- 可点元素：`apps/desktop/src/clickable-roles.contract.test.js`（7 条，含 leaf 角色不变式与只可缩小的债务登记）+ `clickable-roles.behavior.test.js`（3 条，真 i18n 插件、Enter/Space 各自 emit、`@click`-only 负控）。
+- 标签关联：`apps/desktop/src/label-association.contract.test.js`（19 条，含 C1 回归锁与门控结构锁）+ `apps/desktop/src/element-plus-attr-forwarding.test.js`（3 条）+ 基线 `apps/desktop/src/label-association-baseline.json`。⚠ 这里的条数是**当日读数**，会随锁增删漂移；判定一律以门禁当场执行的通过数为准，不以本文数字作验收证据。
+- 令牌：`apps/desktop/src/styles/token-scales.test.js`（6 条）+ 真引擎逐槽变量链对账。
+- 共同要求：上述每条锁都要做**写回被禁形态**的变异反证（不是"摘掉判据"），且红必须红在指名的那条用例上。
 
 ## 自动化页后台通知的注册时机合同（2026-10-20，ux-audit-automation-notify-first / 审计 2.4）
 

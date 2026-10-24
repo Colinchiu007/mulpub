@@ -158,6 +158,10 @@ scripts/*.js
 !scripts/plan-review.sh
 !scripts/deep-review.sh
 !scripts/openspec-sync-check.js
+# 键盘可达 + 焦点环两把锁的反证驱动本体（2026-10-21，PR #4088 的 QM-6 评审处置）。
+# ⚠ 同 #3011 同族：第 106 行 scripts/*.js 会把它静默忽略，而反证脚本一旦躺在临时目录里，
+# "锁的牙"就只存在于记录的文字叙述中 —— 驱动必须随代码入库，从干净 checkout 一条命令可复跑。
+!scripts/keyboard-cards-contract-mutate.js
 # 横幅按钮配色对比度本地校验本体（2026-10-17）。⚠ 同 #3011 同族：第 106 行
 # `scripts/*.js` 会把判据本体静默忽略（本地全绿、CI 上 Cannot find module）。
 # 它是 Gate 7c（暗色文本对比度）的本地前置判据 —— 少了它，改色只能等 4 分钟的

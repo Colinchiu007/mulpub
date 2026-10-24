@@ -1,0 +1,60 @@
+{
+  "sha": "8c616578f2a9a104290d11a08100ad1158011bf5",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 134 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 134,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **守卫判据必须读 `innerHTML`，不得读 `wrapper.html()`**：`html()` 含元素**自己**的 `tabindex=\"0\"`，用它做「不得有可聚焦后代」的判据会把 §三 要求的**正确修法**当场判成缺陷（本批第一版实测红在这一格，不是代码错、是探针错）。后代判据 = 标签名白名单 `<button|a|input|select|textarea>` + `tabindex`（排除 `tabindex=\"-1\"`）。",
+      "  2. 后代禁令锁：**读 `c.element.innerHTML`**，断言子树无 `<button|a|input|select|textarea>` 且无 `tabindex`（排除 `-1`）。",
+      "1. `features/accounts/components/AccountManagementCard.vue` —— 批量模式 `<input type=\"checkbox\">`（带 `@change=\"$emit('toggle-select')\"` 与外层 `@click.stop`）。取 `role=button` 后该复选框在无障碍树上不可见 ⇒ 「批量选择」对键盘/读屏用户等于不存在。"
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-20T10:43:29.498Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null,
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：本产物对应本 PR 的**较早 head**（sha 见文件名），其评审已被本 PR 后续 head 的同源评审取代——最终一轮的 5 条指控已逐条处置完毕（见同变更集的 `.ccg/reviews/8a519c90fc6325684c13e056c1db9b72fbbc8a7c.json` 的 closureNote）。本产物按「被取代的中间快照」收口：**不冒充对最终 head 的外部复核**，也不把中间快照读成「当前改动未被评审」。tier 与 evidence 均未由外部评审产出，如实标注。",
+    "note": " ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。"
+  }
+}

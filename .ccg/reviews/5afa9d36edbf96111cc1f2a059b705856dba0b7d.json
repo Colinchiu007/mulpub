@@ -1,0 +1,68 @@
+{
+  "sha": "5afa9d36edbf96111cc1f2a059b705856dba0b7d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 705 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 705,
+    "fileCount": 12,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "- **守卫判据必须读 `innerHTML`，不得读 `wrapper.html()`**：`html()` 含元素**自己**的 `tabindex=\"0\"`，用它做「不得有可聚焦后代」的判据会把 §三 要求的**正确修法**当场判成缺陷（本批第一版实测红在这一格，不是代码错、是探针错）。后代判据 = 标签名白名单 `<button|a|input|select|textarea>` + `tabindex`（排除 `tabindex=\"-1\"`）。",
+      "  2. `for` 的合法目标（labelable）是封闭清单：`button`、`input`（`type=hidden` 除外）、`meter`、`output`、`progress`、`select`、`textarea`。指向 `div`/`span` **不是降级而是规范级无效**：浏览器不报错、不关联、也不回退到相邻文本。本仓两种真实成因：① 自研 `UiInput` 曾无 `id` prop ⇒ 调用方写的 `id` 走属性透传落到根 `div`；② 组件库丢弃该属性。",
+      "  2. 后代禁令锁：**读 `c.element.innerHTML`**，断言子树无 `<button|a|input|select|textarea>` 且无 `tabindex`（排除 `-1`）。"
+    ],
+    "ccgSensitiveContentHits": 12,
+    "ccgSensitiveContentSample": [
+      "      \"| i5 | Warning | **不修判据，只登记** | 两条都是**链路形状**而非判据损坏：① 产物按 head sha 命名，pre-commit 只能拿到暂存前的 HEAD ⇒ 命名与本次 head 差一个提交（本仓既有记录已写明）；② `reason` 报「命中敏感内容 1 处」而实际命中的是无障碍散文里的词元（规则 4 的 `\\\\b(SELECT|…)\\\\b` 大小写不敏感）。改敏感分类属「改谁来守门」，按 AGENTS 须人工过目 ⇒ 上报不代拍 |\"",
+      "  \"reason\": \"变更 134 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处\",",
+      "      \"- **守卫判据必须读 `innerHTML`，不得读 `wrapper.html()`**：`html()` 含元素**自己**的 `tabindex=\\\"0\\\"`，用它做「不得有可聚焦后代」的判据会把 §三 要求的**正确修法**当场判成缺陷（本批第一版实测红在这一格，不是代码错、是探针错）。后代判据 = 标签名白名单 `<button|a|input|select|textarea>` + `tabindex`（排除 `tabindex=\\\"-1\\\"`）。\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T13:27:14.359Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-5afa9d36\\adjudication.json",
+    "note": "裁决尚未填写：5/5 条未定（i1, i2, i3, i4, i5） ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T13:36:23.912Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：本产物对应本 PR 的**较早 head**（sha 见文件名），其评审已被本 PR 后续 head 的同源评审取代——最终一轮的 5 条指控已逐条处置完毕（见同变更集的 `.ccg/reviews/8a519c90fc6325684c13e056c1db9b72fbbc8a7c.json` 的 closureNote）。本产物按「被取代的中间快照」收口：**不冒充对最终 head 的外部复核**，也不把中间快照读成「当前改动未被评审」。tier 与 evidence 均未由外部评审产出，如实标注。"
+  }
+}

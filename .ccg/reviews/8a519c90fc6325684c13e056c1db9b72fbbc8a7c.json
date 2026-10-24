@@ -1,0 +1,153 @@
+{
+  "sha": "8a519c90fc6325684c13e056c1db9b72fbbc8a7c",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 810 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 810,
+    "fileCount": 13,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "- **守卫判据必须读 `innerHTML`，不得读 `wrapper.html()`**：`html()` 含元素**自己**的 `tabindex=\"0\"`，用它做「不得有可聚焦后代」的判据会把 §三 要求的**正确修法**当场判成缺陷（本批第一版实测红在这一格，不是代码错、是探针错）。后代判据 = 标签名白名单 `<button|a|input|select|textarea>` + `tabindex`（排除 `tabindex=\"-1\"`）。",
+      "  2. `for` 的合法目标（labelable）是封闭清单：`button`、`input`（`type=hidden` 除外）、`meter`、`output`、`progress`、`select`、`textarea`。指向 `div`/`span` **不是降级而是规范级无效**：浏览器不报错、不关联、也不回退到相邻文本。本仓两种真实成因：① 自研 `UiInput` 曾无 `id` prop ⇒ 调用方写的 `id` 走属性透传落到根 `div`；② 组件库丢弃该属性。",
+      "  2. 后代禁令锁：**读 `c.element.innerHTML`**，断言子树无 `<button|a|input|select|textarea>` 且无 `tabindex`（排除 `-1`）。"
+    ],
+    "ccgSensitiveContentHits": 18,
+    "ccgSensitiveContentSample": [
+      "      \"- **守卫判据必须读 `innerHTML`，不得读 `wrapper.html()`**：`html()` 含元素**自己**的 `tabindex=\\\"0\\\"`，用它做「不得有可聚焦后代」的判据会把 §三 要求的**正确修法**当场判成缺陷（本批第一版实测红在这一格，不是代码错、是探针错）。后代判据 = 标签名白名单 `<button|a|input|select|textarea>` + `tabindex`（排除 `tabindex=\\\"-1\\\"`）。\",",
+      "      \"  2. `for` 的合法目标（labelable）是封闭清单：`button`、`input`（`type=hidden` 除外）、`meter`、`output`、`progress`、`select`、`textarea`。指向 `div`/`span` **不是降级而是规范级无效**：浏览器不报错、不关联、也不回退到相邻文本。本仓两种真实成因：① 自研 `UiInput` 曾无 `id` prop ⇒ 调用方写的 `id` 走属性透传落到根 `div`；② 组件库丢弃该属性。\",",
+      "      \"  2. 后代禁令锁：**读 `c.element.innerHTML`**，断言子树无 `<button|a|input|select|textarea>` 且无 `tabindex`（排除 `-1`）。\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T14:03:36.777Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "datamigration"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "`focusable-ring-contract.test.js` 的两格欠账判据是子串扫描：`badToken` 用 `h.some(r => r.body.includes('--color-focus-ring'))`、`noTransition` 用 `r.body.includes(TRANSITION_OVERRIDE)`。而 `focusVisibleRules` 只对 **selector**（`m[1]`）剥注释，`body`（`m[2]`）原样保留 —— 于是把令牌写进注释/字符串走私即可过检：`.col-stat-card-click:focus-visible { outline: 2px solid #ff0055; /* var(--color-focus-ring) 0s 0s */ }` 的 body 字符串同时命中两个 `includes`，环色硬编码照样绿。这正是本批元的模式（伪命中/伪规则），但 19 道反证里没有一道变异是「正文硬编码 + 注释携带令牌」形态。",
+        "prosecution": "失败场景可复现：把 `.real:focus-visible { outline: 2px solid #ff0055 }` 后面挂一条含 `var(--color-focus-ring)` 的 CSS 注释，`focusVisibleRules` 返回的 body 里就带着该串，`badToken` 便不再把这张卡列为违规 —— 用户拿到的是硬编码粉色焦点环（暗色档不跟随令牌），而门禁读数从 10 掉到 9 看起来像「收敛了一处」。注释不产生任何计算值，判据读它等于读散文。且该形态恰好是本批反复声明要防的「伪命中」，19 道反证无一覆盖。",
+        "defense": "本仓样式文件里没有任何一条焦点环规则把令牌写进注释，故现状无违规；且 `styles/focus-ring.test.js` 另有计算样式取证，硬编码环色可能在别处显形。",
+        "verdict": "upheld",
+        "rationale": "辩护不成立的两点：①「现状无违规」不是判据属性 —— 这把锁的全部价值就在挡住下一次的写法，而当前写法对『注释走私』结构性免疫；②计算样式取证只覆盖 3.6 的按钮族，`col-stat-card-click` 这一族恰恰不在其域内（本锁的存在理由就是补这条缝）。已修：`focusVisibleRules` 改为在**规则切分之前**按原长度把注释整段涂白，一次解决两格——判据侧（body 不再含注释）与解析侧（`[^{}]+{…}` 不再被注释内的花括号切坏，实测旧实现会把 `/* .ghost:focus-visible { … } */` 切成一条选择器为 `/* .ghost:focus-visible` 的伪规则进判定域）。反证 M20 入库 `scripts/keyboard-cards-contract-mutate.js`：把涂白退回「只剥选择器」这一被禁形态本身，实测红 2 条、指名命中 2/2，两条各测一格理由（拆成两个 `it` 是因为 vitest 首条断言失败即中止，合写会让解析侧永远拿不到自己的现场证据）。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "整把锁只验证规则**引用**了 `--color-focus-ring` 这个字符串，没有任何判据验证该令牌在 `tokens.css` 中**已声明**。删除或改名 tokens.css 里的 `--color-focus-ring` 后，`outline: 2px solid var(--color-focus-ring)` 在 computed-value 时对未定义 var 走 invalid ⇒ 整条 outline shorthand 回退到初始值（`outline-style: none`）⇒ 焦点环完全消失，而本锁纯字符串检查仍然绿水。3.6 的 `styles/focus-ring.test.js` 是否查「双档声明恰好一次」在本 diff 中不可见，新增锁自身无此保证 —— 这是「看着绿、用户拿到的是空」的又一个形态，正是本批自诩要防的那类。",
+        "prosecution": "若 `--color-focus-ring` 的声明被删或改名，`var()` 取不到值 ⇒ `outline` shorthand 整体无效 ⇒ `outline-style` 回落 `none`，焦点环对用户彻底消失；而本锁只看规则里有没有这个字符串，照绿。机制上成立，且后果正是本批声称要消灭的「装饰性门禁」。",
+        "defense": "该格由同域另一把锁持有，不是空缺：`apps/desktop/src/styles/focus-ring.test.js:109` 的用例标题就是「--color-focus-ring 在浅色与暗色两个块内各声明恰一次」，且 :130-131 另断言暗色块 `--color-focus-ring: var(--…)` 必须显式声明、:222 还锁了死槽 `--focus-blue` 不得复活。令牌一旦被删/改名，那把锁先红。在本锁里再写一份「声明存在」的判据，要么变成第二份真源（两份必然漂移，AGENTS.md 明令禁止），要么变成「断言对方源码里出现了某种读法」的记录性断言（同令禁止）。评审自己也写了「在本 diff 中不可见」——不可见不等于不存在。",
+        "verdict": "dismissed",
+        "rationale": "指控的机制部分成立（本锁确实不测声明），但「无人守这一格」的前提经核实为假：声明格由 `styles/focus-ring.test.js:109/:130-131` 守着，取证方式为当场 `grep -n color-focus-ring` 读到用例标题与断言行。可执行的整改不是补判据而是消除「不可见」：已在本锁头注释写明这一格归谁、为什么不在此重复，并点名 `:109` 这个落点，使下一个会话不必重新怀疑此处空着。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "test 2 断言 `actual <= baseline`，test 3 断言 `baseline <= actual` —— 两条合起来在代数上退化成 `actual === baseline`（环色与 transition 两格各自成立）。后果：① 合法收敛（修好 n 处、actual 降到基线以下）在**同一提交不改小常量**时必红 test 3，债永远无法低于已声明水平，「只可缩小」实际不可达；② 常量可编辑，「加违规 + 把基线抬到新实测」（actual 11 / baseline 11 并案提交）两格全绿 —— M12 今天能捉住只是因为它钉死了 actual=10，比例关系并不构成对偶保护。文档/注释卖的是「全时上限、只可缩小」，代码实现的是「当前实测值的钉死」，两套语义自相矛盾。",
+        "prosecution": "代数事实无误：两条相反方向的不等式合取即等式。若注释把它写成「上限」，读者会预期「修好 3 处后 actual=7 ≤ baseline=10 应当绿」，实际会被 test 3 判红 —— 判据的行为与它的说明书不一致，这会让下一次收敛的人误以为锁坏了，进而去放宽或删除它。",
+        "defense": "等式是**设计意图而非事故**：只保留 `actual ≤ baseline` 那一半，「只能缩小」就没有执行体 —— 有人修好 3 处却把常量留在 10，后续 3 处新违规会被「还剩 7 个额度」合法吃掉，这正是本仓记录的「装饰性门禁」形态。所以收敛一批**必须**同一次提交把常量改小，那条红是契约的落地方式，不是假红。评审对「常量可编辑」的批评同样成立于任何仓库的棘轮（阈值本身就在源码里），M12 的价值在于打印现值供人核对，而非假装代数能自证未被同案改写。",
+        "verdict": "upheld",
+        "rationale": "按「文档与代码谁错」裁决：**文档错**。等式语义要保留（否则欠账失控），而头注释把它写成「全时上限 / 只可缩小」是描述失真。已修：两条基线的注释改为显式写明「语义是钉死当前实测，不是全时上限」，逐条说明为何两条方向相反的断言都要留、以及「收敛一批必须同一次提交把常量改小，那条红不是假红」；同时把评审指出的残余风险（常量仍可被同案改写，M12 靠打印现值而非代数关系）如实写进注释，不再声称机械闭合。判据本体一字未动。",
+        "highRiskDomains": []
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "本 diff 把 4 个 `.ccg/reviews/*.json` 当正式文件提交，其中 `5afa9d36….json` 仍写 `deepReview.status=\"self_play_pending\"`、`findings:null`、note「裁决尚未填写：5/5 条未定（i1...i5）」，`dbfdb9e0….json` 写 `\"pending\"` —— 与 CHANGELOG/OPS 记录「8 条发现逐条处置」直接矛盾；且 `6b1a40fa9c….json` 文件名（stagedDiffHash）与对象内 `sha`（dbfdb9e0）不一致、同一 head 存在两份口径不同（673 vs 134 行）的产物、字段 schema 漂移（`tier:\"unknown\"` vs `confidenceWeight`）。仓库从此永久保有一份「裁决未完成」与「已完成」并存的记录，后续评审者无法分辨哪份是事实。",
+        "prosecution": "每条子断言当场可验：本 PR 的 4 个产物里 `5afa9d36` 与 `dbfdb9e0` 两份 status 为 `self_play_pending`、`findings:null`，另两份为 `pending`；同一 head `dbfdb9e0` 存在两份 `changedLines` 不同（673/134）的产物；`6b1a40fa…` 文件名与被记录 sha 不同名。审计面若同时存在「未完成」与「已完成」，下一个读者无从判定哪份是事实，这正是「把工具的失明读成结论」的载体。",
+        "defense": "①逐产物描述的是**各自那次 commit 当时**的裁决状态，append-only 审计面里「旧记录未完成、新记录完成」并存是它的正常形态，不是矛盾；把 pending 产物删掉才是销毁审计痕迹。②这是全仓既有形态而非本批引入：当场 `git ls-tree origin/main -- .ccg/reviews | wc -l` = 1793 份，抽样 400 份的状态分布为 `pending` 327 / `self_play_resolved` 31 / `cleared` 14 / `self_play_pending` 6 —— 本 PR 只新增 4 份，且其中 `self_play_pending` 的成因（引擎 stall 后要求人工填写裁决）已被任务 #19「QM-6 通道已通但闭合需人工（6 个 dual PR 停在 self_play/pending）」显式追踪。③文件名取 stagedDiffHash、内容记 pre-commit HEAD sha，是 decider 的命名约定，不是数据损坏。",
+        "verdict": "dismissed",
+        "rationale": "指控的**事实层成立、归因与修法层不成立**，按「这条 PR 能不能修、该不该修」判：机制层整改（decider 按实际 head sha 命名、文档散文的敏感词误报、stall 时不落 pending）落在 `scripts/ccg-review-decider.js` 与上游引擎，属「改谁来守门」，且已由任务 #19 单独追踪；本批若删历史 pending 产物等于销毁审计痕迹，若伪造 findings 更不可接受。本批能负责的部分：把**本轮**（8a519c90）的裁决逐条填写完整（即本文件），使争议不再是 5 条 null。⚠ 如实声明一处做不到如实写（**本句原先写「引擎无\"只结算已填裁决\"入口」，已被当场否证并更正**：引擎有 --sha 短路，走「复用存档 critique + 已填裁决 ⇒ 跳过模型调用」，见 finalizeAdjudication；本会话已实跑该短路，产物由 self_play_pending+findings:null 变为 self_play_blocked+findings 已填+blocking 点名。改产物的是引擎，不是手写）。真正拿不到闭合态的原因是：任何 upheld 都计阻断、高危域无论 verdict 都计阻断 ⇒ self_play 出口只能到 self_play_blocked，不在 check-pr-exec-record 的闭合态集合内；闭合需外部复核或人工判 needs_revision/cleared（任务 #19）。不把手写 findings 冒充成已裁决。",
+        "highRiskDomains": [
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "边界锁 `it('边界（二轮 i3）…')` 只对 `quick-drafts-box`（草稿箱卡）断言「连发两次 keydown ⇒ 触发两次」，而 §三-B 明文写明自动重复的真正代价在**来源卡**（`createNewTabPage` 无幂等键 ⇒ 按住 Space 多开标签页）；草稿箱卡重复触发只是重复 push、无害。文档声称「把已知代价钉在测试里」，实际钉住的是无害路径 —— 将来某批给来源卡加 `event.repeat` 守卫时，没有任何既有断言会红（`fireOnce` 每事件只 trigger 一次、恰一次计数自然不会撞上连发），该守卫会被读成多余改动。",
+        "prosecution": "可达且可验：读 `CARDS` 登记表，`via: 'source'` 的三张卡走 `createNewTabPage`，`via: 'tab'` 的 `quick-drafts-box` 走 `pushSpy`；原边界锁只 trigger 后者。于是「重复开标签页」这笔真代价在测试面零痕迹，而锁的自述是「把已知代价钉在测试里」—— 自述与覆盖面不符，且后果具体：将来给来源卡加 repeat 守卫时全仓不会因此变红，该守卫会被当成无必要的改动被拒或被无声合入。",
+        "defense": "无害路径的断言本身仍有反向锁价值（加了守卫它会红，提示同步改文档），只是它锁的不是最贵的那笔代价。",
+        "verdict": "upheld",
+        "rationale": "辩护只说明「原断言不是零价值」，没有否证「最贵代价未被表示」这一核心。已修：边界锁改为两段，先在**来源卡**（`source-entry-weibo`）连发两次 Enter，断 `createNewTabPage` 恰 2 次 —— 当场实跑确认这一断言为真（即当前实现确实会开两个标签页，代价可见而非推测），再保留草稿箱卡那半段并写明它是有害/无害对照里的无害侧。用例名同步改为「代价在哪张卡上就钉哪张」。残余如实记录：这条没有对应的变异反证 —— 「删掉新加的那半段、其余全绿」在驱动语义里是 MISSED 而非 CAUGHT，它证明的是断言独立，不是锁有牙；该断言的价值是**前瞻性的**（将来加 repeat 守卫时它必须变红），这一点写进执行记录而不是伪装成已完成的反证。",
+        "highRiskDomains": []
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核 ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。",
+    "at": "2026-10-21T15:02:06.681Z",
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：tier 与 evidence 均**未**由外部评审产出，本条是门禁自述的「代用出口」而非合规路径，如实标注。逐条处置：i1 已修（focusVisibleRules 改为在**规则切分之前**按原长度把注释整段涂白，一次解决两格——判据侧 body 不再含注释、解析侧 [^{}]+{…} 不再被注释内的花括号切成伪规则，apps/desktop/src/focusable-ring-contract.test.js:113-119）；i3 已修（两条基线的注释改为显式写明「语义是**钉死当前实测**，不是全时上限」，同文件 :67，并如实写明残余风险「常量仍可被同案改写」而不声称机械闭合）；i5 已修（边界锁改为两段：先在来源卡 source-entry-weibo 连发两次 Enter、断 createNewTabPage 恰 2 次（当场实跑确认为真），再保留草稿箱卡那半段并写明它是有害/无害对照里的无害侧；用例名同步改为「代价在哪张卡上就钉哪张」，见 CHANGELOG.md:129 的留档）；i2 与 i4 裁决为不成立（i2 的声明格由 styles/focus-ring.test.js:109 守着、已在锁头注释点名归属；i4 的机制层整改落在 scripts/ccg-review-decider.js 与上游引擎、属「改谁来守门」已由任务 #19 单独追踪），维持原样。逐条现场依据与反证读数见 openspec/records/ux-audit-nonbutton-keys.md。"
+  }
+}

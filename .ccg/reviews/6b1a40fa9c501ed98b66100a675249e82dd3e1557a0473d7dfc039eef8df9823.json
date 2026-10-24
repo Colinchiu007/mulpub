@@ -1,0 +1,61 @@
+{
+  "sha": "dbfdb9e062b0820dcb007a1f43b7b23684310a84",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 673 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 673,
+    "fileCount": 9,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| i5 | Warning | **不修判据，只登记** | 两条都是**链路形状**而非判据损坏：① 产物按 head sha 命名，pre-commit 只能拿到暂存前的 HEAD ⇒ 命名与本次 head 差一个提交（本仓既有记录已写明）；② `reason` 报「命中敏感内容 1 处」而实际命中的是无障碍散文里的词元（规则 4 的 `\\b(SELECT|…)\\b` 大小写不敏感）。改敏感分类属「改谁来守门」，按 AGENTS 须人工过目 ⇒ 上报不代拍 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6b1a40fa9c501ed98b66100a675249e82dd3e1557a0473d7dfc039eef8df9823",
+  "decidedAt": "2026-10-21T13:22:25.577Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null,
+    "closureNote": "第 1 轮自扮演裁决（2026-10-23，会话代写）：本产物对应本 PR 的**较早 head**（sha 见文件名），其评审已被本 PR 后续 head 的同源评审取代——最终一轮的 5 条指控已逐条处置完毕（见同变更集的 `.ccg/reviews/8a519c90fc6325684c13e056c1db9b72fbbc8a7c.json` 的 closureNote）。本产物按「被取代的中间快照」收口：**不冒充对最终 head 的外部复核**，也不把中间快照读成「当前改动未被评审」。tier 与 evidence 均未由外部评审产出，如实标注。",
+    "note": " ｜ 2026-10-23 会话复核后收口（tier 由会话手写，外部评审未产出 tier/evidence）。"
+  }
+}

@@ -197,6 +197,18 @@
 .col-list-wrap { margin-bottom: var(--spacing-5); }
 .col-stat-grid-mb { margin-bottom: var(--spacing-5); }
 .col-stat-card-click { cursor: pointer; }
+/* 键盘焦点环：审计 4.4 把这批卡片从「只有 @click 的 div」变成 tabindex="0" 可聚焦元素，
+   没有 :focus-visible 规则就等于「键盘用户按 Tab 走到卡片上却看不到焦点在哪」（WCAG 2.4.7）。
+   环色只取 tokens.css 的 --color-focus-ring 单一真源 —— 它在浅/暗两档各有映射，
+   所以这里**不再**另写 [data-theme="dark"] 覆盖（另写一份就是 3.6 那把锁要防的双轨漂移）。
+   三条 transition override 是 PRD §一「交互逻辑」的硬要求，不是可选修饰：组件族普遍带
+   `transition: all`，会把 outline-* 一并纳入过渡 ⇒ 键盘 Tab 后 0ms 读到的是过渡起点
+   （实测 3px currentColor / offset 0），视觉上"焦点慢半拍"。 */
+.col-stat-card-click:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  transition: outline-color 0s, outline-width 0s, outline-offset 0s;
+}
 .col-item--active { border-left: 3px solid var(--color-primary); }
 
 /* ============================ 类别标签 ============================ */
