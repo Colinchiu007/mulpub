@@ -335,11 +335,23 @@ const platformsMixin = {
         }
       }
     } else if (platform === 'tencent_video' && article.video_path) {
-      const tr = await Promise.race([
+      let tr = await Promise.race([
         require('./tencent-video-frame').fillTencentVideo(win, article, { log, platform }),
         new Promise(function (res) { setTimeout(function () { res({ ok: false, reason: 'fill-timeout-45s' }) }, 45000) })
       ]);
-      if (tr && tr.reason === 'fill-timeout-45s') log.warn('RpaView', '[tencent_video] fillTencentVideo timeout 45s, continuing'); fillReport.title = { ok: tr.ok }; fillReport.content = { ok: tr.ok, frameStep: tr.step }
+      if (tr && tr.reason === 'fill-timeout-45s') log.warn('RpaView', '[tencent_video] fillTencentVideo timeout 45s, continuing');
+      // fill-retry（2026-10-24）：编辑器偶发不渲染（waitForElement timeout sel=.ql-editor），
+      // 失败后重试最多 3 次，每次间隔 5s——这是页面加载稳定性问题，不是填写逻辑问题。
+      for (let _attempt = 2; _attempt <= 3 && !(tr && tr.ok); _attempt++) {
+        log.warn('RpaView', '[tencent_video] fill retry ' + _attempt + '/3 in 5s')
+        await this._sleep(5000)
+        try {
+          tr = await Promise.race([
+            require('./tencent-video-frame').fillTencentVideo(win, article, { log, platform }),
+            new Promise(function (res) { setTimeout(function () { res({ ok: false, reason: 'fill-timeout-45s' }) }, 45000) })
+          ])
+        } catch (_eR2) { tr = { ok: false } }
+      } fillReport.title = { ok: tr.ok }; fillReport.content = { ok: tr.ok, frameStep: tr.step }
     } else if (article.title) {
       log.warn('RpaView', '[' + platform + '] title field not found (no title_input nor editor candidate), title skipped')
       fillReport.title = { ok: false, error: 'title field not found (no selector matched)' }
