@@ -406,6 +406,42 @@ test('A12 导出面与追踪态：三个谓词与生成器都必须在模块导�
 
 /* ---------------- A17-A19：变异驱动的基线卫生（QM-6 第二轮评审 i2） ---------------- */
 
+test('A24 反证运行态必须与本机 vendor 无关（否则 n32 那一类靶子会在本机真的跑起别人的流水线）', () => {
+  const D = require('./qm6-exit-capabilities.mutation.js');
+  const env = D.sandboxEnv();
+  const dir = env.CCG_ARL_DIR;
+  assert.ok(typeof dir === 'string' && dir.length > 0, '沙箱目录必须存在且非空字符串');
+  assert.equal(dir, env.HOME, 'HOME 必须一起指过去，否则 ~/.claude/skills 那一路仍会命中本机引擎');
+  assert.equal(dir, env.USERPROFILE, 'USERPROFILE 同理（Windows 上 locateVendor 读的就是它）');
+  assert.ok(!fs.existsSync(path.join(dir, 'engine.js')) && !fs.existsSync(path.join(dir, 'ccg-deep-review.js')),
+    '沙箱目录里不得有引擎/驱动两件，否则 locateVendor 会命中');
+  for (const k of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) {
+    assert.ok(!(k in env), `沙箱 env 不得带 ${k}（它会静默压过 cwd，实测踩过）`);
+  }
+  // 行为：探针本体在沙箱 env 下必须走"没有 vendor"那一档 —— rc=2 且点名失明，
+  // 而不是 rc=0（把没测读成通过）也不是 rc=1（把没装读成读数矛盾）。
+  const probe = path.join(ROOT, 'scripts', 'ccg-convergence-probe.js');
+  const inSandbox = spawnSync(process.execPath, [probe], { cwd: ROOT, encoding: 'utf8', env });
+  assert.equal(inSandbox.status, 2, '沙箱里探针必须 rc=2，实际 ' + inSandbox.status + '：' + String(inSandbox.stderr).slice(0, 200));
+  assert.match(String(inSandbox.stderr), /探针失明/, '必须点名"探针失明"，不得让它读成"引擎没问题"');
+  // 反失明正控：把 env 换回真实的，若本机装了引擎，rc 就**不该**是 2 —— 否则上面那两句
+  // 可能只是因为探针本身坏了而恒成立。本机没装引擎时如实打日志（不 skip 整条锁）。
+  const realHome = process.env.USERPROFILE || process.env.HOME || '';
+  const realVendor = realHome && fs.existsSync(path.join(realHome, '.claude', 'skills', 'adversarial-review-loop', 'scripts', 'ccg-deep-review.js'));
+  if (realVendor) {
+    const out = spawnSync(process.execPath, [probe], { cwd: ROOT, encoding: 'utf8', env: { ...process.env } });
+    assert.notEqual(out.status, 2, '本机装了引擎却仍 rc=2 ⇒ 探针或定位逻辑坏了，A24 的上面两句就成了空断言');
+    console.log('[qm6-exit-capabilities] A24 正控：本机装了 vendor（rc=' + out.status + '），沙箱确实把它藏掉了');
+  } else {
+    console.log('[qm6-exit-capabilities] A24 正控：本机没有 vendor，正控无从执行（只打点，不据此判上面那两句已通过）');
+  }
+  // 结构锁：套件必须**在沙箱里跑**，且驱动开工前自证过沙箱生效
+  const drv = read('scripts/qm6-exit-capabilities.mutation.js').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  assert.match(drv, /'--test', suite\.file\][^\n]*env: sandboxEnv\(\)/,
+    'suiteRun 不再传沙箱 env ⇒ 反证拿本机 vendor 陪跑（变异 n39 就钉这一格）');
+  assert.match(drv, /id: 'sandbox', state: 'PROBLEM'/, '驱动必须自证沙箱生效，失效时打 PROBLEM 而不是继续跑');
+});
+
 test('A22 「按设计的跳过」这张表只准有一份实现 —— 别处内联同一条枚举即红', () => {
   // 这是"是否复用某实现"的锁。口径必须取**两版实现答案不同**的输入：
   // 今天只有读数器里那一条数组字面量；若下一个会话在探针/驱动里内联一份"顺手判一下"，

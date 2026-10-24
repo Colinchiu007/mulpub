@@ -30,7 +30,7 @@ const WF = '.github/workflows/quality-gate.yml';
 const MUT = 'scripts/qm6-exit-capabilities.mutation.js';
 
 const SUITES = [
-  { file: LOCKS, minTests: 23 },
+  { file: LOCKS, minTests: 24 },
   { file: PROBET, minTests: 12 },
 ];
 
@@ -311,6 +311,13 @@ const M = [
     expect: ["A23"],
   },
   {
+    id: "n39", file: MUT,
+    note: "套件不再在沙箱 env 里跑 ⇒ 反证拿本机 vendor 陪跑：n32 那一类靶子会真的跑起别人的评审流水线，且 MISSED/CAUGHT 集随本机状态漂移（A25 抓这一格）",
+    from: "spawnSync(process.execPath, ['--test', suite.file], " + "{ cwd: ROOT, encoding: 'utf8', env: sandboxEnv() })",
+    to: "spawnSync(process.execPath, ['--test', suite.file], { cwd: ROOT, encoding: 'utf8' })",
+    expect: ["A25"],
+  },
+  {
     id: 'msanity', file: LOCKS,
     note: '驱动自己的体检：把一个期望值改成明显错的数；这条不红就是驱动没在读 TAP',
     from: "  assert.equal(C.toolSignatureCapable(WB_SINGLE), false, '今天只认 performedBy ⇒ 自扮演收口永拿不到 tier');",
@@ -327,8 +334,33 @@ const write = (rel, text) => fs.writeFileSync(path.join(ROOT, rel), text, 'utf8'
 const expand = (text, s) => (text.includes('\r\n') ? s.split('\n').join('\r\n') : s);
 const nameHit = (reds, want) => reds.some((r) => r === want || r.startsWith(want + ' '));
 
+/**
+ * 反证运行态的 vendor 沙箱：跑每一轮套件时把 `CCG_ARL_DIR` / `HOME` / `USERPROFILE` 指到一个空的临时目录，
+ * 于是 `locateVendor()` 一律返回 null —— **本机装的是什么 vendor 都不参与反证**。
+ *
+ * 为什么必须这样（design §1.4 的同一条教训，落在驱动这一侧）：
+ * ① 反证结果必须可复现。带着本机 vendor 跑，P1/P3 走"有引擎"那一档、P10-P12 走夹具那一档，
+ *    同一次运行里混着两种机器态，换台机器 MISSED/CAUGHT 集会变；
+ * ② 更要命的是 n32 那一类靶子：它摘掉的正是"不许 require 未守卫驱动"那道闸，
+ *    带着真 vendor 跑就等于**让反证驱动在本机真的跑一遍评审流水线**（实测覆写了 `.ccg` 判定产物）。
+ *    变异要测的是"探针会不会去 require 它"，那件事由 P12 的自建夹具证明就够了，不需要拿真引擎陪葬。
+ * ③ 因此 `expect` 里没有任何一条指望 P1/P3 的"有引擎"分支（当场核对：39 条靶子里 0 条引用 P1/P3）。
+ */
+function vendorSandbox () {
+  if (SANDBOX && fs.existsSync(SANDBOX)) return SANDBOX;
+  SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'qm6-mut-vendorless-'));
+  return SANDBOX;
+}
+
+function sandboxEnv () {
+  const dir = vendorSandbox();
+  const env = { ...process.env, CCG_ARL_DIR: dir, HOME: dir, USERPROFILE: dir };
+  for (const k of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) delete env[k];
+  return env;
+}
+
 function suiteRun (suite) {
-  const r = spawnSync(process.execPath, ['--test', suite.file], { cwd: ROOT, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, ['--test', suite.file], { cwd: ROOT, encoding: 'utf8', env: sandboxEnv() });
   const out = String(r.stdout || '');
   const m = out.match(/^# tests (\d+)$/m);
   const f = out.match(/^# fail (\d+)$/m);
@@ -353,6 +385,7 @@ function restoreAll (orig) {
 // 崩溃一次的驱动把污染态固化成 ORIG）。所以这里给两条机械出口，不写"请自行恢复"这种散文。
 const SIDECAR = path.join(os.tmpdir(), 'qm6-exit-capabilities-mutation-orig.json');
 const LOCK = SIDECAR + '.lock';
+let SANDBOX = '';
 
 /**
  * 单实例锁（QM-6 第三轮评审 i1 的可修那一半）：两个驱动同时跑会**同时改写同一批受 git 管理的源文件**，
@@ -521,6 +554,23 @@ function runAll (onlyArg, allowDirty) {
     if (unknown.length) throw new Error(`未知变异 id：${unknown.join(',')}（参数不得被静默忽略）`);
   }
   const targets = [...new Set(M.map((m) => m.file))];
+  // 运行态自证（放在拿锁与任何写动作之前，失败就直接退出，不留还原负担）：
+  // 在沙箱 env 里跑一次探针本体，必须走"没有 vendor"那一档（rc=2 且点名失明）。
+  // 这不是装饰 —— 沙箱失效时反证会拿真 vendor 陪跑，n32 那一类靶子就会在本机真的跑起评审流水线
+  // （实测覆写过 `.ccg` 判定产物），而 MISSED/CAUGHT 集会随本机状态漂移。
+  const probePath = path.join(ROOT, 'scripts/ccg-convergence-probe.js');
+  const pv = spawnSync(process.execPath, [probePath], { cwd: ROOT, encoding: 'utf8', env: sandboxEnv() });
+  if (pv.status !== 2 || !/探针失明/.test(String(pv.stderr || ''))) {
+    process.stdout.write(`SANDBOX=FAIL rc=${pv.status} stderr=${String(pv.stderr).slice(0, 160)}\n`);
+    return {
+      results: [{
+        id: 'sandbox', state: 'PROBLEM',
+        why: 'vendor 沙箱失效：探针在沙箱 env 下必须 rc=2 且点名"探针失明"，反证不得拿本机 vendor 陪跑',
+      }],
+      attempted: 0,
+    };
+  }
+  process.stdout.write(`[mutation] 反证运行态 vendor=sandbox(${vendorSandbox()}) —— 本机 vendor 不参与反证（design §1.4）\n`);
   acquireLock();
   try {
   if (allowDirty) {
@@ -627,6 +677,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  vendorSandbox, sandboxEnv,
   M, SUITES, runAll, restoreFromSidecar, assertCleanBaseline, gitCleanAgainstHead, parseCli,
   acquireLock, releaseLock, SIDECAR, LOCK, worktreeDirtyPaths, sideEffectPaths, checkSideEffects,
 };
