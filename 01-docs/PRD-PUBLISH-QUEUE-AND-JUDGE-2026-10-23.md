@@ -987,3 +987,45 @@ HTTP 状态是 **200**，但业务层失败。作品列表 `post_list` 最新一
 ### 落库
 
 `bf1806f34`（描述同步）、`0552b94f2`（轮询面板）为当前最新；两者均已在 tv-host-final。
+
+## 8.30 视频号带文案发布成功（2026-10-24 12:15:25）
+
+### 结果（作品列表实证）
+
+```
+POST post_list → 最新一条：
+  createTime = 2026-10-24T04:15:25Z
+  status     = 1
+  desc.description = "被误解的明朝：西方史料里的另一个大明\n你还记得大明是"东亚病…"
+```
+
+**描述非空** —— 这是第一次「视频 + 真文案」同时落地的发布。
+
+### 三个根因与修法（按发现顺序）
+
+| # | 根因 | 证据 | 修法 |
+|---|---|---|---|
+| 1 | 描述被填进**隐藏的商品链接 textarea**（0×0） | 枚举到 `TEXTAREA.textarea-body` 0×0 vs `DIV.input-editor` 531×44，前者被 `querySelector("textarea")` 优先命中 | 改选 `div.input-editor`（`1c9…` / `43f000418`） |
+| 2 | 合成 `InputEvent` 不被编辑器接受 | `execCommand('insertText')` 后 `readback=190` 但提交体 `description=""` | 改用 CDP `Input.insertText`（浏览器级真输入）（`60f9fb873`） |
+| 3 | **上传未完成就填字段**，表单永不可发布 | CDP 截图显示视频仍在「取消上传」、封面「生成中」、描述框为空 | 先轮询等「取消上传」消失再填（`d92a3bfda`） |
+
+### 判据链（可复用）
+
+```
+wait-upload-done state=done        # 上传真的完成
+desc real-typed len=190            # 描述真输入进编辑器
+poll-direct visible=120x40         # 发布面板自动弹出
+poll-direct click=clicked-direct   # 点「直接发表」
+→ post_list 新作品 desc.description 非空   # 唯一成功判据
+```
+
+### 教训（写进流程）
+
+1. **HTTP 200 / `clicked-direct` / `visible=120x40` 都不是成功判据**，只有 `post_list` 出现带内容的新作品才算。
+2. **窗口看起来"空白"时，用 CDP `Page.captureScreenshot` 自己看**——本次靠截图才发现"上传没完成"这个真因，之前 8 次盲跑全部误判。
+3. **DOM 枚举必须进 shadowRoot**：`document.querySelectorAll` 在 `.wujie_iframe`.shadowRoot 页面上一律返回 0。
+4. 填字段前必须确认「前置状态就绪」（上传完成），否则填了也会被页面重载清掉。
+
+### 落库
+
+`d92a3bfda`（上传等待）+ `60f9fb873`（CDP 真输入）+ `43f000418`（描述选择器）为本次成功的关键三提交。
