@@ -345,17 +345,18 @@ class ShipinhaoVideoChain {
       targetWidth: width,
       targetHeight: height,
       type: 4,
+      useAstraThumbCover: 1, // 2026-10-24 抓包实证：平台真实请求带此字段
       timestamp: String(Date.now()),
-      _log_finder_uin: null,
+      _log_finder_uin: '',  // 抓包实证：空字符串（非 null）
       _log_finder_id: this.finderId || '',
-      rawKeyBuff: null,
+      rawKeyBuff: '',      // 抓包实证：空字符串（非 null）
       pluginSessionId: null,
       scene: 7,
       reqScene: 7
     }
     const res = await requestWithRetry(this.api, {
       method: 'post',
-      url: '/cgi-bin/mmfinderassistant-bin/post/post_clip_video',
+      url: '/micro/content/cgi-bin/mmfinderassistant-bin/post/post_clip_video', // 抓包实证：/micro/content 前缀
       data: body,
       headers: { cookie: this.cookie, referer: POST_REFERER, 'Content-type': 'application/json', 'User-Agent': this.userAgent },
     })
@@ -367,7 +368,8 @@ class ShipinhaoVideoChain {
   /** Step 5：发布（私密优先 → post_draft；正式 → post_create） */
   async publish (postData, opts = {}) {
     const draft = opts.draft !== false
-    const url = '/cgi-bin/mmfinderassistant-bin/post/post_' + (draft ? 'draft' : 'create')
+    // 2026-10-24 抓包实证：所有 post/* 都在 /micro/content 前缀下
+    const url = '/micro/content/cgi-bin/mmfinderassistant-bin/post/post_' + (draft ? 'draft' : 'create')
     const res = await requestWithRetry(this.api, {
       method: 'post',
       url,

@@ -59,8 +59,8 @@ describe("publish/platforms/shipinhao-video", function () {
         "PUT /applyuploaddfs",
         "PUT /uploadpartdfs",
         "POST /completepartuploaddfs",
-        "POST /cgi-bin/mmfinderassistant-bin/post/post_clip_video",
-        "POST /cgi-bin/mmfinderassistant-bin/post/post_draft",
+        "POST /micro/content/cgi-bin/mmfinderassistant-bin/post/post_clip_video",
+        "POST /micro/content/cgi-bin/mmfinderassistant-bin/post/post_draft",
       ]);
       // applyuploaddfs：1MB < 8MiB → 单分片，BlockSum=1
       const apply = srv.requestsFor(/\/applyuploaddfs/)[0];
