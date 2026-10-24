@@ -62,6 +62,8 @@ const AGNES_VIDEO_PIXELS_1080P = Object.freeze({
  * @property {number} maxVideos     参考视频个数上限（0 = 不支持）
  * @property {boolean} supportsReferenceVideo  是否支持参考视频
  * @property {readonly string[]} aspectRatios   合法画幅
+ * @property {Readonly<Record<string, number>>} listPrices      列表价（¥/秒，按分辨率档位）
+ * @property {Readonly<Record<string, number>>} currentPrices   现行价（¥/秒）；缺项按列表价
  */
 
 /** @type {Readonly<Record<string, AgnesVideoModelSpec>>} */
@@ -77,6 +79,9 @@ const AGNES_VIDEO_MODELS = Object.freeze({
     maxVideos: 0,
     supportsReferenceVideo: false,
     aspectRatios: AGNES_VIDEO_ASPECT_RATIOS,
+    // 列表价 ¥0.15/秒；限时优惠期现行价 ¥0（优惠结束后按列表价计）
+    listPrices: Object.freeze({ '720P': 0.15 }),
+    currentPrices: Object.freeze({ '720P': 0 }),
   }),
   'agnes-video-2.5': Object.freeze({
     id: 'agnes-video-2.5',
@@ -89,6 +94,9 @@ const AGNES_VIDEO_MODELS = Object.freeze({
     maxVideos: 1,
     supportsReferenceVideo: true,
     aspectRatios: AGNES_VIDEO_ASPECT_RATIOS,
+    // 列表价：720P ¥0.15/s、1080P 与 1K ¥0.24/s、2K ¥0.33/s
+    listPrices: Object.freeze({ '720P': 0.15, '1080P': 0.24, '1K': 0.24, '2K': 0.33 }),
+    currentPrices: Object.freeze({}),
   }),
 })
 
@@ -107,6 +115,8 @@ const FALLBACK_VIDEO_MODEL_SPEC = Object.freeze({
   maxVideos: 0,
   supportsReferenceVideo: false,
   aspectRatios: AGNES_VIDEO_ASPECT_RATIOS,
+  listPrices: Object.freeze({ '720P': 0.15 }),
+  currentPrices: Object.freeze({ '720P': 0 }),
 })
 
 /**
@@ -162,6 +172,38 @@ function outputPixelsFor (modelId, size, aspectRatio) {
   return AGNES_VIDEO_PIXELS_720P[ratio] || ''
 }
 
+/**
+ * 估算一次生成的费用（¥）。
+ *
+ * 计费口径（官方）：总费用 = 输出秒数 × 档位单价 + 输入视频秒数 × 档位单价
+ *                + max(0, 图片数 - 5) × 图片超额单价
+ * ⇒ **输入视频的秒数与输出秒数相加计费**（参考视频会让账单翻倍，故必须让用户看见）。
+ *
+ * @param {string} modelId
+ * @param {object} usage
+ * @param {number} [usage.seconds=5] - 输出时长
+ * @param {number} [usage.inputVideoSeconds=0] - 参考视频时长
+ * @param {number} [usage.imageCount=0] - 参考图张数
+ * @param {string} [usage.size] - 分辨率档位
+ * @returns {{ amount: number, unitPrice: number, free: boolean }}
+ */
+function estimateVideoCost (modelId, usage = {}) {
+  const spec = describeVideoModel(modelId)
+  const tier = spec.sizes.includes(usage.size) ? usage.size : spec.defaultSize
+  const listPrice = Number(spec.listPrices[tier])
+  const currentPrice = Number(spec.currentPrices[tier])
+  const unitPrice = Number.isFinite(currentPrice) ? currentPrice : (Number.isFinite(listPrice) ? listPrice : 0)
+  const seconds = Math.max(0, Number(usage.seconds) || 0)
+  const inputVideoSeconds = Math.max(0, Number(usage.inputVideoSeconds) || 0)
+  const imageCount = Math.max(0, Number(usage.imageCount) || 0)
+  const amount = (seconds + inputVideoSeconds) * unitPrice + Math.max(0, imageCount - 5) * 0.04
+  return {
+    amount: Math.round(amount * 10000) / 10000,
+    unitPrice,
+    free: unitPrice === 0,
+  }
+}
+
 module.exports = {
   AGNES_VIDEO_MODELS,
   AGNES_VIDEO_ASPECT_RATIOS,
@@ -170,4 +212,5 @@ module.exports = {
   isKnownVideoModel,
   listVideoModels,
   outputPixelsFor,
+  estimateVideoCost,
 }

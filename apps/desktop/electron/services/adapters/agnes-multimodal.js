@@ -50,6 +50,7 @@ const AGNES_MULTIMODAL_MODELS = [
   { id: 'agnes-3.0-flash', name: 'Agnes 3.0 Flash', description: '文字推理（OpenAI 兼容 chat/completions，512K 上下文）' },
   { id: 'agnes-image-2.5-flash', name: 'Agnes Image 2.5 Flash', description: '图片生成（/images/generations，1K-4K 档位）' },
   { id: 'agnes-video-2.5-flash', name: 'Agnes Video 2.5 Flash', description: '视频生成（OpenAI Videos 兼容 /videos，720P 异步任务）' },
+  { id: 'agnes-video-2.5', name: 'Agnes Video 2.5', description: '视频生成（720P/1080P/1K/2K；支持参考视频；按秒计费）' },
 ]
 
 // 视频支持的 aspect_ratio 与对应宽高比数值（官方文档「视频尺寸与画幅」）

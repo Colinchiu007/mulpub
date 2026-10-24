@@ -227,6 +227,51 @@ describe('QuickRenderPanel — 提交载荷', () => {
   })
 })
 
+describe('QuickRenderPanel — 参考视频与成本', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  const CAPS_WITH_VIDEO = {
+    ...AGNES_CAPS,
+    maxVideos: 1,
+    supportsReferenceVideo: true,
+    prices: { '720P': 0.15 },
+    listPrices: { '720P': 0.15 },
+  }
+
+  it('模型不支持参考视频 ⇒ 不渲染参考视频上传位', async () => {
+    const { w } = await mountPanel()
+    await w.find('[data-testid="quick-mode-reference"]').trigger('click')
+    await nextTick()
+    expect(w.find('[data-testid="quick-ref-videos-zone"]').exists()).toBe(false)
+  })
+
+  it('模型支持参考视频 ⇒ 渲染上传位并随载荷提交', async () => {
+    const { w, mocks } = await mountPanel(CAPS_WITH_VIDEO)
+    await w.find('[data-testid="quick-mode-reference"]').trigger('click')
+    await nextTick()
+    expect(w.find('[data-testid="quick-ref-videos-zone"]').exists()).toBe(true)
+    await w.find('[data-testid="quick-ai-prompt"]').setValue('x')
+    await pickFiles(w, 'quick-video-input', [makeFile('a.mp4', 'video/mp4')],
+      thumbsIn(w, 'quick-ref-videos-zone', 1))
+    await w.find('[data-testid="quick-start"]').trigger('click')
+    await new Promise((r) => setTimeout(r, 0))
+    const payload = mocks.renderStartAiVideo.mock.calls[0][0]
+    expect(Array.isArray(payload.videos)).toBe(true)
+    expect(payload.videos).toHaveLength(1)
+    expect(payload.videos[0].url.startsWith('data:video/mp4;base64,')).toBe(true)
+  })
+
+  it('显示预计成本；免费模型显示免费提示', async () => {
+    const { w } = await mountPanel(CAPS_WITH_VIDEO)
+    await nextTick()
+    expect(w.find('[data-testid="quick-cost"]').text()).toContain('0.15')
+    // 免费模型（Flash 现行价 ¥0）
+    const { w: w2 } = await mountPanel({ ...AGNES_CAPS, prices: { '720P': 0 }, listPrices: { '720P': 0.15 } })
+    await nextTick()
+    expect(w2.find('[data-testid="quick-cost"]').text()).not.toContain('0.00')
+  })
+})
+
 describe('QuickRenderPanel — 素材上限与错误', () => {
   beforeEach(() => { vi.clearAllMocks() })
 

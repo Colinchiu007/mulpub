@@ -59,7 +59,26 @@ function describeVideoCapabilities (model) {
     maxVideos: spec.maxVideos,
     supportsReferenceVideo: spec.supportsReferenceVideo,
     aspectRatios: spec.aspectRatios.slice(),
+    // 计费口径（¥/秒，按分辨率档位）：渲染层据此显示预计成本——
+    // 参考视频的秒数与输出秒数**相加计费**，不显示会让用户意外多付。
+    prices: currentPrices(spec),
+    listPrices: { ...spec.listPrices },
   }
+}
+
+/**
+ * 各档位的**现行价**（¥/秒）；未列出的档位按列表价。
+ * @param {object} spec
+ * @returns {Record<string, number>}
+ */
+function currentPrices (spec) {
+  const out = {}
+  for (const tier of spec.sizes) {
+    const current = Number(spec.currentPrices[tier])
+    const list = Number(spec.listPrices[tier])
+    out[tier] = Number.isFinite(current) ? current : (Number.isFinite(list) ? list : 0)
+  }
+  return out
 }
 
 module.exports = {

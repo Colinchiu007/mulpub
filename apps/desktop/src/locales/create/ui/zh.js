@@ -38,6 +38,12 @@
         quickRetry: "重试",
         quickStageSubmitting: "提交视频生成任务",
         quickStageCompleted: "完成",
+        quickRefVideosLabel: "参考视频",
+        quickUploadVideo: "点击或拖拽视频到此处",
+        quickRefVideosCount: "已选 {count} / {max} 段参考视频",
+        quickCostFree: "当前模型限时免费（{seconds} 秒不收费）",
+        quickCost: "预计成本 ¥{amount}（¥{unit}/秒 × {seconds} 秒）",
+        quickCostWithReferenceVideo: "；参考视频的时长另计",
         quickError: {
           modeUnsupported: "当前模型不支持这种生成模式",
           textDisallowsMedia: "文生视频模式不接受素材，请切换到首尾帧或参考素材模式",
@@ -50,6 +56,9 @@
           fileTooLarge: "单个文件不能超过 {max}MB",
           aiWriteFailed: "AI 写稿失败",
           secondsOutOfRange: "时长需在 4–12 秒之间",
+
+          videoLimit: "参考视频最多 {max} 段",
+          videoNotSupported: "当前模型不支持参考视频",
           renderFailed: "渲染失败",
           generic: "请求参数不合法",
         },

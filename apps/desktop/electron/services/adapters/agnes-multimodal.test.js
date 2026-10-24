@@ -82,13 +82,15 @@ describe('AgnesMultimodalAdapter — Agnes-AI 多模态（中国站）', () => {
       expect(result.errors).toContain('apiKey is required')
     })
 
-    it('listModels 返回静态 3 个模型（副本）', async () => {
+    it('listModels 返回静态 4 个模型（副本）：文字 + 图片 + 两个视频模型', async () => {
       const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
       const models = await adapter.listModels()
       expect(models.map(m => m.id)).toEqual([
         'agnes-3.0-flash',
         'agnes-image-2.5-flash',
         'agnes-video-2.5-flash',
+        // 非 Flash：支持更多分辨率档位与参考视频（能力见 agnes-video-models.js）
+        'agnes-video-2.5',
       ])
       models[0].id = 'mutated'
       expect(AGNES_MULTIMODAL_MODELS[0].id).toBe('agnes-3.0-flash')

@@ -9,6 +9,8 @@
  * ⚠️ 本文件**不得出现中文字符串字面量**（渲染端 CJK 门禁按 file+content 增量比对基线）。
  */
 
+import { MAX_VIDEO_BYTES, VIDEO_MIME_BY_EXT } from './quick-render-constants'
+
 /**
  * @param {string} mimeType
  * @returns {boolean}
@@ -42,6 +44,21 @@ function readAsDataUrl (file) {
 }
 
 /**
+ * 视频类型判定：优先看浏览器给的 mime，其次看扩展名（Windows 上部分容器 mime 为空）。
+ * @param {string} mimeType
+ * @param {string} [fileName]
+ * @returns {boolean}
+ */
+function isVideo (mimeType, fileName) {
+  if (typeof mimeType === 'string' && mimeType.startsWith('video/')) return true
+  // 渲染层是浏览器上下文 ⇒ 不用 node 的 path，手写扩展名提取
+  const name = String(fileName || '')
+  const dot = name.lastIndexOf('.')
+  const ext = dot >= 0 ? name.slice(dot).toLowerCase() : ''
+  return Boolean(VIDEO_MIME_BY_EXT[ext])
+}
+
+/**
  * @param {object} deps
  * @param {(key: string, params?: object) => string} deps.t - vue-i18n 的 t
  * @param {() => number} deps.maxImages
@@ -50,10 +67,11 @@ function readAsDataUrl (file) {
  * @param {import('vue').Ref<Array<{name: string, dataUrl: string, size: number}>>} deps.referenceImages
  * @param {import('vue').Ref<Array<{name: string, dataUrl: string, size: number}>>} deps.referenceAudios
  * @param {import('vue').Ref<Array<{name: string, dataUrl: string, size: number}>>} deps.galleryImages
+ * @param {import('vue').Ref<Array<{name: string, dataUrl: string, size: number}>>} deps.videos
  * @param {(message: string) => void} deps.onError
  */
 export function useQuickRenderMaterials (deps) {
-  const { t, maxImages, maxAudios, frames, referenceImages, referenceAudios, galleryImages, onError } = deps
+  const { t, maxImages, maxAudios, frames, referenceImages, referenceAudios, galleryImages, videos, onError } = deps
 
   const maxImageMb = Math.round(5)
   const maxAudioMb = Math.round(10)
@@ -133,6 +151,39 @@ export function useQuickRenderMaterials (deps) {
   }
 
   /**
+   * 加入参考视频。
+   *
+   * 形态：Data URI（与参考图同源思路）。官方文档对参考视频写的是「可公开访问的视频 URL」，
+   * 但短片 base64 后体积可控（见 MAX_VIDEO_BYTES）⇒ 先按 Data URI 交付；
+   * 若上游拒收，改走公网素材托管（形态是本函数唯一改动点）。
+   *
+   * @param {FileList|File[]|null} files
+   * @param {number} max
+   */
+  async function pushVideos (files, max) {
+    const limit = Number(max) > 0 ? Number(max) : 0
+    if (limit <= 0) {
+      onError(t('create.story2video.ui.quickError.videoNotSupported'))
+      return
+    }
+    const incoming = Array.from(files || []).filter((f) => f && isVideo(f.type, f.name))
+    if (!incoming.length) return
+    const room = limit - videos.value.length
+    if (room <= 0) {
+      onError(t('create.story2video.ui.quickError.videoLimit', { max: limit }))
+      return
+    }
+    for (const file of incoming.slice(0, room)) {
+      if (file.size > MAX_VIDEO_BYTES) {
+        onError(t('create.story2video.ui.quickError.fileTooLarge', { max: Math.round(MAX_VIDEO_BYTES / 1024 / 1024) }))
+        continue
+      }
+      const dataUrl = await readAsDataUrl(file)
+      videos.value.push({ name: file.name, dataUrl, size: file.size })
+    }
+  }
+
+  /**
    * 清空某个帧位。
    * @param {'first'|'last'} slot
    */
@@ -140,5 +191,5 @@ export function useQuickRenderMaterials (deps) {
     frames.value = { ...frames.value, [slot]: null }
   }
 
-  return { pushImages, pushAudios, pushGallery, pushFrame, clearFrame }
+  return { pushImages, pushAudios, pushGallery, pushFrame, pushVideos, clearFrame }
 }
