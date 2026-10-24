@@ -9,7 +9,7 @@ branch: fix-clickable-roles-scanner-blindspots
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | **运行时代码变更**（1 份合同测试 + 8 个 `.vue` + 1 份 PRD + 本记录）。隔离方式：沙箱内**独立 clone**（`/workspace/mulpub`）+ 独立分支 `fix-clickable-roles-scanner-blindspots`（裸 task 名，无斜杠，符合本仓分支约定）。⚠️ 本环境无 `scripts/start-mp-task.ps1`（PowerShell，Linux 不可执行）⇒ 等价手工隔离；`git worktree` 在 NFS 上需二次全量 checkout ⇒ 改用"独立 clone + 独立分支"，同样满足"不碰共享主工作区" |
+| 变更类型与隔离 | ✅ | **运行时代码变更**（1 份合同测试 + 8 个 `.vue` + 1 份 PRD + 本记录）。隔离方式：沙箱内**独立 clone**（沙箱工作区下的独立目录，与用户主工作区物理分离）+ 独立分支 `fix-clickable-roles-scanner-blindspots`（裸 task 名，无斜杠，符合本仓分支约定）。⚠️ 本环境无 `scripts/start-mp-task.ps1`（PowerShell，Linux 不可执行）⇒ 等价手工隔离；`git worktree` 在 NFS 上需二次全量 checkout ⇒ 改用"独立 clone + 独立分支"，同样满足"不碰共享主工作区" |
 | 第一性原因（QM-5 ①） | ✅ | **不是"漏写几个站点"，是判据的读数源被截断**：① 标签匹配按行做 + 先行断言 `(?=[\s/>])` 要求标签名后**同行**还有字符 ⇒ 只写 `<div`（属性换行）时该行后面没字符 ⇒ **整元素隐形**（域内 158/197 个文件有这种形态）；② 模板边界取 `findIndex(l => l.includes('</template>'))` = **第一个** `</template>`，而嵌套 `<template #slot>` 的闭合排在根 template 闭合**之前** ⇒ 扫描窗口在嵌套 template 处断掉，根 template 后半段从未被扫（**55/197 个文件**，占 27.9%）；③ 取元素正文取**第一个同名闭合标签** ⇒ 同名嵌套让正文提前截断 ⇒ 「`role=button` 不得含可见可聚焦后代」这条硬判据在 `ProjectCard.vue` 上失明（卡内「删除」按钮被数成 0） |
 | 逃逸分析（QM-5 ②） | ✅ | 既有测试**结构上无法**抓到：这三处都是**"域被缩小"型**缺陷——断言写的是"站点 X 有 role/tabindex/keydown"，而**站点 X 从来没进过域**。合同文件里的下界断言（`sites >= 30` / `fixed >= 15`）在旧实现下全部满足（31/18），**域被砍掉 59% 也照样绿**。⇒ 逃逸链：判据按行匹配 → 扫描域按行截断 → 下界阈值只挡"归零"不挡"缩小" → 台账棘轮在**更小的真源域**上生效 → 越修越假绿 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | ① 扫描器改成**全文顺序分词**（粘性正则 + 每个开始标签整体消费，引号感知的属性值不会被重扫）⇒ 多行开始标签可见；② 根 template 范围按 `<template>` **嵌套配平**求（`rootTemplateRange`）；③ 元素正文按**同名标签配平**求（`matchingClose`）⇒ 可见可聚焦后代不再漏数。<br>**回归保护不靠写死数字**：<br>（a）**逐文件域完整性**断言——每个 `.vue` 的"扫了多少字符"必须等于"根 template 有多少字符"（任何提前截断当场红）；<br>（b）**四条夹具级反盲区断言**（多行开始标签 / 嵌套 `<template>` 之后的元素 / 同名嵌套元素的可聚焦后代 / `<script setup>` 在前且脚本含 `"<template"` 字面量时根 template 仍定位正确），各用内联夹具锁住；<br>（c）两份**可清账名单**（`role-leaf` 欠账 3 条 / 键盘处理非逐字镜像豁免 1 条）各有界、只能缩小、各带"陈旧条目"检查；<br>（d）新暴露的 45 个站点逐个处置：14 个直接修好 + 5 个补齐缺失的 Space 键 + 2 个**撤掉有害的 `role="button"`**（卡内已有等价按钮：编辑/预览） + 18 条带原因登记 + 3 条存量 `role-leaf` 缺陷显性化 + 2 处 widget 角色排除出缺口集（但必须计数） |
@@ -25,7 +25,7 @@ branch: fix-clickable-roles-scanner-blindspots
 
 | 验证 | 命令 | 结果 |
 |---|---|---|
-| 合同测试（16 条断言） | 沙箱内 `vitest` 兼容层跑**真实入库文件**（`node /workspace/probe/run-contract.mjs`） | 16/16 绿（真实 vitest 的复跑见 CI） |
+| 合同测试（16 条断言） | ① 仓内真 vitest：`npx vitest run src/clickable-roles.contract.test.js`（装齐依赖后实跑）<br>② 沙箱内最小 vitest 兼容层跑**同一份入库文件**（依赖装不齐时的降级读数） | ① **16/16 绿**（vitest 4.1.9，19.5s）② 16/16 绿 —— 两条通路读数一致 |
 | 旧实现 vs 新实现对拍 | 探针 `measure.mjs`：两个实现扫同一批 197 个 `.vue` | 旧 **31** 站点 / 新 **76** 站点；旧扫描器只看见 **41%**；**55/197（27.9%）** 文件的扫描域被截断；域内 **158/197** 个文件存在"标签名独占一行"形态 |
 | 反盲区断言（夹具级） | 合同文件内 3 条内联夹具 | 逐条把修法退回旧写法（按行匹配 / 第一个 `</template>` / 第一个同名闭合）⇒ 对应断言当场红 |
 | 域完整性 | 合同文件「扫描窗口 = 根 template 全文」断言 | 197/197 文件逐个核对，无截断 |
@@ -33,6 +33,8 @@ branch: fix-clickable-roles-scanner-blindspots
 | 变异验证（扫描器四处修法） | 手工退回旧写法各跑一遍 | A/B/C/脚本块定位四处各对应 1 条断言变红 ⇒ 断言有牙齿 |
 | 行数门禁自检 | 逐文件读 `max-lines-baseline.json` 的 `files`/`targets` 与当前读数 | `FilmEngineeringView.vue` 803（登记 605 ⇒ 上限 805，**余 2**）；`Collection.vue` 2669（target 2920）；`Home.vue` 452（< 500，不进 `>=500` 计数）；`CreateHistory.vue` 302；`SceneAssetSelection.vue` 431；`TagSuggester.vue` 452；`PipelineBrowser.vue` 158；`PipelineSelector.vue` 136；合同文件 548（测试文件上限 1500）⇒ **不触发 `TARGET_GREW` / `NEW_OVER_LIMIT`** |
 | 债务预算 | `node scripts/check-debt-budget.js` | 见下方"遗留"（本环境 git 读数可用时应为 rc=0） |
+| eslint | 仓内 eslint（`apps/desktop` 配置文件）跑本次改动的 10 个文件 | rc=0（零 error 零 warning，`--quiet`） |
+| 受影响组件测试 | `clickable-roles.behavior` / `Home` / `CreateHistory` / `TagSuggester` / `PipelineSelector` / `SceneAssetSelection` / `PipelineBrowser` / `collection-page` | **8 个文件 / 119 例全绿**（含本次新增的 Home 快捷入口 Enter/Space 用例） |
 | 关联既有测试 | `Home.test.js` / `CreateHistory.test.js` / `PipelineSelector.test.js` / `TagSuggester.test.js` / `collection-page.test.js` / `clickable-roles.behavior.test.js` | 逐个核对其断言：均按 class / data-testid 找元素并触发点击，**没有一条断言被我撤掉的那两处 `role="button"`** ⇒ 不受影响 |
 
 ### 遗留（不假装已闭合）
