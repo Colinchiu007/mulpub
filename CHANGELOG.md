@@ -24098,6 +24098,14 @@ P0-4（reportError 的 IPC 拒绝）经确认**无法在 vitest 环境覆盖**�
 - **视觉基线**：标题计数行是有意变更，QG Visual 的 Gate 7b 判 `publish-form.png` 0.712% / `publish-form-dark.png` 0.666% 过期；按判据约束（`UPDATE_BASELINE` 只用于基线缺失，刻意不提供覆盖开关）走 `git rm` 受管基线 → 起本 worktree 独占端口 dev server → 重建 → 以 `PIXEL_THRESHOLD=0` 复核逐像素相等。
 - **QM-1 抓到一个真缺陷**：AGENTS.md 的 `pnpm exec electron-builder --win --x64` **不构建渲染层**，照它跑得到 `exit=0` + 全部产物，但 asar 里没有 `dist/`，启动即白屏（stderr `ERR_FILE_NOT_FOUND`）。正确命令是 `pnpm run build:win`；判据必须同时看 rc、产物、启动 stderr（并剔除 `ELECTRON_RUN_AS_NODE`、单独断言存活）。
 - **文档**：`01-docs/PRD-FIX-HOT-TOPICS-GENVIDEO-TITLE-2026-10-17.md` 新增 §15（483→621 行）；`01-docs/PRD.md` §3a.3.1 两处同步改写（原「硬限 100 字」「不动共享真源」均被本轮推翻）；执行记录同步更新。
+# [未发布] fix(desktop): 发布聚合进度条不再恒定 0% —— 运行中任务按自身进度贡献软权重，汇总行补「第 N / 共 M 项」（ux-audit-aggregate-progress）
+
+- **audit-14 的根因不是"少渲染一个数"，而是进度语义被定义成"终态占比"**：`aggregate.done` 只在 success/failed/cancelled 累加，发 1 篇 3 分钟期间条子恒 0%，用户无法区分「在跑」和「卡了」。现在运行中的任务按主进程事件带的 `percent` 贡献权重（缺 percent 时退回阶段软权重表），`queued` 记 0，未知阶段记中位 0.3——**「未知=0」会让任何新阶段一上线就退化成条子不动**，正是本条要消灭的症状。
+- **三条不变量**：① 终态计数口径一字未改（`done/succeeded/failed/cancelled` 与 `weighted/percent` 分家，汇总行的「成功 N/M」是用户核对结果的依据，不得被小数污染）；② 还有非终态任务时百分比严格 <100（封顶 99，且运行中单任务权重封顶 0.95——「条满但没成功」比「条不动」更误导）；③ 单一实现在零依赖模块 `publishProgressWeight.js`，store 只摊平、面板只读 `aggregate.percent`，结构锁双向钉住"渲染层不得自己除 done/total"。
+- **汇总行新增「第 N / 共 M 项」**（zh/en 成对新增 `summaryPosition`）：N = 第一个非终态任务的 1-based 序号（含排队中，因为批量发布时用户关心"排到第几个"），全终态时该段不出现。`aria-valuenow` 与条宽取**同一个** computed，读屏播报与视觉不得各算一份。
+- **夹具补全比实现更要紧**：10 处 aggregate 夹具改走 `mkAggregate()` 补 `percent/currentIndex/running/weighted` 四个新字段。缺字段时面板会**静默渲染 0%**，"零回归"读起来完全像通过——这是本仓「Mock 要对齐语义不只对齐形状」的同型；缺省值刻意沿用旧口径 `done/total`，所以既有 32 条断言一字未改仍全绿（`PublishProgressPanel.test.js` 36 passed）。
+- **现场复测并坐实一条门禁是装饰性的**：摘掉 `locales/publish-page/en.js` 的 `summaryPosition` 键，`check-locale-sync.js --pair-base origin/main` 照打 **PASS**（它只对根级 `zh.js`/`en.js` 是否变更做门控，拆分文件的成对校验名不副实）。真正拦住它的是本批自建的「zh/en 成对」结构锁——摘 en 键当场红。**引用门禁前先做"摘掉我新增的东西它是否变红"的反证。**
+- **验证**：新增/更新三套测试 92 条（纯逻辑 17 + store 39 + 面板 36，其中新增 22 条）；消费者并集 12 个测试文件 **290 passed / 0 失败**；六道变异（面板退回除法 / 忽略 percent / 去掉 99 夹取 / 序号段不渲染 / 去掉缺字段 guard / 序号 0-based）各自指名红、红集互不相同，跑完 md5 回原值。`--cjk`（基线 1330/现场 1124）、`check-max-lines`（store 反而 -8 行）、`check-no-brand-residue`、`check-doc-abs-paths` 全部 RC=0；两口径 numstat 逐字相等。
 # [unreleased] fix(publish): M-1 重入锁前置 + .adversarial 白名单 + 方案时效性核验
 
 ### M-1 修复（发布重入窗口）

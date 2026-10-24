@@ -22,6 +22,8 @@ import {
 } from '@/api/publisher'
 // 会话收养/合并纯逻辑（2026-10 publish-progress-dup-upload：主文件超行数门禁后外置）
 import { findAdoptableSessions, mergeSessionInto } from './publishProgressSessionMerge'
+// 聚合进度软权重纯逻辑（2026-10 ux-audit-aggregate-progress：同例外置，可脱离 pinia 单测）
+import { summarize } from './publishProgressWeight'
 
 /** 会话列表上限：超出裁剪最旧已完成会话；全 running 不裁剪（宁多勿丢） */
 export const MAX_SESSIONS = 5
@@ -448,21 +450,11 @@ export const usePublishProgressStore = defineStore('publishProgress', () => {
     sessions.value.some((s) => s.status === 'running'),
   )
 
-  const aggregate = computed(() => {
-    let total = 0
-    let done = 0
-    let succeeded = 0
-    let failed = 0
-    let cancelled = 0
-    for (const s of sessions.value) {
-      for (const id of Object.keys(s.tasks)) {
-        total += 1
-        const task = s.tasks[id]
-        if (task.phase === 'success') { done += 1; succeeded += 1 } else if (task.phase === 'failed') { done += 1; failed += 1 } else if (task.phase === 'cancelled') { done += 1; cancelled += 1 }
-      }
-    }
-    return { total, done, succeeded, failed, cancelled }
-  })
+  // 聚合口径（UX 审计 2.5 / audit-14）：软权重与百分比是零依赖纯逻辑，落在 publishProgressWeight.js；
+  // 本处只负责「按会话顺序摊平任务数组」这一件事，顺序即「第 N / 共 M」里的 N 的来源。
+  const aggregate = computed(() =>
+    summarize(sessions.value.flatMap((s) => Object.keys(s.tasks).map((id) => s.tasks[id]))),
+  )
 
   function sessionFailedCount(sessionId) {
     const session = sessions.value.find((s) => s.id === sessionId)

@@ -54,8 +54,11 @@
         <span v-if="store.aggregate.cancelled > 0" class="ppp__summary-cancelled">
           {{ t('publishPage.publishProgressPanel.summaryCancelled', { count: store.aggregate.cancelled }) }}
         </span>
+        <span v-if="summaryPosition" data-testid="publish-progress-position">
+          {{ t('publishPage.publishProgressPanel.summaryPosition', { index: summaryPosition.index, total: summaryPosition.total }) }}
+        </span>
         <span class="ppp__bar" role="progressbar"
-          :aria-valuenow="store.aggregate.total > 0 ? Math.round(store.aggregate.done / store.aggregate.total * 100) : 0"
+          :aria-valuenow="progressPercent"
           aria-valuemin="0" aria-valuemax="100"
         >
           <span class="ppp__bar-fill" :style="{ width: progressWidth }"></span>
@@ -131,10 +134,23 @@ const store = usePublishProgressStore()
 
 store.init()
 
-const progressWidth = computed(() => {
-  const { done, total } = store.aggregate
-  if (!total) return '0%'
-  return Math.round((done / total) * 100) + '%'
+// 进度条百分比的唯一来源是 store.aggregate.percent（软权重在 publishProgressWeight.js 里算）。
+// 渲染层**不得**再自己 `done/total`：那正是 audit-14 的形态——运行中的任务不贡献权重，条子恒定 0%。
+// guard 只兜「aggregate 形状缺字段」这一种（缺字段会让 width 变成 `NaN%`，视觉上等于条子卡住）；
+// 合法域 [0,100] 由纯逻辑自己保证，这里不重复夹取。
+const progressPercent = computed(() => {
+  const p = store.aggregate.percent
+  return Number.isFinite(p) ? p : 0
+})
+
+const progressWidth = computed(() => progressPercent.value + '%')
+
+// 「第 N / 共 M 项」：M = 全部任务数，N = 第一个非终态任务的序号（含排队中的）。
+// 只在还有非终态任务时出现——全终态时汇总行已有「成功 N」，再显「第 0/共 5 项」是噪声。
+const summaryPosition = computed(() => {
+  const { currentIndex, total } = store.aggregate
+  if (!total || !currentIndex) return null
+  return { index: currentIndex, total }
 })
 
 const isSingleSession = computed(() => store.sessions.length === 1)

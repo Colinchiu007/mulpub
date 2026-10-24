@@ -16,7 +16,9 @@ const storeStateRaw = vi.hoisted(() => ({
   retrying: false,
   cancelling: false,
   hasRunning: false,
-  aggregate: { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 },
+  // ⚠ 这份默认值**必须内联**：vi.hoisted 的工厂在 import 之前执行，模块作用域的 mkAggregate 那时还不存在。
+  //   字段与 mkAggregate 的缺省输出保持一致（total/done 全 0 ⇒ percent 0、currentIndex 0）。
+  aggregate: { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0, running: 0, weighted: 0, percent: 0, currentIndex: 0 },
   init: vi.fn(),
   minimizePanel: vi.fn(),
   expandPanel: vi.fn(),
@@ -41,6 +43,25 @@ vi.mock('element-plus', () => ({
 
 import PublishProgressPanel from './PublishProgressPanel.vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
+
+// aggregate 夹具（审计 2.5）：新字段必须给全 —— 面板现在只读 aggregate.percent 与 currentIndex，
+// 夹具若缺字段会静默渲染 0%（"aggregate 形状与真源不同形"是本仓反复出现的假绿来源）。
+// 缺省值刻意沿用旧口径 done/total，好让既有用例的断言不必跟着改；新字段为 0 的场景由专项用例显式给。
+function mkAggregate (o = {}) {
+  const total = o.total ?? 0
+  const done = o.done ?? 0
+  return {
+    total,
+    done,
+    succeeded: o.succeeded ?? 0,
+    failed: o.failed ?? 0,
+    cancelled: o.cancelled ?? 0,
+    running: o.running ?? Math.max(total - done, 0),
+    weighted: o.weighted ?? done,
+    percent: o.percent ?? (total ? Math.round((done / total) * 100) : 0),
+    currentIndex: o.currentIndex ?? (done < total ? done + 1 : 0),
+  }
+}
 
 function makeSession(overrides = {}) {
   return {
@@ -101,7 +122,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     storeStateRaw.panelMinimized = false
     storeStateRaw.hasRunning = false
     storeStateRaw.cancelling = false
-    storeStateRaw.aggregate = { total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 }
+    storeStateRaw.aggregate = mkAggregate({ total: 0, done: 0, succeeded: 0, failed: 0, cancelled: 0 })
     storeStateRaw.consumeFirstHideToast.mockReset().mockReturnValue(false)
     storeStateRaw.retryFailed.mockReset().mockResolvedValue({ ok: 0, fail: 0 })
     storeStateRaw.retryOne.mockReset().mockResolvedValue({ ok: 0, fail: 0 })
@@ -128,7 +149,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('展开浮卡：标题/汇总（成功口径）/任务行（平台+阶段词+dot-stepper+百分比）渲染', async () => {
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.aggregate = { total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 }
+    storeStateRaw.aggregate = mkAggregate({ total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 })
     storeStateRaw.sessions = [makeSession({
       tasks: {
         't-1': makeTask(),
@@ -324,7 +345,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('汇总口径：成功数直给 + 失败/取消单列（failed 不计入「已完成」）', async () => {
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = false
-    storeStateRaw.aggregate = { total: 4, done: 4, succeeded: 2, failed: 1, cancelled: 1 }
+    storeStateRaw.aggregate = mkAggregate({ total: 4, done: 4, succeeded: 2, failed: 1, cancelled: 1 })
     storeStateRaw.sessions = [makeSession({ status: 'done' })]
     wrapper = mountPanel()
     await nextTick()
@@ -452,7 +473,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('胶囊态：渲染 pillRunning 汇总 + 勿关提示，点击恢复展开', async () => {
     storeStateRaw.panelMinimized = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.aggregate = { total: 3, done: 1, succeeded: 1, failed: 0, cancelled: 0 }
+    storeStateRaw.aggregate = mkAggregate({ total: 3, done: 1, succeeded: 1, failed: 0, cancelled: 0 })
     wrapper = mountPanel()
     await nextTick()
 
@@ -470,7 +491,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('胶囊完成态：显示 pillDone + 失败计数', async () => {
     storeStateRaw.panelMinimized = true
     storeStateRaw.hasRunning = false
-    storeStateRaw.aggregate = { total: 3, done: 3, succeeded: 2, failed: 1, cancelled: 0 }
+    storeStateRaw.aggregate = mkAggregate({ total: 3, done: 3, succeeded: 2, failed: 1, cancelled: 0 })
     storeStateRaw.sessions = [makeSession({ status: 'done' })]
     wrapper = mountPanel()
     await nextTick()
@@ -586,7 +607,7 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     try {
       storeStateRaw.panelMinimized = true
       storeStateRaw.hasRunning = true
-      storeStateRaw.aggregate = { total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 }
+      storeStateRaw.aggregate = mkAggregate({ total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 })
       wrapper = mountPanel()
       await nextTick()
       const pill = body().querySelector('[data-testid="publish-progress-pill"]')
@@ -612,7 +633,7 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     storeStateRaw.panelMinimized = false
     storeStateRaw.hasRunning = true
     storeStateRaw.cancelling = false
-    storeStateRaw.aggregate = { total: 2, done: 2, succeeded: 2, failed: 0, cancelled: 0 }
+    storeStateRaw.aggregate = mkAggregate({ total: 2, done: 2, succeeded: 2, failed: 0, cancelled: 0 })
     storeStateRaw.consumeFirstHideToast.mockReset().mockReturnValue(false)
     storeStateRaw.minimizePanel.mockReset()
     storeStateRaw.init.mockReset()
@@ -679,7 +700,7 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     store.sessions[0].status = 'done'
     store.sessions[0].tasks['t-1'].phase = 'success'
     store.sessions[0].tasks['t-2'].phase = 'failed'
-    store.aggregate = { total: 2, done: 2, succeeded: 1, failed: 1, cancelled: 0 }
+    store.aggregate = mkAggregate({ total: 2, done: 2, succeeded: 1, failed: 1, cancelled: 0 })
     await nextTick()
 
     vi.advanceTimersByTime(10000)
@@ -694,7 +715,7 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     store.sessions[0].status = 'done'
     store.sessions[0].tasks['t-1'].phase = 'success'
     store.sessions[0].tasks['t-2'].phase = 'cancelled'
-    store.aggregate = { total: 2, done: 2, succeeded: 1, failed: 0, cancelled: 1 }
+    store.aggregate = mkAggregate({ total: 2, done: 2, succeeded: 1, failed: 0, cancelled: 1 })
     await nextTick()
 
     vi.advanceTimersByTime(10000)
@@ -750,5 +771,75 @@ describe('PublishProgressPanel.vue — 完成自动收敛（publish-progress-pan
     expect(en).toContain('blockedClockAnomaly')
     expect(zh).toContain('（本机时间跳变，已自动缩短等待，无需处理）')
     expect(en).toContain('(local clock jump — wait shortened automatically, no action needed)')
+  })
+})
+
+describe('PublishProgressPanel.vue — 聚合进度条与「第 N / 共 M」（审计 2.5 / audit-14）', () => {
+  let wrapper
+
+  beforeEach(() => {
+    document.body.textContent = ''
+    storeStateRaw.sessions = [makeSession({ tasks: { 't-1': makeTask() }, taskOrder: ['t-1'] })]
+    storeStateRaw.panelVisible = true
+    storeStateRaw.panelMinimized = false
+    storeStateRaw.hasRunning = true
+    storeStateRaw.cancelling = false
+    storeStateRaw.consumeFirstHideToast.mockReset().mockReturnValue(false)
+    storeStateRaw.init.mockReset()
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    i18n.global.locale.value = 'zh'
+  })
+
+  function bar () {
+    return body().querySelector('[data-testid="publish-progress-panel"] [role="progressbar"]')
+  }
+
+  it('条宽与 aria-valuenow 都取 aggregate.percent，且不再等于 done/total 的旧口径', () => {
+    // done=1 / total=2 ⇒ 旧口径 50%；真源给 65%（第二个任务已走到 30%）
+    storeStateRaw.aggregate = mkAggregate({ total: 2, done: 1, succeeded: 1, running: 1, percent: 65, currentIndex: 2 })
+    wrapper = mountPanel()
+    const el = bar()
+    expect(el).toBeTruthy()
+    expect(el.getAttribute('aria-valuenow')).toBe('65')
+    expect(el.querySelector('.ppp__bar-fill').style.width).toBe('65%')
+    // 反向：50 这个数一次都不出现（实现退回 done/total 时这里会红）
+    expect(el.getAttribute('aria-valuenow')).not.toBe('50')
+    expect(el.querySelector('.ppp__bar-fill').style.width).not.toBe('50%')
+  })
+
+  it('还有非终态任务时显「第 N / 共 M 项」；全终态时不显（那时汇总行已有成功数）', () => {
+    storeStateRaw.aggregate = mkAggregate({ total: 3, done: 1, succeeded: 1, running: 2, percent: 40, currentIndex: 2 })
+    wrapper = mountPanel()
+    const pos = body().querySelector('[data-testid="publish-progress-position"]')
+    expect(pos).toBeTruthy()
+    expect(pos.textContent).toContain('第 2 / 共 3 项')
+    wrapper.unmount(); wrapper = null
+    document.body.textContent = ''
+    storeStateRaw.aggregate = mkAggregate({ total: 3, done: 3, succeeded: 3, running: 0, percent: 100, currentIndex: 0 })
+    wrapper = mountPanel()
+    expect(body().querySelector('[data-testid="publish-progress-position"]')).toBeNull()
+  })
+
+  it('en 档同一键必须产出英文序号文案（zh/en 成对不是只加一边）', () => {
+    i18n.global.locale.value = 'en'
+    storeStateRaw.aggregate = mkAggregate({ total: 3, done: 1, succeeded: 1, running: 2, percent: 40, currentIndex: 2 })
+    wrapper = mountPanel()
+    const pos = body().querySelector('[data-testid="publish-progress-position"]')
+    expect(pos).toBeTruthy()
+    expect(pos.textContent).toContain('item 2 of 3')
+    expect(pos.textContent).not.toContain('第')
+  })
+
+  it('aggregate 形状退化（缺 percent）时条宽必须是 0%，不得是 NaN%', () => {
+    // 这条测的是显示边界的 guard：真源缺字段时「视觉上像 0%」与「CSS 无效、条子卡在任意位置」
+    // 是两种完全不同的用户感知，后者会被读成进度显示错乱。
+    storeStateRaw.aggregate = { total: 2, done: 1, succeeded: 1, failed: 0, cancelled: 0 }
+    wrapper = mountPanel()
+    expect(bar().querySelector('.ppp__bar-fill').style.width).toBe('0%')
+    expect(bar().getAttribute('aria-valuenow')).toBe('0')
   })
 })

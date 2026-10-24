@@ -163,6 +163,9 @@ export default {
       summarySucceeded: (ctx) => '成功 ' + ctx.named('succeeded') + '/' + ctx.named('total'),
       summaryFailed: (ctx) => '· ' + ctx.named('count') + ' 个失败',
       summaryCancelled: (ctx) => '· ' + ctx.named('count') + ' 个已取消',
+      // 2026-10-21 ux-audit-aggregate-progress（audit-14）：还有非终态任务时显「第 N / 共 M 项」，
+      // 让「进度条没怎么动」这一眼可见的事实旁边有一个可核对的序号，而不是让用户猜「在跑还是卡了」。
+      summaryPosition: (ctx) => '· 第 ' + ctx.named('index') + ' / 共 ' + ctx.named('total') + ' 项',
       sessionTitleTimeFallback: (ctx) => '发布 · ' + ctx.named('time'),
       recoveredTitle: '恢复跟踪的发布任务',
       sessionRunning: '进行中',
