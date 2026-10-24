@@ -11,7 +11,7 @@ date: 2026-10-24
 | 变更类型与隔离 | ✅ | 运行时代码：分支 `overseas-publish-config`（裸 task 名，无斜杠）；沙箱内 clone 检出，非共享主目录 |
 | 第一性原因（QM-5 ①） | ✅ | 旧 `_publish_youtube` 有 5 处 **fail-open**：上传超时只 warn 继续、发布按钮点不到仍返回 success:true、无「受众非儿童向」、无标签、无发布后回读。⇒ 平台侧「返回成功但内容没人看得见」的形态无法被区分 |
 | 逃逸分析（QM-5 ②） | ✅ | 逃逸口是**把「点了发布按钮」当成「发出去了」**。helper 的 `_click` 恒返回 true 且不抛错 ⇒ 点击成功与否无法靠返回值判定 ⇒ 旧实现只能无条件 `return {success:true}`。修法：判据改落在**平台侧可回读的事实**（作品 URL / 作品 ID / 作者 ID / 正文）上 |
-| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `rpa-overseas/youtube.js`（fail-closed 16 步）+ `rpa-overseas/shared.js`（核验层）+ `rpa-overseas/youtube.test.js`（**26 例 / 4 组**，逐条钉住 5 个失败路径必须 `success:false`） |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `rpa-overseas/youtube.js`（fail-closed 16 步）+ `rpa-overseas/shared.js`（核验层）+ `rpa-overseas/youtube.test.js`（**35 例 / 5 组**，逐条钉住 5 个失败路径必须 `success:false`；含 4 条**宿主方法契约锁**） |
 | 防止再次发生（QM-5 ⑤） | ✅ | ① 旧实现**迁出**而非复制（`rpa-view-platforms.js` 净减 80 行，欠债减债而非抬基线）② 海外链放独立目录 `rpa-overseas/`，不往点名还账文件里加行 ③ 选择器每条标注来源（`[真机]`/`[参考]`/`[推测]`），**未标注真机取证的选择器不冒充已验证** |
 | 行尾与 diff 对账 | ✅ | 两口径 numstat 相等（`rpa-view-manager.js` +6/-2、`rpa-view-platforms.js` -80、`config/platforms.yaml` +7）；删除 80 行**全部归因**：78 行 = 旧 `_publish_youtube` 迁出到 `rpa-overseas/youtube.js`；2 行 = `collectPublishIds`/`extractPublishIdsFromResponseBody` 两个**既有死 import**（eslint 确认 unused，顺手清理＝降债） |
 | 接线棘轮 | ✅ | `node scripts/check-unwired-tests.js` → RC=0（检查域内 133 个测试文件全部已接线）；`electron/services/**/*.test.js` 覆盖子目录 ⇒ 新测试文件**在 vitest include 白名单内**，无需改 config |
@@ -26,6 +26,17 @@ date: 2026-10-24
   （全仓 `create_btn`/`upload_btn` 零命中）⇒ 仍会在「找不到表单」处失败。
   ⇒ 已在 `rpa-overseas/selectors.js` 备好各平台选择器，但**本 PR 不加它们的 `publish_url`**：
   **配置与实现同批落地**，避免出现「配置说能发、实现仍不能」的半吊子状态误导后续维护者。
+- **宿主方法契约锁（补漏）**：测试里 `publishYoutube` 依赖的宿主方法**全部被 mock**
+  ⇒ 方法名拼错时测试仍全绿、只有真机才炸（「可加载 ≠ 能用」同型）。
+  ⇒ 已补 4 条**读真实 mixin 源码**的结构锁（`_navigateAndWait` / `_waitForElement` /
+  `_waitForCondition` / `_setFileInput` / `_setElementContentSafe` / `_click` / `_sleep` /
+  `_fillInput` / `_getPlatformConfig` / `_emitProgress` / 动态分发点），把这类盲区钉住。
+- **自审第二轮抓到的两处真缺陷（已修，已加锁）**：
+  1. **Next 循环会连点多点**：`_waitForElement` 是 querySelector 语义（取**第一个**匹配），
+     原实现点完 Next 立刻再判、等待超时只有 2s ⇒ 页面没渲染出可见性步骤时会**再点一次 Next**
+     ⇒ 可能连跳两步、**跳过可见性设置**。修法：点完 Next 必须 `sleep` 再判（已加锁）。
+  2. **可见性 radio 选择器硬编码在实现里**：与 `selectors.js` 的定义重复
+     ⇒ 违反「选择器单一真源」。修法：改为**只从选择器表取**（已加锁）。
 - **平台选择器全部标注为 `[参考]`（未在本仓真机验证）**：来源是开源实现
   （`dreammis/social-auto-upload` / `EdwardZehuaZhang/...` / `fawazahmed0/youtube-uploader`）。
   真机验证需要 5 个平台的真实账号，尚未进行。⇒ **本次只证明了「链路的失败路径会正确失败」，
@@ -72,6 +83,10 @@ date: 2026-10-24
    而不是给动作加一个假的成功标记。
 4. **迁出而不是复制**：把旧实现从点名还账文件里**迁走**（净减 80 行），
    既拿到新行为，又不触发零容差门禁，还避免了两份实现并存。
-5. **选择器要标注来源等级**（`[真机]`/`[参考]`/`[推测]`）：
+5. **等待语义有 querySelector 的「取第一个匹配」隐含前提**：
+   用一组候选选择器表示「页面到了某一步」时，**首个候选必须是该步骤独有的**，
+   否则在**上一步**就会误命中、导致后续步被跳过。⇒ 候选顺序不是审美问题，是语义。
+   配套：**点完「下一步」必须等页面渲染再判**（否则等待超时会被读成「还没到下一步」⇒ 连点多点）。
+6. **选择器要标注来源等级**（`[真机]`/`[参考]`/`[推测]`）：
    全部标 `[参考]` 就是「一个都没在真机验证过」——
    写清楚比让人误以为「已验证」安全。

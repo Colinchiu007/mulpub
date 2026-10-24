@@ -37,18 +37,26 @@ const {
  */
 function createContext (opts) {
   const o = opts || {}
-  const calls = { navigated: [], clicked: [], filled: [], waited: [] }
+  const calls = { navigated: [], clicked: [], filled: [], waited: [], slept: [], events: [], missSeen: {} }
   return {
     calls,
     _emitProgress: vi.fn(),
-    _sleep: vi.fn().mockResolvedValue(undefined),
+    _sleep: vi.fn(async (ms) => { calls.slept.push(ms); calls.events.push('sleep:' + ms) }),
     _navigateAndWait: vi.fn(async (win, url) => { calls.navigated.push(url) }),
     // ⚠️ 必须能**按选择器**区分返回值：真实链上 file_input 与「详情对话框标题框」
     //   是两次独立的等待，若一律返回 false，链会先在 file_input 处失败，
     //   用例就锁不到它真正想验的那一步。
     _waitForElement: vi.fn(async (win, sel) => {
+      calls.elems = calls.elems || []
+      calls.elems.push(String(sel))
       if (o.elementFound === false) return false
       if (o.missingSelector && String(sel).includes(o.missingSelector)) return false
+      // 「同一个选择器先 miss N 次再 hit」：用来模拟「点 Next 之后页面才渲染出可见性步骤」
+      if (o.missFirstFor && String(sel).includes(o.missFirstFor)) {
+        const k = o.missFirstFor
+        calls.missSeen[k] = (calls.missSeen[k] || 0) + 1
+        if (calls.missSeen[k] <= (o.missCount || 1)) return false
+      }
       return true
     }),
     _waitForCondition: vi.fn(async (win, fn) => (o.uploadDone ?? true)),
@@ -64,7 +72,7 @@ function createContext (opts) {
       if (o.fillThrows) throw new Error('fill not applied (readback=0)')
       return String(val || '').length
     }),
-    _click: vi.fn(async (win, sel) => { calls.clicked.push(sel) }),
+    _click: vi.fn(async (win, sel) => { calls.clicked.push(sel); calls.events.push('click:' + sel) }),
     // 逐字插入通道：YouTube 链**不该**用它（会触发 # 话题补全浮层）⇒ 断言它未被调用。
     // ⚠️ 必须真的挂一个 spy 上来：若 ctx 上根本没有这个键，
     //    `expect(ctx._insertTextTrusted).toBeUndefined()` 会**恒真**（零信息量）。
@@ -183,12 +191,95 @@ describe('YouTube 发布链（fail-closed）', () => {
     expect(ctx._insertTextTrusted).not.toHaveBeenCalled()
   })
 
+  it('点 Next 之后必须等页面渲染再判（否则会连点多点、跳过可见性设置）', async () => {
+    // 可见性 radio：第一次查不到（还在「元素」步骤）→ 点 Next → 第二次才查到
+    const ctx = createContext({ missFirstFor: 'name="PUBLIC"', missCount: 1 })
+    const win = makeWin({ execResult: 'https://youtu.be/abc123' })
+    await publishYoutube.call(ctx, win, ARTICLE, OPTS)
+    const nextIdx = ctx.calls.events.findIndex((e) => e.indexOf('click:') === 0 && /下一步|next-button/.test(e))
+    expect(nextIdx).toBeGreaterThan(-1)          // 确实点过 Next
+    const sleptAfter = ctx.calls.events.slice(nextIdx + 1).some((e) => e.indexOf('sleep:') === 0)
+    expect(sleptAfter).toBe(true)                // 点完 Next 之后有等待
+  })
+
+  it('可见性 radio 读的是**选择器表**（注入假表 ⇒ 点假表里的那个）', async () => {
+    // ⚠️ 这条断言曾经是**恒真**的：表里 PUBLIC 的候选与实现里硬编码的
+    //    'tp-yt-paper-radio-button[name="PUBLIC"]' **逐字相同** ⇒ 两种实现都能过。
+    //    ⇒ 改为**注入一张假表**，假表里 PUBLIC 候选是另一个选择器：
+    //      实现若走表 ⇒ 点假表的；实现若硬编码 ⇒ 点真表的 ⇒ 断言红。
+    const fake = {
+      file_input: ['input[type="file"]'],
+      title_input: ['#title-textarea #textbox'],
+      desc_textarea: ['#description-textarea #textbox'],
+      next_btn: ['#fake-next'],
+      publish_btn: ['#fake-publish'],
+      audience_not_for_kids: ['#fake-audience'],
+      tags_toggle: ['#fake-tags-toggle'],
+      tags_input: ['#fake-tags-input'],
+      cover_input: ['#fake-cover'],
+      visibility_btn: ['#fake-visibility-radio'],
+      visibility_radio: {
+        PUBLIC: ['#fake-radio-PUBLIC'],
+        UNLISTED: ['#fake-radio-UNLISTED'],
+        PRIVATE: ['#fake-radio-PRIVATE'],
+      },
+      published_link: ['a[href*="youtu.be"]'],
+    }
+    const ctx = createContext()
+    const win = makeWin({ execResult: 'https://youtu.be/abc123' })
+    await publishYoutube.call(ctx, win, ARTICLE, { ...OPTS, selectors: fake })
+    const clicked = ctx.calls.clicked.join(' | ')
+    expect(clicked).toMatch(/#fake-radio-PUBLIC/)
+    // 且**不应**出现真表里的那个选择器（若出现 ⇒ 实现绕过了注入的表）
+    expect(clicked).not.toMatch(/tp-yt-paper-radio-button/)
+  })
+
   it('导航地址取自平台配置（yaml 是 publish_url 单一真源）', async () => {
     const ctx = createContext()
     const win = makeWin({ execResult: 'https://youtu.be/abc123' })
     await publishYoutube.call(ctx, win, ARTICLE, OPTS)
     expect(ctx._getPlatformConfig).toHaveBeenCalledWith('youtube', ARTICLE)
     expect(ctx.calls.navigated[0]).toBe('https://www.youtube.com/upload')
+  })
+})
+
+// ============================================================
+// 一之一、宿主方法契约（防「mock 掉的拼写错」这类盲区）
+// ============================================================
+
+describe('宿主方法契约', () => {
+  // ⚠️ 本文件里 publishYoutube 依赖的宿主方法**全部被 mock** ⇒ 方法名拼错时
+  //    本文件仍会全绿，只有真机才炸（「可加载 ≠ 能用」的同型）。
+  //    ⇒ 这里从**真实 mixin 源码**做结构锁，锁住方法名与签名形状。
+  const fs = require('fs')
+
+  function readSource (rel) {
+    return fs.readFileSync(require.resolve(rel), 'utf-8')
+  }
+
+  it('helpers mixin 提供 DOM/输入/等待能力（publishYoutube 依赖的）', () => {
+    const src = readSource('../rpa-view-helpers')
+    for (const m of [
+      '_navigateAndWait', '_waitForElement', '_waitForCondition',
+      '_setFileInput', '_setElementContentSafe', '_click', '_sleep', '_fillInput',
+    ]) {
+      expect(src).toMatch(new RegExp('(async )?' + m + '\\s*\\('))
+    }
+  })
+
+  it('platforms mixin 提供 _getPlatformConfig（publish_url 的读取口）', () => {
+    const src = readSource('../rpa-view-platforms')
+    expect(src).toMatch(/_getPlatformConfig\s*\(/)
+  })
+
+  it('manager 本体提供 _emitProgress（进度回传）', () => {
+    const src = readSource('../rpa-view-manager')
+    expect(src).toMatch(/_emitProgress\s*\(/)
+  })
+
+  it('分发点是动态方法名 ⇒ 新增平台无需改分发点', () => {
+    const src = readSource('../rpa-view-manager')
+    expect(src).toMatch(/'_publish_'\s*\+\s*platform/)
   })
 })
 

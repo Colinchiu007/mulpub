@@ -60,8 +60,11 @@ function safeUrl (win) {
  * YouTube 发布（fail-closed）
  * @param {any} win
  * @param {any} article
- * @param {{publishVerifyTimeoutMs?: number, uploadWaitTimeoutMs?: number}} [opts]
+ * @param {{publishVerifyTimeoutMs?: number, uploadWaitTimeoutMs?: number, selectors?: object}} [opts]
  *        超时可注入：默认值供真机使用；测试用小值，避免用例真等（测试键里不能含不稳定量）。
+ *        `selectors` 是**显式注入点**：只允许代码/测试注入，绝不从请求体取值。
+ *        它的作用是让测试能换掉选择器表、从而**证明实现读的是表而不是自己拼的**
+ *        （表里的候选与硬编码字面量相同时，行为断言恒真 ⇒ 锁没牙齿）。
  * @returns {Promise<{success: boolean, platform: string, error?: string, url?: string, verified?: boolean, evidence?: object, warnings?: string[]}>}
  */
 async function publishYoutube (win, article, opts) {
@@ -72,7 +75,10 @@ async function publishYoutube (win, article, opts) {
   const uploadWaitTimeoutMs = Number.isFinite(options.uploadWaitTimeoutMs)
     ? options.uploadWaitTimeoutMs
     : 1800000
-  const sel = getOverseasSelectors('youtube')
+  // 选择器来源：默认取真源表 + 本仓增量表；测试可显式注入一张假表来验证「读的是表」。
+  const sel = (options.selectors && typeof options.selectors === 'object')
+    ? options.selectors
+    : getOverseasSelectors('youtube')
   const warnings = []
   const fail = (reason) => ({
     success: false,
@@ -182,10 +188,15 @@ async function publishYoutube (win, article, opts) {
   this._emitProgress('youtube', 'next steps...', 72)
   for (let i = 0; i < 5; i++) {
     const visSel = sel.visibility_btn.join(', ')
-    const visible = await this._waitForElement(win, visSel, 2000)
-    if (visible) break
+    // ⚠️ `_waitForElement` 是 querySelector 语义（取**第一个**匹配），
+    //    而 visibility_btn 的首个候选是 `name="PUBLIC"` —— 该 radio 只在
+    //    「可见性」步骤才渲染 ⇒ 前面步骤里查它等于「还没到可见性步骤」。
+    if (await this._waitForElement(win, visSel, 5000)) break
     try {
       await this._click(win, sel.next_btn.join(', '))
+      // ⚠️ 点完 Next 必须**等下一步渲染完**再判：否则等待超时会被误读成
+      //    「还没到可见性步骤」⇒ 再点一次 Next ⇒ 可能连跳两步、跳过可见性设置。
+      await this._sleep(2000)
     } catch (e) {
       warnings.push('next button click failed at step ' + (i + 1))
       break
@@ -196,9 +207,12 @@ async function publishYoutube (win, article, opts) {
   this._emitProgress('youtube', 'setting visibility...', 78)
   const privacy = String(article.privacy || 'public').toLowerCase()
   const privacyMap = { public: 'PUBLIC', unlisted: 'UNLISTED', private: 'PRIVATE' }
-  const wantRadio = 'tp-yt-paper-radio-button[name="' + (privacyMap[privacy] || 'PUBLIC') + '"]'
+  const visName = privacyMap[privacy] || 'PUBLIC'
+  // ⚠️ 选择器**只从 selectors 表取**（不在实现里硬编码选择器形状）⇒ 单一真源。
+  //   可见性候选取 `visibility_radio[可见性]` 这个**显式映射**，不做字面子串匹配。
+  const wantRadio = (sel.visibility_radio && sel.visibility_radio[visName]) || ''
   try {
-    if (await this._waitForElement(win, wantRadio, 5000)) {
+    if (wantRadio && await this._waitForElement(win, wantRadio, 5000)) {
       await this._click(win, wantRadio)
     } else {
       warnings.push('visibility radio not found (未显式设置可见性)')

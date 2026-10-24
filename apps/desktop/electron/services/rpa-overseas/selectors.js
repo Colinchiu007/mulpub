@@ -91,6 +91,15 @@ const OVERSEAS_STEP_SELECTORS = {
       'a[href*="youtu.be"]',
       'a[href*="watch?v="]',
     ],
+    // 可见性 radio：**按平台可见性枚举分组的候选**。
+    // ⚠️ 不要用「在 visibility_btn 里按 name="X" 子串匹配」来挑 ——
+    //   那是靠字面量形状的**隐式约定**，换个拼法就失效（且无法被测试区分）。
+    //   ⇒ 显式映射：实现只查 `sel.visibility_radio[可见性]`，选择器来源单一且可测。
+    visibility_radio: {
+      PUBLIC: ['tp-yt-paper-radio-button[name="PUBLIC"]', '#public-radio-button'],
+      UNLISTED: ['tp-yt-paper-radio-button[name="UNLISTED"]'],
+      PRIVATE: ['tp-yt-paper-radio-button[name="PRIVATE"]'],
+    },
   },
 
   // tiktok / twitter / instagram / facebook 的**步骤**选择器（上传 iframe / contenteditable /
