@@ -14,6 +14,7 @@ date: 2026-10-24
 | 修复 + 回归保护（QM-5 ④） | ✅ | ① 新增 `services/explainer/explainer-artifacts.js`（归一化 + 计数自检 + schema 校验，422 行）：**schema 驱动**的 `fillRequired`（按 schema 补必填，**不猜字段**）＋ **原始计数快照** `metadata.source_counts`（⇒ 补齐救不了计数自检）＋ `approval.status` **强制 pending** ＋ `metadata.retrieval='model_knowledge'`（口径偏离登记）＋ `metadata.render_runtime_source` 标注 runtime 是缺省还是 LLM 给的。② 新增 `services/explainer/explainer-preprod-stages.js`（三阶段执行器 + 结构化提示词，254 行）。③ 新增 `services/explainer/llm-call.js`：**`callDefaultLlm`/`getDefaultLlmConfig` 的唯一实现**（从原文件**原样搬出**）—— 它同时被 scenes 阶段与三阶段使用 ⇒ 两份真源会漂移。④ `explainer-stages.js` **474 → 352 行**（该文件在「点名还账」名单里、零容差 ⇒ 只能抽模块不能堆）。⑤ **scenes 阶段的输入适配**：`context.script` 从字符串变对象 ⇒ 读 `script.sections[].text`，**并兼容旧字符串形态**（断点续跑的旧 run 上下文仍是字符串）。⑥ 失败语义：④/⑤ 任一不过 ⇒ **fail-closed**（带字段路径与自检 code），**不产出半成品**。⑦ 76 个用例全绿（既有 23 + 新增 53） |
 | 防止再次发生（QM-5 ⑤） | ✅ | ① **归一化与自检分层**：归一化只救字段，自检只判质量 ⇒ 代码上分开（`buildXxx` vs `checkXxxCriteria`）。② **原始计数快照**：任何「补齐」都不能让计数判据变绿（这是本片抓到的最险的一个假绿）。③ **schema 驱动而非手写缺省**：唯一真源是 schema ⇒ 不会猜错字段（本次手写缺省时把 `landscape` 当字符串、`selected_concept` 当字符串 ⇒ 产物一律不合法）。④ **审批权隔离**：LLM 只能提方案，不能批 ⇒ `approval.status` 由代码强制 `pending`。⑤ **口径偏离必须登记**：无 web search ⇒ `metadata.retrieval='model_knowledge'`；无单价表 ⇒ 金额 0 + notes「单价未知」⇒ 都写进 PRD §16.7，不默默做。⑥ **共享实现不复制**：`callDefaultLlm` 单点化 ⇒ 三阶段与 scenes 阶段共用同一份。⑦ **既有测试按「改输入不改意图」处置**（下详） |
 | 行尾与 diff 对账 | ✅ | 见提交前两口径 numstat 实测（下详） |
+| **CI 首轮红（主干级 vs 本 PR 级）** | ✅ 已定案 | ⚠ 首轮 `QG Desktop Shards (2/2)` 红（`Gate Result` 连带红）⇒ **两条失败都在 `title-card-renderer.test.js` 的 `itWithFfmpeg` 用例，形态是「Test timed out in 10000ms」**（我**没碰**该文件）。**按「对照组判据」查**：`main` 同期 30/30 **全绿**、我的分支红 ⇒ **不是主干级存量红** ⇒ 继续定位 ⇒ **根因是「我新增 3 个测试文件 ⇒ vitest 的 `--shard=2/2` 分片重排 ⇒ 把这个渲染用例挪进了更慢的 shard 2」**（实测 shard 2 的文件清单里 `title-card-renderer.test.js` 与我的 3 个新文件同时在内）⇒ 本地跑同一文件 **22/22 全绿**（本机有真 ffmpeg）⇒ 属「**不稳定耗时顶不住通用时限**」，与「测试键里不能含不稳定量」同源（新增即红且判定不确定）⇒ **修法**：把 `itWithFfmpeg` 包装成「统一取 60s 时限」的 `it`（**只放宽时限，不改断言语义、不改 skip 守卫**）⇒ 顺手把这个脆弱点修掉，不留给下一个触发分片重排的人 |
 | 接线棘轮 | ✅ | 新增 `explainer-artifacts.test.js` 落在 vitest include 的 `electron/services/**/*.test.js` 白名单内（**无需改 vitest.config.js**）；`scripts/check-unwired-tests.js` 实测 PASS |
 | QM-1 打包 / QM-4 视觉 | N/A / N/A | QM-1：本片改的是 `apps/desktop/electron/services/explainer-stages.js` 的**既有文件**（**运行时代码**）⇒ **不适用 N/A** ⇒ 由 CI 的 `build` job（windows-latest + `electron-builder --win --x64`，required check）兜底。QM-4：**零 UI 变化**（无新增控件/文案/i18n 键）⇒ 无视觉面 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机未见可用的外部评审通道；**如实记为未执行，不以自审冒充通过** |
@@ -34,6 +35,13 @@ date: 2026-10-24
 | 「script 依赖 context.proposal」 | mock 返回 script JSON；`context.proposal` 传**对象形态** | 契约变更 |
 | 「callDefaultLlm 空内容时重试直到拿到非空内容」 | mock 第二次返回 research_brief JSON（原来返回散文「1. 主题：测试大纲」）；断言改为查 JSON 里的 topic | 形态变、意图不变（第二次拿到非空有效内容） |
 
+### 顺带修掉的一个既有脆弱点（分片重排暴露）
+
+`title-card-renderer.test.js` 的真 ffmpeg 渲染用例吃 vitest 的**通用 10s 时限** ⇒
+在慢的 shard 上必然超时（本地与其它 shard 都过）⇒ **任何一次「新增测试文件导致分片重排」都会把它点着**。
+⇒ 改为 `itWithFfmpeg` 统一取 **60s 时限**（只放宽时限，不改断言、不改 skip 守卫）。
+⚠ 这不是「为了让本 PR 变绿而改判据」：判定**仍然完全相同**，只是不再被**机器快慢**决定。
+
 ### 新增/修改清单
 
 | 文件 | 动作 | 行数影响 |
@@ -44,6 +52,7 @@ date: 2026-10-24
 | `apps/desktop/electron/services/explainer/explainer-artifacts.test.js` | **新增**（53 例） | +约 300 |
 | `apps/desktop/electron/services/explainer-stages.js` | 改：三阶段抽出 + 删三个 prompt + exports 转发 + scenes 输入适配 | 474 → 352（**净减 122**） |
 | `apps/desktop/electron/services/explainer-stages.test.js` | 改：7 条用例的输入形态（逐条见上） | +约 120 / −约 20 |
+| `apps/desktop/electron/services/title-card-renderer.test.js` | 改：`itWithFfmpeg` 包装成统一 60s 时限（**只放宽时限**；因本 PR 新增测试触发 vitest 分片重排，把该渲染用例挪进更慢的 shard 而超时） | +约 10 |
 | `01-docs/PRD-video-creation.md` | 改：新增 §16（16.1~16.8） | +约 120 |
 
 ## CHANGELOG 条目

@@ -170,7 +170,18 @@ describe('title-card-renderer 实际渲染', () => {
 
   // ffmpeg 不可用时（本机没装 / CI 用 --ignore-scripts 装依赖）跳过渲染断言，
   // 但上面的纯函数契约仍然全部执行。
-  const itWithFfmpeg = ffmpeg ? it : it.skip
+  // ⚠ **真 ffmpeg 渲染比纯函数断言慢得多**（要起子进程 + 编码一帧 PNG）。
+  //   vitest 的通用 testTimeout 是 10s ⇒ 在 Windows CI runner 上首帧渲染经常顶不住
+  //   （实测 2026-10-24：Desktop Shards 2/2 因「Test timed out in 10000ms」红，
+  //   而同一批用例在本地与其它 shard 上都通过 ⇒ 属**时限偏紧**，不是用例失败）。
+  //   ⚠ 这类「**不稳定耗时进通用时限**」的形态与「测试键里不能含不稳定量」同源：
+  //   一旦文件因新增测试被重新分片到更慢的 shard，就会「新增即红」且**判定不确定**。
+  //   ⇒ 渲染类用例**单独给 60s 时限**（只放宽时限，**不改断言语义、不改 skip 守卫**）。
+  const FFMPEG_RENDER_TIMEOUT_MS = 60000
+  // 包装 it：本组用例**统一**取 60s 时限（只放宽时限，不改断言语义、不改 skip 守卫）
+  const itWithFfmpeg = ffmpeg
+    ? (name, fn) => it(name, fn, FFMPEG_RENDER_TIMEOUT_MS)
+    : it.skip
 
   itWithFfmpeg('产出一张 PNG 且尺寸与请求一致', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'title-card-'))
@@ -199,7 +210,7 @@ describe('title-card-renderer 实际渲染', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, FFMPEG_RENDER_TIMEOUT_MS)
 
   itWithFfmpeg('含 ffmpeg 滤镜特殊字符的文案不得让渲染炸掉', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'title-card-'))
@@ -217,7 +228,7 @@ describe('title-card-renderer 实际渲染', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, FFMPEG_RENDER_TIMEOUT_MS)
 
   itWithFfmpeg('带单引号的文案必须真渲染出内容（防「rc=0 但产出空白图」的静默失败）', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'title-card-'))
@@ -237,7 +248,7 @@ describe('title-card-renderer 实际渲染', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, FFMPEG_RENDER_TIMEOUT_MS)
 
   it('主题表覆盖既有 imageStyle 取值域（流水线 style 传进来不能落空）', () => {
     for (const key of ['cinematic', 'realistic', 'cartoon', 'anime', 'cyberpunk', 'watercolor', 'minimalist']) {
