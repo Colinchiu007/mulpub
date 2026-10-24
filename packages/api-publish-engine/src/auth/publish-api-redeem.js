@@ -73,7 +73,15 @@ class PublishApiRedeemHelpers {
     }
     try {
       const result = await this._subscriptionService.redeem({ userId, code: body && body.code })
-      limiter.recordSuccess(userId)
+      // ⚠️ 只有**真正开通**（idempotent === false）才清零失败计数。
+      // 幂等重放（同一个已兑换的码再提交一次）**也返回 200** ——
+      // 若把它当成功处理，攻击者拿**一个已用码**反复重放就能**无限清零**失败计数，
+      // 用户档限流彻底失效（红队实测打穿）。重放不是「用户成功兑了新码」，不该抵罪。
+      //
+      // 但重放**必须归还预占额度**：否则 pending 只进不出 ⇒
+      // 合法用户反复重放自己的旧码（幂等是**正常**场景）也会被限流在门外。
+      if (result && result.idempotent === true) limiter.releasePending(userId)
+      else limiter.recordSuccess(userId)
       this._json(res, 200, { success: true, ...result })
     } catch (error) {
       // 只把「探测型」失败计入限流（格式错 / 不存在）；已用 / 停用 / 过期是正常业务。

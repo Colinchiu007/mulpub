@@ -319,6 +319,49 @@ test('接线：连续探测式失败超过阈值后，端点真的返回 429（�
   }
 })
 
+test('接线：幂等重放（200 + idempotent:true）**不得**清零失败计数', async () => {
+  // 红队实测打穿：幂等重放也返回 200 ⇒ 若路由把它当「成功」处理，
+  // 攻击者拿**一个已用码**反复重放就能无限清零失败计数 ⇒ 用户档限流彻底失效。
+  let mode = 'fail'
+  const service = {
+    repository: {},
+    planOverrides: null,
+    async redeem() {
+      if (mode === 'fail') {
+        throw Object.assign(new Error('兑换码不存在'), { code: 'REDEEM_CODE_NOT_FOUND', status: 404 })
+      }
+      // 幂等重放：HTTP 200，但 idempotent 为 true
+      return { idempotent: true, code: 'ABCD-EFGH-JKMN', plan: 'standard', subscription: null, periodEnd: null }
+    },
+  }
+  const server = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createIdentityRepository('u-7'),
+    entitlementProvider: { async getForUser() { return { plan: 'standard', features: [], quota: {}, limits: {} } } },
+    subscriptionService: service,
+  })
+  await server.start(0)
+  const port = server._server.address().port
+  try {
+    // 失败 4 次 ⇒ 失败计数 4（阈值 5）
+    for (let i = 0; i < 4; i++) {
+      assert.strictEqual((await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })).status, 404)
+    }
+    // 切到幂等重放：连续 3 次 200
+    mode = 'replay'
+    for (let i = 0; i < 3; i++) {
+      assert.strictEqual((await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })).status, 200)
+    }
+    // 失败计数**没被清零** ⇒ 再失败 1 次就到 5 ⇒ 下一次被拦
+    mode = 'fail'
+    assert.strictEqual((await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })).status, 404)
+    assert.strictEqual((await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })).status, 429)
+  } finally {
+    await server.stop()
+  }
+})
+
 test('接线：一次成功后失败计数被清零（路由层确实调用了 recordSuccess）', async () => {
   let call = 0
   const service = {
