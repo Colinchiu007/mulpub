@@ -71,6 +71,23 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.strictEqual(getPlanEntitlement('standard').limits.max_platforms, 15)
   })
 
+  // ⚠️ 「-1 = 不限」的能力声明口径：判据必须是 `!== 0` 而不是 `> 0`。
+  // `officialCreditMonthly` / `videoMonthly` 都在 UNLIMITED_ALLOWED 里（运营可配 -1），
+  // 若用 `> 0`，「不限」会被判成「没有额度」⇒ 能力声明整条消失
+  // ⇒ 一次**合法的**运营配置静默关掉已付费的能力（consumeFeature 直接 403）。
+  // 与 maxCloudAccounts 的 `!== 0` 同一形态。
+  await t.test('-1（不限）仍声明对应能力；0（无额度）不声明', () => {
+    const unlimited = getPlanEntitlement('standard', { standard: { officialCreditMonthly: -1 } })
+    assert.ok(unlimited.features.includes('official_credit'), '不限额度不该抹掉 official_credit 能力声明')
+    assert.strictEqual(unlimited.quota.official_credit_monthly, -1)
+
+    const unlimitedVideo = getPlanEntitlement('standard', { standard: { videoMonthly: -1 } })
+    assert.ok(unlimitedVideo.features.includes('video_create'), '不限额度不该抹掉 video_create 能力声明')
+
+    const zeroed = getPlanEntitlement('standard', { standard: { officialCreditMonthly: 0 } })
+    assert.ok(!zeroed.features.includes('official_credit'), '额度为 0 时不该声明 official_credit')
+  })
+
   await t.test('日发布数折算 cloud_publish_monthly = daily_publish × 30（双口径）', () => {
     assert.strictEqual(getPlanEntitlement('free').quota.cloud_publish_monthly, 5 * 30)
     assert.strictEqual(getPlanEntitlement('standard').quota.cloud_publish_monthly, 50 * 30)

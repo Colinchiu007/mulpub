@@ -7,6 +7,8 @@
 - fix(成本): 回算链路 **5 个缺陷** —— ① unit 键写成 `token_in`（应为 `1k_tokens_in`）⇒ 成本恒 0 + 全量缺价告警；② 价格卡唯一约束**漏 `unit`** ⇒ LLM 的 in/out/cache 三张卡根本存不下；③ 回算用 `card.category`，而表里那列叫 `action_type` ⇒ **回算从来没跑通**；④ 积分单价在「配置行不存在」时回落成 1（旧「分」口径遗留）⇒ **积分消耗放大 10000 倍**；⑤ `backfill_costs` 没有 `commit()`，而 `async_session()` 退出不自动提交 ⇒ **回算从未落过库**。⚠️ 这 5 个缺陷在**单元测试全绿**时全部存在，只有真跑才暴露。
 - fix(成本): 成本最小单位从「分」改「**微元**」—— LLM 每千 token 单价天然亚分（0.3 分/1K），整数分列只能存 0（静默当免费）或 1（放大 3.3 倍）；「1 积分 = 10000 微元」抽为单一真源常量。公式结构不变。
 - docs(成本): `01-docs/usage-metering-spec.md` 同步单位口径与 unit 字面量 —— 该文档早期版本把 unit 写成 `token_in`，与实现不一致，**正是上述缺陷 ① 的传染源**，已订正。
+- fix(成本): QM-6 外部评审（14 条 finding）收口 —— ① 管理端价格卡 API **全线 500**：`list_price_cards` 读 `c.model`（列名是 `model_id`）、`create_price_card` 构造 `ModelPriceCard(model=…, category=…)`（列名是 `model_id`/`action_type`）⇒ **此前 ops-center 无任何测试引用过这个 router**，CI 全绿而一调就崩；② 查价侧 `card.model` 同型潜伏缺陷（当前靠 `model=""` 短路活着）；③ 写接口放行 1..9999 而引擎 `max(10000, …)` 静默抬回基准 ⇒ **写接口回显 ≠ 引擎实际值**（改为下限即基准，调价只能调高）；④ **0 价卡无守卫**（种子脚本与管理端 API 都放行 0）⇒ 插得进去、回算时**静默当免费、连缺价告警都不响** ⇒ 写入侧两道守卫 + 回算侧「0 价卡 = 缺价」；⑤ `--check`/`--dry-run` 仍调 `init_db()`（DDL 写）却打印「未写库」⇒ 改为只读探测；⑥ `official_credit` 能力声明用 `> 0` 判据 ⇒ 运营配 `-1`（不限）会把**已付费能力**整条关掉（`consumeFeature` 403）⇒ 改 `!== 0`（同族 `videoMonthly` 一并修）；⑦ spec §4/§4.1/§5 仍写旧列名与 pro=2200/18.5% ⇒ 同步为 micros 与 3330/40.0%；⑧ 代码 docstring 仍写「分」⇒ 10000 倍单位陷阱；⑨ 存量旧 schema（列名 + 唯一约束漏 `unit`）改为**写库前只读探测 + fail-closed 拒绝 + 人工修复指引**（不再静默炸）。
+- test(成本): 新增 `test_credit_pricing_api.py`（端点级接线）与 `test_credit_price_cards_seed.py`（种子脚本契约）—— 此前 57 个 ops-center 测试文件里**没有任何一个**引用过价格卡 router 或种子脚本；**11 个变异全部被抓住**。
 
 # docs(film): 订正长篇化台账记录里的版本号口径（当前 v1.3，#4379 之后）
 

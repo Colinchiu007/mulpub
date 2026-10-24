@@ -204,7 +204,7 @@ function getPlanEntitlement(plan, overrides) {
   }
   const matrix = mergePlanSection(plan, overrides)
   const features = ['cloud_publish', 'ai_write']
-  if (matrix.videoMonthly > 0) features.push('video_create')
+  if (matrix.videoMonthly !== 0) features.push('video_create')
   if (matrix.scheduleBatch === true) features.push('schedule_batch')
   if (matrix.dashboard === 'full') features.push('dashboard_full')
   // v2.0 机制 C6.1：账号数 > 0（或 -1 不限）才提供云凭证同步；0 表示本档不提供
@@ -217,7 +217,10 @@ function getPlanEntitlement(plan, overrides) {
   // 官方积分额度：只要本档有额度就声明该能力（额度数值在 quota.official_credit_monthly）。
   // ⚠️ 这是**给客户端的能力声明**，不是扣费开关——真正的扣减在 Phase 2 的积分账本接线里；
   //    此处声明缺失会让后续 consumeFeature('official_credit') 直接 403，能力形同虚设。
-  if (matrix.officialCreditMonthly > 0) features.push('official_credit')
+  // ⚠️ 判据用 `!== 0` 而**不是** `> 0`：`officialCreditMonthly` 在 UNLIMITED_ALLOWED 里
+  //    （-1 = 不限，运营可配）⇒ `> 0` 会把「不限」判成「没有额度」⇒ 能力声明整条消失
+  //    ⇒ 一次合法的运营配置静默关掉已付费的能力（与 maxCloudAccounts 同一形态）。
+  if (matrix.officialCreditMonthly !== 0) features.push('official_credit')
   // dailyPublish 已在 UNLIMITED_ALLOWED 之外，取值必为有限非负整数（-1 被 override 校验拒绝），此处无需再判 -1
   const cloudPublishMonthly = matrix.dailyPublish * 30
   return deepFreeze({

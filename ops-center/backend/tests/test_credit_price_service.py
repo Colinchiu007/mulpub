@@ -190,6 +190,24 @@ def test_micros_unit_can_express_sub_cent_unit_price():
     assert compute_credit_cost(result.cost_micros, 10_000) == 1
 
 
+def test_zero_price_card_is_treated_as_missing_not_free():
+    """⚠️ **0 价卡按「缺价」处理，绝不当「免费」**。
+
+    0 价卡一旦入库，回算会静默命中它 ⇒ 成本算成 0 ⇒ 既不告警、又被当成免费
+    ⇒ 成本统计系统性偏低且无信号（口径：缺价必须告警 / 绝不插 0 价卡）。
+    ⇒ 写入侧有守卫（管理端 API + 种子脚本都拒 0），这里是**第二道防线**。
+    """
+    cards = {
+        UNIT_1K_TOKENS_IN: PriceCard("p-zero", UNIT_1K_TOKENS_IN, 0, 1.0),
+        UNIT_1K_TOKENS_OUT: PriceCard("p-ok", UNIT_1K_TOKENS_OUT, 200_000, 1.0),
+    }
+    result = compute_cost_micros(cards, {UNIT_1K_TOKENS_IN: 1000, UNIT_1K_TOKENS_OUT: 500})
+    assert result.has_missing_price
+    assert result.missing_units == [UNIT_1K_TOKENS_IN], result.missing_units
+    # 0 价那一路**不计入成本**（而不是按 0 计进去）
+    assert result.cost_micros == 100_000, result.cost_micros   # 500 × 200000 / 1000
+
+
 def test_window_quota_price_is_not_a_pricing_baseline():
     """10-11 §6：定价基准来源优先级 B > A，C（窗口配额）只作参考、不入基准。
 

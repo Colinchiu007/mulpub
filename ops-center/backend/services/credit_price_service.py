@@ -92,10 +92,15 @@ def compute_cost_micros(
     cards: Dict[str, PriceCard],
     token_counts: Dict[str, int],
 ) -> CostResult:
-    """纯函数：按生效价格卡把 token 消耗换算成成本（分）。
+    """纯函数：按生效价格卡把 token 消耗换算成成本（**微元**）。
 
-    单价语义是「分 / 1000 unit」——与 `official_keys.cost_per_1k_tokens`
+    单价语义是「**微元** / 1000 unit」——与 `official_keys.cost_per_1k_tokens`
     的既有口径一致（都是每千 token 的价），便于运营对照。
+
+    ⚠️ **0 价卡按「缺价」处理**（不是「免费」）：`unit_price_micros <= 0` 的卡
+    会被计入 `missing_units` 并跳过计算。理由：0 价卡一旦入库，回算会静默命中它
+    ⇒ 成本算成 0 ⇒ 既不告警、又被当成「免费」⇒ 成本统计系统性偏低且无信号。
+    ⇒ 真正的守卫在写入侧（管理端 API 与种子脚本都拒 0 价卡），这里是第二道防线。
 
     :param cards: unit → PriceCard
     :param token_counts: unit → 数量
@@ -108,14 +113,15 @@ def compute_cost_micros(
         if not count:
             continue
         card = cards.get(unit)
-        if card is None:
+        if card is None or card.unit_price_micros <= 0:
+            # ⚠️ 0 价卡与「没有卡」同义 ⇒ 一律走缺价通道（绝不当免费）
             missing.append(unit)
             continue
-        # 整数分计算：先乘后除，避免浮点误差累积。
+        # 整数微元计算：先乘后除，避免浮点误差累积。
         # ⚠️ **单价语义按 unit 区分**（10-08 §4.1）：
-        #    `1k_tokens_*` 的单价是「分 / 1K token」⇒ 除以 1000；
+        #    `1k_tokens_*` 的单价是「微元 / 1K token」⇒ 除以 1000；
         #    `per_image` / `per_second` / `per_char` / `per_second_audio`
-        #    的单价是「分 / 个」⇒ **不除**。
+        #    的单价是「微元 / 个」⇒ **不除**。
         #    早期版本对所有 unit 一律 /1000 ⇒ 非 token 维度会算错 1000 倍。
         if unit in TOKEN_UNITS:
             cost_micros += int(count * card.unit_price_micros / 1000)
@@ -128,7 +134,7 @@ def compute_cost_micros(
 
 
 def compute_credit_cost(cost_micros: int, credit_unit_price_micros: int, multiplier: float = 1.0) -> int:
-    """纯函数：成本（分）→ 积分消耗。向上取整。
+    """纯函数：成本（**微元**）→ 积分消耗。向上取整。
 
     :param credit_unit_price_micros: 1 积分值多少微元（默认 10000，即 1 积分 = 1 分）
     :param multiplier: 价格卡的积分倍率（贵模型多扣积分）
@@ -215,7 +221,11 @@ async def load_effective_cards(
             continue
         if card.effective_to and card.effective_to <= moment:
             continue
-        precise = 1 if (model and card.model == model) else 0
+        # ⚠️ 列名是 `model_id`（`ModelPriceCard` 没有 `model` 属性）——
+        # 写 `card.model` 会在**传入非空 model** 时 AttributeError。
+        # 现状之所以没炸：回算调用点传的是 `model=""` ⇒ `and` 短路 ⇒ 右边根本不求值。
+        # ⇒ 这是一条「靠短路活着的缺陷」：一旦 Phase 2 按 model 计价（传真实 model）就炸。
+        precise = 1 if (model and card.model_id == model) else 0
         current = by_unit.get(card.unit)
         if current is None:
             by_unit[card.unit] = (precise, card.effective_from, PriceCard(

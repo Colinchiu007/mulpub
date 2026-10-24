@@ -19,7 +19,9 @@ from sqlalchemy import Column, String, Integer, Text, Float, UniqueConstraint, I
 
 from database import Base
 
-# 计费单位（口径对齐 10-08 §4.1 的 unit 命名；单价单位是"分 / 1K unit"或"分 / unit"）
+# 计费单位（口径对齐 10-08 §4.1 的 unit 命名；单价单位是「**微元** / 1K unit」或「**微元** / unit」）
+# ⚠️ 单价列 `unit_price_micros` 的单位是**微元**（1e-6 元）—— 运营填「0.3 分/1K tokens」
+#   要写成 **3000 微元**；写成 0 会被回算当「缺价」（不是免费），写成 300 会放大 10000 倍。
 UNIT_1K_TOKENS_IN = "1k_tokens_in"
 UNIT_1K_TOKENS_OUT = "1k_tokens_out"
 UNIT_1K_TOKENS_CACHE_READ = "1k_tokens_cache_read"
@@ -124,10 +126,10 @@ class ModelPriceCard(Base):
 
 
 class CreditPriceConfig(Base):
-    """积分单价配置 —— 全局单例，决定 1 积分值多少分。
+    """积分单价配置 —— 全局单例，决定 1 积分值多少**微元**。
 
     与 `model_price_cards.credit_multiplier` 的分工：
-      · 这里定**基准**（1 积分 = N 分，N 通常为 1）；
+      · 这里定**基准**（1 积分 = N 微元，N 通常为 10000，即 1 积分 = 1 分）；
       · 价格卡的 multiplier 定**该模型相对基准的倍率**（贵模型多扣积分）。
 
     积分与成本的换算：`credit_cost = ceil(cost_micros / credit_unit_price_micros * multiplier)`。
