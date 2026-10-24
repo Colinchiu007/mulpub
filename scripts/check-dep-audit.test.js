@@ -148,23 +148,34 @@ test('基线与现实一致且结论完整 → 零违规（门禁主断言）', 
   assert.deepEqual(violations, [], violations.join('\n'));
 });
 
-test('--update 产物：新增条目一律 decision=TODO（逼人工补结论），且可复现', () => {
+test('--update 产物：新增条目由机器**预填机械承诺**（不再一律 TODO），且可复现', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'depaudit-'));
   try {
     const p = path.join(dir, 'bl.json');
     const old = { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-1'), { note: '保留原结论' })] };
     const found = [entry('npm', 'GHSA-1'), entry('npm', 'GHSA-2'), entry('pip', 'PYSEC-3')];
-    const first = D.writeBaseline(found, old, p);
+    const first = D.writeBaseline(found, old, p, { today: '2026-10-24' });
     const text1 = fs.readFileSync(p, 'utf8');
-    D.writeBaseline(found.slice().reverse(), old, p);
+    D.writeBaseline(found.slice().reverse(), old, p, { today: '2026-10-24' });
     assert.equal(fs.readFileSync(p, 'utf8'), text1, '写入顺序不得影响产物（否则 diff 噪声）');
     assert.deepEqual(first.advisories.map((a) => a.source + '/' + a.id), ['npm/GHSA-1', 'npm/GHSA-2', 'pip/PYSEC-3']);
     assert.equal(first.advisories[0].note, '保留原结论', '已有条目的结论必须保留');
-    assert.equal(first.advisories[1].decision, 'TODO');
     assert.equal(first.reviewBy, FUTURE);
-    // 新条目的 TODO 一定会被 META_INVALID 拦下 —— 这就是「不允许无结论挂账」
-    const { violations } = D.evaluate(first, found, FUTURE);
-    assert.equal(violations.filter((v) => v.startsWith('BASELINE_META_INVALID')).length, 2);
+    // 新条目：机器预填「已登记、待升级」+ 机械算出的承诺版本 + 到期日
+    const fresh = first.advisories[1];
+    assert.equal(fresh.decision, 'upgrade-tracked', '新条目不再一律 TODO（那会让门禁在涌入期长期红、全仓 BLOCKED）');
+    assert.equal(fresh.targetVersion, '1.2.3', '承诺版本取公告修复下界');
+    assert.equal(fresh.dueBy, '2026-11-07', '到期日 = 登记日 + 预填宽限期（14 天）');
+    assert.equal(fresh.prefilled, true, '必须标记为机器预填（机器只托管自己预填过的条目）');
+    assert.ok(/机械登记/.test(fresh.note), 'note 必须写明「机械登记、未经可利用性评估」：' + fresh.note);
+    // 预填后新条目**不判红**（这正是「机器预填」的目的：涌入期不再把全仓挡死）
+    const { violations } = D.evaluate(first, found, '2026-10-24');
+    assert.deepEqual(violations.filter((v) => v.startsWith('BASELINE_META_INVALID')), [],
+      '预填条目不得再被判「无结论挂账」：' + JSON.stringify(violations));
+    // 而「无修复版本」的条目**不预填** ⇒ 保持 TODO ⇒ 门禁照红等人做真正的风险判断
+    const noFix = D.writeBaseline([Object.assign(entry('npm', 'GHSA-NOFIX'), { patched: '' })], { reviewBy: FUTURE, advisories: [] }, p, { today: '2026-10-24' });
+    assert.equal(noFix.advisories[0].decision, 'TODO', '推不出承诺就不预填（宁可等人判断，也不给个错的承诺）');
+    assert.equal(noFix.advisories[0].dueBy, undefined);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -197,7 +208,10 @@ test('registry 口径：audit 必须走官方源（npmmirror 无 audit 端点）
 function npmJsonOf (ids) {
   const advisories = {};
   ids.forEach((id, n) => {
-    advisories[n + 1] = { github_advisory_id: id, module_name: 'm-' + id, severity: 'high', patched_versions: '>=9.9.9', findings: [{ version: '1.0.0', paths: ['apps__desktop>x>m-' + id] }] };
+    // patched_versions 必须与 ledger() 的 targetVersion('1.2.3') 同族 ——
+    // 否则夹具**自相矛盾**（扫描说 >=9.9.9、台账说 >=1.2.3），而门禁现在拿**扫描现值**校验承诺
+    // ⇒ 这种矛盾会当场变成一条假红。此前门禁拿基线自己校验自己，所以这类不一致一直没被发现。
+    advisories[n + 1] = { github_advisory_id: id, module_name: 'm-' + id, severity: 'high', patched_versions: '>=1.2.3', findings: [{ version: '1.0.0', paths: ['apps__desktop>x>m-' + id] }] };
   });
   return { advisories };
 }
@@ -455,7 +469,8 @@ test('多段 patched 的目标必须逐段都逃过（旧实现只比第一段�
     reviewBy: FUTURE,
     advisories: [Object.assign(entry('npm', 'GHSA-TTWW-TTWW-TTWW'), { decision: 'upgrade-tracked', note: '已排期', patched: '>=1.2.3, >=2.1.5', targetVersion: tv })],
   })
-  const found = [entry('npm', 'GHSA-TTWW-TTWW-TTWW')]
+  // 校验用的是**扫描现值**的 patched ⇒ found 必须带同一份多段事实
+  const found = [entry('npm', 'GHSA-TTWW-TTWW-TTWW', { patched: '>=1.2.3, >=2.1.5' })]
   const r1 = D.evaluate(mk('2.0.5'), found, '2026-10-05', ['npm'])
   assert.equal(r1.violations.length, 1, '2.0.5 高于第一段下界但仍在第二族漏洞区间里 ⇒ 必须判账闭不了：' + JSON.stringify(r1.violations))
   assert.ok(r1.violations[0].includes('>=2.1.5'), '文案必须点名是哪一段没过，否则读日志的人只会去查第一段：' + r1.violations[0])
@@ -1057,7 +1072,9 @@ test('刷新路径：--update 带上 --merge-from 后，人在分支上补的 de
     assert.equal(known.decision, 'accepted-risk', '分支上补的结论必须保住（被冲成 TODO 就等于删掉人的风险分析）');
     assert.equal(known.note, '人已复核：不可达');
     const fresh = after.advisories.find((a) => a.id === 'GHSA-brand-new');
-    assert.equal(fresh.decision, 'TODO', '新公告仍必须留 TODO 等人给结论');
+    assert.equal(fresh.decision, 'upgrade-tracked', '新公告由机器预填机械承诺（不再是 TODO —— 那会让门禁在涌入期长期红）');
+    assert.equal(fresh.targetVersion, '1.2.3', '承诺版本取公告修复下界');
+    assert.ok(fresh.dueBy, '预填条目必须带到期日（到期即红是预填能成立的前提）');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -1231,4 +1248,96 @@ test('刷新正文：没有失效结论时那一档必须说「无」（不留�
   const body = D.renderRefreshBody(r, {});
   assert.ok(body.includes('刷新后的基线自洽'), '应当明说没有失效结论');
   assert.ok(!body.includes('| 判据 | 说明 |'), '不得留一张空表');
+});
+
+// ── 机器预填 + 到期即红 + 承诺按「扫描现值」校验（2026-10-24）──
+
+test('到期即红：预填条目的 dueBy 过了就要出声（机器不续期，续期=把复核变成永续挂账）', () => {
+  const item = Object.assign(entry('npm', 'GHSA-DUE'), {
+    decision: 'upgrade-tracked', note: '机械登记', targetVersion: '1.2.3',
+    dueBy: '2026-10-20', prefilled: true,
+  });
+  const found = [entry('npm', 'GHSA-DUE')];
+  const base = { reviewBy: FUTURE, advisories: [item] };
+  const before = D.evaluate(base, found, '2026-10-19', ['npm']);
+  assert.deepEqual(before.violations, [], '未到期不得判红：' + JSON.stringify(before.violations));
+  const after = D.evaluate(base, found, '2026-10-21', ['npm']);
+  const over = after.violations.filter((v) => v.startsWith('DECISION_OVERDUE'));
+  assert.equal(over.length, 1, '到期必须判红：' + JSON.stringify(after.violations));
+  assert.ok(over[0].includes('2026-10-20'), '文案必须点名到期日：' + over[0]);
+  // dueBy 形状非法 ⇒ fail closed（不是「看不懂就当没到期」）
+  const bad = D.evaluate({ reviewBy: FUTURE, advisories: [Object.assign({}, item, { dueBy: 'soon' })] }, found, '2026-10-21', ['npm']);
+  assert.ok(bad.violations.some((v) => v.includes('BASELINE_META_INVALID')), '非法 dueBy 必须判红：' + JSON.stringify(bad.violations));
+});
+
+test('承诺按「扫描现值」校验：基线里记的 patched 陈旧时，闭不上的承诺必须露出来', () => {
+  // 动因（2026-10-24 实测）：多族公告在旧口径下只记一族 ⇒ 基线记的下界偏小；
+  // 拿陈旧事实校验承诺 ⇒ 一个实际闭不上的承诺也能过门禁（当时实测 2 笔隐形欠账）。
+  const base = { reviewBy: FUTURE, advisories: [
+    Object.assign(entry('npm', 'GHSA-MF'), {
+      decision: 'upgrade-tracked', note: '已排期', patched: '>=1.1.16', targetVersion: '1.1.16',
+    }),
+  ] };
+  // 扫描现值：两族（1.x 与 5.x），而承诺只到 1.1.16 ⇒ 闭不上 5.0.6 那份
+  const found = [entry('npm', 'GHSA-MF', { patched: '>=1.1.16, >=5.0.7' })];
+  const r = D.evaluate(base, found, '2026-10-24', ['npm']);
+  const bad = r.violations.filter((v) => v.includes('DECISION_CONTRADICTS_PATCHED'));
+  assert.equal(bad.length, 1, '陈旧事实不得替承诺背书：' + JSON.stringify(r.violations));
+  assert.ok(bad[0].includes('>=5.0.7'), '文案必须点名真正卡住的那一段：' + bad[0]);
+});
+
+test('机器托管的条目：事实变大时 targetVersion 只**收紧**到派生值，绝不放宽人抬得更高的', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-managed-'));
+  const p = path.join(dir, 'bl.json');
+  try {
+    // 旧条目：机器预填过（带 prefilled），人把 targetVersion 抬到了 5.0.10（比派生值高）
+    const old = { reviewBy: FUTURE, advisories: [
+      Object.assign(entry('npm', 'GHSA-M'), {
+        decision: 'upgrade-tracked', note: '机械登记', targetVersion: '5.0.10',
+        dueBy: '2026-11-07', prefilled: true,
+      }),
+    ] };
+    // 扫描现值：事实要求 >=5.0.7（比人抬的低）
+    const out = D.writeBaseline([Object.assign(entry('npm', 'GHSA-M'), { patched: '>=5.0.7' })], old, p, { today: '2026-10-24' });
+    assert.equal(out.advisories[0].targetVersion, '5.0.10', '人抬得更高的必须保留（机器只收紧不放宽）');
+    assert.equal(out.advisories[0].dueBy, '2026-11-07', '到期日不得被机器延长');
+    // 事实要求得更高时 ⇒ 机器收紧（承诺不得闭不上）
+    const out3 = D.writeBaseline([Object.assign(entry('npm', 'GHSA-M'), { patched: '>=5.0.11' })], old, p, { today: '2026-10-24' });
+    assert.equal(out3.advisories[0].targetVersion, '5.0.11', '事实要求更高时必须收紧（承诺不得闭不上）');
+    // 人的条目（无 prefilled 标记）⇒ 机器不碰 targetVersion
+    const human = { reviewBy: FUTURE, advisories: [
+      Object.assign(entry('npm', 'GHSA-H'), { decision: 'upgrade-tracked', note: '人写的', targetVersion: '1.1.16' }),
+    ] };
+    const out4 = D.writeBaseline([Object.assign(entry('npm', 'GHSA-H'), { patched: '>=1.1.16, >=5.0.7' })], human, p, { today: '2026-10-24' });
+    assert.equal(out4.advisories[0].targetVersion, '1.1.16', '人的条目机器不碰（门禁去判它，并让人看见）');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('合成底必须保留 dueBy / prefilled（否则刷新会把机器托管的条目变成人的条目）', () => {
+  const main = { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-A'), { dueBy: '2026-11-07', prefilled: true })] };
+  const branch = { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-A'), { dueBy: '2026-12-01', prefilled: true, note: '人改过' })] };
+  const merged = D.mergeBaselines(main, branch);
+  const a = merged.advisories[0];
+  assert.equal(a.dueBy, '2026-12-01', '分支上的到期日优先（人改过）');
+  assert.equal(a.prefilled, true, 'prefilled 标记必须带过去');
+  assert.equal(a.note, '人改过');
+});
+
+test('刷新正文：机器已预填的条目必须单独列出来（否则人会以为「没东西要做」）', () => {
+  const e = Object.assign(entry('npm', 'GHSA-P'), {
+    decision: 'upgrade-tracked', note: '机械登记', targetVersion: '1.2.3', dueBy: '2026-11-07', prefilled: true,
+  });
+  const r = D.buildRefreshReport(
+    { reviewBy: FUTURE, advisories: [] },
+    { reviewBy: FUTURE, advisories: [e] },
+    { violations: [] },
+  );
+  assert.deepEqual(r.needDecision.map((x) => x.key), [], '预填条目不是「还没给结论」');
+  assert.deepEqual(r.prefilled.map((x) => x.key), ['npm/GHSA-P'], '但必须单独列出「等你确认」');
+  const body = D.renderRefreshBody(r, {});
+  assert.ok(body.includes('机器已预填、等你确认'), '正文必须有这一档：\n' + body);
+  assert.ok(body.includes('2026-11-07'), '正文必须写明到期日');
+  assert.ok(body.includes('机器不续期'), '正文必须点明到期日不由机器续：\n' + body);
 });
