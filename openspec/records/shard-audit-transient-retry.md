@@ -17,7 +17,7 @@ date: 2026-10-24
 | 行尾与 diff 对账 | PASS | 三个被改文件工作副本实测 `i/lf w/crlf attr=text=auto`（当场 `git ls-files --eol`）。所有写入一律 utf8 读 + utf8 写并统一 `\r\n`，落盘前当场断言裸 LF=0 且 loneCR=0（本会话刚因 read utf8 / write latin1 把中文打成低字节、又被 `git add` 存进索引，故这次每步都回读并检查 U+FFFD）；`git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径逐字相等。⛔ 未直改 `CHANGELOG.md`：条目写进本文件末尾的 `## CHANGELOG 条目` 小节，由聚合器发版时搬运 |
 | 接线棘轮 | PASS | 本片**不新增测试文件**：两把锁加在既有 `scripts/electron-ci-shard-audit.test.js` 与 `scripts/electron-ci-desktop-step.test.js`，二者均已显式点名进 `quality-gate.yml` 的 **changes 作业**（该 job 不被 docs-only 短路且在非 PR 早退之前，所以每个 PR 都跑）——当场核对：`node scripts/check-unwired-tests.js --root=.` ⇒ OK、rc=0；`node scripts/check-step-failfast.js` ⇒ rc=0。新代码只 require node 内置（`node:child_process` / `node:path` / `node:test` / `node:assert` / `node:fs`），满足 changes job 无 Install deps 的前提锁 |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触 `apps/desktop/electron/` 生产代码、`packages/rpa-engine/`、任何 `.vue`/样式/locale；改的是 CI 取数工具与预算常量 ⇒ 与产物、像素判定域无交集 |
-| QM-6 CCG 双模型外部评审 | PENDING | 后端依赖体检当场 `sh scripts/deep-review.sh --check-deps` ⇒ `体检通过：后端可用`（critic=claude、proposer=opencode，均经绝对目录补 PATH 解析到 `.cmd`）。真实双模型评审在提交后跑，结论、发现项与处置随本行一起回填；**在拿到外部结论之前本行不得改成闭环值** |
+| QM-6 CCG 双模型外部评审 | **第 1 轮已跑（外部模型真实参与），当前状态 `self_play_blocked`** | `sh scripts/deep-review.sh`（`CCG_ARL_DIR` 指向本机 Qoder 技能内的引擎目录，因该引擎不在 `~/.claude/skills` 下）实测：**跨家族校验 proposer=opencode / critic=claude 通过**，claude 对 494 行 diff 出 **11 条问题**（四维 correctness/security/performance/maintainability，最低 6 分），引擎收敛到第三档出口 ⇒ 4 条待裁项由 agent 自扮演裁决（`adjudicatedBy=self-play`、置信权重 0.6，**不是第二条外部模型的意见**，这点不洗）。四条逐条填 prosecution/defense/verdict 后**全部 upheld**，产物 `.ccg/reviews/e7b39a89….json` 记 `deepReview.status=self_play_blocked`（评审原件已复制进 `.ccg/reviews/`，因 `.adversarial/` 被 gitignore）。⛔ 该状态**不在**闭环白名单里，`check-pr-exec-record --mode=enforce` 会判欠账并红 `Gate Result` —— 这是机制在生效，不是要绕的麻烦：自扮演不能给自己签发"外部已复核"。出路只有对新 head 再跑一轮（见 §5 与提交后的第二轮结论回填）。 |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）；现场读数看 CI 步骤首行 `MERGE-LEDGER prs=<n>` |
 
 - 保留门禁：变更类型与隔离 ✅ | 行尾对账 ✅ | 品牌残留 ✅（无竞品名） | 文档同步 ✅（provenance 与审计口径随代码同 PR） | 远程同步 由门禁推导
@@ -67,6 +67,18 @@ date: 2026-10-24
   不能只引一个 max —— 这也是本轮把 provenance 改成"带 collectedAt/runnerShape 的一册账"而不是"一个数"的原因。
   两批都判 OK：`2700 ≥ 24.5×60×1.5 = 2209`，且未贴 `floor×1.1 = 2430` 的贴脸线。
 - `check-unwired-tests` / `check-step-failfast` / `check-debt-budget`（`maxFileLines 5356 ≤ 基线 5359`、`filesOver500 95 ≤ 95`）/ `check-doc-abs-paths` 全部 rc=0
+
+
+## 5. 外部评审发现与处置（第 1 轮，四条 Warning 全部 upheld）
+
+| 编号 | 发现（外部模型 claude 原文要点） | 我的最强辩护 | 裁决 | 落地 |
+|---|---|---|---|---|
+| i1 | 末行终止符被吃掉，与提案自己声明的「统一行尾 + 落盘前断言」矛盾，是实物证据级别的出入 | "Node 不要求尾换行，纯风格" | **upheld** | 补回尾换行；正向回归锁（含"判据本身能区分有/无"的形状自证）+ 变异 M11 |
+| i2 | 「新读数不得被悄悄扶正」那条锁让**它自己声明的出路**（样本量够了就换顶部值）结构上不可达 | "当前数据上它是绿的，行为看起来正确" | **upheld** | 规则改成「最新一档已扶正 或 样本量确实更小」，补**正控**（扶正后必须通过）与**反控**（更厚却不扶正必须红），M12 证明两条都有牙 |
+| i3 | 自证是 1/5 成功率，而 attempts=3 的残余失败率 (4/5)^3 ≈ 51%，正文却称 3 为「够用下界」 | "§4 已承认非分布支撑，重点是可归因不是必然成功" | **upheld** | 文案改成明写残余失败率与选择理由（代价不对称：几秒 vs 人重跑分钟级），常数 3→5；并如实保留「残余 ~33% ⇒ 降噪不是保证」，避免用一个过度声明换另一个 |
+| i4 | `/HTTP 5\d\d/` 只认单空格字面形态，`HTTP/1.1 500`、`HTTP/2 503` 全漏 ⇒ 被判"一次就抛"的恰是要治的那类故障 | "窄判据是宁漏不藏红的取向，且本仓实测签名确实命中" | **upheld** | 取向对、覆盖面窄：pattern 改 `/HTTP(?:\/[\d.]+)?\s*5\d\d/`，补 3 类正控 + 5 类负控（`elapsed=500ms`、`port 1502`、4xx、3xx 都不许判瞬时），M10 |
+
+三条可判定发现是**先写红测试再修**（i1、i4 各自红过：`末行没有终止符` / `server replied HTTP/2 503` 未命中），i2 是锁的可达性问题故以正控形式落地，i3 是文案与参数。九条未进入裁决的问题由引擎按维度分归档，未被我判成"无意见"——它们没构成阻断项，但第 2 轮外部评审会重新看这份 diff。
 
 ## 4. 遗留（不假装已闭合）
 

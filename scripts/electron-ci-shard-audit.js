@@ -27,11 +27,13 @@ const FIELDS = ['runs', 'shards', 'minShardMin', 'p50ShardMin', 'maxShardMin',
   'budgetFloorSec', 'stepBudgetSec', 'safetyMultiplier', 'collectedAt', 'source'];
 
 /**
- * 默认 3 次、退避 1500ms×k。依据是 2026-10-22 现场：一次采集连吃 4 次 SELF_FAULT，
- * 第 5 次才成功 —— 所以 3 是"够用且不可能无限"的下界，**不是量出来的分布**；
- * 真要调它得按本仓对 *_PROVENANCE 的口径先攒样本，不得凭手感放宽。
+ * 默认 5 次、退避 1500ms×k。依据是 2026-10-22 现场：一次采集连吃 4 次 SELF_FAULT、第 5 次才成功。
+ * 按此单次成功率 1/5 ⇒ 试 3 次的残余失败率 (4/5)^3 ≈ 51%、试 5 次 ≈ 33%。**这不是分布**（n=5 且
+ * 高度聚簇，撑不起分布）—— 选 5 的理由是**代价不对称**：多试两次只花几秒，试不出来就是人再重跑
+ * 一整轮采集（分钟级）。残余 ~33% 仍会 SELF_FAULT ⇒ 它是降噪，不是保证；真要定数得按本仓对
+ * *_PROVENANCE 的口径先攒样本。外部评审 i3 打的就是"把 3 说成够用下界"那句过度声明。
  */
-const GH_RETRY_ATTEMPTS_DEFAULT = 3
+const GH_RETRY_ATTEMPTS_DEFAULT = 5
 const GH_RETRY_BASE_MS_DEFAULT = 1500
 
 /** Actions 作业日志每行前缀是 `2026-10-21T07:52:30.4123456Z ` —— 不剥掉它任何 `^` 锚点都恒不命中。 */
@@ -112,7 +114,7 @@ function format (s) {
 const TRANSIENT_PATTERNS = [
   /wsarecv/i, /forcibly closed/i, /\bEOF\b/, /\bECONNRESET\b/i, /\bECONNREFUSED\b/i,
   /\bETIMEDOUT\b/, /\btimed out\b/i, /\bENOTFOUND\b/i, /\bEAI_AGAIN\b/i,
-  /HTTP 5\d\d/, /\bServer Error\b/i, /proxyconnect/i,
+  /HTTP(?:\/[\d.]+)?\s*5\d\d/, /\bServer Error\b/i, /proxyconnect/i,
 ]
 
 /**

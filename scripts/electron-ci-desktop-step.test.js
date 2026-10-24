@@ -306,11 +306,40 @@ test('新形状读数参与判据：预算 ≥ max(全部读数) × 倍数，而
   assert.ok(mod.STEP_BUDGET_MS > maxAll * 60000, '预算必须大于**任何一档**观测最大值本身')
 });
 
-test('样本量不够的新读数不得被悄悄扶正：它超过顶部档时必须显式换值并重测', () => {
+test('册子里更新的一档要么已被扶正、要么样本量确实更小（既挡悄悄漂移，也让"够了就换"可达）', () => {
   const p = mod.STEP_BUDGET_PROVENANCE
-  const newer = p.readings.filter((r) => r.collectedAt > p.collectedAt)
-  assert.ok(newer.length >= 1, '册子里应当已有比顶部档更新的一次测量（本条同时挡住"册子被清空后仍然绿"）')
-  assert.ok(newer.every((r) => r.shards < p.shards),
-    '新读数样本量已 ≥ 当前扶正档 ⇒ 必须显式把它换成扶正读数并重跑分布，不许让它跟着册子漂移')
+  // 规则（生产方只有一份，写在测试里因为这是"锁自身的可达性"问题）：
+  //   最新一档 == 扶正档（已显式换过）  ⇒ 通过
+  //   最新一档样本量 < 扶正档          ⇒ 通过（还没资格换，正是本次 8 片 < 14 片的处境）
+  //   否则                              ⇒ 红（有更厚的读数却没扶正 = 悄悄漂移）
+  const governingIsCurrent = (prov) => {
+    const newest = prov.readings.reduce((a, r) => (r.collectedAt > a.collectedAt ? r : a))
+    return newest.collectedAt === prov.collectedAt || newest.shards < prov.shards
+  }
+  assert.ok(governingIsCurrent(p), '当前读数账的扶正关系不成立 ⇒ 要么换顶部值，要么删掉那条更新读数')
+
+  // 正控（**这条就是外部评审打的那一格**）：把新档显式扶正之后必须仍然通过。
+  // 上一版写成 newer.every(r => r.shards < p.shards) 并要求 newer 非空，
+  // 于是"样本量够了就换顶部值"这个我自己声明的出路在锁里结构上不可达 ——
+  // 换值 ⇒ 顶栏日期变成最新 ⇒ newer 为空 ⇒ 长度断言红；不换 ⇒ 片数一旦追平也红。
+  const newest = p.readings.reduce((a, r) => (r.collectedAt > a.collectedAt ? r : a))
+  const promoted = {
+    collectedAt: newest.collectedAt, shards: newest.shards, runs: newest.runs,
+    maxObservedShardMin: newest.maxShardMin, readings: p.readings,
+  }
+  assert.ok(governingIsCurrent(promoted),
+    '"扶正最新一档"必须是被允许的动作，否则这条锁在禁止它自己声明的修复路径')
+
+  // 反控：更新一档明显更厚却没扶正 ⇒ 必须判不成立（证明正控不是恒真）
+  const drifted = {
+    collectedAt: '2026-10-21', shards: 8,
+    readings: [
+      { collectedAt: '2026-10-21', shards: 8 },
+      { collectedAt: '2026-10-30', shards: 20 },
+    ],
+  }
+  assert.equal(governingIsCurrent(drifted), false,
+    '更厚的新读数摆在册子里却不扶正 ⇒ 必须红，不然整条锁是装饰')
 });
+
 

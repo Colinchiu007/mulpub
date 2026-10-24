@@ -284,3 +284,30 @@ test('attempts 是接进 collect 的活参数，不是只存在于常量里（co
   assert.equal(calls, 2, 'collect 收到 attempts=2 却试了 ' + calls + ' 次 ⇒ 参数没接进重试环，env 覆盖是假的')
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// QM-6 外部评审（critic=claude，真跨家族）四条 Warning 全部成立后的回归锁。
+// 三条可判定的（i1 尾换行 / i2 锁禁止了自己声明的出路 / i4 HTTP 形态太窄）先写红测试；
+// i3 是"文字过度声明 + 参数选小了"，改常数与文案，其可判定部分由 i4 之外的既有锁覆盖。
+test('i1 回归：源文件必须以换行收尾（外部评审拿 \ No newline at end of file 实物证据打的红）', () => {
+  const fs = require('node:fs')
+  const src = fs.readFileSync(require.resolve('./electron-ci-shard-audit.js'), 'utf8')
+  assert.ok(/(?:\r?\n)$/.test(src),
+    '末行没有终止符 ⇒ 与提案自己声明的「统一行尾、落盘前断言」矛盾，且 diff 会多出一行幽灵改动')
+  // 形状自证：判据本身能区分"有尾换行"与"没有"（否则这条锁是装饰）
+  assert.equal(/(?:\r?\n)$/.test('x }'), false, '判据对无尾换行的样本必须给 false')
+});
+
+test('i4 回归：HTTP 5xx 的多种真实形态都要判瞬时，而 4xx 与毫秒数不得被误判', () => {
+  const { isTransientGhFailure } = audit
+  // 正控：真实里常见的三种写法（评审指出的盲区）
+  for (const m of ['gh: HTTP 502 Bad Gateway', 'GH_FAILED api x :: HTTP/1.1 500 Internal Server Error',
+    'server replied HTTP/2 503']) {
+    assert.equal(isTransientGhFailure(m), true, '这一形态属于可重试的 5xx：' + m)
+  }
+  // 负控：把判据写宽最容易撞上的两类假阳
+  for (const m of ['gh: Not Found (HTTP 404)', 'HTTP 301 Moved', 'elapsed=500ms', 'port 1502 in use',
+    'HTTP 200 OK']) {
+    assert.equal(isTransientGhFailure(m), false, '不得判瞬时（4xx/重定向/数字里带 5xx 形状）：' + m)
+  }
+});
+
