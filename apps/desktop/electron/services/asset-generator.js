@@ -23,6 +23,7 @@ const http = require('http')
 const { promisify } = require('util')
 const { spawn } = require('child_process')
 const { findFfmpeg } = require('./media-tool-paths')
+const { renderTitleCard, escapeDrawtextText } = require('./title-card-renderer')
 const { resolveConcreteVoiceId } = require('./tts-voice-id')
 const { needsUserInputMessage, runContentPolicyImageRetry, createContentPolicyAudit } = require('./story2video-image-retry')
 const { ProviderError, ERROR_CODES } = require('./adapters/_base/provider-error')
@@ -125,18 +126,6 @@ function buildEdgeTtsScript () {
 // 旧版 edge-tts（<6.0 不支持 boundary 参数）回退脚本：直接 .save()，无词级时间戳
 function buildEdgeTtsLegacyScript () {
   return 'import sys, asyncio, edge_tts; asyncio.run(edge_tts.Communicate(sys.argv[1], sys.argv[2], rate=sys.argv[4], pitch=sys.argv[5]).save(sys.argv[3]))'
-}
-
-function escapeDrawtextText (text) {
-  return String(text || '')
-    .replace(/[\r\n]+/g, ' ')
-    .replace(/\\/g, '\\\\')
-    .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
-    .replace(/,/g, '\\,')
-    .replace(/%/g, '\\%')
-    .replace(/\{/g, '\\{')
-    .replace(/\}/g, '\\}')
 }
 
 function safeSessionId (value) {
@@ -545,44 +534,33 @@ class AssetGenerator {
 
     const imgPath = path.join(outputDir, 'img_' + safeIndex + '.png')
 
-    // 根据 style 选择背景色
-    const styleColors = {
-      cinematic: '0x1a1a2e',
-      realistic: '0x2d4a2d',
-      cartoon: '0x4a90d9',
-      anime: '0xe91e63',
-      cyberpunk: '0x6a1b9a',
-      watercolor: '0x7aa7b8',
-      minimalist: '0xf0eee8',
-    }
-    const bgColor = styleColors[opts?.style] || '0x1a1a2e'
-
-    const displayText = escapeDrawtextText((prompt || '').slice(0, 30))
-    const fontOption = require('./font-resolver').buildDrawtextFontOption() // 须显式注入 CJK fontfile，否则中文豆腐块
-
-    const args = [
-      '-y',
-      '-f', 'lavfi', '-i', 'color=c=' + bgColor + ':s=' + width + 'x' + height + ':d=1',
-       '-vf', "drawtext=text='" + displayText + "'" + fontOption + ":fontcolor=white:fontsize=36:" +
-        'x=(w-text_w)/2:y=(h-text_h)/2:borderw=2:bordercolor=black',
-      '-frames:v', '1',
-      imgPath,
-    ]
-
+    // 占位图走「标题卡渲染器」：标题/副标题分层 + 渐变底 + **标题安全区**。
+    // 为什么不再就地拼 drawtext（2026-10-24 收口）：
+    //   ① 旧实现是「单色底 + 提示词前 30 字居中」，没有安全区 ——
+    //      合成阶段默认的 zoom-in 动效（1.0→1.25 居中缩放）会裁掉左右各 10%，
+    //      边缘文字被**无声切掉**：实测「好消息是」在成片里变成「消息是」，
+    //      成片不报错、不降级、只是少字 —— 没有任何既有断言能看见它。
+    //   ② 「用文字做一张卡」是跨流水线通用需求（标题卡/字幕卡/封面卡/章节卡），
+    //      每个流水线各写一份 ffmpeg 参数只会各错各的 ⇒ 收敛到独立模块。
     try {
-      await execFileAsync(this.ffmpeg, args, { timeout: 15000, maxBuffer: 512 * 1024 })
-      if (!fs.existsSync(imgPath)) {
-        return { code: -1, message: 'ffmpeg did not produce image' }
-      }
-      const stat = fs.statSync(imgPath)
-      this.log.info('AssetGenerator', 'Image ' + idx + ' generated: ' + path.basename(imgPath) + ' (' + stat.size + 'B)')
+      const card = await renderTitleCard({
+        title: prompt || '',
+        width,
+        height,
+        theme: opts?.style,
+        outputPath: imgPath,
+        ffmpegPath: this.ffmpeg,
+      })
+      this.log.info('AssetGenerator', 'Image ' + idx + ' generated: ' + path.basename(imgPath) + ' (' + card.size + 'B)')
       return {
         code: 0,
         data: {
           path: imgPath,
           url: imgPath,
           image_path: imgPath,
-          size: stat.size,
+          size: card.size,
+          // source 维持 'ffmpeg-placeholder' 字面量：发布侧、历史项目、结果页
+          // 都按**这个字符串**判「占位图不得当成功封面」，改字面量会让那道防线失效。
           source: 'ffmpeg-placeholder',
           degraded: true,
         },
