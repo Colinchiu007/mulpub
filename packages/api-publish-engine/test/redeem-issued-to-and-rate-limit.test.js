@@ -655,3 +655,130 @@ test('接线：已被**别人**用过的码（409 USED）计入失败计数 ⇒ 
     await server.stop()
   }
 })
+
+// ── 四、第 2 轮对抗审查查出的「测试恒真盲区」补齐 ──────────────────────────
+// 下面 4 条都是第 2 轮变异验证里 **SURVIVED**（变异注进去、套件仍然全绿 ⇒ 当时零覆盖）的点。
+// 补法一律是「把边界那一侧也钉住」，而不是把断言改松。
+
+test('接线：非探测型错误（过期 / 服务端故障）必须**释放预占额度**且不记失败 ⇒ 反复失败也不会被限流', async () => {
+  // 变更清单第 3 条，上一轮对抗审查实测：把 `else limiter.releasePending(userId)` 改成空操作，
+  // 25/25 用例**全绿** ⇒ 这条行为零覆盖（假绿）。
+  //
+  // 语义：acquire() 会给用户预占一个「待定失败」额度。
+  //   · 探测型失败（格式错/不存在/已用/已停用）⇒ recordFailure（待定转正为失败）
+  //   · 非探测型失败（过期 / 服务端 500）⇒ 既不记失败、也不算成功，
+  //     但**必须把预占还回去**，否则 pending 永久累积 ⇒
+  //     用户只是反复拿自己的旧码来试，也会被限流在门外（回归影响实测：5 次即 429）。
+  let mode = 'expired'
+  const service = {
+    repository: {},
+    planOverrides: null,
+    async redeem() {
+      if (mode === 'expired') {
+        throw Object.assign(new Error('兑换码已过有效期'), { code: 'REDEEM_CODE_EXPIRED', status: 410 })
+      }
+      // 服务端故障：不是用户的错，也不该把用户挡在门外
+      throw Object.assign(new Error('内部错误'), { code: 'COMMERCE_INTERNAL_ERROR', status: 500 })
+    },
+  }
+  const server = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createIdentityRepository('u-expired'),
+    entitlementProvider: { async getForUser() { return { plan: 'standard', features: [], quota: {}, limits: {} } } },
+    subscriptionService: service,
+  })
+  await server.start(0)
+  const port = server._server.address().port
+  try {
+    // 阈值是 5 ⇒ 若预占没归还，第 6 次请求就会被拦成 429。
+    // 连续 8 次全应是业务错误（410）——这 8 次里任何一次是 429 都说明预占没归还。
+    for (let i = 0; i < 8; i++) {
+      const res = await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'ABCD-EFGH-JKMN' })
+      assert.strictEqual(res.status, 410, `第 ${i + 1} 次应是 410（过期是正常业务错误，不是限流）`)
+      assert.strictEqual(res.body.error, 'REDEEM_CODE_EXPIRED')
+    }
+    // 计数层也要干净：失败数 0、待定数 0（否则用户下一次正常兑换可能被误拦）
+    const counts = server._redeemLimiter().counts('u-expired')
+    assert.strictEqual(counts.userFailures, 0, '非探测型失败不该记入失败计数')
+    assert.strictEqual(counts.userPending, 0, '非探测型失败必须把预占额度还回去')
+
+    // 服务端故障是另一类非探测型错误，同一条纪律
+    mode = 'server-error'
+    for (let i = 0; i < 8; i++) {
+      const res = await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'ABCD-EFGH-JKMN' })
+      assert.strictEqual(res.status, 500, `第 ${i + 1} 次应是 500（服务端故障不是限流）`)
+    }
+    const after = server._redeemLimiter().counts('u-expired')
+    assert.strictEqual(after.userFailures, 0, '服务端故障不该记入失败计数')
+    assert.strictEqual(after.userPending, 0, '服务端故障必须把预占额度还回去')
+  } finally {
+    await server.stop()
+  }
+})
+
+test('限流器：IP 档的「速率」判定必须用 ipBurstWindowMs（60s），不是 ipWindowMs（10min）', () => {
+  // 第 2 轮变异：把速率窗口误用成 ipWindowMs ⇒ SURVIVED（当时零覆盖）。
+  // 形态：速率窗口若取 10 分钟，则「10 分钟内累计到的失败数」永远 ≥「60 秒内的失败数」
+  // ⇒ 速率条件退化成总量条件的同义词 ⇒ 「60 次/10 分钟」这种慢速形态也会被拦，
+  // 而设计口径明确写了「共享出口的慢速偶发失败不触发」。
+  let clock = Date.parse('2026-10-24T00:00:00Z')
+  const limiter = new RedeemFailureLimiter({
+    userWindowMs: 60000, userMaxFailures: 100,
+    ipWindowMs: 600000, ipMaxFailures: 200,
+    ipBurstWindowMs: 60000, ipBurstFailures: 60,
+    now: () => clock,
+  })
+  try {
+    // 60 次失败分散在 2 分钟内（每 2 秒一次）：10 分钟内共 60 次，但最近 60 秒内只有 30 次。
+    // ⇒ 总量 60 < 200（不达标）、速率 30 < 60（不达标）⇒ 两个条件都不达标 ⇒ 不拦。
+    for (let i = 0; i < 60; i++) {
+      clock += 2 * 1000
+      limiter.acquire(`u${i}`, '9.9.9.9')
+      limiter.recordFailure(`u${i}`, '9.9.9.9')
+    }
+    assert.strictEqual(limiter.counts(null, '9.9.9.9').ipFailures, 60)
+    const gate = limiter.acquire('fresh-user', '9.9.9.9')
+    assert.strictEqual(gate.blocked, false, '速率条件不达标 ⇒ IP 档不应触发（速率窗口必须是 60s，不是 10min）')
+    assert.strictEqual(gate.scope, null)
+  } finally { limiter.stop() }
+})
+
+test('限流器：滑窗边界 —— 恰好等于窗口时长的失败已过期（半开区间 [now-窗口, now)）', () => {
+  // 第 2 轮变异：滑窗边界 `>` 改成 `>=` ⇒ SURVIVED（当时零覆盖）。
+  // 窗口是半开区间：恰好落在边界上的那次失败算**已过期**。
+  let clock = Date.parse('2026-10-24T00:00:00Z')
+  const limiter = new RedeemFailureLimiter({
+    userWindowMs: 60000, userMaxFailures: 1,
+    ipWindowMs: 600000, ipMaxFailures: 30,
+    now: () => clock,
+  })
+  try {
+    limiter.acquire('u1', '6.6.6.6')
+    limiter.recordFailure('u1', '6.6.6.6')
+    // 窗口内（59.999 秒）：仍在计数 ⇒ 阈值 1 ⇒ 被拦
+    clock += 59999
+    assert.strictEqual(limiter.acquire('u1', '6.6.6.6').blocked, true, '窗口内的失败应仍计入')
+    // 恰好 60 秒：刚好滑出窗口 ⇒ 不再计数 ⇒ 重新放行
+    clock += 1
+    assert.strictEqual(limiter.acquire('u1', '6.6.6.6').blocked, false, '恰好等于窗口时长的失败应已过期')
+  } finally { limiter.stop() }
+})
+
+test('issued_to 长度边界：恰好 200 字符**必须接受**（闸门是 >200，不是 >=200）', async () => {
+  // 第 2 轮变异：`trimmed.length > 200` 改成 `>= 200` ⇒ SURVIVED（当时零覆盖：
+  // 既有那条用例只测 201 字符，两种实现都拒 ⇒ 区分不开）。
+  const service = new SubscriptionService({
+    repository: { async createRedeemCodes(records) { return records.map((row) => row.code) } },
+    now: () => new Date('2026-10-24T00:00:00Z'),
+  })
+  const atLimit = 'x'.repeat(200)
+  const result = await service.createRedeemBatch({ plan: 'pro', durationDays: 90, count: 1, issuedTo: atLimit })
+  assert.strictEqual(result.issuedTo, atLimit, '恰好 200 字符必须被接受（上限是「超过 200 才拒」）')
+  assert.strictEqual(result.generated, 1)
+  // 201 字符仍然必须拒（这条既有用例已覆盖，但放在同一条里做「两侧」对照）
+  await assert.rejects(
+    () => service.createRedeemBatch({ plan: 'pro', durationDays: 90, count: 1, issuedTo: 'x'.repeat(201) }),
+    (error) => error.code === 'ISSUED_TO_INVALID' && error.status === 400
+  )
+})
