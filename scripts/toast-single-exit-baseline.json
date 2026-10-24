@@ -1,0 +1,34 @@
+{
+  "_comment": "toast 直调基线（UX 审计 §16.2 口径③）。byFile=ElMessage.<type>( 直调份数；genericByFile=ElMessage({...}) 泛化直调份数（useNotify.js 之外的存量）。两者都只能缩小；无 --update-baseline，放宽只能手改本 JSON 并留在 diff 里。2026-10-19 re-sync：主干 PR #3978（film-engineering 五条缺陷修复）在 views/FilmCanvasView.vue 新增 1 处 ElMessage.error( 直调，本门禁当场判 GREW 并点名该文件（第一次真实拦截，动因来自 trunk、不是本分支）。按「不在本次改动集里的上涨归因给 base 并逐项出声」口径把基线 12→13（总数 84→85），不做静默放宽、不改判据。",
+  "generatedBy": "node scripts/check-toast-single-exit.js --json 的同一 scan 实现（不是另写一份计数）",
+  "generatedAt": "2026-10-19",
+  "byFile": {
+    "App.vue": 5,
+    "components/ConfigProfileManager.vue": 4,
+    "components/KeywordMonitorPanel.vue": 11,
+    "components/PatternAnalysisPanel.vue": 3,
+    "components/PersonalFormDialog.vue": 1,
+    "components/PersonalKnowledgePanel.vue": 3,
+    "components/PublishFrequencySettings.vue": 6,
+    "components/SidebarUpdateButton.vue": 1,
+    "components/TagSuggester.vue": 2,
+    "components/ViralFormDialog.vue": 1,
+    "components/ViralLibraryTable.vue": 3,
+    "composables/useAccountEvents.js": 1,
+    "features/collection/CreatorCredentialDialog.vue": 3,
+    "features/collection/CreatorMonitor.vue": 8,
+    "features/dashboard/PerformanceFlowPanel.vue": 1,
+    "views/Dashboard.vue": 4,
+    "views/FilmCanvasView.vue": 13,
+    "views/KnowledgeBasePage.vue": 9,
+    "views/PerformanceInsights.vue": 3,
+    "views/PromptEvalView.vue": 1,
+    "views/film-auto/FilmAutoPanel.vue": 1,
+    "views/film-auto/useFilmAutoRun.js": 1
+  },
+  "genericByFile": {
+    "components/PublishProgressFooter.vue": 1,
+    "components/PublishProgressPanel.vue": 5
+  },
+  "memberByFile": {}
+}

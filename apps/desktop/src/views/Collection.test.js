@@ -26,6 +26,7 @@ function mountCollection(options) {
 
 import CollectionView from "./Collection.vue";
 import i18n from "@/i18n";
+import { messageIs, messageContains } from '../utils/toast-assert-helpers'
 
 describe("CollectionView", () => {
   beforeEach(() => {
@@ -285,7 +286,7 @@ describe("CollectionView", () => {
     w.vm.linkUrl = "https://example.com/fail";
     await w.vm.collectUrl();
     const { ElMessage } = await import("element-plus");
-    expect(ElMessage.error).toHaveBeenCalledWith("collection failed");
+    expect(ElMessage.error).toHaveBeenCalledWith(messageIs("collection failed"));
   });
 
   // ── 结果区「点了没反应」修复（2026-10-17，change: collected-results-fix）──

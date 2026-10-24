@@ -24,6 +24,7 @@ import { ElMessage } from 'element-plus'
 import { updateInstallNow } from '@/api/publisher'
 import { resetAutoUpdateState, useAutoUpdate } from '@/composables/useAutoUpdate'
 import SidebarUpdateButton from './SidebarUpdateButton.vue'
+import { messageOf } from './../utils/toast-assert-helpers'
 
 const SOURCE = fs.readFileSync('./src/components/SidebarUpdateButton.vue', 'utf8')
 
@@ -95,7 +96,7 @@ describe('SidebarUpdateButton — 点击退出并安装', () => {
 
     expect(updateInstallNow).toHaveBeenCalledTimes(1)
     expect(ElMessage.info).toHaveBeenCalledTimes(1)
-    expect(ElMessage.info.mock.calls[0][0]).toContain('自动退出')
+    expect(messageOf(ElMessage.info.mock.calls[0][0])).toContain('自动退出')
   })
 
   it('已下载（ready）时标签为「重启安装」，点击直接安装', async () => {

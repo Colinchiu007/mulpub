@@ -37,6 +37,7 @@ vi.mock("element-plus", () => ({
 
 import { keywordStatus, keywordStart, keywordHistory } from "@/api/publisher";
 import KeywordMonitorPanel from "./KeywordMonitorPanel.vue";
+import { messageIs, messageContains } from '../utils/toast-assert-helpers'
 
 describe("KeywordMonitorPanel", () => {
   beforeEach(() => {
@@ -130,7 +131,7 @@ describe("KeywordMonitorPanel — extra coverage", () => {
     await nextTick();
     // Add empty keyword
     w.vm.addKeyword();
-    expect(ElMessage.warning).toHaveBeenCalledWith("请输入关键词");
+    expect(ElMessage.warning).toHaveBeenCalledWith(messageIs("请输入关键词"));
   });
 
   it("addKeyword warns on duplicate keyword", async () => {
@@ -141,7 +142,7 @@ describe("KeywordMonitorPanel — extra coverage", () => {
     await nextTick();
     w.vm.newKeyword = "existing";
     await w.vm.addKeyword();
-    expect(ElMessage.warning).toHaveBeenCalledWith("该关键词已在监测列表中");
+    expect(ElMessage.warning).toHaveBeenCalledWith(messageIs("该关键词已在监测列表中"));
   });
 
   it("addKeyword warns when max 20 reached", async () => {
@@ -153,7 +154,7 @@ describe("KeywordMonitorPanel — extra coverage", () => {
     await nextTick();
     w.vm.newKeyword = "overflow";
     await w.vm.addKeyword();
-    expect(ElMessage.warning).toHaveBeenCalledWith("最多添加 20 个关键词");
+    expect(ElMessage.warning).toHaveBeenCalledWith(messageIs("最多添加 20 个关键词"));
   });
 
   it("addKeyword handles API error", async () => {

@@ -119,6 +119,12 @@ jobs:
           # 预算出处的**复测入口**自身的锁（字段对齐 / 三档退出码 / 两档采样域不混记 / 接线）。
           # 与上一条同一个落点理由：本 job 不被 docs-only 短路，且在非 PR 早退之前。
           node --test scripts/electron-ci-shard-audit.test.js
+          # toast 单点出口棘轮（2026-10-19，change: ux-audit-toast-single-exit）：审计 2.7 重定位后的结论是
+          # "牙齿在策略层不在调用点"，但调用点直调 ElMessage.error() 会绕过 useNotify 的时长/分组策略。
+          # 判据按**文件份数**棘轮 —— 存在性判据抓不到"同一文件多加一处"（变异 ③ 实测就是这一格）。
+          # 落点理由同 merge-ledger：本 job 不被 docs-only 短路，且在非 PR 早退之前 ⇒ PR 与 push 两档都跑。
+          node --test scripts/check-toast-single-exit.test.js
+          node scripts/check-toast-single-exit.js
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
             echo "docs-only=false (non-PR event: full run)"

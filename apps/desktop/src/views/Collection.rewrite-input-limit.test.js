@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { setActivePinia, createPinia } from 'pinia'
+import { messageOf } from '@/utils/toast-assert-helpers'
 
 vi.mock('element-plus', () => ({
   ElMessage: { warning: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() },
@@ -47,8 +48,13 @@ function mockStealthApi (content, aiRewriteResult) {
   }
 }
 
+// 观察面必须**按语义取文案**而不是 `String(call[0])`：统一出口 `useNotify` 传给
+// ElMessage.warning 的是选项对象（`{message, duration, grouping}`，时长与同源合并由
+// utils/toast-policy 唯一持有），`String(obj)` 会得到 '[object Object]' —— 那既不是
+// "没弹提示"也不是"提示没内容"，只是读法与形状不符（UX 审计 16.2 批次 #3996 在 CI 上
+// 被这条打红后当场改判）。取 `messageOf` 后断言强度不变：仍然要求文案含 6766/6000/截取。
 function warningTexts () {
-  return ElMessage.warning.mock.calls.map((call) => String(call[0])).join('\n')
+  return ElMessage.warning.mock.calls.map((call) => messageOf(call[0])).filter(Boolean).join('\n')
 }
 
 /** info 通道（分段改写提示走 info，不是 warning——它不是告警而是预期行为） */

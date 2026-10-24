@@ -168,6 +168,51 @@ notify({
 - 统一转发 `notify:log`（level=error，messageKey 用 `renderer.uncaught_error` 通用 key，error 原文脱敏入日志）
 - 目的：用户报"界面闪退/白屏"时，日志仍能记录，不依赖 `notify()` 被显式调用。
 
+#### 3.3.1 出口策略层（2026-10-19 补，UX 审计 §16.2 的落地）
+
+上面 3.3 的接口只解决了「文案从哪来」，没解决「提示停留多久、重复怎么办」——
+实测缺口正是这一层：出口里 `duration` 出现 0 次 ⇒ 四档一律走 element-plus 默认 3000ms
+（报错提示与普通提示一样久），且库默认 `grouping: false` ⇒ 同一条提示重复出现时逐条堆叠（审计现场的"刷屏"）。
+策略由 **`src/utils/toast-policy.js` 单一持有**，`useNotify.js` 只消费；策略不住在出口里会让"下一个调用点想改时长只能改封装"。
+
+**时长档位（`TOAST_DEFAULT_DURATION_MS`，`Object.freeze`）**：
+
+| level | 默认停留 | 语义理由 |
+|---|---|---|
+| `success` | 2000ms | 确认类，扫一眼即可 |
+| `info` | 3000ms | 与库默认一致，避免"改出口顺带改变没预期的档" |
+| `warning` / `warn` | 4000ms | 需要用户决定下一步 |
+| `error` | 6000ms | 含可复制的排障信息，读得完才消失 |
+
+- **上限** `TOAST_MAX_DURATION_MS = 10000`：只夹**调用点显式请求**，不夹默认值（夹默认值等于给自己造第二条真源）；
+  并断言 `上限 > 所有默认档`，否则"上限写太小"会静默吃掉档位设计。
+- **`duration: 0` 是合法值**（宿主文档原文 "If set to 0, it will not turn off automatically"）⇒ 表示常驻，
+  **必须原样放行**，不得当非法值回落默认；未知 level 也不抛错，落 `info` 档，但 `0` 仍被尊重。
+- **回落必须出声**：`resolveToastDuration(level, requested)` 返回 `{ms, fellBack, reason}`，reason ∈
+  `DEFAULT / PERSISTENT / EXPLICIT / CLAMPED_TO_MAX / NOT_A_NUMBER / NOT_FINITE / NEGATIVE`
+  （未知 level 各带 `*_UNKNOWN_LEVEL` 变体）。`fellBack` 为真时出口 `console.warn`：
+  `[notify] duration rejected by policy, fallback applied: <reason> (key=…, requested=…)`。
+  静默改语义会让"我传的时长没生效"永远不被知道。该告警是开发者可见、**不是用户可见文案** ⇒ 不进 locales（避免死键），
+  且写成 ASCII（`check-locale-sync --cjk` 会把中文 `console.warn` 判成硬编码）。
+
+**同源合并（交互逻辑）**：出口默认 `grouping: true`（复用 element-plus 原生能力与 `repeatNum` 计数，不自造合并逻辑）；
+只有调用点**显式** `grouping: false` 才各算一次 —— 保留"必须各弹一次"的场景（如带序号的进度提示）。
+`notifyConfirm` 属模态，不套时长策略、也不计入 toast 棘轮。
+
+**档位词表只有一个落点**：`level → element-plus type` 的映射（含 `warn → warning` 别名与未知落 `info`）
+住在 `TOAST_TYPE_BY_LEVEL` / `resolveToastType()`，并配一条「档位词表键集必须等于时长表键集」的成对锁。
+动因是实测：出口自列的四元数组漏掉 `warn`，会让 `level:'warn'` 静默降成 info。
+
+**出口形态与调用点约束**：出口取 `ElMessage[type]({ message, duration, grouping })`（宿主 `MessageTypedFn`
+接受选项对象）。**出口之外**不得直调 `ElMessage`，判据是 `scripts/check-toast-single-exit.js` 的只可缩小棘轮，
+按**文件份数**计（不是"文件是否在册"），三种写法全计入：`ElMessage.error(`、`ElMessage({`、`ElMessage[`；
+出口内三态一并豁免（豁免只覆盖部分形态会让门禁把自己的出口判成违规）。存量 84 处按视图分批迁移。
+
+**测试口径**：消费者断言必须绑"用户看到的那句话"而不是绑调用形态 —— 单一实现是
+`src/utils/toast-assert-helpers.js` 的 `messageIs / messageContains / messageOf`，对字符串形态与选项形态同时成立；
+匹配器对 `undefined / 数字 / 空对象 / message 非字符串` **一律不匹配**（恒真匹配器会把"根本没弹提示"
+读成"弹了但文案不对"，比漏测更坏）。
+
 ### 3.4 日志关联设计（G4 核心）
 
 **原则：同一事件两个视图，不互相污染。**

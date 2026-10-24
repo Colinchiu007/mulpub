@@ -92,6 +92,7 @@ import PlatformOverridePanel from "@/features/publish/components/PlatformOverrid
 import BatchArticleFields from "@/features/publish/components/BatchArticleFields.vue";
 import PublishTargetSelector from "@/features/publish/components/PublishTargetSelector.vue";
 import PublishView from "./Publish.vue";
+import { messageIs, messageContains, messageOf } from '../utils/toast-assert-helpers'
 
 async function createWrapper() {
   const w = mount(PublishView, {
@@ -362,7 +363,7 @@ describe("PublishView", () => {
     const w = await createWrapper();
     w.vm.article.title = "Test Title";
     await w.vm.handlePublish();
-    expect(ElMessage.warning).toHaveBeenCalledWith("请输入正文内容");
+    expect(ElMessage.warning).toHaveBeenCalledWith(messageIs("请输入正文内容"));
   });
 
   it("handlePublish succeeds with valid input", async () => {
@@ -495,7 +496,7 @@ describe("PublishView", () => {
     await w.vm.handleBatchPublish();
 
     expect(window.electronAPI.batchCreate).not.toHaveBeenCalled();
-    expect(ElMessage.warning).toHaveBeenCalledWith("请为微信公众号选择至少一个账号");
+    expect(ElMessage.warning).toHaveBeenCalledWith(messageIs("请为微信公众号选择至少一个账号"));
   });
 
   it("copies URL via clipboard API", async () => {
@@ -609,7 +610,7 @@ describe("PublishView", () => {
     w.vm.article.content = "Content";
     await w.vm.handlePublish();
     await nextTick();
-    expect(ElMessage.warning).toHaveBeenCalledWith("网络已断开，任务已缓存");
+    expect(ElMessage.warning).toHaveBeenCalledWith(messageIs("网络已断开，任务已缓存"));
     expect(w.vm.publishing).toBe(false);
   });
 
@@ -1023,7 +1024,7 @@ describe("PublishView — extra coverage", () => {
 
     expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
     expect(w.vm.videoFileMeta).toEqual({ name: "01.mp4", sizeBytes: 12, formatLabel: "MP4" });
-    expect(ElMessage.success).toHaveBeenCalledWith(expect.stringContaining("01.mp4"));
+    expect(ElMessage.success).toHaveBeenCalledWith(messageContains("01.mp4"));
   });
 
   it("reselecting a different video shows a replacement toast with old and new names", async () => {
@@ -1037,7 +1038,7 @@ describe("PublishView — extra coverage", () => {
 
     expect(w.vm.article.video_path).toBe("D:/media/02.mp4");
     expect(w.vm.videoFileMeta.name).toBe("02.mp4");
-    const text = ElMessage.success.mock.calls[0][0];
+    const text = messageOf(ElMessage.success.mock.calls[0][0]);
     expect(text).toContain("02.mp4");
     expect(text).toContain("01.mp4");
   });
@@ -1051,7 +1052,7 @@ describe("PublishView — extra coverage", () => {
 
     await w.vm.handleVideoFileChange({ raw: { name: "01.mp4", type: "video/mp4", size: 12 }, name: "01.mp4" });
 
-    expect(ElMessage.info).toHaveBeenCalledWith(expect.stringContaining("01.mp4"));
+    expect(ElMessage.info).toHaveBeenCalledWith(messageContains("01.mp4"));
     expect(ElMessage.success).not.toHaveBeenCalled();
     expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
   });
@@ -1066,7 +1067,7 @@ describe("PublishView — extra coverage", () => {
 
     expect(w.vm.article.video_path).toBe("D:/media/from-file-api.mp4");
     expect(w.vm.videoFileMeta.name).toBe("01.mp4");
-    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("500MB"));
+    expect(ElMessage.warning).toHaveBeenCalledWith(messageContains("500MB"));
   });
 
   it("remove clears videoFileMeta along with video_path", async () => {
@@ -1138,12 +1139,12 @@ describe("PublishView — extra coverage", () => {
       .mockResolvedValueOnce({ message: "" });
 
     await w.vm.handleExtractVideoCover();
-    expect(ElMessage.success).toHaveBeenCalledWith("封面已提取");
+    expect(ElMessage.success).toHaveBeenCalledWith(messageIs("封面已提取"));
     expect(w.vm.article.cover_path).toBe("D:/cover.jpg");
 
     i18n.global.locale.value = "en";
     await w.vm.handleExtractVideoCover();
-    expect(ElMessage.warning).toHaveBeenLastCalledWith("Cover extraction failed: Unknown error");
+    expect(ElMessage.warning).toHaveBeenLastCalledWith(messageIs("Cover extraction failed: Unknown error"));
   });
 
   it("cover upload refuses a filename when native path resolution fails", async () => {
@@ -1153,7 +1154,7 @@ describe("PublishView — extra coverage", () => {
     await w.vm.handleCoverFileChange({ raw: { name: "cover.jpg", type: "image/jpeg" }, name: "cover.jpg" });
 
     expect(w.vm.article.cover_path).toBe("");
-    expect(ElMessage.warning).toHaveBeenCalledWith(expect.stringContaining("无法获取所选"));
+    expect(ElMessage.warning).toHaveBeenCalledWith(messageContains("无法获取所选"));
   });
 
   // ─── 封面缩略图与放大预览（01-docs/PRD-PUBLISH-COVER-PREVIEW-2026-09-28.md）───
