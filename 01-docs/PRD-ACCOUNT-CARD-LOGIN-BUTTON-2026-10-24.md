@@ -318,6 +318,7 @@
 | C3 | 不新增任何 preload API / IPC 通道（纯前端改动 ⇒ 不触发 preload 契约测试三处同步） |
 | C4 | 不触碰 `CHANGELOG.md`（聚合器专属写面，按 `changelog-record-carrier` 合同零改动） |
 | C5 | `01-docs/PRD.md` 补充对应章节并指向本 PRD |
+| C6 | **视觉基线**：`accounts-list` / `accounts-list-flag-on`（明档 + 暗档，共 4 张）随本次改动更新，基线取自 CI 产物（AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物，不得用本机截图代替），更新后用 `check-baseline-freshness.js` 复算为 0 违规 |
 
 ---
 
@@ -384,3 +385,12 @@
    pnpm 重新序列化该 YAML，注释缩进都被改了；那份改动会混进提交。
    ⇒ 需要改 store 路径时用 `--store-dir` 参数或 `PNPM_HOME`，**不要**用 `--location project`；
    提交前用 `git diff -- pnpm-workspace.yaml` 确认零改动。
+3. **「组件在测试环境里不挂载 ⇒ 像素基线不会变」是推断，不是读数。**
+   本次先写下「账号卡片在浏览器视觉环境里根本不挂载 ⇒ QM-4 = N/A」，
+   CI 的 Gate 7b（基线新鲜度，0 px 严格判据）直接判红：
+   `accounts-list.png 7298 px (0.352%)`，两轮重采同样红 ⇒ 确定性漂移。
+   真相是视觉环境**有 mock 账号数据**，8 张卡片照常渲染。
+   ⇒ 处置：从 CI artifact 取本轮渲染替换 4 张基线（明档 2 + 暗档 2 ——
+   暗档在 CI 日志节选里没露出来，是**本地用判据复算全量**才补齐的），
+   复算 `0 违规` 后再推。
+   ⇒ **凡「读码推断 ⇒ 判定无影响」的结论，一律标成待实测**，不能写进文档当既成事实。

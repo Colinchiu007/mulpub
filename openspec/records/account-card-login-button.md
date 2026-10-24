@@ -18,7 +18,7 @@ date: 2026-10-24
 | 行尾与 diff 对账 | ✅ | 两口径 numstat 逐字一致（`git diff --numstat` 与 `git diff --ignore-cr-at-eol --numstat`）：`01-docs/PRD.md` +104/-0、`AccountManagementCard.vue` +13/-12、`account-status.js` +51/-0、`Accounts.vue` +10/-22、`useReloginGuard.js` +92/-0（新）、`useReloginGuard.test.js` +166/-0（新）、四个 locale/测试文件逐条一致。⚠️ 删除数归因：`Accounts.vue` 的 -22 = 搬走的 `reloginAccount` 实现（21）+ 移除的 `:checked-expired-ids` 绑定（1）；卡片 -12 = 被替换的条件式「去登录」按钮块（11）+ prop 定义（1） |
 | 接线棘轮 | ✅ | 新增测试文件 `apps/desktop/src/features/accounts/composables/useReloginGuard.test.js` 位于 `apps/` 下 ⇒ 属 `scripts/check-unwired-tests.js` 的 `WORKSPACE_COVERED`（vitest 按 workspace 自动收集）⇒ **不需要**在 workflow 里点名。实测 `node scripts/check-unwired-tests.js` 通过 |
 | 逐文件行数门禁（`check-max-lines`） | ✅ | **本轮被门禁当场抓过一次并按正解处置**：`Accounts.vue` 在 `targets`（点名还账清单，目标 1578 行）里，**零增长容差**；第一版实现把确认逻辑直接写进该文件（净增 32 行）⇒ 门禁报 `TARGET_GREW: 现 1610 行已超过点名目标 1578 行（超 32）`。**没有上调 `targets`**（那是「改谁来守门」，须人工过目），而是把「重新登录」抽成 `useReloginGuard.js` ⇒ `Accounts.vue` 反而**净减 12 行**（1577 → 1565）。最终 `node .github/scripts/check-max-lines.js` = ✅，其自测 `36/36` 绿（第一版是 34/36，2 条红） |
-| QM-1 打包 / QM-4 视觉 | ✅ / N/A（附说明） | QM-1：改动全在渲染层（Vue + locale），无主进程/预加载面变更 ⇒ 以 `pnpm run build:vue` 全量构建通过（`✓ built in 1m 9s`，`BUILD_RC=0`）作为编译面证据；未跑 `build:dir` 整包（需 electron 二进制，本沙箱 `--ignore-scripts` 未下载）。QM-4：视觉面**无基线影响** —— 账号页在浏览器视觉环境里 `window.electronAPI` 不可用 ⇒ 账号列表加载失败 ⇒ **账号卡片组件根本不挂载** ⇒ `accounts-list` / `accounts-list-flag-on` 的像素基线不受本次改动影响（`run-pixel-tests.js` 的 `accounts-list` 等的是 `.mp-workspace .accounts-page` 容器，不是卡片）。CI 的 QG Visual 仍是权威判据 |
+| QM-1 打包 / QM-4 视觉 | ✅ / ✅（**第二轮补做，见下**） | QM-1：改动全在渲染层（Vue + locale），无主进程/预加载面变更 ⇒ 以 `pnpm run build:vue` 全量构建通过（`✓ built in 1m 9s`，`BUILD_RC=0`）作为编译面证据；未跑 `build:dir` 整包（需 electron 二进制，本沙箱 `--ignore-scripts` 未下载）。**QM-4：CI 的 QG Visual 首轮红 ⇒ 已按正解处置并复跑通过**（详见下表「视觉基线更新的实测过程」） |
 | ESLint | ✅ | `npx eslint` 覆盖本次改动的 8 个既有文件：**0 error**（11 个 warning 全部为存量：`AccountManagementCard.vue` 的 `Refresh`/`isActive`、Accounts.vue 的 7 个未用变量，改动前即存在；CI 门禁用 `--quiet` 只看 error） |
 | 前端回归 | ✅ | 逐文件实跑（`vitest run`，本沙箱内存受限故单文件串行）：`Accounts.test.js` 119/119、`AccountsBatchCheck.test.js` 绿、`account-status.test.js` 16/16、`AccountManagementCard.test.js` 45（44 通过 + 1 存量 skip）、`useReloginGuard.test.js` 8/8 ⇒ 合计 `187 passed | 1 skipped (188)` |
 | CI 门禁清单本地全跑 | ✅ | 从 `.github/workflows/*.yml` 抽出 **182 条**门禁命令逐条本地实跑（`node --test` / `node scripts/…` / `bash scripts/…`），失败项一律做 **origin/main 对照实验**（`git worktree add /tmp/pristine-main origin/main`，树 SHA 与远端 main 逐字节一致）判定归属 |
@@ -28,6 +28,35 @@ date: 2026-10-24
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`）。合并前把状态列写成 `PASS` 会被判「预写不存在的证据」而红。旧载体 `.quality-gates.md` 与 `scripts/gate-record-debt-ledger.json` 按「旧载体冻结」政策**零改写**；`CHANGELOG.md` 按 `changelog-record-carrier` 合同**零改动**（台账搬运由 `scripts/aggregate-changelog.js` 统一做） |
 
 - 保留门禁：判定 docs-only=false（混合 PR：`apps/desktop/src/**` + `01-docs/**`）| 行尾对账 ✅（两口径 numstat 逐字一致）| 品牌残留 ✅（`check-no-brand-residue.js` 随 182 条清单本地跑过）| 文档同步 ✅（新增专项 PRD + `01-docs/PRD.md` 专章 + 本执行记录）| 执行记录 ✅ 本文件 | 远程同步 由门禁推导
+
+### 视觉基线更新的实测过程（本轮被 CI 纠正的一次错误判断）
+
+**先说被纠正的那次判断**：本记录初稿写的是「账号页在浏览器视觉环境里 `window.electronAPI` 不可用
+⇒ 账号列表加载失败 ⇒ 账号卡片组件根本不挂载 ⇒ 像素基线不受本次改动影响（QM-4 = N/A）」。
+
+**CI 把它打红了**：QG Visual 的 Gate 7b（基线新鲜度，0 px 严格判据）第一轮报
+`accounts-list.png 7298 px (0.352%)` / `accounts-list-flag-on.png 7298 px (0.352%)`，
+两轮重采后**同样红** ⇒ 确定性漂移，不是 flake。
+
+**根因**：那段判断是**读码推断**而不是读数 —— 视觉环境其实有 mock 账号数据（渲染图里 8 张卡片：
+B站 / 小红书 / 微信公众号 / 抖音 / 微博×2 / 百家号 / 知乎），账号卡片**确实渲染**，
+且新按钮就在卡片底部（设置 | 验证 | **登录** | 删除）。
+
+**处置**（按 AGENTS.md QM-4 第 7 条：基线只能取自 CI 产物，不得用本机截图代替）：
+
+1. 从 QG Visual 的 artifact（`quality-gate-visual-reports.zip`，artifact id 12548528334）取
+   本轮渲染：Gate 7b round2 的 `screenshots/accounts-list.png`、`screenshots/accounts-list-flag-on.png`，
+   以及暗档 `screenshots/accounts-list-dark-current.png`、`screenshots/accounts-list-flag-on-dark-current.png`。
+2. 用**仓内判据**本地复算漂移（`node scripts/check-baseline-freshness.js --renders=… --baselines=… --partial`），
+   确认要更新的是 **4 张**（明档 2 + 暗档 2；暗档在 CI 日志的节选里没露出来，是本地复算补齐的 ——
+   **只读 CI 日志的节选会漏，必须用判据复算全量**）。
+3. 替换基线后复算：`检查 43 张 / 违规 0 张` ⇒ `✅ 全部 38 张有渲染的基线逐像素等于本次 CI 渲染`（rc=0）。
+4. 推分支触发第二轮 CI，QG Visual 转绿。
+
+⇒ **教训**：视觉面「无影响」这种结论，**必须先有读数再写**。
+用「组件在测试环境里不会挂载」去推「基线不会变」——这一步是**推断**，
+而门禁的判据是 0 px 严格比对。凡是「读码推断 ⇒ 判定无影响」的结论，都要标成待实测，
+不能写进执行记录当既成事实。
 
 ### 独立复核的发现与处置
 
