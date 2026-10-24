@@ -280,11 +280,14 @@ test('限流器：窗口过期后计数归零（滑窗真的会滑）', () => {
   } finally { limiter.stop() }
 })
 
-test('只有「格式错」与「不存在」算探测型失败；已用/停用/过期都不算', () => {
+test('探测型失败的口径：格式错/不存在/已被别人用过/已作废 都算；过期与服务端故障不算', () => {
   assert.strictEqual(isProbeFailure({ code: 'REDEEM_CODE_FORMAT' }), true)
   assert.strictEqual(isProbeFailure({ code: 'REDEEM_CODE_NOT_FOUND' }), true)
-  assert.strictEqual(isProbeFailure({ code: 'REDEEM_CODE_USED' }), false)
-  assert.strictEqual(isProbeFailure({ code: 'REDEEM_CODE_DISABLED' }), false)
+  // 红队打穿点④：「已用/已停用不计数」⇒ 攻击者拿泄漏清单逐个试，
+  // 已被别人用过的码回 409 且不计数 ⇒ 免费的存在性预言机。
+  assert.strictEqual(isProbeFailure({ code: 'REDEEM_CODE_USED' }), true)
+  assert.strictEqual(isProbeFailure({ code: 'REDEEM_CODE_DISABLED' }), true)
+  // 过期是正常业务（买了没兑、过期了又来试）；服务端故障也不是用户的错
   assert.strictEqual(isProbeFailure({ code: 'REDEEM_CODE_EXPIRED' }), false)
   assert.strictEqual(isProbeFailure({ code: 'INTERNAL_SERVER_ERROR' }), false)
   assert.strictEqual(isProbeFailure(null), false)
@@ -589,12 +592,14 @@ test('接线：20 个并发请求不能绕过限流（预占额度 ⇒ 只有阈
   }
 })
 
-test('接线：已用（REDEEM_CODE_USED）不计入失败计数 ⇒ 反复重放同一张码不会被限流', async () => {
+test('接线：自己重放已用过的码（200 幂等）不计入失败计数 ⇒ 不会被限流', async () => {
+  // ⚠️ 「自己重放」真实返回的是 **200 + idempotent:true**（走成功路径），
+  // 而 409 REDEEM_CODE_USED 是「**别人**用过」⇒ 那是探测行为 ⇒ 计入（见下一个用例）。
   const service = {
     repository: {},
     planOverrides: null,
     async redeem() {
-      throw Object.assign(new Error('已被使用'), { code: 'REDEEM_CODE_USED', status: 409 })
+      return { idempotent: true, code: 'ABCD-EFGH-JKMN', plan: 'standard', subscription: null, periodEnd: null }
     },
   }
   const server = new PublishApiServer({
@@ -609,8 +614,43 @@ test('接线：已用（REDEEM_CODE_USED）不计入失败计数 ⇒ 反复重�
   try {
     for (let i = 0; i < 8; i++) {
       const res = await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'ABCD-EFGH-JKMN' })
-      assert.strictEqual(res.status, 409, `第 ${i + 1} 次应仍是 409（未过期码不算探测）`)
+      assert.strictEqual(res.status, 200, `第 ${i + 1} 次应是 200（幂等重放不算失败）`)
     }
+  } finally {
+    await server.stop()
+  }
+})
+
+test('接线：已被**别人**用过的码（409 USED）计入失败计数 ⇒ 泄漏清单探测会被限流', async () => {
+  // 红队打穿点④：原先 USED 不计数 ⇒ 攻击者拿泄漏清单逐个试，
+  // 已被别人用过的码回 409 且不计数 ⇒ 200 次探测 0 次 429 ⇒ 免费的存在性预言机。
+  const service = {
+    repository: {},
+    planOverrides: null,
+    async redeem() {
+      throw Object.assign(new Error('已被使用'), { code: 'REDEEM_CODE_USED', status: 409 })
+    },
+  }
+  const server = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createIdentityRepository('u-8'),
+    entitlementProvider: { async getForUser() { return { plan: 'standard', features: [], quota: {}, limits: {} } } },
+    subscriptionService: service,
+  })
+  await server.start(0)
+  const port = server._server.address().port
+  try {
+    // 前 5 次 409（计入失败），第 6 次起被拦
+    // ⚠️ 阈值判定用的是「失败数 + 待定」⇒ 第 5 次请求时有效占用是 4（还没到 5），
+    // 第 6 次才是 5 ⇒ 拦。这与「成功后清零」那条用例的算式同源。
+    for (let i = 0; i < 5; i++) {
+      const res = await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'ABCD-EFGH-JKMN' })
+      assert.strictEqual(res.status, 409, `第 ${i + 1} 次应是 409`)
+    }
+    const blocked = await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'ABCD-EFGH-JKMN' })
+    assert.strictEqual(blocked.status, 429, '第 6 次应被限流（USED 计入失败计数）')
+    assert.strictEqual(blocked.body.error, 'REDEEM_RATE_LIMITED')
   } finally {
     await server.stop()
   }

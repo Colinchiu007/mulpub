@@ -225,12 +225,30 @@ class RedeemFailureLimiter {
 }
 
 /**
- * 判定某个 commerce 错误是否算「探测型失败」。
- * 只有格式错与不存在算；已用/停用/过期都不算（那是正常业务）。
+ * 判定某个 commerce 错误是否算「探测型失败」（计入限流）。
+ *
+ * 计入（探测行为）：
+ *   - `REDEEM_CODE_FORMAT`   格式错 ⇒ 拿随机串乱试
+ *   - `REDEEM_CODE_NOT_FOUND` 不存在 ⇒ 在探测某张具体码是否存在
+ *   - `REDEEM_CODE_USED`      已被**别人**用过 ⇒ 也是在确认「这张码是真的」
+ *   - `REDEEM_CODE_DISABLED`  已被运营作废 ⇒ 同样在确认
+ *
+ * 不计入（正常业务）：
+ *   - `REDEEM_CODE_EXPIRED`   过期 ⇒ 常见于「买了没兑、过期了又来试」
+ *   - 成功与**幂等重放**（本人重放自己已用过的码）⇒ 返回 200 + `idempotent: true`，
+ *     走的是成功路径，不进这里；红队实测的「免费存在性预言机」正是靠这一点区分开的。
+ *
+ * ⚠️ 红队实测打穿点④（200 次探测 0 计数）：原先「已用/已停用不计数」，
+ * 攻击者拿**泄漏的码清单**逐个试 —— 已被别人用过的码回 409 且**不计数** ⇒
+ * **免费的存在性预言机**（能确认哪些泄漏的码是真的），且完全不触发限流。
+ * ⇒ 把 USED / DISABLED 纳入计数。
  */
 function isProbeFailure (error) {
   if (!error) return false
-  return error.code === 'REDEEM_CODE_FORMAT' || error.code === 'REDEEM_CODE_NOT_FOUND'
+  return error.code === 'REDEEM_CODE_FORMAT'
+    || error.code === 'REDEEM_CODE_NOT_FOUND'
+    || error.code === 'REDEEM_CODE_USED'
+    || error.code === 'REDEEM_CODE_DISABLED'
 }
 
 module.exports = {
