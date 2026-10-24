@@ -1295,6 +1295,78 @@ describe("AccountsView", () => {
     expect(w.vm.pendingAuthAction).toBe("relogin");
   });
 
+  // 2026-10-24（account-card-login-button）：「登录」按钮常驻后，
+  // 「账号已显示已登录时点它会发生什么」必须落成可断言的契约。
+  it("已登录账号点「登录」先弹二次确认：取消则不进入登录链路", async () => {
+    const { authOpenLogin } = await import("@/api/publisher");
+    authOpenLogin.mockResolvedValue({ code: 0 });
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockRejectedValue("cancel");
+    const w = await mountView();
+
+    await w.vm.reloginAccount({ id: "a1", platform: "zhihu", status: "active", account_name: "在线账号" });
+
+    // 已登录态必须先问一次（重新登录会覆盖现有凭证，属不可逆一步）
+    expect(ElMessageBox.confirm).toHaveBeenCalled();
+    // 取消 ⇒ 什么都不做：不打开登录页、不改登录态
+    expect(authOpenLogin).not.toHaveBeenCalled();
+    expect(w.vm.pendingAuthAction).toBeNull();
+  });
+
+  it("已登录账号点「登录」确认后进入重新登录链路", async () => {
+    const { authOpenLogin } = await import("@/api/publisher");
+    authOpenLogin.mockResolvedValue({ code: 0 });
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockResolvedValue("confirm");
+    const w = await mountView();
+
+    await w.vm.reloginAccount({ id: "a1", platform: "zhihu", status: "active", account_name: "在线账号" });
+
+    expect(ElMessageBox.confirm).toHaveBeenCalled();
+    expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "a1");
+  });
+
+  it("已失效账号点「登录」不弹确认，直接进入登录链路（失效账号没有会话需要保护）", async () => {
+    const { authOpenLogin } = await import("@/api/publisher");
+    authOpenLogin.mockResolvedValue({ code: 0 });
+    const { ElMessageBox } = await import("element-plus");
+    ElMessageBox.confirm.mockClear();
+    const w = await mountView();
+
+    await w.vm.reloginAccount({ id: "a1", platform: "zhihu", status: "expired", account_name: "失效账号" });
+
+    expect(ElMessageBox.confirm).not.toHaveBeenCalled();
+    expect(authOpenLogin).toHaveBeenCalledWith("zhihu", "a1");
+  });
+
+  // D-A（2026-10-24 修）：重新登录成功后若不把该 id 移出失效集合，
+  // needsCleanLoginSession 会继续返回 true ⇒ 用户刚登录成功，点卡片打开创作者中心
+  // 却走干净会话 ⇒ 平台把他当未登录 ⇒ 看到登录页而不是自己的后台。
+  it("重新登录成功后把该账号移出失效集合（否则刚登录成功却打不开后台）", async () => {
+    const w = await mountView();
+    w.vm.checkedExpiredIds = new Set(["a1", "a2"]);
+
+    _eventCallbacks.authCompleted({ platform: "zhihu", accountId: "a1" });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(w.vm.checkedExpiredIds.has("a1"), "重登成功 ⇒ 本会话的失效结论作废").toBe(false);
+    expect(w.vm.checkedExpiredIds.has("a2"), "别的账号不受影响").toBe(true);
+  });
+
+  // D-B（2026-10-24 修）：取消重新登录 **不等于** 账号恢复登录 —— 账号仍然失效。
+  // 清掉失效集合会让它带着旧凭证进平台页，撞上 2026-09-16 公众号「二维码加载失败」事故路径。
+  it("取消重新登录后账号仍留在失效集合（取消 ≠ 恢复登录）", async () => {
+    const { authOpenLogin } = await import("@/api/publisher");
+    authOpenLogin.mockResolvedValue({ code: 0, cancelled: true });
+    const w = await mountView();
+    w.vm.checkedExpiredIds = new Set(["a1"]);
+
+    await w.vm.reloginAccount({ id: "a1", platform: "zhihu", status: "expired", account_name: "失效账号" });
+
+    expect(w.vm.checkedExpiredIds.has("a1"), "取消重登后账号仍是失效的，失效结论必须保留").toBe(true);
+  });
+
   it("checkLogin 检测失效后用户取消确认不触发重新登录但加入checkedExpiredIds", async () => {
     const { accountCheckLogin, authOpenLogin } = await import("@/api/publisher");
     accountCheckLogin.mockResolvedValue({ code: 0, data: { valid: false, code: "CHECK_LOGIN_COOKIE_EXPIRED" } });

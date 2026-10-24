@@ -64,18 +64,32 @@ describe('AccountManagementCard', () => {
     expect(status.classes()).toContain('online')
   })
 
-  it('活动账号展示验证、设置和删除命令', async () => {
+  it('活动账号展示验证、登录、设置和删除命令', async () => {
     const wrapper = mountCard()
 
     await wrapper.get('[data-testid="verify-account-1"]').trigger('click')
+    await wrapper.get('[data-testid="login-account-1"]').trigger('click')
     await wrapper.get('[data-testid="proxy-account-1"]').trigger('click')
     await wrapper.get('[data-testid="delete-account-1"]').trigger('click')
 
     expect(wrapper.emitted('check-login')).toEqual([[account]])
+    expect(wrapper.emitted('open-login')).toEqual([[account]])
     expect(wrapper.emitted('configure-proxy')).toEqual([[account]])
     expect(wrapper.emitted('remove')).toEqual([[account]])
-    // 活动账号未在 checkedExpiredIds 中，不显示「去登录」按钮（仅失效账号显示）
-    expect(wrapper.find('[data-testid="login-account-1"]').exists()).toBe(false)
+  })
+
+  // 2026-10-24：「登录」由「仅失效账号显示」的条件式按钮改为**常驻**。
+  // 位置契约：必须排在「验证」右侧、「删除」左侧 —— 用户按「先查后修」扫读操作条。
+  it('「登录」按钮常驻，且排在「验证」右侧、「删除」左侧', () => {
+    const wrapper = mountCard()
+    const ids = wrapper.get('.account-actions').findAll('button').map((b) => b.attributes('data-testid'))
+
+    expect(ids).toEqual([
+      'proxy-account-1',
+      'verify-account-1',
+      'login-account-1',
+      'delete-account-1',
+    ])
   })
 
   it('非批量模式隐藏账号选择框', () => {
@@ -110,10 +124,9 @@ describe('AccountManagementCard', () => {
     expect(withFans.get('[data-testid="account-followers-account-1"]').text()).toContain('457')
   })
 
-  it('失效账号（checkedExpiredIds 命中）展示「已失效」状态、登录按钮并上抛原始账号对象', async () => {
+  it('失效账号展示「已失效」状态、登录按钮并上抛原始账号对象', async () => {
     const expiredAccount = { ...account, status: 'expired' }
-    const checkedExpiredIds = new Set(['account-1'])
-    const wrapper = mountCard({ account: expiredAccount, checkedExpiredIds })
+    const wrapper = mountCard({ account: expiredAccount })
 
     // expired 状态显示「已失效」，不再误显示「已登录」
     const status = wrapper.get('[data-testid="account-status-account-1"]')
@@ -229,14 +242,15 @@ describe('AccountManagementCard', () => {
     expect(status.classes()).toContain('unverified')
     // 与「从未检测」的 unknown 徽章区分开：unverified 表示检测发生过但无法判定
     expect(status.classes()).not.toContain('unknown')
-    // 未确认不进入失效集合 → 不提供「去登录」按钮
-    expect(wrapper.find('[data-testid="login-account-1"]').exists()).toBe(false)
+    // 未确认不进入失效集合，但「登录」按钮**常驻**（2026-10-24）：
+    // 未确认账号同样需要自救入口，而重新登录恰是它的修复手段。
+    // 「按钮出现」不再等于「被判为失效」——两者解耦是本次改动的核心。
+    expect(wrapper.find('[data-testid="login-account-1"]').exists()).toBe(true)
   })
 
-  it('未知状态保持诚实提示，checkedExpiredIds 命中时提供登录动作', async () => {
+  it('未知状态保持诚实提示，「登录」按钮仍然常驻', async () => {
     const unknownAccount = { ...account, status: 'unknown' }
-    const checkedExpiredIds = new Set(['account-1'])
-    const wrapper = mountCard({ account: unknownAccount, checkedExpiredIds })
+    const wrapper = mountCard({ account: unknownAccount })
     const status = wrapper.get('[data-testid="account-status-account-1"]')
 
     expect(status.text()).toBe('暂无检查记录')
