@@ -38,9 +38,14 @@ function install (opts) {
         try {
           const s = typeof chunk === 'string' ? chunk : String(chunk)
           const line = s.replace(/\s+$/, '')
-          // already-formatted filter：包内 logger 已产出 [ts] [LEVEL] [tag] 形态，直接透传不再加壳
-          if (line && !/^\[\d{4}-\d{2}-\d{2}T[^\]]*\] \[(INFO|WARN|ERROR|DEBUG)\] \[/.test(line)) logger[method](tag, line)
-          else if (line) logger[method]('Pkg', line)
+          // 格式判别（2026-10-24）：
+          //   包 logger：  [ts] [INFO] [tag] msg        ← 需要放行（tag 带方括号）
+          //   应用 logger：[ts] [INFO] RpaView msg      ← 必须跳过，否则自我回声（tag 不带方括号）
+          if (!line) return orig.apply(stream, arguments)
+          const isPkg = /^\[\d{4}-\d{2}-\d{2}T[^\]]*\] \[(INFO|WARN|ERROR|DEBUG)\] \[/.test(line)
+          const isApp = /^\[\d{4}-\d{2}-\d{2}T[^\]]*\] \[(INFO|WARN|ERROR|DEBUG)\] [^\[]/.test(line)
+          if (isPkg) logger['info']('Pkg', line)
+          else if (!isApp) logger[method](tag, line)
         } catch (_e) {
           // 日志桥自身失败绝不能影响主流程
         } finally {
