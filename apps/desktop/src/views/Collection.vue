@@ -1167,6 +1167,17 @@ const batchAccountOptions = computed(() => accountsOf(batchPlatformScope.value))
 const batchVideoAccountOptions = computed(() => accountsOf(batchVideoPlatformScope.value))
 // QM-6 M3 修复：所选平台必须写入 composable 的 batchSelection（否则 buildTargets 恒空，
 // 三批量动作被 needAccount 拦死——评审发现测试直接手写 platforms 绕过了 UI 接线）
+// 默认目标平台由**平台目录这条数据流**驱动，不是由"挂载那一刻"驱动（审计 2.3 复核）：
+// onMounted 里同帧读 batchPlatformOptions 的写法在冷启动直达采集页时读到空数组，
+// 而那里曾是唯一赋默认值的地方 ⇒ 目录到位后没人再补，用户必须手选一次。
+// immediate 覆盖"目录已在场"（从别的路由切过来）这一支；空清单时不写，等数据流再来一次。
+watch(batchPlatformOptions, (list) => {
+  if (!batchPlatformScope.value && list.length) batchPlatformScope.value = list[0].id
+}, { immediate: true })
+watch(batchVideoPlatformOptions, (list) => {
+  if (!batchVideoPlatformScope.value && list.length) batchVideoPlatformScope.value = list[0].id
+}, { immediate: true })
+
 watch([batchPlatformScope, batchVideoPlatformScope], ([imgScope, vidScope]) => {
   if (imgScope) batch.batchSelection.value.imageText.platforms = [imgScope]
   if (vidScope) batch.batchSelection.value.video.platforms = [vidScope]
@@ -1283,8 +1294,8 @@ onMounted(async () => {
   // "Cannot read properties of undefined (reading 'catch')"（QG Unit unhandled rejection 修复）
   if (!platformStore.loaded) { Promise.resolve(platformStore.load()).catch(() => {}) }
   if (!accountStore.accounts || !accountStore.accounts.length) { try { await Promise.resolve(accountStore.load()) } catch { /* 账号加载失败不阻塞 */ } }
-  if (!batchPlatformScope.value && batchPlatformOptions.value.length) batchPlatformScope.value = batchPlatformOptions.value[0].id
-  if (!batchVideoPlatformScope.value && batchVideoPlatformOptions.value.length) batchVideoPlatformScope.value = batchVideoPlatformOptions.value[0].id
+  // 批量平台默认值不在这里赋 —— 见上面 watch(batchPlatformOptions)：
+  // 目录是异步到位的，挂载这一帧读它必然是空的，而"不阻塞首屏"必须保持不改成 await。
 })
 
 onUnmounted(() => {
