@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     # 预算依据：本作业的扫描部分与 dep-audit.yml 同一形态（实测该 job 整轮 43 秒，其中 npm ci 7 秒），
     # 多出来的是「git worktree + 提交 + 推送 + 开/改 PR」这一段 Actions 侧耗时（**未实测**）。
-    # 本格首次登记为 seeded（样本 0），30 天宽限期内必须用 scripts/gate-timeout-sample.js 重采并如实升级。
+    # 本格首次登记为 seeded（样本 0），30 天宽限期内必须用 scripts/coverage-budget-sample.js 重采并如实升级。
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}

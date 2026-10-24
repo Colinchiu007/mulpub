@@ -242,7 +242,7 @@ test('13 CLI 退出码分档：真实仓必须绿，显式注入的坏值必须�
 });
 
 // ── 2026-10-19 增：**在飞作业不是漏样**（coverage-budget-inflight） ──────────────
-// 现场：`node scripts/gate-timeout-sample.js --limit=60` 连续三次以
+// 现场：`node scripts/coverage-budget-sample.js --limit=60` 连续三次以
 //   「有 8~9 趟活跃作业取不到时长 —— 这是取数漏样…先修采集再谈预算」rc=2 拒绝。
 // 逐趟取证后那 8~9 趟**全部是 queued / in_progress**（还没跑完，本来就没有 completed_at），
 // 同窗口"已完成却无时长"的真漏样是 **0 趟**。

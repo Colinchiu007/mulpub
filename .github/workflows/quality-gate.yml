@@ -1605,10 +1605,13 @@ jobs:
     # 干净窗口（120 趟，在飞 9 趟按「不是漏样」排除）里 success 53 条、尾部 40.6/40.7/40.8/41/41.3/**43.3**，
     # ceil(43.3 × 1.5) = 65 > 60 ⇒ 60 当时已低于本仓自己那条 ×1.5 规则。窗口同时从 60 扩到 120，
     # 因为 60 趟窗口里 success 只剩 16 条（< MIN_SAMPLES 20，"样本不够下结论"而不是"预算够用"）。
+    # 65 → 72（2026-10-24 复测，拆分前置）：65 这一档已低于本仓自己的 ×1.5 规则 ——
+    # 120 趟窗口（与 scripts/coverage-budget-sample.js 同口径）里 success 51 条、尾部 43.3/45.3/**47.37**，
+    # ceil(47.37 × 1.5) = 72 > 65 ⇒ 旧预算欠账。72 恰好等于 required（不多给）。
     # 数值与依据不写在注释里当散文——由 scripts/gate-timeout-registry.json（24 格唯一真源，
     # 经 scripts/lib/gate-timeout-registry.js 加载校验）单点持有，scripts/check-coverage-budget.js 每次 PR 对账
     # （timeout ≥ ceil(floor × SAFETY_MULTIPLIER)、样本量下界、采集日过期、注册值与本行同源、贴脸警报、清单棘轮）。
-    timeout-minutes: 65
+    timeout-minutes: 72
     steps:
       - uses: actions/checkout@v4
         with:

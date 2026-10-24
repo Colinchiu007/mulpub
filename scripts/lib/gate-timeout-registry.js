@@ -147,7 +147,7 @@ function coverageProvenance() {
   }, e.provenance, {
     safetyMultiplier: require('../gate-budget.js').SAFETY_MULTIPLIER,
     timeoutMinutes: e.timeoutMinutes,
-    remeasureCommand: 'node scripts/gate-timeout-sample.js --workflow=quality-gate.yml --job=QG Coverage --limit=120',
+    remeasureCommand: 'node scripts/coverage-budget-sample.js --workflow=quality-gate.yml --job=QG Coverage --limit=120',
   });
 }
 
