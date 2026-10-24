@@ -9,7 +9,7 @@ branch: credit-cost-accounting-phase1
 
 | 门禁 | 状态 | Fresh 证据 |
 |------|------|-----------|
-| 变更类型与隔离 | ✅ | **混合 PR**：运行时代码（`packages/api-publish-engine/src/auth/**`、`ops-center/backend/**`）+ 迁移文件（`migrations/postgresql/**`）+ 文档（`01-docs/**`）。裸分支 `credit-cost-accounting-phase1`（`rev-parse --abbrev-ref HEAD` 实证）。⚠️ 隔离方式与仓库正规入口 `scripts/start-mp-task.ps1` 不同：本次在**独立 clone 的仓库**内工作（沙箱无 D 盘与 PowerShell 入口），共享根未被他人在飞会话占用；已在该 clone 内完成 `git worktree prune` 清掉一次被中断的 worktree 残留 |
+| 变更类型与隔离 | ✅ | **混合 PR**：运行时代码（`packages/api-publish-engine/src/auth/**`、`ops-center/backend/**`）+ 迁移文件（`migrations/postgresql/**`）+ 文档（`01-docs/**`）。裸分支 `credit-cost-accounting-phase1`（`rev-parse --abbrev-ref HEAD` 实证）。⚠️ 隔离方式与仓库正规入口 `scripts/start-mp-task.ps1` 不同：本次在**独立 clone 的仓库**内工作（沙箱无 D 盘与 PowerShell 入口），共享根未被他人在飞会话占用；已在该 clone 内完成 `git worktree prune` 清掉一次被中断的 worktree 残留。**基线已 rebase 到最新 main**（`origin/main` = `b642881`），`git diff origin/main..HEAD -- CHANGELOG.md` 为空 |
 | 第一性原因（QM-5 ①） | ✅ | 不是"缺一张价格表"（`official_keys.cost_per_1k_tokens` 与 `model_usage_daily.cost` 都已存在），而是**三者没接上线**：① `consumeFeature` 只被用于**次数配额**（`publish-api-server.js:639/665` 扣 `cloud_publish`），**积分额度 `official_credit_monthly` 从未被扣**；② 代码自认「单价换算属 ModelPriceCard 后续立项」（`model-provider-manager.js:371`）；③ `model_usage_daily` 只按 `client_id` 聚合、**无 `user_id`** ⇒ 成本无法归到用户；④ 成本由客户端算、服务端只校验非负，单一混合单价且**无价格版本化** |
 | 逃逸分析（QM-5 ②） | ✅ | ①**无测试载体**：价格换算与账本原子性此前无任何测试；②**测试执行层**：api-publish-engine 用 `node scripts/run-tests.js`（非 vitest），不在册文件走 `node --test` 直跑——新测试须写成 `node:test` 风格否则 `describe is not defined`；③**信任边界层**：`usage_service._validate_item` 只做类型/非负校验，`cost` 与 `tokens` 的自洽性无人校验 |
 | 修复 + 回归保护（QM-5 ④） | ✅ | 新增 **17 例**：① `test/credit-ledger-migrations.test.js`（8 例）—— 迁移与开发态 SCHEMA **逐语句防漂移**（去注释 + 忽略空白，比对口径照抄 006）+ 余额非负 CHECK / 分录白名单 / 幂等索引口径锁定；② `test/credit-repository.test.js`（8 例）—— 发放幂等、消耗幂等、**余额不足不写分录**、amount 正整数校验、周期边界校验、**扣减语句必须带 `balance >= $2`**（并发下只允许一个扣成功）；③ `ops-center/backend/tests/test_credit_price_service.py`（9 例）—— 成本按 1K token 口径、**整数分无浮点漂移**、**缺价格卡显式上报而非静默按 0**、积分向上取整、倍率、单价为 0 的除零兜底、跨年周期边界。实测读数：`node --test` 8/8 + 8/8 全绿；`pytest` **9 passed** |
@@ -19,6 +19,9 @@ branch: credit-cost-accounting-phase1
 | 债务基线（filesOver500） | ✅ | 新增代码**全部单独立文件**，未推高既有超限文件：`postgres-identity-repository.js` 428→432 行（+4，仅 require + SCHEMA 展开 + 关系表两项）；`models.py` 804 行**未改动**（新 ORM 落 `models_credit.py`）；`publish-api-server.js` 1573 行**未改动**；`model-provider-manager.js` 1283 行**未改动** |
 | 接线棘轮 | ✅ | api-publish-engine 两个新测试走 `node --test` 直跑分支（**不登记进 `VITEST_FILES`** —— 登记进去反而会报 "No test suite found"，口径与 `member-commerce-migrations.test.js` 一致）；ops-center 新测试由 pytest 按 `tests/test_*.py` 发现；新 ORM 由 `database.init_db()` 内延迟 import 注册进 `Base.metadata`（否则 `create_all` 不建这三张表） |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触碰 `apps/desktop/**` 与任何 `.vue` / 样式 / locale 文件 ⇒ 无打包面与视觉面变更 |
+| 门禁判据（`check-gate-record-debt`） | ❌ **主干红，非本 PR** | 本 PR 与 `origin/main` **同判据同读数**：均为「声明的来源 PR 与主干事实不符 **7 篇**」。那 7 篇全是**他人记录**（`error-message-user-friendly-audit` / `hotfile-docs-error-message-audit` 等），本 PR 未触碰其任一文件。跨源比对现场：配对 131 组 / 违例 0 / 承认 0 |
+| 门禁判据（`check-pr-exec-record`） | ✅ | `OK: 本 PR 携带执行记录或带原因的豁免`；读数：本 PR 变更文件 **16 个**（A=12 M=4 D=0）/ 新增记录 **1 篇** |
+| 门禁判据（`check-main-red`） | ❌ **判据自身故障 exit=4** | 需 `gh` CLI，本机无 ⇒ `pickBaseline` 取数失败。**已用 API 做等价差集取证**：PR 侧 9 项检查 **0 红**、主干侧 **0 红** ⇒ **本 PR 新增红 0**。⚠️ 但**主干红 ⇒ 按 AGENTS.md「禁止自动合并」须停下报告用户**（本 PR 不是去修那条红的） |
 | QM-6 CCG 双模型外部评审 | **未执行** | 本机未见可用的外部评审通道（`codeagent-wrapper` 类工具未探测到）。**如实记为未执行，不以自审冒充通过** —— 本片为 M+ 复杂度，**这是遗留风险** |
 | 远程同步 | 由门禁推导 | 本记录按 2026-10-17 起的现行形态书写：状态列不手写状态词，收口由 `scripts/lib/merge-ledger.js` 按主干历史推导 |
 
@@ -76,3 +79,49 @@ $ cd ops-center/backend && python3 -m pytest tests/test_credit_price_service.py 
 | 未用积分**不结转** | 发放周期边界（`identity_credit_accounts.period_start/end`） | 语义已在账本模型就位；**周期末清零的具体实现留到下一期**（与扣减接线同批） |
 | 降档时未用积分**按 50% 保留** | 降级路径写 `adjust` 分录 | 下一期 |
 | 免费档**禁用视频/图像模型** | `plan-matrix.js` features 派生层 | 下一期（**本片未实现，勿当已生效**） |
+
+---
+
+## 本 PR 自身的失误与修正（2026-10-24 复盘，如实记）
+
+### 失误 1：把主干的 `CHANGELOG.md` 整段删掉了 436 行
+
+**起因链**：初次提交基于 `c1c6880`，主干随后前进到 `9e95b7fe` → `b642881`。
+`git rebase` 遇冲突时走了 `git commit` 而非 `git rebase --continue`，
+把工作区里那份**旧版 CHANGELOG.md** 整文件带进了提交 ⇒ 相对新主干净删 **436 行**。
+
+**形态**：**无声还原**——diff 只显示删除，看不出是我方误带；只有把
+「PR 的 changed_files / 增删行数」与「我提交时的读数」对比才发现：
+PR 侧 `17 个文件 / +2062-3`，而我提交时是 `15 个 / +1869-1`。
+
+**修正**（2026-10-24）：rebase 到最新 `origin/main`（`b642881`），冲突处 `CHANGELOG.md`
+取 **main 版**（`git checkout --ours`，rebase 的 ours = upstream）。
+取 main 版**不是"后推覆盖"**——本 PR 本就不该有 CHANGELOG 变更
+（台账的唯一写入口是 `scripts/aggregate-changelog.js`，PR 直改会与并发合并冲突），
+所以「放弃我方那份删除」才是正解。修正后 `git diff origin/main..HEAD -- CHANGELOG.md` **为空**，
+436 行删除归零，`mergeable` 由 `False` 变 `True`。
+
+**教训**：`git rebase` 遇冲突**不要用 `git commit` 绕过**——正确路径是
+`git checkout --ours/--theirs` → `git add` → `git rebase --continue`；
+用 `git commit` 会把冲突文件按**工作区内容整文件**带入提交。
+末尾追加型写面（`CHANGELOG.md` / `.quality-gates.md` / `scripts/gate-record-debt-ledger.json`）
+尤其危险，因为它们在 diff 里只会表现为"删除"。
+
+### 失误 2：另一个自动化会话的修复 commit 在 rebase 后成了空提交
+
+CI 失败后有一条自动修复流程在本 PR 上补了两个 commit：
+① `fix(ops-center): 重新生成端点鉴权面清单，消掉 auth-surface 夹具漂移`
+   （本 PR 新增 `credit_pricing.py` 路由 ⇒ 端点鉴权面清单 `ops-center/backend/tests/fixtures/auth-surface.json`
+   漂移导致 CI 红；该修复已保留在分支上，+92/-1）
+② `fix(changelog): 还原被本 PR 整段删掉的 101 行既有条目`
+   ——它在**当时的 base** 上还原；而主干又前进后，rebase 使它成为**空提交并被丢弃**。
+   效果等价（CHANGELOG 直接取 main 版，比逐行还原更彻底且不丢任何内容），
+   但**没有留下"由谁还原"的痕迹**，故在此如实记录。
+
+### 现象复盘：为什么本地全绿而 CI 红
+
+`check-gate-record-debt` / Gate 2b11 等判据在**本地与主干上都绿**，
+但 CI 红——根因是 CI 跑的是 **merge ref**（`refs/pull/4322/merge`）：
+PR 当时有 CHANGELOG 冲突 ⇒ GitHub 生成 merge commit 时把**冲突标记**带进文件 ⇒
+解析 CHANGELOG 的判据在 CI 上红，**本地却永远看不到**（本地 checkout 的是纯 head）。
+⇒ **判据只在 merge ref 上暴露的问题，本地复现不了**；`mergeable=False` 本身就是最早的红信号。
