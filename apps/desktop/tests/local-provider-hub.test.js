@@ -11,14 +11,7 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 
-const {
-  LocalProviderHub,
-  loadCopy,
-  resolveFfmpegBinary,
-  resolveStageKey,
-  findSceneByPrompt,
-  wrapText,
-} = require('./e2e/lib/local-provider-hub')
+const { LocalProviderHub, loadCopy, resolveStageKey, findSceneByPrompt, wrapText, encodePng, hexToRgb } = require('./e2e/lib/local-provider-hub')
 
 const COPY_PATH = path.join(__dirname, 'e2e', 'fixtures', 'explainer-copy.json')
 
@@ -109,6 +102,30 @@ describe('本地 Provider 桩：中文折行', () => {
   })
 })
 
+describe('本地 Provider 桩：无 ffmpeg 兜底编码器', () => {
+  // 兜底编码器只在「本机没有 ffmpeg」时才会被走到（实测：Windows CI runner 没有）
+  // ⇒ 没有专测的话它在有 ffmpeg 的机器上**从未被执行过** ⇒ 兜底本身可能早就坏了而没人知道。
+  // 这条单测在**每台机器**上都跑，把兜底变成常驻覆盖。
+  it('产出结构合法的 PNG：签名 / IHDR 宽高 / IDAT 解压尺寸都对得上', () => {
+    const buffer = encodePng(64, 32, (x, y) => [x * 4, y * 8, 128])
+    // PNG 签名
+    expect(buffer.slice(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+    // IHDR：宽高写在字节 16-23（签名 8 + 长度 4 + 类型 4 + 数据前 8）
+    expect(buffer.readUInt32BE(16)).toBe(64)
+    expect(buffer.readUInt32BE(20)).toBe(32)
+    // 位深 8 / 颜色类型 6（RGBA）
+    expect(buffer[24]).toBe(8)
+    expect(buffer[25]).toBe(6)
+    // IEND 收尾
+    expect(buffer.slice(-8, -4).toString('ascii')).toBe('IEND')
+  })
+
+  it('0xRRGGBB 解析成 RGB 三元组（调色板取色靠它）', () => {
+    expect(hexToRgb('0x08101F')).toEqual([8, 16, 31])
+    expect(hexToRgb('0xFFFFFF')).toEqual([255, 255, 255])
+  })
+})
+
 describe('本地 Provider 桩：协议兼容', () => {
   let hub
   let urls
@@ -161,13 +178,13 @@ describe('本地 Provider 桩：协议兼容', () => {
     }
   })
 
-  // 出图桩要真调 ffmpeg ⇒ 媒体工具不可用时跳过本例（协议形状另有不依赖媒体的断言覆盖：
-  // 上面的 LLM 端点用例与连活探针用例）。
-  it('图片端点返回 SD WebUI 兼容结构（images: [base64]）且尺寸符合请求', async (ctx) => {
-    // resolveFfmpegBinary 找不到可执行 ffmpeg 时是**抛错**而非返回空 ⇒ 这里要兜住异常
-    let mediaAvailable = true
-    try { resolveFfmpegBinary() } catch (_) { mediaAvailable = false }
-    if (!mediaAvailable) return ctx.skip()
+  // ⚠ 本用例**不再条件跳过**（2026-10-24 实测，主干红）：
+  //   桩原本**只**走 ffmpeg 渲染 ⇒ 没有 ffmpeg 的机器（实测：Windows CI runner）上
+  //   本用例被 skip ⇒ 紧随其后的「调用统计」断言无条件要求 `stats.image >= 1`
+  //   ⇒ expected 0 to be greater than or equal to 1 ⇒ electron-tests 分片红 ⇒ 主干红
+  //   ⇒ 所有 open PR 被 required check 挡住。
+  //   修法是给桩加了**不依赖外部二进制**的 PNG 兜底（尺寸精确）⇒ 出图路径每台机器都走得通。
+  it('图片端点返回 SD WebUI 兼容结构（images: [base64]）且尺寸符合请求', async () => {
     const copy = loadCopy(COPY_PATH)
     const scene = copy.scenes[0]
     const response = await fetch(urls.imageBaseUrl + '/sdapi/v1/txt2img', {
@@ -183,6 +200,10 @@ describe('本地 Provider 桩：协议兼容', () => {
     // PNG 魔数
     expect(buffer.slice(1, 4).toString('ascii')).toBe('PNG')
     expect(buffer.length).toBeGreaterThan(1000)
+    // 「尺寸符合请求」是**用例名声称的**，必须真的断言：读 PNG 的 IHDR 宽高（字节 16-23）
+    const ihdrWidth = buffer.readUInt32BE(16)
+    const ihdrHeight = buffer.readUInt32BE(20)
+    expect({ width: ihdrWidth, height: ihdrHeight }, '出图尺寸必须等于请求尺寸').toEqual({ width: 640, height: 360 })
   })
 
   it('图片端点的连活探针可用（适配器 testConnection 走 /sdapi/v1/options）', async () => {
