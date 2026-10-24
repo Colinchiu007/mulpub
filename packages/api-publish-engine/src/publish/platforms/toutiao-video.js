@@ -400,12 +400,15 @@ class ToutiaoVideoChain {
    */
   async publish (postData) {
     if (this.logger) { try { this.logger.log('toutiao cookieNames=' + String(this.cookie||'').split(';').map(function(x){return x.split('=')[0].trim()}).filter(Boolean).join(',')) } catch (_eN) {} }
+      if (this.logger) this.logger.log('toutiao PublishVideo begin bodyLen=' + String(JSON.stringify(postData)).length)
     const res = await this.mp.request({
       method: 'post', url: PUBLISH_PATH,
+        timeout: 30000,
       data: JSON.stringify(postData), maxBodyLength: Infinity,
       headers: this._mpHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
       validateStatus: (s) => s >= 200 && s < 500,
     })
+      if (this.logger) this.logger.log('toutiao PublishVideo status=' + (res && res.status) + ' body=' + String(JSON.stringify(res && res.data)).slice(0, 220))
     const p = parsePublishResponse(res.data)
     if (p.ok) {
       return { success: true, mode: 'api', platform: 'toutiao', publishId: p.itemId }
