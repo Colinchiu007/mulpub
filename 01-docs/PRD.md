@@ -20721,3 +20721,34 @@ DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底
    `prepare().all()` 都返回同一份预置数组 ⇒ "列不存在 ⇒ 查询抛错"这一整类事实在该夹具里**无法表示**，
    于是本地全绿而打包启动每次报 ERROR。给"恢复/迁移/探测"写测试时，被探测的存储必须**预置成真实形态**
    （缺列的真库、有重复的真行），不得让夹具对所有输入同答。
+## 历史列表行视图缓存合同（2026-10-20，ux-audit-history-list-perf / 审计 2.2②）
+
+### 一、显示项与数据口径
+
+- 每行渲染需要的四个派生值 —— 实际封面缩略图 `thumb`、平台图标 `icon`、平台名 `platformLabel`、失败原因文本 `errorText` —— 由**单一实现** `buildRowView(record)` 产出，模板一律走 `rowView(record).<字段>`，**禁止**在 `v-for` 体内再写 `thumbnailUrl(record)` / `platformIcon(record.platform)` / `platformName(record.platform)` / `recordErrorText(record)`。
+- 改造前每行付 35 次模板函数调用（缩略图 2 次、图标 3 次、平台名 3 次、错误文本 3 次、指标 7 次…），筛选扫描态最多上千行进 DOM ⇒ 一次重渲染上万次调用。
+- **`metricValue` 不入缓存**：它只是千分位格式化，成本可忽略，而它的入参是任意数字 ⇒ 键域无上界，缓存会在长会话里无界增长（与 toast 去重集合同一类缺陷）。
+
+### 二、缓存形状（这是本节真正的判据）
+
+| 约束 | 为什么 |
+|---|---|
+| 缓存必须是 `computed`，依赖 `filteredRecords` | `platformName` / `platformIcon` 读 `platformStore`，而平台标签与图标**异步加载**（先用默认值、store 到货后再变）。跨渲染的常驻 `Map` 会把默认标签**永久钉住** —— 用户看到的就是"平台名一直是错的"，而单测与构建全绿 |
+| 兜底路径与建表路径共用 `buildRowView` | Map 未命中时按记录现算；**不得**返回空对象 —— 那会把"缓存未命中"变成"行内容消失" |
+| 键用记录对象本身（一次渲染内稳定） | 不用 `record.id`：id 缺失/重复时按 id 建 Map 会让两行互相覆盖，症状是"某一行凭空变空"且没有任何报错 |
+
+### 三、验收锚点
+
+- `PublishHistory.row-view.test.js` 4 条：① 缓存必须是 `computed` 且遍历 `filteredRecords`，并禁止旁边再出现常驻 `...Cache = new Map()`；② 兜底与建表同源、四个字段齐备；③ 模板内零裸调用 + 正向对偶（`rowView(record).<字段>` 至少 6 处，防"删掉需求"与"删掉被禁物"同形）；④ `metricValue` 不得进缓存（判据必须**限定在函数体内**，不加右边界会一路吞到文件后面任意一处 `metricValue`，把"没有"读成"有"）。
+- 反证两个被禁形态各自指名变红：模板回退成裸调用 ⇒ 红在③；缓存旁加常驻 Map ⇒ 红在①。`RESTORE byteEqual=true`。
+- 渲染等价性由既有 `PublishHistory.test.js`（该视图全量渲染用例）在**一字未改**的前提下继续全绿证明 —— 性能改造最忌"顺手改了显示"，那条套件就是这行的护栏。
+- 同批否证掉的一条审计建议：2.2①「`filteredRecords` 改读防抖值」实测与该视图既有的 84 条契约（筛选结果须与输入即时一致）正面冲突，已**退回人工裁决**，不在本批实施；2.2③「加 renderLimit」实测已由服务端分页 + `load-more-history`「加载更多」承担，照字面再补 slice 会少显示行。
+
+===CL-TOP===
+# [未发布] perf(历史列表): 每行 35 次模板函数调用收敛为一次渲染一份行视图缓存（ux-audit-history-list-perf / 审计 2.2②）
+
+- `PublishHistory.vue` 的列表行原先每行调用 `thumbnailUrl`×2、`platformIcon`×3、`platformName`×3、`recordErrorText`×3、`metricValue`×7；筛选扫描态最多上千行进 DOM ⇒ 一次重渲染上万次调用（`thumbnailUrl` 每次还跑 4 候选 + 3 正则 + 最多 5 次 `safeHttpUrl`）。
+- 新增 `buildRowView(record)` 单一实现 + `rowViews` **computed** 缓存 + `rowView(record)` 访问器，模板全部改走 `rowView(record).<字段>`；`metricValue` 明确**不入缓存**（键域无上界，缓存会在长会话里无界增长）。
+- 缓存刻意做成"一次渲染一份"而不是跨渲染常驻：平台名/图标来自**异步加载**的 platform store，常驻 Map 会把默认标签永久钉住 —— 那是把性能修复换成一处静默显示缺陷。
+- 新增 `PublishHistory.row-view.test.js` 4 条（形状 + 同源 + 模板零裸调用与正向对偶 + metricValue 不入缓存），反证两个被禁形态各自指名变红、还原逐字节相同。既有 `PublishHistory.test.js` 一字未改仍全绿 ⇒ 渲染结果未变。
+- 同批否证两条审计建议：2.2①「谓词改读防抖值」与该视图 84 条既有契约（筛选即时一致）冲突 ⇒ 退回人工裁决不硬改；2.2③「加 renderLimit」实测已由分页 + 既有「加载更多」承担。

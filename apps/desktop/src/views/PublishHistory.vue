@@ -196,9 +196,9 @@
             >
           </label>
           <div class="record-preview">
-            <img v-if="thumbnailUrl(record)" :src="thumbnailUrl(record)" alt="">
-            <img v-else-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="20" height="20" aria-hidden="true">
-<span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>
+            <img v-if="rowView(record).thumb" :src="rowView(record).thumb" alt="">
+            <img v-else-if="isPlatformIconUrl(rowView(record).icon)" :src="rowView(record).icon" class="platform-icon-thumb mp-platform-icon" :alt="rowView(record).platformLabel" width="20" height="20" aria-hidden="true">
+<span v-else aria-hidden="true">{{ rowView(record).icon }}</span>
             <small>{{ contentTypeLabel(record) }}</small>
           </div>
           <div class="record-main">
@@ -229,18 +229,18 @@
                 :title="auditHint(record)"
               >{{ auditLabel(record) }}</span>
               <span v-if="deliveryModeValue(record)" class="delivery-mode-badge" :class="'delivery-mode-' + deliveryModeValue(record)" :title="deliveryModeHint(record)" :data-testid="`delivery-mode-${record.id}`">{{ deliveryModeLabel(record) }}</span>
-              <span class="platform-name"><img v-if="isPlatformIconUrl(platformIcon(record.platform))" :src="platformIcon(record.platform)" class="platform-icon-thumb mp-platform-icon" :alt="platformName(record.platform)" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ platformIcon(record.platform) }}</span>{{ platformName(record.platform) }}</span>
+              <span class="platform-name"><img v-if="isPlatformIconUrl(rowView(record).icon)" :src="rowView(record).icon" class="platform-icon-thumb mp-platform-icon" :alt="rowView(record).platformLabel" width="16" height="16" aria-hidden="true"><span v-else aria-hidden="true">{{ rowView(record).icon }}</span>{{ rowView(record).platformLabel }}</span>
               <!-- 同批徽标：一次 N 平台发布落 N 条独立记录，徽标补回「这几条同属一次发布」 -->
               <span v-if="batchBadgeMap.get(record.id)" class="batch-badge" :data-testid="`batch-${record.id}`" :title="batchBadgeMap.get(record.id).tooltip">{{ batchBadgeMap.get(record.id).label }}</span>
             </div>
             <!-- 失败原因：task:failed 落库的 error 字段（publish-progress-ux G8 数据链路的渲染侧收口）。
                  单行截断 + title 悬停全文；无 error 的旧失败记录不渲染该行（详情弹窗有占位）。 -->
             <p
-              v-if="recordErrorText(record)"
+              v-if="rowView(record).errorText"
               class="record-error"
               :data-testid="`record-error-${record.id}`"
-              :title="recordErrorText(record)"
-            >{{ recordErrorText(record) }}</p>
+              :title="rowView(record).errorText"
+            >{{ rowView(record).errorText }}</p>
           </div>
           <div class="record-stats" :aria-label="t('historyPage.statsAria')" :title="metricHint(record)" :data-testid="`record-stats-${record.id}`">
             <div><span>{{ t('historyPage.metricAccounts') }}</span><strong>{{ metricValue(record.accountCount, 1) }}</strong></div>
@@ -469,6 +469,34 @@ const filteredRecords = computed(() => {
 // 2026-10-12：缩略图 = 本次实际使用的封面；拿不到即回退平台图标
 const { coverUrlFor: thumbnailUrl } = useHistoryCoverThumbnails(filteredRecords)
 const { handleLinkClick: openArticleLinkInApp } = useInAppLink()
+
+// ── 审计 2.2②：行内函数结果缓存（一次渲染一份，绝不跨渲染持久化）────────────────
+// 症状：模板每行调用昂贵函数 35 次（`thumbnailUrl`×2、`platformIcon`×3、`platformName`×3、
+// `recordErrorText`×3、`metricValue`×7），筛选扫描态最多上千行进 DOM ⇒ 一次重渲染上万次调用。
+// 口径：
+//  ① 缓存的**作用域必须是一次渲染**。`platformName` / `platformIcon` 读 platformStore，
+//     而平台标签/图标是**异步加载**的（先用默认值、store 到货后再变）；跨渲染的 Map 会把
+//     默认标签永久钉住 —— 那会把性能修复换成一处静默的显示缺陷。
+//  ② `metricValue` 不入缓存：它的入参是任意数字，键域无上界，长会话下就是无界增长
+//     （与 useNotify 去重集合同型缺陷），而它本身只是千分位格式化，成本可忽略。
+//  ③ 兜底路径与建表路径必须是同一份实现（`buildRowView` 单一来源）——
+//     Map 未命中时按记录现算，**不得**返回空对象：那会让缓存未命中变成"行内容消失"。
+function buildRowView (record) {
+  return {
+    thumb: thumbnailUrl(record) || '',
+    icon: platformIcon(record.platform),
+    platformLabel: platformName(record.platform),
+    errorText: recordErrorText(record),
+  }
+}
+const rowViews = computed(() => {
+  const map = new Map()
+  for (const record of filteredRecords.value) map.set(record, buildRowView(record))
+  return map
+})
+function rowView (record) {
+  return rowViews.value.get(record) || buildRowView(record)
+}
 const allSelected = computed(() => (
   filteredRecords.value.length > 0
   && filteredRecords.value.every(record => selectedIds.value.includes(record.id))
