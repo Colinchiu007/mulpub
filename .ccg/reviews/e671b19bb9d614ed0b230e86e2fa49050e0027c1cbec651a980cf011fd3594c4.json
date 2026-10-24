@@ -1,0 +1,152 @@
+{
+  "sha": "99365bd5d0dff68015bd554ff27a14b81cd46156",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1839 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1839,
+    "fileCount": 19,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e671b19bb9d614ed0b230e86e2fa49050e0027c1cbec651a980cf011fd3594c4",
+  "decidedAt": "2026-10-20T21:04:02.895Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews JSON reference sha=99365bd5 (parent/merge-base) not head 5474c084; changedLines=1839 doesn't match actual diff (~2491 raw lines); audit trail broken.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "评审元数据与实际变更脱节：.ccg/reviews JSON 的 sha 指向基线提交 99365bd5 而非 head 5474c084，stats.changedLines=1839 与实际 diff（~2491 raw 行）不符，审计链断裂。",
+        "defense": "三个数字量的是**不同范围**，且 sha 是脚本明文写出的预期行为：① JSON 的 sha 与 `git merge-base origin/main HEAD` **逐字相等**（实测 base=99365bd5d0dff68015bd554ff27a14b81cd46156），即本分支基线；deep-review.sh 自己的输出写着「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」。② 记录与改动的绑定不是靠 sha 而是**内容寻址**的 stagedDiffHash，深审首行即「判定记录按内容寻址命中」。③ 1839 = **12 个代码文件**（apps/desktop/*）的精确和（实测 `git diff <merge-base>..HEAD --numstat`：code_files=12、code_total=1839），JSON 自己声明了范围（fileCount / codeFileCount）；全部 20 个文件 2732 行是**含文档与评审产物**的另一口径，两个数都不是「对不上」。",
+        "verdict": "dismissed",
+        "rationale": "逐条可复算：JSON.sha == merge-base（实测）；code_total=1839 == JSON.changedLines（12 个代码文件精确和）。评审引用的「2491」是另一口径（含文档），不能用来指控审计链断裂。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Deep review mode=dual claims cross-family verification but both proposer/critic are same backend (claude/opencode) with self-play resolved by same agent; no independent external review.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "mode=dual 声称跨家族校验，但 proposer/critic 是同一个后端（claude/opencode），且自扮演裁决由同一 agent 完成 ⇒ 无独立外部评审。",
+        "defense": "指控前半句**事实相反**：critic=claude（Anthropic，2.1.303）、proposer=opencode（1.18.34）是**两个不同厂商**的后端，深审输出明写「跨家族校验 proposer=opencode critic=claude 通过」，且两者的裸名自检各自独立通过（脚本把两个后端的绝对目录分别补进 PATH 最前）。后半句（自扮演由同一 agent 裁决）是**描述**而非指控成立：引擎自身的第三档出口就是「自扮演裁决」，其触发条件是**无高危域需外部复核**——本轮引擎判定「高危域必须外部复核=0」，`requiresExternalReview: []`、六条 `highRiskDomains` 全为空数组。本仓既有先例同形（`openspec/records/anchor-backup-latest.md`：「无高危域需外部复核 ⇒ deepReview.status=self_play_resolved」）。建议里「or document why self-play is sufficient」这一半**已在执行记录里逐条落实**（每条 dismissal 附可复算证据 + 引擎语义说明 + 本仓先例）。",
+        "verdict": "dismissed",
+        "rationale": "「同一后端」的前提与事实相反（两个厂商）；自扮演出口是引擎契约内的第三档且本轮 0 条高危域；仓库先例同形。建议的「写明为何自扮演足够」已在执行记录中完成。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "watch(rewriteResult,{flush:'sync'}) clears genreDraftId and applies meta without type guard; non-string result from engine could corrupt draft state or throw.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "watch(rewriteResult,{flush:'sync'}) 清 genreDraftId 并应用 meta 时**无类型守卫**；引擎返回非字符串结果可能污染草稿态或抛错。建议在 String() 转换与 meta 应用前加 typeof 守卫。",
+        "defense": "指控成立且已**按建议实现**：① 「watcher 会抛错」不成立——watcher 体内只有 `next === prev` / `genreDraftId = null` / `next !== lastProgrammaticRewrite` 三步，**不含任何字符串运算**，故不可能抛错；② 但「非字符串真值进 rewriteResult」是**真实缺口**：IPC 是外部输入边界，`result_content` 若是非字符串真值（数字/对象），① textarea 的 v-model 拿到非字符串，② `lastProgrammaticRewrite`（字符串口径）与 `rewriteResult.value`（原值）分叉 ⇒ watcher 误判成「程序赋值」⇒ **归因链错挂**（假归因）。③ meta 应用本身已有守卫（`deriveOutputTruncatedInfo` / `deriveModelTruncatedInfo` / `deriveSegmentedCount` 内部都先判 `!data` 与 `Number.isFinite`），但**入口**确实没有类型守卫。",
+        "verdict": "upheld",
+        "rationale": "已实现：`applyRewriteResult` 入口加 `typeof content !== 'string' || !content` 守卫——非字符串一律**判失败**（不写正文、不挂归因链、不报「改写完成」，如实报「AI 改写失败」）。新增行为级用例「引擎信封的正文不是字符串 ⇒ 判失败」；**变异反证 M5**（把守卫改成 `if (false)`）⇒ 该用例当场红 1 条，还原即绿。这条是本轮唯一被采纳的 Critical。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "useCollectionVideoCreation imports 6 hot-topics modules (gen-video-stage-tracking, view-model, pipelines, etc.) not in diff; prop/contract compatibility unverified.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "useCollectionVideoCreation 引入 6 个 hot-topics 模块（gen-video-stage-tracking / view-model / pipelines 等），它们不在 diff 里，prop/契约兼容性未验证。",
+        "defense": "被 import 的模块**全部已存在于仓库**（features/hot-topics/{gen-video-pipelines,gen-video-stage-tracking,gen-video-view-model}.js、composables/useGenVideoRunTracking.js、features/pipeline/run-context-video-path.js、composables/useGenVideoPublishTitle.js）；pre-existing 模块**本就不该**进 diff（重提交会造成重复定义）。契约兼容性有**三层**证据：① 渲染层生产构建 `npx vite build` ⇒ **rc=0、built in 24.11s**（import 图整体可解析）；② StageProgress 的 props 闭集与本组件传的 5 个 prop 逐个对上（kebab→camel 是 Vue 内建映射）；③ 组件测试断言浮层**真的渲染进 document.body**（`collection-video-create-modal`）——这要求这些模块被 import、挂载并执行成功。",
+        "verdict": "dismissed",
+        "rationale": "「模块不在 diff ⇒ 风险」的前提不成立（pre-existing 模块本就不该进 diff），且构建 rc=0 + 行为级渲染断言构成直接反证。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "videoSeq is non-reactive function-scope let; concurrent retry may execute stale pipeline if sequence advances after in-flight response arrives.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "videoSeq 是非响应式的函数作用域 let；并发重试时若在途响应到达后 seq 前进，可能执行过期流水线。建议「让序号跟踪变成响应式，或在应用响应前加显式取消守卫」。",
+        "defense": "建议的**后半句已经在实现里**：应用响应前每一处都先过显式守卫 —— `if (isDisposed() || seq !== videoSeq) return false`（:169 快照读取后、:189 启动响应后、:250 启动失败、:323 重试失败），这正是「在应用响应前加显式取消守卫」。**前半句（变响应式）不成立也无需**：seq 不是 UI 状态（不参与渲染），把它做成响应式只会给渲染层加无谓依赖；仓库既有 hot-topics composable 用的是同一套 seq 模式。另外「并发重试」在 UI 层已被序列化：`startVideoCreation` 在 `videoBusy.value` 时早退（:214），`retryVideoCreation` 只在 failed 态可入。",
+        "verdict": "dismissed",
+        "rationale": "建议的显式守卫已实装（4 处 `seq !== videoSeq` 检查均在应用响应之前）；「变响应式」对一个不参与渲染的序号无意义且与仓库既有范式不符。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "rewrite-word-count pure function returns 'medium' for any non-finite object silently; invalid user settings won't fail visibly.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "rewrite-word-count 纯函数对任何非有限输入静默返回 'medium'，非法用户设置不会显性失败。建议改为抛错或返回显式错误，而不是静默默认。",
+        "defense": "「非法用户设置不会显性失败」这一前提不成立：用户侧非法输入由 **UI 层**显性拦截（`useWordCountValidation` 实时红字 + 改写按钮 disabled + 入口早退提示「请先修正字数设置」），并由**契约层** `resolveRewriteWordCountRange` 归一（非法值回落默认、越界夹取、max<min 收敛）——两条都在，改写路径**不会**把 NaN 送进引擎。被指的那句 `return 'medium'` 位于 `buildRewriteTargetLength`，它的入参是**已归一过的区间**（`buildRewriteUserSettings` 内部先过 `resolveRewriteWordCountRange`），因此非有限分支在生产路径**不可达**；它只是该函数的防御性默认值。改成抛错会**违反本模块的既定策略**（模块头写明「非法值回落默认」「不把 NaN 送进引擎」）——改写主路径不因脏输入崩掉，比「抛错让改写整体失败」更符合用户利益。",
+        "verdict": "dismissed",
+        "rationale": "非法输入的**显性失败**已由 UI 层（红字 + 禁用 + 提示）与契约层（归一）两处承担；被指的静默默认只出现在一个生产路径不可达的防御分支，且改成抛错会与模块既定策略相反并让脏输入打挂改写主流程。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：1 条指控成立或需外部复核",
+    "at": "2026-10-20T21:15:41.748Z",
+    "tier": "self-play",
+    "closureNote": "轮2 外部 claude（proposer=opencode 跨家族校验通过）交付 6 条：1 upheld（i3 改写信封非字符串正文缺类型守卫）已实现并经变异反证 M5 验证（去掉守卫⇒用例当场红，还原即绿）、5 dismissed 各附可复算实测证据（JSON.sha==merge-base、code_total=1839==changedLines、vite build rc=0、StageProgress props 逐个对上、seq 守卫已实装、非法输入由 UI+契约两层显性拦截）、2 Info 登记处置；本记录非高危面（不涉判据本体/workflows/凭据登录态），按 check-pr-exec-record.js 的合法出口②以本 closureNote 收口，未改任何引擎写回的裁决内容。",
+    "closedBy": "agent-self-play-closure（check-pr-exec-record.js 合法出口②：非高危面 + closureNote）",
+    "closedAt": "2026-10-20T21:49:18.944Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 11,
+      "codeTotalLines": 1726,
+      "allFileCount": 28,
+      "allTotalLines": 3723,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
+  }
+}

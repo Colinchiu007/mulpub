@@ -1,0 +1,64 @@
+{
+  "sha": "6fb04d3060a391f40b61d9481b5727f33e4906e8",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 23 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 23,
+    "fileCount": 4,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": [],
+    "mergeScope": {
+      "mergeHead": "fb55036bba21af604a15f970b143634aa474a03d",
+      "base": "4b1ecf4a11e5fa80fd8f46d31565be6a605156c0",
+      "oursFileCount": 44,
+      "theirsFileCount": 618,
+      "intersectionFileCount": 4
+    }
+  },
+  "stagedDiffHash": "7a59536ddcd5ba9a6cbc34badd5e0ac52e45d1a6672ed1bcc5c960d1682f0ffb",
+  "decidedAt": "2026-10-23T13:57:01.596Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
