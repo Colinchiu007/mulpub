@@ -38,7 +38,7 @@ class ToutiaoAdapter extends BasePlatformAdapter {
   /** 构造视频链；测试可注入 _videoChainOverride（假链）或 clients 覆盖 base，零外发。 */
   _videoChain(cookie, clients, csrf) {
     if (this._videoChainOverride) return this._videoChainOverride;
-    return new ToutiaoVideoChain(Object.assign({ cookie, userAgent: this._ua || UA, logger: { log: function () { __pkgLogger.info.apply(__pkgLogger, ["toutiao-video"].concat([].slice.call(arguments))) } } }, clients || {}, csrf ? { csrf: csrf } : {}));
+    return new ToutiaoVideoChain(Object.assign({ cookie, userAgent: this._ua || UA, logger: { log: function () { var a=[].slice.call(arguments); __pkgLogger.info.apply(__pkgLogger, ["toutiao-video"].concat(a)); try { console.log("[toutiao-video] " + a.join(" ")) } catch (_eL) {} } } /*console-mirror*/ }, clients || {}, csrf ? { csrf: csrf } : {}));
   }
 
   /**
