@@ -314,7 +314,7 @@ const M = [
     id: "n39", file: MUT,
     note: "套件不再在沙箱 env 里跑 ⇒ 反证拿本机 vendor 陪跑：n32 那一类靶子会真的跑起别人的评审流水线，且 MISSED/CAUGHT 集随本机状态漂移（A25 抓这一格）",
     from: "spawnSync(process.execPath, ['--test', suite.file], " + "{ cwd: ROOT, encoding: 'utf8', env: sandboxEnv() })",
-    to: "spawnSync(process.execPath, ['--test', suite.file], { cwd: ROOT, encoding: 'utf8' })",
+    to: "spawnSync(process.execPath, ['--test', sui" + "te.file], { cwd: ROOT, encoding: 'utf8' })",
     expect: ["A25"],
   },
   {
