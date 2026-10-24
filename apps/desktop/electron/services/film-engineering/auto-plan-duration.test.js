@@ -5,6 +5,7 @@
  * 覆盖：F2/F34 增量字段 / W9 聚合可见性 / 无引号动作文案退档位 / 缺省档位与能力同源
  */
 const { planAutoShots } = require('./auto-plan')
+const { DEFAULT_TIERS: DEFAULT_DURATION_TIERS } = require('./shot-duration')
 
 // ===== v7 批次一 F2 + F34：单镜时长与来源优先级（纯增量，不动既有 seconds 语义）=====
 
@@ -57,8 +58,11 @@ describe('planAutoShots: durationMs 增量字段（F2 + F34）', () => {
       characterRefs: [],
       sceneRefs: [],
       aspect: '16x9',
-      seconds: 5,
-      targetDurationSec: 10,
+      // ⚠️ 2026-10-24（M0′）：单镜秒数取 10 而非 5 —— 80 字需 10.0s，
+      // 在 5 秒档下**真念不完** ⇒ 新契约（M0′.2 fail-closed）会拦下这个用例；
+      // 本用例的原意是「长/短文案的推算时长不同」，与容量判定无关 ⇒ 改用装得下的档位。
+      seconds: 10,
+      targetDurationSec: 20,
       templateShots: [{ prompt: 'T1' }],
     })
     expect(r.ok).toBe(true)
@@ -97,10 +101,13 @@ describe('planAutoShots: 时长警告可见（i1）', () => {
       targetDurationSec: 10,
       templateShots: [{ prompt: 'T1' }],
     })
-    expect(r.ok).toBe(true)
-    const w9 = r.warnings.find((w) => w.code === 'W9')
-    expect(w9).toBeTruthy()
-    expect(w9.message).toContain('#')
+    // ⚠️ 2026-10-24（M0′.2）：超长台词现在走 **fail-closed**（规划中止），
+    //   所以「逐镜警告可见」的正确断言是：**失败返回里仍带逐镜警告与镜号**，
+    //   而不是「plan 级多一条 W9」——后者已被容量判定抢先。
+    expect(r.ok).toBe(false)
+    expect(r.errorCode).toBe('AUTO_DIALOGUE_OVERFLOW')
+    expect((r.shots[0].durationWarnings || []).length).toBeGreaterThan(0)
+    expect(r.shots[0].durationWarnings.join('')).toMatch(/#|镜|需时|念不完/)
   })
 
   it('无时长警告时不产生 W9（防恒真告警）', () => {
@@ -196,7 +203,13 @@ describe('planAutoShots: 无引号动作文案走档位兜底（i4）', () => {
 })
 
 describe('planAutoShots: 默认档位与模型能力同源（i3 第二轮）', () => {
-  it('缺省档位来自 shot-duration DEFAULT_TIERS（含 12s），而不是输入白名单', () => {
+  it('能力表含 12s（输入白名单只有 5/8/10）—— 缺省档位来自 shot-duration DEFAULT_TIERS', () => {
+    // ⚠️ 2026-10-24（M0′.2）拆成两条断言：
+    //   ① 能力表确实含 12s（常量事实，与「吸附上限 12s」是同一份事实）；
+    //   ② 但**自动模式出片用的是全局 o.seconds** ⇒ 用户选 5 秒时，
+    //      「吸附到 12s」只是规划期的假象（今天也没真用上，出片仍按 5 秒走）
+    //      ⇒ 新契约必须把它拦下，而不是产出一镜「念不完的 12 秒片」。
+    expect(DEFAULT_DURATION_TIERS).toContain(12)
     const r = planAutoShots({
       script: '第一场\n他说：「' + '一二三四五六七八九十'.repeat(9) + '」',
       characterRefs: [],
@@ -206,14 +219,17 @@ describe('planAutoShots: 默认档位与模型能力同源（i3 第二轮）', (
       targetDurationSec: 10,
       templateShots: [{ prompt: 'T1' }],
     })
-    expect(r.ok).toBe(true)
-    expect(r.shots[0].durationSec).toBe(12)
+    expect(r.ok).toBe(false)
+    expect(r.errorCode).toBe('AUTO_DIALOGUE_OVERFLOW')
   })
 
   it('注入档位仍优先', () => {
     const r = planAutoShots({
-      script: '第一场\n他说：「' + '一二三四五六七八九十'.repeat(9) + '」',
-      characterRefs: [], sceneRefs: [], aspect: '16x9', seconds: 5, targetDurationSec: 10,
+      // ⚠️ 2026-10-24（M0′.2）：台词缩到 80 字（10.0s）——
+      //   90 字（11.25s）在用户选的 5 秒档下装不下 ⇒ 会被容量判定拦下；
+      //   本用例的原意是「注入的档位表优先于缺省档位表」，与容量判定无关。
+      script: '第一场\n他说：「' + '一二三四五六七八九十'.repeat(8) + '」',
+      characterRefs: [], sceneRefs: [], aspect: '16x9', seconds: 10, targetDurationSec: 10,
       durationTiers: [5, 10],
       templateShots: [{ prompt: 'T1' }],
     })

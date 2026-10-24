@@ -149,11 +149,12 @@ function snapToTier (rawSec, tiers, opts) {
  * 这是「无 TTS 时的最佳估计」，不是最终权威——最终以 TTS 实测为准。
  * @param {string} text 台词原文（无台词时可传空串，此时按最小档）
  * @param {string} [emotion] 情绪档 key：normal / argument / tender
- * @param {{tiers?: number[], maxSec?: number, minSec?: number, snapToleranceSec?: number}} [opts]
+ * @param {{tiers?: number[], maxSec?: number, minSec?: number, snapToleranceSec?: number,
+ *          capacitySec?: number}} [opts]
  * @returns {{ok: true, durationSec: number, durationMs: number, rawSec: number,
  *            source: 'formula', tierSec: number, snapDeltaSec: number, toleranceUsed: boolean,
  *            units: {cjkChars: number, latinWords: number, total: number, excludedKanaHangul: number},
- *            emotion: string, overflow: boolean, warnings: string[]}
+ *            emotion: string, overflow: boolean, capacityOverflow: boolean, warnings: string[]}
  *          | {ok: false, error: string}}
  */
 function estimateShotSeconds (text, emotion, opts) {
@@ -167,6 +168,21 @@ function estimateShotSeconds (text, emotion, opts) {
   const toleranceSec = Number.isFinite(Number(o.snapToleranceSec)) && Number(o.snapToleranceSec) >= 0
     ? Number(o.snapToleranceSec)
     : DEFAULT_SNAP_TOLERANCE_SEC
+  /**
+   * **容量基准**（2026-10-24 新增，M0′）：本镜的台词「最多能占多少秒」。
+   *
+   * 缺省 = maxSec（物理上限）⇒ **既有调用方零回归**。
+   * 自动模式会显式传入「用户所选的单镜档位」⇒ 判据从「超过物理上限」
+   * 变成「超过用户想要的那一档」——这才是「台词念不完」的真实含义。
+   *
+   * ⚠️ 为什么容差也一起比：`snapToTier` 明确接受「内容比档位多 toleranceSec 以内」
+   *   （否则 40 字→5s、41 字→8s 会出现 +60% 的跳变）。
+   *   若容量判定不认这个容差，则「41 字（5.125s）在 5 秒档」会被判装不下，
+   *   而吸附本身却当它合法 ⇒ **判据与实现自相矛盾**。
+   */
+  const capacitySec = Number.isFinite(Number(o.capacitySec)) && Number(o.capacitySec) > 0
+    ? Number(o.capacitySec)
+    : maxSec
 
   // 语速档可经 opts 注入（v7 对抗评审第二轮 i2）。SCHEMA.md 原写「emotionTiers.zhCharsPerSecond
   // 直接驱动时长推算」，但实现只读硬编码常量 —— 改资产语速零生效，属本 PR 自己修的「假同源」同型。
@@ -201,6 +217,19 @@ function estimateShotSeconds (text, emotion, opts) {
   // 而不是只拿到一个档位数字（v7 对抗评审 i5）
   const snapDeltaSec = Math.round((tierSec - rawSec) * 1000) / 1000
 
+  /**
+   * 容量判定：**台词需时 > 容量基准 + 容差** ⇒ 本镜在给定时长下「念不完」。
+   *
+   * ⚠️ 这里刻意用 `rawSec`（原始推算）而不是 `tierSec`（吸附后）：
+   *   吸附会把溢出值吸到最大档，于是「用户选 10 秒 + 台词需 12.5 秒」会被吸成 12 秒
+   *   ⇒ 若拿 tierSec 比就会**漏判**（PRD R3.3 明确要求用「等价地 rawSec > 用户所选档位」）。
+   */
+  const capacityOverflow = units.total > 0 && rawSec > capacitySec + toleranceSec
+  // ⚠️ 这里**只带标记、不推面向用户的文案**：
+  //   面向用户的出口（改档位 / 拆台词）需要知道「用户选了哪一档」与「可选档位集合」，
+  //   那只有调用方（自动模式规划）知道 ⇒ 由它在逐镜上拼装，避免同一句话说两遍。
+  //   本模块的既有 warning 保留「超过物理上限」那一条（口径不同，不是同一件事）。
+
   return {
     ok: true,
     durationSec: tierSec,
@@ -213,6 +242,8 @@ function estimateShotSeconds (text, emotion, opts) {
     units,
     emotion: emo,
     overflow: snapped.overflow,
+    capacityOverflow,
+    capacitySec,
     warnings,
   }
 }
@@ -229,11 +260,12 @@ function estimateShotSeconds (text, emotion, opts) {
  * @param {{tiers?: number[], maxSec?: number, minSec?: number, defaultSec?: number,
  *          snapToleranceSec?: number, dialogueSource?: 'auto'|'verbatim',
  *          zhCharsPerSecond?: Record<string, number>, enWordsPerSecond?: Record<string, number>,
- *          requireQuotedDialogue?: boolean}} [ctx]
+ *          requireQuotedDialogue?: boolean, capacitySec?: number}} [ctx]
  *   dialogueSource='auto'（默认）时，若 shot 只给了 text，会先按引号抽取台词（见 extractDialogueText）；
  *   'verbatim' 表示 shot.dialogue 已是纯台词，不再抽取。
+ *   capacitySec：容量基准（秒）——本镜台词最多能占多少秒；缺省 = maxSec（物理上限）。
  * @returns {{ok: true, durationMs: number, durationSec: number, source: string,
- *            rawSec?: number, snapDeltaSec?: number, warnings: string[]}}
+ *            rawSec?: number, snapDeltaSec?: number, capacityOverflow?: boolean, capacitySec?: number, warnings: string[]}}
  *          | {ok: false, error: string}
  */
 function resolveShotDurationMs (shot, ctx) {
@@ -320,6 +352,7 @@ function resolveShotDurationMs (shot, ctx) {
     maxSec,
     minSec,
     snapToleranceSec: toleranceSec,
+    capacitySec: c.capacitySec,
     zhCharsPerSecond: c.zhCharsPerSecond,
     enWordsPerSecond: c.enWordsPerSecond,
   })
@@ -336,6 +369,8 @@ function resolveShotDurationMs (shot, ctx) {
       source: 'formula',
       rawSec: est.rawSec,
       snapDeltaSec: est.snapDeltaSec,
+      capacityOverflow: est.capacityOverflow === true,
+      capacitySec: est.capacitySec,
       warnings,
     }
   }
@@ -346,7 +381,17 @@ function resolveShotDurationMs (shot, ctx) {
     : tiers[0]
   const clamped = snapToTier(defaultSec, tiers, { toleranceSec })
   const sec = Math.min(Math.max(clamped.sec, minSec), maxSec)
-  return { ok: true, durationMs: Math.round(sec * 1000), durationSec: sec, source: 'tier', rawSec: defaultSec, snapDeltaSec: Math.round((sec - defaultSec) * 1000) / 1000, warnings }
+  return {
+    ok: true,
+    durationMs: Math.round(sec * 1000),
+    durationSec: sec,
+    source: 'tier',
+    rawSec: defaultSec,
+    snapDeltaSec: Math.round((sec - defaultSec) * 1000) / 1000,
+    capacityOverflow: false,
+    capacitySec: Number.isFinite(Number(c.capacitySec)) && Number(c.capacitySec) > 0 ? Number(c.capacitySec) : maxSec,
+    warnings,
+  }
 }
 
 /**
