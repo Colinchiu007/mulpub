@@ -4363,12 +4363,12 @@ UI 选「动效标题卡」
 
 ### 15.1 目标与范围
 
-**目标**：把 OpenMontage 的「AI 讲解视频」阶段产物契约（13 个 JSON Schema）**逐字 1:1** 搬进本仓，
+**目标**：把 OpenMontage 的「AI 讲解视频」阶段产物契约（**14 个** JSON Schema）**逐字 1:1** 搬进本仓，
 并提供一个**零外部依赖**的校验器，使后续每个阶段（research / proposal / script / scene_plan /
 assets / edit / compose / publish）的产物都能被**机械校验**。
 
 **本片范围**：
-- ✅ 13 个 schema 文件落地（逐字副本，sha256 与上游一致）
+- ✅ **14 个** schema 文件落地（逐字副本，sha256 与上游一致）
 - ✅ 校验器（手写 draft 2020-12 子集，零新依赖）
 - ✅ **关键字覆盖自检**（防「schema 演进、校验器静默不校验」的假绿）
 - ✅ 上游同步 / 漂移检测脚本
@@ -4379,7 +4379,7 @@ assets / edit / compose / publish）的产物都能被**机械校验**。
 
 | 文件 | 说明 |
 |---|---|
-| `apps/desktop/electron/services/explainer/schemas/artifacts/*.schema.json` | 上游 `schemas/artifacts/` 的 10 个逐字副本 |
+| `apps/desktop/electron/services/explainer/schemas/artifacts/*.schema.json` | 上游 `schemas/artifacts/` 的 **11** 个逐字副本（10 个阶段产物 + `video_analysis_brief` 参考视频产物） |
 | `apps/desktop/electron/services/explainer/schemas/checkpoints/checkpoint.schema.json` | 上游 `schemas/checkpoints/` |
 | `apps/desktop/electron/services/explainer/schemas/pipelines/pipeline_manifest.schema.json` | 上游 `schemas/pipelines/` |
 | `apps/desktop/electron/services/explainer/schemas/styles/playbook.schema.json` | 上游 `schemas/styles/` |
@@ -4393,7 +4393,7 @@ assets / edit / compose / publish）的产物都能被**机械校验**。
 ⚠ **打包**：`electron-builder` 的 `files` 含 `electron/**/*` ⇒ schema 会被打进 `app.asar`；
 运行时用 `fs.readFileSync(path.join(__dirname, 'schemas', ...))` 读取 ⇒ Electron 的 fs 支持 asar 路径 ✓。
 
-### 15.3 数据合同：13 个 schema
+### 15.3 数据合同：14 个 schema
 
 | schema | required | 关键字段（节选） |
 |---|---|---|
@@ -4406,6 +4406,7 @@ assets / edit / compose / publish）的产物都能被**机械校验**。
 | `render_report` | version / outputs | `outputs[].{path,format,resolution,duration_seconds}`、`render_time_seconds` / `warnings` / `verification_notes` / `render_grammar` / `decision_log_ref` / `final_review_ref` |
 | `final_review` | version / output_path / status / checks | `checks[]`、`issues_found`、`recommended_action` |
 | `publish_log` | version / entries | `entries[].{timestamp(format date-time),...}` |
+| `video_analysis_brief` | version / **source** / **content_analysis** / **structure_analysis** | + `style_profile` / `narration_transcript` / `replication_guidance`（含 `creative_differentiation_seeds` / `key_elements_to_replicate`）/ `keyframes` —— **参考视频驱动的生产**用它 |
 | `decision_log` | version / project_id / decisions | `decisions[]`（EP 每次门决策留痕） |
 | `checkpoint` | — | 审批门载体 |
 | `pipeline_manifest` | — | 流水线清单（`stages[].oneOf`） |
@@ -4478,11 +4479,11 @@ node scripts/sync-openmontage-schemas.js --refresh   # 从上游拉取并刷新�
 ### 15.7 流程（本片的实际操作序列）
 
 ```
-① 从上游拉 13 个 schema 落盘（一次性）
+① 从上游拉 14 个 schema 落盘（一次性）
 ② 算 sha256 → 内联进同步脚本
 ③ 写校验器（零依赖）
-④ 写测试：正例（13 个 schema 的最小合法实例） + 负例（逐类违规） + 触达自检
-⑤ 跑 node scripts/sync-openmontage-schemas.js --check ⇒ 13/13 一致
+④ 写测试：正例（14 个 schema 的最小合法实例） + 负例（逐类违规） + 触达自检
+⑤ 跑 node scripts/sync-openmontage-schemas.js --check ⇒ 14/14 一致
 ⑥ 跑 vitest ⇒ 30 例全绿
 ⑦ 门禁全跑 → 提交 → PR → CI → 合并
 ```
@@ -4511,7 +4512,7 @@ node scripts/sync-openmontage-schemas.js --refresh   # 从上游拉取并刷新�
 
 | 层级 | 必测场景 | 判据 |
 |---|---|---|
-| **正例** | 13 个 schema 的「最小合法实例」 | 全部 `ok: true` ⇒ 同时证明 **schema 可满足**（若某 required 字段无法构造合法值 ⇒ schema 与实现矛盾，会当场红） |
+| **正例** | 14 个 schema 的「最小合法实例」 | 全部 `ok: true` ⇒ 同时证明 **schema 可满足**（若某 required 字段无法构造合法值 ⇒ schema 与实现矛盾，会当场红） |
 | **负例·required** | 删一个 required 字段 | 报 `required` 且 path 指名字段 |
 | **负例·enum** | 枚举字段填非法值 | 报 `enum` |
 | **负例·const** | `version` 改值 | 报 `const` |
@@ -4526,7 +4527,7 @@ node scripts/sync-openmontage-schemas.js --refresh   # 从上游拉取并刷新�
 | **自检①触达** | schema 用到的违规类关键字 | 每个都**至少被一个用例真正触发过**（差集为空） |
 | **自检②结构** | 已声明支持的关键字 | 源码里都有实现痕迹 |
 | **自检③未知** | schema 用到的关键字 | ⊆ 已实现 ∪ 元数据 |
-| **同步** | `--check` | 13/13 与上游逐字节一致（sha256） |
+| **同步** | `--check` | 14/14 与上游逐字节一致（sha256） |
 
 ### 15.10 已知限制与未闭合
 

@@ -74,6 +74,7 @@ const SCHEMA_FILES = Object.freeze({
   edit_decisions: 'artifacts/edit_decisions.schema.json',
   render_report: 'artifacts/render_report.schema.json',
   final_review: 'artifacts/final_review.schema.json',
+  video_analysis_brief: 'artifacts/video_analysis_brief.schema.json',
   publish_log: 'artifacts/publish_log.schema.json',
   decision_log: 'artifacts/decision_log.schema.json',
   checkpoint: 'checkpoints/checkpoint.schema.json',
