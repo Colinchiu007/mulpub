@@ -125,3 +125,51 @@ CI 失败后有一条自动修复流程在本 PR 上补了两个 commit：
 PR 当时有 CHANGELOG 冲突 ⇒ GitHub 生成 merge commit 时把**冲突标记**带进文件 ⇒
 解析 CHANGELOG 的判据在 CI 上红，**本地却永远看不到**（本地 checkout 的是纯 head）。
 ⇒ **判据只在 merge ref 上暴露的问题，本地复现不了**；`mergeable=False` 本身就是最早的红信号。
+
+---
+
+## 门禁失败的定位与修复（2026-10-24，`QG Unit Tests` 红）
+
+### 现象
+
+CI 的 `quality-gate` / `QG Unit Tests` 红，失败 step 是 `Gate 4 - Workspace unit tests`
+（Windows runner + nx run-many 的 workspace 单测）。**日志端点 401**（本机 PAT 无 Actions log 读权限），
+`gh` CLI 又装不上（TLS 握手失败）⇒ **拿不到失败输出**，annotations 只有一句
+「Process completed with exit code 1」。
+
+### 定位路径（没有日志时怎么找到根因）
+
+1. **先排除主干责任**：查 `origin/main` 的 tip 与最近 8 个主干 PR 的 `QG Unit Tests`，
+   **全部 success** ⇒ 这个红是本 PR 引入的，必须自己修（不能归为"主干红"）。
+2. **本地复跑我的新测试**：`credit-ledger-migrations` / `credit-repository` 均 8/8 绿
+   ⇒ **不是新增测试自身的问题**。
+3. **本地全量跑**：得 20 个 `not ok`，但根因是 `MODULE_NOT_FOUND` at `src/base-adapter.js:1`
+   ⇒ **本地没装 node_modules，这批红全是环境噪音，不可用**（差点据此误判方向）。
+4. **定向 grep**：找"断言了 `REQUIRED_SCHEMA_RELATIONS` 内容"的测试 ⇒
+   `test/postgres-identity-repository.test.js` 有**三处硬编码清单**（`expected` /
+   `expectedRelations` / 「生产迁移 ↔ 运行时表一致性」那张表名列表）。
+5. **探针法定位全部同步点**：用 006 那张表的 `identity_payment_customers` 作探针，
+   `grep` 全仓找出 006 加表时同步过的**每一个**位置 ⇒ 确认需要同步的是 **3 处**
+   （其中第 3 处在 155 行，**只看前两处会漏**）。
+6. **本地复跑确认**：修完 57/57 全绿（7 个相关测试文件）。
+
+### 根因
+
+`REQUIRED_SCHEMA_RELATIONS` 加了 `identity_credit_accounts` / `identity_credit_ledger`，
+但**既有测试里那三份硬编码清单**没同步 ⇒ readiness 断言拿"期望 13 张表"比"实际 15 张表"，
+报 `BUSINESS_DATABASE_SCHEMA_NOT_READY`；第 3 处「生产迁移 ↔ 运行时表一致性」只拼了
+002~006 五个迁移文件，**我的 008 不在其中** ⇒ 运行时要求存在的表在生产迁移里查不到。
+
+### 修法
+
+三处清单按 `REQUIRED_SCHEMA_RELATIONS` 的**同一顺序**追加两张表（顺序必须一致：
+`assert.deepStrictEqual(calls[1].values, [expected])` 逐项比对），
+第 3 处的迁移文件列表补上 `'008_credit_ledger.sql'`。
+
+### 教训
+
+- **「运行时清单」是多方硬编码的**：改了 `REQUIRED_SCHEMA_RELATIONS` 就要同步**每一份**副本。
+  探针法（拿上一张同类表作 grep 锚点）比逐个读文件快，也比"我以为只有一处"可靠。
+- **本地全量红 ≠ 真的红**：先看失败原因是**断言不符**还是**环境缺依赖**，两者会把你引向完全相反的方向。
+- **CI 日志拿不到时的替代路径**：主干对比 → 新测试单跑 → 既有测试定向 grep → 探针法。
+  没有日志不等于查不出来。
