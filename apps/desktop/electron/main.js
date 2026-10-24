@@ -16,6 +16,9 @@ const { removeApplicationMenu } = require('./services/native-menu')
 let storageConfig
 try {
   storageConfig = configureUserDataPath({ app })
+  // stdio-log-bridge（2026-10-24）：packages/* 的 logger 只写 stdout，而应用日志只收自家 logger
+  // ⇒ 包内诊断（CSRF、上传、发稿步骤）在开发与生产中都不可见。此处接管 stdout/stderr 并透传。
+  try { require('./services/stdio-log-bridge').install() } catch (_eBridge) {}
   const graphicsConfig = configureGraphics({ app })
   const uaConfig = configureUserAgentFallback({ app })
   if (uaConfig.configured) {
