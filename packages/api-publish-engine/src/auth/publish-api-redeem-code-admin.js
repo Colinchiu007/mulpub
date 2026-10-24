@@ -45,6 +45,7 @@ class PublishApiRedeemCodeAdminHelpers {
             count: batchBody && batchBody.count,
             batch: batchBody && batchBody.batch || null,
             expiresAt: batchBody && batchBody.expiresAt || null,
+            issuedTo: batchBody && batchBody.issuedTo || null,
           });
           this._json(res, 200, { success: true, ...batchResult });
           return true;

@@ -21,7 +21,7 @@
     <el-card shadow="never">
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
         <el-select v-model="filters.plan" placeholder="套餐" clearable style="width:140px">
-          <el-option v-for="p in PLAN_OPTIONS" :key="p" :label="p" :value="p" />
+          <el-option v-for="p in PLAN_OPTIONS" :key="p" :label="PLAN_LABELS[p] || p" :value="p" />
         </el-select>
         <el-select v-model="filters.status" placeholder="状态" clearable style="width:150px">
           <el-option v-for="s in STATUS_OPTIONS" :key="s" :label="STATUS_LABELS[s]" :value="s" />
@@ -57,8 +57,13 @@
 
       <el-table :data="codes" v-loading="loading" empty-text="暂无兑换码">
         <el-table-column prop="code" label="兑换码" min-width="200" />
-        <el-table-column prop="plan" label="套餐" width="100" />
-        <el-table-column prop="durationDays" label="天数" width="80" />
+        <el-table-column prop="plan" label="套餐" width="100">
+          <template #default="{ row }">{{ PLAN_LABELS[row.plan] || row.plan }}</template>
+        </el-table-column>
+        <el-table-column prop="durationDays" label="时长" width="100">
+          <template #default="{ row }">{{ durationLabel(row.durationDays) }}</template>
+        </el-table-column>
+        <el-table-column prop="issuedTo" label="发放对象" min-width="140" show-overflow-tooltip />
         <el-table-column prop="batch" label="批次" min-width="180" show-overflow-tooltip />
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
@@ -94,13 +99,29 @@
         </el-form-item>
         <el-form-item label="套餐" required>
           <el-select v-model="form.plan" style="width:100%">
-            <el-option v-for="p in PLAN_OPTIONS" :key="p" :label="p" :value="p" />
+            <el-option v-for="p in PLAN_OPTIONS" :key="p" :label="PLAN_LABELS[p] || p" :value="p" />
           </el-select>
         </el-form-item>
-        <el-form-item label="有效天数" required>
-          <el-input-number v-model="form.durationDays" :min="1" :max="3650" style="width:100%" />
+        <el-form-item label="会员时长" required>
+          <el-select v-model="form.durationPreset" style="width:100%" @change="onDurationPresetChange">
+            <el-option v-for="opt in DURATION_PRESETS" :key="opt.key" :label="opt.label" :value="opt.key" />
+          </el-select>
+          <el-input-number
+            v-if="form.durationPreset === 'custom'"
+            v-model="form.durationDays"
+            :min="1"
+            :max="3650"
+            style="width:100%;margin-top:8px"
+          />
           <div style="color:var(--color-text-placeholder);font-size: var(--font-size-xs)">
-            用户兑换后获得的会员时长（按天计），与「过期时间」无关。
+            用户兑换后获得的会员时长（按天计，1 个月 = 30 天、3 个月 = 90 天），
+            与下面的「兑换码截止使用日」是两件事。
+          </div>
+        </el-form-item>
+        <el-form-item label="发放对象">
+          <el-input v-model="form.issuedTo" maxlength="200" placeholder="渠道名 / 客户名 / 活动名（可选）" />
+          <div style="color:var(--color-text-placeholder);font-size: var(--font-size-xs)">
+            记录这批码发给了谁。兑换码一旦泄漏，靠它定位受影响批次以便批量作废。
           </div>
         </el-form-item>
         <el-form-item label="兑换码过期">
@@ -153,6 +174,16 @@ import { createRedemptionBatch, listRedemptionCodes, disableRedemptionCode } fro
 // 与后端 services/redeem_batch_service.py 的 SUPPORTED_PLANS 保持一致。
 // 服务端拒 free（无套餐可授予），且不存在 trial 档——旧的 free/trial 已被真源淘汰。
 const PLAN_OPTIONS = ['standard', 'pro']
+// 档位显示名沿用仓内既有命名（plan-matrix.js 的 label），与桌面端购买区一致。
+// ⚠️ 值仍是 standard/pro（那是服务端契约），这里只做显示映射。
+const PLAN_LABELS = { standard: '标准版', pro: '专业版' }
+// 时长预设：把「1 个月 / 3 个月」做成可选项，避免运营手填天数时把 3 个月填成 3。
+// DURATION_PRESETS 的 days 与服务端 duration_days 同义（30 / 90 天）。
+const DURATION_PRESETS = [
+  { key: 'month1', label: '1 个月（30 天）', days: 30 },
+  { key: 'month3', label: '3 个月（90 天）', days: 90 },
+  { key: 'custom', label: '自定义天数', days: null },
+]
 // 与后端 MAX_BATCH 保持一致
 const MAX_BATCH = 200
 
@@ -177,7 +208,15 @@ const loading = ref(false)
 const reveal = ref(false)
 const filters = reactive({ plan: '', status: '', batch: '' })
 
-const form = reactive({ count: 10, plan: 'standard', durationDays: 30, expires_at: '', batch: '' })
+const form = reactive({
+  count: 10,
+  plan: 'standard',
+  durationPreset: 'month1',
+  durationDays: 30,
+  expires_at: '',
+  batch: '',
+  issuedTo: '',
+})
 
 async function loadList() {
   loading.value = true
@@ -226,8 +265,29 @@ async function confirmDisable(row) {
 }
 
 function openGenerate() {
-  Object.assign(form, { count: 10, plan: 'standard', durationDays: 30, expires_at: '', batch: '' })
+  Object.assign(form, {
+    count: 10,
+    plan: 'standard',
+    durationPreset: 'month1',
+    durationDays: 30,
+    expires_at: '',
+    batch: '',
+    issuedTo: '',
+  })
   showGenerate.value = true
+}
+
+/** 切时长预设：预设项直接给天数，自定义项保留当前值让运营自己填。 */
+function onDurationPresetChange(key) {
+  const preset = DURATION_PRESETS.find((p) => p.key === key)
+  if (preset && preset.days) form.durationDays = preset.days
+}
+
+/** 天数 → 语义化文案：整月显示「N 个月」，其余显示「N 天」。 */
+function durationLabel(days) {
+  const n = Number(days)
+  if (!Number.isFinite(n) || n <= 0) return '-'
+  return n % 30 === 0 ? `${n / 30} 个月` : `${n} 天`
 }
 
 async function generate() {
@@ -239,6 +299,7 @@ async function generate() {
       count: form.count,
       expires_at: form.expires_at,
       batch: form.batch,
+      issued_to: form.issuedTo,
     })
     lastResult.value = data
     lastCodes.value = data.codes || []

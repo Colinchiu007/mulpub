@@ -143,6 +143,15 @@ def _validate(body: dict) -> dict:
     if isinstance(expires_at, str) and expires_at.strip():
         payload["expiresAt"] = expires_at.strip()
 
+    # 发放对象（issuedTo）：这批码发给了谁。兑换码是 bearer token，一旦泄漏
+    # （例如渠道方二次转卖），靠它定位受影响批次以便批量作废止损。
+    # 空串/空白 ⇒ 视为未填（engine 侧同语义）；非字符串 ⇒ 前置拒绝，不静默吞。
+    issued_to = body.get("issuedTo", body.get("issued_to"))
+    if issued_to is not None and not isinstance(issued_to, str):
+        raise EngineAdminError(400, "ISSUED_TO_INVALID", "issuedTo 必须是字符串")
+    if isinstance(issued_to, str) and issued_to.strip():
+        payload["issuedTo"] = issued_to.strip()
+
     # ops 旧表单有 note 字段，engine 侧无对应概念——显式丢弃而不是透传，
     # 透传会让 engine 收到未声明字段，违反「不整包透传」的白名单原则。
     return payload

@@ -20,6 +20,7 @@ const { getPlanCatalog } = require("./auth/plan-matrix")
 const { safeErrorCode } = require("./auth/safe-error-code")
 const { applyCommerceHelpers } = require("./auth/publish-api-commerce")
 const { applyRedeemCodeAdminHelpers } = require("./auth/publish-api-redeem-code-admin")
+const { applyRedeemRouteHelpers } = require("./auth/publish-api-redeem")
 const { applyPaymentHelpers } = require("./auth/publish-api-payment")
 const { applyCloudAccountHelpers, applyCloudAccountNoStore, mergeFaceHeaders } = require("./auth/publish-api-cloud-accounts")
 const { applyCapabilitiesHelpers, isCapabilitiesUrl } = require("./auth/publish-api-capabilities")
@@ -935,17 +936,7 @@ class PublishApiServer {
         return;
       }
 
-      if (method === "POST" && url === "/api/v1/redeem") {
-        if (!this._subscriptionService) { this._json(res, 503, { error: "SUBSCRIPTION_SERVICE_NOT_CONFIGURED" }); return; }
-        const userId = this._memberUserId(req);
-        if (!userId) { this._json(res, 503, { error: "BUSINESS_USER_REPOSITORY_NOT_CONFIGURED" }); return; }
-        var redeemBody = await this._parseBody(req);
-        try {
-          var redeemResult = await this._subscriptionService.redeem({ userId, code: redeemBody && redeemBody.code });
-          this._json(res, 200, { success: true, ...redeemResult });
-        } catch (error) { this._commerceFailure(req, res, error); }
-        return;
-      }
+      if (await this._handleMemberRedeem(req, res, method, url)) return;
 
       if (await this._handleMemberCheckout(req, res, method, url)) return;
       if (await this._handleMemberOrderDetail(req, res, method, url)) return;
@@ -1556,6 +1547,7 @@ p{color:#6e6e73}
 
 applyCommerceHelpers(PublishApiServer);
 applyRedeemCodeAdminHelpers(PublishApiServer);
+applyRedeemRouteHelpers(PublishApiServer);
 applyPaymentHelpers(PublishApiServer);
 applyCloudAccountHelpers(PublishApiServer);
 applyCapabilitiesHelpers(PublishApiServer);
