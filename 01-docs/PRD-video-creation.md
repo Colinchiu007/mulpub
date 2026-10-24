@@ -4291,6 +4291,13 @@ UI 选「动效标题卡」
 ⇒ 只「不设」关不掉 AI 生图，标题卡模式会**静默变成 AI 生图**（界面显示已切换、实际仍消耗积分）。
 ⇒ 必须按模式**强制置空**，这条已由测试对照锁定（AI 模式回落默认 provider / 标题卡模式为空）。
 
+**「关掉 AI 生图」有**两道**防线**（任一被绕过都不会静默变回 AI 生图）：
+① **下游强制置空**（`story2video-stages`）：标题卡模式把 `resolvedImageProvider` 显式置空。
+② **上游不提供**（`explainer-stages`）：标题卡模式**不填**默认 image provider / model。
+   单靠①是**单点**——若将来有人重构掉那一处，②填进去的 provider 就会让标题卡静默变回 AI 生图
+   （界面显示已切换、实际仍产生算力成本归集，不报错、不降级、无痕迹）。
+   ⇒ 两层都不提供 provider，「关不掉」这条路在结构上就不存在。
+
 **为什么改共享阶段而不是在 explainer 侧重写资产装配**：
 复用共享阶段（`story2video_generate_assets`）的 TTS、字幕时间轴、duration、manifest 逻辑，
 只加一个**可选分支**（`stage.options.visualMode === 'title-card'`）⇒ story2video 默认路径**零影响**。

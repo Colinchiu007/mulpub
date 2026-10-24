@@ -194,6 +194,53 @@ describe('画面模式 · explainer generate_assets 透传', () => {
     expect(call).toBeTruthy()
     expect(call.stage.options.visualMode).toBeUndefined()
   })
+
+  it("visualMode='title-card' → **不填**默认 image provider（第二道防线：两层都不提供 provider）", async () => {
+    const ai = {
+      _modelProviderManager: {
+        getDefault: (type) => (type === 'image' ? { id: 'default-image-provider', models: ['image-01'] } : null),
+      },
+      generateWithDefault: vi.fn(async () => ({ content: 'x' })),
+    }
+    const inner = vi.fn(async () => ({ success: true, output: { scenes: [] } }))
+    const executors = new Map()
+    const pipeline = {
+      stageExecutor: { executors, register(type, fn) { executors.set(type, fn) }, execute: inner },
+      aiGenerator: ai,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
+      registerStageExecutor(type, fn) { executors.set(type, fn); return { success: true } },
+    }
+    registerExplainerStages(pipeline)
+    const fn = executors.get(EXPLAINER_STAGE_TYPES.GENERATE_ASSETS)
+    await fn({
+      runId: 'run_visual_mode',
+      stage: { options: {} },
+      params: { visualMode: 'title-card' },
+      context: { scenes: [{ prompt: 'p1', text: 't1', duration: 6 }] },
+    })
+    const opts = inner.mock.calls[0][0].stage.options
+    expect(opts.visualMode).toBe('title-card')
+    expect(opts.imageProvider).toBeUndefined()
+    expect(opts.imageModel).toBeUndefined()
+    // 对照：AI 模式仍然填默认 provider（老行为一字不变）
+    const inner2 = vi.fn(async () => ({ success: true, output: { scenes: [] } }))
+    const executors2 = new Map()
+    const pipeline2 = {
+      stageExecutor: { executors: executors2, register(type, fn) { executors2.set(type, fn) }, execute: inner2 },
+      aiGenerator: ai,
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), notify: vi.fn() },
+      registerStageExecutor(type, fn) { executors2.set(type, fn); return { success: true } },
+    }
+    registerExplainerStages(pipeline2)
+    await executors2.get(EXPLAINER_STAGE_TYPES.GENERATE_ASSETS)({
+      runId: 'run_visual_mode_ai',
+      stage: { options: {} },
+      params: {},
+      context: { scenes: [{ prompt: 'p1', text: 't1', duration: 6 }] },
+    })
+    const opts2 = inner2.mock.calls[0][0].stage.options
+    expect(opts2.imageProvider).toBe('default-image-provider')
+  })
 })
 
 describe('画面模式 · AssetGenerator 本地渲染（不调 provider = 不消耗积分）', () => {

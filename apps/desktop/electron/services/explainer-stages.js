@@ -414,9 +414,17 @@ function registerExplainerStages (pipelineEngine) {
       // 下游读的是 `firstDefined(params.visualMode, stage.options?.visualMode, 'ai')`，
       // params 优先；这里再写进 innerOptions 是双保险（params 被别处剥离时仍能生效）。
       const visualMode = params?.visualMode === 'title-card' ? 'title-card' : 'ai'
-      if (visualMode === 'title-card') innerOptions.visualMode = 'title-card'
-      if (!innerOptions.imageProvider && defaultImage) innerOptions.imageProvider = defaultImage.providerId
-      if (!innerOptions.imageModel && defaultImage) innerOptions.imageModel = defaultImage.model
+      if (visualMode === 'title-card') {
+        // 标题卡模式**不填**默认 image provider：这是「关掉 AI 生图」的第二道防线。
+        // 第一道在下游 story2video_generate_assets（按模式显式置空 resolvedImageProvider），
+        // 但那是**单点**：若将来有人重构掉那一处，这里填进去的 provider 就会让标题卡
+        // 静默变回 AI 生图（界面显示已切换、实际仍消耗算力成本，不报错不降级无痕迹）。
+        // ⇒ 两层都不提供 provider，「关不掉」这条路在结构上就不存在。
+        innerOptions.visualMode = 'title-card'
+      } else {
+        if (!innerOptions.imageProvider && defaultImage) innerOptions.imageProvider = defaultImage.providerId
+        if (!innerOptions.imageModel && defaultImage) innerOptions.imageModel = defaultImage.model
+      }
       if (!innerOptions.voiceProvider && defaultVoice) innerOptions.voiceProvider = defaultVoice.providerId
       if (!innerOptions.voiceModel && defaultVoice) innerOptions.voiceModel = defaultVoice.model
       const inner = await pipelineEngine.stageExecutor.execute({
