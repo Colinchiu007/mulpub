@@ -3,8 +3,8 @@
 - 分支：`ux-audit-accounts-load-failure`
 - 日期：2026-10-24
 - 判定：`node scripts/classify-docs-only.js --base=origin/main --head=HEAD` → **docs-only=false**（含运行时代码），
-  走完整质量节拍 + 独立 worktree（`D:/Data/projects/mp-worktrees/mp-ux-audit-accounts-load-failure`，
-  `verify-worktree-deps.js` OK）+ PR。
+  走完整质量节拍 + 独立 worktree（`<mp-worktrees 根>/mp-ux-audit-accounts-load-failure`，分支名与 PR 号才是取证锚点，
+  不落本机绝对路径；`verify-worktree-deps.js` OK）+ PR。
 - 归属：UX 审计 1.2 家族（Unhandled Rejection）第二片，任务 #7 的「外壳/视图级 onMounted 浮空 promise」半边。
 - 规格与验收正文见 `01-docs/PRD-ACCOUNTS-STARTUP-PROMISE-2026-10-24.md`（本文件只记执行与读数）。
 
