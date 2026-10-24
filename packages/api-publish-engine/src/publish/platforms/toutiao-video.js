@@ -195,8 +195,8 @@ class ToutiaoVideoChain {
    */
   async ensureCsrf () {
     if (this._csrf) return this._csrf
+    // force-bootstrap（2026-10-24）：cookie 里的令牌可能已过期；先自举，失败才回落到 cookie。
     const fromCookie = pickCsrfToken(this.cookie)
-    if (fromCookie) { this._csrf = fromCookie; return fromCookie }
     const pool = ['/mp/agw/article/wtt/list', '/profile_v4/xigua/upload-video', '/profile_v4/manage/content/video', '/xigua/api/upload/getAuthKey/', '/api/pc/feed/']
     const _attempts = []
     for (const p of pool) {
@@ -213,6 +213,7 @@ class ToutiaoVideoChain {
         if (tok) { this._csrf = tok; if (this.logger) this.logger.log('toutiao csrf bootstrapped from ' + p); return tok }
       } catch (eCsrf) { _attempts.push(p + '=ERR:' + String(eCsrf && eCsrf.message || '').slice(0,60)) }
     }
+    if (fromCookie) { this._csrf = fromCookie; if (this.logger) this.logger.log('toutiao csrf fallback to cookie value'); return fromCookie }
     // csrf-html-fallback（2026-10-24）：令牌不在 cookie、HEAD 也不下发时，抓创作页 HTML 找。
     try {
       const page = await this.mp.request({
