@@ -132,6 +132,7 @@ import {
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
+import { maybeEnterFirstRun } from '@/composables/useFirstRunGate'
 import { storeToRefs } from 'pinia'
 
 const router = useRouter()
@@ -396,6 +397,11 @@ function refreshRouteLoad() {
 // ── 生命周期 ──
 
 onMounted(() => {
+  // 首启判定走「拉」不走推送，口径见 useFirstRunGate.js 头注释。
+  // 这条链跑在 onMounted 里、没人 await，所以必须自己收口：漏出去就是 Unhandled Rejection。
+  maybeEnterFirstRun({ router }).catch((error) => {
+    console.warn('[first-run] startup navigation failed: ' + ((error && error.message) || String(error)))
+  })
   licenseStore.load()
   identityStore.load()
   // home-shell 实例：启动页面标题同步（路由 → document.title → 主进程标签标题）

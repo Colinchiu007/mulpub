@@ -1,0 +1,156 @@
+{
+  "sha": "477408dc0200974fec4b884aab813b7f60424606",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 962 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 962,
+    "fileCount": 27,
+    "codeFileCount": 18,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 8,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "   只加 handler 不加白名单，未授权用户点\"完成\"会被静默挡掉（本仓「注册≠接线≠生效」的同型坑）。",
+      "### Requirement: 新增 IPC 通道必须同批登记授权白名单",
+      "主进程新增的任何渲染端可调用通道，MUST 在同一个变更集里出现在 `PUBLIC_CHANNELS`（或明确的授权档），"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T00:11:24.144Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "FirstRun.vue 的 `finishAndGo` 在脚本作用域调用 `$t('onboarding.saveFailedNotice')`（diff 中失败/抛错两个分支均为 `notify($t(...), 'error')`）。vue-i18n v9 只在模板作用域注入 `$t`，在 `<script setup>`/`setup()` 内它是未定义标识符 ⇒ 失败分支执行时抛 `ReferenceError`，后果恰是本批宣称的三条契约的反转：toast 不显示（notify 的参数求值先抛）、`router.push(path)` 被跳过（用户仍被困在向导里）、click 处理函数 reject 成未处理 rejection。但报告称失败路径测试（断言 toast 文案与导航顺序）全绿 —— 二者只能成立其一，需核对实际文件：若代码确为 `$t`，这些用例应当红。",
+        "highRiskDomains": [],
+        "prosecution": "若脚本作用域里的 `$t` 只能来自 vue-i18n 的模板注入，则模板外的引用是未定义标识符：失败分支一执行就在 `notify(...)` 的实参求值阶段抛 ReferenceError，toast 不显示、导航不发出、点击处理 reject —— 本批三条契约同时反转，而且用户看不到任何解释。",
+        "defense": "该文件在脚本作用域显式做了局部绑定：FirstRun.vue:116 `import { useI18n } from 'vue-i18n'`、:121 `const { t: $t } = useI18n()`。于是 :190 与 :194 的 `$t(...)` 解析到这个局部常量（composition API 的 t），与模板作用域的 `$t`（:10 / :17 / :34 / :36）是两条互不干扰的通道。指控的前提「diff 中未见局部绑定」是漏读 121 行。",
+        "verdict": "dismissed",
+        "rationale": "可验证两点：① 行号取证 `grep -na 'const { t: \\$t } = useI18n' apps/desktop/src/views/FirstRun.vue` 命中 121；② 逻辑自洽性：若真是未定义标识符，失败路径两条用例（「标记写失败（code!==0）仍放用户离开，并给出可归因提示」「标记写抛错不得变成未处理 rejection，也不得把人困在向导里」）必红，而它们在基线里是绿的（collected=287 / passed=287）。指控与现场互斥时，以现场为准。",
+        "remediation": "无需改码；本条的价值是逼出了对失败分支的显式行为锁，那两条用例现在确实在跑。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "useFirstRunGate.js 在 `await router.push(FIRST_RUN_PATH)` **之前**置位模块级闩 `decided = true`。若 push 拒绝（导航守卫 reject/redirect、router 未就绪等），App.vue 的 `.catch` 只打一条日志，而闩已置位 ⇒ 本会话内不再重试，对全新 userData 用户是静默的永久跳过，违反「全新首启必须进向导」的验收标准。",
+        "highRiskDomains": [],
+        "prosecution": "闩的语义是「本次会话已判定过」，但它被置位在导航**动作**之前。导航是会被守卫拒绝的异步动作：一次性 reject（例如守卫 redirect、router 尚未就绪）就把「一次失败」放大成「本会话永久不再尝试」。全新用户没有任何别的入口回到向导，用户侧表现为「向导从未出现过」，且日志只有一条 catch 文案。",
+        "defense": "可以把 push 失败视为极小概率，主张「不值得为它放开闩」——但放开闩的代价只是「同一会话再判一次」，判定本身是幂等读，不会重复写标记；两侧代价不对称，辩护不成立。",
+        "verdict": "upheld",
+        "rationale": "代价不对称 + 现场可复现：夹具里把 `useRouter().push` 换成 reject 的 promise 即可稳定触发。修复取「拒绝即放开闩并如实返回 push-failed 档」，比「保持置位」更接近验收标准。",
+        "remediation": "useFirstRunGate.js 的 catch 分支现置 `decided = false`、warn 里点名 latch released、返回 `{ action: 'skipped', reason: 'push-failed' }`；锁定用例在 useFirstRunGate.test.js；反证 F10（把 `decided = false` 换成注释、其余原样）CAUGHT，红 1 条 / 探针命中 1/1 / RESTORE_OK。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`finishAndGo` 中的 `router.push(path)` 位于 try/finally 之外，与该函数注释「异常必须自己收口：浮出去的 promise 会变成 Unhandled Rejection」自相矛盾。push 若拒绝（导航守卫、目标路由重复变体）会逃逸成未处理 rejection，且用户未被导航。",
+        "highRiskDomains": [],
+        "prosecution": "同一函数自己的注释第 3 条就是这条要求，而代码没做到 —— 这不是风格问题：向导出口是用户唯一的离开路径，push 拒绝时用户留在原地、零提示，并在控制台留一条 Unhandled Rejection。本仓把「未处理 rejection」单独列为一个缺陷家族（任务 #7）。",
+        "defense": "「守卫 reject 在真实路由表里不会发生」——但本批同时给 FirstRun 加了出口按钮，重复导航/守卫变体是可达路径，且断言成本极低；无证据的可达性否认不构成辩护。",
+        "verdict": "upheld",
+        "rationale": "注释与代码互相矛盾本身即可判成立（两者必有一错），且修法是收口而非改注释。",
+        "remediation": "FirstRun.vue 的 `finishAndGo` 末尾把 `await router.push(path)` 包进 try/catch，catch 里 `console.warn('[first-run] navigation after wizard exit failed: ...')`；锁定用例「导航被守卫拒绝时不得逃逸成未处理 rejection，且必须出声」；反证 F12（把整段 try/catch 退回裸 `await router.push(path)`，即修复前的被禁形态）CAUGHT，红 1 条 / 探针 1/1。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "本批删掉了 FirstRun.vue 对 `onFirstRunStatus` 的订阅（import、`cancelListen`、onMounted/onBeforeUnmount 全部撤下），而 design.md D1 与 spec 仍写「`first-run:status` 事件推送作为向导页内的状态更新通道保留（它已经在做这件事）」。改后 `runSetup` 每次建窗广播的 `needed`/`done` 以及 preload/publisher/access-control 中的 `onFirstRunStatus` 全仓零消费者 —— 这正是 PRD §7.1 定义并推迟清理的「注册但无人用」死通道形态。本批一边延迟 onboarding:* 的退役，一边制造了同类新死通道，文档与代码不一致。",
+        "highRiskDomains": [],
+        "prosecution": "「保留通道」的书面承诺与「唯一消费方已被删除」同时存在，等于文档在描述一个不再存在的接线；而死通道正是本仓阶段 5 门禁要收敛的形态 —— 一边登记退役 onboarding:*，一边把 first-run:status 变成新的同类，属自相矛盾。",
+        "defense": "「广播无害，留着以后用」——但本批的实际改动就是把它变成零消费者，且没有任何用例守护它的存活；不留痕的漂移会被下一个会话读成「这条通道有人用」。",
+        "verdict": "upheld",
+        "rationale": "成立的是「文档与代码不一致 + 未登记新死通道」，不是「必须本批退役」：退役要同时动 PUBLIC_CHANNELS 与两个 preload 及导出清单，与本批范围无关，属另批。",
+        "remediation": "design.md D1 与 proposal.md 的「保留通道」表述改为如实描述（本批撤下消费方，通道转为零消费者）；tasks.md 新增 6.4 把 `first-run:status` 登记为遗留死通道，与 6.1 的 onboarding:* 同批退役口径。取证：`grep -na 'first-run:status' openspec/changes/ux-audit-first-run-launch/design.md` 现指向「零消费者 / 另批退役」。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "publisher.test.js 把钉住 `firstRunCheck` 旧兜底 `{code:0, data:{setupDone:false}}` 的表项替换成一句注释，且未给 `firstRunComplete` 增加行为表项。本批最关键的 API 面改动（兜底 0→-1、新增 complete 通道）因此无测试守护：回归成旧兜底不会被任何用例捕获（useFirstRunGate 测试 mock 了 check，FirstRun.vue 已不调用它），新增通道的兜底也未钉。",
+        "highRiskDomains": [],
+        "prosecution": "把断言换成注释等于主动拆锁。兜底形状是三档判定的地基：退回 `code:0 + setupDone:false` 后，浏览器态 dev server 每次访问都跳向导，而没有任何用例会红 —— 这正是本批 1.4 要修的原缺陷。",
+        "defense": "「gate 的用例覆盖了判定逻辑」——不成立：那些用例 mock 了 check，测的是消费侧对该档的反应，测不到 API 面产出哪一档。",
+        "verdict": "upheld",
+        "rationale": "锁必须钉在被改的那一层（publisher.js 的兜底返回值），而非消费层。",
+        "remediation": "publisher.test.js 新增 describe「首启通道在无桥环境下的兜底形状（QM-6 i5）」三条行为用例（firstRunCheck 非 0 且 data 为 null、firstRunComplete 无桥不得谎报、有桥原样透传含 reused）；同时把 `src/api/publisher.test.js` 纳入反证驱动 TEST_FILES（否则 F13/F14 注入后域内零红会被读成「锁抓不到东西」）。反证 F13、F14 各 CAUGHT，探针 1/1。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "App.vue 调用 `maybeEnterFirstRun({ router })` 未传 `warn`，而 gate 默认 `warn = () => {}`（noop）；gate 在内部 catch 了 check 抛错并正常返回，App.vue 的 `.catch` 对该情形永远不触发。⇒ `firstRunCheck()` 抛错时生产环境零输出，gate 测试「check 抛错 ⇒ 出声」所钉的契约在生产接线中不成立——「出声」对读失败类失效是空的。",
+        "highRiskDomains": [],
+        "prosecution": "测试里注入 sink 才绿，生产接线走默认 noop ⇒ 读失败（加密标记损坏、权限异常）在真实用户机上零痕迹。用户只会反复重启排障，与本批「不得静默」的口径直接冲突。",
+        "defense": "「调用方应当每次都传 warn」——约定不是防线；默认值本身就是生产路径的取值，且 App.vue 现在确实没传。",
+        "verdict": "upheld",
+        "rationale": "修默认值比加一处传参更彻底：默认 noop 会让下一个调用点复制同一个洞。",
+        "remediation": "useFirstRunGate.js 的默认改为 `warn = (msg) => console.warn(msg)`；反证 F11（把默认退回 `() => {}`，即被禁旧形态）CAUGHT，红 1 条 / 探针 1/1。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：5 条指控成立或需外部复核",
+    "at": "2026-10-22T00:37:16.929Z"
+  }
+}

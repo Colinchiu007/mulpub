@@ -519,6 +519,7 @@ shared-user-data.backups/
 #   「negation 必须各自存在」那条锁里，它按模式匹配 negation 清单，不依赖任何行位置。
 !scripts/qm6-tier-watermark.js
 !scripts/qm6-enforce-preview.js
+!scripts/first-run-launch-contract-mutate.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）

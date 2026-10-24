@@ -386,7 +386,12 @@ export function onBatchProgress(callback) { return bridgeOn("BatchProgress", cal
 
 
 // ─── 首次运行引导 API ──────────────────────
-export async function firstRunCheck() { return invokeWithFallback("firstRunCheck", {  code: 0, data: { setupDone: false }  }) }
+// 兜底值必须是 code:-1 —— 原先写 code:0 + setupDone:false，把「桥不可用」伪装成一次成功的「还没做过」，
+// 启动判定（App.vue）因此无法区分两者，在浏览器 dev server 里会把每次访问都跳进向导。
+// 本文件其余通道的兜底都是 { code: -1, message: 'electronAPI not available' }（见 publishBatch 等）。
+export async function firstRunCheck() { return invokeWithFallback("firstRunCheck", { code: -1, message: 'electronAPI not available', data: null }) }
+// 首启完成标记的唯一写入口（向导上的「完成」/「跳过」）。
+export async function firstRunComplete() { return invokeWithFallback("firstRunComplete", { code: -1, message: 'electronAPI not available', data: null }) }
 export function onFirstRunStatus(callback) { return bridgeOn("FirstRunStatus", callback) }
 
 // ─── 通知 API ────────────────────────────
