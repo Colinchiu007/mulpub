@@ -1,5 +1,10 @@
 <template>
         <div class="s2v-config-sections" data-testid="story2video-config-sections">
+          <!-- 飞影扩展能力（11 个端点）：积分 / 创作模式 / 模板 / 封面 / 删除作品 -->
+          <HiflyExtraPanel
+            :t="(key) => translateWithLocaleFallback(`create.hiflyExtra.${key}`, key, key)"
+            :api="hiflyExtraApi"
+          />
           <div v-if="s2vActiveConfigProfile" class="s2v-active-config" data-testid="s2v-active-config" role="status">
             <span class="s2v-active-config-label">{{ translateWithLocaleFallback('create.story2video.configProfile.activeLabel', '当前配置', 'Active configuration') }}</span>
             <span class="s2v-active-config-name">{{ s2vActiveConfigProfile }}</span>
@@ -714,6 +719,11 @@ import UiField from '@/components/UiField.vue';
 import UiSelect from '@/components/UiSelect.vue';
 import UiSlider from '@/components/UiSlider.vue';
 import { useS2VPanel } from './s2v-panel-contract';
+// 飞影 11 个扩展端点的面板（change: hifly-full-api-ui）。放在配置区顶部：
+// 它不是某一管线的专属配置，而是飞影 provider 下的能力集合，面板自身在
+// 能力未就绪时只渲染一行「暂不可用」，所以无条件挂载不会干扰其它管线。
+import HiflyExtraPanel from './HiflyExtraPanel.vue';
+import * as hiflyExtraApi from '@/api/hifly-extra';
 
 const panel = useS2VPanel(inject);
 const { state, fns, setState } = panel;
