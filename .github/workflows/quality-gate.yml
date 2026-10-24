@@ -428,6 +428,51 @@ jobs:
         run: |
           node --test scripts/quality-rhythm-spec-mirror.test.js
 
+      # --- Gate 12f：主规格不得因本次合并而丢失基线内容（changes job）---
+      # 动因（2026-10-24 实测）：openspec 的 delta 语义是**增量补丁**，权威出处
+      # `.opencode/skills/openspec-sync-specs/SKILL.md` 的「MODIFIED Requirements」一节末行
+      # 「**Preserve scenarios/content not mentioned in the delta**」——
+      # 这句约定此前**没有任何机器消费者**（全仓 grep 只命中该文档自身），
+      # 属本仓反复出现的「注册≠注入≠生效」家族。后果很具体：
+      # 一次 delta 合并若把基线里的某条 Scenario 抹掉，**全仓没有任何门禁会红**。
+      # 本次实测就撞上了这个洞：两个 change 的 delta 各只写了基线 5 条 Scenario 里的 3 条，
+      # 靠人工逐条对账才没丢 —— 下一次靠自觉的概率就不是 1 了。
+      # 本判据把这句散文变成会红的东西：合并后（base ⊕ head）的主规格必须包含
+      # 基线（merge-base）主规格里的每一个 Requirement 与每一条 Scenario。
+      #
+      # 三条口径：
+      # ① 事后对账、不事前查 delta —— openspec 的 MODIFIED 是增量语义，delta 不自包含是**合法写法**；
+      #    事前判据实测会误报 3 处（其中 2 处是本仓自己按增量语义写的 change）。
+      # ② 基线取 **merge-base** 而非 base 分支当前 HEAD —— base 在 PR 打开期间前进时，
+      #    拿 base 当前 HEAD 当基线会把别人的新 Scenario 误判成"本次丢失"⇒ 假红。
+      # ③ 扫描域由**变更集**决定而非目录遍历 —— 扫描域不会塌缩（目录改名可能读到空集）。
+      #
+      # 落点必须是本 job：输入 `openspec/**` 命中 docs-only 白名单，
+      # 放进被 `docs-only != 'true'` 门控的 static-gates 等于给自己关掉校验
+      # （同族 #2718 / #2745 / #3000 / #3114 / Gate 12d / Gate 12e）；
+      # 而摆在 classify 之前时本 step 一红会让 docs-only 输出整条消失、下游重型 job 全部跑满。
+      # 位置与"排在 classify 之后"由 scripts/check-spec-delta-coverage.test.js 的结构锁钉住。
+      # 只用 node 内置模块（复用 classify-docs-only.changedFileStatuses），满足「本 job 无 Install deps」。
+      # `if` 是硬需求：本 workflow 另有 `push: branches:[main]` 与 `workflow_dispatch` 触发，
+      # 那两种事件下 `github.event.pull_request.*` 全为空 ⇒ --base 为空 ⇒ 门禁判「取证失败」(rc=2)
+      # ⇒ **main 的 push 会红**。本判据的语义是"这次合并会不会丢基线内容"，
+      # 它天然只在 PR 事件下有基线可比（push 到 main 时合并已发生，主规格已是结果）。
+      - name: "Gate 12f - Spec delta coverage (changes job)"
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          # 基线 = PR 打开时的 base.sha。**不传 --head**：pull_request 的默认检出 HEAD
+          # 就是 merge commit（父 = base.sha 与 head.sha），于是
+          #   merge-base(base.sha, HEAD) = base.sha  ⇒ 基线就是"这次 PR 的起点"
+          #   head 侧读到的是**合并结果**（merge commit 的树）
+          # 这正是门禁要验的那件事："这次合并有没有把基线内容抹掉"。
+          # 不传 --head 还有个硬理由：fork PR 的 head 对象可能不在本地对象库，
+          # 传 head.sha 会让 merge-base 取不到 ⇒ 全仓 fork PR 被 exit 2 打红。
+          SPEC_DELTA_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test scripts/check-spec-delta-coverage.test.js
+          node scripts/check-spec-delta-coverage.js --base="$SPEC_DELTA_BASE"
+
       # --- Gate 2b3：pre-commit 判定记录暂存的进程创建预算锁 ---
       # 为什么必须常驻 CI 而不只留在钩子测试里：scenario16 是行为测量，只有跑到那段代码才有效；
       # 「退回逐文件循环」这种改法可以被写成注释、被临时禁用、或在另一个入口里复活。
