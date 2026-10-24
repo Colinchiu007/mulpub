@@ -11,8 +11,8 @@ date: 2026-10-24
 | 变更类型与隔离 | ✅ | 运行时代码：分支 `overseas-publish-config`（裸 task 名，无斜杠）；沙箱内 clone 检出，非共享主目录 |
 | 第一性原因（QM-5 ①） | ✅ | 旧 `_publish_youtube` 有 5 处 **fail-open**：上传超时只 warn 继续、发布按钮点不到仍返回 success:true、无「受众非儿童向」、无标签、无发布后回读。⇒ 平台侧「返回成功但内容没人看得见」的形态无法被区分 |
 | 逃逸分析（QM-5 ②） | ✅ | 逃逸口是**把「点了发布按钮」当成「发出去了」**。helper 的 `_click` 恒返回 true 且不抛错 ⇒ 点击成功与否无法靠返回值判定 ⇒ 旧实现只能无条件 `return {success:true}`。修法：判据改落在**平台侧可回读的事实**（作品 URL / 作品 ID / 作者 ID / 正文）上 |
-| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `rpa-overseas/youtube.js`（fail-closed 16 步）+ `rpa-overseas/shared.js`（核验层）+ `rpa-overseas/youtube.test.js`（**35 例 / 5 组**，逐条钉住 5 个失败路径必须 `success:false`；含 4 条**宿主方法契约锁**） |
-| 防止再次发生（QM-5 ⑤） | ✅ | ① 旧实现**迁出**而非复制（`rpa-view-platforms.js` 净减 80 行，欠债减债而非抬基线）② 海外链放独立目录 `rpa-overseas/`，不往点名还账文件里加行 ③ 选择器每条标注来源（`[真机]`/`[参考]`/`[推测]`），**未标注真机取证的选择器不冒充已验证** |
+| 修复 + 回归保护（QM-5 ④） | ✅ | 新增 `rpa-overseas/youtube.js`（fail-closed 14 步）+ `rpa-overseas/shared.js`（核验层）+ `rpa-overseas/youtube.test.js`（**35 例 / 6 组**，逐条钉住 5 个失败路径必须 `success:false`；含 4 条**宿主方法契约锁**） |
+| 防止再次发生（QM-5 ⑤） | ✅ | ① 旧实现**迁出**而非复制（`rpa-view-platforms.js` 净减 80 行，欠债减债而非抬基线）② 海外链放独立目录 `rpa-overseas/`，不往点名还账文件里加行 ③ 选择器**按块**标注来源（`[真机]`/`[参考]`/`[推测]`），**未标注真机取证的选择器不冒充已验证** |
 | 行尾与 diff 对账 | ✅ | 两口径 numstat 相等（`rpa-view-manager.js` +6/-2、`rpa-view-platforms.js` -80、`config/platforms.yaml` +7）；删除 80 行**全部归因**：78 行 = 旧 `_publish_youtube` 迁出到 `rpa-overseas/youtube.js`；2 行 = `collectPublishIds`/`extractPublishIdsFromResponseBody` 两个**既有死 import**（eslint 确认 unused，顺手清理＝降债） |
 | 接线棘轮 | ✅ | `node scripts/check-unwired-tests.js` → RC=0（检查域内 133 个测试文件全部已接线）；`electron/services/**/*.test.js` 覆盖子目录 ⇒ 新测试文件**在 vitest include 白名单内**，无需改 config |
 | QM-1 打包 / QM-4 视觉 | N/A | 未触运行面（新增独立目录 + 主进程服务层，无 UI 改动、无 asar 文件清单变化） |
