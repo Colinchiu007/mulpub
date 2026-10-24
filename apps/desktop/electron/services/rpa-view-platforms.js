@@ -580,7 +580,7 @@ const platformsMixin = {
                   // 不需要点「发表」。正确做法：轮询等「直接发表」可见（120×40）再点。
                   try {
                     let _dpv = ''
-                    for (let _i = 0; _i < 30; _i++) {
+                    for (let _i = 0; _i < 80; _i++) {
                       const _p = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return "no-shadow";var bs=h.shadowRoot.querySelectorAll("button");for(var i=0;i<bs.length;i++){if((bs[i].innerText||"").replace(/\\s+/g,"")==="直接发表"){var r=bs[i].getBoundingClientRect();return Math.round(r.width)+"x"+Math.round(r.height)}}return "none"})()', true)
                       if (_p && _p !== 'none' && !String(_p).startsWith('0x')) { _dpv = _p; break }
                       await this._sleep(3000)
