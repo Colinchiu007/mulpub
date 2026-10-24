@@ -1029,3 +1029,52 @@ poll-direct click=clicked-direct   # 点「直接发表」
 ### 落库
 
 `d92a3bfda`（上传等待）+ `60f9fb873`（CDP 真输入）+ `43f000418`（描述选择器）为本次成功的关键三提交。
+
+## 8.31 今日头条：竞品端点对照与 CSRF 真相（2026-10-24 13:00）
+
+### 竞品（参考产品）头条视频端点全集（来自逆向文档「本项目已支持平台发布链深挖」）
+
+```
+视频：
+  https://mp.toutiao.com/ugc/publish/video/v4/commit/      ← v4 提交
+  https://mp.toutiao.com/ugc/publish/video/v1/get_token/   ← 取 token（我方完全没有这一步）
+  https://mp.toutiao.com/xigua/api/upload/PublishVideo
+  https://mp.toutiao.com/xigua/api/upload/getAuthKey/
+  https://mp.toutiao.com/profile_v4/xigua/upload-video
+```
+
+### 我方现状（代码核实）
+
+```
+grep get_token / v4/commit / ugc/publish  →  0 命中
+```
+
+⇒ **我方缺 `v1/get_token/` 与 `v4/commit/` 两个关键端点**。
+
+### CSRF 真相（抓包实证）
+
+| 项 | 实测 |
+| --- | --- |
+| 真实头名 | **`x-secsdk-csrf-token`**（92 字符） |
+| 我方旧值 | `x-csrf-token`（**猜的，错的**）⇒ 平台恒回 `missing csrf token` |
+| 令牌存 cookie？ | ❌ 无（33 个 cookie 里只有 `passport_csrf_token` / `csrf_session_id`，后者当 csrf 头实测 403） |
+| 令牌存 localStorage？ | ❌ 无（`x-secsdk-csrf-session` 的值是空对象 `{}`；按长度 92 比对仅命中无关大 JSON） |
+| 令牌来源 | **secsdk JS 运行时生成**，只能从页面请求头实时获取 |
+
+### 已落地的两段
+
+1. `c95b978e9`：头名改 `x-secsdk-csrf-token`
+2. `9839d48f5` + `582081ab9` + `29ad56ef3`：
+   - 链路支持 `new ToutiaoVideoChain({ csrf })` 外部注入
+   - 适配器透传 `opts.csrf`
+   - `services/toutiao-csrf-grab.js`：用账号 persist 分区开隐藏窗口，监听 Network 抓 `x-secsdk-csrf-token`（25s 超时，只返回值不落日志）
+
+### 待办（按竞品链路补齐）
+
+1. 补 `GET /ugc/publish/video/v1/get_token/` 作为令牌获取的首选（比开窗口抓包更轻）
+2. 补 `POST /ugc/publish/video/v4/commit/`（竞品用的 v4 提交，我方目前用 `PublishVideo`）
+3. 端到端验证：`grabToutiaoCsrf: ok len=92` → 不再出现 `missing csrf token` → `PublishVideo` 返回 ItemId
+
+### 测试基线（记录，勿误判）
+
+`packages/api-publish-engine` 的 `node scripts/run-tests.js` 在本分支 **6 个失败/511 个**，且**回退本次改动后仍为 6 个** ⇒ 属既有失败，不是本次引入。
