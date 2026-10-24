@@ -22,4 +22,11 @@ export default {
     offlineBanner: 'You are offline — publish tasks will be cached and retried once the connection returns',
     offlinePendingCount: '{count} pending',
     offlineRecovered: 'Connection restored',
+    // 未知地址兜底页（UX 审计 1.9）：与 pageLoadFailed 是两种故障，文案不得互相复用
+    notFoundTitle: 'Page not found',
+    notFoundMessage: 'No page in this app matches that address. It may be mistyped, renamed, or retired.',
+    notFoundPathLabel: 'Unreachable address:',
+    notFoundHint: 'Go back home, or reopen what you need from the sidebar.',
+    notFoundBackHome: 'Back to home',
+    notFoundGoBack: 'Go back',
   }

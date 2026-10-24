@@ -1,0 +1,101 @@
+{
+  "sha": "21a7b3d50941daee972d5207d3dc624bf0b53022",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 907 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 907,
+    "fileCount": 21,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 6,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T16:46:34.479Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "check-route-registry.js 规则 6 的豁免块 `if (entry.catchAll) { ...; continue }` 位于循环顶部，`continue` 把后续对普通路由执行的「view 必须等于 router/index.js 中 import 的视图文件名」（文件头部规则 4）判据一并跳过。于是 catchAll 登记项的 view 字段（例如错写成 'NotFoundPage.vue'，而路由实际 import '@/views/NotFound.vue'）永远不被门禁核对，规则 4「逐字一致」对这一等类型失效；且入口判据已被豁免、redirect 判据只在 view 为空时触发，「view 张冠李戴」没有任何其它判据兜底——这正是本变更宣称要防的登记面与声明面漂移。",
+        "highRiskDomains": [],
+        "prosecution": "豁免块用 continue 提前离开循环；若规则 4 的核对也写在同一个循环体内，则 catchAll 条目的 view 将永久不被比对，登记面与声明面可以在视图名上漂移而门禁照绿。评审给出的具体失败场景（view 写成 NotFoundPage.vue）是可行路径。",
+        "defense": "规则 4 不写在规则 2 的循环体内：它是 checkRouteRegistry 里一个独立的 `for (const route of routes)` 遍历（按 registryByPath 取登记项后比较 route.view 与 entry.view），位于规则 2 之前，且不看 catchAll 标记。因此 catchAll 条目同样被比对视图文件名。可复现取证：把真实登记表里 catchAll 条目的 view 改成 'NotFoundPage.vue'，喂给 checkRouteRegistry，返回 ok=false 且错误原文为「视图不一致：/:pathMatch(.*)* router 指向 NotFound.vue，登记表写的是 'NotFoundPage.vue'」（本机 2026-10-21 实测，探针 mw-qm6-probe.cjs 输出 A 行）。",
+        "verdict": "dismissed",
+        "rationale": "辩护侧有产物级证据：规则 4 是独立遍历，continue 只离开规则 2 的循环。指控把「同一函数内的另一条规则」误当成「同一循环体内的后续语句」。A 探针在同一份判据代码上直接构造了评审设想的失败场景并得到红灯，故判不成立。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "spec.md Requirement 3 要求门禁保证该登记项「不声明……宿主入口」，但规则 6 只禁止 navEntry / internal / redirect 视图，未禁止 catchAll 项带非空 entryFrom：`catchAll: true, entryFrom: '/'` 能通过门禁（规则 5 死链若为独立遍历最多拦指向未登记路径的，拦不住指向已登记路径的假宿主）。这正是 proposal.md 以「把假事实写进受 CI 强制的登记表」为由否掉的机制，改了 gating 字段后又从侧门放行，登记表头注释「不填 entryFrom」与门禁实际行为不符。",
+        "highRiskDomains": [],
+        "prosecution": "规格写了「不声明宿主入口」，判据没有对应断言；规则 5 的触发条件是 `entry.internal && entry.entryFrom`，catchAll 条目 internal 为 false，所以 entryFrom 既不被要求也不被禁止。文档承诺强于判据覆盖面时，下一会话只会信文档。",
+        "defense": "可以辩护说 entryFrom 在 internal 为假时是惰性字段，规则 5 不会因此产生错误关系，且登记表注释已写「不填」。但这只是「当前没有实害」，不是「不可能有害」：字段被留着不核对，就等着有人填上假宿主。",
+        "verdict": "upheld",
+        "rationale": "实测证实侧门存在：把真实登记表 catchAll 条目的 `entryFrom: null` 改成 `'/'`，checkRouteRegistry 返回 ok=true（探针 B 行，锚点命中=true 已自证）。规格承诺与判据覆盖面不一致属真问题。处置：规则 6 增加 `if (entry.entryFrom) errors.push('catchAll 不得声明宿主入口…')`，并补夹具用例；反证 M11 实测 CAUGHT（摘掉这条判据即红）。同时更新脚本头部规则清单与 design.md §7 锁清单。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "同一变更内部文档自相矛盾：openspec proposal.md 第 5 点与 design.md §5 仍指示「ROUTE_TITLE_KEYS 必须新增该 path 的条目」，且 design.md 声称「既有测试 route-registry 全部非 redirect 路由被映射表覆盖 会在漏加时变红」；但落地实现刻意反其道而行——useTabDocumentTitle.test.js 把 catchAll 条目 filter 出映射要求（补键是运行时永不命中的死键），标题改走 routeName 分支。变更落地后 design.md 的那句话已为假：删掉「该条目」不会红，因为映射覆盖要求已排除模式路径。后续会话按 design.md 补键反而会造死键。",
+        "highRiskDomains": [],
+        "prosecution": "同一 PR 内两份文档指向两种互斥实现，且其中一份还在描述一条已经不存在的兜底判据（覆盖度测试已把 catchAll 排除）。规划文档是后续会话的唯一入口，写错比不写更坏：它会引导别人造死键。",
+        "defense": "实现与规格（PRD V7、frontend-interaction-spec §9.5）是一致的，只有 proposal/design 两处旧文字没跟上；属文档滞后而非设计冲突。",
+        "verdict": "upheld",
+        "rationale": "文档滞后在这个仓不算无害——「测试断言不得反向固化错误行为」与「装饰性门禁」两条都源自同类现场。处置：proposal.md 第 5 点改写为「走 routeName 分支，⛔不补模式路径（死键）」；design.md §5 改写并把「漏加即红」明确标注为**不成立**；design.md §7 锁清单补上「catchAll 不得声明宿主入口（i2）」与「name 三处成对（i7）」两行，并写明 catchAll 行由谁反证。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：2 条指控成立或需外部复核",
+    "at": "2026-10-21T17:14:07.525Z"
+  }
+}

@@ -22,4 +22,11 @@ export default {
     offlineBanner: '网络已断开 — 发布任务将被缓存，网络恢复后自动重试',
     offlinePendingCount: '{count} 个待发布',
     offlineRecovered: '已恢复连接',
+    // 未知地址兜底页（UX 审计 1.9）：与「页面加载失败」是两种故障，文案不得互相复用
+    notFoundTitle: '页面不存在',
+    notFoundMessage: '应用里没有匹配这个地址的页面，可能是地址输错、功能已改名或已被下线。',
+    notFoundPathLabel: '无法访问的地址：',
+    notFoundHint: '回到主页，或从左侧菜单重新进入需要的功能。',
+    notFoundBackHome: '回到主页',
+    notFoundGoBack: '返回上一页',
   }

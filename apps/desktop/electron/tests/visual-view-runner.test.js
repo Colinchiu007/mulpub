@@ -15,6 +15,10 @@ const routerSource = fs.readFileSync(path.join(desktopRoot, 'src/router/index.js
 const routerPaths = [...routerSource.matchAll(/\bpath:\s*['"]([^'"]+)['"]/g)]
   .map(match => match[1])
 
+// 兜底路由的"形状"只有一个真源：路由登记门禁（.github/scripts/check-route-registry.js）。
+// 在这里再写一遍字面量，就是让"改谁"变成两处手工同步（本仓反复出现的口径分裂）。
+const CATCH_ALL_PATH = require('../../../../.github/scripts/check-route-registry.js').CATCH_ALL_PATH
+
 function routeMatches(pattern, actual) {
   const normalizedActual = actual.split('?')[0]
   const expression = pattern
@@ -36,7 +40,18 @@ describe('单视图视觉门禁合同', () => {
       ).toBe(true)
     }
 
+    // 兜底路由不是一张可基线化的视图：它匹配无限多个 URL，「该截哪一张图」没有定义。
+    // 它改由行为锁守（src/views/NotFound.test.js 用真路由表断言任意未知路径解析到 NotFound），
+    // 所以这里只放行**恰好一条**该形状的条目 —— 出现第二条兜底、或有真实路由漏登记，仍然红。
+    const catchAllPaths = routerPaths.filter(p => p === CATCH_ALL_PATH)
+    expect(catchAllPaths, 'router 里应当恰好有一条兜底路由').toHaveLength(1)
+    expect(
+      fs.existsSync(path.join(desktopRoot, 'src/views/NotFound.test.js')),
+      '兜底路由没有像素门禁，必须有行为锁文件顶着（缺一即视为射程空洞）',
+    ).toBe(true)
+
     for (const route of routerPaths) {
+      if (route === CATCH_ALL_PATH) continue
       expect(
         viewRunner.viewTests.some(test => routeMatches(route, test.route)),
         '路由 ' + route + ' 缺少单视图门禁',

@@ -19,7 +19,9 @@ export function setRouteLoadError(error, to) {
   }
 }
 
-const routes = [
+// 导出供单测构造真实路由表（NotFound.test.js 要验证「未知地址确实落到兜底页」这一行为，
+// 而不是再抄一份路由清单当夹具 —— 抄出来的那份与真实表的漂移正是这类 Bug 的藏身处）
+export const routes = [
   { path: '/', name: 'Home', component: () => import('@/views/Home.vue') },
   { path: '/comments', name: 'Comments', component: () => import('@/views/Comments.vue') },
   { path: '/first-run', name: 'FirstRun', component: () => import('@/views/FirstRun.vue') },
@@ -57,6 +59,10 @@ const routes = [
   { path: '/rewrite', name: 'Rewrite', component: () => import('@/views/RewriteView.vue') },
   { path: '/hot-topics', name: 'HotTopics', component: () => import('@/views/HotTopics.vue') },
   { path: '/podcast', name: 'PodcastChannel', component: () => import('@/views/PodcastChannelView.vue') },
+  // 兜底路由（UX 审计 1.9）：接住任何解析不到记录的地址，替代原先「外壳还在、内容区空白」的死路。
+  // 放在末尾只为可读性：vue-router 4 按 matcher score 排序而非数组顺序，本条 score 恒为最低。
+  // 登记表侧必须标 catchAll:true（src/config/route-registry.js），不得写成 internal + entryFrom。
+  { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('@/views/NotFound.vue') },
 ]
 
 const router = createRouter({

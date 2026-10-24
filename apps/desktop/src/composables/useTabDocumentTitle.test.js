@@ -19,11 +19,13 @@ import { ROUTE_TAB_TITLES, resolveRouteTabTitle, useTabDocumentTitle, ROUTE_PREF
 import { useRoute } from 'vue-router'
 
 /** 搭一个响应式 route mock（watch 依赖 route.fullPath，必须经 reactivity 触发） */
-function setupRoute (initialPath = '/') {
-  const route = reactive({ fullPath: initialPath })
+function setupRoute (initialPath = '/', initialName = null) {
+  const route = reactive({ fullPath: initialPath, name: initialName })
   useRoute.mockReturnValue(route)
   return {
-    push (v) { route.fullPath = v },
+    // 不能用 arguments.length —— 箭头函数没有自己的 arguments，它会读到外层 setupRoute
+    // 的实参个数（恒为 1~2），把「没传 name」误判成「传了」
+    push (v, name) { route.fullPath = v; if (name !== undefined) route.name = name },
     route,
   }
 }
@@ -53,6 +55,23 @@ describe('resolveRouteTabTitle（纯函数判定表）', () => {
     expect(resolveRouteTabTitle('/no-such-page')).toBe('汤姆鱼')
   })
 
+  // —— 兜底页（UX 审计 1.9）：标题只认调用方给的路由名，不从「映射表没命中」反推 ——
+  it('route.name=NotFound → 标题如实为「页面不存在」（不再顶着品牌名）', () => {
+    expect(resolveRouteTabTitle('/no-such-page', 'NotFound')).toBe('页面不存在')
+    expect(resolveRouteTabTitle('/no-such-page?from=audit', 'NotFound')).toBe('页面不存在')
+  })
+
+  it('未登记但**有名字**的路由不得被误标成「页面不存在」（反推是错的）', () => {
+    // /first-run 是登记表里刻意暂缓补键的暗路由：它真实存在且正常渲染。
+    // 若实现改成「映射表没命中就说 404」，这条会红。
+    expect(resolveRouteTabTitle('/first-run', 'FirstRun')).toBe('汤姆鱼')
+  })
+
+  it('name 传空串/undefined 不改变既有回退语义', () => {
+    expect(resolveRouteTabTitle('/no-such-page', undefined)).toBe('汤姆鱼')
+    expect(resolveRouteTabTitle('/no-such-page', '')).toBe('汤姆鱼')
+  })
+
   it('空/null 回退品牌名', () => {
     expect(resolveRouteTabTitle('')).toBe('汤姆鱼')
     expect(resolveRouteTabTitle(null)).toBe('汤姆鱼')
@@ -65,7 +84,11 @@ describe('resolveRouteTabTitle（纯函数判定表）', () => {
 
   it('route-registry 全部非 redirect 路由被映射表覆盖（显式例外清单，防新增路由静默回退品牌名）', async () => {
     const { ROUTE_REGISTRY } = await import('@/config/route-registry')
-    const registered = ROUTE_REGISTRY.filter(e => e.view !== '').map(e => e.path)
+    const catchAllEntries = ROUTE_REGISTRY.filter(e => e.catchAll)
+    expect(catchAllEntries).toHaveLength(1)
+    // 兜底路由的 path 是**匹配模式**（/:pathMatch(.*)*），它永远不等于任何真实 path，
+    // 所以「补一条映射」是造一个运行时永不命中的死键。它的标题走 route.name 分支（见上方用例）。
+    const registered = ROUTE_REGISTRY.filter(e => e.view !== '' && !e.catchAll).map(e => e.path)
     expect(registered.length).toBeGreaterThanOrEqual(32)
     // 已知例外：暗路由在 home-shell 新标签中正常可达但暂用品牌名回退（补键计划见 PRD §9.2）
     const exceptions = new Set(['/first-run', '/create/result', '/video-clone', '/film-engineering/classic'])
@@ -108,7 +131,19 @@ describe('useTabDocumentTitle（行为）', () => {
     stop()
   }, 10000)
 
-  it('未知路由 → 回退品牌名并上报', async () => {
+  it('未知路由且路由名为 NotFound → 标题与上报都是「页面不存在」', async () => {
+    const routeCtl = setupRoute('/')
+    const { start, stop } = useTabDocumentTitle()
+    start()
+    routeCtl.push('/unknown-page', 'NotFound')
+    await nextTick()
+    await nextTick()
+    expect(document.title).toBe('页面不存在')
+    expect(invokePageManagerMock).toHaveBeenLastCalledWith('reportTabTitle', '页面不存在')
+    stop()
+  })
+
+  it('调用方没给出路由名时保持既有语义：回退品牌名（不猜成 404）', async () => {
     const routeCtl = setupRoute('/')
     const { start, stop } = useTabDocumentTitle()
     start()

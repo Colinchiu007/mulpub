@@ -20,6 +20,7 @@ const {
   parseRouterRoutes,
   parseRegistry,
   parseArgs,
+  CATCH_ALL_PATH,
 } = require('./check-route-registry')
 
 const ROOT = path.resolve(__dirname, '..', '..')
@@ -151,6 +152,134 @@ test('规则 5：entryFrom 指向未登记路径 → 失败（死链）', () => 
   expectError(run(router, registry), 'entryFrom 死链')
 })
 
+// —— 规则 6：catch-all 兜底路由是一等类型（UX 审计 1.9）——
+// 夹具用「一条正常路由 + 一条兜底路由」的最小组合，逐条验证豁免面的**边界**：
+// 只有被显式标记 catchAll:true 的那一条可以没有入口，其它一律照旧要求。
+const CATCH_ALL = '/:pathMatch(.*)*'
+
+const CATCH_ROUTER = `const routes = [
+  { path: '/', name: 'Home', component: () => import('@/views/Home.vue') },
+  { path: '${CATCH_ALL}', name: 'NotFound', component: () => import('@/views/NotFound.vue') },
+]
+`
+
+const CATCH_ENTRY = `  {
+    path: '${CATCH_ALL}',
+    name: 'NotFound',
+    view: 'NotFound.vue',
+    navEntry: null,
+    internal: false,
+    entryFrom: null,
+    catchAll: true,
+  },
+])`
+
+const CATCH_REGISTRY = MINI_REGISTRY.replace('  },\n])', `  },\n${CATCH_ENTRY}`)
+
+test('规则 6 正控：catchAll 登记项不需要回答入口，整套通过', () => {
+  const result = run(CATCH_ROUTER, CATCH_REGISTRY)
+  assert.deepEqual(result.errors, [])
+  assert.equal(result.stats.catchAllRoutes, 1, 'stats 必须报出 catch-all 条数')
+})
+
+test('规则 6：同一个标记删掉后，兜底路由立刻变回「暗路由未申报」（豁免面只认这个标记）', () => {
+  const registry = CATCH_REGISTRY.replace('    catchAll: true,\n', '')
+  expectError(run(CATCH_ROUTER, registry), '暗路由未申报：/:pathMatch(.*)*')
+})
+
+test('规则 6：catchAll:false 显式写法不得当成标记（fail-closed）', () => {
+  const registry = CATCH_REGISTRY.replace('catchAll: true,', 'catchAll: false,')
+  expectError(run(CATCH_ROUTER, registry), '暗路由未申报：/:pathMatch(.*)*')
+})
+
+test('规则 6：出现第二条 catchAll → 失败', () => {
+  const registry = CATCH_REGISTRY.replace(CATCH_ENTRY, `${CATCH_ENTRY.replace('])', '')}\n${CATCH_ENTRY}`)
+  expectError(run(CATCH_ROUTER, registry), 'catchAll 登记项至多一条')
+})
+
+test('规则 6：兜底形状常量必须是 vue-router 4 唯一能匹配任意地址的写法', () => {
+  // 判据本体若被改成 '*'（v4 已移除）或 '/404' 之类，豁免面就会挂到一条**匹配不到任何东西**的路由上，
+  // 而夹具与本仓登记会跟着一起改，测试照绿 —— 所以这里用独立字面量对账。
+  assert.equal(CATCH_ALL_PATH, CATCH_ALL)
+})
+
+test('规则 6：catchAll 配 redirect（view 为空）→ 失败，未知地址会重新落到空白页', () => {
+  const router = CATCH_ROUTER.replace(
+    `  { path: '${CATCH_ALL}', name: 'NotFound', component: () => import('@/views/NotFound.vue') },\n`,
+    "  { path: '/x', redirect: '/' },\n",
+  )
+  const registry = CATCH_REGISTRY.replace("    view: 'NotFound.vue',", "    view: '',")
+  expectError(run(router, registry), 'catchAll 必须指向真实视图')
+})
+
+test('规则 6：catchAll 标记挂在非兜底路径上 → 失败（形状必须全等）', () => {
+  const registry = CATCH_REGISTRY.replace(`    path: '${CATCH_ALL}',`, "    path: '/404',")
+  const router = CATCH_ROUTER.replace(`'${CATCH_ALL}'`, "'/404'")
+  expectError(run(router, registry), 'catchAll 登记项的 path 必须是兜底形状')
+})
+
+test('规则 6：catchAll 不得同时是侧边栏项', () => {
+  const registry = CATCH_REGISTRY.replace(
+    `    path: '${CATCH_ALL}',\n    name: 'NotFound',\n    view: 'NotFound.vue',\n    navEntry: null,`,
+    `    path: '${CATCH_ALL}',\n    name: 'NotFound',\n    view: 'NotFound.vue',\n    navEntry: { key: 'notFound', group: SIDEBAR_GROUP_MORE, labelI18nKey: 'sidebar.nav.notFound', to: '/404', icon: HomeFilled },`,
+  )
+  expectError(run(CATCH_ROUTER, registry), 'catchAll 不得声明侧边栏入口')
+})
+
+test('规则 6：catchAll 不得同时标 internal（它没有宿主）', () => {
+  const registry = CATCH_REGISTRY.replace(
+    `    path: '${CATCH_ALL}',\n    name: 'NotFound',\n    view: 'NotFound.vue',\n    navEntry: null,\n    internal: false,`,
+    `    path: '${CATCH_ALL}',\n    name: 'NotFound',\n    view: 'NotFound.vue',\n    navEntry: null,\n    internal: true,`,
+  )
+  expectError(run(CATCH_ROUTER, registry), 'catchAll 不得标 internal:true')
+})
+
+test('规则 6：router 侧出现两条兜底形状路由 → 失败（后者永不生效，属静默失配）', () => {
+  const router = CATCH_ROUTER.replace(
+    ']\n',
+    `  { path: '${CATCH_ALL}', name: 'NotFound2', component: () => import('@/views/NotFound2.vue') },\n]\n`,
+  )
+  const result = run(router, CATCH_REGISTRY)
+  assert.equal(result.ok, false, '两条兜底路由必须判失败')
+  assert.ok(
+    result.errors.some((e) => e.includes('router/index.js 出现多条兜底（catch-all）路由')),
+    `期望点名「多条兜底路由」，实际：\n${result.errors.join('\n')}`,
+  )
+})
+
+test('规则 6：catchAll 不得声明宿主入口 entryFrom（QM-6 外部评审 i2）', () => {
+  // 只禁 internal 是不够的：规则 5 的死链检查仅在 internal 为真时执行，
+  // 于是 `catchAll:true + entryFrom:'/'` 当时能过门禁 —— 假宿主从侧门进表。
+  const registry = CATCH_REGISTRY.replace('    entryFrom: null,\n    catchAll: true,', "    entryFrom: '/',\n    catchAll: true,")
+  assert.notEqual(registry, CATCH_REGISTRY, '夹具锚点未命中（登记表条目形状变了？）')
+  expectError(run(CATCH_ROUTER, registry), 'catchAll 不得声明宿主入口')
+})
+
+test('规则 6：catchAll 的 name 必须与 router 声明逐字一致（QM-6 外部评审 i7）', () => {
+  // 标题分支认的是**名字**；登记面与声明面若改名不同步，404 页标题会静默回退品牌名。
+  const registry = CATCH_REGISTRY.replace("    name: 'NotFound',", "    name: 'NotFond',")
+  assert.notEqual(registry, CATCH_REGISTRY, '夹具锚点未命中')
+  expectError(run(CATCH_ROUTER, registry), 'catchAll 的 name 必须与 router 声明逐字一致')
+})
+
+test('规则 6 不得放宽普通暗路由：internal:true 缺 entryFrom 仍然失败', () => {
+  const router = CATCH_ROUTER.replace(
+    ']\n',
+    "  { path: '/inner', name: 'Inner', component: () => import('@/views/Inner.vue') },\n]\n",
+  )
+  const registry = CATCH_REGISTRY.replace('  },\n])', `  },
+  {
+    path: '/inner',
+    name: 'Inner',
+    view: 'Inner.vue',
+    navEntry: null,
+    internal: true,
+    entryFrom: null,
+  },
+])`)
+  expectError(run(router, registry), '缺少 entryFrom')
+})
+
 test('真实文件：当前仓库通过门禁且规模符合预期', () => {
   const result = run(REAL_ROUTER, REAL_REGISTRY)
   assert.deepEqual(result.errors, [])
@@ -158,6 +287,7 @@ test('真实文件：当前仓库通过门禁且规模符合预期', () => {
   assert.equal(result.stats.redirectRoutes, 3)
   assert.ok(result.stats.menuItems >= 19, '菜单项不应减少（运营中心种子依赖）')
   assert.ok(result.stats.internalRoutes >= 8, '暗路由不应少于审计发现的 8 条')
+  assert.equal(result.stats.catchAllRoutes, 1, '本仓必须恰好一条兜底路由（缺了=用户会看到空白内容区）')
 })
 
 test('真实文件：解析出的暗路由都带 entryFrom', () => {

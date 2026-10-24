@@ -86,13 +86,23 @@ for (const [p, target] of ROUTE_PREFIX_KEYS) {
 
 /**
  * 解析路由 path → 标签标题文案（纯函数，可在任意上下文调用）。
+ *
+ * 第二个参数是**兜底页专用**的显式事实来源（UX 审计 1.9）：兜底路由的 path 是匹配模式
+ * `/:pathMatch(.*)*`，它永远不会等于任何真实 path，因此不能靠映射表命中；而「这条地址没登记过」
+ * 又**不能**从「映射表没命中」反推 —— 覆盖度测试里存在刻意未补键的暗路由（/first-run 等），
+ * 反推会把那些正常页面标成「页面不存在」。所以只有调用方（持有 route.name）能告诉我们真相。
+ *
  * @param {string|null} path route.path 或 route.fullPath（query 与 hash 会被剥离）
+ * @param {string|symbol|null} [routeName] vue-router 解析后的路由名；仅 'NotFound' 时改变标题
  * @returns {string} 标题文案；未命中回退品牌名「汤姆鱼」
  */
-export function resolveRouteTabTitle (path) {
+export const CATCH_ALL_ROUTE_NAME = 'NotFound'
+
+export function resolveRouteTabTitle (path, routeName) {
   // i18n.global.t：组件上下文外可用的全局翻译入口（本项目 legacy:false 模式）
   const t = (key) => i18n.global.t(key)
   if (typeof path !== 'string' || !path) return t('tabs.brandTitle')
+  if (routeName === CATCH_ALL_ROUTE_NAME) return t('common.notFoundTitle')
   const clean = path.split('#')[0].split('?')[0]
   // 1. 精确命中
   const exact = ROUTE_TAB_TITLES.get(clean)
@@ -126,9 +136,9 @@ export function useTabDocumentTitle () {
   const route = useRoute()
   let stopWatch = null
 
-  const reportTitle = (path) => {
+  const reportTitle = (path, name) => {
     try {
-      const title = resolveRouteTabTitle(path)
+      const title = resolveRouteTabTitle(path, name)
       // ① document.title 同步：真实 Electron 中触发 page-title-updated 事件链
       document.title = title
       // ② 显式 IPC 上报：主进程不依赖事件时序，直接更新 _tabStates.title 并广播。
@@ -145,11 +155,12 @@ export function useTabDocumentTitle () {
   const start = () => {
     // 防重入：重复 start 不得注册多个 watch（stop 只能解绑最后一个）
     stop()
-    reportTitle(route.fullPath)
+    reportTitle(route.fullPath, route.name)
     stopWatch = watch(
-      // 语言切换时同样重报标题（否则 TabBar 残留旧语言文案直到下次导航）
-      () => [route.fullPath, i18n.global.locale.value],
-      () => reportTitle(route.fullPath),
+      // 语言切换时同样重报标题（否则 TabBar 残留旧语言文案直到下次导航）。
+      // route.name 一并入 watch：兜底页的标题只由 name 决定，path 单独变化不足以触发重报。
+      () => [route.fullPath, route.name, i18n.global.locale.value],
+      () => reportTitle(route.fullPath, route.name),
     )
   }
 
