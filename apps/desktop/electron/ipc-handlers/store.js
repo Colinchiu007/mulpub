@@ -93,6 +93,61 @@ function registerHandlers(ipcMain, deps) {
   }
 
   /**
+   * 草稿 id 归一化（draft-batch-delete）。
+   *
+   * 为什么要归一化：草稿 id 有三个来源——渲染层 `draft_<ts>`、采集页历史载荷、
+   * 以及导入/迁移数据，历史上出现过缺 id 与数字 id。删除是按 id 过滤的，
+   * `"1" !== 1`、`undefined !== undefined` 这两类假阴性会让「点了删除但草稿还在」，
+   * 因此比较一律走字符串口径。
+   * @param {unknown} id
+   * @returns {string} 空串 = 无有效 id
+   */
+  function normalizeDraftId(id) {
+    if (id === null || id === undefined) return ''
+    return String(id).trim()
+  }
+
+  /**
+   * 给「缺 id / id 重复」的草稿补齐稳定 id（读取侧惰性迁移）。
+   *
+   * 历史草稿可能是采集页早期版本写入的（当时 id 期待由主进程生成，而主进程
+   * 只做了 spread），这类条目在 UI 上既无法定位也无法按 id 删除——这是
+   * 「草稿删不掉」的结构性根因。补出来的 id 由 list 落盘一次，之后保持稳定。
+   * @param {Array} drafts
+   * @returns {{ drafts: Array, changed: boolean }}
+   */
+  function ensureDraftIds(drafts) {
+    const seen = new Set()
+    let changed = false
+    const normalized = drafts.map((draft, index) => {
+      if (!draft || typeof draft !== 'object' || Array.isArray(draft)) return draft
+      const id = normalizeDraftId(draft.id)
+      if (id && !seen.has(id)) {
+        seen.add(id)
+        if (id === draft.id) return draft
+        changed = true
+        return { ...draft, id }
+      }
+      const stamp = normalizeDraftId(draft.createdAt).replace(/\D/g, '').slice(0, 14)
+      const nextId = `draft_legacy_${stamp || 'na'}_${index}`
+      seen.add(nextId)
+      changed = true
+      return { ...draft, id: nextId }
+    })
+    return { drafts: normalized, changed }
+  }
+
+  /**
+   * 解析删除入参：单个 id 或 id 数组（批量）。
+   * 空数组/全空值一律返回 []，由调用方 fail-closed —— 绝不能把「没指定任何 id」
+   * 当成「删除全部」。
+   */
+  function parseDeleteIds(payload) {
+    const list = Array.isArray(payload) ? payload : [payload]
+    return [...new Set(list.map(normalizeDraftId).filter(Boolean))]
+  }
+
+  /**
    * 按内容指纹定位草稿（publish-fail-draft-guard）：
    * 既有草稿带 _fp 直接比对；历史数据无 _fp 时现算指纹参与比对（读取侧惰性迁移）。
    * @param {Array} drafts
@@ -391,6 +446,9 @@ function registerHandlers(ipcMain, deps) {
       const { computeDraftFingerprint } = require('../services/draft-fingerprint')
       const fp = computeDraftFingerprint(draft)
       const now = new Date().toISOString()
+      // id 兜底由主进程负责：渲染层漏传 id 时若原样落库，该草稿在草稿箱里
+      // 既没有稳定 key 也无法按 id 删除（「删不掉」的结构性根因之一）。
+      const draftId = normalizeDraftId(draft.id) || `draft_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const owner = _getOwnerSubject()
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
       if (owner !== undefined) {
@@ -403,9 +461,9 @@ function registerHandlers(ipcMain, deps) {
           store.setUserSetting('drafts', JSON.stringify(drafts), owner)
           return { code: 0, data: { draftId: merged.id, reused: true } }
         }
-        drafts.push({ ...draft, createdAt: now, updatedAt: now, _fp: fp })
+        drafts.push({ ...draft, id: draftId, createdAt: now, updatedAt: now, _fp: fp })
         store.setUserSetting('drafts', JSON.stringify(drafts), owner)
-        return { code: 0, data: { draftId: draft.id, reused: false } }
+        return { code: 0, data: { draftId, reused: false } }
       }
       const raw = store.getSetting('drafts') || '[]'
       const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
@@ -416,47 +474,59 @@ function registerHandlers(ipcMain, deps) {
         store.setSetting('drafts', JSON.stringify(drafts))
         return { code: 0, data: { draftId: merged.id, reused: true } }
       }
-      drafts.push({ ...draft, createdAt: now, updatedAt: now, _fp: fp })
+      drafts.push({ ...draft, id: draftId, createdAt: now, updatedAt: now, _fp: fp })
       store.setSetting('drafts', JSON.stringify(drafts))
-      return { code: 0, data: { draftId: draft.id, reused: false } }
+      return { code: 0, data: { draftId, reused: false } }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }
   }))
 
+  // 草稿列表：读取时顺手补齐历史缺 id（惰性迁移一次）。不补的话这些条目在 UI 上
+  // 既没有稳定 v-for key，也无法按 id 删除——「草稿删不掉」的结构性根因。
   ipcMain.handle('draftList', withSenderCheck(() => {
     try {
       const owner = _getOwnerSubject()
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户', data: [] }
       if (owner !== undefined) {
         if (!hasScopedSettingsApi()) return { code: EC.REQUEST_ERROR, message: '草稿存储不可用', data: [] }
-        return { code: 0, data: parseDrafts(store.getUserSetting('drafts', [], owner)) }
+        const { drafts, changed } = ensureDraftIds(parseDrafts(store.getUserSetting('drafts', [], owner)))
+        if (changed) store.setUserSetting('drafts', JSON.stringify(drafts), owner)
+        return { code: 0, data: drafts }
       }
-      const raw = store.getSetting('drafts') || '[]'
-      const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
+      const { drafts, changed } = ensureDraftIds(parseDrafts(store.getSetting('drafts') || '[]'))
+      if (changed) store.setSetting('drafts', JSON.stringify(drafts))
       return { code: 0, data: drafts }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message, data: [] }
     }
   }))
 
-  ipcMain.handle('draftDelete', withSenderCheck((_, draftId) => {
+  // 草稿删除（draft-batch-delete）：入参是「单个 id」或「id 数组（批量）」，
+  // 一次读写完成，天然原子。批量不做 N 次单删的原因：N 次 = N 次落盘，中途失败
+  // 会留下半删状态，UI 也无法如实汇报部分成功。返回值
+  // { requested, deleted, remaining } 供前端提示「选中的 N 条里有 M 条已不存在」。
+  ipcMain.handle('draftDelete', withSenderCheck((_, payload) => {
     try {
+      const ids = parseDeleteIds(payload)
+      // fail-closed：没指定 id 绝不能退化成「删除全部」。
+      if (ids.length === 0) return { code: EC.REQUEST_ERROR, message: '缺少草稿 id' }
       const owner = _getOwnerSubject()
       if (owner === null) return { code: EC.AUTH_ERROR, message: '无法识别当前用户' }
+      const idSet = new Set(ids)
+      const dropById = (drafts) => {
+        const kept = drafts.filter(draft => !idSet.has(normalizeDraftId(draft && draft.id)))
+        return { kept, deleted: drafts.length - kept.length }
+      }
       if (owner !== undefined) {
         if (!hasScopedSettingsApi()) return { code: EC.REQUEST_ERROR, message: '草稿存储不可用' }
-        const raw = store.getUserSetting('drafts', [], owner)
-        const drafts = parseDrafts(raw)
-        const filtered = drafts.filter(d => d.id !== draftId)
-        store.setUserSetting('drafts', JSON.stringify(filtered), owner)
-      } else {
-        const raw = store.getSetting('drafts') || '[]'
-        const drafts = typeof raw === 'string' ? JSON.parse(raw) : raw
-        const filtered = drafts.filter(d => d.id !== draftId)
-        store.setSetting('drafts', JSON.stringify(filtered))
+        const { kept, deleted } = dropById(parseDrafts(store.getUserSetting('drafts', [], owner)))
+        if (deleted > 0) store.setUserSetting('drafts', JSON.stringify(kept), owner)
+        return { code: 0, data: { requested: ids.length, deleted, remaining: kept.length } }
       }
-      return { code: 0, data: true }
+      const { kept, deleted } = dropById(parseDrafts(store.getSetting('drafts') || '[]'))
+      if (deleted > 0) store.setSetting('drafts', JSON.stringify(kept))
+      return { code: 0, data: { requested: ids.length, deleted, remaining: kept.length } }
     } catch (e) {
       return { code: EC.REQUEST_ERROR, message: e.message }
     }

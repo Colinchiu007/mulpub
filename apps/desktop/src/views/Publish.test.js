@@ -218,6 +218,63 @@ describe("PublishView", () => {
     expect(router.currentRoute.value.query).toEqual({ tab: 'publish', type: 'video' })
   })
 
+  // 批量删除（draft-batch-delete）：草稿箱此前只能逐条删，且缺 id 的草稿
+  // 连逐条删都点不动。这里锁「勾选 → 一次 IPC 传数组 → 删完清空」这条主路径。
+  it("草稿箱可以勾选多条并一次性批量删除", async () => {
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [
+        { id: 'd1', title: '草稿一' },
+        { id: 'd2', title: '草稿二' },
+        { id: 'd3', title: '草稿三' },
+      ],
+    })
+    window.electronAPI.draftDelete.mockResolvedValue({ code: 0, data: { requested: 2, deleted: 2, remaining: 1 } })
+    ElMessageBox.confirm.mockResolvedValueOnce('confirm')
+    await router.push('/?tab=drafts')
+    const w = await createWrapper()
+    await nextTick()
+    await nextTick()
+    await w.vm.loadDrafts()
+    await nextTick()
+
+    // 未勾选时按钮在位但禁用（隐藏会让人以为没有批量删除）
+    const batchBtn = w.get('[data-testid="publish-drafts-batch-delete"]')
+    expect(batchBtn.attributes('disabled')).toBeDefined()
+
+    await w.get('[data-testid="select-draft-d1"]').trigger('change')
+    await w.get('[data-testid="select-draft-d3"]').trigger('change')
+    await nextTick()
+    expect(w.get('[data-testid="publish-drafts-selected-count"]').text()).toContain('2')
+    expect(w.get('[data-testid="publish-drafts-batch-delete"]').attributes('disabled')).toBeUndefined()
+
+    await w.get('[data-testid="publish-drafts-batch-delete"]').trigger('click')
+    await flushPromises()
+
+    expect(ElMessageBox.confirm).toHaveBeenCalledTimes(1)
+    expect(window.electronAPI.draftDelete).toHaveBeenCalledTimes(1)
+    expect(window.electronAPI.draftDelete).toHaveBeenCalledWith(['d1', 'd3'])
+  })
+
+  it("草稿箱全选会选中当前列表全部草稿", async () => {
+    window.electronAPI.draftList.mockResolvedValue({
+      code: 0,
+      data: [{ id: 'd1', title: 'A' }, { id: 'd2', title: 'B' }],
+    })
+    await router.push('/?tab=drafts')
+    const w = await createWrapper()
+    await nextTick()
+    await nextTick()
+    await w.vm.loadDrafts()
+    await nextTick()
+
+    await w.get('[data-testid="publish-drafts-select-all"]').trigger('change')
+    await nextTick()
+
+    expect(w.get('[data-testid="publish-drafts-selected-count"]').text()).toContain('2')
+    expect(w.get('[data-testid="publish-drafts-select-all"]').element.checked).toBe(true)
+  })
+
   it("继续编辑草稿时切回发布编辑器并保留草稿参数", async () => {
     await router.push('/?tab=drafts&type=article')
     window.electronAPI.draftList.mockResolvedValue({

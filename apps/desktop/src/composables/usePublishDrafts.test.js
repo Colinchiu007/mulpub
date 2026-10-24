@@ -349,4 +349,134 @@ describe('usePublishDrafts', () => {
       expect(block).toContain("'rewriteHistoryId'")
     })
   })
+
+  describe('批量删除（draft-batch-delete）', () => {
+    const list = [
+      { id: 'd1', title: 'A' },
+      { id: 'd2', title: 'B' },
+      { id: 'd3', title: 'C' },
+    ]
+
+    it('全选 → 再点一次 = 清空', async () => {
+      mockDraftList.mockResolvedValue({ code: 0, data: list })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+
+      expect(drafts.selectedDraftCount.value).toBe(0)
+      drafts.toggleAllDrafts()
+      expect(drafts.selectedDraftCount.value).toBe(3)
+      expect(drafts.allDraftsSelected.value).toBe(true)
+      drafts.toggleAllDrafts()
+      expect(drafts.selectedDraftCount.value).toBe(0)
+      expect(drafts.allDraftsSelected.value).toBe(false)
+    })
+
+    it('勾选按字符串归一化：数字 id 与字符串 id 不会互相漏判', async () => {
+      mockDraftList.mockResolvedValue({ code: 0, data: [{ id: 7, title: '数字 id' }] })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+
+      drafts.toggleDraftSelection(drafts.drafts.value[0])
+
+      expect(drafts.isDraftSelected(drafts.drafts.value[0])).toBe(true)
+      expect(drafts.selectedDraftCount.value).toBe(1)
+    })
+
+    it('确认后一次 IPC 传完整 id 数组，删除完成即清空勾选并刷新列表', async () => {
+      mockDraftList
+        .mockResolvedValueOnce({ code: 0, data: list })
+        .mockResolvedValueOnce({ code: 0, data: [list[1]] })
+      mockConfirm.mockResolvedValue('confirm')
+      mockDraftDelete.mockResolvedValue({ code: 0, data: { requested: 2, deleted: 2, remaining: 1 } })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      drafts.toggleDraftSelection(drafts.drafts.value[0])
+      drafts.toggleDraftSelection(drafts.drafts.value[2])
+
+      const result = await drafts.removeSelectedDrafts()
+
+      expect(result).toEqual({ ok: true, deleted: 2, requested: 2 })
+      expect(mockDraftDelete).toHaveBeenCalledTimes(1)
+      expect(mockDraftDelete).toHaveBeenCalledWith(['d1', 'd3'])
+      expect(mockDraftList).toHaveBeenCalledTimes(2)
+      expect(drafts.selectedDraftCount.value).toBe(0)
+      expect(drafts.deletingDrafts.value).toBe(false)
+      expect(mockMessage.success).toHaveBeenCalled()
+    })
+
+    it('取消确认 ⇒ 不发 IPC，勾选保留（用户改了主意不该丢选择）', async () => {
+      mockDraftList.mockResolvedValue({ code: 0, data: list })
+      mockConfirm.mockRejectedValue(new Error('cancel'))
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      drafts.toggleDraftSelection(drafts.drafts.value[0])
+
+      const result = await drafts.removeSelectedDrafts()
+
+      expect(result.ok).toBe(false)
+      expect(mockDraftDelete).not.toHaveBeenCalled()
+      expect(drafts.selectedDraftCount.value).toBe(1)
+    })
+
+    it('部分成功必须如实提示（deleted < requested 走 warning，不谎报全删）', async () => {
+      mockDraftList
+        .mockResolvedValueOnce({ code: 0, data: list })
+        .mockResolvedValueOnce({ code: 0, data: [list[1], list[2]] })
+      mockConfirm.mockResolvedValue('confirm')
+      mockDraftDelete.mockResolvedValue({ code: 0, data: { requested: 2, deleted: 1, remaining: 2 } })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      drafts.toggleAllDrafts()
+      drafts.toggleDraftSelection(drafts.drafts.value[2])
+
+      const result = await drafts.removeSelectedDrafts()
+
+      expect(result).toEqual({ ok: true, deleted: 1, requested: 2 })
+      expect(mockMessage.warning).toHaveBeenCalled()
+      expect(mockMessage.success).not.toHaveBeenCalled()
+    })
+
+    it('列表刷新后自动摘掉已不存在的勾选（幽灵 id 不会再参与删除）', async () => {
+      mockDraftList
+        .mockResolvedValueOnce({ code: 0, data: list })
+        .mockResolvedValueOnce({ code: 0, data: [list[1]] })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      drafts.toggleAllDrafts()
+      expect(drafts.selectedDraftCount.value).toBe(3)
+
+      await drafts.loadDrafts()
+
+      expect(drafts.selectedDraftCount.value).toBe(1)
+      expect(drafts.selectedDraftIds.value).toEqual(['d2'])
+    })
+
+    it('单条 removeDraft 兼容旧调用：返回布尔，且复用同一批量入口', async () => {
+      mockDraftList
+        .mockResolvedValueOnce({ code: 0, data: list })
+        .mockResolvedValueOnce({ code: 0, data: [list[1], list[2]] })
+      mockDraftDelete.mockResolvedValue({ code: 0, data: { requested: 1, deleted: 1, remaining: 2 } })
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+
+      expect(await drafts.removeDraft('d1')).toBe(true)
+      expect(mockDraftDelete).toHaveBeenCalledWith(['d1'])
+      expect(mockConfirm).not.toHaveBeenCalled()
+    })
+
+    it('删除失败时保留勾选并报错（不能假装删掉了）', async () => {
+      mockDraftList.mockResolvedValue({ code: 0, data: list })
+      mockDraftDelete.mockResolvedValue({ code: -1, message: '存储不可用' })
+      mockConfirm.mockResolvedValue('confirm')
+      const drafts = createDrafts()
+      await drafts.loadDrafts()
+      drafts.toggleDraftSelection(drafts.drafts.value[0])
+
+      const result = await drafts.removeSelectedDrafts()
+
+      expect(result.ok).toBe(false)
+      expect(drafts.selectedDraftCount.value).toBe(1)
+      expect(mockMessage.error).toHaveBeenCalled()
+    })
+  })
 })

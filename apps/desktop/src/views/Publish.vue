@@ -12,6 +12,31 @@
           <UiButton data-testid="publish-drafts-back" variant="secondary" @click="goToPublish">{{ t('publishPage.backToPublish') }}</UiButton>
         </header>
 
+        <!-- 批量操作条（draft-batch-delete）：勾选是删除的唯一前置，
+             未选中时按钮禁用而不是隐藏——隐藏会让用户以为「没有批量删除这功能」。 -->
+        <div v-if="drafts.length" class="publish-drafts-toolbar" data-testid="publish-drafts-toolbar">
+          <label class="publish-drafts-select-all">
+            <input
+              type="checkbox"
+              data-testid="publish-drafts-select-all"
+              :checked="allDraftsSelected"
+              :disabled="deletingDrafts"
+              @change="toggleAllDrafts"
+            />
+            <span>{{ t('publishPage.selectAllDrafts') }}</span>
+          </label>
+          <span class="publish-drafts-selected" data-testid="publish-drafts-selected-count">{{ t('publishPage.selectedDraftCount', { count: selectedDraftCount }) }}</span>
+          <span class="publish-drafts-toolbar-spacer"></span>
+          <UiButton
+            data-testid="publish-drafts-batch-delete"
+            variant="danger"
+            size="sm"
+            :disabled="selectedDraftCount === 0 || deletingDrafts"
+            :loading="deletingDrafts"
+            @click="removeSelectedDrafts"
+          >{{ t('publishPage.deleteSelectedDrafts') }}</UiButton>
+        </div>
+
         <div v-if="loadingDrafts" class="publish-drafts-state" data-testid="publish-drafts-loading">
           <UiSkeleton variant="list" :count="3" />
         </div>
@@ -21,6 +46,15 @@
         </div>
         <div v-else class="publish-drafts-list">
           <article v-for="draft in drafts" :key="draft.id" class="publish-draft-card">
+            <input
+              type="checkbox"
+              class="publish-draft-check"
+              :data-testid="`select-draft-${draft.id}`"
+              :checked="isDraftSelected(draft)"
+              :disabled="deletingDrafts"
+              :aria-label="t('publishPage.selectDraft')"
+              @change="toggleDraftSelection(draft)"
+            />
             <div class="publish-draft-info">
               <strong>{{ draft.title || t('publishPage.untitled') }}</strong>
               <span>{{ draft.updatedAt || draft.updated_at ? new Date(draft.updatedAt || draft.updated_at).toLocaleString(getAppLocale() === 'en' ? 'en-US' : 'zh-CN') : t('publishPage.updatedUnknown') }}</span>
@@ -39,7 +73,7 @@
                 size="sm"
                 @click="editDraft(draft)"
               >{{ t('publishPage.openDraftToPublish') }}</UiButton>
-              <UiButton :data-testid="`delete-draft-${draft.id}`" variant="ghost" size="sm" @click="removeDraft(draft.id)">{{ t('publishPage.delete') }}</UiButton>
+              <UiButton :data-testid="`delete-draft-${draft.id}`" variant="ghost" size="sm" :disabled="deletingDrafts" @click="removeDraft(draft.id)">{{ t('publishPage.delete') }}</UiButton>
             </div>
           </article>
         </div>
@@ -1246,6 +1280,13 @@ const visibilityUnsupportedHint = computed(() =>
 const {
   drafts,
   loadingDrafts,
+  selectedDraftCount,
+  allDraftsSelected,
+  deletingDrafts,
+  isDraftSelected,
+  toggleDraftSelection,
+  toggleAllDrafts,
+  removeSelectedDrafts,
   applyDraft,
   loadDrafts,
   saveDraft,
@@ -1513,6 +1554,9 @@ defineExpose({
   saveDraft,
   loadDraft,
   removeDraft,
+  // 草稿批量删除（draft-batch-delete）暴露面
+  selectedDraftCount, allDraftsSelected, deletingDrafts,
+  isDraftSelected, toggleDraftSelection, toggleAllDrafts, removeSelectedDrafts,
   replaceDiffEdits,
   activeMode,
   handleExtractVideoCover,
@@ -1636,6 +1680,36 @@ defineExpose({
 }
 .publish-drafts-state strong { color: var(--text-primary, #25252b); font-size: var(--font-size-base); }
 .publish-drafts-list { display: flex; flex-direction: column; gap: 10px; }
+/* 批量操作条（draft-batch-delete） */
+.publish-drafts-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-light, #e8e8ec);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+.publish-drafts-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary, #25252b);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+}
+.publish-drafts-selected { color: var(--muted, #73777d); font-size: var(--font-size-xs); }
+.publish-drafts-toolbar-spacer { flex: 1 1 auto; }
+.publish-draft-check {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-primary, #3b6df6);
+}
+.publish-draft-check:disabled { cursor: not-allowed; }
 .publish-draft-card {
   display: flex;
   align-items: center;
@@ -1646,7 +1720,7 @@ defineExpose({
   border-radius: 10px;
   background: var(--surface, #fff);
 }
-.publish-draft-info { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.publish-draft-info { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; }
 .publish-draft-info strong { overflow: hidden; color: var(--text-primary, #25252b); text-overflow: ellipsis; white-space: nowrap; }
 .publish-draft-info span { color: var(--muted, #73777d); font-size: var(--font-size-xs); }
 .publish-draft-actions { display: flex; flex: 0 0 auto; gap: 6px; }

@@ -24,6 +24,11 @@ export default {
     cloudAccountLimitExceeded: 'Cloud account sync is not included in your plan. Upgrade to bind up to {limit}.',
     deviceLimitExceeded: 'Your plan allows up to {limit} devices at the same time.',
     delete: 'Delete',
+    // Draft bulk delete (draft-batch-delete)
+    selectAllDrafts: 'Select all',
+    selectedDraftCount: '{count} selected',
+    deleteSelectedDrafts: 'Delete selected',
+    selectDraft: 'Select this draft',
     publishTitle: 'Quick Publish',
     batchSubtitle: 'Batch edit multiple articles and publish to each platform independently',
     singleSubtitle: 'Compose content and publish to multiple platforms',
