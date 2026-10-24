@@ -189,6 +189,17 @@
               </select>
               <span class="config-hint">自动：短文案（≤80 字）创意拓展，长文案（≥300 字）按原文保真，中间态混合；分镜会按原文提取关键人物/事件并对齐校验。</span>
             </div>
+            <!-- 画面模式（仅 AI 讲解视频）：AI 生成 / 动效标题卡
+                 文案全部走 locale 键（create.explainer.visualMode.*）：.vue template 块里的
+                 中文字面量会被 check-locale-sync --cjk 的基线增量比对判为新增硬编码而拦下。 -->
+            <div class="config-item" v-if="isExplainerPipeline(selectedPipeline?.name)">
+              <label>{{ $t('create.explainer.visualMode.label') }}</label>
+              <select v-model="explainerVisualMode" class="form-select" data-testid="explainer-visual-mode-select">
+                <option value="ai">{{ $t('create.explainer.visualMode.ai') }}</option>
+                <option value="title-card">{{ $t('create.explainer.visualMode.titleCard') }}</option>
+              </select>
+              <span class="config-hint" data-testid="explainer-visual-mode-hint" v-if="explainerVisualMode === 'title-card'">{{ $t('create.explainer.visualMode.hint') }}</span>
+            </div>
           </div>
         </div>
 
@@ -1156,6 +1167,10 @@ export default {
       checkpointPolicy: 'guided',
       // 分镜双模式（video-content-fidelity）：auto 自动判定 / creative 创意拓展 / fidelity 按原文保真 / hybrid 混合
       storyboardMode: 'auto',
+      // 画面模式（仅 AI 讲解视频 animated-explainer）：
+      //   ai        = AI 生成画面（调模型设置里的默认生图模型，消耗积分/额度）
+      //   title-card= 动效标题卡（本地 ffmpeg 渲染，不消耗积分；表现形式单一：只是图片展示文字）
+      explainerVisualMode: 'ai',
       outputConfig: { resolution: '1920x1080', fps: 30, format: 'mp4' },
       s2vOutputConfig: { resolution: '720x1280', fps: 30, format: 'mp4' },
       // 输出分辨率能力开关（运营后台）：'1080p'（默认，前端不出现 4K）| '4k'
@@ -2431,6 +2446,9 @@ export default {
       })
     },
     isOrchestratedPipeline(name) { return name === 'story2video-compose' },
+    // AI 讲解视频（animated-explainer）：唯一支持「画面模式」二选一的流水线。
+    // 注意 startExplainerPipeline 同时服务 avatar-spokesperson（数字人）⇒ 那条路不显示画面模式。
+    isExplainerPipeline(name) { return name === 'animated-explainer' },
     isAutoPipeline(name) { return ['story2video-compose', 'animated-explainer', 'framework-smoke', 'documentary-montage', 'animation', 'avatar-spokesperson', 'character-animation', 'hybrid'].includes(name) },
     isMediaAutoPipeline(name) { return ['clip-factory', 'cinematic', 'talking-head', 'localization-dub'].includes(name) },
     pipelineAvailable(name) {
@@ -2588,6 +2606,14 @@ export default {
           // 01-docs/PRD-STORY2VIDEO-PORTRAIT-IMAGE-ASPECT-2026-10-06.md §3.4。
           aspectRatio: getStory2VideoOutputAspectRatio(output.resolution),
           fps: output.fps, format: output.format,
+        }
+        // 画面模式（仅 AI 讲解视频）：
+        //   'ai'        = AI 生成画面 → 调模型设置里的默认生图模型（消耗积分/额度）
+        //   'title-card' = 动效标题卡 → 本地 ffmpeg 渲染，不调 provider ⇒ 不产生模型调用日志
+        //                   ⇒ 不进入算力成本归集 ⇒ 不消耗积分；表现形式单一（只是图片展示文字）。
+        // 只在 explainer 流水线下发：avatar-spokesperson 复用本方法但没有这个选项。
+        if (this.isExplainerPipeline(this.selectedPipeline.name)) {
+          params.visualMode = this.explainerVisualMode === 'title-card' ? 'title-card' : 'ai'
         }
         // 数字人（avatar-spokesperson）：下发生成的三要素来源。
         // 不能复用 s2vConfig.voiceId —— 那是 story2video 专属，靠

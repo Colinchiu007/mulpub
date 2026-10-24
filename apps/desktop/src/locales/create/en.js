@@ -6,6 +6,18 @@ import avatarEn from './avatar/en'
 import uiEn from './ui/en'
 
 export default {
+    // ── AI 讲解视频（animated-explainer）专属：视觉模式 ──────────────────────
+    // Two visual sources: AI generated (uses the default image model from model
+    // settings, consumes credits/quota) and animated title card (rendered locally,
+    // costs no credits, but the presentation is limited to text shown on an image).
+    explainer: {
+      visualMode: {
+        label: 'Visual mode',
+        ai: 'AI generated',
+        titleCard: 'Animated title card',
+        hint: 'Animated title cards are rendered locally and cost no credits; but the presentation is limited to text shown on an image — there are no AI-generated visuals.',
+      },
+    },
     story2video: {
       style: {
         cleanProfessional: 'Clean & Professional',

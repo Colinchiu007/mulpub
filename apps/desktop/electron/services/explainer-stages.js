@@ -407,6 +407,14 @@ function registerExplainerStages (pipelineEngine) {
       const defaultImage = getDefaultProviderConfig(aiGenerator, 'image')
       const defaultVoice = getDefaultProviderConfig(aiGenerator, 'tts')
       const innerOptions = { ...(stage.options || {}) }
+      // 「画面模式」透传给下游 assets 阶段（story2video_generate_assets）：
+      //   'ai'（默认）→ 调模型设置里的默认 image provider 做 AI 生图（消耗积分/额度）
+      //   'title-card' → 本地 ffmpeg 渲染动效标题卡，**不调 provider** ⇒ 不产生模型调用日志
+      //                  ⇒ 不进入算力成本归集 ⇒ 不消耗积分（表现形式单一：只是图片展示文字）
+      // 下游读的是 `firstDefined(params.visualMode, stage.options?.visualMode, 'ai')`，
+      // params 优先；这里再写进 innerOptions 是双保险（params 被别处剥离时仍能生效）。
+      const visualMode = params?.visualMode === 'title-card' ? 'title-card' : 'ai'
+      if (visualMode === 'title-card') innerOptions.visualMode = 'title-card'
       if (!innerOptions.imageProvider && defaultImage) innerOptions.imageProvider = defaultImage.providerId
       if (!innerOptions.imageModel && defaultImage) innerOptions.imageModel = defaultImage.model
       if (!innerOptions.voiceProvider && defaultVoice) innerOptions.voiceProvider = defaultVoice.providerId
