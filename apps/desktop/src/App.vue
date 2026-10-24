@@ -397,11 +397,8 @@ function refreshRouteLoad() {
 // ── 生命周期 ──
 
 onMounted(() => {
-  // 首启判定走「拉」不走主进程的推送：推送发生在窗口创建时，早于任何渲染端订阅，
-  // 事件必然丢失（UX 审计 1.4）。判据只在 code===0 且 setupDone 是布尔时生效，
-  // 桥不可用一律不动导航 —— 兜底值把「没读到」伪装成「还没做过」会让 dev server 每次访问都跳向导。
-  // 这条链跑在 onMounted 里、没人 await，所以必须自己收口：漏出去就是 Unhandled Rejection
-  // （单元 1.2 刚踩过同一格）。
+  // 首启判定走「拉」不走推送，口径见 useFirstRunGate.js 头注释。
+  // 这条链跑在 onMounted 里、没人 await，所以必须自己收口：漏出去就是 Unhandled Rejection。
   maybeEnterFirstRun({ router }).catch((error) => {
     console.warn('[first-run] startup navigation failed: ' + ((error && error.message) || String(error)))
   })
