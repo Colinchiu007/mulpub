@@ -177,20 +177,24 @@ function isSelfClosed(tagText) {
 // （可能是换行）—— 这正是多行开始标签能被看见的关键。
 const OPEN_TAG_RE = /<([A-Za-z][\w.-]*)(?=[\s/>])/y
 const CLOSE_TAG_RE = /<\/([A-Za-z][\w.-]*)\s*>/y
+// 顶层块：定位根 <template> 时要把 script/style 整块跳过
+const ROOT_BLOCK_RE = /<(script|style|template)(?=[\s/>])/y
 
 /**
  * 根 <template> 块的正文范围（**按 <template> 嵌套配平**）→ { start, end } | null
  *
  * 上一版取的是"第一个 `</template>`"，而 SFC 内部的嵌套 `<template #slot>` 闭合在前
- * ⇒ 扫描窗口被提前截断（实测 199 个 .vue 里有 56 个中招）。
+ * ⇒ 扫描窗口被提前截断（实测 197 个 .vue 里有 55 个中招）。
+ *
+ * 定位根 template 时**先跳过 script/style 整块**：仓里有 10+ 个 .vue 把 `<script setup>`
+ * 写在 `<template>` 之前（`components/icons/*.vue`、`CreatorMonitor.vue` 等），
+ * 而脚本里出现 "<template" 字面量（动态组件 / 文档示例）会让"文件里第一个 <template>"
+ * 指向脚本里的字符串 ⇒ 扫描域指向错误的位置 ⇒ 又一次"静默缩小"。
  */
 function rootTemplateRange(text) {
-  const m = /<template(?=[\s/>])/.exec(text)
-  if (!m) return null
-  const first = readStartTag(text, m.index)
-  if (!first || isSelfClosed(first.text)) return null
-  let depth = 1
-  let pos = first.end
+  // ① 跳过顶层非 template 块，定位根 <template>
+  let pos = 0
+  let rootStart = -1
   while (pos < text.length) {
     const lt = text.indexOf('<', pos)
     if (lt < 0) break
@@ -199,23 +203,49 @@ function rootTemplateRange(text) {
       pos = end < 0 ? text.length : end + 3
       continue
     }
+    ROOT_BLOCK_RE.lastIndex = lt
+    const bm = ROOT_BLOCK_RE.exec(text)
+    if (!bm) { pos = lt + 1; continue }
+    if (bm[1] === 'template') { rootStart = lt; break }
+    // script/style（以及任何其它顶层块）：整块跳过，别在它里面找根 template
+    const st = readStartTag(text, lt)
+    if (!st) { pos = lt + 1; continue }
+    if (isSelfClosed(st.text)) { pos = st.end; continue }
+    const close = matchingClose(text, bm[1], st.end)
+    pos = close ? close.end : text.length
+  }
+  if (rootStart < 0) return null
+
+  // ② 从根 <template> 起，按嵌套配平求正文范围
+  const first = readStartTag(text, rootStart)
+  if (!first || isSelfClosed(first.text)) return null
+  let depth = 1
+  let p = first.end
+  while (p < text.length) {
+    const lt = text.indexOf('<', p)
+    if (lt < 0) break
+    if (text.startsWith('<!--', lt)) {
+      const end = text.indexOf('-->', lt)
+      p = end < 0 ? text.length : end + 3
+      continue
+    }
     CLOSE_TAG_RE.lastIndex = lt
     const cm = CLOSE_TAG_RE.exec(text)
     if (cm) {
       if (cm[1] === 'template') {
         depth--
-        if (depth === 0) return { start: m.index, end: lt + cm[0].length }
+        if (depth === 0) return { start: rootStart, end: lt + cm[0].length }
       }
-      pos = lt + cm[0].length
+      p = lt + cm[0].length
       continue
     }
     OPEN_TAG_RE.lastIndex = lt
     const om = OPEN_TAG_RE.exec(text)
-    if (!om) { pos = lt + 1; continue }
+    if (!om) { p = lt + 1; continue }
     const st = readStartTag(text, lt)
-    if (!st) { pos = lt + 1; continue }
+    if (!st) { p = lt + 1; continue }
     if (om[1] === 'template' && !isSelfClosed(st.text)) depth++
-    pos = st.end
+    p = st.end
   }
   return null
 }
@@ -452,6 +482,26 @@ describe('非 button 可点击元素的键盘可达性（阶段 4.4 / WCAG 2.1.1
     const { sites: found } = scanSource('/fixture.vue', fixture)
     expect(found).toHaveLength(1)
     expect(found[0].nestedVisible).toBe(1)
+  })
+
+  it('脚本块在前、且脚本里有 "<template" 字面量时，根 template 仍要定位正确', () => {
+    // 仓里有 10+ 个 .vue 把 <script setup> 写在 <template> 之前；
+    // 脚本里出现 "<template" 字面量（动态组件 / 文档示例）会让"文件里第一个 <template>"
+    // 指向脚本里的字符串 ⇒ 扫描域指向错误位置 ⇒ 又一次静默缩小。
+    const fixture = [
+      '<script setup>',
+      "const demo = '<template>占位</template>'",
+      '</script>',
+      '<template>',
+      '  <div',
+      '    class="real-root"',
+      '    @click="realRoot"',
+      '  >真实根</div>',
+      '</template>',
+    ].join('\n')
+    const { sites: found } = scanSource('/fixture.vue', fixture)
+    expect(found.map((f) => f.expr)).toEqual(['realRoot'])
+    expect(found[0].line).toBe(5)
   })
 
   it('已补 role="button" 的元素不得含可见可聚焦后代（button 是 leaf 角色）', () => {
