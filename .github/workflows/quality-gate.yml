@@ -110,6 +110,11 @@ jobs:
           #    任何 require 它的测试都会在导入期被杀掉，而 node:test 把"文件退出 0"报成 pass 1。
           # 落在这里的理由与 merge-ledger 同：本 job 不被 docs-only 短路，且在非 PR 早退之前。
           node --test scripts/lib/git-domain.test.js
+          # 两个合并入口共用的 PR 检查取数器（2026-10-24）：
+          # 它替代 `gh pr checks --json`（老 gh 不认这个后加的 flag ⇒ 合并脚本把取数失败
+          # 回落成「0 条检查」⇒ 在「CI 早绿」的状态下空转到 120 分钟超时）。
+          # 落在这里的理由同上：本 job 不被 docs-only 短路，且在非 PR 早退之前。
+          node --test scripts/lib/pr-checks.test.js
           node --test scripts/check-debt-budget.test.js
           # electron-ci 桌面全量步骤的单一实现（两片并行 + 共享预算 + 剥 ANSI 的现场计数）。
           # 落在这里的理由与上面两条同：本 job 不被 docs-only 短路、且在非 PR 早退之前，

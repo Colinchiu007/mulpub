@@ -11,7 +11,9 @@
         -> 全部成功才合并；任何失败 / 超时 / 无检查 都拒绝合并并以非零退出。
   背景: 本仓为私有免费仓，GitHub 不允许设置 required status checks（403），
         故 `gh pr merge --auto` 因“无必需检查”而立即合并。此脚本用显式等待替代 --auto。
-  注意: gh pr checks --json 的 state 为大写（PENDING/IN_PROGRESS/QUEUED/SUCCESS/FAILURE…）；
+  注意: 检查状态由 scripts/lib/pr-checks.js 统一取（它优先用 gh pr checks --json name,state；
+        老 gh 不认 --json 时自动降级到 gh api commits/<sha>/check-runs）⇒ state 为大写
+        （PENDING/IN_PROGRESS/QUEUED/SUCCESS/FAILURE…）；
         合并改用 REST API（gh api -X PUT .../merge），避免本环境 gh pr merge 无 --yes 的问题。
 #>
 [CmdletBinding()]
@@ -49,6 +51,15 @@ for ($i = 0; $i -lt 3 -and $mergeable -eq 'UNKNOWN'; $i++) {
 }
 if ($mergeable -ne 'MERGEABLE') { Fail "PR #$PrNumber 当前不可合并 ($mergeable)，请先解决冲突。" 1 }
 
+# 取数层（2026-10-24）：统一走 scripts/lib/pr-checks.js（两个合并入口共用的唯一真源）。
+#   它优先用 `gh pr checks --json name,state`；老 gh（不认 --json 这个后加的 flag）自动降级到
+#   `gh api commits/<sha>/check-runs`（同名取最新一次 run，与真 gh 的 rollup 语义一致）。
+#   ⚠️ 取数失败**不再**回落成「0 条检查」——那会让 break 条件永不满足，
+#      在「CI 其实早就全绿」的状态下空转到超时，且日志误导成「runner 可能离线」。
+$repo = (gh pr view $PrNumber --json repository --jq '.repository.nameWithOwner' 2>$null)
+if (-not $repo) { $repo = 'Colinchiu007/mulpub' }
+$errFile = [System.IO.Path]::GetTempFileName()
+
 # 2) 轮询等待所有检查结束（带硬截止，避免单 runner 拥堵时无限阻塞）
 Write-Host "==> 等待 PR #$PrNumber 的 CI 检查完成（最多 $TimeoutMinutes 分钟）..." -ForegroundColor Cyan
 $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
@@ -57,8 +68,14 @@ while ($true) {
   $now = Get-Date
   if ($now -ge $deadline) { Fail "超时：CI 检查在 $TimeoutMinutes 分钟内未全部结束。" 2 }
 
-  $cur = gh pr checks $PrNumber --json name, state 2>&1
-  if ($LASTEXITCODE -ne 0) { Start-Sleep -Seconds 10; continue }
+  $cur = node scripts/lib/pr-checks.js --pr $PrNumber --repo $repo --format json 2>$errFile
+  if ($LASTEXITCODE -ne 0) {
+    $why = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
+    $first = ($why -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+    Write-Host "  取数失败（**不是**「没有 CI 检查」）：$first；继续等待..."
+    Start-Sleep -Seconds $PollSeconds
+    continue
+  }
   $checks = $cur | ConvertFrom-Json
   $all = @($checks)
   $pending = @($all | Where-Object { $_.state -in $IncompleteStates })
@@ -87,8 +104,11 @@ if ($env:MAIN_RED_RETRY_SECONDS) { $win += @('--retry-seconds', $env:MAIN_RED_RE
 if ($LASTEXITCODE -ne 0) { Fail "STOP：main-red 闸门拒绝合并 PR #$PrNumber（rc=$LASTEXITCODE；读本脚本上一行的 verdict 行）" 7 }
 
 # 3) 解析最终结论（仅用 state，不依赖 conclusion 字段）
-$final = gh pr checks $PrNumber --json name, state 2>&1
-if ($LASTEXITCODE -ne 0) { Fail "无法获取 PR #$PrNumber 最终检查状态。" 5 }
+$final = node scripts/lib/pr-checks.js --pr $PrNumber --repo $repo --format json 2>$errFile
+if ($LASTEXITCODE -ne 0) {
+  $why = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
+  Fail "取不到 PR #$PrNumber 的检查状态（**不是**「没有检查」）：$why —— 请读原因后重试，不要据此合并。" 5
+}
 $all = @($final | ConvertFrom-Json)
 $total = $all.Count
 if ($total -eq 0) {
@@ -109,8 +129,6 @@ if ($failed.Count -gt 0) {
 }
 
 # 4) 全部通过 -> 合并（REST API 直接合并，无需 --yes，原子且可靠）
-$repo = (gh pr view $PrNumber --json repository --jq '.repository.nameWithOwner' 2>$null)
-if (-not $repo) { $repo = 'Colinchiu007/mulpub' }
 $prHeadSha = (gh pr view $PrNumber --json headRefOid --jq '.headRefOid' 2>$null)
 if (-not $prHeadSha) { Fail '取不到 PR head sha——不传 sha 的合并落的是「执行那一刻的 head」，闸门验过的 sha 与真正进主干的产物可以不是同一笔（第五轮 C6）' 7 }
 $mergeApiArgs = @('-X', 'PUT', "repos/$repo/pulls/$PrNumber/merge", '-f', "merge_method=$Method", '-f', "sha=$prHeadSha")
@@ -119,3 +137,4 @@ Write-Host "==> 所有 CI 检查通过，合并 PR #$PrNumber ($Method)$(if ($De
 gh api @mergeApiArgs 2>&1
 if ($LASTEXITCODE -ne 0) { Fail "gh api 合并失败（PR 可能已不可合并或有冲突），未合并。" 6 }
 Write-Host "✓ PR #$PrNumber 已合并。" -ForegroundColor Green
+Remove-Item $errFile -ErrorAction SilentlyContinue

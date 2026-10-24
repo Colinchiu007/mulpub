@@ -1,3 +1,14 @@
+# fix(scripts): 合并入口的 CI 检查取数不再被「老 gh 不认 --json」静默空转（merge-when-green-checks-fallback）
+
+- fix(门禁): `scripts/merge-when-green.{sh,ps1}` 此前用 `gh pr checks <n> --json name,state` 取 CI 状态，而 **`--json` 是后加的 flag**（实测老 gh 2.46.0 回 `unknown flag: --json`）⇒ 取数失败被包在 `|| echo 0` 里**回落成「0 条检查」** ⇒ break 条件（pending==0 **且** total>0）**永不满足** ⇒ 脚本在「**CI 其实早就全绿**」的状态下**空转到 120 分钟超时**，日志却一直打「runner 可能离线」——**症状极具误导性**。
+- ⇒ 新增 `scripts/lib/pr-checks.js`（两个合并入口共用的**唯一真源**）：**优先** `gh pr checks --json`；老 gh **降级**到 `gh api --paginate commits/<sha>/check-runs`；两条路都取不到 ⇒ **非 0 退出并说明原因**，**绝不**回落成「0 条检查」——**把「取数失败」与「真的没有检查」分成两个值**。
+- ⇒ **判定层一字未动**：哪些 state 算未完成/算失败、break 条件、退出码语义、`check-main-red` 闸门位置全部逐字保留；取数器只负责产出 `{name, state}` 行。
+- ⇒ 降级路径按 **name 取最新一次 run**（与真 gh 的 rollup 语义一致）——**不取全部、也不取最严**：取全部会让「先红后绿的重跑」永远判红，取最严与真 gh 语义不一致。
+- ⇒ 状态映射落在真 gh 的**同一取值域**（含「未知 conclusion 归失败档」——归「既非未完成也非失败」的空洞会被当成「已完成且没红」⇒ **放行坏 PR**）。
+- test(门禁): 新增 `scripts/lib/pr-checks.test.js`（20 用例，`node --test`）并在 quality-gate.yml 的 changes job **显式点名**（未点名 ⇒ `check-unwired-tests.js` 判红 ⇒ 等于没写）。
+- ⇒ 端到端实测（真实 PR + 假 gh 模拟老 gh）：降级路径取到真实数据 `TOTAL=20 PENDING=11 FAILED=0`，bash 与 pwsh 两侧读数完全一致；**pwsh 真解释器**下 `Parser::ParseFile` 通过且取数片段真跑通（`.ps1` 的 BOM 保留）。
+- ⇒ 端到端实测抓到单测抓不到的真 bug：真实 CLI 的分页输出是**带包装层**的（`[{total_count, check_runs:[...]}]` / `[[{...}],[{...}]]`）⇒ 解析器漏剥包装层会得到「0 行」的**静默假绿** ⇒ 已改为递归剥壳，并把单测 fixture 改成**真接口的输出形态**。
+
 # test(film): F-3a 应用侧出片链路端到端 —— 真 ffmpeg 合成 + 真 ffprobe 断言（film-auto-f3a-e2e）
 
 - test(视频创作): 补上长篇化 M0 门里**唯一不依赖 provider 凭据**的那一半 —— 此前 F-3 把「应用侧出片链路」与「真 provider 出片」捆在一起，导致没有凭据就整项做不了；拆成 **F-3a / F-3b** 后，F-3a 当场闭合。

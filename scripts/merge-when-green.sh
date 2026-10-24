@@ -14,6 +14,9 @@ DELETE_BRANCH=0
 [[ "${3:-}" == "--delete-branch" ]] && DELETE_BRANCH=1
 TIMEOUT_MIN="${MERGE_WHEN_GREEN_TIMEOUT:-120}"
 POLL=30
+# 取数失败时的错误输出落点（避免把 stderr 混进 stdout 的数据流）
+ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/merge-when-green.XXXXXX.err" 2>/dev/null || echo "/tmp/merge-when-green.$$.err")"
+trap 'rm -f "$ERR_FILE"' EXIT
 
 # repo slug（用于 REST 合并 API）
 REPO="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#.*github\.com[:/]([^/]+/[^/]+)\.git$#\1#')"
@@ -36,15 +39,30 @@ DEADLINE=$(( $(date +%s) + TIMEOUT_MIN * 60 ))
 while true; do
   now=$(date +%s)
   if [ "$now" -ge "$DEADLINE" ]; then echo "超时：CI 检查未在 $TIMEOUT_MIN 分钟内结束。"; exit 2; fi
-  # state 为大写；未完成态：PENDING/IN_PROGRESS/QUEUED/WAITING/REQUESTED
-  mapfile -t PENDING < <(gh pr checks "$PR" --json name,state --jq \
-    '.[] | select(.state=="PENDING" or .state=="IN_PROGRESS" or .state=="QUEUED" or .state=="WAITING" or .state=="REQUESTED") | .name' 2>/dev/null) || PENDING=()
-  total=$(gh pr checks "$PR" --json name --jq 'length' 2>/dev/null || echo 0)
-  if [ "${#PENDING[@]}" -eq 0 ] && [ "${total:-0}" -gt 0 ]; then break; fi
-  if [ "${total:-0}" -eq 0 ]; then
+  # 取数层（2026-10-24）：统一走 scripts/lib/pr-checks.js（两个合并入口共用的唯一真源）。
+  #   它优先用 `gh pr checks --json name,state`；老 gh（不认 --json）自动降级到
+  #   `gh api commits/<sha>/check-runs`（同名取最新一次 run）。
+  #   ⚠️ 取数失败**不再**回落成「0 条检查」——那会让 break 条件永不满足，
+  #      在「CI 其实早就全绿」的状态下空转到超时，且日志误导成「runner 可能离线」。
+  #      取数失败在这里单独提示并继续等（硬截止仍在下面）。
+  # state 为大写；未完成态：PENDING/IN_PROGRESS/QUEUED/WAITING/REQUESTED（判定语义逐字不变）
+  if ! PR_CHECKS=$(node scripts/lib/pr-checks.js --pr "$PR" --repo "$REPO" --format=tsv 2>"$ERR_FILE"); then
+    echo "  取数失败（**不是**「没有 CI 检查」）：$(head -1 "$ERR_FILE")；继续等待..."
+    sleep "$POLL"; continue
+  fi
+  PENDING=(); TOTAL=0
+  while IFS=$'\t' read -r ST NAME; do
+    [ -z "${ST:-}" ] && continue
+    TOTAL=$((TOTAL + 1))
+    case "$ST" in
+      PENDING|IN_PROGRESS|QUEUED|WAITING|REQUESTED) PENDING+=("$NAME") ;;
+    esac
+  done <<< "$PR_CHECKS"
+  if [ "${#PENDING[@]}" -eq 0 ] && [ "${TOTAL:-0}" -gt 0 ]; then break; fi
+  if [ "${TOTAL:-0}" -eq 0 ]; then
     echo "  尚未产生 CI 检查（runner 可能离线），继续等待..."
   else
-    echo "  $total 个检查，仍有 ${#PENDING[@]} 个未完成，继续等待..."
+    echo "  $TOTAL 个检查，仍有 ${#PENDING[@]} 个未完成，继续等待..."
   fi
   sleep "$POLL"
 done
@@ -65,11 +83,20 @@ MAIN_RED_ARGS=()
 node scripts/check-main-red.js --pr "$PR" ${MAIN_RED_ARGS[@]+"${MAIN_RED_ARGS[@]}"} || { echo "STOP：main-red 闸门拒绝合并 PR #$PR（rc=$?，读上一行 verdict）"; exit 7; }
 
 # 3) 解析结论（仅用 state，不依赖 conclusion 字段）
-mapfile -t FAILED < <(gh pr checks "$PR" --json name,state --jq \
-  '.[] | select(.state=="FAILURE" or .state=="CANCELLED" or .state=="TIMED_OUT" or .state=="ERROR") | .name' 2>/dev/null) || FAILED=()
-PENDING_N=$(gh pr checks "$PR" --json state --jq \
-  '[.[] | select(.state=="PENDING" or .state=="IN_PROGRESS" or .state=="QUEUED" or .state=="WAITING" or .state=="REQUESTED")] | length' 2>/dev/null || echo 0)
-TOTAL=$(gh pr checks "$PR" --json name --jq 'length' 2>/dev/null || echo 0)
+# 取数层同上（scripts/lib/pr-checks.js）；失败态与未完成态的判定集合逐字不变
+if ! PR_CHECKS=$(node scripts/lib/pr-checks.js --pr "$PR" --repo "$REPO" --format=tsv 2>"$ERR_FILE"); then
+  echo "STOP：取不到 PR #$PR 的检查状态（**不是**「没有检查」）——读上一行原因后重试，不要据此合并。" >&2
+  exit 5
+fi
+FAILED=(); PENDING_N=0; TOTAL=0
+while IFS=$'\t' read -r ST NAME; do
+  [ -z "${ST:-}" ] && continue
+  TOTAL=$((TOTAL + 1))
+  case "$ST" in
+    PENDING|IN_PROGRESS|QUEUED|WAITING|REQUESTED) PENDING_N=$((PENDING_N + 1)) ;;
+    FAILURE|CANCELLED|TIMED_OUT|ERROR) FAILED+=("$NAME") ;;
+  esac
+done <<< "$PR_CHECKS"
 
 [[ "${TOTAL:-0}" -gt 0 ]] || { echo "无任何 CI 检查，安全起见不合并"; exit 5; }
 [[ "${PENDING_N:-0}" -eq 0 ]] || { echo "仍有检查未完成"; exit 3; }
