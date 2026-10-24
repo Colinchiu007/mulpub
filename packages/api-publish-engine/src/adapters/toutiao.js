@@ -36,9 +36,9 @@ class ToutiaoAdapter extends BasePlatformAdapter {
   }
 
   /** 构造视频链；测试可注入 _videoChainOverride（假链）或 clients 覆盖 base，零外发。 */
-  _videoChain(cookie, clients, csrf) {
+  _videoChain(cookie, clients, csrf, pagePost) {
     if (this._videoChainOverride) return this._videoChainOverride;
-    return new ToutiaoVideoChain(Object.assign({ cookie, userAgent: this._ua || UA, logger: { log: function () { var a=[].slice.call(arguments); __pkgLogger.info.apply(__pkgLogger, ["toutiao-video"].concat(a)); try { console.log("[toutiao-video] " + a.join(" ")) } catch (_eL) {} } } /*console-mirror*/ }, clients || {}, csrf ? { csrf: csrf } : {}));
+    return new ToutiaoVideoChain(Object.assign({ cookie, userAgent: this._ua || UA, logger: { log: function () { var a=[].slice.call(arguments); __pkgLogger.info.apply(__pkgLogger, ["toutiao-video"].concat(a)); try { console.log("[toutiao-video] " + a.join(" ")) } catch (_eL) {} } } /*console-mirror*/ }, clients || {}, csrf ? { csrf: csrf, pagePost: pagePost || null } : { pagePost: pagePost || null }));
   }
 
   /**
@@ -56,7 +56,7 @@ class ToutiaoAdapter extends BasePlatformAdapter {
       return { success: false, platform: "toutiao", code: errorCode.data_error, error: "toutiao: 账号信息缺失，请重新授权此账号再试" };
     }
     try {
-      const chain = this._videoChain(cookie, opts.clients, opts.csrf);
+      const chain = this._videoChain(cookie, opts.clients, opts.csrf, opts.pagePost);
       return await chain.run(td, { onProgress: opts.onProgress, draft: opts.draft });
     } catch (e) {
       return {

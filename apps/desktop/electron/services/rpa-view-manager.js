@@ -241,6 +241,7 @@ class RpaViewManager {
             onProgress: (pct, msg) => this._emitProgress(platform, msg, pct),
             accountId: signerAccountId || undefined,
             csrf: _csrfTok || undefined,
+            pagePost: platform === 'toutiao' ? function (p, b) { return require('./toutiao-page-publish').publishViaPage(signerAccountId, p, b, { log: log }) } : undefined,
           }),
           new Promise(function(_, rj) { const _t = setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout); if (_t && _t.unref) _t.unref() })
         ]);

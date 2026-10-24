@@ -169,6 +169,7 @@ class ToutiaoVideoChain {
     this.userAgent = opts.userAgent || UA
     this.logger = opts.logger || console
     this._csrf = opts.csrf || '' // 2026-10-24：允许调用方注入页面运行时令牌
+    this.pagePost = opts.pagePost || null // 页面内执行发稿请求（secsdk 会为该请求签名）
     this.region = opts.region || REGION
     this.appId = opts.appId === undefined ? TT_APP_ID : opts.appId
     this.mpBase = opts.mpBase || MP_BASE
@@ -401,7 +402,10 @@ class ToutiaoVideoChain {
   async publish (postData) {
     if (this.logger) { try { this.logger.log('toutiao cookieNames=' + String(this.cookie||'').split(';').map(function(x){return x.split('=')[0].trim()}).filter(Boolean).join(',')) } catch (_eN) {} }
       if (this.logger) this.logger.log('toutiao PublishVideo begin bodyLen=' + String(JSON.stringify(postData)).length)
-    const res = await this.mp.request({
+    let res = null
+      // page-publish（2026-10-24）：优先在页面内执行，由 secsdk 为该请求签名
+      if (this.pagePost) { try { const pr = await this.pagePost(PUBLISH_PATH, JSON.stringify(postData)); if (pr) { let d = pr.body; try { d = JSON.parse(pr.body) } catch (_eP) {} ; res = { status: pr.status, data: d } } } catch (_ePp) { if (this.logger) this.logger.log('toutiao page-publish threw: ' + String((_ePp && _ePp.message) || '').slice(0, 60)) } }
+      if (!res) res = await this.mp.request({
       method: 'post', url: PUBLISH_PATH,
         timeout: 30000,
       data: JSON.stringify(postData), maxBodyLength: Infinity,
