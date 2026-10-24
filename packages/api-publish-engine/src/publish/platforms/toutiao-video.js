@@ -385,7 +385,6 @@ class ToutiaoVideoChain {
    */
   async publish (postData) {
     if (this.logger) { try { this.logger.log('toutiao cookieNames=' + String(this.cookie||'').split(';').map(function(x){return x.split('=')[0].trim()}).filter(Boolean).join(',')) } catch (_eN) {} }
-    await this.ensureCsrf()
     const res = await this.mp.request({
       method: 'post', url: PUBLISH_PATH,
       data: JSON.stringify(postData), maxBodyLength: Infinity,
@@ -439,6 +438,9 @@ class ToutiaoVideoChain {
     const gate = buildPublishGateResult(auth)
     if (gate) return gate
 
+    // 2026-10-24：getAuthKey 需要 csrf 头，必须在第一处写请求之前取到；
+    // 位置放在文件校验与权限闸门之后 —— 否则破坏「文件不存在⇒零请求」「无权限⇒上传前返回」两条契约。
+    await this.ensureCsrf()
     const creds = await this.getAuthKey()
     const vid = await this.uploadVideo(videoPath, creds, uid, opts.onProgress)
     if (opts.onProgress) opts.onProgress(80, '视频已上传，正在提交')

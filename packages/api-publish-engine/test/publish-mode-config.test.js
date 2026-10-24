@@ -42,7 +42,9 @@ describe('§5.1 platforms.yaml publishMode 字段', function () {
   })
 
   test('未入波平台为 dom-only（含 has_api:true 但暂缓的 youtube/facebook 等）', function () {
-    const w1 = { tencent_video: 1, bilibili: 1, baijiahao: 1, douyin: 1, kuaishou: 1 }
+    // 2026-10-24：toutiao 加入本波 —— 头条视频 API 轨正在打通（CSRF 头名已按抓包改为
+  // x-secsdk-csrf-token，令牌由 toutiao-csrf-grab 注入），配置为 api-then-dom。
+  const w1 = { tencent_video: 1, bilibili: 1, baijiahao: 1, douyin: 1, kuaishou: 1, toutiao: 1 }
     Object.keys(platforms).forEach(function (k) {
       if (!w1[k]) expect(platforms[k].publishMode).toBe('dom-only')
     })

@@ -119,6 +119,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       vodBase: vodSrv.url,
       userAgent: UA,
       uid,
+      csrf: opts.csrf || 'test-csrf-token', // 2026-10-24：测试默认预置令牌，避免触发真实探测
       httpClientFactory: (cfg) => createHttpClient(cfg),
     })
     return chain
@@ -302,7 +303,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: { authorPermission: { DisablePublish: true } } } },
       { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: { BlockStatus: 0, ReviewLatency: 0 } } },
     ])
-    chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
+    chain = new ToutiaoVideoChain({ cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
     const a = await chain.checkPublishAuth()
     expect(a.canPublish).toBe(false)
     expect(a.disablePublish).toBe(true)
@@ -314,7 +315,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       { method: 'GET', match: /GetPublishAuth/, body: { status: 0, data: { authorPermission: { DisablePublish: true } } } },
       { method: 'GET', match: /GetPublishPageReviewLatency/, body: { status: 0, data: {} } },
     ])
-    chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1' })
+    chain = new ToutiaoVideoChain({ cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1' })
     const f = tmpVideo(1024)
     try {
       const r = await chain.run({ title: 't', coverPath: 'D:/c.jpg', video: { path: f } })
@@ -360,7 +361,8 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     ])
     all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
     const c = new ToutiaoVideoChain({
-      cookie: makeCookie(), mpBase: all.url, vodBase: all.url,
+      cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: all.url, vodBase: all.url,
+      csrf: 'test-csrf-token',
       userAgent: UA, uid: '1342958645023752', uploadScheme: 'http:',
     })
     const f = tmpVideo(1024)
@@ -389,7 +391,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     ])
     all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
     const c = new ToutiaoVideoChain({
-      cookie: makeCookie(), mpBase: all.url, vodBase: all.url,
+      cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: all.url, vodBase: all.url,
       userAgent: UA, uid: '1342958645023752', uploadScheme: 'http:',
     })
     const f = tmpVideo(1024)
@@ -414,7 +416,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     ])
     all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
     const c = new ToutiaoVideoChain({
-      cookie: makeCookie(), mpBase: all.url, vodBase: all.url,
+      cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: all.url, vodBase: all.url,
       userAgent: UA, uid: '1342958645023752', uploadScheme: 'http:',
     })
     const f = tmpVideo(1024)
@@ -487,7 +489,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(host))
 
     const c = new ToutiaoVideoChain({
-      cookie: makeCookie(), mpBase: all.url, vodBase: all.url,
+      cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: all.url, vodBase: all.url,
       userAgent: UA, uid: '1342958645023752', uploadScheme: 'http:',
     })
 
@@ -551,11 +553,11 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     expect(pickCsrfToken(null)).toBe('')
   })
 
-  test('CSRF：_mpHeaders 带上 x-csrf-token；cookie 缺失时**不伪造**该头', () => {
+  test('CSRF：_mpHeaders 带上 x-secsdk-csrf-token；cookie 缺失时**不伪造**该头', () => {
     const withCsrf = new ToutiaoVideoChain({ cookie: makeCookie({ csrf: 'REALTOKEN24CHARSXXXXXXXX' }), userAgent: UA })
     const h = withCsrf._mpHeaders()
     expect(h[CSRF_HEADER]).toBe('REALTOKEN24CHARSXXXXXXXX')
-    expect(CSRF_HEADER).toBe('x-csrf-token')
+    expect(CSRF_HEADER).toBe('x-secsdk-csrf-token') // 2026-10-24 抓包实证
 
     const noCsrf = new ToutiaoVideoChain({ cookie: makeCookie({ omitCsrf: true }), userAgent: UA })
     const h2 = noCsrf._mpHeaders()
@@ -563,7 +565,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     expect(Object.keys(h2).some((k) => /csrf/i.test(k))).toBe(false)
   })
 
-  test('CSRF：PublishVideo 真实请求确实携带 x-csrf-token（防「只测 helper 不测出口」）', async () => {
+  test('CSRF：PublishVideo 真实请求确实携带 x-secsdk-csrf-token（防「只测 helper 不测出口」）', async () => {
     const all = await startFakeServer()
     const f = tmpVideo(1024)
     try {
@@ -579,7 +581,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       await chain.publish(body)
       const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
       expect(pub).toBeTruthy()
-      expect(String(pub.headers['x-csrf-token'] || '')).toBe('OUTGOING_CSRF_VALUE_1234')
+      expect(String(pub.headers['x-secsdk-csrf-token'] || '')).toBe('OUTGOING_CSRF_VALUE_1234')
     } finally { fs.unlinkSync(f); await all.close() }
   })
 
@@ -625,7 +627,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     const srv = await startFakeServer()
     const f = tmpVideo(512)
     try {
-      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
       // 直接桩住只读探测：真机已确认真实账号返回 identityVerified=false
       chain.checkPublishAuth = async () => ({ canPublish: true, disablePublish: false, blockStatus: 0, reviewLatency: 0, identityVerified: false })
       const r = await chain.run({ title: 'T', video: { path: f } }, { draft: true })
@@ -662,7 +664,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     const srv = await startFakeServer()
     const f = tmpVideo(512)
     try {
-      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: srv.url, vodBase: srv.url, userAgent: UA, uid: '1342958645023752' })
       // 只桩提交这一步（前置闸门放行；上传链在 fake 上失败与否不影响本断言路径——直接桩 publish）
       const { buildAccountNotVerifiedResult } = require('../src/publish/platforms/toutiao-video-publish')
       chain.publish = async (body) => {
@@ -690,7 +692,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     const vidPath = img.replace(/\.jpg$/, '.mp4')
     fs.writeFileSync(vidPath, Buffer.alloc(2048, 7))
     try {
-      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), mpBase: all.url, vodBase: all.url, userAgent: UA, uid: '1342958645023752' })
+      const chain = new ToutiaoVideoChain({ cookie: makeCookie(), csrf: 'test-csrf-token', mpBase: all.url, vodBase: all.url, userAgent: UA, uid: '1342958645023752' })
       chain.getAuthKey = async () => ({ spaceName: 's', sessionToken: 't', accessKeyId: 'a', secretAccessKey: 'b' })
       chain.uploadVideo = async () => 'VID_LOC'
       chain.getPosterList = async () => null
