@@ -12,10 +12,18 @@ function _fmt (level, tag, msg, meta) {
   return base
 }
 
+const _fs = require('fs')
+const _path = require('path')
+const _os = require('os')
+// file-mirror（2026-10-24）：包内 logger 只写 stdout，而应用日志不收 stdout ⇒ 诊断永远不可见。
+// 这里再写一份到临时文件，作为唯一可靠的可观测出口（可用 MP_PKG_LOG 覆盖路径）。
+const _LOG_FILE = process.env.MP_PKG_LOG || _path.join(_os.tmpdir(), 'mp-api-engine.log')
+function _toFile(line) { try { _fs.appendFileSync(_LOG_FILE, line + '\n') } catch (_e) {} }
+
 const logger = {
-  info: function (tag, msg, meta) { console.log(_fmt('INFO', tag, msg, meta)) },
-  warn: function (tag, msg, meta) { console.warn(_fmt('WARN', tag, msg, meta)) },
-  error: function (tag, msg, meta) { console.error(_fmt('ERROR', tag, msg, meta)) },
+  info: function (tag, msg, meta) { const l=_fmt('INFO', tag, msg, meta); console.log(l); _toFile(l) },
+  warn: function (tag, msg, meta) { const l=_fmt('WARN', tag, msg, meta); console.warn(l); _toFile(l) },
+  error: function (tag, msg, meta) { const l=_fmt('ERROR', tag, msg, meta); console.error(l); _toFile(l) },
   debug: function (tag, msg, meta) { if (process.env.DEBUG) console.log(_fmt('DEBUG', tag, msg, meta)) }
 }
 
