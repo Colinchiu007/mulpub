@@ -530,3 +530,6 @@ apps/desktop/electron/monitor-preload.bundle.js
 apps/desktop/electron/services/generated/card-paginator.iife.js
 apps/desktop/electron/services/stealth/stealth-preload-enhanced.bundle.js
 !scripts/offline-live-contract-mutate.js
+
+# UX 审计 1.2：公告横幅接线的反证驱动本体（第 106 行 scripts/*.js 会把它静默忽略 ⇒ git add 当场报错、CI 永远不跑它）
+!scripts/announcement-mount-contract-mutate.js
