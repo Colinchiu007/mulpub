@@ -30,7 +30,8 @@ branch: fix-clickable-roles-scanner-blindspots
 | 反盲区断言（夹具级） | 合同文件内 3 条内联夹具 | 逐条把修法退回旧写法（按行匹配 / 第一个 `</template>` / 第一个同名闭合）⇒ 对应断言当场红 |
 | 域完整性 | 合同文件「扫描窗口 = 根 template 全文」断言 | 197/197 文件逐个核对，无截断 |
 | 台账对账 | 合同文件「未登记 / 陈旧」 | 未登记 **0**、陈旧 **0**（31 条台账键与实测缺口键一一对应） |
-| 变异验证（扫描器四处修法） | 手工退回旧写法各跑一遍 | A/B/C/脚本块定位四处各对应 1 条断言变红 ⇒ 断言有牙齿 |
+| 变异验证（扫描器四处修法） | 把四处修法逐个退回**旧实现的真实形态**（不是等价的改写）各跑一遍 | ① 模板边界退回「第一个 `</template>`」→ **红 4 条**（含域完整性）<br>② 标签匹配退回「按行」（只看本行 ⇒ 标签名独占一行时隐形）→ **红 6 条**<br>③ 元素正文取「第一个同名闭合标签」→ **红 2 条**<br>④ 根 template 定位不跳过 `<script>` 块 → **红 1 条**<br>⇒ 四处都有牙齿。⚠️ 第一轮有两处变异**打偏**（写成了等价改写，行为没变 ⇒ 照绿）：**变异失败是信息**——先问「变异作用在会被读到、且真的改变行为的位置上了吗」，再问「锁有没有牙齿」 |
+| 自指断言自查 | 域完整性断言第一版写成「扫了多少字符 == 根 template 多少字符」 | ⛔ **两个值都从同一个变量派生 ⇒ 恒真**，什么也验不到（自指断言）⇒ 改为与**独立算**的读数比对（文件里最后一个 `</template>` 所在行）⇒ 变异 1 才真的把它点红 |
 | 行数门禁自检 | 逐文件读 `max-lines-baseline.json` 的 `files`/`targets` 与当前读数 | `FilmEngineeringView.vue` 803（登记 605 ⇒ 上限 805，**余 2**）；`Collection.vue` 2669（target 2920）；`Home.vue` 452（< 500，不进 `>=500` 计数）；`CreateHistory.vue` 302；`SceneAssetSelection.vue` 431；`TagSuggester.vue` 452；`PipelineBrowser.vue` 158；`PipelineSelector.vue` 136；合同文件 548（测试文件上限 1500）⇒ **不触发 `TARGET_GREW` / `NEW_OVER_LIMIT`** |
 | 债务预算 | `node scripts/check-debt-budget.js` | 见下方"遗留"（本环境 git 读数可用时应为 rc=0） |
 | eslint | 仓内 eslint（`apps/desktop` 配置文件）跑本次改动的 10 个文件 | rc=0（零 error 零 warning，`--quiet`） |

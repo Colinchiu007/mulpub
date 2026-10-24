@@ -318,7 +318,7 @@ function lineAt(text, offset) {
  */
 function scanSource(rel, text) {
   const tpl = rootTemplateRange(text)
-  if (!tpl) return { sites: [], scannedChars: 0, templateChars: 0 }
+  if (!tpl) return { sites: [], start: -1, end: -1 }
   const body = text.slice(tpl.start, tpl.end)
   const sites = []
   let pos = 0
@@ -371,7 +371,7 @@ function scanSource(rel, text) {
     }
     pos = st.end
   }
-  return { sites, scannedChars: body.length, templateChars: body.length }
+  return { sites, start: tpl.start, end: tpl.end }
 }
 
 /** 扫描整个 src/ 域 */
@@ -381,8 +381,19 @@ function scan() {
   for (const abs of vueFiles(SRC)) {
     const rel = '/' + path.relative(SRC, abs).replace(/\\/g, '/')
     const text = fs.readFileSync(abs, 'utf8').replace(/\r\n/g, '\n')
+    const lines = text.split('\n')
     const r = scanSource(rel, text)
-    perFile.push({ rel, ...r })
+    // 逐文件三个边界读数（后两个是**独立算**的，不来自扫描器本身 ⇒ 断言才有牙齿）：
+    //   scannedEndLine —— 扫描器实际扫到的最后一行
+    //   naiveEndLine   —— 旧实现的边界（第一个 </template> 所在行）
+    //   lastCloseLine  —— 文件里**最后一个** </template> 所在行（SFC 里根 template 的闭合就在它）
+    const scannedEndLine = r.end >= 0 ? lineAt(text, r.end) - 1 : -1
+    const naiveEndLine = lines.findIndex((l) => l.includes('</template>'))
+    let lastCloseLine = -1
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].includes('</template>')) { lastCloseLine = i; break }
+    }
+    perFile.push({ rel, scannedEndLine, naiveEndLine, lastCloseLine })
     sites.push(...r.sites)
   }
   return { sites, perFile }
@@ -415,15 +426,24 @@ describe('非 button 可点击元素的键盘可达性（阶段 4.4 / WCAG 2.1.1
     expect(fixed.length).toBeGreaterThanOrEqual(15)
   })
 
-  it('每个 .vue 的扫描窗口必须等于它的根 template 全文（模板边界不得被提前截断）', () => {
-    // 反盲区 B：上一版按"第一个 </template>"截断 ⇒ 199 个 .vue 里有 56 个的扫描域被砍掉后半段。
-    // 这里逐文件核对"扫了多少字符"与"根 template 有多少字符"，任何提前截断当场红。
-    const truncated = perFile.filter((f) => f.templateChars > 0 && f.scannedChars !== f.templateChars)
+  it('每个 .vue 的扫描窗口必须到达文件里最后一个 </template>（模板边界不得被提前截断）', () => {
+    // 反盲区 B 的**逐文件**形态。期望值是**独立算**的（文件里最后一个 `</template>` 所在行），
+    // 不来自扫描器自己 ⇒ 这条断言有牙齿：把边界逻辑退回"第一个 </template>"，这里当场红。
+    // ⚠️ 上一版写成"扫了多少字符 == 根 template 多少字符"——两个值都从同一个变量派生 ⇒ **恒真**，
+    // 什么也验不到（自指断言）。改成与独立读数比对。
+    const truncated = perFile.filter(
+      (f) => f.lastCloseLine >= 0 && f.scannedEndLine !== f.lastCloseLine,
+    )
     expect(
       truncated,
-      `这些文件的扫描窗口不等于根 template 全文：${truncated.map((t) => t.rel).join(', ')}`,
+      `这些文件的扫描窗口没有到达最后一个 </template>：${truncated
+        .map((t) => `${t.rel}(扫到第 ${t.scannedEndLine + 1} 行，根 template 闭合在第 ${t.lastCloseLine + 1} 行)`)
+        .join(', ')}`,
     ).toEqual([])
-    const scanned = perFile.filter((f) => f.templateChars > 0)
+    // 旧实现的边界（第一个 </template>）确实更早 ⇒ 这批文件正是曾经被截断的那些
+    const wasTruncated = perFile.filter((f) => f.naiveEndLine >= 0 && f.naiveEndLine < f.lastCloseLine)
+    expect(wasTruncated.length, '曾经被旧实现截断的文件数（域规模的现场读数）').toBeGreaterThan(50)
+    const scanned = perFile.filter((f) => f.lastCloseLine >= 0)
     expect(scanned.length).toBeGreaterThan(100)
   })
 
