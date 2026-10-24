@@ -196,6 +196,21 @@ class ToutiaoVideoChain {
    */
   async ensureCsrf () {
     if (this._csrf) return this._csrf
+    // 竞品链路（PRD 8.31）：头条视频发布前先问平台要 token。
+    // 端点 https://mp.toutiao.com/ugc/publish/video/v1/get_token/ —— 我方此前完全没有这一步。
+    try {
+      const tk = await this.mp.request({
+        method: 'get', url: '/ugc/publish/video/v1/get_token/',
+        headers: { Cookie: this.cookie, 'User-Agent': this.userAgent, Referer: this.mpBase + '/profile_v4/xigua/upload-video' },
+        validateStatus: function (st) { return st >= 200 && st < 500 }
+      })
+      const d = (tk && tk.data) || {}
+      const nested = d.data && typeof d.data === 'object' ? d.data : {}
+      const cand = d.token || d.csrf_token || nested.token || nested.csrf_token || ''
+      if (this.logger) this.logger.log('toutiao get_token status=' + (tk && tk.status) + ' keys=' + Object.keys(d).join(',') + ' nested=' + Object.keys(nested).join(',') + ' hasToken=' + Boolean(cand))
+      if (cand) { this._csrf = String(cand); return this._csrf }
+    } catch (eTk) { if (this.logger) this.logger.log('toutiao get_token failed: ' + String((eTk && eTk.message) || '').slice(0, 60)) }
+    if (this._csrf) return this._csrf
     // force-bootstrap（2026-10-24）：cookie 里的令牌可能已过期；先自举，失败才回落到 cookie。
     const fromCookie = pickCsrfToken(this.cookie)
     const pool = ['/mp/agw/article/wtt/list', '/profile_v4/xigua/upload-video', '/profile_v4/manage/content/video', '/xigua/api/upload/getAuthKey/', '/api/pc/feed/']
