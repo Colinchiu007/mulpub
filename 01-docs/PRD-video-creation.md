@@ -3971,3 +3971,198 @@ CDP 握手需 Electron 侧带 `--remote-allow-origins=*`（本仓 dev 启动器�
 3. **不解除身份服务启用时的登录要求**：dev 管理员短路在「身份服务未启用」时生效，这是既有安全策略（已有回归锁），本次不动。
 4. **不改流水线阶段划分与产线口径**：八阶段、checkpoint 策略、资产并发度等一律保持原样。
 5. **合成素材图的标题安全区只在本地桩里落实**：真实 AI 出图是照片/插画，不受该约束；该契约记录在 §12.2.4，供后续做「本地/程序化出图」的 Provider 参考。
+
+## 13. 文字标题卡渲染能力（title-card-renderer，2026-10-24）
+
+### 13.1 目标与范围
+
+**能力定义**：给定文字（标题 + 副标题 + 标签 + 序号）与画幅，**确定性地**产出一张标题卡 PNG。
+不调用任何 AI 服务、无外部网络、同输入必得同输出 —— 可当素材、可当兜底、可当封面、可当章节卡。
+
+**为什么抽成独立模块（2026-10-24 实测）**：
+
+1. **既有占位图有静默缺陷**。`asset-generator.js` 的 provider 失败兜底是内联的 ffmpeg drawtext：
+   「单色底 + 提示词前 30 字居中」，**没有标题安全区**。合成阶段默认动效 `zoom-in`
+   会把画面从 1.0 放大到 1.25 倍并居中裁切（左右各裁 10%），于是边缘文字被**无声切掉** ——
+   实测「好消息是」在成片里变成「消息是」，成片**不报错、不降级、只是少字**。
+   仓库里没有任何既有断言能看见这个形态。
+2. **「用文字做一张卡」是跨流水线通用需求**（讲解视频标题卡、字幕卡、封面卡、章节卡、演示要点卡），
+   每个流水线各写一份 ffmpeg 参数只会各错各的（换行、转义、安全区、CJK 字体四个坑都要重踩一遍）。
+
+**范围**：本节只覆盖**静态图形渲染**。视频卡（给视频加标题条）已有 `providers/video/showcase_card.py`，
+形态不同（输入是视频、产物是视频），本节不重复。
+
+### 13.2 落点与调用链（为什么在桌面主进程侧）
+
+| 候选落点 | 结论 | 依据 |
+|---|---|---|
+| Python `video_creation/providers/image/`（`diagram_gen` / `code_snippet` 同族） | ❌ **注册了没人用** | `registry.discover()` 在生产代码里 **0 调用**；`tools_available` / `required_tools` 在全仓 JS/TS 里 **0 命中**；Python 侧**没有 pipeline engine**（`VC/pipeline/` 只有 loader + definitions + schema）；桌面 `pipeline-engine.js` 用自己的 15 条硬编码注册表、**从不读 YAML**；`ServiceBus.callPythonSkill` 指向的 `/api/skills/*` 路由在 Python 后端**不存在**（仓库自己记在 `.ccg/tasks/archive/2026-09/story2video-all-pipelines-e2e-ue/ENGINE-FEASIBILITY.md`） |
+| **桌面主进程 `apps/desktop/electron/services/title-card-renderer.js`** | ✅ **采纳** | 这是桌面流水线的素材出图实际执行路径（`asset-generator.generateImage` → `model-provider-manager` → adapter）；ffmpeg 是既有硬依赖；CJK 字体问题仓库已解决（`font-resolver.js`） |
+
+**调用方**：
+- `asset-generator.js` 的 provider 失败兜底（**所有走 `story2video_generate_assets` 的流水线自动受益**）；
+- 任何流水线需要程序化卡片时直接 `require('./title-card-renderer')`。
+
+### 13.3 数据合同与校验
+
+`renderTitleCard(options) → Promise<{ path, width, height, size, theme, safeMarginRatio, degraded }>`
+
+| 字段 | 类型 | 校验 / 夹取 | 缺省 | 说明 |
+|---|---|---|---|---|
+| `outputPath` | string | **必填**，空串抛错 | — | 输出 PNG 路径；父目录自动创建 |
+| `title` | string | trim 后为空且 `subtitle` 也为空 ⇒ **抛错** | `''` | 主标题 |
+| `subtitle` | string | 同上 | `''` | 副标题（通常是画面提示词） |
+| `label` | string | 空串 ⇒ 不渲染 | `''` | 顶部小标签（如「AI 讲解视频」）+ 强调色短横线 |
+| `counter` | string | 空串 ⇒ 不渲染 | `''` | 右下角序号（如「场景 2 / 8」） |
+| `width` | number | 夹到 ≥ 320 | `1280` | 画幅宽 |
+| `height` | number | 夹到 ≥ 240 | `720` | 画幅高 |
+| `theme` | string | **不在主题表内 ⇒ 回落到 `cinematic`**（不抛错） | `'cinematic'` | 键名沿用既有 `imageStyle` 取值域 |
+| `safeMarginRatio` | number | 夹到 `[0, 0.4]` | `0.13` | 标题安全区边距（占宽比例） |
+| `titleMaxLines` | number | ≥ 1 | `3` | 标题最多几行，超出截断（不无限撑高画面） |
+| `subtitleMaxLines` | number | ≥ 1 | `4` | 副标题最多几行 |
+| `progress` | number \| null | 夹到 `[0,1]`；未给 ⇒ `null`（**不画进度条**） | `null` | 底部进度条填充比例 |
+| `ffmpegPath` | string | 未给 ⇒ 走 `media-tool-paths.findFfmpeg()` | — | 注入点（测试与自定义路径） |
+
+**主题表**（`THEMES`）：`cinematic` / `realistic` / `cartoon` / `anime` / `cyberpunk` / `watercolor` / `minimalist` ——
+键名与 `asset-generator.js` 既有 `styleColors` **同一取值域**，避免调用方多记一张映射表。
+
+### 13.4 渲染流程与产线口径
+
+1. **归一化**（§13.3 的夹取全部在此发生）⇒ 不合法的值**不抛错**，一律回落到安全缺省。
+2. **算版面**（`computeCardLayout`，纯函数、无 IO，**可被机械断言**）：
+   - `margin = round(width × safeMarginRatio)`；`contentWidth = width - 2×margin`；
+   - 标题字号 `54 × (width/1920)`、副标题 `30 × (width/1920)`、标签 `26 ×`、序号 `30 ×`；
+   - **按像素预算折行**（全角 1em / 半角 0.55em / 空格 0.35em）⇒ 中英混排不会排歪
+     （按「字数」折行在混排时必歪）。
+3. **逐行渲染**：每行一条 `drawtext`，行距 `标题字号 × 1.35`。
+   不用 `text=` 里塞 `\n` ⇒ 不用和 ffmpeg 的换行转义打架，行距也可控。
+4. **背景**：优先 `gradients` 滤镜（ffmpeg ≥ 4.4），**失败自动回退纯色 `color=`**
+   —— 用户机器的 ffmpeg 版本不可控，不能因为「要好看」让出图整条失败。
+   成功走渐变 ⇒ `degraded: false`；回退到纯色 ⇒ `degraded: true`。
+4b. **ffmpeg 可执行性校验**（`resolveFfmpegBinary`）：候选顺序 = 显式注入 → 仓库解析器
+   （打包资源 / 环境变量 / 预置包 / PATH / 常见路径）→ 裸命令名；**逐个过「可执行」校验**。
+   理由：`media-tool-paths.findFfmpeg()` 只判「文件存在」不判「能不能执行」——
+   预置包的二进制可能**存在但不可执行**（实测：NFS 挂载丢失执行位 ⇒ spawn 报 `EACCES`；
+   真实世界还有文件权限被改、postinstall 未跑完只落了半截文件等形态）。
+   不校验就直接 spawn，失败会被读成「渲染失败」，而根因其实是「选错了二进制」。
+   全部候选都不可用 ⇒ 返回 `null`，调用方给出明确错误（而不是甩一个 EACCES）。
+5. **装饰**：强调色短横线（标签下）、底部半透明进度条（`progress` 给了才画）。
+6. **产出**：单张 PNG。
+
+**画幅与像素**：`width`/`height` 由调用方给（桌面端走 `asset-generator` 的 `resolveImageSize(aspect_ratio)`，
+即 `16:9 → 1280×720`、`9:16 → 720×1280`）。**输出尺寸必须与请求一致**（验收断言）。
+
+### 13.5 标题安全区（核心契约）
+
+**来源**：合成引擎默认动效 `zoom-in` 的实现是 `1+0.25×progress` 的**居中**缩放
+（`story2video-compose-engine.js` 的 `buildImageEffectFilter`）⇒ 画面放大到 1.25 倍时，
+左右各被裁掉 `(1 − 1/1.25) / 2 = 10%`。
+
+**契约**：
+- `safeMarginRatio` 默认 **0.13**（> 10% 的裁切量，留 3% 余量；10% 是临界值，「刚好在边上的字」会被切掉）；
+- **所有文字的 x 坐标 ≥ margin**（右下角计数的右边距同样是 margin）；
+- `contentWidth ≤ width − 2×margin`。
+
+**为什么这条要写成契约而不是「注意点」**：它是一个**静默失败**形态 —— 成片能播、时长正常、
+不报错、不降级，**只是少了字**。任何按「有没有报错」的验收都看不见它，只能靠版面层断言。
+
+### 13.6 交互逻辑与显示项
+
+| 显示项 | 位置 | 视觉 | 缺省 |
+|---|---|---|---|
+| 标签 | 左上，距边 = margin | 强调色，字号 `26×` | 不显示 |
+| 强调色短横线 | 标签下方 | 强调色细条 | 不显示 |
+| 主标题 | 左侧，纵向排布 | 白色，字号 `54×`，行距 `1.35×` | 不显示 |
+| 副标题 | 标题下方 | 正文色 82% 透明，字号 `30×` | 不显示 |
+| 进度条 | 底部左侧 | 底轨 18% 白 + 强调色填充 | 不显示（`progress` 未给） |
+| 序号 | 右下，距边 = margin | 白色 75% 透明，字号 `30×` | 不显示 |
+
+**排序与截断**：主标题先于副标题；两者各自超出行数上限即**截断**（不缩字号、不溢出画面）。
+`title` 与 `subtitle` 都为空 ⇒ **抛错**（不出空卡）。
+
+### 13.7 错误语义与提示
+
+| 情形 | 行为 | 上层可见 |
+|---|---|---|
+| 缺 `outputPath` | 抛 `renderTitleCard: outputPath 必填` | 调用方捕获 |
+| 标题与副标题都为空 | 抛 `renderTitleCard: title 与 subtitle 至少要有一个非空` | 调用方捕获 |
+| 找不到 ffmpeg | 抛 `renderTitleCard: 找不到 ffmpeg（FFMPEG_PATH 可覆盖）` | 调用方捕获 |
+| ffmpeg 执行失败（两次：渐变 + 纯色） | 抛 `renderTitleCard: ffmpeg 渲染失败: <原因>` | 调用方捕获 |
+| 渐变不可用、纯色成功 | **正常返回**，`degraded: true` | 不阻断 |
+
+**降级语义与占位图一致**：`asset-generator` 接入后仍返回 `source: 'ffmpeg-placeholder'` + `degraded: true`
+—— `source` 的**字面量必须保留**：发布侧（`publish.js`）、视频克隆（`video-clone/asset-generator.js`）、
+结果页（`ResultView`）都按这个字符串判「占位图不得当成功封面」，改字面量会让那道既有防线失效。
+
+### 13.7b drawtext 文本转义（含一处既有静默失败）
+
+转义面：`\` 与 `'` 是 ffmpeg 滤镜语法的定界符；`: ,` 分隔 filter 参数；`%` 触发 expansion；
+`{ }` 参与 expansion 表达式。
+
+⛔ **单引号必须写成 `'\''`（闭合-转义-重开），不能写成 `\'`**（2026-10-24 实测）：
+
+ffmpeg 的 filtergraph 引号规则是「单引号内一切都是字面量（含反斜杠）；想在引号内表示字面单引号，
+只能闭合引号 → 转义的单引号 → 重开引号」。旧写法 `\'` 在 `text='...'` 里会把引号**提前闭合**，
+后面的文本被当成 **filter 参数**解析，两种表现：
+
+| 文本形态 | 旧写法（`\'`）的表现 | 新写法（`'\''`） |
+|---|---|---|
+| 含 `{word}` | `Option 'w' not found` ⇒ **渲染直接失败** | 正常渲染 |
+| 不含大括号 | **rc=0、不报错，但产出空白图**（实测 630 字节 vs 正常 3210 字节） | 正常渲染 |
+
+后者是**静默失败**：英文提示词里的 `'s`、各类引号极常见 ⇒ 素材占位图会变成空白图，
+而流水线一路绿灯。**旧实现的这条转义从未被带引号的文案测过**（既有单测只覆盖
+`a:b,c%{x}` 这类不含引号的输入）。
+
+⇒ 转义函数从 `asset-generator.js` **迁到**本模块（迁的是「渲染 drawtext 文本」的固有归属），
+`asset-generator` 改为转发并再导出 ⇒ **外部 require 路径不变、公共 API 不破**；
+同时用「函数引用相等」断言锁住「没换成另一份实现」。
+
+### 13.8 调用示例
+
+```js
+const { renderTitleCard } = require('./title-card-renderer')
+
+// 讲解视频的标题卡
+await renderTitleCard({
+  title: '拖延症不是懒：拖延背后的情绪调节机制',
+  subtitle: '深夜卧室，蓝白色屏幕光映在年轻人的脸上',
+  label: 'AI 讲解视频',
+  counter: '场景 1 / 8',
+  progress: 0.125,
+  width: 1280,
+  height: 720,
+  theme: 'cinematic',
+  outputPath: '/tmp/cards/scene_01.png',
+})
+```
+
+### 13.9 测试与验收矩阵
+
+| 层级 | 必测场景 |
+|---|---|
+| 折行 | CJK 感知折行不丢字；空串/空白返回空数组；半角比全角占更少宽度；预算非法时回落默认值而非抛错 |
+| 入参校验 | 画幅下限；未知主题回落默认主题；`safeMarginRatio` 夹取 `[0,0.4]`；`progress` 夹取 `[0,1]` 且未给时为 `null`；缺 `outputPath` / 标题副标题全空 ⇒ 抛错 |
+| **安全区** | 默认边距 > zoom-in 裁切量；**所有 drawtext 的 x ≥ margin**（右下角计数含 margin）；`contentWidth ≤ width − 2×margin`；显式调小边距允许但不得为负；标题超行数上限被截断 |
+| 转义 | `'`（写成 `'\''`）`:` `,` `%` `{` `}` `\` 全部转义；换行折成空格；空值不炸；**`asset-generator` 转发的是同一个函数**（公共 API 不破） |
+| 转义·静默失败 | 带单引号 + 大括号的文案必须**真渲染出内容**（体积 > 2000 字节）—— 旧转义在这类文案上 rc=0 但产出 630 字节空白图 |
+| ffmpeg 可执行性 | 解析到的二进制**不可执行**时必须回退到下一个候选（PATH 上的 ffmpeg），而不是直接甩 `EACCES`；全部候选不可用时给出明确错误 |
+| 实际渲染 | 产出 PNG（魔数校验）+ 尺寸与请求一致 + **体积下限 3000 字节**（豆腐块会退化成 ~765 字节，用来挡「渲染了但字全是方块」的静默失败）；含 ffmpeg 滤镜特殊字符的文案不得让渲染炸掉 |
+| 主题 | 覆盖既有 `imageStyle` 取值域全部 7 个键（流水线 style 传进来不能落空） |
+| 接线 | `asset-generator` 的兜底分支返回 `source: 'ffmpeg-placeholder'` + `degraded: true`（发布侧既有防线不破） |
+
+> ffmpeg 不可用时（CI 用 `--ignore-scripts` 装依赖则预置二进制不存在）**跳过渲染类断言**，
+> 纯函数契约（安全区/折行/校验）**始终执行** —— 环境不可用不该红成代码问题。
+
+### 13.10 已知限制与未闭合项
+
+1. **Python 侧同名能力仍缺位**：`video_creation/providers/image/` 下没有 `title_card`。
+   调研结论是**在 Python 侧加会重蹈 `diagram_gen` / `code_snippet` 的覆辙**（注册了、YAML 声明了、没人用），
+   故本片**不加**，改为在此登记事实。若将来 Python 侧要补，须同时补齐：① `registry.discover()` 的生产调用点
+   （现在 0 调用 ⇒ 注册表恒空）；② `/api/skills/title_card` 路由（`callPythonSkill` 打的是这个前缀，现在不存在）；
+   ③ `providers/image/__init__.py` 的导出与 `tests/test_image_providers.py` 的硬编码计数（14 → 15）。
+2. **本能力只产出静态图**。给视频加标题条用 `providers/video/showcase_card.py`（输入视频、输出视频）。
+3. **渐变依赖 ffmpeg ≥ 4.4**。更老的 ffmpeg 自动回退纯色（`degraded: true`），不影响出图成功。
+4. **CJK 字体依赖 `font-resolver` 的解析结果**。字体解析失败会出豆腐块（仓库既有问题，已由 font-resolver 的
+   回归锁覆盖）；本模块不再自己找字体，避免出现第二套找字体逻辑。
+5. **不覆盖竖屏专有排版**。`9:16` 沿用同一套版面规则（内容宽度按宽度算），未针对竖屏调优。
