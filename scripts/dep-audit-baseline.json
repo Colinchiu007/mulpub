@@ -31,6 +31,20 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-27r3-jxmh-p828",
+      "module": "body-parser",
+      "severity": "high",
+      "patched": ">=2.4.0",
+      "targetVersion": "2.4.0",
+      "roots": [
+        ".",
+        "packages__ai-writer-api"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-23 新公告（GHSA-27r3-jxmh-p828 = CVE-2026-111181，CWE-248）：body-parser 在 **Content-Encoding 压缩请求体**场景下，读完 body 后把解压流留在「已管道接上、但没有 error 监听」的状态 —— 一个合法压缩帧 + 尾随字节即可让解码器在结束后报错，并被重新抛出为 uncaught exception，**整个进程终止**。公告原文明确：**无需认证、无需匹配路由**（解析发生在路由之前）。本仓实测：packages/ai-writer-api 的 src/server.js:35 用 express.json()（默认 inflate:true ⇒ 会建解压流），src/server.js:112 app.listen(port) **未传 host** ⇒ Node 默认绑全部网卡（默认端口 3487），而鉴权中间件挂在 app.use('/api/ai') 之后（server.js:40）⇒ body 解析发生在鉴权之前 ⇒ 该形态在本仓是**未认证可触发的进程级 DoS**。修复版已发布：2.x→2.4.0、1.x→1.20.9；本仓 lockfile 同时解析出 body-parser@1.20.5（<1.20.9）与 2.3.0（∈[2.0.0,2.4.0)）**两条线都命中**，扫描器汇总报出的是 >=2.4.0。动作 = 把 body-parser 两条线都升到各自修复版以上（1.x→>=1.20.9、2.x→>=2.4.0）并刷新 lockfile；不需要压缩请求体时可用公告给的 work-around express.json({ inflate: false }) 临时缓解。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-2883-xcg3-v3hh",
       "module": "js-yaml",
       "severity": "high",
@@ -76,6 +90,20 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-333x-w4r6-6crp",
+      "module": "fast-uri",
+      "severity": "low",
+      "patched": ">=3.1.9",
+      "targetVersion": "3.1.9",
+      "roots": [
+        ".",
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-23 21:36~21:42 同批同步的公告（GHSA-333x-w4r6-6crp = CVE-2026-110725，low，CWE CWE-41 / CWE-116）：scheme injection via an unescaped first-segment colon in suffix references（后缀引用里首段冒号未转义 ⇒ scheme 注入）。本仓实测：pnpm-lock.yaml 解析到 fast-uri@3.1.8，落在受影响区间 >=3.0.0,<3.1.9 ⇒ 命中；该版本由 packages/remotion-composer 的依赖链引入（remotion 渲染栈的传递依赖）。修复版 3.1.9 已发布。动作 = 把 fast-uri 升到 >=3.1.9 并刷新 lockfile（随 remotion 渲染链一并回归）。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-36fh-84j7-cv5h",
       "module": "jszip",
       "severity": "moderate",
@@ -112,6 +140,22 @@
       ],
       "decision": "upgrade-tracked",
       "note": "qs 为 packages/ai-writer-api 的 express 传递依赖；升级 PR 提到 >=6.16.0。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-4qv8-2p9j-2685",
+      "module": "undici",
+      "severity": "medium",
+      "patched": ">=7.30.1",
+      "targetVersion": "7.30.1",
+      "roots": [
+        ".",
+        "apps__desktop",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-23 22:12~22:14 同批同步的公告（GHSA-4qv8-2p9j-2685 = CVE-2026-109924，medium，CWE CWE-770）：Denial of Service via unbounded memory in the EventSource parser（EventSource 解析器内存无上界 ⇒ 可打爆内存）。本仓实测：pnpm-lock.yaml 解析到 undici@7.30.0，落在受影响区间（该公告族为 >=7.0.0,<7.30.1 / >=7.18.0,<7.30.1 等）⇒ 命中；undici 是 apps/desktop 与 packages/rpa-engine、packages/shared-utils 的 HTTP 客户端传递依赖（根 package.json 亦在扫描面内）。修复版 7.30.1 已发布。动作 = 把 undici 升到 >=7.30.1 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
     },
     {
       "source": "npm",
@@ -183,6 +227,22 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-f72v-6w45-q472",
+      "module": "undici",
+      "severity": "medium",
+      "patched": ">=7.30.1",
+      "targetVersion": "7.30.1",
+      "roots": [
+        ".",
+        "apps__desktop",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-23 22:12~22:14 同批同步的公告（GHSA-f72v-6w45-q472 = CVE-2026-109841，medium，CWE CWE-178）：Subresource Integrity bypass via non-lowercase algorithm tokens（算法 token 非小写 ⇒ SRI 校验可被绕过）。本仓实测：pnpm-lock.yaml 解析到 undici@7.30.0，落在受影响区间（该公告族为 >=7.0.0,<7.30.1 / >=7.18.0,<7.30.1 等）⇒ 命中；undici 是 apps/desktop 与 packages/rpa-engine、packages/shared-utils 的 HTTP 客户端传递依赖（根 package.json 亦在扫描面内）。修复版 7.30.1 已发布。动作 = 把 undici 升到 >=7.30.1 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-fxqj-rqcc-2cmp",
       "module": "postcss",
       "severity": "moderate",
@@ -225,6 +285,21 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-jr5w-w6x2-84p9",
+      "module": "electron",
+      "severity": "high",
+      "patched": ">=43.8.1",
+      "targetVersion": "43.8.1",
+      "roots": [
+        ".",
+        "packages__rpa-engine",
+        "packages__shared-utils"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-23 新公告（GHSA-jr5w-w6x2-84p9 = CVE-2026-115570，CWE-299）：一组 eMudhra 中间证书已被攻陷，浏览器与 TLS 客户端陆续封禁；本次 Electron 更新把同一封禁加进 Chromium networking 与 Node.js 的 tls/https/fetch。未修复版本上，**持有经这些中间证书签发之证书、且能劫持网络流量的攻击者可冒充 TLS 服务端**。公告明确：**无应用侧规避手段，只能升级到修复版**。本仓实测：lockfile 解析到 electron@43.7.7，落在受影响区间 >=43.0.0-alpha.1,<43.8.1；修复版 43.8.1 已发布。roots 是 pnpm audit --prod 口径下的**直接依赖方**：根 package.json 的 dependencies 里 electron ^43.7.7（apps/desktop 的 electron 是 devDependency，被 --prod 排除）、packages/rpa-engine（peer >=33.0.0，optional）、packages/shared-utils（peer >=20.0.0，optional）。影响面：桌面端会对外发 TLS 连接（模型服务商 / 发布平台 API）⇒ **不是纯可用性问题**，属中间 CA 信任链被冒充。动作 = 把 electron 升到 >=43.8.1 并刷新 lockfile；因 electron 是桌面运行时二进制，升级需连带回归打包与启动链，单独排期。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-mh99-v99m-4gvg",
       "module": "brace-expansion",
       "severity": "high",
@@ -235,6 +310,20 @@
       ],
       "decision": "upgrade-tracked",
       "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.8，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
+    },
+    {
+      "source": "npm",
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "module": "zod",
+      "severity": "high",
+      "patched": ">=4.6.6",
+      "targetVersion": "4.6.6",
+      "roots": [
+        ".",
+        "packages__remotion-composer"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "2026-10-23 新公告（GHSA-mrhx-c7xc-m3w5 = CVE-2023-54404，CWE-770 资源未限流）：zod 在校验**超大受限集合**时（如 z.array().max(N) 遇到外部可控的超大数组）会耗尽内存，影响面仅可用性（机密性/完整性均不受影响），CVSS v4 = AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H，EPSS 0.35%（27 百分位）。本仓 zod@4.3.6 由 packages/remotion-composer 的依赖链**精确锁定**（zod-to-json-schema@3.25.2、@remotion/media@4.0.484 等以 zod: 4.3.6 精确引入），该包 package.json 不直接声明 zod。本仓 zod 校验对象是内部生成的渲染参数与配置，不接受外部直接投递超大集合 ⇒ 触发面窄；但修复版本 zod>=4.6.6 已发布，刷新 lockfile 需连带回归 remotion-composer 的渲染/构建链，单独排期。动作 = pnpm 升级 zod 至 >=4.6.6 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
     },
     {
       "source": "npm",
@@ -331,100 +420,6 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-x5fp-wj9c-mxmx",
-      "module": "qs",
-      "severity": "moderate",
-      "patched": ">=6.15.4",
-      "targetVersion": "6.15.4",
-      "roots": [
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "qs 第二条公告，与 GHSA-4mjr 同一升级动作覆盖（取更高修复版本）。"
-    },
-    {
-      "source": "pip",
-      "id": "PYSEC-2026-1325",
-      "module": "ecdsa",
-      "severity": "unknown",
-      "patched": "",
-      "roots": [
-        "ops-center/backend"
-      ],
-      "decision": "no-fix-available",
-      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
-    },
-    {
-      "source": "pip",
-      "id": "PYSEC-2026-4298",
-      "module": "python-jose",
-      "severity": "unknown",
-      "patched": "",
-      "roots": [
-        "ops-center/backend"
-      ],
-      "decision": "not-exploitable",
-      "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-mrhx-c7xc-m3w5",
-      "module": "zod",
-      "severity": "high",
-      "patched": ">=4.6.6",
-      "targetVersion": "4.6.6",
-      "roots": [
-        ".",
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 新公告（GHSA-mrhx-c7xc-m3w5 = CVE-2023-54404，CWE-770 资源未限流）：zod 在校验**超大受限集合**时（如 z.array().max(N) 遇到外部可控的超大数组）会耗尽内存，影响面仅可用性（机密性/完整性均不受影响），CVSS v4 = AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H，EPSS 0.35%（27 百分位）。本仓 zod@4.3.6 由 packages/remotion-composer 的依赖链**精确锁定**（zod-to-json-schema@3.25.2、@remotion/media@4.0.484 等以 zod: 4.3.6 精确引入），该包 package.json 不直接声明 zod。本仓 zod 校验对象是内部生成的渲染参数与配置，不接受外部直接投递超大集合 ⇒ 触发面窄；但修复版本 zod>=4.6.6 已发布，刷新 lockfile 需连带回归 remotion-composer 的渲染/构建链，单独排期。动作 = pnpm 升级 zod 至 >=4.6.6 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-27r3-jxmh-p828",
-      "module": "body-parser",
-      "severity": "high",
-      "patched": ">=2.4.0",
-      "targetVersion": "2.4.0",
-      "roots": [
-        ".",
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 新公告（GHSA-27r3-jxmh-p828 = CVE-2026-111181，CWE-248）：body-parser 在 **Content-Encoding 压缩请求体**场景下，读完 body 后把解压流留在「已管道接上、但没有 error 监听」的状态 —— 一个合法压缩帧 + 尾随字节即可让解码器在结束后报错，并被重新抛出为 uncaught exception，**整个进程终止**。公告原文明确：**无需认证、无需匹配路由**（解析发生在路由之前）。本仓实测：packages/ai-writer-api 的 src/server.js:35 用 express.json()（默认 inflate:true ⇒ 会建解压流），src/server.js:112 app.listen(port) **未传 host** ⇒ Node 默认绑全部网卡（默认端口 3487），而鉴权中间件挂在 app.use('/api/ai') 之后（server.js:40）⇒ body 解析发生在鉴权之前 ⇒ 该形态在本仓是**未认证可触发的进程级 DoS**。修复版已发布：2.x→2.4.0、1.x→1.20.9；本仓 lockfile 同时解析出 body-parser@1.20.5（<1.20.9）与 2.3.0（∈[2.0.0,2.4.0)）**两条线都命中**，扫描器汇总报出的是 >=2.4.0。动作 = 把 body-parser 两条线都升到各自修复版以上（1.x→>=1.20.9、2.x→>=2.4.0）并刷新 lockfile；不需要压缩请求体时可用公告给的 work-around express.json({ inflate: false }) 临时缓解。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-jr5w-w6x2-84p9",
-      "module": "electron",
-      "severity": "high",
-      "patched": ">=43.8.1",
-      "targetVersion": "43.8.1",
-      "roots": [
-        ".",
-        "packages__rpa-engine",
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 新公告（GHSA-jr5w-w6x2-84p9 = CVE-2026-115570，CWE-299）：一组 eMudhra 中间证书已被攻陷，浏览器与 TLS 客户端陆续封禁；本次 Electron 更新把同一封禁加进 Chromium networking 与 Node.js 的 tls/https/fetch。未修复版本上，**持有经这些中间证书签发之证书、且能劫持网络流量的攻击者可冒充 TLS 服务端**。公告明确：**无应用侧规避手段，只能升级到修复版**。本仓实测：lockfile 解析到 electron@43.7.7，落在受影响区间 >=43.0.0-alpha.1,<43.8.1；修复版 43.8.1 已发布。roots 是 pnpm audit --prod 口径下的**直接依赖方**：根 package.json 的 dependencies 里 electron ^43.7.7（apps/desktop 的 electron 是 devDependency，被 --prod 排除）、packages/rpa-engine（peer >=33.0.0，optional）、packages/shared-utils（peer >=20.0.0，optional）。影响面：桌面端会对外发 TLS 连接（模型服务商 / 发布平台 API）⇒ **不是纯可用性问题**，属中间 CA 信任链被冒充。动作 = 把 electron 升到 >=43.8.1 并刷新 lockfile；因 electron 是桌面运行时二进制，升级需连带回归打包与启动链，单独排期。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-333x-w4r6-6crp",
-      "module": "fast-uri",
-      "severity": "low",
-      "patched": ">=3.1.9",
-      "targetVersion": "3.1.9",
-      "roots": [
-        ".",
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 21:36~21:42 同批同步的公告（GHSA-333x-w4r6-6crp = CVE-2026-110725，low，CWE CWE-41 / CWE-116）：scheme injection via an unescaped first-segment colon in suffix references（后缀引用里首段冒号未转义 ⇒ scheme 注入）。本仓实测：pnpm-lock.yaml 解析到 fast-uri@3.1.8，落在受影响区间 >=3.0.0,<3.1.9 ⇒ 命中；该版本由 packages/remotion-composer 的依赖链引入（remotion 渲染栈的传递依赖）。修复版 3.1.9 已发布。动作 = 把 fast-uri 升到 >=3.1.9 并刷新 lockfile（随 remotion 渲染链一并回归）。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-w74x-v6f9-j3xg",
       "module": "fast-uri",
       "severity": "medium",
@@ -453,6 +448,19 @@
     },
     {
       "source": "npm",
+      "id": "GHSA-x5fp-wj9c-mxmx",
+      "module": "qs",
+      "severity": "moderate",
+      "patched": ">=6.15.4",
+      "targetVersion": "6.15.4",
+      "roots": [
+        "packages__ai-writer-api"
+      ],
+      "decision": "upgrade-tracked",
+      "note": "qs 第二条公告，与 GHSA-4mjr 同一升级动作覆盖（取更高修复版本）。"
+    },
+    {
+      "source": "npm",
       "id": "GHSA-xhq7-xmqj-769h",
       "module": "fast-uri",
       "severity": "low",
@@ -464,38 +472,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "2026-10-23 21:36~21:42 同批同步的公告（GHSA-xhq7-xmqj-769h = CVE-2026-110095，low，CWE CWE-41）：improper path equivalence in relative reference normalization（相对引用归一化时路径等价性判断不当）。本仓实测：pnpm-lock.yaml 解析到 fast-uri@3.1.8，落在受影响区间 >=3.0.0,<3.1.9 ⇒ 命中；该版本由 packages/remotion-composer 的依赖链引入（remotion 渲染栈的传递依赖）。修复版 3.1.9 已发布。动作 = 把 fast-uri 升到 >=3.1.9 并刷新 lockfile（随 remotion 渲染链一并回归）。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-4qv8-2p9j-2685",
-      "module": "undici",
-      "severity": "medium",
-      "patched": ">=7.30.1",
-      "targetVersion": "7.30.1",
-      "roots": [
-        ".",
-        "apps__desktop",
-        "packages__rpa-engine",
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 22:12~22:14 同批同步的公告（GHSA-4qv8-2p9j-2685 = CVE-2026-109924，medium，CWE CWE-770）：Denial of Service via unbounded memory in the EventSource parser（EventSource 解析器内存无上界 ⇒ 可打爆内存）。本仓实测：pnpm-lock.yaml 解析到 undici@7.30.0，落在受影响区间（该公告族为 >=7.0.0,<7.30.1 / >=7.18.0,<7.30.1 等）⇒ 命中；undici 是 apps/desktop 与 packages/rpa-engine、packages/shared-utils 的 HTTP 客户端传递依赖（根 package.json 亦在扫描面内）。修复版 7.30.1 已发布。动作 = 把 undici 升到 >=7.30.1 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-f72v-6w45-q472",
-      "module": "undici",
-      "severity": "medium",
-      "patched": ">=7.30.1",
-      "targetVersion": "7.30.1",
-      "roots": [
-        ".",
-        "apps__desktop",
-        "packages__rpa-engine",
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 22:12~22:14 同批同步的公告（GHSA-f72v-6w45-q472 = CVE-2026-109841，medium，CWE CWE-178）：Subresource Integrity bypass via non-lowercase algorithm tokens（算法 token 非小写 ⇒ SRI 校验可被绕过）。本仓实测：pnpm-lock.yaml 解析到 undici@7.30.0，落在受影响区间（该公告族为 >=7.0.0,<7.30.1 / >=7.18.0,<7.30.1 等）⇒ 命中；undici 是 apps/desktop 与 packages/rpa-engine、packages/shared-utils 的 HTTP 客户端传递依赖（根 package.json 亦在扫描面内）。修复版 7.30.1 已发布。动作 = 把 undici 升到 >=7.30.1 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
     },
     {
       "source": "npm",
@@ -512,6 +488,30 @@
       ],
       "decision": "upgrade-tracked",
       "note": "2026-10-23 22:12~22:14 同批同步的公告（GHSA-xjj6-f33q-929c = CVE-2026-109869，high，CWE CWE-248 / CWE-459）：Denial of Service via unhandled error on excessive content-encodings（content-encoding 层数过多时未处理的错误 ⇒ 进程崩）。本仓实测：pnpm-lock.yaml 解析到 undici@7.30.0，落在受影响区间（该公告族为 >=7.0.0,<7.30.1 / >=7.18.0,<7.30.1 等）⇒ 命中；undici 是 apps/desktop 与 packages/rpa-engine、packages/shared-utils 的 HTTP 客户端传递依赖（根 package.json 亦在扫描面内）。修复版 7.30.1 已发布。动作 = 把 undici 升到 >=7.30.1 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
+    },
+    {
+      "source": "pip",
+      "id": "PYSEC-2026-1325",
+      "module": "ecdsa",
+      "severity": "unknown",
+      "patched": "",
+      "roots": [
+        "ops-center/backend"
+      ],
+      "decision": "no-fix-available",
+      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
+    },
+    {
+      "source": "pip",
+      "id": "PYSEC-2026-4298",
+      "module": "python-jose",
+      "severity": "unknown",
+      "patched": "",
+      "roots": [
+        "ops-center/backend"
+      ],
+      "decision": "not-exploitable",
+      "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。"
     }
   ]
 }
