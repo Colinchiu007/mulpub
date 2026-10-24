@@ -283,7 +283,7 @@ function isAccountIncomplete (auth) {
 }
 
 /** 写接口的 CSRF 头名（2026-10-19 真机实证；证据见 pickCsrfToken 注释） */
-const CSRF_HEADER = 'x-csrf-token'
+const CSRF_HEADER = 'x-secsdk-csrf-token' // 2026-10-24 抓包：页面真实头名（旧值 x-csrf-token 是猜的）
 
 /** 承载 CSRF 值的 cookie 名 */
 const CSRF_COOKIE = 'xigua_csrf_token'
