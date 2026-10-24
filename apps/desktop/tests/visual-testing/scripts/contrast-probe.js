@@ -44,11 +44,15 @@ async function main () {
 
   const CASES = [
     ['publish', '/publish', 'span'],
-    ['dashboard', '/dashboard', '.banner-text'],
+    // 原为 '.banner-text'（TrialBanner 内文类名）。该组件随 ux-audit-dead-components-retire 撤下后
+    // 此选择器在看板页恒 0 命中 —— 探针会打「未找到该选择器」然后跳过（不是假绿，但等于这一档从未被测）。
+    // 换成同族的"卡片内小标签文字"：与被撤的横幅同为「深色背景上的小号文字」，对比度量纲一致。
+    ['dashboard', '/dashboard', '.stat-label'],
     ['accounts', '/accounts', '.accounts-page'],
     ['home', '/home-not-used', 'h3.mp-home-section-title'],
   ]
 
+  const missed = []
   for (const [name, route, sel] of CASES) {
     const r = route.startsWith('/home-not') ? '/' : route
     await page.goto(BASE + '/#' + r, { waitUntil: 'networkidle', timeout: 20000 })
@@ -57,7 +61,7 @@ async function main () {
     await page.waitForTimeout(500)
     const res = await probe(page, route, sel)
     console.log(`\n=== ${name} ${sel} ===`)
-    if (!res.found) { console.log('  未找到该选择器'); continue }
+    if (!res.found) { console.log(`  未找到该选择器 ${sel}`); missed.push(name + ' ' + sel); continue }
     console.log(`  文本: "${res.text}"`)
     console.log(`  color: ${res.color}`)
     console.log(`  body 背景: ${res.bodyBg}   html 背景: ${res.htmlBg}`)
@@ -65,5 +69,11 @@ async function main () {
     res.chain.forEach(c => console.log(`    <${c.tag} class="${c.cls}"> bg=${c.bg}`))
   }
   await browser.close()
+
+  // 逐条 continue 会让"跑了 4 条"读起来像"量了 4 条"。缺目标必须**汇总出声并以非零码退出**：
+  // 这个脚本是人工诊断入口，它没有断言，唯一的防自欺手段就是退出码与这行汇总。
+  console.log(`\n[PROBE-SUMMARY] cases=${CASES.length} measured=${CASES.length - missed.length} missed=${missed.length}`
+    + (missed.length ? ' 未量到：' + missed.join(' / ') : ''))
+  process.exitCode = missed.length ? 1 : 0
 }
 main().catch(e => { console.error(e); process.exit(1) })
