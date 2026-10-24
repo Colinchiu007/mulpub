@@ -46,6 +46,29 @@ branch: ux-audit-nonbutton-keys
 
 **为什么不顺手改**：两条正解都有代价 —— ① 撤销 `role`/`tabindex` 会把卡片重新变成键盘不可达（与本批方向相反）；② 把主行动改成卡内真按钮（标题即按钮）会改信息层级与点击热区。这属产品/设计裁决，按本仓口径**上报不代拍**。清点脚本是一次性取证（未接 CI），要把「leaf 角色不得有可聚焦后代」做成常驻门禁亦属新增门禁，需人工批准。
 
+### 3-A 欠账清单随主干前进而补全（2026-10-24，CI 实测驱动）
+
+本批当时实测「缺环=1」（只登记 `views/CreateHistory.vue` 一条）。**主干此后新增了 13 个带
+`tabindex="0"` 的文件**（其它批次引入的组件）⇒ 本锁的欠账清单**相对主干已过期**：
+2026-10-24 在 #4088 的 CI（head `81e95d400`）上实测「有 `tabindex="0"` 却没有焦点环规则」的站点
+共 **18 处 / 14 个文件**，而清单只有 2 条 ⇒ 判据首条断言红（`missing` 集合非空）。
+
+处置：**按本锁自己声明的上线三步序**（头注释：「新门禁先建『只可缩小』的基线，**不得要求本批把全仓历史一次修完**」），
+把清单补全到 **16 条**（原 2 条 + 新增 14 个文件），逐条写明归属批次与为何不在本批修
+（补环会改渲染结果、需与像素门禁同批）。**不改写本批当时的实测读数** ——
+「缺环=1」是那时的真实读数；这里只如实记下「清单随主干前进而补全」这件事本身。
+
+新增的 14 个文件（全部是**存量**欠账，均不在本批改动面上）：
+`components/BoardStageIndicator.vue`、`components/ProjectCard.vue`、`components/SceneCard.vue`、
+`components/TagSuggester.vue`、`components/TemplatePicker.vue`、`views/AutoPipelineView.vue`、
+`views/Calendar.vue`、`views/CloudPublish.vue`、`views/Comments.vue`、`views/ContactSheetView.vue`、
+`views/CreateView.vue`、`views/ModelProviders.vue`、`views/ReplayTimeline.vue`、
+`views/video-creation/SceneAssetSelection.vue`。
+
+⚠ **这条欠账清单会随主干继续前进而再次过期** —— 谁先把「清单相对主干完整」做成机械校验，
+谁就少踩一次。本锁目前只校验「清单里的条目仍成立」与「两条计数基线不得放宽」，**没有**校验
+「清单是否覆盖了主干当前的全部缺环站点」⇒ 那是这条清单的已知盲窗，如实登记。
+
 ## 4. 门禁
 
 | 门禁 | 状态 | 证据 |

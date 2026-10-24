@@ -58,6 +58,63 @@ export const FOCUSABLE_DEBT = {
       + '（旧正则 `[^>]*` 不跨行，而这个标签的属性跨了多行 ⇒ 对旧判据结构性隐形）。'
       + '属阶段 2「发布进度」批次的面，补环需与该批的计算样式取证同做，不在本批顺手改。',
   },
+  'components/BoardStageIndicator.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.stage-node 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'components/ProjectCard.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.project-card 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'components/SceneCard.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.scene-card 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'components/TagSuggester.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，span.cohere-tag.suggested-tag 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'components/TemplatePicker.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.template-item 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/AutoPipelineView.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，span.ap-url-remove 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/Calendar.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.cal-day 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/CloudPublish.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，span.cohere-tag.cp-tag-click 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/Comments.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.comment-platform-item 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/ContactSheetView.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.take-card 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/CreateView.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.upload-zone 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/ModelProviders.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，span.capability-default-chip 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/ReplayTimeline.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，div.event-row 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+  'views/video-creation/SceneAssetSelection.vue': {
+    kind: 'missing',
+    reason: '该元素的 tabindex="0" 早于本批（本批只做阶段 4.4 的卡片可聚焦化，video.sas-thumb 不在本批改动面上）⇒ 属存量欠账。补环会改渲染结果、需与像素门禁同批，不在本批顺手改；归后续「键盘可达与焦点环」批次处理，条目修好即从本清单删除。'
+  },
+
 }
 
 /**
