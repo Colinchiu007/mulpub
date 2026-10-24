@@ -34,6 +34,16 @@ class PublishApiRedeemCodeAdminHelpers {
             providerReference: grantBody.providerReference || null,
             operator: grantBody.operator || null,
           });
+          // 审计：手动开通是**直接发放权益**的花钱动作，必须留痕（谁、何时、给谁、什么档、几天）。
+          // 范式同既有 redeem_code_reveal。
+          this._auditLog.log({
+            ownerSubject: this._ownerSubject(req),
+            type: "member_grant",
+            userId: grantBody.userId,
+            plan: grantBody.plan,
+            durationDays: grantBody.durationDays,
+            operator: grantBody.operator || null,
+          });
           this._json(res, 200, { success: true, ...grantResult });
           return true;
         }
@@ -46,6 +56,17 @@ class PublishApiRedeemCodeAdminHelpers {
             batch: batchBody && batchBody.batch || null,
             expiresAt: batchBody && batchBody.expiresAt || null,
             issuedTo: batchBody && batchBody.issuedTo || null,
+          });
+          // 审计：批量签发 = 一次性制造 N 张可兑的资产，**等价于放出一笔等值的钱**。
+          // 不留痕的话，泄漏后连「这批码是谁签的」都查不到。
+          this._auditLog.log({
+            ownerSubject: this._ownerSubject(req),
+            type: "redeem_code_batch_issued",
+            batch: batchResult.batch,
+            plan: batchResult.plan,
+            durationDays: batchResult.durationDays,
+            issuedTo: batchResult.issuedTo || null,
+            count: batchResult.generated,
           });
           this._json(res, 200, { success: true, ...batchResult });
           return true;
@@ -116,6 +137,13 @@ class PublishApiRedeemCodeAdminHelpers {
     const disableBody = await this._parseBody(req);
     const disableResult = await this._subscriptionService.disableRedeemCode({
       code: disableBody && disableBody.code,
+    });
+    // 审计：作废 = 权益收回。必须能回答「谁在何时作废了哪个码」。
+    this._auditLog.log({
+      ownerSubject: this._ownerSubject(req),
+      type: "redeem_code_disabled",
+      code: disableBody && disableBody.code,
+      idempotent: disableResult.idempotent === true,
     });
     this._json(res, 200, { success: true, ...disableResult });
     return true;

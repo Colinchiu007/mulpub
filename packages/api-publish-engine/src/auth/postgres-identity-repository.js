@@ -116,7 +116,7 @@ const SCHEMA = [
     ON identity_redeem_codes(batch)`,
   // 与 migrations/postgresql/009_redeem_code_issued_to.sql 逐字成对。
   // ⚠️ 必须用 ALTER 而不是改上面的 CREATE TABLE：CREATE TABLE IF NOT EXISTS
-  // 对**已存在的表是 no-op、不会加列** ⇒ 开发库（已有旧表）永远缺这两列。
+  // 对**已存在的表是 no-op、不会加列** ⇒ 开发库（已有旧表）永远缺这一列。
   `ALTER TABLE identity_redeem_codes ADD COLUMN IF NOT EXISTS issued_to TEXT`,
   `CREATE TABLE IF NOT EXISTS identity_notifications (
     id TEXT PRIMARY KEY,

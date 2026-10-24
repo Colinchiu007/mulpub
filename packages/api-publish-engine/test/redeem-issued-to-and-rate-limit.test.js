@@ -26,6 +26,23 @@ test('createRedeemBatch 把 issued_to（发放对象）透传到仓储，并去�
   assert.strictEqual(result.issuedTo, '渠道A')
 })
 
+test('issued_to 是**透传**而不是写死的常量（两个不同值各自归位）', async () => {
+  const created = []
+  const service = new SubscriptionService({
+    repository: {
+      async createRedeemCodes(records) { created.push(...records); return records.map((r) => r.code) },
+    },
+    now: () => new Date('2026-10-24T00:00:00Z'),
+  })
+  await service.createRedeemBatch({ plan: 'standard', durationDays: 30, count: 1, issuedTo: '渠道A' })
+  await service.createRedeemBatch({ plan: 'pro', durationDays: 90, count: 1, issuedTo: '渠道B' })
+  assert.strictEqual(created.length, 2)
+  assert.strictEqual(created[0].issuedTo, '渠道A')
+  assert.strictEqual(created[1].issuedTo, '渠道B')
+  // ⚠️ 若实现把 issuedTo 写死成某一个常量，上面两条断言里至少有一条会红。
+  assert.notStrictEqual(created[0].issuedTo, created[1].issuedTo)
+})
+
 test('issued_to 为空/空白 ⇒ 视为未填（null），不是错误', async () => {
   const created = []
   const service = new SubscriptionService({
@@ -59,6 +76,26 @@ test('issued_to 超长 ⇒ 400 ISSUED_TO_INVALID（闸门在入口，不在数�
     () => service.createRedeemBatch({ plan: 'pro', durationDays: 90, count: 1, issuedTo: 'x'.repeat(201) }),
     (error) => error.code === 'ISSUED_TO_INVALID' && error.status === 400
   )
+})
+
+test('listRedeemCodes：issued_to 为 null 或缺字段时映射成 null（不是 undefined）', async () => {
+  const service = new SubscriptionService({
+    repository: {
+      async listRedeemCodes() {
+        return [
+          { code: 'ABCD-EFGH-JKMN', plan: 'standard', duration_days: 30, batch: 'b1', status: 'active', used_by: null, used_at: null, expires_at: null, created_at: '2026-10-24T00:00:00Z', issued_to: null },
+          { code: 'WXYZ-2345-JKMN', plan: 'pro', duration_days: 90, batch: 'b2', status: 'active', used_by: null, used_at: null, expires_at: null, created_at: '2026-10-24T00:00:00Z' },
+        ]
+      },
+      async countRedeemCodes() { return 2 },
+    },
+    now: () => new Date('2026-10-24T00:00:00Z'),
+  })
+  const result = await service.listRedeemCodes({})
+  assert.strictEqual(result.codes[0].issuedTo, null)
+  assert.strictEqual(result.codes[1].issuedTo, null)
+  // ⚠️ 契约要求是 null 而不是 undefined：JSON 序列化后 undefined 字段会整条消失
+  assert.ok(Object.prototype.hasOwnProperty.call(result.codes[0], 'issuedTo'))
 })
 
 test('listRedeemCodes 把 issued_to 映射成 issuedTo', async () => {
@@ -242,6 +279,7 @@ function createVerifier() {
   return {
     verify: async (token) => {
       if (token === 'member-write') return { subject: 'sub-me', scopes: ['profile:read', 'profile:write'] }
+      if (token === 'admin-token') return { subject: 'sub-admin', scopes: ['admin:users'] }
       throw Object.assign(new Error('AUTH_TOKEN_INVALID'), { code: 'AUTH_TOKEN_INVALID', status: 401 })
     },
   }
@@ -276,6 +314,80 @@ test('接线：连续探测式失败超过阈值后，端点真的返回 429（�
     assert.strictEqual(blocked.body.error, 'REDEEM_RATE_LIMITED')
     // ⚠️ 不得透露剩余次数（否则限流器本身可被探测）
     assert.strictEqual(JSON.stringify(blocked.body).includes('remaining'), false)
+  } finally {
+    await server.stop()
+  }
+})
+
+test('接线：一次成功后失败计数被清零（路由层确实调用了 recordSuccess）', async () => {
+  let call = 0
+  const service = {
+    repository: {},
+    planOverrides: null,
+    async redeem() {
+      call += 1
+      // 第 3 次成功，其余失败
+      if (call === 3) return { idempotent: false, plan: 'standard', subscription: null, periodEnd: null }
+      throw Object.assign(new Error('兑换码不存在'), { code: 'REDEEM_CODE_NOT_FOUND', status: 404 })
+    },
+  }
+  const server = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createIdentityRepository('u-4'),
+    entitlementProvider: { async getForUser() { return { plan: 'standard', features: [], quota: {}, limits: {} } } },
+    subscriptionService: service,
+  })
+  await server.start(0)
+  const port = server._server.address().port
+  try {
+    // 失败 2 次 → 计数 2
+    assert.strictEqual((await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })).status, 404)
+    assert.strictEqual((await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })).status, 404)
+    // 第 3 次成功 ⇒ 成功路径必须清零失败计数
+    assert.strictEqual((await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })).status, 200)
+    // 若成功没有清零，失败计数仍是 2 ⇒ 第 4 次失败就会被拦（有效占用 = 失败数 + 待定 ≥ 5）；
+    // 清零了 ⇒ 还能再失败 5 次，第 6 次才拦。
+    // ⇒ 「循环内全是 404」这条断言本身就区分了两种实现。
+    for (let i = 0; i < 5; i++) {
+      const res = await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })
+      assert.strictEqual(res.status, 404, `成功后第 ${i + 1} 次失败应是 404（说明计数已清零）`)
+    }
+    assert.strictEqual((await request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'X' })).status, 429)
+  } finally {
+    await server.stop()
+  }
+})
+
+test('接线：运营签发端点确实把 issuedTo 转发给了服务层', async () => {
+  const seen = []
+  const service = {
+    repository: {},
+    planOverrides: null,
+    async redeem() { throw Object.assign(new Error('x'), { code: 'REDEEM_CODE_NOT_FOUND', status: 404 }) },
+    async createRedeemBatch(payload) {
+      seen.push(payload)
+      return { batch: 'b1', plan: payload.plan, durationDays: payload.durationDays, issuedTo: payload.issuedTo, requested: 1, generated: 1, codes: ['ABCD-EFGH-JKMN'] }
+    },
+  }
+  const server = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createIdentityRepository('u-5'),
+    entitlementProvider: { async getForUser() { return { plan: 'standard', features: [], quota: {}, limits: {} } } },
+    subscriptionService: service,
+  })
+  await server.start(0)
+  const port = server._server.address().port
+  try {
+    const res = await request(port, 'POST', '/api/v1/admin/member/redeem-codes', 'admin-token', {
+      plan: 'standard', durationDays: 90, count: 1, issuedTo: '渠道Z',
+    })
+    assert.strictEqual(res.status, 200)
+    assert.strictEqual(seen.length, 1)
+    // ⚠️ 若运营端点没转发 issuedTo，这里拿到的会是 undefined
+    assert.strictEqual(seen[0].issuedTo, '渠道Z')
+    assert.strictEqual(res.body.issuedTo, '渠道Z')
   } finally {
     await server.stop()
   }

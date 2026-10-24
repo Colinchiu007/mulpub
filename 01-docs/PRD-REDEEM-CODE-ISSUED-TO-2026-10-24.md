@@ -322,7 +322,7 @@ payload = { plan, durationDays, expiresAt, nonce }
 
 建议（engine 路由层，与 `publish-api-server.js:938` 同层）：
 - 同一用户：60 秒内**失败** ≥ 5 次 ⇒ 429 + 退避
-- 同一 IP：10 分钟内**失败** ≥ 30 次 ⇒ 429
+- 同一 IP：10 分钟内**失败** ≥ 30 次，**且最近 60 秒内失败 ≥ 10 次** ⇒ 429
 - **只计失败**，成功不计数（否则正常用户连兑几张码就被限）
 - 命中时只回 429，**不透露剩余次数**（否则限流器本身可被探测）
 - 计数存储：短期用进程内 LRU（多实例时各自计数，精度可接受）；若已部署 Redis 则用它
@@ -364,7 +364,11 @@ ALTER TABLE identity_redeem_codes ADD COLUMN IF NOT EXISTS issued_to TEXT;
 ALTER TABLE identity_redeem_codes ADD COLUMN IF NOT EXISTS note TEXT;
 ```
 `issued_to` = 发放对象（渠道名 / 客户名 / 活动名），`note` = 运营备注。
-泄漏后可精确定位受影响批次 → 批量作废。
+泄漏后可按 `batch` 列出该批次的码 → 逐个吊销。
+
+> ⚠️ **能力边界**：仓里**只有单码吊销**（`POST /api/v1/admin/member/redeem-codes/disable`），
+> **没有批量作废端点**；`issued_to` 也**不是列表筛选条件**（列表只支持 `plan`/`status`/`batch` 过滤）。
+> 「批量作废端点」与「按 `issued_to` 筛选」是下一轮的独立改动（见 §5.4 已标注「新增」的那条）。
 
 ⚠️ **迁移纪律**：新迁移放 `migrations/postgresql/007_*.sql`
 （⚠️ 目录当前已有 `002_logto_identity.sql` / `003_logto_webhook_events.sql` /
@@ -562,7 +566,7 @@ const REDEEM_DURATION_PRESETS = Object.freeze([
 | # | 文件 | 改什么 | 漏了会怎样 |
 |---|---|---|---|
 | 1 | `migrations/postgresql/007_*.sql`（**新建**） | `ALTER TABLE identity_redeem_codes ADD COLUMN IF NOT EXISTS issued_to TEXT;`（同理 `note`） | 生产 `assertReady()` 报 `MIGRATION_PENDING` |
-| 2 | `postgres-identity-repository.js` 的 `SCHEMA` 数组（`:104-116` 之后） | **同样两条 ALTER 语句** | ⚠️ **最隐蔽的一个**：SCHEMA 里那张表是 `CREATE TABLE IF NOT EXISTS`（`:104`）——**对已存在的表是 no-op，不会加列**！开发库既有表将永远缺这两列 ⇒ 新 INSERT 报 `column "issued_to" does not exist` |
+| 2 | `postgres-identity-repository.js` 的 `SCHEMA` 数组（`:104-116` 之后） | **同一条 ALTER 语句** | ⚠️ **最隐蔽的一个**：SCHEMA 里那张表是 `CREATE TABLE IF NOT EXISTS`（`:104`）——**对已存在的表是 no-op，不会加列**！开发库既有表将永远缺这一列 ⇒ 新 INSERT 报 `column "issued_to" does not exist` |
 | 3 | `postgres-commerce-store.js:282-298` `createRedeemCodes` | INSERT 是 `unnest($1,$2,$3,$4,$5)` 批量形式 ⇒ 要加第 6 个数组参数 | 签发直接失败 |
 | 4 | `postgres-commerce-store.js:310-317` `listRedeemCodes` | SELECT 列清单加 `issued_to` | 列表页拿不到发放对象 |
 
@@ -805,14 +809,16 @@ P0-1 桌面端、P0-3 复制导出、P1-2 scope 拆分、P2 系列仍在下一�
 | # | 决策 | **定案** | 理由与落地 |
 |---|---|---|---|
 | 1 | 档位显示名 | **沿用仓内命名**（标准版 / 专业版） | 同一产品内档位名必须唯一；「基础」在仓内已被 `modelTier: 0`「基础模型层级」占用且含义相反。渠道话术在营销物料里做映射表，不改产品内档位名。**落地**：运营中心前端加 `PLAN_LABELS` 显示映射，`plan` 的值仍是 `standard`/`pro`（服务端契约不变）。 |
-| 2 | `issued_to`（发放对象） | **做** | 它是「码泄漏后能止损」的唯一前提：没有发放对象就无从定位受影响批次，也就无法批量作废。**落地**：迁移 `009_redeem_code_issued_to.sql`（+ 运行时 SCHEMA 数组逐字成对）+ 仓储 INSERT/SELECT + 服务层透传与归一化 + 运营 API + ops 转发层 + 运营前端输入与列表列。 |
+| 2 | `issued_to`（发放对象） | **做** | 它回答「这批码发给了谁」——没有它，泄漏后运营只能靠记忆排查。**能力边界**：仓里只有单码吊销，**没有批量作废端点**；`issued_to` 也**不是列表筛选条件** ⇒ 处置靠 `batch` 过滤 + 逐个吊销（批量作废列入下一轮）。**落地**：迁移 `009_redeem_code_issued_to.sql`（+ 运行时 SCHEMA 数组逐字成对 + 防漂移锁）+ 仓储 INSERT/SELECT + 服务层透传与归一化 + 运营 API + ops 转发层 + 运营前端输入与列表列。 |
 | 3 | 失败限流严格程度 | **先上温和档** | 同一用户 60 秒内失败 ≥ 5 次 / 同一 IP 10 分钟内失败 ≥ 30 次 ⇒ 429。只计「格式错 / 不存在」两类探测型失败；已用 / 停用 / 过期不计（那是正常业务）。命中时不透露剩余次数。**落地**：`redeem-rate-limit.js`（端点级 + 失败计数）+ `publish-api-redeem.js`（路由 + 限流门）。观察一周真实数据后再决定是否收紧或上共享存储。 |
 
 ### 本轮实施的三处「必须这么写」（踩过的坑，别再犯）
 
 - **迁移编号用 009，刻意跳过 007 / 008**：008 已被在飞 PR #4322 占用，007 预留给尚未开 PR 的
-  compute-key-envelope-migration change。迁移台账对「文件名 + checksum」双向锁定，
-  **撞号会让 identity 仓储启动期硬失败** ⇒ 宁可跳号，不可撞号。
+  compute-key-envelope-migration change。编号机制（实测自 `postgres-migrations.js`）：台账按
+  **完整文件名**记账，排序按文件名字母序 ⇒ 两个**同号不同名**的迁移不会撞台账，但**相对执行顺序
+  会退化成字母序** ⇒ 有依赖关系时可能以错误顺序执行。真正让 identity 仓储**启动期硬失败**的是
+  「同名文件被改」（checksum 不一致）与「文件已入库未执行」。⇒ 结论不变：**宁可跳号，不可撞号**。
 - **加列要两处同改**（迁移 + 运行时 SCHEMA 数组）：SCHEMA 数组里那张表写的是
   `CREATE TABLE IF NOT EXISTS` ⇒ **对已存在的表是 no-op、不会加列** ⇒ 开发库永远缺列 ⇒
   只在开发环境复现的诡异差异。两处都用 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`。

@@ -109,3 +109,66 @@ test('006 支付迁移与开发态 SCHEMA 一致', async (t) => {
   })
 })
 
+
+// 009 兑换码「发放对象」列。体例与 004/006 一致，但**双向**比对：
+// 本仓已知的漂移形态恰恰是「SCHEMA 侧多出一条 ALTER、迁移侧没有」——
+// 单向（迁移 → SCHEMA）比对**抓不到**那种漂移，而那正是会让开发库缺列、
+// 生产库正常（只在开发环境复现）的那一种。故此处两向都断言。
+test('009 兑换码发放对象列与开发态 SCHEMA 双向一致', async (t) => {
+  await t.test('迁移文件可发现且含 issued_to 的 ALTER', async () => {
+    const { discoverMigrations, normalizeMigrationSql } = require('../src/auth/postgres-migrations')
+    const migrations = discoverMigrations(MIGRATIONS_DIR)
+    const target = migrations.find((item) => item.name === '009_redeem_code_issued_to.sql')
+    assert.ok(target, '缺少 009_redeem_code_issued_to.sql')
+    assert.doesNotThrow(() => normalizeMigrationSql(target.sql))
+    assert.match(
+      target.sql,
+      /ALTER TABLE identity_redeem_codes ADD COLUMN IF NOT EXISTS issued_to TEXT/,
+      '009 迁移必须加 issued_to 列（且用 IF NOT EXISTS 保证可重跑）'
+    )
+    // 编号纪律：009 必须在 006 之后（编号撞车会让 identity 仓储启动期硬失败）
+    const names = migrations.map((item) => item.name)
+    assert.ok(
+      names.indexOf('009_redeem_code_issued_to.sql') > names.indexOf('006_payment_orders.sql'),
+      '009 必须排在 006 之后'
+    )
+  })
+
+  await t.test('迁移与开发态 SCHEMA 双向逐字一致', async () => {
+    const { normalizeMigrationSql } = require('../src/auth/postgres-migrations')
+    const { SCHEMA } = require('../src/auth/postgres-identity-repository')
+    const fs = require('fs')
+    const raw = fs.readFileSync(path.join(MIGRATIONS_DIR, '009_redeem_code_issued_to.sql'), 'utf8')
+    const normalizeStatement = (statement) => statement.replace(/\s+/g, ' ').trim()
+    const ddlStatements = normalizeMigrationSql(raw)
+      .replace(/--[^\r\n]*/g, '')
+      .split(';')
+      .map(normalizeStatement)
+      .filter(Boolean)
+      .filter((statement) => !/^(?:BEGIN|COMMIT|ROLLBACK)\b/i.test(statement))
+    assert.ok(ddlStatements.length > 0, '009 迁移正文未解析出任何 DDL 语句')
+    const schemaStatements = new Set(SCHEMA.map(normalizeStatement))
+    // 方向一：迁移里的每条语句都必须在 SCHEMA 里
+    for (const statement of ddlStatements) {
+      assert.ok(
+        schemaStatements.has(statement),
+        `009 迁移与开发态 SCHEMA 漂移，SCHEMA 缺少语句：${statement.slice(0, 80)}`
+      )
+    }
+    // 方向二：SCHEMA 里与 issued_to 相关的语句也必须在迁移里
+    // （单向比，抓不到「SCHEMA 多出一条、迁移没有」那种漂移——那会让开发库缺列而生产正常）
+    for (const statement of SCHEMA.map(normalizeStatement)) {
+      if (!/ADD COLUMN IF NOT EXISTS issued_to/.test(statement)) continue
+      assert.ok(
+        ddlStatements.includes(statement),
+        `开发态 SCHEMA 多出一条迁移里没有的语句：${statement.slice(0, 80)}`
+      )
+    }
+  })
+
+  await t.test('SCHEMA 侧必须用 ALTER 兜底（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）', async () => {
+    const { SCHEMA } = require('../src/auth/postgres-identity-repository')
+    const hasAlter = SCHEMA.some((statement) => /ADD COLUMN IF NOT EXISTS issued_to/.test(statement))
+    assert.ok(hasAlter, 'SCHEMA 数组必须包含 issued_to 的 ALTER —— 只靠 CREATE TABLE IF NOT EXISTS 不会给已存在的表加列')
+  })
+})
