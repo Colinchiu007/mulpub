@@ -644,3 +644,62 @@ describe('explain publish_log', () => {
     expect(codes(checkPublishLogCriteria({ entries: [] }))).toContain('EMPTY_PUBLISH_LOG')
   })
 })
+
+// ---------------------------------------------------------------------------
+// ⑧ 场景来源解析（三种形态）与 compose 输出合并
+// ---------------------------------------------------------------------------
+
+describe('explain 场景来源解析与 compose 输出合并', () => {
+  const { resolveSceneSource, adaptScenesForAssets } = require('./explainer-prod-stages')
+  const { composeOutputWithArtifacts } = require('./explainer-review-stages')
+
+  const planObject = {
+    version: '1.0',
+    scenes: [
+      { id: 'scene-1', type: 'broll', description: '主体', start_seconds: 0, end_seconds: 6,
+        script_section_id: 's1', shot_language: { shot_size: 'medium' } },
+      { id: 'scene-2', type: 'diagram', description: '流程', start_seconds: 6, end_seconds: 14,
+        script_section_id: 's2', shot_language: { shot_size: 'wide' } },
+    ],
+  }
+  const script = { sections: [{ id: 's1', text: '第一段', start_seconds: 0, end_seconds: 6 }] }
+
+  it('★ 认「context.scenes 是 scene_plan 对象」这一形态（本仓阶段名叫 scenes ⇒ 产物落在这里）', () => {
+    const src = resolveSceneSource({ scenes: planObject })
+    expect(src.legacy).toBe(false)
+    expect(src.scenes).toHaveLength(2)
+    expect(src.plan).toBe(planObject)
+  })
+
+  it('认「context.scene_plan 是对象」这一形态（按上游阶段名对齐的键）', () => {
+    const src = resolveSceneSource({ scene_plan: planObject })
+    expect(src.legacy).toBe(false)
+    expect(src.scenes).toHaveLength(2)
+  })
+
+  it('认「context.scenes 是旧形态数组」这一形态（断点续跑的旧 run 上下文）', () => {
+    const legacy = [{ prompt: 'p1', text: 't1', duration: 6 }]
+    const src = resolveSceneSource({ scenes: legacy })
+    expect(src.legacy).toBe(true)
+    expect(src.scenes).toEqual(legacy)
+  })
+
+  it('★ assets 适配：context.scenes 是对象形态时也要能取出场景并组装提示词', () => {
+    const adapted = adaptScenesForAssets({ scenes: planObject, script }, { imageStyle: 'cinematic' })
+    expect(adapted.scenes).toHaveLength(2)
+    expect(adapted.scenes[0].prompt).toContain('镜头：medium')
+    expect(adapted.scenes[0].text).toContain('第一段')
+  })
+
+  it('★ compose 输出必须保留原始 videoPath（内置 publish 阶段从 context.compose 读它）', () => {
+    const merged = composeOutputWithArtifacts(
+      { videoPath: '/tmp/out.mp4', fileSize: 123, segmentCount: 2, duration: 20 },
+      { version: '1.0', outputs: [] },
+      { version: '1.0', status: 'pass' },
+    )
+    expect(merged.videoPath).toBe('/tmp/out.mp4')
+    expect(merged.fileSize).toBe(123)
+    expect(merged.render_report).toBeTruthy()
+    expect(merged.final_review).toBeTruthy()
+  })
+})

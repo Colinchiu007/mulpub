@@ -315,6 +315,28 @@ function getDefaultProviderConfig (aiGenerator, type) {
 }
 
 /**
+ * 解析场景来源，认**三种**形态。
+ *
+ * ⚠ **为什么有三种**：产物的 context 键是 **`context[stage.name]`**，而本仓阶段名是 `scenes`
+ *   （上游是 `scene_plan`）⇒ 新契约的产物落在 `context.scenes` 且**是对象**；
+ *   而 P2b 之前 `context.scenes` 是**旧形态的场景数组**；另外 `context.scene_plan`
+ *   是按上游阶段名对齐的键（P4 的 EP 状态机会按上游两级结构取）。
+ * ⇒ 三种都要认，否则任一形态都会被读成「没有场景」。
+ *
+ * @returns {{ plan: object|null, scenes: Array, legacy: boolean }}
+ */
+function resolveSceneSource (context) {
+  const candidates = [asObject(context).scene_plan, asObject(context).scenes]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    if (Array.isArray(candidate)) return { plan: null, scenes: candidate, legacy: true }
+    const scenes = asArray(candidate.scenes)
+    if (scenes.length) return { plan: candidate, scenes, legacy: false }
+  }
+  return { plan: null, scenes: [], legacy: false }
+}
+
+/**
  * 把 scene_plan（**或旧形态的场景数组**）转成 story2video assets 阶段要的输入。
  *
  * ⚠ **双形态适配**：P2b 之前 scenes 阶段输出 `[{prompt, text, duration}]` 数组；
@@ -326,11 +348,12 @@ function getDefaultProviderConfig (aiGenerator, type) {
  */
 function adaptScenesForAssets (context, options = {}) {
   const issues = []
-  const plan = asObject(context.scene_plan)
-  const planScenes = asArray(plan.scenes)
-  const legacyScenes = Array.isArray(context.scenes) ? context.scenes : []
+  const source = resolveSceneSource(context)
+  const plan = source.plan
+  const planScenes = source.scenes
+  const legacyScenes = source.legacy ? source.scenes : []
 
-  if (planScenes.length) {
+  if (planScenes.length && !source.legacy) {
     const link = linkScenesToSections(planScenes, asArray(asObject(context.script).sections))
     const split = planScenes.map((scene, index) => {
       const obj = asObject(scene)
@@ -432,9 +455,10 @@ function createAssetsExecutor (pipelineEngine) {
  */
 function createEditingExecutor (pipelineEngine) {
   return async ({ stage, context }) => {
-    const plan = asObject(context.scene_plan)
-    if (!asArray(plan.scenes).length) {
-      return { success: false, error: 'animated-explainer editing 需要有效的 scene_plan（context.scene_plan）' }
+    const source = resolveSceneSource(context)
+    const plan = source.plan
+    if (!source.scenes.length) {
+      return { success: false, error: 'animated-explainer editing 需要有效的 scene_plan（context.scene_plan / context.scenes）' }
     }
     const manifest = asObject(context.assets)
     if (!asArray(manifest.assets).length) {
@@ -443,7 +467,7 @@ function createEditingExecutor (pipelineEngine) {
     const proposal = asObject(context.proposal)
     const lockedRuntime = asText(asObject(proposal.production_plan).render_runtime)
     const decisions = buildEditDecisions({}, {
-      scenePlan: plan,
+      scenePlan: plan || { version: '1.0', scenes: source.scenes },
       assetManifest: manifest,
       script: asObject(context.script),
       renderRuntime: lockedRuntime,
@@ -471,3 +495,4 @@ module.exports.adaptScenesForAssets = adaptScenesForAssets
 module.exports.createAssetsExecutor = createAssetsExecutor
 module.exports.createEditingExecutor = createEditingExecutor
 module.exports.getDefaultProviderConfig = getDefaultProviderConfig
+module.exports.resolveSceneSource = resolveSceneSource

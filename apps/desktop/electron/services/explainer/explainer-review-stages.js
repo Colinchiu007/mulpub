@@ -48,6 +48,17 @@ const {
 } = require('./explainer-media-probe')
 
 /**
+ * 合成产物 + 两个 artifact 的合并（抽成纯函数以便单测）。
+ *
+ * ⚠ **必须保留 compose 原始输出**（videoPath / fileSize / segmentCount / duration）：
+ *   下一个阶段是内置 publish 阶段，它从 `context.compose` 读 videoPath 去找成片
+ *   ⇒ 只输出两个 artifact 会让 publish 拿不到片（**静默失败**：不发布也不报错）。
+ */
+function composeOutputWithArtifacts (rawOutput, renderReport, finalReview) {
+  return { ...asObject(rawOutput), render_report: renderReport, final_review: finalReview }
+}
+
+/**
  * compose 阶段：先跑内置合成，再探测产物，最后装配 render_report + final_review。
  *
  * @param {object} pipelineEngine
@@ -118,7 +129,7 @@ function createComposeExecutor (pipelineEngine) {
 
     return {
       success: true,
-      output: { render_report: renderReport, final_review: finalReview },
+      output: composeOutputWithArtifacts(output, renderReport, finalReview),
       // ⚠ final_review.status = 'fail' 时**不把成片当完成品**（上游 schema 明写）
       //   但**不阻断流水线** —— 成片在盘上，阻断只会让用户拿不到。
       issues: asArray(asObject(finalReview.metadata).issues),
@@ -158,6 +169,7 @@ function createPublishExecutor (pipelineEngine) {
 }
 
 module.exports = {
+  composeOutputWithArtifacts,
   createComposeExecutor,
   createPublishExecutor,
 }
