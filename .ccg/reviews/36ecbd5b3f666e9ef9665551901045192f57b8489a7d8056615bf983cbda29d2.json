@@ -1,0 +1,58 @@
+{
+  "sha": "502062b27aa806e73484291cc70f9c2a1530ab54",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1040 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1040,
+    "fileCount": 20,
+    "codeFileCount": 18,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "36ecbd5b3f666e9ef9665551901045192f57b8489a7d8056615bf983cbda29d2",
+  "decidedAt": "2026-10-24T07:34:06.703Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：本 PR 改 apps/desktop 下的 adapter / service / IPC / preload / renderer api /\nVue 面板 + locale 双份 + 两篇执行记录，共 21 个文件。\n不触及 .github/workflows、凭证/登录态、判据本体。\n\n内容：飞影声音参数编辑（POST /voice/edit）的**完整链路**，一个 PR 自包含：\n  adapter editVoice → service editCloneParams → IPC tts-voice-clone:editParams\n  → preload editParams → renderer api editTtsVoiceCloneParams → UI「参数」面板\n\n为什么并成一个 PR：最初拆了 adapter 层到独立分支 hifly-voice-edit，但那条分支\n**从未开过 PR**（当时误把一个别人的 PR 号当成了自己的）。发现后把 adapter 并入，\n避免两个 PR 互相依赖又都合不进去。\n\n分支重建时踩到三次同类问题并逐一修正：\n用「整文件替换」的方式搬改动会丢掉 main 上别人的新改动——\n  1. hifly.test.js 丢了分页断言更新（listAvatars 逐页合并用例失败）\n  2. hifly-clone.js 丢了 ensureFileId（三个 Blob 上传用例失败）\n  3. locales/create/{zh,en}.js 丢了 #4374 的 visualMode 键组（locale keys 门禁红，4 个 key 缺失）\n三处均已改为「以 main 版为底、只追加本 PR 的增量」并复测通过。\n教训：跨分支搬改动必须用 patch/checkout 单文件增量，不能整文件覆盖。\n\n真实 Token 验证（本轮之前已完成，0 积分）：\n  - voice/create 成功路径：真实人声一次通过，5 秒 completed\n  - editVoice 成功路径：三组参数均 {ok:true}，积分 1582→1582（免费）\n  - 失败路径四类响应（公共音色/假 id/缺参/数字型 rate）已锁进测试\n\nUI：克隆音色行新增「参数」按钮，行内展开三个输入框（语速/音量/语调）+ 范围提示。\n留空表示不改该项（与 service 的合并语义对齐）；一个都没填则本地就拒。\n失败提示不直出服务端技术文案。\n\n回归证据：28 个测试文件 1163/1163 全绿；\nmax-lines ✅ / debt ✅ / dep-audit rc=0 / locale keys 2291 + cjk ✅ / brand ✅ /\ndoc-abs ✅ / r3 18/0。"
+  }
+}

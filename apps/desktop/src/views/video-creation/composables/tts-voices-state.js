@@ -34,6 +34,12 @@ export const state = reactive({
   s2vVoiceClonePending: null,
   s2vVoiceCloneRenamingId: '',
   s2vVoiceCloneRenameDraft: '',
+  // change: hifly-voice-edit-ui —— 参数编辑（语速/音量/语调）。
+  // 用三个独立字符串而非嵌套对象：reset 只需置空，且模板 v-model 直接绑。
+  s2vVoiceCloneParamsEditingId: '',
+  s2vVoiceCloneParamsRate: '',
+  s2vVoiceCloneParamsVolume: '',
+  s2vVoiceCloneParamsPitch: '',
   s2vVoiceProviderExplicitEdge: false,
   // 上一次 loadS2VVoiceData 用的语音上下文（providerId + 解析出的 model）。
   // 用途：区分「上下文切换」（reset 时要连克隆列表一起清）与「同上下文刷新」（保留克隆列表），
@@ -234,6 +240,12 @@ export function resetTtsVoicesForTest() {
     s2vVoiceClonePending: null,
     s2vVoiceCloneRenamingId: '',
     s2vVoiceCloneRenameDraft: '',
+    // change: hifly-voice-edit-ui —— 参数编辑（语速/音量/语调）。
+    // 用三个独立字符串而非嵌套对象：reset 只需置空，且模板 v-model 直接绑。
+    s2vVoiceCloneParamsEditingId: '',
+    s2vVoiceCloneParamsRate: '',
+    s2vVoiceCloneParamsVolume: '',
+    s2vVoiceCloneParamsPitch: '',
     s2vVoiceProviderExplicitEdge: false,
     s2vVoiceCloneProviderId: '',
     s2vVoiceCloneModelId: '',

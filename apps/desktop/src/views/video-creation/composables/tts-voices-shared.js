@@ -70,7 +70,13 @@ function toS2VVoiceOption(voice) {
   const id = typeof voice?.id === 'string' ? voice.id.trim() : ''
   const name = typeof voice?.name === 'string' ? voice.name.trim() : ''
   if (!id || !name) return null
-  return { id, name, invalid: voice.invalid === true }
+  // change: hifly-voice-edit-ui —— 带上参数，供面板回显当前值
+  return {
+    id,
+    name,
+    invalid: voice.invalid === true,
+    ...(voice.params && typeof voice.params === 'object' ? { params: { ...voice.params } } : {}),
+  }
 }
 
 function toS2VVoiceCloneRequirements(requirements) {

@@ -43,6 +43,9 @@ import {
   startS2VVoiceCloneRename,
   cancelS2VVoiceCloneRename,
   renameS2VVoiceClone,
+  startS2VVoiceCloneParams,
+  cancelS2VVoiceCloneParams,
+  saveS2VVoiceCloneParams,
 } from './tts-voices-clone'
 import {
   getTtsVoiceCatalog,
@@ -260,6 +263,9 @@ export const ttsVoicesMethods = {
   startS2VVoiceCloneRename,
   cancelS2VVoiceCloneRename,
   renameS2VVoiceClone,
+  startS2VVoiceCloneParams,
+  cancelS2VVoiceCloneParams,
+  saveS2VVoiceCloneParams,
   formatS2VVoiceCloneBytes,
   formatS2VVoiceCloneDuration,
 }

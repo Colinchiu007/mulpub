@@ -506,6 +506,33 @@
                         <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="cancelS2VVoiceCloneRename">取消</button>
                       </div>
                     </template>
+                    <!-- change: hifly-voice-edit-ui —— 参数编辑（语速/音量/语调）。
+                         只出现在本列表（全是自己克隆的音色）：服务商对公共音色返回通用失败、
+                         无法区分原因，所以入口处就该区分，而不是失败了再猜。 -->
+                    <template v-else-if="s2vVoiceCloneParamsEditingId === voice.id">
+                      <div class="voice-clone-params" data-testid="s2v-voice-clone-params-editor">
+                        <div class="voice-clone-params-title">{{ translateWithLocaleFallback('create.story2video.voice.cloneParamsTitle') }}</div>
+                        <div class="voice-clone-params-fields">
+                          <label class="voice-clone-params-field">
+                            <span>{{ translateWithLocaleFallback('create.story2video.voice.cloneParamsRate') }}</span>
+                            <input v-model.trim="s2vVoiceCloneParamsRate" class="form-input" placeholder="1.0" maxlength="4" data-testid="s2v-voice-clone-params-rate" />
+                          </label>
+                          <label class="voice-clone-params-field">
+                            <span>{{ translateWithLocaleFallback('create.story2video.voice.cloneParamsVolume') }}</span>
+                            <input v-model.trim="s2vVoiceCloneParamsVolume" class="form-input" placeholder="1.0" maxlength="4" data-testid="s2v-voice-clone-params-volume" />
+                          </label>
+                          <label class="voice-clone-params-field">
+                            <span>{{ translateWithLocaleFallback('create.story2video.voice.cloneParamsPitch') }}</span>
+                            <input v-model.trim="s2vVoiceCloneParamsPitch" class="form-input" placeholder="1.0" maxlength="4" data-testid="s2v-voice-clone-params-pitch" />
+                          </label>
+                        </div>
+                        <div class="config-hint">{{ translateWithLocaleFallback('create.story2video.voice.cloneParamsHint') }}</div>
+                        <div class="voice-clone-actions">
+                          <button type="button" class="s2v-btn-primary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" data-testid="s2v-voice-clone-params-save" @click="saveS2VVoiceCloneParams(voice.id)">{{ translateWithLocaleFallback('create.story2video.voice.cloneParamsSave') }}</button>
+                          <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="cancelS2VVoiceCloneParams">{{ translateWithLocaleFallback('create.story2video.voice.cloneParamsCancel') }}</button>
+                        </div>
+                      </div>
+                    </template>
                     <template v-else>
                       <span>
                         {{ voice.name }}
@@ -514,6 +541,8 @@
                       </span>
                       <div class="voice-clone-actions">
                         <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="startS2VVoiceCloneRename(voice.id)">重命名</button>
+                        <!-- change: hifly-voice-edit-ui —— 语速/音量/语调 -->
+                        <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading" data-testid="s2v-voice-clone-params-open" @click="startS2VVoiceCloneParams(voice.id)">{{ translateWithLocaleFallback('create.story2video.voice.cloneParamsEdit') }}</button>
                         <button type="button" class="s2v-btn-secondary s2v-btn-sm" :disabled="s2vVoiceCloneLoading || voice.invalid || isS2VDefaultVoice(voice.id)" @click="selectS2VVoice(voice.id)">{{ isS2VDefaultVoice(voice.id) ? '已设为默认' : '设为默认' }}</button>
                         <button type="button" class="s2v-btn-danger s2v-btn-sm" :disabled="s2vVoiceCloneLoading" @click="deleteS2VVoiceClone(voice.id)">删除</button>
                       </div>
@@ -826,6 +855,9 @@ const saveCurrentS2VTemplate = (...args) => fns.saveCurrentS2VTemplate(...args);
 const selectS2VVoice = (...args) => fns.selectS2VVoice(...args);
 const setS2VSectionOpen = (...args) => fns.setS2VSectionOpen(...args);
 const startS2VVoiceCloneRename = (...args) => fns.startS2VVoiceCloneRename(...args);
+const startS2VVoiceCloneParams = (...args) => fns.startS2VVoiceCloneParams(...args);
+const cancelS2VVoiceCloneParams = (...args) => fns.cancelS2VVoiceCloneParams(...args);
+const saveS2VVoiceCloneParams = (...args) => fns.saveS2VVoiceCloneParams(...args);
 const translateWithLocaleFallback = (...args) => fns.translateWithLocaleFallback(...args);
 const verifyS2VLegacyBgm = (...args) => fns.verifyS2VLegacyBgm(...args);
 </script>

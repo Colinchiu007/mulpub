@@ -96,6 +96,52 @@ function normalizeRenameArgs(args) {
   return { ...base, voiceId: args.voiceId, name: args.name.trim() };
 }
 
+/**
+ * 克隆音色可调参数范围（change: hifly-voice-edit-ui）。
+ * 与 service / adapter 同源同界，是 renderer 前的**第一道闸**。
+ * 官方飞影 POST /voice/edit：三字段都必填、都是**字符串**，
+ * rate 0.5~2.0 / volume 0.1~2.0 / pitch 0.1~2.0。
+ * 「字符串」是服务端硬约束（真实 Token 侧证：传数字被「参数格式不正确」拒绝）。
+ */
+const CLONE_VOICE_PARAM_RANGES = Object.freeze({
+  rate: Object.freeze({ min: 0.5, max: 2.0 }),
+  volume: Object.freeze({ min: 0.1, max: 2.0 }),
+  pitch: Object.freeze({ min: 0.1, max: 2.0 }),
+});
+
+/**
+ * 归一「修改克隆音色参数」入参。
+ * 与 normalizeRenameArgs 同型，差异只在三个参数：都选填、都必须是字符串且在界内、
+ * 且**至少要给一项**（一项都不给等于空操作，视为非法）。
+ */
+function normalizeEditParamsArgs(args) {
+  if (
+    !args ||
+    typeof args !== "object" ||
+    Array.isArray(args) ||
+    !hasOnlyAllowedKeys(args, ["providerId", "model", "voiceId", "rate", "volume", "pitch"])
+  )
+    return null;
+  const base = normalizeBaseValues(args);
+  if (!base || !isSafeIdentifier(args.voiceId)) return null;
+
+  const params = {};
+  let hasAny = false;
+  for (const [key, range] of Object.entries(CLONE_VOICE_PARAM_RANGES)) {
+    const raw = args[key];
+    if (raw === undefined) continue;
+    // 官方要字符串形态（数字会被服务端拒）
+    if (typeof raw !== "string" || !raw.trim()) return null;
+    const trimmed = raw.trim();
+    const num = Number(trimmed);
+    if (!Number.isFinite(num) || num < range.min || num > range.max) return null;
+    params[key] = trimmed;
+    hasAny = true;
+  }
+  if (!hasAny) return null;
+  return { ...base, voiceId: args.voiceId, ...params };
+}
+
 function invalidArguments() {
   return { code: EC.VALIDATION_ERROR, message: "VOICE_CLONE_INVALID_ARGUMENTS" };
 }
@@ -235,6 +281,22 @@ function registerTtsVoiceCloneHandlers(ipcMain, deps = {}) {
       }
     }),
   );
+
+  // change: hifly-voice-edit-ui —— 修改克隆音色的语速/音量/语调。
+  // 只对**自己克隆的**音色可用：服务端对公共音色返回通用失败、无法区分，
+  // 所以「是不是我的」这层判断在主进程 service 里靠本地 registry 做。
+  ipcMain.handle(
+    "tts-voice-clone:editParams",
+    withSenderCheck(async (_event, args) => {
+      const input = normalizeEditParamsArgs(args);
+      if (!input) return invalidArguments();
+      try {
+        return await service.editCloneParams(input);
+      } catch (_) {
+        return { code: EC.REQUEST_ERROR, message: "VOICE_CLONE_UNAVAILABLE" };
+      }
+    }),
+  );
 }
 
 module.exports = registerTtsVoiceCloneHandlers;
@@ -242,4 +304,5 @@ module.exports.normalizeAddArgs = normalizeAddArgs;
 module.exports.normalizeBaseArgs = normalizeBaseArgs;
 module.exports.normalizeDeleteArgs = normalizeDeleteArgs;
 module.exports.normalizeRenameArgs = normalizeRenameArgs;
+module.exports.normalizeEditParamsArgs = normalizeEditParamsArgs;
 module.exports.senderKey = senderKey;

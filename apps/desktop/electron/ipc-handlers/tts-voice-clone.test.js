@@ -59,6 +59,7 @@ describe("TTS 音色克隆 IPC", () => {
       "tts-voice-clone:add",
       "tts-voice-clone:delete",
       "tts-voice-clone:rename",
+      "tts-voice-clone:editParams",
     ]);
     await expect(
       ipcMain.handlers.get("tts-voice-clone:requirements")(validEvent(), {
@@ -275,4 +276,78 @@ describe("TTS 音色克隆 IPC", () => {
     ).resolves.toMatchObject({ code: -2, message: "VOICE_CLONE_INVALID_ARGUMENTS" });
     expect(ttsVoiceCloneService.addCloneFromSelection).not.toHaveBeenCalled();
   });
+
+  // ── change: hifly-voice-edit-ui：修改克隆音色参数（语速/音量/语调）──────
+  describe("editCloneParams", () => {
+    function setup(serviceOverrides) {
+      const ipcMain = createIpcMain();
+      const ttsVoiceCloneService = {
+        getRequirements: vi.fn(() => ({ code: 0, data: {} })),
+        listClones: vi.fn(async () => ({ code: 0, data: { voices: [] } })),
+        createSampleSelection: vi.fn(() => ({ code: 0, data: {} })),
+        addCloneFromSelection: vi.fn(async () => ({ code: 0, data: {} })),
+        deleteClone: vi.fn(async () => ({ code: 0, data: {} })),
+        renameClone: vi.fn(async () => ({ code: 0, data: {} })),
+        editCloneParams: vi.fn(async () => ({ code: 0, data: { voice: { id: "v-1" } } })),
+        ...serviceOverrides,
+      };
+      registerTtsVoiceCloneHandlers(ipcMain, { ttsVoiceCloneService, dialog: { showOpenDialog: vi.fn() } });
+      return { ipcMain, ttsVoiceCloneService };
+    }
+
+    it("通道 tts-voice-clone:editParams 已注册", () => {
+      const { ipcMain } = setup({});
+      expect([...ipcMain.handlers.keys()]).toContain("tts-voice-clone:editParams");
+    });
+
+    it("providerId/model/voiceId 与三个参数一路带到 service", async () => {
+      const { ipcMain } = setup({});
+      const code = await ipcMain.handlers.get("tts-voice-clone:editParams")(validEvent(), {
+        providerId: "hifly",
+        model: "hifly-video",
+        voiceId: "v-1",
+        rate: "1.2",
+        volume: "1.0",
+        pitch: "0.9",
+      });
+      expect(code.code).toBe(0);
+      expect(code.data.voice.id).toBe("v-1");
+    });
+
+    it("参数为数字时整请求被拒（官方要字符串）", async () => {
+      const { ipcMain, ttsVoiceCloneService } = setup({});
+      const res = await ipcMain.handlers.get("tts-voice-clone:editParams")(validEvent(), {
+        providerId: "hifly",
+        model: "hifly-video",
+        voiceId: "v-1",
+        rate: 1.2,
+      });
+      expect(res.code).not.toBe(0);
+      expect(ttsVoiceCloneService.editCloneParams).not.toHaveBeenCalled();
+    });
+
+    it("三个参数一个都不给时被拒（调用方至少改一项）", async () => {
+      const { ipcMain, ttsVoiceCloneService } = setup({});
+      const res = await ipcMain.handlers.get("tts-voice-clone:editParams")(validEvent(), {
+        providerId: "hifly",
+        model: "hifly-video",
+        voiceId: "v-1",
+      });
+      expect(res.code).not.toBe(0);
+      expect(ttsVoiceCloneService.editCloneParams).not.toHaveBeenCalled();
+    });
+
+    it("缺 providerId / model / voiceId 时被拒", async () => {
+      const { ipcMain, ttsVoiceCloneService } = setup({});
+      const res = await ipcMain.handlers.get("tts-voice-clone:editParams")(validEvent(), {
+        rate: "1.0",
+      });
+      expect(res.code).not.toBe(0);
+      expect(ttsVoiceCloneService.editCloneParams).not.toHaveBeenCalled();
+    });
+    // 注：owner 校验不在 IPC 层（withSenderCheck 只看 senderFrame.url），
+    // 而在 service 的 _captureOwner()。缺 sender.id 的场景由 service 层
+    // 用例覆盖（VOICE_OWNER_UNAVAILABLE），这里不重复测。
+  });
+
 });

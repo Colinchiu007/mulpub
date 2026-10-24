@@ -136,14 +136,17 @@ describe('useTtsVoices 契约', () => {
     expect(ttsVoicesComputeds.s2vVoiceOptions.value.map(v => v.id)).toEqual(['cache-c'])
   })
 
-  it('导出面完整：21 状态 ref + 5 计算属性 + 27 方法', () => {
-    expect(Object.keys(ttsVoicesRefs)).toHaveLength(21)
+  it('导出面完整：25 状态 ref + 5 计算属性 + 30 方法', () => {
+    expect(Object.keys(ttsVoicesRefs)).toHaveLength(25)
+    // 25 = 21 + 4（change: hifly-voice-edit-ui —— 参数编辑：
+    //        s2vVoiceCloneParamsEditingId / ParamsRate / ParamsVolume / ParamsPitch）
     // 21 = 20 + s2vVoiceCloneProviderId + s2vVoiceCloneModelId（上下文切换判定用，CCG i3）
     //      - s2vPersistedVoiceId（2026-10-20 清理：s2vConfig.voiceId 的冗余镜像，生产零读取）
     // 5 = 6 - s2vVoiceModelOptions（voice-model-program-resolved 移除「语音模型」下拉）
     expect(Object.keys(ttsVoicesComputeds)).toHaveLength(5)
+    // 30 = 27 + 3（change: hifly-voice-edit-ui —— start/cancel/saveS2VVoiceCloneParams）
     // 27 = 28 - handleS2VVoiceModelChange（同上）
-    expect(Object.keys(ttsVoicesMethods)).toHaveLength(27)
+    expect(Object.keys(ttsVoicesMethods)).toHaveLength(30)
     // 关键名称在位（壳代理/桥接与 S2V 面板契约按名访问）
     for (const k of ['s2vVoiceCatalog', 's2vVoiceClones', 's2vVoiceCloneLoading', 's2vVoiceProviders']) {
       expect(ttsVoicesRefs).toHaveProperty(k)
@@ -151,7 +154,7 @@ describe('useTtsVoices 契约', () => {
     for (const k of ['s2vVoiceProviderOptions', 's2vVoiceModelHidden', 's2vVoiceContextModel', 's2vVoiceOptions']) {
       expect(ttsVoicesComputeds).toHaveProperty(k)
     }
-    for (const k of ['loadS2VVoiceData', 'selectS2VVoice', 'addS2VVoiceClone', 'deleteS2VVoiceClone', 'renameS2VVoiceClone']) {
+    for (const k of ['loadS2VVoiceData', 'selectS2VVoice', 'addS2VVoiceClone', 'deleteS2VVoiceClone', 'renameS2VVoiceClone', 'startS2VVoiceCloneParams', 'cancelS2VVoiceCloneParams', 'saveS2VVoiceCloneParams']) {
       expect(ttsVoicesMethods).toHaveProperty(k)
     }
     // 模型下拉相关入口已随下拉一并移除（fail-closed：拼错的键不应静默存在）

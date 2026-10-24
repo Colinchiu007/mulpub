@@ -17,6 +17,7 @@ import {
   chooseTtsVoiceCloneSamples,
   deleteTtsVoiceClone,
   renameTtsVoiceClone,
+  editTtsVoiceCloneParams,
 } from '@/api/tts-voice-clone'
 import { confirmDanger } from '@/utils/confirm-danger'
 
@@ -176,6 +177,76 @@ async function deleteS2VVoiceClone(voiceId) {
       d.getS2vConfig().voiceId = fallbackVoiceId
       if (fallbackVoiceId) await selectS2VVoice(fallbackVoiceId)
     }
+  } finally {
+    if (isCurrentS2VVoiceCloneRequest(requestId, context)) state.s2vVoiceCloneLoading = false
+  }
+}
+
+// ── change: hifly-voice-edit-ui：修改克隆音色的语速/音量/语调 ──────────
+// 与 rename 的三点差异：
+//   1. rename 只改本地展示名；这里要把参数**下到服务商**（飞影 POST /voice/edit）。
+//   2. 只对**自己克隆的**音色可用——服务商对公共音色返回通用失败、无法区分，
+//      所以只在本列表（全是自己的克隆）里给入口。
+//   3. 三个参数都是**字符串**且在界内（rate 0.5~2.0 / volume 0.1~2.0 / pitch 0.1~2.0）；
+//      留空表示「不改这一项」（与 service 的「合并而非覆盖」对齐）。
+
+function startS2VVoiceCloneParams(voiceId) {
+  const d = requireDeps()
+  const voice = state.s2vVoiceClones.find(item => item.id === voiceId)
+  if (!voice || state.s2vVoiceCloneLoading) return
+  state.s2vVoiceCloneParamsEditingId = voiceId
+  const params = voice.params && typeof voice.params === 'object' ? voice.params : {}
+  state.s2vVoiceCloneParamsRate = params.rate || ''
+  state.s2vVoiceCloneParamsVolume = params.volume || ''
+  state.s2vVoiceCloneParamsPitch = params.pitch || ''
+  state.s2vVoiceCloneError = ''
+}
+
+function cancelS2VVoiceCloneParams() {
+  const d = requireDeps()
+  state.s2vVoiceCloneParamsEditingId = ''
+  state.s2vVoiceCloneParamsRate = ''
+  state.s2vVoiceCloneParamsVolume = ''
+  state.s2vVoiceCloneParamsPitch = ''
+  state.s2vVoiceCloneError = ''
+}
+
+async function saveS2VVoiceCloneParams(voiceId) {
+  const d = requireDeps()
+  const context = getS2VVoiceCloneContext()
+  const normalizedVoiceId = typeof voiceId === 'string' ? voiceId.trim() : ''
+  if (!context || !normalizedVoiceId || state.s2vVoiceCloneLoading) return
+
+  // 只收「有填」的项；一个都没填就不发请求（service 也会拒，但这里先挡）
+  const payload = {}
+  for (const key of ['rate', 'volume', 'pitch']) {
+    const raw = String(state[`s2vVoiceCloneParams${key[0].toUpperCase()}${key.slice(1)}`] || '').trim()
+    if (raw) payload[key] = raw
+  }
+  if (Object.keys(payload).length === 0) {
+    state.s2vVoiceCloneError = d.t('create.story2video.voice.cloneParamsEmpty')
+    return
+  }
+
+  const requestId = ++state.s2vVoiceCloneRequestId
+  state.s2vVoiceCloneLoading = true
+  state.s2vVoiceCloneError = ''
+  try {
+    const result = await editTtsVoiceCloneParams(d.cloneForIpc({ ...context, voiceId: normalizedVoiceId, ...payload }))
+    if (!isCurrentS2VVoiceCloneRequest(requestId, context)) return
+    const voice = result?.code === 0 ? toS2VVoiceOption(result.data?.voice) : null
+    if (!voice) {
+      // 服务端 message 是开发者向技术文案（如「Voice不正确」），不直出给用户
+      state.s2vVoiceCloneError = d.t('create.story2video.voice.cloneParamsFailed')
+      return
+    }
+    const previous = state.s2vVoiceClones.find(item => item.id === voice.id)
+    if (previous?.invalid === true) voice.invalid = true
+    state.s2vVoiceClones = state.s2vVoiceClones.map(item => item.id === voice.id ? voice : item)
+    state.s2vVoiceCloneParamsEditingId = ''
+    state.s2vVoiceCloneParamsRate = ''
+    state.s2vVoiceCloneParamsVolume = ''
+    state.s2vVoiceCloneParamsPitch = ''
   } finally {
     if (isCurrentS2VVoiceCloneRequest(requestId, context)) state.s2vVoiceCloneLoading = false
   }
