@@ -118,6 +118,37 @@ CI 失败后有一条自动修复流程在本 PR 上补了两个 commit：
    效果等价（CHANGELOG 直接取 main 版，比逐行还原更彻底且不丢任何内容），
    但**没有留下"由谁还原"的痕迹**，故在此如实记录。
 
+### 本轮补充：价格卡字段对齐 10-08 §4.1，并修一个 per-unit 维度的 1000 倍算错
+
+**动因**：复核本 PR 时发现 `01-docs/` 下已存在**五份计费定案文档**（10-08 深度分析 / 10-09 交接 /
+10-11 计费模型设计 / 10-11 上游账单交接 / 10-17 移除买断+定价），而本片最初**只从代码注释反推口径**，
+导致**重复发明了已有设计**（`ModelPriceCard` 连表名都与定案一致）且**漏掉了已论证过的结论**。
+本轮以定案为准重写。
+
+**改动**：
+1. `models_credit.py`：`ModelPriceCard` 字段对齐定案 §4.1 —— 补 `model_id` / `action_type` / `spec` /
+   `quality_tier` / `currency` / `proc_discount`；`unit` 改用定案字面量
+   （`1k_tokens_in` / `per_image` / `per_second` / `per_char` / `per_second_audio`），
+   **不再用自造的 `token_in` 之类**——两套口径并存会让回算悄悄算错。
+   刻意偏离两处（都是「更严谨」方向）：`unit_price_cents` 用**整数分**而非定案的 `NUMERIC(12,6)` 元
+   （避免浮点误差在累加中放大，读定案值时 ×100）。
+2. 新增**采购形状** `billed_by`（`billed_by_usage` / `billed_by_quota` / `billed_by_window`）
+   与 `is_pricing_baseline_usable()`：按 10-11 §6，**基准来源优先级 B > A，C 类窗口配额只作参考、不入基准**
+   ⇒ 只要命中的卡里有一张是 C 类，整组判不可入基准（保守侧）。
+3. **修一个真 bug**：原成本公式对所有 unit 一律 `/1000`（那是「分 / 1K token」的口径）
+   ⇒ `per_image` / `per_second` 这类「分 / 个」的单价会**算错 1000 倍**
+   （一张图单价 300 分被算成 0.3 分）。现按 unit 区分，并加回归锁
+   `test_per_unit_dimensions_are_not_divided_by_1000`。
+4. `model_usage_events` 补 `action_type` / `spec` / `quality_tier`，为定案 §4.2 的
+   `generation_requests` 与「用户只选质量档」（§4.4）预留同源字段。
+5. 回算结果新增 `window_quota_only_providers` 字段 + 告警：命中的只有 C 类价格时显式提示
+   「仅可作参考、不得入定价基准」。
+
+**测试**：pytest **11 passed**（新增 2 条：per-unit 维度锁、C 类基准判定锁）。
+
+**仍未做（下一期）**：`official_credit` 进 `features` 数组（不补则 `consumeFeature` 必 403）、
+`generation_requests` 表（PG 侧扣费台账）、请求侧记账 + 回执兜底、充值积分双轨的批次过期模型。
+
 ### 现象复盘：为什么本地全绿而 CI 红
 
 `check-gate-record-debt` / Gate 2b11 等判据在**本地与主干上都绿**，

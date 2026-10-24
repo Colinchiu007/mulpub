@@ -25,29 +25,30 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models_credit import CreditPriceConfig, ModelPriceCard
-
-# OTel GenAI 的五类 token（prompt_tokens / completion_tokens 已 deprecated）
-TOKEN_UNITS = (
-    "token_in",
-    "token_out",
-    "token_cache_read",
-    "token_cache_write",
-    "token_reasoning",
+from models_credit import (
+    BILLING_BASELINE_PRIORITY,
+    BILLED_BY_QUOTA,
+    BILLED_BY_WINDOW,
+    CreditPriceConfig,
+    ModelPriceCard,
+    NON_TOKEN_UNITS,
+    TOKEN_UNITS,
+    UNIT_1K_TOKENS_CACHE_READ,
+    UNIT_1K_TOKENS_CACHE_WRITE,
+    UNIT_1K_TOKENS_IN,
+    UNIT_1K_TOKENS_OUT,
+    UNIT_1K_TOKENS_REASONING,
 )
-
-# 非 token 维度：开源生态暂无现成 per-unit 价格模型，需自建价格卡
-NON_TOKEN_UNITS = ("request", "second", "image", "second_audio")
 
 ALL_UNITS = TOKEN_UNITS + NON_TOKEN_UNITS
 
-# 桌面端上报字段 → 内部 unit 口径
+# 桌面端上报字段 → 内部 unit 口径（口径对齐 10-08 §4.1 的 unit 命名）
 TOKEN_FIELD_TO_UNIT = {
-    "tokens_in": "token_in",
-    "tokens_out": "token_out",
-    "tokens_cache_read": "token_cache_read",
-    "tokens_cache_write": "token_cache_write",
-    "tokens_reasoning": "token_reasoning",
+    "tokens_in": UNIT_1K_TOKENS_IN,
+    "tokens_out": UNIT_1K_TOKENS_OUT,
+    "tokens_cache_read": UNIT_1K_TOKENS_CACHE_READ,
+    "tokens_cache_write": UNIT_1K_TOKENS_CACHE_WRITE,
+    "tokens_reasoning": UNIT_1K_TOKENS_REASONING,
 }
 
 
@@ -75,13 +76,15 @@ class CostResult:
 class PriceCard:
     """生效中的价格卡（内存表示）。"""
 
-    __slots__ = ("id", "unit", "unit_price_cents", "multiplier")
+    __slots__ = ("id", "unit", "unit_price_cents", "multiplier", "billed_by")
 
-    def __init__(self, card_id: str, unit: str, unit_price_cents: int, multiplier: float):
+    def __init__(self, card_id: str, unit: str, unit_price_cents: int, multiplier: float,
+                 billed_by: str = "billed_by_usage"):
         self.id = card_id
         self.unit = unit
         self.unit_price_cents = int(unit_price_cents)
         self.multiplier = float(multiplier)
+        self.billed_by = billed_by
 
 
 def compute_cost_cents(
@@ -107,8 +110,16 @@ def compute_cost_cents(
         if card is None:
             missing.append(unit)
             continue
-        # 整数分计算：先乘后除，避免浮点误差累积
-        cost_cents += int(count * card.unit_price_cents / 1000)
+        # 整数分计算：先乘后除，避免浮点误差累积。
+        # ⚠️ **单价语义按 unit 区分**（10-08 §4.1）：
+        #    `1k_tokens_*` 的单价是「分 / 1K token」⇒ 除以 1000；
+        #    `per_image` / `per_second` / `per_char` / `per_second_audio`
+        #    的单价是「分 / 个」⇒ **不除**。
+        #    早期版本对所有 unit 一律 /1000 ⇒ 非 token 维度会算错 1000 倍。
+        if unit in TOKEN_UNITS:
+            cost_cents += int(count * card.unit_price_cents / 1000)
+        else:
+            cost_cents += count * card.unit_price_cents
         price_ids.append(card.id)
         # 倍率取命中的最大者（多个 unit 时以最贵那个为准，避免低估）
         multiplier = max(multiplier, card.multiplier)
@@ -125,6 +136,24 @@ def compute_credit_cost(cost_cents: int, credit_unit_price_cents: int, multiplie
         return 0
     unit_price = max(1, int(credit_unit_price_cents))
     return int(math.ceil(cost_cents * float(multiplier) / unit_price))
+
+
+def is_pricing_baseline_usable(cards: Dict[str, PriceCard]) -> bool:
+    """该组价格能否作**定价基准**（10-11 §6 的来源优先级）。
+
+    · B 类按量付费（billed_by_usage）⇒ 首选基准
+    · A 类有总额度的套餐（billed_by_quota）⇒ 次选
+    · C 类窗口配额（billed_by_window）⇒ **仅作参考，不入基准**
+
+    ⇒ 只要命中的卡里有一张是 C 类，整组**不可入基准**（保守侧：宁可不用基准，
+      也不要拿一个依赖使用强度的估算值去定价）。
+    """
+    if not cards:
+        return False
+    for card in cards.values():
+        if card.billed_by not in BILLING_BASELINE_PRIORITY:
+            return False
+    return True
 
 
 def compute_period_bounds(now: Optional[datetime.datetime] = None) -> Tuple[str, str]:
@@ -148,6 +177,8 @@ async def load_effective_cards(
     model: str,
     category: str,
     at: Optional[str] = None,
+    spec: str = "",
+    quality_tier: str = "",
 ) -> Dict[str, PriceCard]:
     """加载某 provider/model/category 在时刻 `at` 生效的价格卡。
 
@@ -162,11 +193,21 @@ async def load_effective_cards(
         await db.execute(
             sa.select(ModelPriceCard).where(
                 ModelPriceCard.provider_id == provider_id,
-                ModelPriceCard.category == category,
+                ModelPriceCard.action_type == category,
             )
         )
     ).scalars().all()
-    candidates = [c for c in rows if c.model in (model or "", "")]
+    # 精确匹配维度：model_id / spec / quality_tier 三者都命中或卡上为通用值
+    def _dim_ok(card) -> bool:
+        if card.model_id not in (model or "", ""):
+            return False
+        if card.spec and spec and card.spec != spec:
+            return False
+        if card.quality_tier and quality_tier and card.quality_tier != quality_tier:
+            return False
+        return True
+
+    candidates = [c for c in rows if _dim_ok(c)]
     by_unit: Dict[str, Tuple[int, str, PriceCard]] = {}
     for card in candidates:
         if card.effective_from > moment:
@@ -177,7 +218,8 @@ async def load_effective_cards(
         current = by_unit.get(card.unit)
         if current is None:
             by_unit[card.unit] = (precise, card.effective_from, PriceCard(
-                card.id, card.unit, card.unit_price_cents, card.credit_multiplier or 1.0
+                card.id, card.unit, card.unit_price_cents, card.credit_multiplier or 1.0,
+                card.billed_by or "billed_by_usage",
             ))
             continue
         current_precise, current_from, _current_card = current
@@ -187,7 +229,8 @@ async def load_effective_cards(
         )
         if better:
             by_unit[card.unit] = (precise, card.effective_from, PriceCard(
-                card.id, card.unit, card.unit_price_cents, card.credit_multiplier or 1.0
+                card.id, card.unit, card.unit_price_cents, card.credit_multiplier or 1.0,
+                card.billed_by or "billed_by_usage",
             ))
     return {unit: card for unit, (_, _from, card) in by_unit.items()}
 

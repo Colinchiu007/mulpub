@@ -27,10 +27,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import ModelUsageDaily
 from models_credit import ModelPriceCard
 from services.credit_price_service import (
-    PriceCard,
     compute_cost_cents,
     compute_credit_cost,
     get_credit_unit_price_cents,
+    is_pricing_baseline_usable,
     load_effective_cards,
 )
 
@@ -40,7 +40,8 @@ logger = logging.getLogger("ops-center.credit-cost")
 class BackfillResult:
     """一次回算的结果。"""
 
-    __slots__ = ("rows_scanned", "rows_updated", "cost_cents_total", "credit_total", "missing_price_providers")
+    __slots__ = ("rows_scanned", "rows_updated", "cost_cents_total", "credit_total",
+                 "missing_price_providers", "window_quota_only_providers")
 
     def __init__(self):
         self.rows_scanned = 0
@@ -48,6 +49,7 @@ class BackfillResult:
         self.cost_cents_total = 0
         self.credit_total = 0
         self.missing_price_providers: List[str] = []
+        self.window_quota_only_providers: List[str] = []
 
     def as_dict(self) -> dict:
         return {
@@ -57,6 +59,7 @@ class BackfillResult:
             "cost_yuan_total": round(self.cost_cents_total / 100, 4),
             "credit_total": self.credit_total,
             "missing_price_providers": sorted(set(self.missing_price_providers)),
+            "window_quota_only_providers": sorted(set(self.window_quota_only_providers)),
         }
 
 
@@ -119,6 +122,10 @@ async def backfill_costs(
         if cost.has_missing_price:
             result.missing_price_providers.append(row.provider_id)
             continue
+        # 10-11 §6：窗口配额（C 类）只能估算、依赖使用强度 ⇒ **仅作参考、不入定价基准**。
+        # 这里不阻断回算（成本账仍要记），但必须显式告警，避免它被当成定价依据。
+        if not is_pricing_baseline_usable(cards):
+            result.window_quota_only_providers.append(row.provider_id)
         if cost.cost_cents <= 0:
             continue
         credit = compute_credit_cost(cost.cost_cents, unit_price_cents, cost.multiplier)
@@ -151,6 +158,12 @@ async def backfill_costs(
         logger.warning(
             "credit-cost-backfill: 缺价格卡的 provider=%s（该部分成本未计入，请先配价格卡）",
             sorted(set(result.missing_price_providers)),
+        )
+    if result.window_quota_only_providers:
+        logger.warning(
+            "credit-cost-backfill: provider=%s 命中的只有窗口配额类价格（C 类）——"
+            "仅可作参考、不得入定价基准（10-11 §6）",
+            sorted(set(result.window_quota_only_providers)),
         )
     logger.info(
         "credit-cost-backfill: scanned=%s updated=%s cost_yuan=%.4f credit=%s",

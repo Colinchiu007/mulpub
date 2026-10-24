@@ -19,40 +19,95 @@ from sqlalchemy import Column, String, Integer, Text, Float, UniqueConstraint, I
 
 from database import Base
 
+# 计费单位（口径对齐 10-08 §4.1 的 unit 命名；单价单位是"分 / 1K unit"或"分 / unit"）
+UNIT_1K_TOKENS_IN = "1k_tokens_in"
+UNIT_1K_TOKENS_OUT = "1k_tokens_out"
+UNIT_1K_TOKENS_CACHE_READ = "1k_tokens_cache_read"
+UNIT_1K_TOKENS_CACHE_WRITE = "1k_tokens_cache_write"
+UNIT_1K_TOKENS_REASONING = "1k_tokens_reasoning"
+UNIT_PER_IMAGE = "per_image"
+UNIT_PER_SECOND = "per_second"
+UNIT_PER_CHAR = "per_char"
+UNIT_PER_SECOND_AUDIO = "per_second_audio"
+
+# token 维度：单价按"每 1K token"计
+TOKEN_UNITS = (
+    UNIT_1K_TOKENS_IN,
+    UNIT_1K_TOKENS_OUT,
+    UNIT_1K_TOKENS_CACHE_READ,
+    UNIT_1K_TOKENS_CACHE_WRITE,
+    UNIT_1K_TOKENS_REASONING,
+)
+
+# 非 token 维度：单价按"每个"计
+NON_TOKEN_UNITS = (
+    UNIT_PER_IMAGE,
+    UNIT_PER_SECOND,
+    UNIT_PER_CHAR,
+    UNIT_PER_SECOND_AUDIO,
+)
+
+# 采购形状（10-11 §4）：决定该价格能否作定价基准
+BILLED_BY_USAGE = "billed_by_usage"   # B 类按量付费 —— 首选基准
+BILLED_BY_QUOTA = "billed_by_quota"   # A 类有总额度的套餐 —— 次选
+BILLED_BY_WINDOW = "billed_by_window"  # C 类窗口配额 —— 仅作参考，不入基准
+
+# 定价基准来源优先级（10-11 §6）：B > A > C
+BILLING_BASELINE_PRIORITY = (BILLED_BY_USAGE, BILLED_BY_QUOTA)
+
 
 class ModelPriceCard(Base):
     """模型单价卡 — 版本化价格。
 
-    同一个 (provider_id, model, category, unit) 可以有多条记录，按
-    [effective_from, effective_to) 区间切分。**改价 = 插入新行 + 给旧行补 effective_to**，
-    不得 UPDATE 单价 —— 否则历史 cost_cents 不可复算，账目失去审计能力。
+    字段口径对齐 `01-docs/DEEP-ANALYSIS-CREDIT-PRICING-2026-10-08.md` §4.1 的
+    `ModelPriceCard` 设计（含 `model_id` / `action_type` / `spec` / `quality_tier` /
+    `proc_discount`），另按 `01-docs/DESIGN-COMPUTE-BILLING-MODEL-2026-10-11.md`
+    §4/§6 补齐**采购形状**与**定价基准来源优先级**。
 
-    unit 取值（与 OTel GenAI 的 token 分类对齐）：
-      token_in / token_out / token_cache_read / token_cache_write / token_reasoning
-      request / second / image / second_audio
-    前五个是 token 维度（可独立计价），后四个是非 token 维度
-    （开源生态暂无现成 per-unit 价格模型，见 01-docs/PRD-CREDIT-COST-ACCOUNTING-2026-10-23.md §7.2）。
+    ⚠️ 两处与 §4.1 的刻意偏离（都是"更严谨"方向，不是简化）：
+    ① §4.1 的 `unit_price NUMERIC(12,6)` 单位是**元**；本表用
+       `unit_price_cents INTEGER`（**分**）—— 成本计算全程整数分，避免浮点误差在
+       累加中放大。读 §4.1 的值时 **×100**。
+    ② §4.1 的 `unit` 命名是 `1k_tokens_in` / `per_image` / `per_second` /
+       `per_char` / `per_second_audio`；本表用同一套字面量（见 `UNIT_*` 常量），
+       **不再用 `token_in` 之类自造名**——两套口径并存会让回算悄悄算错。
+
+    **采购形状与基准优先级**（10-11 §4/§6）：
+      · `billed_by_usage` —— B 类按量付费：有单价表、实付可反算、无窗口黑箱 ⇒ **首选基准**
+      · `billed_by_quota`  —— A 类有总额度的套餐：实付 ÷ 总额度，口径清楚 ⇒ 次选
+      · `billed_by_window` —— C 类窗口配额：只能估算且依赖使用强度 ⇒ **仅作参考，不入基准**
+    ⇒ `source` 记录**基准来源**（manual / vendor_doc / bill_sync / models_dev），
+      `billed_by_*` 记录**采购形状**，两者独立。
+
+    **「未知值记 UNKNOWN + fail-closed，不填暂定数字」**（10-11 §13 原则 3）：
+      缺价 ⇒ `cost_cents = 0` **且**必须产生告警（见 `credit_price_service`），
+      绝不允许"暂定一个数"混进成本统计。
     """
 
     __tablename__ = "model_price_cards"
     __table_args__ = (
         UniqueConstraint(
-            "provider_id", "model", "category", "unit", "effective_from",
-            name="uq_model_price_card",
+            "provider_id", "model_id", "action_type", "spec", "quality_tier", "effective_from",
+            name="uq_model_price_active",
         ),
-        Index("idx_model_price_cards_lookup", "provider_id", "model", "category", "unit"),
+        Index("idx_model_price_cards_lookup", "provider_id", "model_id", "action_type"),
     )
 
     id = Column(String, primary_key=True)  # 例：'minimax-M2.7-2026Q4'
-    provider_id = Column(String, nullable=False)
-    model = Column(String, nullable=False, default="")  # 空串 = 该 provider 该分类通用价
-    category = Column(String, nullable=False, default="llm")
-    unit = Column(String, nullable=False)
-    unit_price_cents = Column(Integer, nullable=False, default=0)  # 分 / unit
+    provider_id = Column(String, nullable=False)  # 'kling' / 'minimax' / 'seedream' / 'deepseek'
+    model_id = Column(String, nullable=False, default="")  # 'kling-v3' / 'hailuo-2.3'；空串=该 provider 通用价
+    action_type = Column(String, nullable=False, default="llm")  # llm|image|video|tts|asr|embedding
+    unit = Column(String, nullable=False)  # 见 UNIT_* 常量
+    spec = Column(String, nullable=False, default="")  # '720p' / '1080p' / '4k'（LLM 留空）
+    quality_tier = Column(String, nullable=False, default="std")  # std|pro|hd|fast（对应 10-08 §4.4 的质量档）
+    unit_price_cents = Column(Integer, nullable=False, default=0)  # **分** / unit（§4.1 的 unit_price × 100）
+    currency = Column(String, nullable=False, default="CNY")
+    proc_discount = Column(Float, nullable=False, default=1.0)  # 采购折扣系数（可配）
     effective_from = Column(String, nullable=False)  # ISO8601
     effective_to = Column(String, default="")  # 空串 = 当前生效
     credit_multiplier = Column(Float, nullable=False, default=1.0)  # 积分倍率：贵模型可多扣
-    source = Column(String, nullable=False, default="manual")  # manual | models_dev | vendor_doc
+    billed_by = Column(String, nullable=False, default="billed_by_usage")  # 采购形状（10-11 §4）
+    source = Column(String, nullable=False, default="manual")  # manual|vendor_doc|bill_sync|models_dev
     note = Column(String, nullable=False, default="")
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
 
@@ -101,8 +156,11 @@ class ModelUsageEvent(Base):
     user_id = Column(String, nullable=False, default="")  # Logto subject；未登录为空串
     client_id = Column(String, nullable=False, default="")  # 设备稳定哈希（脱敏）
     provider_id = Column(String, nullable=False)
-    category = Column(String, nullable=False, default="llm")
+    category = Column(String, nullable=False, default="llm")  # 保留旧名（= action_type 语义）
+    action_type = Column(String, nullable=False, default="llm")  # 10-08 §4.2 口径：llm|image|video|tts|asr
     model = Column(String, nullable=False, default="")
+    spec = Column(String, nullable=False, default="")  # 请求侧分辨率（视频/图像才有）
+    quality_tier = Column(String, nullable=False, default="")  # 质量档（对应 10-08 §4.4）
     action = Column(String, nullable=False, default="")
     byok = Column(Integer, nullable=False, default=0)  # 1 = 用户自带 Key（不扣积分）
     status = Column(String, nullable=False, default="success")
