@@ -324,4 +324,6 @@ class HeyGenAdapter extends BaseAdapter {
   }
 }
 
+Object.assign(HeyGenAdapter.prototype, require('./heygen-clone').cloneMethods)
+
 module.exports = { HeyGenAdapter, HEYGEN_MODELS }

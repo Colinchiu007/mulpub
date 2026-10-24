@@ -136,6 +136,15 @@ function validateProductionConfig(env = {}, options = {}) {
     if (!String(env.WECHAT_PAY_CERT_PATH || '').trim() && !String(env.WECHAT_PAY_CERT_CONTENT || '').trim()) {
       errors.push(error('PAYMENT_CONFIG_INVALID', 'WECHAT_PAY_CERT_PATH'))
     }
+    // 平台公钥（回调验签）与商户私钥同等必需：
+    // 缺它时下单能出码，但所有 webhook 都会 401 ⇒ 用户付了钱拿不到权益。
+    // 这是「一次接全」的另一半，不能因为"下单不需要"就放过。
+    if (
+      !String(env.WECHAT_PAY_PLATFORM_PUBLIC_KEY || '').trim()
+      && !String(env.WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH || '').trim()
+    ) {
+      errors.push(error('PAYMENT_CONFIG_INVALID', 'WECHAT_PAY_PLATFORM_PUBLIC_KEY'))
+    }
     const apiV3Key = String(env.WECHAT_PAY_API_V3_KEY || '')
     if (apiV3Key && apiV3Key.length !== 32) errors.push(error('PAYMENT_API_V3_KEY_INVALID', 'WECHAT_PAY_API_V3_KEY'))
     const notifyUrl = String(env.WECHAT_PAY_NOTIFY_URL || '').trim()

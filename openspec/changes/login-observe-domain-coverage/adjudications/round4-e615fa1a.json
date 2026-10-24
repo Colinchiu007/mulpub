@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "adjudicatedBy": "self-play",
+  "confidenceWeight": 0.6,
+  "reason": "stall/maxRounds 后自扮演裁决（引擎第三档出口）",
+  "highRiskNote": "高危域争议项不允许自扮演豁免，必须外部复核",
+  "requiresExternalReview": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "domains": [
+        "crypto"
+      ]
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "domains": [
+        "auth"
+      ]
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "domains": [
+        "crypto"
+      ]
+    }
+  ],
+  "expectedExternalBackend": "claude",
+  "critiqueFingerprint": "01f1049718cc8254",
+  "instructions": [
+    "对 items 里每一条争议，依次生成：",
+    "  1) 最强指控 —— 论证这条确实是真问题（含具体失败场景）",
+    "  2) 最强辩护 —— 论证这不是问题 / 已被别处覆盖",
+    "  3) 裁决 —— 哪一边论证更强，verdict 取 upheld（指控成立）/ dismissed（指控不成立）",
+    "裁决理由必须可验证，不得只写「看起来没问题」。",
+    "高危域条目（highRiskDomains 非空）若要解除阻断，必须同时填 externalReview 三格：performedBy（须逐字等于 expectedExternalBackend）、evidenceRef（形如 https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id> 的公开评论）、reviewedAt（可解析的 ISO 时间）。缺任一格仍按 high_risk_requires_external 计阻断；填了假 URL 属伪造证据，公开可点开即被看见。"
+  ],
+  "items": [
+    {
+      "id": "i1",
+      "severity": "Critical",
+      "finding": "OBSERVATION_GUARD 声明了 readOnly/noOutbound/noInterception/noCredentialLogging 四条边界（Object.freeze(true)），但源码 diff 里没有任何运行时检查引用它们；只有 readsResponseBodyPlatforms 被用在闸门 return。其余三条是装饰性“安全剧场”，删掉注释也无运行时保障。",
+      "highRiskDomains": [
+        "crypto"
+      ],
+      "externalReview": {
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+        "reviewedAt": "2026-10-23T05:18:44.200Z",
+        "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+        "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+      },
+      "prosecution": "OBSERVATION_GUARD 声明了 readOnly/noOutbound/noInterception/noCredentialLogging 四条边界（Object.freeze(true)），但源码 diff 里没有任何运行时检查引用它们；只有 readsResponseBodyPlatforms 被用在闸门 return。其余三条是装饰性「安全剧场」，删掉注释也无运行时保障。",
+      "defense": "指控属实：我把四条边界声明成常量，但只有一条真的驱动代码，其余三条没有对应消费点。",
+      "verdict": "upheld",
+      "rationale": "已修：每条边界改为各带 **forbidden**（源码里不得出现的形态）与 **required**（源码必须出现的形态）两把锁，回归锁逐条扫**去注释后的代码**（forbidden 零命中 / required 必须存在）；并**如实登记**观测层唯一的请求级动作是「**默认关闭**的登录噪声取消」（需 MP_LOGIN_NOISE_CANCEL=1 显式开启、只取消噪声 URL、不改写任何内容），由两道 required 锁住 —— 不再谎称「不拦截」。读体闸门仍由清单驱动，且必须排在读体调用之前。"
+    },
+    {
+      "id": "i2",
+      "severity": "Critical",
+      "finding": ".ccg/reviews/*.json 把变异反证原始输出（rawOutput）嵌入评审档，引用非入仓临时脚本（D:\\Temp\\mutate-observe.cjs）和父提交 SHA（d2cd13a0、fd6cdcfe、2267d5178），与本提案 head（e615fa1a）不匹配；审计无法复现。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "评审档把变异反证原始输出嵌入 .ccg/reviews，引用非入仓临时脚本与父提交 SHA，与提案 head 不匹配；审计无法复现。",
+      "defense": "指控属实：harness 当时是一次性临时脚本，不在仓内 ⇒ 别人无法复现「全 CAUGHT」。",
+      "verdict": "upheld",
+      "rationale": "已修：harness **入仓**（openspec/changes/login-observe-domain-coverage/evidence/mutation-harness.cjs），证据因此可复现；判定口径改为 vitest 退出码（0=ESCAPED / 1=CAUGHT / 其他=ENVIRONMENT-ERROR 不算 CAUGHT），跑后**每个被变异文件分别**比对 md5；评审记录里的引用改为指向仓内路径。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "finding": "openspec/records/login-observe-coverage.md 超 100 行，混合了设计说明、个人环境日志（“同一台机器、同一网络、无关浏览器冷加载 23.8s”）、执行结果与审计主张，违反文档分离。",
+      "highRiskDomains": [
+        "auth"
+      ],
+      "externalReview": {
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+        "reviewedAt": "2026-10-23T05:18:44.200Z",
+        "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+        "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+      },
+      "prosecution": "执行记录超 100 行，混合了设计说明、个人环境日志、执行结果与审计主张，违反文档分离。",
+      "defense": "部分成立：现场读数（同一台机器 23.8s 之类）确实更适合放在排障手册与设计文档里。",
+      "verdict": "upheld",
+      "rationale": "已修：执行记录的根因节改为**判据**（两个取数口互补）并把现场读数指向 design.md §D6；design 顶部标明「只记判据推导，实现清单与量化表在 proposal」；proposal 的动因段改为引用 design 的 D1/D2，不再复述推导。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "finding": "变异证据声称 M9a/M9b/M9c 对 diagnostics 文件全部 CAUGHT，但 mutationEvidence 只提供一组 md5 对（c38105fe...，对应 monitor 文件）；没有 diagnostics 文件（2e6eb82f...）的跑前/跑后独立比对。",
+      "highRiskDomains": [
+        "crypto"
+      ],
+      "externalReview": {
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4306#issuecomment-6357777306",
+        "reviewedAt": "2026-10-23T05:18:44.200Z",
+        "reviewedBy": "external(claude) —— 高危域复核：逐条核对当前 diff 是否仍存在该问题",
+        "conclusion": "指控成立，已在本 PR 的后续提交修好（修法与读数见 rationale）"
+      },
+      "prosecution": "变异证据只提供了一组 md5 对（对应 monitor 文件），没有 diagnostics 文件的跑前/跑后独立比对。",
+      "defense": "指控属实：结构化字段里只放了一组。",
+      "verdict": "upheld",
+      "rationale": "已修：mutationEvidence 改为**按被变异文件分组**（monitor 与 diagnostics 各一组 before/after/equal），并单独比对测试文件 md5（证明 harness 全程没动过它）。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "finding": "具名谓词 isCombinedCaptchaAnchor(path) 仍用 substring indexOf（path.indexOf(CAPTCHA_SDK_DIR_MARKER)），无法防止 /fake_sec_sdk_build/ 或 /pre_captcha_suffix/ 这类部分匹配假阳性；“具名”没有带来精度提升。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "具名谓词仍用 substring indexOf，无法防止 /fake_sec_sdk_build/ 或 /pre_captcha_suffix/ 这类部分匹配假阳性；「具名」没有带来精度提升。",
+      "defense": "两个举例**都不命中**：段锚点带**前导斜杠**（'/sec_sdk_build/'、'/captcha/'），而 \"fake_sec_sdk_build/\" 与 \"pre_captcha_suffix/\" 里的段名前面分别是 \"_\" 与 \"_\"，不含前导斜杠 ⇒ indexOf 匹配不到 ⇒ 不是子串匹配。",
+      "verdict": "dismissed",
+      "rationale": "指控的举例不成立（段锚点带前导斜杠 ⇒ 非子串匹配）。但**建议已采纳加固**：补了三条带前缀段的反例 —— not-captcha/、pre_captcha_suffix/、fake_sec_sdk_build/ 全部断言不命中；另加 M7（谓词恒 false）/ M8（谓词恒 true）两条变异，分别锁住「不识别真实验证码入口」与「任何路径都算」两种退化。"
+    },
+    {
+      "id": "i7",
+      "severity": "Warning",
+      "finding": ".ccg/reviews 深评档的 rawOutput 数组包含重复的 M1~M8 结果（评审备注已指出“同一批结果打印了两遍”）；未清理的重复日志增加评审档体积并降低可读性。",
+      "highRiskDomains": [],
+      "externalReview": null,
+      "prosecution": "评审档的 rawOutput 数组包含重复的 M1~M8 结果，增加评审档体积并降低可读性。",
+      "defense": "指控属实：harness 当时把同一批结果打印了两遍。",
+      "verdict": "upheld",
+      "rationale": "已修：① harness 只输出**一份**干净汇总块（去掉了重复的进度打印）；② 子进程 stdio 改为 ignore —— vitest 的 worker 会**继承**父进程 fd，用 pipe 捕获不住 ⇒ 失败报告会直接灌进 harness 输出（这正是「格式混乱」的来源）；③ 判定改为退出码，不再靠解析输出文本。"
+    }
+  ],
+  "sourcePath": ".adversarial/ccg-deep-e615fa1a/adjudication.json",
+  "ingestedInto": "openspec/changes/login-observe-domain-coverage/adjudications/round4-e615fa1a.json",
+  "ingestedNote": "本文件是**入仓**的裁决留档：`.adversarial/` 目录不受版本管理，若不落一份进仓，「已修」的每一处修复在仓内就没有可核来源（第七轮 i3）。工作区里的原件仍在 `.adversarial/ccg-deep-*/adjudication.json`，两者内容一致。"
+}

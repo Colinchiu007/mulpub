@@ -78,7 +78,12 @@ while ($true) {
 #     都跟着红，先按「PR 有红」退出的话闸门一次都不会跑，而「只剩一句未通过、把真实原因（主干红）
 #     藏成我的 PR 有问题」正是本片立项要消灭的那句话。
 $allow = if ($env:MAIN_RED_ALLOW) { @('--allow-main-red', $env:MAIN_RED_ALLOW) } else { @() }
-& node scripts/check-main-red.js --pr $PrNumber @allow
+# 稳定窗参数透传（2026-10-22，change: main-red-run-baseline）：主干 tip 在读数期间移动时，
+# 闸门自己会作废那次读数并有界重试（默认 3 次 × 90 秒）；这里只暴露覆盖口，不改判定。
+$win = @()
+if ($env:MAIN_RED_ATTEMPTS) { $win += @('--attempts', $env:MAIN_RED_ATTEMPTS) }
+if ($env:MAIN_RED_RETRY_SECONDS) { $win += @('--retry-seconds', $env:MAIN_RED_RETRY_SECONDS) }
+& node scripts/check-main-red.js --pr $PrNumber @allow @win
 if ($LASTEXITCODE -ne 0) { Fail "STOP：main-red 闸门拒绝合并 PR #$PrNumber（rc=$LASTEXITCODE；读本脚本上一行的 verdict 行）" 7 }
 
 # 3) 解析最终结论（仅用 state，不依赖 conclusion 字段）

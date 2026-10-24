@@ -1,0 +1,70 @@
+{
+  "sha": "85f58b598b32c6d894871e18f70479d8ee520bfb",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 290 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 290,
+    "fileCount": 8,
+    "codeFileCount": 4,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/payment-event-outbox.js",
+      "packages/api-publish-engine/src/auth/publish-api-payment.js",
+      "packages/api-publish-engine/src/auth/subscription-payment.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 10,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "SELECT id, event, auth_subject, status, processed_at, result",
+      "SELECT count(*) FROM identity_webhook_events",
+      "SELECT event, status, count(*) AS n"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"SELECT id, event, auth_subject, status, processed_at, result\",",
+      "      \"SELECT count(*) FROM identity_webhook_events\",",
+      "      \"SELECT event, status, count(*) AS n\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T20:34:34.539Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4269#issuecomment-6350979345",
+    "reviewedAt": "2026-10-22T20:45:00Z",
+    "findings": 2,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对 payment-event-outbox 及接线 diff 独立审阅，原始输出逐字公开于 evidence。VERDICT: PASS（0 Critical / 0 High），逐条确认：①提前 return 走 COMMIT、结算失败连 claim 一起回滚，不留毒行；②并发双投在 ON CONFLICT 阻塞，只有一个会结算；③SQL 占位符/::jsonb/NOT NULL/唯一约束全部正确。两条 Medium：④eventRecorded 键在 tx.client 缺失时被省略（缺键会被读成成功）→ 采纳，键永远存在，null=不适用 / false=写失败，新增 1 例，变异 12 pass/2 fail；⑤「结算成功但收口失败」会让事件行停在 processing → 不修代码（自动改 processed 会谎报），改为 RUNBOOK 可查 SQL（卡 processing >10min）并注明权益已发不要重复发放。新增 2 例、总计 14 例，全量 rc=0。"
+  }
+}

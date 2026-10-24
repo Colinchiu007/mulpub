@@ -1,0 +1,63 @@
+{
+  "sha": "ef571cd84ce6b03144e0482050f73cd6a8eae673",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 20 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 20,
+    "fileCount": 6,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "| i7 | Info | 换端点后的 token 权限要求未说明（权限不足会静默返回空） | **已修**：写明「与读 check-runs 同一份 gh 凭据、scope 相同、**无需新增授权**；权限不足 ⇒ 403/404 ⇒ gh 非零 rc ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**」 |",
+      "**权限**（决策层 i7）：读 `actions/runs` 与读 `check-runs` 用**同一份 gh 凭据**，scope 相同，",
+      "**不需要新增授权**；权限不足 ⇒ 403/404 ⇒ gh 非零 rc ⇒ 抛错 ⇒ 判自身故障(4)，**不会静默返回空**。"
+    ],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"suggestion\": \"在 proposal.md 注明 actions/runs 所需权限与现有 check-runs 一致（repo 作用域），无需新增授权。\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "705b54b8a0f8fbd426081e16e100898d21530858ba8c37a91505a5a799d71a99",
+  "decidedAt": "2026-10-22T02:57:48.170Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

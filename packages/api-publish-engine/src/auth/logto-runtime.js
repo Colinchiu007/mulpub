@@ -6,6 +6,7 @@ const { PostgresEntitlementProvider, PostgresIdentityRepository } = require('./p
 const { SubscriptionService } = require('./subscription-service')
 const { createProductionReadinessProbe } = require('./production-readiness')
 const { validateProductionConfig } = require('./production-config')
+const { createWeChatNativeProvider } = require('./payment-providers/wechat-native-factory')
 
 class LogtoRuntimeError extends Error {
   constructor(code, message, cause) {
@@ -124,9 +125,17 @@ async function createLogtoRuntime(options = {}) {
       await repository.assertReady()
     }
     const entitlementProvider = options.entitlementProvider || new PostgresEntitlementProvider(repository)
+    // 支付通道（组装根）：`PAYMENT_PROVIDER=wechat_native` 时在这里**真的构造** provider。
+    // 2026-10-22 之前这里没传 paymentProvider ⇒ subscription-service 默认 null
+    // ⇒ subscription-payment 恒回 503 ⇒ 前端永远「支付通道暂未开放」，且 111 条注入式测试全绿也看不出来。
+    // `options.paymentProvider !== undefined` 而不是 `||`：测试要能显式传 null 来模拟"未配置"。
+    const paymentProvider = options.paymentProvider !== undefined
+      ? options.paymentProvider
+      : createWeChatNativeProvider(env)
     const subscriptionService = new SubscriptionService({
       repository,
       planOverrides: options.planOverrides || null,
+      paymentProvider,
     })
     const webhookKey = String(env.LOGTO_WEBHOOK_SIGNING_KEY || '')
     const createWebhookConsumer = options.createWebhookConsumer || ((consumerOptions) => new LogtoWebhookConsumer(consumerOptions))

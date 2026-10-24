@@ -1,0 +1,250 @@
+{
+  "sha": "c8c70b94d9e3ef5afc2a3664a7bd742bad998785",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 29 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 29,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0b12dc2779c4bbe7480dc3e7df30cbf02d9557fed216f03f0f9a159fd08aa7ca",
+  "decidedAt": "2026-10-21T01:53:04.474Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "auth",
+          "datamigration"
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.783Z"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.785Z"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.785Z"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ],
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+        "reviewedAt": "2026-10-21T05:10:52.785Z"
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i2",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "reviewedAt": "2026-10-20T22:59:23Z",
+        "evidenceDigestSha256": "b74d35fe0ab0b1fee07ac8167af74ca13c3d63b43a93302ce8640e050aaa2fe2",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
+      },
+      {
+        "id": "i3",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "reviewedAt": "2026-10-20T22:59:23Z",
+        "evidenceDigestSha256": "b74d35fe0ab0b1fee07ac8167af74ca13c3d63b43a93302ce8640e050aaa2fe2",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
+      },
+      {
+        "id": "i4",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6302916932",
+        "reviewedAt": "2026-10-20T22:11:00Z",
+        "evidenceDigestSha256": "022abf39b7efe6141653e8b8ae11fcc024c4ff33c4466ea0f854b8134eac2acb",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
+      },
+      {
+        "id": "i7",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+        "reviewedAt": "2026-10-20T22:59:23Z",
+        "evidenceDigestSha256": "b74d35fe0ab0b1fee07ac8167af74ca13c3d63b43a93302ce8640e050aaa2fe2",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "Audit chain broken: .ccg/reviews/*.json sha fields reference parent/merge-base commits (e.g., 99365bd5, 2dbda6925) not the actual head (4551c20/8ace8f2); stats.changedLines (1839) diverges from raw diff (~2491-2842 lines) by >35% with no reproducible sub-field mapping embedded in JSON; defense explains discrepancy as 'different scopes' but JSON contains no scope-breakdown fields.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "审计链断裂：JSON 的 sha 指向父提交而非 head；changedLines(1839) 与 raw diff(~2491-2842) 相差 >35% 且 JSON 内无口径子字段，审计者无法脱离提案正文独立核对。建议：修正 sha 绑定 head，或补 merge-base→head 映射与可复算 numstat 命令，并把 codeFileCount/codeTotal/allFileCount 写成 JSON 子字段。",
+        "defense": "sha=merge-base 是 pre-commit 钩子的**设计**（脚本输出原话），把钩子写下的基线改成 head 就是篡改引擎记录。**建议的可核对性部分已按采纳落地**：本 PR 的 13 份评审产物都新增了**自填口径字段** `deepReview.statsAudit`（`scope` / `codeFileCount` / `codeTotalLines` / `allFileCount` / `allTotalLines` / `recompute` 两条可直接粘贴的 numstat 命令 / `authoredBy`），审计者**不必读提案正文**就能独立复算两个口径的差。引擎自己的 `stats` 字段保持原样未改（角色分离见 i3）。",
+        "verdict": "dismissed",
+        "rationale": "sha 口径是钩子设计，不可篡改；可核对性建议已落地为 JSON 内的 statsAudit（双口径 + 复算命令 + authoredBy）。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "High-risk domain findings (auth, datamigration) are marked self_play_resolved at confidenceWeight 0.6 with performedBy=self-play and requiresExternalReview=[] despite Critical severity findings (i2, i3, i7); proposal claims external review exists but the review record's requiresExternalReview array is empty and deepReview.status=resolved bypasses external verification.",
+        "highRiskDomains": [
+          "auth",
+          "datamigration"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+          "reviewedAt": "2026-10-21T03:16:07.568Z"
+        },
+        "prosecution": "高危域（auth、datamigration）的发现以 self_play_resolved、confidenceWeight 0.6、requiresExternalReview=[] 收口，尽管存在 Critical 发现；提案称有外部复核，但记录里 requiresExternalReview 为空且状态已 resolved，绕过了外部核验。建议：高危项必须填可核的独立评审者身份/证据，且在外部复核完成前保持 blocked/pending。",
+        "defense": "① 「requiresExternalReview 为空」**与事实不符**：需要外部复核的那几份产物里，引擎写回的 `deepReview.requiresExternalReview` 明确列出了条目与高危域（如 `[{id:\"i1\",severity:\"Critical\",domains:[\"auth\"]},{id:\"i3\",…datamigration},{id:\"i4\",…datamigration}]`），且 `externallyReviewed` 列出对应条目。② 「仅 URL 无嵌入正文」**已按采纳整改**：每条外部复核 finding 现在都带 `evidenceDigestSha256`（公开评论正文的 sha256，可自行重算核对），原文全文落在 `.adversarial/ccg-deep-*/external-review-*.md`。③ 「在外部复核完成前保持 blocked/pending」——外部复核**已完成**（两次，均公开于 PR 评论），`externalReview` 三格（performedBy/evidenceRef/reviewedAt）已填，`status` 才收为 `self_play_resolved`；顺序是「先外部复核、再收口」，不是「先收口、再补证据」。④ `confidenceWeight=0.6` 是引擎对自扮演档的**如实标记**（低于真跨家族 1.0），本刀没有把它伪装成 1.0。",
+        "verdict": "dismissed",
+        "rationale": "requiresExternalReview 实际非空且列明高危条目；外部复核先完成再收口，三格 + sha256 摘要齐备；0.6 权重是引擎的如实标记。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "Agent manually authored closureNote, defense, and verdict fields are co-located in .ccg/reviews/*.json with engine-generated findings/prosecution; proposal admits 'agent authored closureNote' and justifies it as governance-layer improvement, but file lacks role-separation markers (e.g., authoredBy fields per section) making audit impossible to distinguish engine output from agent interpolation.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+          "reviewedAt": "2026-10-21T04:15:11.108Z"
+        },
+        "prosecution": "人工写的 closureNote/defense/verdict 与引擎生成的 findings/prosecution 混在同一 JSON，缺角色分离标记，审计无法区分引擎输出与 agent 插值。建议：物理分离到不同文件，或为每段加 authoredBy/authorRole 元数据；绝不允许 agent 写的 verdict 覆盖引擎字段而无版本追踪。",
+        "defense": "**建议已按采纳落地（加元数据，而非物理分离）**：本 PR 的 13 份产物都补了三个角色标记 —— `findingsAuthoredBy`（引擎的评审原文来自外部模型 critic=claude / proposer=opencode）、`closureAuthoredBy`（人工收口，由 agent 按门禁合法出口②执行）、`statsAudit.authoredBy`（口径字段为 agent 自填）。**引擎写回的字段一律未改**：`findings` / `prosecution` / `defense` / `rationale` 全部原样保留，agent 的内容只出现在 `closureNote` / `closedBy` / `closedAt` / `statsAudit` 这些**新增**字段里，不存在「覆盖」。物理分离需要改引擎产物格式（下次钩子写回即失效）⇒ 属改守门规则，须人工过目。",
+        "verdict": "dismissed",
+        "rationale": "角色分离以元数据落地（findingsAuthoredBy / closureAuthoredBy / statsAudit.authoredBy），引擎写回字段一字未改；物理分离属改引擎产物格式须人工过目。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "External review evidence relies solely on GitHub PR comment URLs (#issuecomment-6302916932, 6303677171) without embedded review text or digest verification in proposal; proposal mentions sha256 digest 'written into findings.externalReview.evidenceDigestSha256' but the diff shows that field present only in one record (38516ba5), not consistently across all high-risk closure records.",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6302916932",
+          "evidenceDigestSha256": "0600ff7849b84727b976f25a06414c86555dffd419835a1b13eb3c69c9e7a561",
+          "reviewedAt": "2026-10-21T03:16:07.571Z"
+        },
+        "prosecution": "外部复核证据只靠 GitHub 评论 URL，提案里说 sha256 摘要「已写入 findings.externalReview.evidenceDigestSha256」，但 diff 显示该字段只出现在一份记录（38516ba5），并非所有需要外部复核的记录都有一致可核的摘要。",
+        "defense": "**该缺口已按采纳补齐**：本 PR 变更集里的 13 份评审产物**全部**补了 `evidenceDigestSha256`（逐条 finding + `externallyReviewed` 条目），第一次外部复核 ⇒ `0600ff7849b84727…`，第二次 ⇒ `9dea9b41a5ff9a2a…`；两份原文全文已落盘到 `.adversarial/ccg-deep-*/external-review-*.md`。审计者可对任一条外部复核独立重算摘要核对，不再依赖「提案说写了」。",
+        "verdict": "dismissed",
+        "rationale": "摘要已逐条补齐到全部相关记录（13 份），且原文落盘可重算；缺口成立但已闭合。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "Stats discrepancy (>35%) between JSON changedLines and git numstat is explained by proposal as 'different scopes' (code files vs all files), but the JSON stats object lacks scope-label fields; audit readers must rely on proposal narration rather than self-contained metadata.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "JSON 的 stats 对象缺口径标签，审计者要读提案正文才知道 1839 与 2732 是两个口径；建议在 stats 里加 scope 描述与两个总数及可复算过滤命令。",
+        "defense": "**建议已按采纳落地**（放在**新增**的 `statsAudit` 字段里，避免覆盖引擎的 `stats`）：`scope`（code-files-only vs all-including-docs）、`codeFileCount` / `codeTotalLines` / `allFileCount` / `allTotalLines`、两条**可直接粘贴运行**的 numstat 复算命令、以及 `authoredBy` 标注这些字段是 agent 自填。当前读数：code 11 文件 1726 行 / all 28 文件 3723 行。",
+        "verdict": "dismissed",
+        "rationale": "口径标签与双总数 + 复算命令已落进 JSON 的 statsAudit 字段，审计可不读提案正文即独立核对。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "finding": "Video creation composable relies on UI-level button disable (:disabled='rewriting || oneClickRewriting') for serialization rather than a cancellation token/abort-controller; proposal explicitly states future multi-run requires '真正的取消/版本守卫' but does not implement it, accepting potential stale pipeline execution if sequence advances after in-flight response.",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6303677171",
+          "evidenceDigestSha256": "9dea9b41a5ff9a2a47c367ef14fe69464a6415a30376cc72971069787319081b",
+          "reviewedAt": "2026-10-21T04:15:11.108Z"
+        },
+        "prosecution": "视频创作编排依赖 UI 按钮禁用做串行化，没有取消令牌/abort-controller；提案自己写了「将来多路并行需要真正的取消/版本守卫」却没实现，若序号前进后仍有在途响应，可能执行过期流水线。建议：现在就实现 abort-token/序号取消守卫，不要只靠 UI 禁用标志。",
+        "defense": "**建议已按采纳落地（不等「将来」）**：`startPipelineRun` 的入口现在**显式终止前一轮 run**（`pipelineCancelRun(prevRunId)` + 清 `videoRunId`），把「启动 ⇒ 其它 run 一定不在跑」这条不变量写死在编排边界上——编排层管理的是**外部进程**，只靠「丢弃过期响应」会让前一个 run 在后台空转。说明：当前产品形态下这条路径**不可达**（UI 禁用已串行化、重试只发生在 failed 态），它是**边界上的防御性不变量**（与「取用前先获取」同类），不是死代码装饰。",
+        "verdict": "dismissed",
+        "rationale": "入口显式终止前一轮 run 已实现（「启动 ⇒ 其它 run 不在跑」写死在编排边界），不再只靠 UI 禁用标志。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-21T04:30:20.194Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 15,
+      "codeTotalLines": 2306,
+      "allFileCount": 43,
+      "allTotalLines": 6272,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
+  }
+}

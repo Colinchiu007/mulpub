@@ -37,6 +37,21 @@ describe("http-login-checker fetchAccountInfoViaHttpApi", () => {
     vi.stubGlobal("fetch", f);
     return f;
   };
+  /**
+   * 按 URL 逐个喂响应（多端点平台用；未登记的 URL → 404）。
+   * 资料通道自 2026-10-22 起与登录判定**分表**（HTTP_PROFILE_APIS），
+   * 一个平台的昵称/头像/粉丝/平台ID 可能分散在多个端点上。
+   */
+  const mockRoutes = (routes) => {
+    const f = vi.fn(async (url) => {
+      const hit = routes[url];
+      if (hit === undefined) return { ok: false, status: 404, text: () => Promise.resolve(""), json: () => Promise.resolve(null) };
+      if (typeof hit === "string") return { ok: true, status: 200, text: () => Promise.resolve(hit) };
+      return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(hit)), json: () => Promise.resolve(hit) };
+    });
+    vi.stubGlobal("fetch", f);
+    return f;
+  };
 
   it("weibo 未登记任何 uid/资料提取来源，返回 supported:false", async () => {
     expect(
@@ -48,11 +63,31 @@ describe("http-login-checker fetchAccountInfoViaHttpApi", () => {
   });
 
   // ─── douyin（json 来源）───────────────────────────────
-  it("douyin 提取昵称与平台ID（无粉丝字段则省略键）", async () => {
-    mockJson({ status_code: 0, data: { uid: "u1", nickname: "抖昵称" } });
+  // 断言变更（2026-10-22，带实测证据）：抖音的资料端点是
+  // `GET creator.douyin.com/web/api/media/user/info/`，真实响应里 user 在**顶层**
+  // （实测 `{"status_code":0,"user":{nickname,uid,follower_count,avatar_larger:{url_list[]}},…}`），
+  // 原实现读 `data.user` ⇒ 昵称/头像/粉丝恒空 ⇒ 账号卡显示平台名。
+  it("douyin 提取昵称、头像与平台ID（顶层 user 对象）", async () => {
+    mockRoutes({
+      "https://creator.douyin.com/web/api/media/user/info/": {
+        status_code: 0,
+        user: {
+          nickname: "抖昵称",
+          uid: "u1",
+          follower_count: 266,
+          avatar_larger: { url_list: ["https://p3.douyinpic.com/aweme/1080x1080/aweme-avatar/x.jpeg"] },
+        },
+      },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("douyin", [{ name: "sessionid", value: "x" }]),
-    ).toEqual({ supported: true, nickname: "抖昵称", platformAccountId: "u1" });
+    ).toEqual({
+      supported: true,
+      nickname: "抖昵称",
+      avatar: "https://p3.douyinpic.com/aweme/1080x1080/aweme-avatar/x.jpeg",
+      followers: 266,
+      platformAccountId: "u1",
+    });
   });
   it("douyin 未登录（status_code:8 明确未登录）不产出 uid", async () => {
     mockJson({ status_code: 8, status_msg: "未登录" });
@@ -60,19 +95,41 @@ describe("http-login-checker fetchAccountInfoViaHttpApi", () => {
       await checker.fetchAccountInfoViaHttpApi("douyin", [{ name: "sessionid", value: "x" }]),
     ).toEqual({ supported: true });
   });
-  it("douyin 响应结构变更（缺 uid/user_id）不猜值、不拿昵称顶替", async () => {
-    mockJson({ status_code: 0, data: { nickname: "只有昵称" } });
+  it("douyin 响应结构变更（user 缺 uid）不猜值、不拿昵称顶替", async () => {
+    mockRoutes({
+      "https://creator.douyin.com/web/api/media/user/info/": { status_code: 0, user: { nickname: "只有昵称" } },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("douyin", [{ name: "sessionid", value: "x" }]),
     ).toEqual({ supported: true, nickname: "只有昵称" });
   });
 
   // ─── toutiao（json 来源）──────────────────────────────
-  it("toutiao 从 data.user 提取昵称与粉丝", async () => {
-    mockJson({ code: 0, data: { user: { id: "t1", name: "条昵称", fans_count: 66 } } });
+  // 断言变更（2026-10-22，带实测证据）：头条的昵称/头像在 `data.media`
+  // （display_name / https_avatar_url —— 字段名是「https_avatar_url」不是「avatar_url」），
+  // 粉丝数在**另一个**端点 `statistic/v2/fans/latest_stat` 的 `data.fans_stat.total_fans_count`。
+  it("toutiao 从 data.media 提取昵称与头像，粉丝取 fans/latest_stat", async () => {
+    mockRoutes({
+      "https://mp.toutiao.com/mp/agw/media/get_media_info": {
+        code: 0,
+        data: {
+          media: { display_name: "条昵称", id: "t1", https_avatar_url: "https://p6.toutiaoimg.com/img/user-avatar/abc~300x300.image" },
+          user: { id: "t1", screen_name: "条昵称" },
+        },
+      },
+      "https://mp.toutiao.com/mp/agw/statistic/v2/fans/latest_stat": {
+        data: { fans_stat: { total_fans_count: 66 } },
+      },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("toutiao", [{ name: "x", value: "y" }]),
-    ).toEqual({ supported: true, nickname: "条昵称", followers: 66, platformAccountId: "t1" });
+    ).toEqual({
+      supported: true,
+      nickname: "条昵称",
+      avatar: "https://p6.toutiaoimg.com/img/user-avatar/abc~300x300.image",
+      followers: 66,
+      platformAccountId: "t1",
+    });
   });
   it("toutiao 未登录（message「请先登录」，登录页/无 user 形状）不产出 uid", async () => {
     mockJson({ code: 3, message: "请先登录", data: null });
@@ -107,11 +164,25 @@ describe("http-login-checker fetchAccountInfoViaHttpApi", () => {
     ).toEqual({ supported: true });
     expect(f).not.toHaveBeenCalled();
   });
-  it("bilibili 从 data.mid 提取平台ID与昵称", async () => {
-    mockJson({ code: 0, data: { mid: 31000000, uname: "站昵称", fans: 77 } });
+  // 断言变更（2026-10-22，带实测证据）：B 站昵称/头像在 nav 的 `data.uname` / `data.face`；
+  // 粉丝数在 `x/relation/stat?vmid=<mid>`，必须先由 nav 拿到 mid。
+  it("bilibili 从 nav 提取平台ID、昵称与头像，粉丝取 relation/stat", async () => {
+    mockRoutes({
+      "https://api.bilibili.com/x/web-interface/nav": {
+        code: 0,
+        data: { mid: 31000000, uname: "站昵称", face: "https://i0.hdslb.com/bfs/face/member/noface.jpg" },
+      },
+      "https://api.bilibili.com/x/relation/stat?vmid=31000000": { code: 0, data: { follower: 77 } },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("bilibili", [{ name: "bili_jct", value: "x" }]),
-    ).toEqual({ supported: true, nickname: "站昵称", followers: 77, platformAccountId: "31000000" });
+    ).toEqual({
+      supported: true,
+      nickname: "站昵称",
+      avatar: "https://i0.hdslb.com/bfs/face/member/noface.jpg",
+      followers: 77,
+      platformAccountId: "31000000",
+    });
   });
   it("bilibili 未登录（code -101 请登录，data 为 false）不产出 uid", async () => {
     mockJson({ code: -101, message: "请填写密码", data: false });
@@ -132,11 +203,11 @@ describe("http-login-checker fetchAccountInfoViaHttpApi", () => {
     '<div class="login_scanTips">请使用微信扫码</div><p>扫码登录</p>' +
     '<script>var pageData = { uin: "", nick_name: "" };</script></body></html>';
 
-  it("wechat_mp 从登录态 loginpage HTML 的 uin 提取平台ID（无 JSON 端点，与登录判定同源）", async () => {
+  it("wechat_mp 从登录态 loginpage HTML 的 uin 提取平台ID与昵称（无 JSON 端点，与登录判定同源）", async () => {
     const f = mockHtml(WECHAT_MP_LOGGED_IN_HTML);
     expect(
       await checker.fetchAccountInfoViaHttpApi("wechat_mp", [{ name: "slave_sid", value: "v" }]),
-    ).toEqual({ supported: true, platformAccountId: "3100000001" });
+    ).toEqual({ supported: true, nickname: "公众号甲", platformAccountId: "3100000001" });
     // 端点必须是已注册的 loginpage（不新增、不编造 URL）
     expect(f.mock.calls[0][0]).toBe("https://mp.weixin.qq.com/cgi-bin/loginpage?url=%2Fcgi-bin%2Fhome");
   });
@@ -204,60 +275,79 @@ describe("http-login-checker fetchAccountInfoViaHttpApi", () => {
     expect(f).not.toHaveBeenCalled();
   });
 
-  // ─── xiaohongshu / zhihu（html 来源：SSR 身份属性，全页唯一命中）───
-  it("xiaohongshu 从 SSR HTML 的 data-account-id 提取平台ID（唯一命中）", async () => {
-    mockHtml(
-      '<!doctype html><html><body><div id="app"><span class="user-name" data-account-id="5f1a2b3c00000000002a1b3c">小红昵称</span></div></body></html>',
-    );
+  // ─── xiaohongshu / zhihu（json 来源：平台自己的 user-info 只读接口）───
+  // 断言变更（2026-10-22，带实测证据）：小红书的身份与资料来自
+  // `GET creator.xiaohongshu.com/api/galaxy/user/info`（B 阶段真实抓包 + 本轮实测互证），
+  // 真实字段是 `data.userId` / `data.userName` / `data.userAvatar`。
+  // 原实现从 SSR HTML 的 `data-account-id` 取 uid —— 那条路实测取不到（生产库
+  // 小红书账号的 platform_account_id 一直是空），故改走平台自己的接口。
+  it("xiaohongshu 从 galaxy/user/info 提取平台ID（data.userId）", async () => {
+    mockRoutes({
+      "https://creator.xiaohongshu.com/api/galaxy/user/info": {
+        success: true,
+        data: { userId: "5f1a2b3c00000000002a1b3c", userName: "小红昵称", userAvatar: "https://sns-avatar-qc.xhscdn.com/avatar/abc" },
+      },
+      "https://creator.xiaohongshu.com/api/galaxy/creator/home/personal_info": { success: true, data: { fans_count: 457 } },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("xiaohongshu", [{ name: "web_session", value: "v" }]),
-    ).toEqual({ supported: true, platformAccountId: "5f1a2b3c00000000002a1b3c" });
+    ).toEqual({
+      supported: true,
+      nickname: "小红昵称",
+      avatar: "https://sns-avatar-qc.xhscdn.com/avatar/abc",
+      followers: 457,
+      platformAccountId: "5f1a2b3c00000000002a1b3c",
+    });
   });
-  it("xiaohongshu 未登录 login page（登录壳里没有任何身份属性）不产出 uid", async () => {
-    mockHtml(
-      '<!doctype html><html><head><title>小红书创作服务平台</title></head><body>' +
-      '<div class="login-container"><span>扫码登录</span><input placeholder="手机号" /></div></body></html>',
-    );
+  it("xiaohongshu 未登录 login page（success 不为 true / data 缺席）不产出 uid", async () => {
+    mockRoutes({
+      "https://creator.xiaohongshu.com/api/galaxy/user/info": { success: false, code: -101 },
+      "https://creator.xiaohongshu.com/api/galaxy/creator/home/personal_info": { success: false, code: -101 },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("xiaohongshu", [{ name: "web_session", value: "v" }]),
     ).toEqual({ supported: true });
   });
-  it("xiaohongshu 页面含多个互不相同的身份属性（评论/协作访客）时不产出 uid", async () => {
-    mockHtml(
-      '<!doctype html><html><body>' +
-      '<div data-user-id="5f1a2b3c00000000002a1b3c"></div>' +
-      '<div data-user-id="9a8b7c6d5e4f3a2b1c0d9e8f"></div></body></html>',
-    );
+  it("xiaohongshu 响应结构变更（data 缺身份字段）不产出 uid", async () => {
+    mockRoutes({
+      "https://creator.xiaohongshu.com/api/galaxy/user/info": { success: true, data: { desc: "无身份字段" } },
+      "https://creator.xiaohongshu.com/api/galaxy/creator/home/personal_info": { success: true, data: {} },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("xiaohongshu", [{ name: "web_session", value: "v" }]),
     ).toEqual({ supported: true });
   });
 
-  it("zhihu 从 SSR HTML 的 data-user-id 提取平台ID（唯一命中）", async () => {
-    const f = mockHtml(
-      '<!doctype html><html><body><header class="AppHeader">' +
-      '<a class="AppHeader-profile" href="/people/ming-yue-88" data-user-id="013a4b7c9d2e4f6a8b0c1d2e3f4a5b6c">甲公司</a>' +
-      "</header></body></html>",
-    );
+  it("zhihu 从 /api/v4/me 提取平台ID、昵称与头像", async () => {
+    mockRoutes({
+      "https://www.zhihu.com/api/v4/me": {
+        id: "013a4b7c9d2e4f6a8b0c1d2e3f4a5b6c",
+        url_token: "ming-yue-88",
+        name: "秋叔",
+        avatar_url: "https://picx.zhimg.com/v2-22dfe7094375e34e38695123acd219db_xl.jpg",
+      },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("zhihu", [{ name: "z_c0", value: "v" }]),
-    ).toEqual({ supported: true, platformAccountId: "013a4b7c9d2e4f6a8b0c1d2e3f4a5b6c" });
-    expect(f.mock.calls[0][0]).toBe("https://www.zhihu.com/");
+    ).toEqual({
+      supported: true,
+      nickname: "秋叔",
+      avatar: "https://picx.zhimg.com/v2-22dfe7094375e34e38695123acd219db_xl.jpg",
+      platformAccountId: "013a4b7c9d2e4f6a8b0c1d2e3f4a5b6c",
+    });
   });
-  it("zhihu 未登录 login page（页面标题「首页 - 知乎」及其派生值不得当 uid）", async () => {
-    mockHtml(
-      '<!doctype html><html><head><title>首页 - 知乎</title>' +
-      '<meta property="og:title" content="首页 - 知乎"></head><body>' +
-      '<div class="SignContainer"><span>登录知乎</span><input name="username" /></div></body></html>',
-    );
+  it("zhihu 未登录 login page（响应里没有身份字段）不产出 uid", async () => {
+    mockRoutes({
+      "https://www.zhihu.com/api/v4/me": { code: 401, message: "请先登录" },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("zhihu", [{ name: "z_c0", value: "v" }]),
     ).toEqual({ supported: true });
   });
-  it("zhihu 身份属性为模板占位/空值（SSR 未填充）时不产出 uid", async () => {
-    mockHtml(
-      '<!doctype html><html><body><div data-user-id="" data-account-id="{{userId}}"></div></body></html>',
-    );
+  it("zhihu 身份字段为模板占位/空值时不产出 uid", async () => {
+    mockRoutes({
+      "https://www.zhihu.com/api/v4/me": { id: "", url_token: "", name: "", avatar_url: "" },
+    });
     expect(
       await checker.fetchAccountInfoViaHttpApi("zhihu", [{ name: "z_c0", value: "v" }]),
     ).toEqual({ supported: true });

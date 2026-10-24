@@ -7,7 +7,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNoSandbox, resolveSoftwareGpu, DEFAULT_USER_DATA_DIR } = require('./dev-launcher')
+const { buildElectronArgs, resolveUserDataDir, resolveAllowAllOrigins, resolveNoSandbox, resolveSoftwareGpu, resolvePasswordStore, PASSWORD_STORES, DEFAULT_USER_DATA_DIR } = require('./dev-launcher')
 const fs = require('node:fs')
 const path = require('node:path')
 
@@ -177,4 +177,85 @@ test('留痕锁：开关生效时 dev.js 必须打印现场（禁止以静默 no
   const src = fs.readFileSync(path.join(__dirname, 'dev.js'), 'utf8')
   assert.match(src, /if \(allowAllOrigins\) \{/)
   assert.match(src, /--remote-allow-origins=\* ENABLED/)
+})
+
+// 2026-10-23 实测补：Linux 无头/容器环境没有 gnome-keyring / kwallet，
+// safeStorage.isEncryptionAvailable() 返回 false ⇒ 模型 API Key 无法落库
+// （model-provider-manager.updateProvider → crypto.encrypt → CRYPTO_UNAVAILABLE），
+// 「配置模型 → 跑流水线」整条链在无头 Linux 上不可用。
+// MP_ELECTRON_PASSWORD_STORE=basic 是唯一不依赖守护进程的后端。
+test('resolvePasswordStore 未设置时不解析任何后端（Windows/macOS 行为不变）', () => {
+  assert.equal(resolvePasswordStore({}), '')
+  assert.equal(resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: '' }), '')
+  assert.equal(resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: '   ' }), '')
+})
+
+test('resolvePasswordStore 接受白名单取值并映射到 Chromium 的后端名', () => {
+  assert.equal(resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: 'basic' }), 'basic')
+  assert.equal(resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: 'BASIC' }), 'basic')
+  assert.equal(resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: ' basic ' }), 'basic')
+  assert.equal(resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: 'gnome-libsecret' }), 'gnome_libsecret')
+  assert.equal(resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: 'kwallet6' }), 'kwallet6')
+  assert.deepEqual(Object.keys(PASSWORD_STORES).sort(), ['basic', 'gnome-libsecret', 'kwallet', 'kwallet5', 'kwallet6'])
+})
+
+test('resolvePasswordStore 非法取值必须抛错而不是静默忽略（配置形同虚设是最贵的失败形态）', () => {
+  assert.throws(() => resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: 'gnome' }), /MP_ELECTRON_PASSWORD_STORE 取值非法/)
+  assert.throws(() => resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: 'basic;rm -rf /' }), /取值非法/)
+  assert.throws(() => resolvePasswordStore({ MP_ELECTRON_PASSWORD_STORE: '--foo' }), /取值非法/)
+})
+
+test('buildElectronArgs 显式指定口令存储后端时下发 --password-store= 且保持末位为应用路径', () => {
+  const args = buildElectronArgs({
+    electronUserDataDir: 'D:/tmp/profile',
+    electronCacheDir: 'D:/tmp/profile/cache',
+    desktopDir: 'D:/app',
+    platform: 'linux',
+    passwordStore: 'basic',
+  })
+  const hits = args.filter(a => a.startsWith('--password-store='))
+  assert.deepEqual(hits, ['--password-store=basic'])
+  assert.equal(args[args.length - 1], 'D:/app')
+})
+
+test('buildElectronArgs 未指定口令存储后端时不得下发该开关（默认行为不变）', () => {
+  const args = buildElectronArgs({
+    electronUserDataDir: 'D:/tmp/profile',
+    electronCacheDir: 'D:/tmp/profile/cache',
+    desktopDir: 'D:/app',
+    platform: 'win32',
+  })
+  assert.equal(args.filter(a => a.startsWith('--password-store')).length, 0)
+})
+
+test('接线锁：dev.js 必须真的读取开关并传给 buildElectronArgs（写了 helper 没人调即红）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'dev.js'), 'utf8')
+  assert.match(src, /const \{[^}]*resolvePasswordStore[^}]*\} = require\('\.\/dev-launcher'\)/)
+  assert.match(src, /const passwordStore = resolvePasswordStore\(process\.env\)/)
+  assert.match(src, /buildElectronArgs\(\{[^}]*passwordStore[^}]*\}\)/)
+})
+
+test('留痕锁：开关生效时 dev.js 必须打印现场（禁止以静默 no-op 表达「已开启」）', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'dev.js'), 'utf8')
+  assert.match(src, /if \(passwordStore\) \{/)
+  assert.match(src, /--password-store=/)
+})
+
+// 2026-10-23 实测补：dev.js 的 waitForVite 没有「Electron 只启动一次」的一次性守卫。
+// Vite 响应慢时，`req.setTimeout(1000, ...)` 触发的重试与随后的成功回调会同时到达
+// （destroy 与 response 存在竞态）⇒ 同一个 dev.js 连续 spawn 多个 Electron 实例，
+// 每个实例各带十几个辅助进程 ⇒ 几分钟内进程数冲到 100+（实测 189 个）并把内存吃光，
+// Vite 被 OOM SIGKILL，表现为「窗口刚起来就没了」。
+// 这里锁住「必须有一次性守卫」这件事，防止后续重构把它删掉。
+test('一次性守卫锁：dev.js 的 Electron 启动必须至多发生一次', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'dev.js'), 'utf8')
+  assert.match(src, /let electronSpawned = false/, '缺少 electronSpawned 一次性守卫变量')
+  assert.match(src, /if \(electronSpawned\) \{/, '缺少 electronSpawned 判据')
+  // 守卫必须在 spawn 之前置位（置位在判据之后、spawn 之前）
+  const guardIndex = src.indexOf('if (electronSpawned) {')
+  const setIndex = src.indexOf('electronSpawned = true;', guardIndex)
+  const spawnIndex = src.indexOf('electron = spawn(', guardIndex)
+  assert.ok(guardIndex !== -1 && setIndex !== -1 && spawnIndex !== -1)
+  assert.ok(guardIndex < setIndex, '守卫判据必须先于置位')
+  assert.ok(setIndex < spawnIndex, '必须在 spawn 之前置位，否则并发回调仍会重复 spawn')
 })

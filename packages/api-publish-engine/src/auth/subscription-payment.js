@@ -18,6 +18,8 @@
 
 const crypto = require('crypto')
 const { PLAN_IDS, getPlanCatalog } = require('./plan-matrix')
+const { OUT_TRADE_NO_PATTERN } = require('./payment-providers/index')
+const { claimPaymentEvent, completePaymentEvent } = require('./payment-event-outbox')
 
 const PAYMENT_CHANNEL = 'payment'
 const PERIODS = Object.freeze(['month', 'year'])
@@ -44,7 +46,7 @@ class SubscriptionPaymentOps {
    * 会得到「用户手机里有一张可扫的付款码，我们账上什么都没有」——回调到达时无从归属，
    * 既不能授权也不能对账。先落单后下单，最坏情况是留一条 pending（超时后自然失效），无害。
    */
-  async createCheckout({ userId, plan, period }) {
+  async createCheckout({ userId, plan, period, orderId }) {
     await this.requireUser(userId)
     if (!PLAN_IDS.includes(plan) || plan === 'free') {
       throw commerceError('仅支持购买付费档位', 'CHECKOUT_PLAN_INVALID', 400)
@@ -55,10 +57,16 @@ class SubscriptionPaymentOps {
     if (!this.paymentProvider) {
       throw commerceError('支付通道暂未开放', 'PAYMENT_PROVIDER_UNAVAILABLE', 503)
     }
+    // 继续支付：复用既有 pending 订单重取 codeUrl（spec「订单页展示真实订单」要求用同一
+    // orderId）。必须排在新建之前，且**不落新行** —— 否则用户每点一次「继续支付」就多
+    // 一条 pending，账单与对账都会脏。
+    if (orderId !== undefined && orderId !== null && orderId !== '') {
+      return this._reusePendingOrder({ userId, plan, period, orderId })
+    }
     const amountCents = this._paymentPriceCents(plan, period)
-    const orderId = this._newPaymentOrderId()
+    const newOrderId = this._newPaymentOrderId()
     const order = await this.repository.createPendingOrder({
-      id: orderId,
+      id: newOrderId,
       userId,
       plan,
       amount: amountCents,
@@ -73,20 +81,20 @@ class SubscriptionPaymentOps {
     let checkout
     try {
       checkout = await this.paymentProvider.createCheckout({
-        orderId,
+        orderId: newOrderId,
         plan,
         period,
         amountCents,
         currency: 'CNY',
         // attach 会被微信原样回传，是 webhook 落定用户的关键（回调本身不带我们的 user_id）
-        attach: { orderId, userId },
+        attach: { orderId: newOrderId, userId },
       })
     } catch (error) {
       // 供应商失败：订单留 pending（等超时），错误原样上抛给路由层映射 502/400
       if (error && error.code) throw error
       throw commerceError('支付发起失败', 'PAYMENT_PROVIDER_UPSTREAM_FAILED', 502)
     }
-    return { orderId, codeUrl: checkout.codeUrl, expiresAt: checkout.expiresAt || null }
+    return { orderId: newOrderId, codeUrl: checkout.codeUrl, expiresAt: checkout.expiresAt || null }
   }
 
   /** 从 plan-matrix 公开目录取价（唯一真源，已含运营 overrides）。 */
@@ -104,6 +112,46 @@ class SubscriptionPaymentOps {
     const ts = Math.floor(this.now().getTime()).toString(36)
     const rand = crypto.randomBytes(4).toString('hex').slice(0, 8)
     return `wp${ts}${rand}`
+  }
+  /**
+   * 继续支付：复用既有 pending 订单重取 codeUrl。
+   *
+   * 六条前置缺一即拒，任何一条放松都是资损或信息泄露入口：
+   *   ① 形状合法（不把任意串送进查询）② 订单存在 ③ 属于当前用户
+   *   ④ channel=payment（防串道）⑤ 仍是 pending ⑥ plan/period 与订单登记值一致
+   *
+   * **金额取订单已落库的值，不重算 plan-matrix**：订单创建后若运营调价，
+   * 重算会让「继续支付」收出与订单登记不一致的金额 —— 对账直接错。
+   */
+  async _reusePendingOrder({ userId, plan, period, orderId }) {
+    if (typeof orderId !== 'string' || !OUT_TRADE_NO_PATTERN.test(orderId)) {
+      throw commerceError('订单号格式非法', 'CHECKOUT_ORDER_ID_INVALID', 400)
+    }
+    const order = typeof this.repository.getOrderById === 'function'
+      ? await this.repository.getOrderById(orderId)
+      : null
+    // 「不存在」与「不属于你」返回**同一个码**：区分开就等于回答「这个订单号存在吗」
+    if (!order || order.user_id !== userId) {
+      throw commerceError('订单不存在', 'PAYMENT_ORDER_NOT_FOUND', 409)
+    }
+    if (order.channel !== PAYMENT_CHANNEL) {
+      throw commerceError('订单渠道不匹配', 'CHECKOUT_ORDER_CHANNEL_MISMATCH', 409)
+    }
+    if (order.status !== 'pending') {
+      throw commerceError('该订单不可继续支付', 'PAYMENT_ORDER_NOT_REUSABLE', 409)
+    }
+    if (order.plan !== plan || (order.period || null) !== period) {
+      throw commerceError('订单档位与本次请求不一致', 'CHECKOUT_ORDER_MISMATCH', 400)
+    }
+    const checkout = await this.paymentProvider.createCheckout({
+      orderId,
+      plan: order.plan,
+      period: order.period,
+      amountCents: order.amount,
+      currency: order.currency || 'CNY',
+      attach: { orderId, userId },
+    })
+    return { orderId, codeUrl: checkout.codeUrl, expiresAt: checkout.expiresAt || null }
   }
 
   /**
@@ -133,6 +181,31 @@ class SubscriptionPaymentOps {
     const reference = providerReference || `wechat:${orderId}`
     void amountCents
     return this.repository.commerceTransaction(async (tx) => {
+      // 回调留痕（PRD §15.9）：回调到达必须有持久化痕迹，事后追查不能只靠日志。
+      // 幂等键是订单号 —— 同一单的重复投递落到同一行、`claimed=false` 时**直接短路**，
+      // 连 markOrderPaid/applySubscription 都不再执行（比只靠 UNIQUE 冲突更早拦住）。
+      //
+      // ⚠️ 事件表写失败**不得**阻断结算：用户已经付了钱，权益优先于可观测性。
+      //    失败时用 `eventRecorded=false` 让调用方落日志，不静默。
+      let eventId = null
+      let eventRecorded = null
+      if (tx && tx.client && typeof tx.client.query === 'function') {
+        try {
+          const claim = await claimPaymentEvent(tx.client, {
+            orderId,
+            event: type,
+            occurredAt: occurredAt ? new Date(occurredAt) : null,
+            receivedAt: this.now(),
+          })
+          if (!claim.claimed) {
+            return { ignored: true, duplicate: true, orderId, eventId: claim.id }
+          }
+          eventId = claim.id
+          eventRecorded = true
+        } catch (error) {
+          eventRecorded = false
+        }
+      }
       // 条件更新 pending → paid：重复回调在这里拿到 null；随后的 applySubscription 会撞
       // provider_reference UNIQUE 收敛成 409（既有语义），因此不会重复授权。
       if (typeof this.repository.markOrderPaid === 'function') {
@@ -167,12 +240,29 @@ class SubscriptionPaymentOps {
           : `已开通 ${appliedPlan}，有效期 ${durationDays} 天`,
         level: 'info',
       })
+      if (eventId) {
+        // 收口失败同样不该让已完成的结算回滚：权益已经发了。
+        try {
+          await completePaymentEvent(tx.client, eventId, {
+            plan: appliedPlan,
+            requestedPlan: order.plan,
+            downgradeSuppressed: applied.downgradeSuppressed === true,
+          })
+        } catch (error) {
+          eventRecorded = false
+        }
+      }
       return {
         plan: appliedPlan,
         requestedPlan: order.plan,
         downgradeSuppressed: applied.downgradeSuppressed === true,
-        orderId,
+        orderId: orderId,
         periodEnd: applied.periodEnd ?? null,
+        // 三值语义，**键永远存在**（缺键会被读成"成功"）：
+        //   true  = 已落库
+        //   false = 写失败（调用方已落 PAYMENT_EVENT_NOT_RECORDED）
+        //   null  = 不适用（事务里没有 DB client，只出现在测试替身）
+        eventRecorded,
       }
     })
   }

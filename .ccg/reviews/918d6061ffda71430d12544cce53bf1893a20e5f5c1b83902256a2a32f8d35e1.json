@@ -52,10 +52,80 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i1",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4151#issuecomment-6332976733"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "新文件 scripts/lib/ccg-delivery-digest.js（证据规范化 + 指纹计算）未被登记到 HIGH_RISK_SURFACES（tasks 8.7 明示刻意不收敛），但它直接控制外部复核判定的哈希口径；缺登记等于高危面判据可被单边改写而矩阵看不见。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4151#issuecomment-6332976733",
+          "reviewedAt": "2026-10-22T04:46:30Z"
+        },
+        "prosecution": "这条指控的事实半边无争议：`scripts/lib/ccg-delivery-digest.js` 持有两个规范化实现（`deliveryEvidence` 生成 evidence、`deepReviewFingerprint` 支撑合取④），而 `HIGH_RISK_SURFACES` 的 10 条前缀里只有 `scripts/ccg-review-` 与 `scripts/lib/ccg-review-`，没有 `scripts/lib/ccg-delivery-`。具体失败场景可写出来：把 `matchesDeliveryEvidence` 改成恒真，写回器与判据两侧都会跟着变成\"永远自洽\"，而那条改动本身不命中任何高危面前缀 ⇒ 高危面收口矩阵不会要求这次改动带外部出处。判据本体（`check-pr-exec-record.js`）在清单里（`scripts/check-`），它依赖的摘要库在清单外——\"守门表\"与\"被守的实现\"分属两张表。",
+        "defense": "三点：① 本仓既有规矩把改动 `HIGH_RISK_SURFACES` 归为\"改谁来守门\"，必须人工过目、不在 agent 自动合并授权内（AGENTS.md「禁止自动合并的情形」第 2 条）；指控要求的\"本片加这一行\"在流程上越权。② 该文件不是没有兜底：向量锁（`U+FFFF` vs `U+1F600` 码点序方向断言）、两侧同一实现的行为锁（真跑 `--print-fingerprint` 比对）、写回器侧 `CLOSED_DEEP_REVIEW_STATUSES` 闭集冻结快照锁，三条都是可执行用例而非散文。③ 欠账不是遗漏而是登记：tasks 8.7 未勾选、逐字写明后果与\"应与 8.5 一并处理\"的理由。",
+        "verdict": "dismissed",
+        "rationale": "裁决针对的是指控的**结论**（本片必须加这一行），不是它的**事实**（文件确实不在清单）。事实成立、结论不成立：加前缀属改守门表，须人工过目；而\"能被单边改写\"这一风险已由三条独立机械锁承担，且欠账已登记。本条另经外部复核（后端 claude，rc=0，75 秒，会话 504c8ca2-ab78-459b-8859-f1bd9fd892c8）逐字判 dismissed，理由与本辩护独立重合。**但外部复核指出一条我方与指控方都漏掉的更深的落点**（两张守门表缺同步机制，而非单文件漏登记），已另记为 tasks 11.1，不随本条 dismiss 一起消失。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "0.1c（重跑决策层 sh scripts/plan-review.sh 消解计划漂移）在 tasks 里标为未勾选（未消解），而本变更直接修改 .github/workflows/quality-gate.yml（新增 Gate 2b10/2b11），这会让钩子的 plannedFiles 对比继续报警；读者无法区分“本 PR 故意没修”与“忘了修”。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控可当场复现：`#4151` 确实改了 `.github/workflows/quality-gate.yml`（新增 Gate 2b10/2b11，`git diff --name-only HEAD^ HEAD` 命中 1），而钩子的范围漂移告警比的是最近一条 `layer=plan` 产物的 `plannedFiles`（`ccg-gate.js:205-245`），与 proposal 正文无关。#4151 开发期第 6 笔提交的 pre-commit 日志逐字写着「[决策层] 范围漂移：以下改动文件不在方案声明范围内（8 个）」——告警是真的在报，不是修辞。读者读到一条未勾选的 0.1c 与一条在报的告警，确实需要自己推断两者是不是同一件事。",
+        "defense": "① 0.1c 不是\"忘了\"，而是逐字写出了正解与为什么补 D0 不构成修法（\"我第一版把它当修法，已否证并改对措辞\"），未勾选状态本身就是\"故意没做\"的载体；② 该告警与收口判定无关，它是决策层的提示，不进 `evaluateDeepReviewDebt`，不构成红灯或放行依据；③ 正解 `sh scripts/plan-review.sh <方案文件>` 会再起一轮外部模型调用，属另一件事的成本，塞进\"闭合 10.5\"这一片会把两个不相关的验收口径混在一起。",
+        "verdict": "dismissed",
+        "rationale": "指控的\"机制\"成立、\"后果\"不成立：漂移告警确实在报（现场：开发期第 6 笔提交日志 83 行），但它既不阻断也不参与收口判定；而\"故意没修\"在 tasks 0.1c 的未勾选状态 + 其正解原文里已经可区分。因此不构成必须在本片处置的缺陷。**可操作的那半没有丢**：0.1c 继续未勾选，并在执行记录里把\"本 PR 提交时该告警是否仍报\"当场记为现场读数（见 tasks 11.4）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "D5 跨仓 parity 锁（tasks 5.1/5.2）本轮刻意不做，理由是引擎补丁只存在于未提交工作树（锚点 commit 命中 0）；但这意味着 EXTERNAL_EVIDENCE_RE 的口径此刻没有任何仓内对账保护。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "两份形状判据此刻确实互不认账：引擎侧 `EXTERNAL_EVIDENCE_RE`（`ccg-deep-review.js:458`）要求整串形如 `https://github.com/o/r/pull/<n>#issuecomment-<id>`，而本仓 `check-pr-exec-record.js::evidenceForm` 的 `url` 分支是 `^https:\\/\\/github\\.com\\/[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+\\/pull\\/\\d+(?:[#?][^\\s]*)?$`——`#` 后面**可以是任何东西**，连 `.../pull/4151?x=1` 也算可核。也就是说本仓侧更宽，且没有任何东西在盯这个宽度差。tasks 5.1/5.2 那把 parity 锁本轮没做，这一点被评审方自己承认。",
+        "defense": "① 两条正则管的是**不同字段**：引擎那条只判 `items[].externalReview.evidenceRef`（自扮演出口里高危域解除阻断用），本仓那条只判 `deepReview.evidence`（收口矩阵用）。没有任何一个值同时被两把尺子量，所以\"口径漂移\"今天推不出一条假的收口——本次填写就同时满足两形（`#issuecomment-6332976733`）。② parity 锁本轮不做的理由是硬的：`EXTERNAL_EVIDENCE_RE` / `externalReviewSatisfied` 只存在于引擎那份**未提交的本机补丁**里（HEAD 命中 0，见 tasks 0.1 读数），对一份不入库的制品做逐字对账，锁住的是我自己机器上的瞬时状态。③ 本仓侧的宽度是刻意的（历史写法 `PR #3900 后端轴` 这种\"指针+一句话\"必须放行），收窄会当场把主干既有合规写法判红。",
+        "verdict": "dismissed",
+        "rationale": "按\"是否存在可达的假收口\"判：不存在——两个判据分属两条不相交的字段，本次证据本身两形皆通过，因此不构成缺陷；而 parity 锁的前提（对端制品入库）今天不成立，这不是拖延而是不可执行。**但本条的取证顺带量出一格真实的宽度差**（本仓 `url` 形态允许 `#` 后接任意字符，引擎要求 `#issuecomment-<数字>`），这条以前只以\"没做 parity 锁\"的形式存在，现在按可执行判据登记为 tasks 11.3，dismiss 不抹掉它。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "deep-review.sh 新增的 run_driver_with_writeback 依赖 shell 变量 _wb_before（sha256sum 输出）与 _wb_before_fp（--print-fingerprint）；若 $REC 不存在，sha256sum 失败不会导致脚本退出（bash $(...) 不触发 set -e），_wb_before 会为空串，这正好被写回器判为 before-state-missing —— 逻辑正确，但建议显式测试该边界（文件缺失时入口行为）。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控的形状没错：`run_driver_with_writeback` 里 `_wb_before=\"$(sha256sum < \"$REC\" 2>/dev/null | cut -d\" \" -f1)\"` 与 `_wb_before_fp=\"$(… || true)\"` 都是命令替换，`$(…)` 内的失败**不会**触发外层 `set -e`（本仓在 `check-test-microtask-spin` 同族纪律里反复记过这个坑），于是两个变量都可能为空串；`scripts/deep-review-entry-rc.test.js` 的 ①–⑪ 里确实没有一条覆盖\"`$REC` 取不到\"的入口行为，只在写回器单元层覆盖了 `before-state-missing`。",
+        "defense": "① 该状态在入口不可可达成：能走到 `run_driver_with_writeback` 的前提是从某个 REC 读出 `MODE`（三条查找路径 HEAD / HEAD^ / 内容寻址都以 `-f \"$REC\"` 为条件），而三条全落空且非 `.ccg` diff 行 >0 时入口在 :784 档 **exit 1 fail-closed**，diff 为空时 exit 0 且不进本函数。② 唯一的真实窗口是\"运行中途记录被删\"，那条路径由写回器 `record-unreadable` 接住（读文件失败即拒写、产物逐字不变）。③ 指控自己也写着\"逻辑正确\"，要的是测试而非改动。",
+        "verdict": "dismissed",
+        "rationale": "按\"被指的行为是否真会出错\"判：不会——空串在写回器里就是 `before-state-missing` 拒写，方向是 fail-closed，指控正文也承认这一点，故不构成缺陷。**但它要的现场可见性是本仓明文纪律**（\"静默配置失败必须留日志\"）：今天入口把两个空串静默交给写回器，读日志的人只看到 `before-state-missing`，看不出是\"记录不存在\"还是\"取哈希的管道坏了\"。这一格已在 #4151 收尾时被识别为要修的小修，现正式登记为 tasks 11.2（含入口出声 + 该边界的用例），不再是散落在执行记录里的一句话。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-22T04:56:20.441Z",
+    "closureNote": "第 4 轮收口（外部 critic=claude 于 2026-10-22 真跑，6 条问题 / 最低维度分 7；入口 ENTRY_RC=0）。 逐条处置：i1 Critical(crypto) dismissed —— 事实\"ccg-delivery-digest.js 不在 HIGH_RISK_SURFACES\"成立、结论\"本片必须加这行\"不成立（改守门表须人工过目），   并经独立外部复核背书：performedBy=claude、evidenceRef=https://github.com/Colinchiu007/mulpub/pull/4151#issuecomment-6332976733、reviewedAt=2026-10-22T04:46:30Z，   其 BLINDSPOT（两张守门表缺同步机制）已改记为 tasks 11.1； i2 Warning dismissed（漂移告警确在报，但不参与收口判定；正解仍挂在未勾选的 tasks 0.1c，现场读数记 tasks 11.4）； i3 Warning dismissed（两把形状判据分属不同字段、今天无可达假收口；实测到的 url 形态宽度差另记 tasks 11.3）； i4 Warning dismissed（该状态在入口不可达，且指控正文自认\"逻辑正确\"；入口出声与边界用例另记 tasks 11.2）。 本条出处只走 closureNote 这一档：tier/evidence **不是**会话手写 —— 写回器两次实跑均按合同拒写 （第一次 reason=not-closed status=\"self_play_pending\"；第二次 reason=backend-mismatch performedBy=\"self-play\" 期望 \"claude\"）。 自扮演出口的记录不得被 stamped 成 tier=external，这条结构互斥登记为 tasks 11.5。"
   }
 }

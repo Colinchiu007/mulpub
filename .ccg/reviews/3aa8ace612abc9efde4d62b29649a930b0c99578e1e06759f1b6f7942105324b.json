@@ -1,0 +1,136 @@
+{
+  "sha": "98e94bc3b0d8089bfedd5ac669e9cac3d86259dd",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 286 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 286,
+    "fileCount": 10,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 授权与裁决来源 | ✅ | 承接用户 2026-10-20「第 2、3 条授权你改判据。第 5 条，选②」的 A/B/C/D 序列之后的**第五片**，但本片不依赖那条授权：改的是本地评审工具旗标的诚实性，**不动任何守门清单**（分支保护、required check、`CI_IGNORED_PATHS`、`MP_RECHECK_COMMENT` 一条都没碰）。立项依据是切片 D 收尾时登记的那条遗留「两条评审链工具缺陷未修……另起一刀」，以及本会话实测把其中一条**否证**、把另一条**扩域**（详见下面「第一性原因」） |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3aa8ace612abc9efde4d62b29649a930b0c99578e1e06759f1b6f7942105324b",
+  "decidedAt": "2026-10-22T07:43:27.002Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "layer": "diff",
+    "status": "cleared",
+    "performedBy": "claude",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "M-E4 位置锁依赖唯一前缀 /不会强制/；拒绝语句文字一改，锁与变异同时失效。提案承认此为修复（换锚），但前缀仍与实现文字强绑定。",
+        "suggestion": "将位置锁改为按代码结构（if 块位置 / 行号区间）而非文字内容断言，或增加独立结构锁。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "产物面断言逐字节相等（before == readFileSync），JSON 格式漂移（缩进/字段顺序）会触发假红。提案明确用字节相等替代字段检查，增加脆弱性。",
+        "suggestion": "改为解析后对深层字段（status、performedBy、findings）的语义相等断言，保留字节检查作为辅助而非唯一判据。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "performance",
+        "finding": "变异测试 timeout 300000ms（5 分），单条空载 62s、负载曾被 120s 杀掉。7 个变异顺序跑预算超 35 分钟，CI 不可承受。",
+        "suggestion": "将 mutation 套件拆为独立作业并行跑，或降低 timeout 至实测负载上限（如 180s）并记录超时为单独结果。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "plan-review.sh 删掉 SKIP 分支与 FORCE 变量，仅依赖 isDocsOnly() 永不产出 skip 的现状，无退化防护或特性开关。",
+        "suggestion": "保留分支但设为不可达并加结构断言（如提案已做的结构锁），而非物理删除变量与 case 臂，便于未来显式裁决恢复。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "plan-review-deps.test.js 新增 90+ 行临时基础设施（桩驱动、PID 跟踪、可执行写入），无抽象层，维护成本高且与 CI 环境强耦合。",
+        "suggestion": "将桩驱动与临时环境构造提取为独立测试工具模块（如 test/stubs/），测试文件只调用接口。"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "dimension": "correctness",
+        "finding": "拒绝文案 /不会强制/ 在实现与测试间共享同一字面量，提案承认此为有意设计，但形成单点故障。",
+        "suggestion": "在测试中定义独立常量（如 REFUSAL_PHRASE），并在构建时验证实现包含该常量，解耦修改顺序。"
+      },
+      {
+        "id": "i7",
+        "severity": "Warning",
+        "dimension": "security",
+        "finding": "临时目录创建 .claude/skills/ 可执行桩与 PID 锁文件，清理依赖 rmSync；提案已记录并发进程污染事故（TaskStop 未杀树），证明清理不完全可靠。",
+        "suggestion": "为每轮变异使用独立隔离目录，并增加退出钩子强制清理；并发测试时通过文件锁（非仅 PID 记录）拒绝重复启动。"
+      },
+      {
+        "id": "i8",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "finding": "单 PR 906 行混合脚本修改、测试基础设施、规格（3 Requirement / 7 Scenario）、设计文档与学习记录，提案承认锁数从 8 变 9（M-E1/M-E3 拆分），表明设计仍在演进。",
+        "suggestion": "将规格与学习记录拆至独立文档 PR，主 PR 只含代码与回归锁，降低审查与回滚复杂度。"
+      }
+    ],
+    "minScore": 5,
+    "dimensionScores": {
+      "correctness": 6,
+      "security": 6,
+      "performance": 5,
+      "maintainability": 5
+    },
+    "unresolvedBySeverity": {
+      "Critical": 0,
+      "High": 0,
+      "Warning": 6,
+      "Info": 2
+    },
+    "roundsRun": 1,
+    "roundsMax": 3,
+    "stoppedBy": "severity",
+    "note": "验证层单轮：无 Critical、无 High ⇒ 外部评审结论可采信（最低维度分 5 仅作参考，不作放行判据）",
+    "artifacts": ".adversarial\\ccg-deep-b1b5c577",
+    "at": "2026-10-22T07:48:34.340Z",
+    "tier": "external",
+    "evidence": "delivery@896616face9a50eff3f6e8749f2365afa43abedf5d6b670367031acb9fc1f336"
+  }
+}

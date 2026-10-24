@@ -27,7 +27,17 @@
 //
 // 用法：node scripts/check-pr-exec-record.js --base=<ref> [--head=HEAD] [--repo=<dir>]
 //        [--mode=enforce|advisory] [--threshold=3] [--statuses=<json>] [--no-remote]
+//        [--audit [--json] [--limit=N]]   ← 只读审计档，见下
+//
+// 只读审计档（`--audit`，2026-10-20）：本判据只在「本 PR 差量」内看记录，主干上累积的
+// 未闭环记录因此既拦不住任何 PR、也没有任何地方能看见它们（实测 433 条 dual 里 277 条
+// 未闭环）。`--audit` 给出这份读数，并且**只读**：不写文件、不改状态词、不进判定路径、
+// 恒退出 0（只有用法错误才 exit 2）。它刻意**不判定「已修/未修」** —— 记录里没有
+// branch/PR 字段，也没有 finding→修复提交的链接，那件事在记录层面不可判定；理由与
+// 落地归因为何不比 commit sha，都写在 scripts/lib/exec-record-audit.js 的头部注释里。
+//
 // 回归：node --test scripts/check-pr-exec-record.test.js
+//       node --test scripts/check-pr-exec-record.audit.test.js
 
 const fs = require('fs')
 const path = require('path')
@@ -35,7 +45,7 @@ const { execFileSync } = require('child_process')
 const { changedFileStatuses } = require('./classify-docs-only.js')
 // `delivery@<sha256>` 的规范化口径与写回器共用一份实现（tasks 4.1）：两边各算一份哈希，
 // 写回器写的与判据认的就会永远对不上 —— 那才是本片真正要防的失效形态。
-const { isDeliveryEvidenceShape, matchesDeliveryEvidence } = require('./lib/ccg-delivery-digest.js')
+const { isDeliveryEvidenceShape, matchesDeliveryEvidence, matchesAdjudicationDigest } = require('./lib/ccg-delivery-digest.js')
 // 降档文案只说「重算值不符」，不说「真伪」：该摘要任何填写方都能一条命令自算（tasks 8.5 / 4.1c），
 // 把它说成抓到伪造，等于对作者动机下一个判据并不支持的结论。
 const DELIVERY_MISMATCH_HINT = '摘要与本记录 findings 重算值不符 ⇒ 降为 external-unverified；这不是指控伪造，是该档无法就地自洽'
@@ -451,6 +461,26 @@ function resolveHeadBranch({ argBranch = '', envHeadRef = '', gitBranch = '' } =
 function main(argv) {
   const args = parseArgs(argv)
   const repo = args.repo || process.cwd()
+  // 只读审计档必须**早于**一切取证/判定分支：它不需要 --base，也不该被
+  // 「缺 --base / 取不到变更集 / mode」这些路径影响（各自都会 exit 1/2，
+  // 而审计要求除了用法错误以外恒 0）。放在这里也是为了让「它不进判定路径」
+  // 这件事在结构上一目了然。
+  if (args.audit) {
+    const { auditHistoricalDebt, formatText } = require('./lib/exec-record-audit')
+    let limit = 20
+    if (typeof args.limit === 'string' && args.limit !== '') {
+      const n = Number(args.limit)
+      if (!Number.isInteger(n) || n <= 0) {
+        process.stderr.write(`[check-pr-exec-record] --limit 必须是正整数，收到 ${JSON.stringify(args.limit)}\n`)
+        process.exit(2)
+      }
+      limit = n
+    }
+    const report = auditHistoricalDebt({ repo, limit })
+    process.stdout.write((args.json ? JSON.stringify(report, null, 2) : formatText(report)) + '\n')
+    // 审计永不影响判定：未闭环记录再多也 0
+    process.exit(0)
+  }
   // #2923 遗留：显式 `--head=`（空串）必须拒绝，不得经 `|| 'HEAD'` 回落 —— CI 检出下 HEAD 是
   // 合并提交，回落等于把「取证失败」伪装成「取到了」。（未传 --head 仍默认 HEAD，本机直跑不受影响。）
   if (typeof args.head === 'string' && args.head.trim() === '') {
@@ -735,11 +765,9 @@ function summarizeTransitionCheck (rows, scanned) {
   }
 }
 
-const CLOSED_DEEP_REVIEW_STATUSES = new Set([
-  'cleared',
-  'needs_revision',
-  'self_play_resolved',
-])
+// 闭环状态词只此一份：真源在 scripts/lib/exec-record-statuses.js（外部评审第 2 轮 i2）。
+// 本地不再定义字面量——审计模块也 require 同一个模块，两处不可能漂移。
+const { CLOSED_DEEP_REVIEW_STATUSES } = require('./lib/exec-record-statuses')
 
 // ── QM-6 丙：来源分档与覆盖率读数（先可见不拦，见 design §9.1）────────────
 // 分级只读结构化 tier（闭集）+ evidence；MUST NOT 读 performedBy 散文
@@ -872,6 +900,16 @@ function classifyEvidenceTier (dr, existsAt) {
     const ev = dr.evidence
     const shaped = typeof ev === 'string' && ev.trim() !== '' && isResolvableEvidence(ev)
     if (!shaped) return 'external-unverified'
+    // `tierBasis` 把"这一格是工具直签"与"这一格是自扮演收口 + 公开复核"分开。
+    // 分档不是为了好看：合取③ 被放宽之后，若两档在覆盖率读数里同形，"改宽"就变成不可见事件
+    // ——那正是零人工收口立项点名的第二条病根（出口缺失 + 改宽不可见）。
+    const basis = dr.tierBasis
+    if (basis !== undefined && basis !== null && basis !== '') {
+      if (basis !== 'adjudicated-self-play') return 'unrecognized'
+      if (evidenceForm(ev) !== 'url') return 'external-unverified'
+      if (!matchesAdjudicationDigest(dr)) return 'external-unverified'
+      return 'external'
+    }
     // 路径形态且调用方给了「存在性探针」时，必须验到该 revision 里真有这个对象（X2-5）。
     // 探针是**注入参数**（本仓新判据落点纪律第 3 条）：不给就不验，测试与仓外调用方保持原语义。
     if (evidenceForm(ev) === 'path' && typeof existsAt === 'function' && !existsAt(ev)) return 'external-unverified'
@@ -886,13 +924,30 @@ function classifyEvidenceTier (dr, existsAt) {
 /** 空集也必须出行：否则"这条锁没跑"与"没有记录"在日志里逐字同形。 */
 function summarizeTierCoverage (records, existsAt) {
   const by = { external: 0, 'external-unverified': 0, 'self-play': 0, none: 0, unknown: 0, unrecognized: 0 }
-  for (const dr of records) by[classifyEvidenceTier(dr, existsAt)]++
+  // external 再按**出口**拆两档：直签（验证层零 Critical）与自扮演收口 + 公开复核。
+  // 两子读数之和必须等于 external —— 这条等式由下面按同一批 records 计数的构造保证，
+  // 并由 check-pr-exec-record.test.js 与本片的 qm6-tier-watermark.test.js 各钉一次。
+  let extDirect = 0
+  let extAdjudicated = 0
+  for (const dr of records) {
+    const t = classifyEvidenceTier(dr, existsAt)
+    by[t]++
+    if (t === 'external') {
+      if (dr && dr.tierBasis === 'adjudicated-self-play') extAdjudicated++
+      else extDirect++
+    }
+  }
+  by['external(直签)'] = extDirect
+  by['external(自扮演+公开复核)'] = extAdjudicated
   const total = records.length
   const line = 'TIER-COVERAGE dual-closed total=' + total +
-    ' external=' + by.external + ' external-unverified=' + by['external-unverified'] +
+    ' external=' + by.external +
+    ' [external(直签)=' + extDirect + ' external(自扮演+公开复核)=' + extAdjudicated + ']' +
+    ' external-unverified=' + by['external-unverified'] +
     ' self-play=' + by['self-play'] + ' none=' + by.none +
     ' unknown(字段缺席)=' + by.unknown + ' unrecognized(值不认识)=' + by.unrecognized +
-    '（unknown 可见不拦；unrecognized 一律拦 —— design §9.1 丙 + 后端轴 Critical#2）'
+    '（unknown 可见不拦；unrecognized 一律拦 —— design §9.1 丙 + 后端轴 Critical#2；' +
+    '两子读数之和 == external，合取③ 放宽后的分档必须在这行里看得见）'
   return { total, by, line }
 }
 

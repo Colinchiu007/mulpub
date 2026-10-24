@@ -24,6 +24,7 @@
 const log = require('../services/logger')
 const {
   PLATFORM_DASHBOARD_URLS,
+  PLATFORM_COOKIE_DOMAINS,
   hasPlatformSessionCookie,
 } = require('@multi-publish/shared-utils/src/platform-definitions')
 
@@ -43,23 +44,25 @@ const {
  * @property {'json'|'html'|'cookie'} [uidSource] - extract 的取数来源（默认 json）：
  *               json=JSON 响应；html=HTML 响应文本（须与 checkHtml 同页，不另造端点）；
  *               cookie=不发请求，只从已保存凭证派生（云端同步合并键 platform_uid 用）
- * @property {(payload:any, cookies?:Array<{name:string,value:string}>)=>{nickname?:string,followers?:number,platformAccountId?:string}} [extract]
+ * @property {(payload:any, cookies?:Array<{name:string,value:string}>)=>{nickname?:string,followers?:number,platformAccountId?:string,avatar?:string}} [extract]
  *               uid/资料提取器；取不到一律不产出键（禁止用昵称、页面标题等派生值冒充 platform_uid）
  */
 
-/** 从平台响应字段安全取正整数计数（取不到返回 undefined，让调用方保持原值） */
-function toCount (v) {
-  const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() ? Number(v) : NaN)
-  if (!Number.isFinite(n) || n < 0) return undefined
-  return Math.round(n)
-}
-
-/**
- * 平台原生 ID（platform_uid）的取值原语拆到 ./platform-uid —— 三条取数通道
- * （json / html / cookie）必须共用同一份形态白名单与唯一性守卫；各写一份会让云端
- * 合并键的判定漂移，并被两侧单测互相印证为正确。
- */
 const { normalizeUid, cookieValue, extractUidFromHtml } = require('./platform-uid')
+// 账号资料来源（昵称/头像/粉丝数/平台ID）已拆到 ./http-profile-api：
+// 登录判定与资料抓取是两类需求，合成一张表会把判定端点反向绑死成资料端点
+// （抖音判定端点只回 {status_code,uid}，无 user 对象 ⇒ 提取恒空 ⇒ 昵称恒回落平台名）。
+// 依赖方向单一：本模块 → http-profile-api（反向 require 会成环）。
+const {
+  cookiesToHeader,
+  HTTP_PROFILE_APIS,
+  fetchAccountInfoViaHttpApi,
+  parseWechatMpIdentity,
+  toCount,
+  HTTP_TIMEOUT_MS,
+} = require('./http-profile-api')
+// 登录页关键词的唯一真源在公众号解析器里（资料侧与登录判定侧共用同一份，见 i5）。
+const { LOGIN_PAGE_KEYWORDS_RE } = require('./wechat-mp-profile-parser')
 /** @type {Record<string, HttpCheckApi>} */
 const HTTP_CHECK_APIS = {
   douyin: {
@@ -73,15 +76,20 @@ const HTTP_CHECK_APIS = {
       // 未登录才判失效；风控拦截/结构变更/其他状态码一律返回 undefined
       // 交由调用方降级浏览器检测，避免把有效 Cookie 误判为已失效。
       if (!data || typeof data !== 'object') return undefined // 风控页/非 JSON → 不确定，降级
-      if (data.status_code === 0 && data.data && (data.data.uid || data.data.user_id || data.data.nickname !== undefined)) return true
+      // ⚠️ 断言变更（2026-10-22，带证据）：该端点的真实响应是**顶层** uid
+      //    （实测 `{"status_code":0,"uid":"2232445177172442","…"}`），**没有 data 包装**。
+      //    原实现只认 data.data.* ⇒ 恒返回 undefined ⇒ 抖音的 HTTP 快速路径恒不成立，
+      //    永远降级浏览器检测（连带资料回填也从不触发）。此处补上顶层 uid 口径。
+      if (data.status_code === 0 && (data.uid || (data.data && (data.data.uid || data.data.user_id || data.data.nickname !== undefined)))) return true
       if (data.status_code === 8) return false // 对齐参考产品 checkAccountAlive：8=明确未登录
       const msg = data.status_msg || data.msg || data.message
       if (typeof msg === 'string' && msg.includes('未登录')) return false
       return undefined // 其余一切（其他码/缺字段/结构变更）→ 不确定，降级
     },
     extract: (d) => {
-      const u = (d && d.data && (d.data.user || d.data)) || {}
-      return { nickname: u.nickname || u.nick_name || u.uname || '', followers: toCount(u.follower_count != null ? u.follower_count : u.fans_count), platformAccountId: String(u.uid || u.user_id || '') }
+      // 平台ID：与登录判定同源（顶层 uid）。
+      const uid = normalizeUid(d && d.uid)
+      return uid ? { platformAccountId: uid } : {}
     }
   },
   toutiao: {
@@ -120,7 +128,9 @@ const HTTP_CHECK_APIS = {
       const hasToken = /&token=[0-9a-zA-Z]{3,}/.test(html) || /token=[0-9a-zA-Z]{3,}/.test(html)
       const hasUin = /uin:\s{0,}"[0-9]{3,}"/.test(html)
       if (hasToken && hasUin) return true
-      if (/扫码登录|请使用微信扫码|请登录|welcome_login/.test(html)) return false
+      // 登录页关键词与资料侧解析器共用**同一份**（CCG 评审 i5）：
+      // 两处各抄一份的话，改了其中一处就会让「判定未登录」与「不产出资料」给出相反结论。
+      if (LOGIN_PAGE_KEYWORDS_RE.test(html)) return false
       return undefined
     },
     // platform_uid（云端合并键）来源与登录判定**同源同页**：登录态页面才会内嵌
@@ -134,12 +144,8 @@ const HTTP_CHECK_APIS = {
     // 「当前登录的这一个号」，取不到时如实走 uid 缺失分支（同步侧判 uid-unavailable）。
     uidSource: 'html',
     extract: (html) => {
-      if (!html || typeof html !== 'string') return {}
-      // 明确登录页形态优先短路：即便页面内出现示例 uin 也不产出（与 checkHtml 同一黑名单）
-      if (/扫码登录|请使用微信扫码|请登录|welcome_login/.test(html)) return {}
-      const m = /uin:\s{0,}"([0-9]{3,})"/.exec(html)
-      const uid = normalizeUid(m && m[1])
-      return uid ? { platformAccountId: uid } : {}
+      const id = parseWechatMpIdentity(html)
+      return id.platformAccountId ? { platformAccountId: id.platformAccountId } : {}
     }
   },
   // 视频号：对齐参考产品 getShipinhaoUserInfo —— POST auth_data 接口（带 cookie），
@@ -210,26 +216,32 @@ const HTTP_CHECK_APIS = {
       return uid ? { platformAccountId: uid } : {}
     }
   },
-  // 小红书：仓库内**没有**可直接 GET 且响应字段已取证的 user-info JSON 端点——
-  // 数据接口只到 creator 数据中心（analytics-providers.js:105，字段是笔记统计，
-  // 且注释自承「实际 API 结构可能不同」），用户信息端点 /api/galaxy/user/info 仅出现在
-  // 签名用例（api-publish-engine/test/test-signer.js:15），需 X-s/X-t 签名、响应字段无
-  // 仓库内证据 → 不编造 URL、不猜字段名。
-  // uid 因此走「已注册创作者域名 HTML（PLATFORM_DASHBOARD_URLS）+ DOM 采集器同款身份
-  // 属性（data-account-id / data-user-id，见 PLATFORM_ACCOUNT_INFO_SELECTORS.xiaohongshu
-  // 与 account-profile.js 通用回退清单）」，并要求全页唯一命中（见 extractUidFromHtml）。
-  // 可靠性等级：低-中 —— 属性名有配置证据，但「服务端是否把身份属性直出在 HTML」
-  // 未经真凭证实测（tasks 3.6）；未命中即返回 uid 缺失，不退化成昵称/页面标题
-  // （2026-09-26「小红书创作服务平台」脏昵称事故即该兜底产出）。
+  // 小红书：走平台自己的只读 user-info 接口（B 阶段真实抓包 + 2026-10-22 实测互证）。
+  //
+  // 断言/行为变更（2026-10-22，带证据）：此前本条**没有 check/checkHtml**，
+  // 即 `hasLoginCheck` 为 false ⇒ 小红书永远走浏览器检测，而浏览器的昵称选择器
+  // （`.user-name`）在创作后台 SPA 里不存在 ⇒ 昵称恒为空、恒回落成平台名「小红书」，
+  // 资料回填也从不触发。改为登记 JSON 接口后：已登录时给出确定结论（快路径），
+  // 资料回填随之生效；未登录/风控/结构变更一律返回 undefined（降级浏览器检测），
+  // 绝不把不确定当失效。
   xiaohongshu: {
-    url: PLATFORM_DASHBOARD_URLS.xiaohongshu,
+    url: 'https://creator.xiaohongshu.com/api/galaxy/user/info',
     headers: {
-      Referer: PLATFORM_DASHBOARD_URLS.xiaohongshu,
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      Referer: 'https://creator.xiaohongshu.com/creator/home',
+      Accept: 'application/json'
     },
-    uidSource: 'html',
-    extract: (html) => {
-      const uid = extractUidFromHtml(html)
+    check: (d) => {
+      if (!d || typeof d !== 'object') return undefined
+      // 已登录：该接口回 success=true 且带身份字段（B 阶段 16 个只读端点全部 200 success=true）
+      if (d.success === true && d.data && (d.data.userId || d.data.userName || d.data.redId)) return true
+      // 其余一切（未登录页/风控/结构变更/非 JSON）→ 不确定，降级浏览器检测（黑名单语义）
+      return undefined
+    },
+    uidSource: 'json',
+    extract: (d) => {
+      const u = (d && d.data) || {}
+      // userId 是与 DOM 侧 data-account-id 同源的内部主键（保持既有 uid 语义）
+      const uid = normalizeUid(u.userId || u.redId)
       return uid ? { platformAccountId: uid } : {}
     }
   },
@@ -266,27 +278,11 @@ const HTTP_CHECK_APIS = {
 }
 
 /** 超时（毫秒）——HTTP API 检测应远快于浏览器窗口 */
-const HTTP_CHECK_TIMEOUT_MS = 8000
+// HTTP 超时常量已搬到 ./http-profile-api（登录判定与资料抓取共用同一份）
+const HTTP_CHECK_TIMEOUT_MS = HTTP_TIMEOUT_MS
 
-/**
- * 条目是否具备「登录检测」能力：必须有端点 URL 和一种判定函数。
- * 只有 uid 提取来源（uidSource:'cookie'，如快手）没有端点，不得被当成登录检测支持，
- * 否则 tryHttpLoginCheck 会对一个不存在的 URL 发请求并污染登录态结论。
- * @param {HttpCheckApi|undefined} api
- * @returns {boolean}
- */
 function hasLoginCheck (api) {
   return Boolean(api && api.url && (typeof api.check === 'function' || typeof api.checkHtml === 'function'))
-}
-
-/**
- * 将 Cookie 数组转为请求头 Cookie 字符串
- * @param {Array<{name:string, value:string}>} cookies
- * @returns {string}
- */
-function cookiesToHeader (cookies) {
-  if (!Array.isArray(cookies)) return ''
-  return cookies.filter(c => c && c.name && c.value).map(c => c.name + '=' + c.value).join('; ')
 }
 
 /**
@@ -413,79 +409,21 @@ async function tryHttpLoginCheck (platform, cookies, accountId) {
 }
 
 /**
- * 把 extract 结果收口成 IPC/写回可用的对象：字段缺席 = 不修改（buildProfilePatch 语义）。
- * 空串昵称、空串 uid 一律不进结果，避免把上一次的真值反向清空。
- * @param {{nickname?:string,followers?:number,platformAccountId?:string}} [info]
- * @returns {{supported: boolean, nickname?: string, followers?: number, platformAccountId?: string}}
- */
-function shapeInfoResult (info) {
-  const out = { supported: true }
-  if (!info || typeof info !== 'object') return out
-  if (typeof info.nickname === 'string' && info.nickname.trim()) out.nickname = info.nickname.trim()
-  if (typeof info.followers === 'number') out.followers = info.followers
-  if (typeof info.platformAccountId === 'string' && info.platformAccountId) out.platformAccountId = info.platformAccountId
-  return out
-}
-
-/**
- * 用保存的 Cookie 调平台创作者 API 提取账号资料（昵称/粉丝/平台ID）。
- * 与登录检测共用同一批已注册端点（对齐参考实现：不抓 DOM，直接读结构化 JSON）。
- * 只在平台注册了 extract 且响应可解析时返回字段；任何异常/缺字段一律省略键，
- * 由调用方（refreshProfileFromHttpApi）经 buildProfilePatch 决定「缺席=不修改」。
+ * 资料端点的凭据出口：**按目标主机过滤 Cookie + 平台域名白名单闸门**。
  *
- * uid 三来源由条目的 `uidSource` 声明（缺省 json）：
- *   json   —— 平台 user-info JSON 接口（抖音/头条/视频号/B站）
- *   html   —— 与 checkHtml 同页的响应文本（公众号 uin；小红书/知乎的 SSR 身份属性）
- *   cookie —— 不发请求，只从已保存凭证派生（快手的登录后身份 Cookie）
- * 三条来源共用同一形态白名单（normalizeUid）：不合规即不产出，禁止昵称/页面标题冒充。
- * @param {string} platform
- * @param {Array<{name:string, value:string}>} cookies
- * @returns {Promise<{supported: boolean, nickname?: string, followers?: number, platformAccountId?: string}>}
+ * 为什么必须做（CCG 评审 i4，security）：资料通道一个平台可能有**多个**端点，
+ * 而 Cookie 是一整包会话值。若某个来源的 URL 配错（写成了别的主机），
+ * 整包 Cookie 就会跟着发过去 ⇒ 会话凭据跨域泄露。
+ *
+ * 两道闸：
+ *  1. **域名闸**：目标主机必须落在本平台登记的 Cookie 域（`PLATFORM_COOKIE_DOMAINS`）
+ *     之内，否则**一个 Cookie 都不发**（fail-closed）—— 配置错 = 请求失败，不是泄露。
+ *  2. **逐 Cookie 过滤**：只发 domain 匹配目标主机的那些 Cookie（浏览器同源规则的等价物），
+ *     顺带减少无关 Cookie 外发。
+ *
+ * 「只发同主机 Cookie 会不会导致取不到数据」已被实测排除：2026-10-22 的取证探针
+ * 就是按主机过滤 Cookie 的，五个平台（小红书/知乎/头条/B 站/抖音）全部取到真实响应。
  */
-async function fetchAccountInfoViaHttpApi (platform, cookies) {
-  const api = HTTP_CHECK_APIS[platform]
-  if (!api || typeof api.extract !== 'function') return { supported: false }
-  if (api.uidSource === 'cookie') {
-    // 纯本地派生：绝不为 cookie 型来源发网络请求（快手无可用签名端点）
-    return shapeInfoResult(api.extract(null, Array.isArray(cookies) ? cookies : []))
-  }
-  const cookieHeader = cookiesToHeader(cookies)
-  if (!cookieHeader) return { supported: true }
-  if (typeof api.precheck === 'function' && !api.precheck(cookieHeader)) return { supported: true }
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), HTTP_CHECK_TIMEOUT_MS)
-  try {
-    const fetchOptions = {
-      method: api.method || 'GET',
-      headers: {
-        ...api.headers,
-        Cookie: cookieHeader,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      },
-      signal: controller.signal,
-      redirect: 'manual'
-    }
-    if (api.method === 'POST') {
-      fetchOptions.headers['Content-Type'] = api.contentType || 'application/json'
-      fetchOptions.body = typeof api.body === 'function' ? api.body() : (api.body || '{}')
-    }
-    const response = await fetch(api.url, fetchOptions)
-    clearTimeout(timer)
-    // redirect:'manual' 下 3xx 的 ok 为 false → 与既有行为一致：不产出、不判失效
-    if (!response.ok) return { supported: true }
-    if (api.uidSource === 'html') {
-      const html = await response.text().catch(() => '')
-      return shapeInfoResult(api.extract(html))
-    }
-    const data = await response.json().catch(() => null)
-    if (!data || typeof data !== "object") return { supported: true }
-    return shapeInfoResult(api.extract(data))
-  } catch (e) {
-    clearTimeout(timer)
-    return { supported: true }
-  }
-}
-
 module.exports = {
   checkLoginViaHttpApi,
   isHttpCheckSupported,
@@ -495,4 +433,5 @@ module.exports = {
   // 结构锁（http-login-checker-uid-coverage.test.js）需要遍历登记表本身；
   // uid 契约常量由 ./platform-uid 自己导出，锁直接指向那个模块，不在此转出口。
   HTTP_CHECK_APIS,
+  HTTP_PROFILE_APIS,
 }

@@ -157,4 +157,63 @@ describe('数字人流水线启动前校验', () => {
       expect(checkDigitalHumanRequirements(readyManager(), { avatarId: 'a' }).errorCode).toBe(AVATAR_VOICE_REQUIRED)
     })
   })
+
+  // ── 克隆产物失效（change: avatar-voice-clone）────────────────────────
+  //
+  // 克隆形象/声音与公共目录同形同键（都是 HeyGen 的 look_id / voice_id），
+  // 所以三要素来源无需扩展；但克隆产物有公共目录没有的失效态
+  // （training_failed / 远端已不存在），必须在启动前拦下，
+  // 而不是等 generate 阶段跑到网络层才炸。
+  //
+  // 刻意用**同步**探子：启动路径是同步的（checkPipelineModelRequirements），
+  // 且生命周期设计是「本地 registry 为权威」——失效标记在列表时已写好，
+  // 无需在启动前再查一次远端。
+  describe('克隆产物失效在启动前拦截', () => {
+    const CLONE_AVATAR_UNAVAILABLE = 'AVATAR_CLONE_UNAVAILABLE'
+
+    function managerWithClones (avatars = []) {
+      const base = readyManager()
+      base.listAvatarClonesSync = vi.fn(() => ({ code: 0, data: { avatars } }))
+      return base
+    }
+
+    it('training_failed 的克隆形象 → AVATAR_CLONE_UNAVAILABLE', () => {
+      const manager = managerWithClones([
+        { id: 'av-bad', trainingState: 'failed', invalidReason: 'training_failed' },
+      ])
+      const result = checkPipelineModelRequirements(
+        manager, 'avatar-spokesperson', { avatarId: 'av-bad', voiceId: 'voice-1' }, noopLog,
+      )
+      expect(result.success).toBe(false)
+      expect(result.errorCode).toBe(CLONE_AVATAR_UNAVAILABLE)
+      expect(result.error).toContain('克隆')
+    })
+
+    it('远端已失效的克隆形象 → AVATAR_CLONE_UNAVAILABLE', () => {
+      const manager = managerWithClones([
+        { id: 'av-gone', trainingState: 'completed', invalidReason: 'sample_storage_missing' },
+      ])
+      const result = checkPipelineModelRequirements(
+        manager, 'avatar-spokesperson', { avatarId: 'av-gone', voiceId: 'voice-1' }, noopLog,
+      )
+      expect(result.success).toBe(false)
+      expect(result.errorCode).toBe(CLONE_AVATAR_UNAVAILABLE)
+    })
+
+    it('公共目录形象不受影响（id 不在克隆 registry 里）', () => {
+      const manager = managerWithClones([{ id: 'av-ok', trainingState: 'completed' }])
+      const result = checkPipelineModelRequirements(
+        manager, 'avatar-spokesperson', { avatarId: 'public-ava', voiceId: 'voice-1' }, noopLog,
+      )
+      expect(result.success).toBe(true)
+    })
+
+    it('manager 不提供克隆探子时 fail-open（不影响未装克隆功能的构建）', () => {
+      const manager = readyManager()
+      const result = checkPipelineModelRequirements(
+        manager, 'avatar-spokesperson', { avatarId: 'av-any', voiceId: 'voice-1' }, noopLog,
+      )
+      expect(result.success).toBe(true)
+    })
+  })
 })

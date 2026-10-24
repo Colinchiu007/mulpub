@@ -110,6 +110,19 @@ const PROVIDER_MODEL_CAPABILITIES = Object.freeze({
     'speech-2.6-hd': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
     'speech-2.6-turbo': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, defaultVoiceId: 'male-qn-qingse', clone: DESKTOP_UPLOAD_CLONE }),
   }),
+  // HeyGen 官方支持音色克隆（POST /v3/voices/clone，mode: instant / professional）；
+  // 声音克隆与形象克隆是两条独立链路，与视频生成解耦——视频生成只传 voice_id 引用。
+  // 克隆能力由 heygen adapter 实现（cloneVoice/deleteVoice，见 openspec/changes/avatar-voice-clone）。
+  heygen: Object.freeze({
+    'heygen-video': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, clone: DESKTOP_UPLOAD_CLONE }),
+  }),
+  // 飞影 HiFly（change: digital-human-multiprovider）：官方「创建声音」接口
+  // POST /api/v2/hifly/voice/create，voice_type 必填且目前只支持 8（声音克隆基础版 v2）。
+  // 素材限制：mp3/m4a/wav、≤20MB、5 秒～3 分钟；同账号 API 创建上限 200 个。
+  // 与 heygen 同型：形象克隆与声音克隆是两条独立链路（视频生成只传 voice 引用）。
+  hifly: Object.freeze({
+    'hifly-video': catalogCapability(CAPABILITY_TYPES.USER_CLONE, { canListVoices: true, clone: DESKTOP_UPLOAD_CLONE }),
+  }),
 })
 
 function safeString (value, maxLength) {

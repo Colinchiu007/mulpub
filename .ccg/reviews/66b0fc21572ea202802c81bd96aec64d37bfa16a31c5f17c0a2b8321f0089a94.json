@@ -1,0 +1,130 @@
+{
+  "sha": "3621894d42ec69c46f623ac598d6e4f6f4697e90",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1097 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1097,
+    "fileCount": 7,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "（得到 `sha256(\"null\")` 这个稳定但无意义的键）。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "66b0fc21572ea202802c81bd96aec64d37bfa16a31c5f17c0a2b8321f0089a94",
+  "decidedAt": "2026-10-22T05:50:08.701Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i1",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4232#issuecomment-6334281343"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "T8 断言文件名 == 完整 64 字符交集哈希（`intersectionHash + \".json\"`），但 `recordFileName` 始终 `.slice(0, 16)` 截取到 16 字符。该断言在任何实现下都会红，是测试与代码签名不同步。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4232#issuecomment-6334281343",
+          "reviewedAt": "2026-10-22T06:25:29Z"
+        },
+        "prosecution": "若 `recordFileName` 真的把产物名截断成 16 字符，而 T8 断言的是「完整 64 字符交集哈希 + \".json\"」，那么该断言在任何实现下都必红；更严重的是所有合并态判定记录的文件名都会与 `stagedDiffHash` 不再同源，而 `deep-review.sh` 与评审链正是按 `stagedDiffHash` 做内容寻址找记录（`REC` 兜底那段），名字对不上 ⇒ 评审结论无处写回、门禁判「深度审查未闭合」。属 Critical。",
+        "defense": "前提就是错的：`recordFileName`（`scripts/ccg-review-decider.js:755-759`）对命中 `/^[0-9a-f]{64}$/` 的输入**原样**返回 `${h}.json`（完整 64 字符），只有不合法输入才回落 `${sha}.json`（完整 40 字符），全函数没有任何 `.slice`。T8（`scripts/ccg-review-decider.test.js:1932-1938`）断言的对象与 `saveRecord` 实际写出的名字同源，实测该用例与全量 70 例均通过。",
+        "verdict": "dismissed",
+        "rationale": "指控的唯一依据是把该函数与「曾做过短哈希命名」的另一处历史实现混同，代码事实与之相反。外部后端 claude 独立读代码后给出同一结论（PR #4232 评论 6334281343）：`recordFileName` 在 `scripts/ccg-review-decider.js:755-759` 无 `.slice(0,16)`，T8 在 `scripts/ccg-review-decider.test.js:1932-1938` 与实现一致。同时明确 `crypto-related=no`——本条的「哈希」指 `stagedDiffHash` 这一内容寻址摘要，不涉及密钥/加密算法/安全协议，`crypto` 高危域标签系 `classifyHighRisk` 的宽正则误命中（驱动注释本身已承认该正则含 hash/signature/session 等工程高频词）。标签未手动清空，改由外部复核满足阻断解除条件。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "`main()` 在 `--input` / `--base` 路径上也执行 `detectMergeState()`（结果不使用），增加无意义的 git 子进程调用和全局环境污染。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "若 `--input` / `--base` 这两个「重放与基线比对」入口也执行 `detectMergeState()`，则在非 git 目录或合并态下会多派 `rev-parse` 子进程，并把外层 `mergeState` 置成合并态 ⇒ 重放路径改走交集判定、`stagedDiffHash` 与真实 diff 不同源。",
+        "defense": "`main()` 里 `mergeState` 先在 S1078 取默认值，`detectMergeState()` 只在 S1117 的 `else` 分支被调用 —— 也就是「既无 `--input` 也无 `--base`」的真实 pre-commit 暂存区路径；`--input`（S1079 起）与 `--base`（S1086 起）两个分支各自走 return/收集，全文没有第二个调用点。",
+        "verdict": "dismissed",
+        "rationale": "代码事实：本次新增的调用点只有 S1117 一处，且落在 `else`。外部后端 claude 复核给出同一行号结论（S1078 默认值 / S1117 仅 else 分支 / S1079 与 S1086 分支无该调用）。「无意义子进程 + 环境污染」的场景在 `--input` / `--base` 路径上不成立。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`T9` 直接修改 `process.env`（PATH），`node --test` 默认并发运行，未加并发控制或隔离，可能导致并发测试读取被污染的环境。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`node --test` 默认并发执行测试文件，`T9` 直接改 `process.env.PATH`；一旦不还原或还原不彻底，同进程内其它依赖「`git` 可解析」的用例会间歇失败，且失败落点随机、无法归因到环境。",
+        "defense": "`T9`（`scripts/ccg-review-decider.test.js:1969-2027`）在 S1985-1986 先把原值存进 `savedEnv`，S1988-2022 在 `try` 内改、S2023 `finally` 无条件还原；同一文件内的用例本就顺序执行，而 `node --test` 的并发单元是**文件级子进程**，PATH 不在进程之间共享。",
+        "verdict": "dismissed",
+        "rationale": "指控的前半（「确实修改了 process.env」）成立，后半（「无隔离、可能被并发读到」）不成立：隔离形态是 `try/finally` + 文件级子进程并发。外部后端 claude 复核同一结论（S1985-1986 保存、S1988-2022 try、S2023 finally）。附带说明：本文件还有 `withCwd` 同样用 `try/finally` 还原 cwd，口径一致。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`design.md`（370 行）直接嵌入源码目录，混合实现注释与评审记录，与代码同生命周期但无运行时价值，显著增加 PR 体积。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "`design.md` 370 行内嵌源码片段与评审记录，与实现同生命周期却无运行时消费；把它塞进同一个 PR 会显著放大 diff，让后续 review 更难聚焦真正的代码改动。",
+        "defense": "它位于 `openspec/changes/ccg-decider-merge-skip/`，是本仓对 M+ 变更强制的四件套（proposal/design/spec/tasks）之一，职责正是记录「为什么这样改、否决了哪些方案」；项目规范明确要求「先文档再代码」「文档写详细」。它不在源码目录、不参与构建，也不影响任何门禁。",
+        "verdict": "dismissed",
+        "rationale": "事实描述准确（370 行、无运行时消费，`git show HEAD --stat` 可见），但「无运行时价值」不等于「缺陷」：变更文档本就是流程要求的交付物，删除它反而违反项目 SOP。PR 体积属交付的自然结果，不构成技术问题。外部后端 claude 持同一判断（`openspec/changes/<slug>/` 非源码目录混入）。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-22T06:34:55.391Z",
+    "tier": "external",
+    "evidence": "delivery@4cc601b8d4866f589007d8d852174c77b20a8cb5753cda73f6b828be32e3f0dd"
+  }
+}

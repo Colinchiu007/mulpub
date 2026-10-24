@@ -149,7 +149,16 @@ export default {
     markingRead: '正在标记...',
     untitledMessage: '（无标题）',
     ordersTitle: '订单与账单',
-    ordersEmptyHint: '订单功能即将上线，敬请期待。',
+    ordersEmptyHint: '还没有订单。购买会员或使用激活码即可开通。',
+    ordersLoading: '正在加载订单…',
+    ordersRetry: '重试',
+    ordersError: '订单加载失败，请稍后重试。',
+    ordersColTime: '时间',
+    ordersColPlan: '套餐',
+    ordersColAmount: '金额',
+    ordersColStatus: '状态',
+    ordersContinuePay: '继续支付',
+    ordersPendingHint: '有未完成的订单，点「继续支付」可完成付款。',
     helpTitle: '帮助与支持',
     helpHint: '如需帮助，请联系支持团队或查阅使用文档。'
   }

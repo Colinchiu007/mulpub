@@ -1,0 +1,65 @@
+{
+  "sha": "a06c0efa54b30227c44946b435eb72d0d570ae21",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| i3 (域 `auth`) | workflow token + `--write` 可批量 DELETE；权限未收到 `actions:write`；`--repo` 未编码可跨仓 | **不成立**（三个前提逐个核） | ① `cleanup-artifacts.yml` 第 21-23 行 `permissions: {actions: write, contents: read}`，删 artifact 恰落在 `actions` 这一格，无更宽 scope 可退；② `--repo` 是 runner 注入的仓库变量、本作业只在 schedule/dispatch 上跑，不在 fork PR 路径；③ 链上唯一外部可控值是 artifact id，已按形状收口并计入 `rejected`/`REJECTED_PRESENT`，A13 样本含路径穿越形态 `../9` 且断言\"一条都不发删除\"，n8/n10 各指名反证。\"改用 fine-grained PAT\"与本仓\"不把长期凭据塞进 CI\"相反，内置 token 已被 permissions 收窄 |",
+      "| i5 (域 `crypto`) | 驱动就地改被测源，崩溃会留下变异后的字节；且没有锁覆盖驱动自身 | **不成立**（后果是响的且可精确恢复） | 被测源受 git 跟踪，`git checkout -- scripts/cleanup-artifacts.js` 单文件还原（守 R2，不碰宽目录）；下次运行前有 dirty 前置，实测脏态直接 `REFUSE …` 并 exit 2，污染态不会被固化成还原基线。\"改临时副本\"在这条链上不成立：被测锁按真实路径加载被测模块，副本目录无 git 索引 ⇒ A15 必红，等于测不到东西。\"覆盖驱动自身\"已由多靶子 + n11 兑现，还原阶段对两个文件分别比 md5。域标签由\"md5/还原\"字样触发，本 PR 差量不含加解密代码 |",
+      "2. **「加密类词面」会把非安全工具判成安全改动**（本笔实测，且我第一版把因果写错了，留此纠正）：第三笔 100 行、`sensitivePathHits=[]`，却因 `sensitiveContentHits=3` 判 DUAL。我原以为是上一笔判定产物里那句 `reason` 被再读一次 —— **不对**：`ccgSensitiveContentHits=1` 才是那句，而判据明文不消费它（手工跑判定器时它自己打印 `⚠ 自身产物命中敏感词 4 处（不计入模式判定，判定器不消费自己写下的散文）`）。真正进判定的是**代码侧词面**：用 decider 导出的同一份 `RULES.sensitiveContents` 复算该笔新增行，重现出的一处是 `scripts/cleanup-artifacts.mutation.js` 里那句 `if (md5(...) !== md5(...))` —— 驱动用 md5 只做\"字节回原位\"的自证，与加解密无关，却命中 `md5|sha1|sha256\\(` 这条正则。**两条如实的余地**：① 复算只重现 1 处、产物记 3 处，这 2 处差额我没有解释，所以这里只报能复现的那一处，不照抄 3；② 同一族还有第三条落点（`docSensitiveContentHits` 只报告不判定）。留作独立一刀的是：敏感内容判据要不要区分\"实现密码学\"与\"用摘要做自证\"，以及那 2 处差额从哪来。"
+    ],
+    "ccgSensitiveContentHits": 4,
+    "ccgSensitiveContentSample": [
+      "          \"note\": \"域标签由指控自身措辞触发（本 PR 差量不含认证/加解密代码）；外部复核＝critic=claude 的这轮评审 + 公开评论出处\"",
+      "        \"defense\": \"三点逐一核对。① 权限已收口：cleanup-artifacts.yml 第 21-23 行 `permissions: {actions: write, contents: read}`，删 artifact 恰好落在 actions 这一格，没有更宽的 scope 可退；指控说\\\"没有把 token 限制到 actions:write\\\"与文件现状相反。② `--repo` 不是外部输入，是 runner 注入的 `${{ github.repository }}`，且这条作业只在 schedule/workflow_dispatch 上跑，不在 fork PR 的路径上；本 PR 还专门把它从\\\"env 里一个没人读的键\\\"改成调用点显式给（第二轮 i4 的修法），坐标可见。③ 这条链上唯一外部可控的值是 artifact id，已按形状收口（只接受正整数），不合要求计入 rejected 并把结论压成 REJECTED_PRESENT 非零退出；A13 的样本里就有路径穿越形态 `../9`，断言\\\"一条都不发删除\\\"，n8/n10 两条变异各指名反证。④ 建议里的\\\"专用服务账号 / fine-grained PAT\\\"与本仓既有口径相反（内置 token 已被 permissions 收窄，再塞一个长期凭据进 CI 是把攻击面变大而不是变小）。\",",
+      "          \"note\": \"域标签由指控自身措辞触发（本 PR 差量不含认证/加解密代码）；外部复核＝critic=claude 的这轮评审 + 公开评论出处\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8141fb97e4cc644ecbbb4824128137420384ffc55a1d25dc61140e82a36a21f4",
+  "decidedAt": "2026-10-22T03:10:25.493Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

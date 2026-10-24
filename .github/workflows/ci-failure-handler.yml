@@ -13,7 +13,24 @@ name: CI Failure Handler (Level 4)
 
 on:
   workflow_run:
-    workflows: ["Build & Release", "Electron CI", "quality-gate", "GUI Tests", "Doc Sync Gate"]
+    # 不变量（由 scripts/check-schedule-failure-watch.test.js 的 Gate 2b13 机械守住，两条方向都要成立）：
+    #   ① 凡带 `on.schedule:` 的作业必须出现在这份名单里 —— 定时作业没有 PR、没有人在盯，
+    #      挂十天也不会在任何合并路径上显形（Cleanup Artifacts 的定时 run 连红 9 次就是这么漏过去的）；
+    #   ② 名单里的每个名字必须还能在 .github/workflows/*.yml 的 `name:` 上找到 —— 改名或删作业
+    #      而名单留着，读起来像"已覆盖"，实际那条永远不会触发。
+    workflows: [
+      "Build & Release",
+      "Electron CI",
+      "quality-gate",
+      "GUI Tests",
+      "Doc Sync Gate",
+      "Cleanup Artifacts",
+      "时钟位移引信巡检",
+      "依赖漏洞审计门禁",
+      "依赖漏洞基线自动刷新",
+      "Sidecar Parity (cross-repo)",
+      "定时作业心跳巡检",
+    ]
     types: [completed]
 
 permissions:
@@ -29,7 +46,15 @@ concurrency:
 jobs:
   handle-ci-failure:
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
-    runs-on: windows-latest
+    # ⛔ 必须 ubuntu-latest，不得占 windows-latest 的并发额度（2026-10-22，change: main-red-run-baseline）。
+    #    本作业只跑 gh CLI + node + setup-python，无任何 Windows 专属依赖（实测
+    #    .github/scripts/classify-ci-failure.js 无 win32/windows/powershell 命中）。
+    #    迁移前的实测代价：electron-tests / GUI Tests / 本 handler 三家全在 windows-latest 抢同一个
+    #    托管池，主干 push 的 electron-tests 作业实测排队 46.6 分 / 51.5 分才起跑；而同批次的纯
+    #    ubuntu 作业（quality-gate）**零排队**。Windows 额度是「主干读数拿不到」的直接放大器。
+    #    同型先例：quality-gate 的 changes 作业早已锁死为 ubuntu-latest，理由原文
+    #    「判定只依赖 git+node，必须用 ubuntu（不占 Windows 并发额度）」。
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash

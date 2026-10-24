@@ -41,7 +41,12 @@
     </header>
 
     <div class="account-profile">
-      <div class="account-avatar" :class="{ 'has-status-mask': showAvatarMask }">
+      <div
+        class="account-avatar"
+        :class="{ 'has-status-mask': showAvatarMask }"
+        :title="avatarHint"
+        :aria-label="avatarHint || undefined"
+      >
         <img v-if="showAvatar" :src="account.avatar || account.avatar_url" alt="" @error="avatarBroken = true">
         <UserFilled v-else />
         <!-- 失效态：状态文字直接压在头像上（头像即状态载体），头像旁不再重复出徽章 -->
@@ -95,7 +100,7 @@
           <span v-else>{{ t('accountsPage.accountCardLabels.accountSynced') }}</span>
           <span :data-testid="`account-check-${account.id}`">{{ loginCheckLabel(account) }}</span>
         </div>
-        <div class="account-followers" :data-testid="`account-followers-${account.id}`">
+        <div class="account-followers" :data-testid="`account-followers-${account.id}`" :title="followersHint">
           {{ t('accountsPage.accountCardLabels.followers') }}{{ followersLabel(account) }}
         </div>
         <div class="account-assignees" :aria-label="t('accountsPage.accountCardLabels.accountInfo')">
@@ -121,16 +126,23 @@
       >
         <CircleCheck />{{ t('accountsPage.accountCardLabels.verify') }}
       </button>
+      <!-- 「登录」常驻（2026-10-24，account-card-login-button）：
+           原「去登录」按钮只在「本会话检测确认失效」时出现，于是「已失效但还没点过验证」
+           的账号、以及「已登录但实际已掉线」的账号，在用户主动点「验证」之前**没有任何**
+           自救入口 —— 而「点验证 → 弹确认 → 去登录」是三步，掉线用户往往等不到那一步。
+           常驻后与「验证」并排成「先查后修」的一对。
+           两者语义正交、不可互相替代：「验证」= 只读探测（只写 status/last_validated）；
+           「登录」= 用**干净会话**重建会话，登录成功后**覆盖**现有凭证。
+           已登录态点「登录」的行为分派见 utils/account-status.js 的 needsReloginConfirmation。 -->
       <button
-        v-if="checkedExpiredIds?.has?.(account.id)"
         :data-testid="`login-${account.id}`"
         data-e2e-scan="manual"
         type="button"
         class="login-button"
-        :title="t('accountsPage.accountCardLabels.goLogin')"
+        :title="t('accountsPage.accountCardLabels.loginTitle')"
         @click.stop="$emit('open-login', account)"
       >
-        <Monitor />{{ t('accountsPage.accountCardLabels.goLogin') }}
+        <Monitor />{{ t('accountsPage.accountCardLabels.login') }}
       </button>
       <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click.stop="$emit('remove', account)">
         <Delete />{{ t('accountsPage.accountCardLabels.delete') }}
@@ -156,10 +168,9 @@ const props = defineProps({
   batchMode: { type: Boolean, default: false },
   verifying: { type: Boolean, default: false },
   creatorHint: { type: String, default: '' },
-  checkedExpiredIds: { type: Object, default: () => new Set() },
 })
 
-import { accountStatusKind } from '@/utils/account-status'
+import { accountStatusKind, lastLoginCheckAt } from '@/utils/account-status'
 
 const { t } = useI18n()
 
@@ -250,6 +261,23 @@ function followersLabel (account) {
   return value || t('accountsPage.accountCardLabels.noData')
 }
 
+/**
+ * 头像缺失时的提示（2026-10-22）。
+ * 灰色通用头像本身不解释「为什么没有」——用户分不清是「平台没设头像」还是
+ * 「我们没取到」。这里明确告知并给出下一步（点「验证」重新获取资料）。
+ * 无提示时返回 undefined（而不是空串）：空串会渲染出空的 title 属性。
+ */
+const avatarHint = computed(() => {
+  if (showAvatar.value) return undefined
+  return t('accountsPage.accountCardLabels.avatarMissingHint')
+})
+
+/** 粉丝数缺失时的提示（同上口径） */
+const followersHint = computed(() => {
+  const value = firstValue(props.account, FOLLOWER_KEYS)
+  return value ? undefined : t('accountsPage.accountCardLabels.followersMissingHint')
+})
+
 function assigneeLabel (account, keys) {
   return firstValue(account, keys) || t('accountsPage.accountCardLabels.notSet')
 }
@@ -271,16 +299,11 @@ function statusClass (account) {
   return accountStatusKind(account)
 }
 
-const LAST_CHECK_KEYS = ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt', 'last_validated', 'lastValidated', 'validated_at', 'validatedAt']
 const CHECK_REASON_KEYS = ['login_check_error', 'loginCheckError', 'last_login_error', 'lastLoginError', 'status_reason', 'statusReason']
 
 function loginCheckLabel (account) {
-  for (const key of LAST_CHECK_KEYS) {
-    const value = account?.[key]
-    if (value === null || value === undefined || value === '') continue
-    const date = new Date(value)
-    if (!Number.isNaN(date.getTime())) return t('accountsPage.accountCardLabels.lastCheck', { date: date.toLocaleString('zh-CN') })
-  }
+  const date = lastLoginCheckAt(account)
+  if (date) return t('accountsPage.accountCardLabels.lastCheck', { date: date.toLocaleString('zh-CN') })
   for (const key of CHECK_REASON_KEYS) {
     const value = valueLabel(account?.[key])
     if (value) return t('accountsPage.accountCardLabels.checkAbnormal', { reason: value })

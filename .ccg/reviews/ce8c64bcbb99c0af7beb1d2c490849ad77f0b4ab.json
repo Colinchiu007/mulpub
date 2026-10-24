@@ -1,0 +1,32 @@
+{
+  "sha": "ce8c64bcbb99c0af7beb1d2c490849ad77f0b4ab",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "opencode",
+    "objectType": "plan",
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 7,
+        "dimensionScores": {
+          "completeness": 8,
+          "consistency": 7,
+          "clarity": 7,
+          "feasibility": 7,
+          "security": 8
+        }
+      }
+    ],
+    "error": "输入超长：14109 字符，超过 opencode 后端上限 7800 字符（实测边界 (8125, 8145]，非文档承诺）。该后端会同步拒绝（~120ms、exit 1、无任何错误信息）。",
+    "validationErrors": null,
+    "note": "第 1 轮修订失败",
+    "artifacts": ".adversarial\\ccg-plan-pr3b-import-design-claude",
+    "at": "2026-10-22T16:51:18.902Z"
+  }
+}

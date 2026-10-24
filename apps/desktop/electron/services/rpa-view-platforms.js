@@ -36,6 +36,10 @@ const {
 } = require('./rpa-publish-id-extract')
 // 2026-09-29 二次拆分：导航/等待类 helper（mixin 片段）——继续压 rpa-view-platforms.js 行数
 const { navigationHelpers, stripHtmlToPlainText } = require('./rpa-view-navigation-helpers')
+// 2026-10-23 四次拆分：发布诊断取证纯函数 → rpa-view-publish-diagnostics.js
+// （行数门禁点名还账：rpa-view-platforms.js 目标 1484 行、容差 0；#4276 加了 14 行后越界，
+//   令债务熔断检查在所有后续 PR 上转红。此处只搬移不改行为）
+const { readVisibleEditorToast, summarizePublishDiagnostics, parsePublishResponseEvidence } = require('./rpa-view-publish-diagnostics')
 // 2026-10 三次拆分：视频上传等待循环（v4 自适应轮询，publish-progress-dup-upload）
 const { uploadWaiterMixin, readVideoFileBytes } = require('./upload-waiter')
 const { artifactsHelpers } = require('./rpa-view-artifacts')
@@ -57,43 +61,10 @@ const STRICT_PUBLISH_ID_PLATFORMS = new Set(['baijiahao', 'kuaishou', 'toutiao']
  * @param {object} win BrowserWindow
  * @returns {Promise<string>} 可见提示文本；无则空串（绝不抛）
  */
-async function readVisibleEditorToast (win) {
-  const { buildVisibleToastScript } = require('./wechat-mp-draft-mediaid')
-  const { TOAST_SELECTORS } = require('./wechat-mp-dom-guard')
-  try {
-    const t = await win.webContents.executeJavaScript(buildVisibleToastScript(TOAST_SELECTORS))
-    return String(t == null ? '' : t)
-  } catch (_) {
-    return ''
-  }
-}
-
-function summarizePublishDiagnostics (records, artifact) {
-  const source = Array.isArray(records) ? records : []
-  const responses = source.slice(-20).map(record => ({
-    endpoint: sanitizeDiagnosticEndpoint(record?.endpoint || record?.url),
-    status: Number.isFinite(Number(record?.status)) ? Number(record.status) : 0,
-    mimeType: String(record?.mimeType || '').split(';')[0].slice(0, 160),
-  }))
-  return {
-    responseCount: source.length,
-    responses,
-    artifactFound: Boolean(artifact && normalizePublishId(artifact.postId)),
-  }
-}
-
-function parsePublishResponseEvidence (body, response) {
-  const status = Number(response?.status)
-  if (!Number.isFinite(status) || status < 200 || status >= 300) return null
-  if (!/(?:publish|submit|create|commit|release)/i.test(String(response?.endpoint || ''))) return null
-  const publishIds = extractPublishIdsFromResponseBody(body, { endpoint: String(response?.url || response?.endpoint || '') })
-  return publishIds.length > 0 ? { publishIds } : null
-}
-
-
 // draftOnly 的**全部判定**在 ./draft-only-confirm（小红书硬证据链 + 其它平台既有行为）；
 // 判据本体/三条红线/不变量见该模块头部注释，本文件只留薄调用点（它自己也是零增长的点名还账文件）。
 const draftOnlyConfirm = require('./draft-only-confirm')
+const { extractDouyinPublishId } = require('./douyin-dom-publish-id')
 // 发布前置门禁（publish-precondition-gate，2026-10-18）：点发布按钮之前断言
 // 「内容真的进去了」。动因是 2026-10-17 批量发布里头条/抖音的真实根因被
 // 「publish btn not found」「publish timeout」这两条下游症状掩盖。
@@ -132,9 +103,8 @@ const platformsMixin = {
         await this._click(win, (context&&context.writeSelector)||'button:has-text("写文章")')
         await this._sleep(2000); break
       case 'switchImageTab': {
-        // 小红书发布页 tabs：上传视频(active) / 上传图文 / 写长文 / 发播客（2026-09-29 实测取证：
-        // publish/publish?from=menu 默认落视频 tab，file input accept 全是视频格式；
-        // .header-tabs 容器加载慢（实测 10s 后才渲染），必须先等它出现再点）。
+        // 小红书发布页 tabs：上传视频(active)/上传图文/写长文/发播客（2026-09-29 实测：
+        // from=menu 默认落视频 tab 且 accept 全是视频格式；.header-tabs 加载慢（实测 10s），须先等它再点）。
         // 点击按文字「图文」匹配（比 children[1] 位置索引抗改版）。
         const tabsReady = await this._waitForElement(win, '.header-tabs, .creator-tab', 20000)
         if (tabsReady) {
@@ -162,9 +132,8 @@ const platformsMixin = {
             const coverReady = await this._waitForElement(win, '.article-cover-add, .article-cover-images-wrap', 12000)
             if (!coverReady) log.warn('RpaView', '[uploadCover] 封面区未在 12s 内出现，仍尝试点击')
             const entry = await win.webContents.executeJavaScript(
-              // 2026-09-30 真机取证：封面「+」的真实元素是 **`.article-cover-add`**
-              // （位于 `.article-cover-images-wrap` 内，图标为 SVG 故无文本；
-              //  此前按 `innerText === "+"` 或点 `.article-cover` 均落空——后者只是 radio group 容器）。
+              // 2026-09-30 真机取证：封面「+」的真实元素是 `.article-cover-add`（位于 `.article-cover-images-wrap` 内，
+              // 图标为 SVG 故无文本；此前按 innerText==="+" 或点 `.article-cover` 均落空——后者只是 radio group 容器）。
               '(function(){var a=document.querySelector(\'.article-cover-add\');if(a){a.click();return \'CLICKED_ADD\'}'
               + 'var c=[...document.querySelectorAll(\'div,span,button\')].filter(function(e){var t=(e.innerText||\'\').trim();var r=e.getBoundingClientRect();return (t===\'+\'||/^上传封面$|^编辑封面$/.test(t))&&r.width>0&&r.height>0});if(c.length){c[0].click();return \'CLICKED_TEXT\'}'
               + 'var cover=document.querySelector(\'.article-cover-images-wrap\')||document.querySelector(\'.article-cover\');if(cover){cover.click();return \'CLICKED_COVER\'}return \'NO_ENTRY\'})()'
@@ -180,9 +149,8 @@ const platformsMixin = {
         }
         if (!handled) {
           try {
-            // 真机取证（2026-09-30）：封面三选一是 byte-design 的 `LABEL.byte-radio`
-            // （内部 input 为隐藏态，且 `input.closest('label')` 取到的是外层 label）。
-            // 故**直接按文本选 label** 点击，再回读 input.checked 确认 React 已接受。
+            // 真机取证（2026-09-30）：封面三选一是 byte-design 的 `LABEL.byte-radio`（内部 input 隐藏态，
+            // 且 input.closest("label") 取到外层 label）；故直接按文本选 label 点击，再回读 input.checked 确认 React 已接受。
             const r = await win.webContents.executeJavaScript(
               '(function(){var ls=[...document.querySelectorAll(\'label.byte-radio\')].filter(function(l){return /无封面/.test(l.innerText||\'\')});if(!ls.length)return \'NO_LABEL\';ls[0].click();var rs=[...document.querySelectorAll(\'input[type=radio]\')];var picked=rs.filter(function(x){return x.checked}).map(function(x){return (x.closest(\'label\')||x.parentElement||{}).innerText}).join(\'|\');return \'CLICKED picked=\'+picked})()'
             )
@@ -292,6 +260,20 @@ const platformsMixin = {
     // 仅在有视频时调用：纯图文本就不该要求上传链存在（也让只 mock 图片链路的用例不受牵连）。
     if (article.video_path) {
       log.info('RpaView', '[' + platform + '] file input selectorCount=' + (sel.file_input ? sel.file_input.length : 0))
+      // 2026-10-23 真机：头条停在西瓜上传页且「添加视频」仍可点 ⇒ 文件从未附加。
+      // 该页 file input 只在点「添加视频」后才出现，故先点它再走通用上传。
+      if (platform === 'toutiao') {
+        try {
+          // 2026-10-23 真机：首次调用返回 NO_BTN —— 页面尚未渲染出该按钮，必须轮询等待
+          let clicked = 'NO_BTN'
+          for (let t = 0; t < 10 && clicked !== 'CLICKED'; t += 1) {
+          clicked = await win.webContents.executeJavaScript('(function(){var es=[].slice.call(document.querySelectorAll("button,div,span,a")).filter(function(e){return /添加视频|上传视频/.test((e.innerText||""))&&e.getClientRects().length});if(es.length){es[0].click();return "CLICKED"}return "NO_BTN"})()', true)
+            if (clicked !== 'CLICKED') await this._sleep(1500)
+          }
+          log.info('RpaView', '[toutiao] add-video ' + clicked)
+          if (clicked === 'CLICKED') await this._sleep(1500)
+        } catch (_e) { /* 无按钮时不阻塞主流程 */ }
+      }
       await this._runVideoUpload(win, article, platform, sel, fillReport, retry)
     }
 
@@ -365,7 +347,7 @@ const platformsMixin = {
           }
         } else {
           log.warn('RpaView', '[' + platform + '] content editor not found among ' + cs.length + ' candidates')
-          fillReport.content = { ok: false, error: 'content editor not found among ' + cs.length + ' candidates' }
+          if (!(fillReport.content && fillReport.content.ok)) fillReport.content = { ok: false, error: 'content editor not found among ' + cs.length + ' candidates' }
         }
       }
     }
@@ -391,10 +373,11 @@ const platformsMixin = {
         // closes; prefer the configured selector, then fall back to the
         // platform selector without requiring the trigger to succeed.
         try {
-          await this._setFileInput(win, article.cover_path, coverSel)
+          // 视频号：必须走纯 CDP（_setFileInput 的 JS fallback 对 file input 必抛）
+          await (platform === 'tencent_video' ? require('./toutiao-cover').setFileViaCdp(win, article.cover_path, coverSel) : this._setFileInput(win, article.cover_path, coverSel))
         } catch (coverError) {
           if (platform !== 'baijiahao' || !sel.cover_input || sel.cover_input.length === 0) throw coverError
-          await this._setFileInput(win, article.cover_path, sel.cover_input[0])
+          await require('./toutiao-cover').setFileViaCdp(win, article.cover_path, sel.cover_input[0]) // 纯 CDP：_setFileInput 的 JS fallback 对 file input 必抛（FileList 只读），视频号封面曾因此 Script failed to execute
         }
         await this._sleep(2000)
       } catch(e) { log.warn('RpaView','['+platform+'] cover: '+e.message+' | sel='+String((sel.cover_input||[]).join(' , ')).slice(0,120)) }
@@ -483,13 +466,31 @@ const platformsMixin = {
           for (const cand of sel.publish_btn || []) {
             if (await this._waitForElement(win,cand,3000)) { publishSelector = cand; break }
           }
+          // 2026-10-23 真机：视频号发布页会弹出「切换视频号」遮挡层（按钮 取消/切换/我知道了），
+          // 不解掉它，发布点击只会打到遮罩 ⇒ 日志有 publishing 但实际未提交（用户核对创作者中心无新内容）。
+          if (platform === 'tencent_video') {
+            try {
+              const dm = await win.webContents.executeJavaScript('(function(){var w=["取消","我知道了"];var els=[...document.querySelectorAll("button,a,span,div")];for(var i=0;i<els.length;i++){var s=(els[i].innerText||"").trim();if(w.indexOf(s)>=0&&els[i].getClientRects().length>0){els[i].click();return s}}return ""})()', true)
+              log.info('RpaView', '[tencent_video] pre-publish modal dismiss: ' + (dm || 'none'))
+            } catch (_e) { /* 无弹窗不阻塞 */ }
+            await this._sleep(600)
+          }
           if (!publishSelector) throw new Error('publish btn not found')
-          networkCapture = platform === 'toutiao' ? null : await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
+          networkCapture = await this._startPublishNetworkCapture(win, { parseResponseBody: parsePublishResponseEvidence })
           // 点击通道：头条走 CDP（`_clickStable` → `_clickViaCdp`），其余平台保持 executeJavaScript。
           // 头条发布按钮是**两段式**（bundle 源码实证）：首点走 `sleep("defer-publish",0)` 创建 deferred 并挂起，
           // 第二次点击才 `_e.resolve()` 唤醒 `case 1` 执行 `doPublish` ⇒ 必须连点两次（间隔留给 state 写入）。
           await (platform === 'toutiao' && typeof this._clickStable === 'function' ? this._clickStable(win, publishSelector) : this._click(win, publishSelector))
-          if (platform === 'toutiao') { await this._sleep(1500); await this._clickViaCdp(win, publishSelector) }
+          if (platform === 'toutiao') {
+      await this._sleep(1500); await this._clickViaCdp(win, publishSelector)
+      // 2026-10-23 真机：两次点击后仍拿不到作品 ID ⇒ dump 页面可见提示，看平台为何拒收
+      try {
+        const tip = await win.webContents.executeJavaScript('(function(){var es=[].slice.call(document.querySelectorAll("[class*=error],[class*=toast],[class*=tip],[class*=warn],[class*=message]"));return es.filter(function(e){return e.getClientRects().length}).map(function(e){return (e.innerText||"").trim()}).filter(Boolean).slice(0,6).join(" | ")})()', true)
+        log.warn('RpaView', '[toutiao] publish 后可见提示: ' + (tip || '(无)'))
+        const st = await win.webContents.executeJavaScript('(function(){var bs=[].slice.call(document.querySelectorAll("button,[class*=publish],[class*=submit]")).filter(function(e){return e.getClientRects().length}).map(function(e){return {t:(e.innerText||"").trim().slice(0,12),d:!!e.disabled}}).slice(0,10);return {url:location.href,b:bs}})()', true)
+        log.warn('RpaView', '[toutiao] publish 后状态: url=' + (st && st.url) + ' btns=' + JSON.stringify((st && st.b) || []))
+      } catch (_e) { /* 诊断失败不影响主流程 */ }
+    }
           // 百家号发布时可能二次弹出引导/确认（"我知道了"），点击后再次关闭
           if (platform === 'baijiahao') {
             await this._sleep(800)
@@ -782,6 +783,13 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
   // ========== Verify publish success ==========
   async _verifyPublishSuccess(win, platform, config, responsePromise, networkCapture, context = {}) {
+    // 视频号：发布后页面重置为壳页，url/dom 判据必 timeout ⇒ 必须先查作品列表（2026-10-23）
+    if (platform === 'tencent_video') {
+      try {
+        const ta = await require('./tencent-artifact').confirmPublished(win, (context && context.title) || '', { log, host: this })
+        if (ta.ok) return { ok: true, mode: 'artifact', evidence: ta.evidence }
+      } catch (_e) { log.warn('RpaView', '[tencent_video] artifact 判据异常，回落 url/dom') }
+    }
     let captureStopped = false
     let requests = []
     const stopNetworkCapture = async () => {
@@ -825,6 +833,13 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       }
       const diagnostics = summarizePublishDiagnostics(stoppedRequests, artifact)
       if (!postId) {
+        // 2026-10-23 用户地面真相：头条作品列表无新内容 ⇒ 发布未真正提交。
+        // 此处补打发布期捕获到的请求（METHOD/端点/状态），用于区分「没发出去」与「发出去了但没回 ID」。
+        try {
+          const recs = (networkCapture && Array.isArray(networkCapture.records)) ? networkCapture.records : []
+          const brief = recs.slice(-10).map((r) => String((r && r.endpoint) || '').slice(0, 80) + ' [' + String((r && r.status) || '?') + ']')
+          log.warn('RpaView', '[' + platform + '] publish captured n=' + recs.length + ' :: ' + brief.join(' | '))
+        } catch (_e) { /* 取证失败不阻塞 */ }
         log.warn('RpaView', '[' + platform + '] publish signal lacked platform ID; endpoint=' + sanitizeDiagnosticEndpoint(currentUrl) + ' responses=' + stoppedRequests.length)
         return { success: false, error: '发布结果缺少平台作品 ID', platform, url: sanitizePublishResultUrl(currentUrl), diagnostics }
       }
@@ -832,7 +847,14 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
       const resolvedUrl = sanitizePublishResultUrl((artifact && artifact.url) || result.url || currentUrl)
       return { success: true, url: resolvedUrl, postId, platform, diagnostics }
     }
-    const mode = config.success_mode || 'url'
+    // 头条：发布后页面不跳转也无成功文案（url/api/dom 三模式皆不可用），改查作品列表（端点取自逆向成果）
+  if (platform === 'toutiao') {
+    try {
+      const art = await require('./toutiao-artifact').confirmPublished(win, (context && context.title) || '', { log })
+      if (art.ok) return { ok: true, mode: 'artifact', evidence: art.evidence }
+    } catch (_e) { log.warn('RpaView', '[toutiao] artifact 判据异常，回落到 success_mode') }
+  }
+  const mode = config.success_mode || 'url'
     // Mode: api — wait for matching API response
     if (mode === 'api' && responsePromise) {
       const r = await responsePromise
@@ -910,6 +932,16 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
         }
       } catch (_) { /* 截图失败不阻塞 */ }
     } catch (_) { /* 快照失败不阻塞 */ }
+    // 2026-10-23：视频号判据导航不生效（url 仍停在 post/create）⇒ 改用网络响应取证与判定。
+    let netOk = null
+    try {
+      const rs0 = Array.isArray(requests) ? requests : []
+      const brief = rs0.slice(-8).map((r) => String((r && (r.endpoint || r.url)) || '').slice(0, 90) + ' [' + String((r && r.status) || '?') + ']')
+      log.warn('RpaView', '[' + platform + '] publish captured responses n=' + rs0.length + ' :: ' + brief.join(' | '))
+      netOk = rs0.find((r) => { const ep = String((r && r.endpoint) || ''); return r && Number(r.status) >= 200 && Number(r.status) < 300 && /(publish|submit|create)/i.test(ep) && !/(media|upload|chunk|part|authkey|getauth)/i.test(ep) }) || null
+      if (netOk) log.warn('RpaView', '[' + platform + '] publish 响应证据命中 endpoint=' + String(netOk.endpoint).slice(0, 120) + ' status=' + netOk.status)
+    } catch (_e) { /* 取证失败不阻塞 */ }
+    if (netOk) log.warn('RpaView', '[' + platform + '] 检测到发布类端点 2xx，但用户核对创作者中心无新内容 ⇒ 不作为成功证据（仅记录）')
     log.warn('RpaView', '[' + platform + '] publish verification timeout endpoint=' + sanitizeDiagnosticEndpoint(finalUrl) + ' responses=' + stoppedRequests.length)
     return { success: false, error: 'publish verification timeout', platform, url: sanitizePublishResultUrl(finalUrl), diagnostics: summarizePublishDiagnostics(stoppedRequests, null) }
     } finally {
@@ -1041,18 +1073,21 @@ this._emitProgress('baijiahao', 'preparing declaration...', 82)
 
     this._emitProgress('douyin','publishing...',90)
     try {
-      // 2026-10-06 补 create_v2：同仓 API 直连链的实证端点
-// （douyin-ticket-guard.js CREATE_V2_PATH = '/web/api/media/aweme/create_v2/'，
-// douyin-image.js:224 用它提交图文）。抖音网页端图文提交走的就是这个带 _v2 的路径，
-// 此前只等 ['aweme/create','aweme/post'] —— 后者属已被 legacy gate 判死的旧远程签名链，
-// 于是图文点完发布按钮后 60s 拿不到任何成功信号，报 publish timeout。
-// 注意：抖音走**专用链** `_publish_douyin`，不经过通用链那段 DOM 成功判定，
-// 所以通用链的成功文案词形修复（视频号）对此无效 —— 两处必须分别治理。
+      // 2026-10-06 补 create_v2：同仓 API 直连链的实证端点（douyin-ticket-guard.js CREATE_V2_PATH，
+      // douyin-image.js:224 用它提交图文）；此前只等 ['aweme/create','aweme/post']，后者已被 legacy gate 判死，
+      // 图文点完发布 60s 拿不到成功信号 ⇒ publish timeout。抖音走专用链 `_publish_douyin`，
+      // 不经过通用链的 DOM 成功判定，故视频号的文案词形修复对此无效，两处须分别治理。
 const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/post'],60000)
       if (article.draft) await this._click(win,'button:has-text("草稿"), [class*="draft"]')
       else await this._click(win,'button:has-text("发布"), [class*="publish"]')
       const resp = await rp
-      if (resp) { this._emitProgress('douyin','API success',100); return { success:true, url:win.webContents.getURL()||'', platform:'douyin' } }
+      if (resp) {
+        this._emitProgress('douyin','API success',100)
+        // dom-track-publish-id（2026-10-21）：此前整个丢掉 resp，"成功"无平台侧证据
+        var publishId = extractDouyinPublishId(resp && resp.body, (resp && resp.url) || '')
+        log[publishId ? 'info' : 'warn']('RpaView', '[douyin] publish id=' + (publishId || '(none)') + ' url=' + ((resp && resp.url) || ''))
+        return { success:true, url:win.webContents.getURL()||'', platform:'douyin', publishId: publishId, publishUrl: (resp && resp.url) || '' }
+      }
       // A2：提交兜底改 URL 轮询（实现下沉 navigation-helpers），最长仍 5s、成功提前返回。
       if (await this._waitForSuccessNavigation(win, 5000)) {
         return { success:true, url:win.webContents.getURL()||'', platform:'douyin' }
@@ -1307,9 +1342,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     // 本轮拿到真机 DOM 证据（Playwright + 真实账号 cookie 打开
     // `publish/publish?from=menu&target=video` 并真实上传 mp4）后，视频链已可实现：
     //   `input.upload-input`（可见）→ 标题 `input.d-text`（placeholder=填写标题会有更多赞哦）
-    //   → 正文 `div.tiptap.ProseMirror` → **不点「发布笔记」**（真机为 DIV 按钮），
-    //   靠平台自动草稿保存落到草稿箱（图文模式 2026-09-29 已采用同一策略）。
-    // 守卫：合并后的选择器仍拿不到 file_input ⇒ 上传无从发生 ⇒ 绝不静默降级成草稿。
+    //   → 正文 `div.tiptap.ProseMirror` → **不点「发布笔记」**（真机为 DIV 按钮），；  靠平台自动草稿保存落到草稿箱（图文模式 2026-09-29 已采用同一策略）。；守卫：合并后的选择器仍拿不到 file_input ⇒ 上传无从发生 ⇒ 绝不静默降级成草稿。
     const videoFileInputs = (config.selectors && config.selectors.file_input) || []
     if (contentType === 'video') {
       log.info('RpaView', '[xiaohongshu] video draft-only：填内容后等平台自动存草稿，不点发布')
@@ -1319,34 +1352,23 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
       }
     }
     const publishUrl = getPublishUrl('xiaohongshu', contentType)
-    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input accept 全是视频格式）；
-    // 图文须先点「上传图文」tab（switchImageTab hook，参考产品 renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
+    // 2026-09-29 图文模式：publish/publish?from=menu 默认落「上传视频」tab（实测 file input accept 全是视频格式）；图文须先点「上传图文」tab（switchImageTab hook，参考产品 renderImage 同款 children[1].click()），否则图片上传进视频通道必失败。
     const isImageMode = contentType === 'image'
     return this._publish_generic(win, article, 'xiaohongshu', {
       ...config,
       publish_url: publishUrl || config.publish_url,
       ...(isImageMode ? { preFill: 'switchImageTab' } : {}),
-      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。
-      // 2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。
-      // 小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），
-      // 填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
+      // 2026-09-29 需求调整（用户指定）：小红书只落到平台草稿箱，不点发布。；2026-10-18 扩展：视频模式同样只落草稿箱（原先是 fail-closed 拒绝）。；小红书编辑页有自动草稿保存（页面「编辑于 刚刚」，侧边栏草稿箱计数 +1），；填完标题/正文/媒体后等落库即可；用户回头在草稿箱里自行发布。
       draftOnly: true,
     })
   },
 
-  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，
-  // getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
+  // 2026-09-29 图文模式：快手双入口 URL 选择（视频 tabType=1 / 图文 tabType=2，；getPublishUrl 单一来源）+ 委托 generic 流程（图片上传已在 generic 内建）。
   async _publish_kuaishou(win, article) {
     const config = this._getPlatformConfig('kuaishou')
     const contentType = article.video_path ? 'video' : 'image'
     const publishUrl = getPublishUrl('kuaishou', contentType)
-    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个
-    // （2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、
-    // 图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，
-    // 首个 input[type=file] 恒为视频通道——图片传进去必失败）
-    // 2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被
-    // 清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件
-    // （参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
+    // 图文模式：图片上传 input 是激活 tabpane 里 accept 含 image 的那个；（2026-09-29 实测 tabType=2 页面有 2 个 file input：视频 tab 的 accept 全视频格式、；图文 tab 的 accept 是 image/png…；config 的 #joyride-wrapper 选择器只匹配视频 tab，；首个 input[type=file] 恒为视频通道——图片传进去必失败）；2026-09-30 追加取证：快手的这两个 input **两条注入路径都失效**（CDP 不抛错但文件被；清空、DataTransfer 赋值立即归零），唯一可用通道是向 dragger-content 派发 drop 事件；（参考产品 kuaishouImageRun 同款）。故图文模式显式给出 drag_area 选择器。
     const isImageMode = contentType === 'image'
     const effectiveConfig = isImageMode
       ? {
@@ -1354,11 +1376,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
         selectors: {
           ...config.selectors,
           file_input: ['input[type="file"][accept*="image"]', 'input[type="file"]'],
-          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」
-          // 后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的
-          // `article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后
-          // **再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，
-          // 封面通道在此为空是正确表达，不是省略。
+          // 2026-10-12：图文模式必须**关掉封面通道**。渲染层新增「自动封面同时落 cover_path」；后（`usePublishFlow` 的 AUTO_COVER_PLATFORMS），`_publish_generic` 的；`article.cover_path && sel.cover_input` 分支会在图片已由 file_input/drag_area 上传之后；**再注入同一张图**，产出重复图片。快手图文的语义本就是「首图即封面」，；封面通道在此为空是正确表达，不是省略。
           cover_input: [],
           drag_area: '#rc-tabs-0-panel-2 div[class^="_dragger-content_"], div[class*="dragger-content"]',
         },
@@ -1370,14 +1388,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     })
   },
 
-  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：
-  // 此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，
-  // 而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到
-  // （实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`
-  //  + `publish btn not found`，三次重试后 `publish failed ... url=`）。
-  // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
-  // 修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。
-  // 2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
+  // 2026-09-30 头条图文（= 文章编辑器 /profile_v4/graphic/publish）：；此前**没有 toutiao 分支** ⇒ 路由回退 `_publish_generic` 并沿用 config.publish_url，；而该值是根地址 `https://mp.toutiao.com/`（首页）——落地后标题/正文/发布按钮全部找不到；（实测日志：`no title_input nor editor candidate` + `content editor not found among 4 candidates`； + `publish btn not found`，三次重试后 `publish failed ... url=`）。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；修法：补双入口（getPublishUrl 已支持 toutiao 图文 = 文章编辑器），从此走对页面。；2026-10-02：方法体外移至 rpa-engine/toutiao-direct-bridge（行数门禁；含 Node 直连兜底，PRD §16.8.8）。
   async _publish_toutiao (win, article) {
     return require('@multi-publish/rpa-engine/src/toutiao-direct-bridge')
       .publishToutiao({
@@ -1394,10 +1405,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
 
   async _publish_zhihu(win, article) {
     this._emitProgress('zhihu','navigating to write page...',5)
-    // 2026-09-29 图文发布修复（实测取证）：www.zhihu.com/creator/write 落地页与
-    // .WriteIndex-titleInput 等选择器失配（15s 超时全灭）；zhuanlan.zhihu.com/write
-    // 实测选择器全命中（LABEL.WriteIndex-titleInput 包 TEXTAREA.Input +
-    // .public-DraftEditor-content[contenteditable] + 发布 button）。
+    // 2026-09-29 图文发布修复（实测取证）：www.zhihu.com/creator/write 落地页与；.WriteIndex-titleInput 等选择器失配（15s 超时全灭）；zhuanlan.zhihu.com/write；实测选择器全命中（LABEL.WriteIndex-titleInput 包 TEXTAREA.Input +；.public-DraftEditor-content[contenteditable] + 发布 button）。
     await this._navigateAndWait(win,'https://zhuanlan.zhihu.com/write')
     if (win.webContents.getURL().includes('signin')||win.webContents.getURL().includes('login'))
       { log.warn('RpaView', '[zhihu] not logged in url=' + win.webContents.getURL()); return {success:false,error:'zhihu not logged in',platform:'zhihu'} }
@@ -1409,9 +1417,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     if (article.title) {
       this._emitProgress('zhihu','filling title...',30)
       try {
-        // 2026-09-29 修复：.WriteIndex-titleInput 是 LABEL wrapper（Input-wrapper--multiline），
-        // 旧实现 ti.textContent=标题 写在 label 上、真实输入框从未收到值。
-        // 正解：定位 wrapper 内部 textarea/input，用原生 value setter + input/change 事件。
+        // 2026-09-29 修复：.WriteIndex-titleInput 是 LABEL wrapper（Input-wrapper--multiline），；旧实现 ti.textContent=标题 写在 label 上、真实输入框从未收到值。；正解：定位 wrapper 内部 textarea/input，用原生 value setter + input/change 事件。
         const tj = JSON.stringify(article.title)
         await win.webContents.executeJavaScript("(function(){var w=document.querySelector('.WriteIndex-titleInput, .DraftEditor-title, .title-input, .Editable-title');var ti=w?w.querySelector('textarea, input'):null;if(!ti)ti=document.querySelector('textarea[placeholder*=\"标题\"], input[placeholder*=\"标题\"]');if(!ti)return false;ti.focus();var proto=ti.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;var d=Object.getOwnPropertyDescriptor(proto,'value');if(d&&d.set)d.set.call(ti,"+tj+");else ti.value="+tj+";ti.dispatchEvent(new Event('input',{bubbles:true}));ti.dispatchEvent(new Event('change',{bubbles:true}));return true;})()")
       } catch(e) { log.warn('RpaView','zhihu title: '+e.message) }
@@ -1419,11 +1425,7 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     if (article.content) {
       this._emitProgress('zhihu','filling content...',50)
       try {
-        // 2026-09-29 修复：Draft.js 不接受 innerHTML 直写容器（.DraftEditor-root 是容器非
-        // contenteditable，实测 innerHTML 写入后框架状态为空、发布出空文）；也不接受
-        // execCommand 合成分块。正解（实测取证）：JS focus .public-DraftEditor-content →
-        // CDP Input.insertText 可信注入（框架收到真实 beforeinput 并入状态）。
-        // 内容格式：发布页编辑器是 Quill（content-type=html），article.content 到达时已被；规范化为 HTML（<p>…</p>）；Draft.js 是纯文本编辑器，注入前先在页面内转纯文本；（<p> 段落 → \n\n 分隔，textContent 保留段内换行）。
+        // 2026-09-29 修复：Draft.js 不接受 innerHTML 直写容器（.DraftEditor-root 是容器非；contenteditable，实测 innerHTML 写入后框架状态为空、发布出空文）；也不接受；execCommand 合成分块。正解（实测取证）：JS focus .public-DraftEditor-content →；CDP Input.insertText 可信注入（框架收到真实 beforeinput 并入状态）。；内容格式：发布页编辑器是 Quill（content-type=html），article.content 到达时已被；规范化为 HTML（<p>…</p>）；Draft.js 是纯文本编辑器，注入前先在页面内转纯文本；（<p> 段落 → \n\n 分隔，textContent 保留段内换行）。
         const plainContent = await win.webContents.executeJavaScript('(function(){var html=' + JSON.stringify(String(article.content)) + ';if(!/<[a-z][\\s\\S]*>/i.test(html))return html;try{var doc=new DOMParser().parseFromString(html,\'text/html\');var paras=[...doc.querySelectorAll(\'p,div,h1,h2,h3,h4,li,blockquote,pre\')];if(paras.length>0)return paras.map(function(p){return p.textContent.trim()}).filter(Boolean).join(\'\\n\\n\');return doc.body.textContent}catch(e){return html.replace(/<[^>]+>/g,\'\')}})()')
         const focused = await win.webContents.executeJavaScript('(function(){var ed=document.querySelector(\'.public-DraftEditor-content, [contenteditable="true"]\');if(!ed)return false;ed.focus();return document.activeElement===ed})()')
         if (focused) {

@@ -58,7 +58,7 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
 
   // 3) 等「下一步」可用（解析完成前是 disabled）
   let nextClicked = false
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 180; i++) { // 2026-10-22: 原 40×500ms=20s 太短，真机「下一步」在设图后仍 cannot-click；放宽到 180×500ms=90s 让图片上传/处理有足够时间
     // 2026-10-22 真机二次修正：上轮 dump 的 `btns` 里**没有「下一步」**（只有 添加视频/发布）
     // ⇒ 它不是 <button>，而是 div/span 样式按钮 ⇒ 只查 button 永远查不到（表现为"解析超时"）。
     // 现在查 button/div/span/a，取**最内层最后匹配**；禁用态按 class 含 disabled 或 aria-disabled 判。
@@ -74,6 +74,14 @@ async function ensureCoverFromVideoFrame (ctx, win, opts) {
   }
   if (!nextClicked) {
     if (log) log.warn('RpaView', '[' + platform + '] cover dialog: 下一步 never became clickable (解析超时)')
+    // 2026-10-23 真机：封面失败后弹窗**仍然开着**，会遮挡发布按钮 ⇒ 之后点发布只打在遮罩上（
+    // 表现为 publishing 有日志但作品列表无内容）。失败路径必须先关弹窗再继续。
+    try {
+      const closed = await win.webContents.executeJavaScript('(function(){var w=["取消","关闭","×"];var all=[].slice.call(document.querySelectorAll("button,div,span,a"));for(var i=0;i<all.length;i++){var s=(all[i].innerText||"").trim();if(w.indexOf(s)>=0&&all[i].getClientRects().length>0){all[i].click();return s}}return ""})()', true).catch(() => '')
+      if (log) log.warn('RpaView', '[' + platform + '] cover dialog closed after failure: ' + (closed || 'none'))
+    } catch (_e) { /* 无弹窗可关 */ }
+    await sleep(800)
+    await closeCoverDialog(win, log, platform)
     return { ok: false, step: 'no-next' }
   }
 
@@ -156,7 +164,7 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
     + 'var all=[].slice.call(document.querySelectorAll("div,span,button,a,li"));'
     + 'var c=all.filter(function(e){return (e.innerText||"").trim()==="本地上传"&&e.getClientRects().length>0});'
     + 'if(!c.length)return false;var el=c[c.length-1];el.click();return true})()').catch(() => false)
-  if (!tabClicked) return { ok: false, step: 'no-local-tab' }
+  if (!tabClicked) { await closeCoverDialog(win, log, platform); return { ok: false, step: 'no-local-tab' } }
   await sleep(1200)
 
   // 3) 设文件到**动态出现的 image input**
@@ -169,12 +177,12 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
       if (log) log.warn('RpaView', '[' + platform + '] cover local upload: set file failed: ' + String(e2 && e2.message).slice(0, 100))
     }
   }
-  if (setErr) return { ok: false, step: 'set-file-failed' }
+  if (setErr) { await closeCoverDialog(win, log, platform); return { ok: false, step: 'set-file-failed' } }
   await sleep(2500)
 
   // 4) 等「下一步」可点（cannot-click 也要认出来）
   let nextClicked = false
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 180; i++) { // 本地上传路径同理：90s 上限
     nextClicked = await win.webContents.executeJavaScript('(function(){'
       + 'var all=[].slice.call(document.querySelectorAll("button,div,span,a"));'
       + 'var c=all.filter(function(e){return (e.innerText||"").trim()==="下一步"&&e.getClientRects().length>0});'
@@ -184,7 +192,7 @@ async function ensureCoverViaLocalUpload (ctx, win, coverPath, opts) {
     if (nextClicked) break
     await sleep(500)
   }
-  if (!nextClicked) return { ok: false, step: 'no-next' }
+  if (!nextClicked) { await closeCoverDialog(win, log, platform); return { ok: false, step: 'no-next' } }
   await sleep(1500)
 
   // 5) 二次确认（确定/完成/保存）
@@ -230,5 +238,13 @@ async function setFileViaCdp (win, filePath, selector) {
   if (!q || !q.nodeId) throw new Error("No file input found for " + selector)
   await dbg.sendCommand("DOM.setFileInputFiles", { files: [require("node:path").resolve(filePath)], nodeId: q.nodeId })
   return true
+}
+// 2026-10-23 R5：失败返回前统一关闭封面弹窗，避免遮挡后续发布点击。
+async function closeCoverDialog (win, log, platform) {
+  try {
+    const closed = await win.webContents.executeJavaScript('(function(){var w=["取消","关闭","×"];var all=[].slice.call(document.querySelectorAll("button,div,span,a"));for(var i=0;i<all.length;i++){var s=(all[i].innerText||"").trim();if(w.indexOf(s)>=0&&all[i].getClientRects().length>0){all[i].click();return s}}return ""})()', true)
+    if (log) log.warn('RpaView', '[' + platform + '] cover dialog closed after failure: ' + (closed || 'none'))
+  } catch (_e) { /* 无弹窗可关 */ }
+  await new Promise((r) => setTimeout(r, 800))
 }
 module.exports = { ensureCoverFromVideoFrame, ensureCoverViaLocalUpload, setFileViaCdp }

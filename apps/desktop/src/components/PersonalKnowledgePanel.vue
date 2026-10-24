@@ -62,6 +62,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { userFacingErrorMessage } from '@/utils/user-facing-error'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Collection, Document } from '@element-plus/icons-vue'
@@ -154,7 +155,7 @@ async function deleteItem (item) {
       ElMessage.success(t('knowledgeBase.deleteSuccess'))
       loadData()
     } else {
-      ElMessage.error((res && res.message) || t('knowledgeBase.loadFailed'))
+      ElMessage.error(userFacingErrorMessage(res, () => t('knowledgeBase.loadFailed')))
     }
   } catch (_e) {
     ElMessage.error(t('knowledgeBase.loadFailed'))

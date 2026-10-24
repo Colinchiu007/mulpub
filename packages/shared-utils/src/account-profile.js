@@ -18,6 +18,7 @@
 
 const { PLATFORM_ACCOUNT_INFO_SELECTORS } = require('./platform-definitions')
 const { isNoiseAccountName } = require('./account-name-guard')
+const { filterBrandImageUrls, isBrandImageUrl } = require('./account-avatar-guard')
 
 /**
  * 页面内采集账号资料。参数为 { platformSelectors }，返回命中字段；未命中不产出键。
@@ -73,26 +74,35 @@ function accountInfoCollector (arg) {
   const nickName = trySelectors(nickSelectors, NICK_MAX_LEN)
   if (nickName) info.nickName = nickName
 
-  // 头像：img src 系列 → 背景图 url() → og:image
-  const avatarEl = document.querySelector(
+  // 头像：**收集全部候选**（不是第一个），由 Node 侧剔除「站点品牌图」后择优。
+  //
+  // 为什么不再直接取第一个：平台 SPA 的导航栏/侧边栏常有品牌头像或运营位图片，
+  // 第一个 `[class*="avatar"]` 未必是用户头像。
+  // 为什么不再兜底 og:image：og:image 是**站点级**的品牌图（今日头条创作后台的
+  // og:image = `obj/mp/logo-toutiao.png`），与「这是谁的账号」无关。2026-10-22 实测，
+  // 它被落盘成了账号头像并因「值不变就不写」的语义再也不会被正确值覆盖。
+  // 页面内不得引用本模块之外的任何标识符（函数体会被序列化注入页面），
+  // 因此品牌图判定放在 Node 侧（./account-avatar-guard），页面内只负责「如实上报候选」。
+  const avatarCandidates = []
+  const pushAvatar = (value) => {
+    const v = textOf(value)
+    if (v && avatarCandidates.indexOf(v) === -1) avatarCandidates.push(v)
+  }
+  const avatarEls = document.querySelectorAll(
     '[class*="avatar"] img, .avatar img, [class*="avatar-img"], ' +
     'img[class*="avatar"], img[class*="profile"], img[class*="portrait"], ' +
     '[class*="avatar"] [style*="background"], [class*="user-icon"] img'
   )
-  let avatar = ''
-  if (avatarEl) {
-    avatar = avatarEl.src || avatarEl.getAttribute('data-src') || avatarEl.getAttribute('data-original') || ''
-    avatar = textOf(avatar)
-    if (!avatar && avatarEl.style && avatarEl.style.backgroundImage) {
-      const bgMatch = String(avatarEl.style.backgroundImage).match(/url\(["']?([^"')]+)["']?\)/)
-      if (bgMatch) avatar = textOf(bgMatch[1])
+  for (const el of Array.from(avatarEls)) {
+    pushAvatar(el.src)
+    pushAvatar(el.getAttribute('data-src'))
+    pushAvatar(el.getAttribute('data-original'))
+    if (el.style && el.style.backgroundImage) {
+      const bgMatch = String(el.style.backgroundImage).match(/url\(["']?([^"')]+)["']?\)/)
+      if (bgMatch) pushAvatar(bgMatch[1])
     }
   }
-  if (!avatar) {
-    const metaImg = document.querySelector('meta[property="og:image"]')
-    if (metaImg) avatar = textOf(metaImg.getAttribute('content'))
-  }
-  if (avatar) info.avatar = avatar
+  if (avatarCandidates.length) info.avatarCandidates = avatarCandidates
 
   // 平台用户 ID
   const idSelectors = withFallback(platformSelectors && platformSelectors.platformAccountId,
@@ -147,13 +157,49 @@ function toFiniteCount (v) {
 }
 
 /**
+ * 从页面采集到的头像候选里挑出「用户头像」：剔除站点品牌图后取第一个。
+ * 全部候选都是品牌图时返回空串 —— 调用方据此**不产出头像**，
+ * 而不是退回第一张品牌图（那正是 2026-10-22 生产事故的形态：账号卡显示平台 logo）。
+ * @param {unknown} candidates
+ * @returns {string}
+ */
+function pickUserAvatar (candidates) {
+  const kept = filterBrandImageUrls(candidates)
+  return kept.length ? kept[0] : ''
+}
+
+/**
+ * 把页面内采集器的原始产物收口成对外资料对象。
+ * 页面内只上报 `avatarCandidates`（它无法引用本模块的品牌图判定），
+ * 品牌图剔除统一在 Node 侧做，保证「站点品牌图不算用户头像」这条判据只有一份实现。
+ * @param {unknown} raw
+ * @returns {object}
+ */
+function finalizeCollectedInfo (raw) {
+  if (!isPlainObject(raw)) return {}
+  const out = { ...raw }
+  const hasCandidates = Array.isArray(out.avatarCandidates)
+  const candidates = hasCandidates ? out.avatarCandidates : []
+  delete out.avatarCandidates
+  if (hasCandidates) {
+    // 「本次确实看过页面并判过头像」这一事实要带出去：采集**失败**时不该动真源，
+    // 而「页面上只有品牌图 ⇒ 该账号没有用户头像」是一个**结论**，需要能被下游区分。
+    out.avatarResolved = true
+    const avatar = pickUserAvatar(candidates)
+    if (avatar) out.avatar = avatar
+    else delete out.avatar
+  }
+  return out
+}
+
+/**
  * Playwright 运行时采集（保持既有调用形状：page.evaluate(fn, { platformSelectors })）。
  * 失败一律降级 {}：昵称/头像是尽力而为的增强信息，不得让登录/保存流程因此中断。
  */
 async function collectWithPlaywright (page, platform) {
   try {
     const info = await page.evaluate(accountInfoCollector, { platformSelectors: selectorsFor(platform) })
-    return isPlainObject(info) ? info : {}
+    return finalizeCollectedInfo(info)
   } catch {
     return {}
   }
@@ -167,7 +213,7 @@ async function collectWithWebContents (webContents, platform) {
   try {
     if (!webContents || typeof webContents.executeJavaScript !== 'function') return {}
     const info = await webContents.executeJavaScript(buildCollectorExpression(selectorsFor(platform)), true)
-    return isPlainObject(info) ? info : {}
+    return finalizeCollectedInfo(info)
   } catch {
     return {}
   }
@@ -212,6 +258,19 @@ function buildProfilePatch (accountInfo, current) {
     if (cur && cur[key] === value) continue
     patch[key] = value
   }
+  // 存量坏值治理（CCG 评审 i7，2026-10-22）：真源里已落的**站点品牌图**
+  // （实测：头条号 `obj/mp/logo-toutiao.png`、百家号默认肖像、小红书默认头像）
+  // 根本不是该账号的头像。若本次采集**确实看过页面**（avatarResolved）却仍拿不到
+  // 真头像，说明页面上只有品牌图 ⇒ 该账号没有用户头像 ⇒ 把品牌图清掉。
+  // 留着一张错图比显示灰色通用头像更糟（用户看到的正是本次报障的现象）。
+  //
+  // 边界（不得放宽）：
+  // - 只在 `avatarResolved === true`（采集真的跑过并判过头像）时才清；
+  //   采集失败（`avatarResolved` 缺席）一律不动真源。
+  // - 只清**品牌图**；真源里若是真头像而本次没采到，保留它（键缺席 = 不修改）。
+  if (src.avatarResolved === true && !patch.avatar && cur && isBrandImageUrl(cur.avatar)) {
+    patch.avatar = ''
+  }
   return patch
 }
 
@@ -223,4 +282,6 @@ module.exports = {
   collectWithWebContents,
   profileForCreate,
   buildProfilePatch,
+  pickUserAvatar,
+  finalizeCollectedInfo,
 }

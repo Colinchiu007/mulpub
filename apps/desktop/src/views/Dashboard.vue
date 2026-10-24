@@ -504,11 +504,14 @@ onMounted(() => { loadCached(); loadStats(); loadRecent(); loadNewPanels(); load
 }
 
 .stat-card {
-  background: white;
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
-  box-shadow: var(--shadow-sm);
-  transition: all 0.4s cubic-bezier(0.33, 1, 0.68, 1);
+  box-shadow: var(--elevation-2);
+  transition: transform var(--motion-base) var(--ease-out-soft),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              border-color var(--motion-fast) var(--ease-default);
   position: relative;
   overflow: hidden;
   animation: fadeInUp 0.6s cubic-bezier(0.33, 1, 0.68, 1) forwards;
@@ -554,7 +557,12 @@ onMounted(() => { loadCached(); loadStats(); loadRecent(); loadNewPanels(); load
 
 .stat-card.large {
   grid-column: span 2;
-  background: linear-gradient(135deg, var(--deep-purple) 0%, #4a3f8f 100%);
+  /* hero 卡改用统一品牌渐变（与首页主任务卡同一套 token），
+   * 旧值 linear-gradient(135deg, #1e1b4b, #4a3f8f) 是另一条紫色路径，
+   * 与按钮/图标片的紫对不上，同屏出现两种紫。 */
+  background: var(--brand-gradient);
+  border-color: transparent;
+  box-shadow: var(--brand-glow);
   color: white;
 }
 
@@ -589,21 +597,31 @@ onMounted(() => { loadCached(); loadStats(); loadRecent(); loadNewPanels(); load
   justify-content: center;
   font-size: var(--font-size-xl);
   margin-bottom: var(--space-md);
-  background: var(--lavender-light);
+  background: var(--brand-gradient-soft);
+  color: var(--color-primary);
 }
 
 .stat-card.large .stat-icon {
   background: rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(10px);
+  color: #ffffff;
 }
 
+/* 数字排版：改用统一展示字族 + 等宽数字（tabular-nums）。
+ * 旧值 'JetBrains Mono', monospace —— 本机没装 JetBrains Mono，
+ * 回退到系统等宽字体，于是同一个应用里「数据看板」的数字是等宽衬线感，
+ * 而首页/发布记录的数字是无衬线，同屏两种数字字形。 */
 .stat-value {
   font-size: clamp(2.4rem, 4vw, 2.8rem);
-  font-weight: 900;
-  letter-spacing: -0.02em;
+  font-weight: 700;
+  letter-spacing: -0.03em;
   margin-bottom: var(--space-xs);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-family-ui-display);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-strong);
 }
+
+.stat-card.large .stat-value { color: #ffffff; }
 
 .stat-card.large .stat-value {
   font-size: clamp(3rem, 5vw, 3.6rem);
@@ -633,7 +651,10 @@ onMounted(() => { loadCached(); loadStats(); loadRecent(); loadNewPanels(); load
 .panel-title {
   font-weight: 600;
   font-size: var(--font-size-md);
-  color: var(--deep-purple);
+  /* 2026-10-20 视觉系统升级：改用语义文字 token（亮/暗自动切换）。
+   * 旧的 var(--deep-purple) 是本文件 :global(:root) 里写死的**亮色值**，
+   * 暗色主题下不切换 ⇒ 深紫字压暗卡底 1.09:1 不可读（见同文件上方暗色覆盖注释）。 */
+  color: var(--color-text-strong);
   display: flex;
   align-items: center;
   gap: var(--space-sm);

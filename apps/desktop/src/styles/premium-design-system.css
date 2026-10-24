@@ -1,0 +1,421 @@
+/**
+ * 高级感视觉层（ui-visual-premium 2026-10-20）
+ * ============================================================================
+ * 定位：**全局表面与细节规范层**。它不改业务逻辑、不改 DOM 结构，
+ * 只统一「所有页面都会遇到」的那几类视觉表达：
+ *
+ *   1. 环境画布（过渡色）—— 全站不再是一块死白
+ *   2. 毛玻璃表面（顶栏 / 吸顶条 / 浮层）
+ *   3. 页面标题与分区标题（同一套字号字色字重）
+ *   4. 卡片 / 配置项 / 会员卡 等高频表面（统一圆角 + 描边 + 投影）
+ *   5. 分段胶囊标签（把各页五花八门的 tab 收敛成一种形状）
+ *   6. 图标底座、滚动条、骨架屏
+ *
+ * 为什么单独一层而不是继续改 cohere-design-system.css：
+ * cohere-design-system.css 是**类名契约**（哪些类名存在、语义是什么）；
+ * 本文件是**观感契约**（这些类名看起来应该怎样）。两者分开后，
+ * 「新增一个类名」与「统一一类观感」可以各自演进，互不干扰。
+ *
+ * 加载顺序：必须在 cohere-design-system.css **之后**（main.js 末尾 import），
+ * 同特异性下靠后者胜出；组件 scoped 样式（(0,2,0)+data 属性）优先级更高，
+ * 允许组件做局部例外。
+ *
+ * 参考产品视觉语言：过渡色 / 毛玻璃 / 半透明 / 柔和 / 胶囊分段 / 大留白。
+ * ============================================================================
+ */
+
+/* ---------------------------------------------------------------------------
+ * 1. 环境画布：全站统一的「过渡色」底
+ * ---------------------------------------------------------------------------
+ * 旧：body 是纯 #ffffff，卡片也是纯 #fff，只靠 1px #efefef 描边分隔
+ *      ⇒ 卡片与背景几乎不可分，页面像一张没排版的表格。
+ * 新：画布是极浅的冷紫过渡色，卡片是纯白浮层 —— 层次靠"底色 + 投影"表达。
+ */
+html {
+  background: var(--surface-canvas);
+}
+
+body {
+  font-family: var(--font-family-ui);
+  /* 画布底色必须是一个**独立的 background-color**，渐变只放在 background-image 上。
+   *
+   * 为什么不能只用 `background: <渐变>`：那条简写会把 background-color 重置为 transparent，
+   * 于是 body 与其下的壳层容器（.mp-shell / .mp-workspace / .cohere-main 都是透明的）
+   * 一路透明到 html。后果有二：
+   *   ① 任何「向上找第一个不透明背景」的工具（对比度审计、可访问性检查、扩展）
+   *      只能回退到白色兜底 —— 暗色模式下浅色文字被算成「浅底浅字」，
+   *      实测 Gate 7c 对比度审计因此误判 17 处低对比度（1.09:1 ~ 2.35:1）；
+   *   ② 真实场景里任何半透明面板压在这层之上时，底色不可预期。
+   *
+   * 拆成 background-color（不透明底）+ background-image（渐变叠加）后，
+   * 渲染效果完全不变，但背景重新可解析。 */
+  background-color: var(--surface-canvas);
+  background-image:
+    radial-gradient(1200px 520px at 82% -8%, rgba(168, 85, 247, 0.10) 0%, rgba(168, 85, 247, 0) 62%),
+    radial-gradient(1000px 460px at 6% 0%, rgba(99, 102, 241, 0.09) 0%, rgba(99, 102, 241, 0) 58%),
+    linear-gradient(180deg, #fbfaff 0%, var(--surface-canvas) 46%, #f7f6fb 100%);
+  background-attachment: fixed;
+}
+
+[data-theme="dark"] body {
+  background-color: var(--surface-canvas);
+  background-image:
+    radial-gradient(1200px 520px at 82% -8%, rgba(139, 133, 255, 0.14) 0%, rgba(139, 133, 255, 0) 62%),
+    radial-gradient(1000px 460px at 6% 0%, rgba(99, 102, 241, 0.10) 0%, rgba(99, 102, 241, 0) 58%),
+    linear-gradient(180deg, #17171d 0%, var(--surface-canvas) 46%, #101015 100%);
+  background-attachment: fixed;
+}
+
+/* 工作区（页面内容容器）改为透明，让环境画布透上来。
+ * 旧：工作区是纯白块，把画布盖住了 ⇒ 环境色白做。 */
+.mp-workspace,
+.cohere-main {
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. 毛玻璃表面：吸顶条 / 顶栏
+ * ---------------------------------------------------------------------------
+ * 判据：位置固定或吸顶、且下方有内容滚动 ⇒ 用毛玻璃；
+ *       否则用实心表面（避免整屏发虚）。
+ *
+ * 性能取舍（CCG 评审 i3）：backdrop-filter 是逐帧重算的 GPU 操作。
+ * 本仓的玻璃区只有三处（顶栏 / 侧栏 / 模态背板），且它们背后的内容
+ * 基本是**静止**的（body 画布是 `background-attachment: fixed`，
+ * 工作区 `.mp-workspace` 自带滚动，不从顶栏下方穿过），
+ * 所以模糊结果可被 Chromium 缓存，不是每帧重算。
+ * 仍做了两道保险：
+ *   ① 模糊半径从 20px 降到 14px（肉眼几乎无差，采样成本更低）；
+ *   ② 用户表达「减少透明度」偏好时整体退回实心表面（Windows 高对比度模式
+ *      会命中该偏好，此时玻璃反而降低可读性）。
+ */
+.cohere-topnav,
+.mp-tabbar,
+.tab-bar {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--hairline-soft);
+  box-shadow: var(--glass-shadow);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .cohere-topnav,
+  .mp-tabbar,
+  .tab-bar,
+  .mp-sidebar,
+  .cohere-modal-overlay {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--surface-raised);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. 标题体系：同一套字号 / 字色 / 字重
+ * ---------------------------------------------------------------------------
+ * 巡检实测：同屏存在「品牌紫标题」「墨色标题」「蓝色超链接标题」三种。
+ * 统一为：标题墨色 + 600 字重；品牌色只留给图标、状态与 CTA。
+ */
+.page-title,
+.cohere-page-header .page-title,
+.cohere-page-header h1,
+.mp-home-welcome h1,
+.mp-home-welcome h2 {
+  font-family: var(--font-family-ui-display);
+  font-weight: 600;
+  color: var(--color-text-strong);
+  letter-spacing: -0.4px;
+  line-height: 1.25;
+}
+
+.page-subtitle,
+.cohere-page-header .page-subtitle {
+  font-family: var(--font-family-ui);
+  color: var(--color-text-muted);
+  line-height: 1.55;
+}
+
+/* 分区标题：比页面标题弱一档，用字重与颜色拉开层级，不靠字号跳变 */
+.cohere-section-title,
+.mp-home-section-title {
+  font-family: var(--font-family-ui-display);
+  font-weight: 600;
+  color: var(--color-text-strong);
+  letter-spacing: -0.2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. 高频表面：卡片 / 配置项 / 会员卡
+ * ---------------------------------------------------------------------------
+ * 这些类名跨 234 个 .vue 文件复用（.config-item 64 处、.member-center-card 15 处、
+ * .cohere-card 61 处），是"全站统一"的主战场。
+ */
+.config-item,
+.member-center-card {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  box-shadow: var(--elevation-1);
+  transition: border-color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft),
+              transform var(--motion-base) var(--ease-out-soft);
+}
+
+.config-item:hover,
+.member-center-card:hover {
+  border-color: var(--hairline-strong);
+  box-shadow: var(--elevation-2);
+}
+
+/* 配置项里的分隔线改为发丝描边，不再是实心浅灰 */
+.config-item + .config-item {
+  border-top: 1px solid var(--hairline-soft);
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. 分段胶囊标签
+ * ---------------------------------------------------------------------------
+ * 参考产品的页签是「胶囊容器 + 白色活动药丸」。
+ * 旧：各页自己写 tab，实测 22 种圆角并存（3px/5px/6px/7px/8px/10px/14px/15px…），
+ *     同一屏内活动态底色有白底、有紫底、有下划线三种形态。
+ */
+.cohere-tabs,
+.history-status-tabs,
+.filter-tabs,
+.collection-tab-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline-soft);
+}
+
+.cohere-tabs button,
+.history-status-tabs button,
+.filter-tabs button {
+  border-radius: var(--r-pill);
+  padding: 5px 14px;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-default),
+              color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft);
+}
+
+.cohere-tabs button:hover,
+.history-status-tabs button:hover,
+.filter-tabs button:hover {
+  color: var(--color-text-primary);
+}
+
+.cohere-tabs button.active,
+.cohere-tabs button[aria-selected="true"],
+.history-status-tabs button.active,
+.filter-tabs button.active {
+  background: var(--surface-raised);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-tab-active);
+}
+
+/* 采集页的分类页签（.collection-tab-btn）同样收敛到胶囊口径 */
+.collection-tab-btn {
+  border-radius: var(--r-pill) !important;
+  font-family: var(--font-family-ui);
+  font-weight: 500;
+  transition: background-color var(--motion-fast) var(--ease-default),
+              color var(--motion-fast) var(--ease-default),
+              box-shadow var(--motion-base) var(--ease-out-soft);
+}
+
+.collection-tab-btn.active {
+  background: var(--surface-raised);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-tab-active);
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. 图标底座：圆形/圆角方形的淡色图标片
+ * ---------------------------------------------------------------------------
+ * 旧：图标直接裸放在白底上，或者套一个 1px 描边方块 —— 两种都显得"贴上去的"。
+ *
+ * 巡检实测：element-plus 的实心图标（如 TrendCharts）在 17px 裸排时
+ * 视觉上就是一个「深色方块」，夹在标题文字旁边像渲染故障。
+ * 统一处理：分区标题里的图标一律放进淡色圆角底座 + 品牌色，
+ * 于是「实心方块」变成一枚有意为之的方形标记。
+ */
+.mp-icon-chip,
+.cohere-icon-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-md);
+  background: var(--brand-gradient-soft);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.mp-icon-chip--round { border-radius: var(--r-full); }
+.mp-icon-chip--warm { background: var(--accent-warm-soft); color: #d4576f; }
+
+/* 分区标题的小图标底座（26px 方片） */
+.panel-title .el-icon,
+.dash-panel-title .el-icon,
+.cohere-section-title .el-icon,
+.mp-home-section-title .el-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: var(--brand-gradient-soft);
+  color: var(--primary);
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+}
+
+/* 标题里的图标不再额外加粗色，统一走 muted —— 品牌色留给真正的 CTA */
+.panel-title,
+.dash-panel-title {
+  color: var(--color-text-strong);
+  font-family: var(--font-family-ui-display);
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. 滚动条：细、低对比、悬停才显形
+ * ---------------------------------------------------------------------------
+ * 旧：Windows 默认滚动条宽 17px、灰底，在白底上像一条铁轨。
+ */
+.mp-workspace ::-webkit-scrollbar,
+.cohere-content ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.mp-workspace ::-webkit-scrollbar-track,
+.cohere-content ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mp-workspace ::-webkit-scrollbar-thumb,
+.cohere-content ::-webkit-scrollbar-thumb {
+  background: rgba(30, 27, 75, 0.16);
+  border-radius: var(--r-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.mp-workspace ::-webkit-scrollbar-thumb:hover,
+.cohere-content ::-webkit-scrollbar-thumb:hover {
+  background: rgba(30, 27, 75, 0.30);
+  background-clip: content-box;
+}
+
+[data-theme="dark"] .mp-workspace ::-webkit-scrollbar-thumb,
+[data-theme="dark"] .cohere-content ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: content-box;
+}
+
+/* ---------------------------------------------------------------------------
+ * 8. 骨架屏
+ * ---------------------------------------------------------------------------
+ * 本文件**不接管**骨架屏外观。
+ *
+ * 原因：`src/components/UiSkeleton.contract.test.js` 有一条契约锁 ——
+ * 骨架骨块类名只允许出现在 `components/UiSkeleton.vue` 与 `styles/skeleton.css`
+ * 两个文件里（该锁按**纯文本**扫描全 src，所以连注释里提到类名都算违规）。
+ * 而 `styles/skeleton.css` 已经有一套完整的微光扫过实现
+ * （基色/高光色令牌 + 一套 keyframes + `prefers-reduced-motion` 降级），
+ * 本文件再画一遍就是**重复实现**。
+ *
+ * 处置：本节整体移除，骨架屏观感维持 skeleton.css 的单一来源不变。
+ */
+
+/* ---------------------------------------------------------------------------
+ * 9. 全局焦点环：所有可聚焦控件用同一道光晕
+ * ---------------------------------------------------------------------------
+ * 键盘可达性不能因为换肤而降级（WCAG 2.4.7）。焦点环用品牌色 + 柔光环，
+ * 与 hover 用不同的视觉语言，用户一眼能分清"当前焦点"和"鼠标悬停"。
+ */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ---------------------------------------------------------------------------
+ * 10. 数值排版：统计数字等宽对齐
+ * ---------------------------------------------------------------------------
+ */
+.stat-value,
+.stat-number,
+.mp-stat-value {
+  font-family: var(--font-family-ui-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.6px;
+}
+
+/* ---------------------------------------------------------------------------
+ * 11. 危险操作二次确认弹窗：弱化背景、强化焦点
+ * ---------------------------------------------------------------------------
+ */
+.el-message-box {
+  border-radius: var(--r-lg) !important;
+  box-shadow: var(--elevation-4) !important;
+  border: 1px solid var(--hairline) !important;
+  background: var(--surface-overlay) !important;
+}
+
+.el-message-box__title {
+  font-family: var(--font-family-ui-display) !important;
+  font-weight: 600 !important;
+  color: var(--color-text-strong) !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * 12. 空态：虚线框 → 实线发丝描边
+ * ---------------------------------------------------------------------------
+ * 巡检实测：空态容器用 `1px dashed` 描边。虚线在产品界面里的语义是
+ * 「这里没画完 / 出错了」，而不是「这里还没有数据」——
+ * 它让空态看起来像 bug，也让整页显得毛糙。
+ * 改为：发丝实线描边，内容仍然是诚实的空态文案。
+ *
+ * ⚠ 本块点名的每个类名都必须在 src 里**真实存在**——否则规则一条也命中不了，
+ *   而文档却会写成「已改」。上一版就因此留了 6 个**代码里根本没有**的类名
+ *   （`.pi-empty-surface` / `.empty-surface` / `.insight-empty` / `.perf-empty` /
+ *    `.insight-empty-card` / `.perf-empty-card`），规则全部空转，
+ *   效能洞察的空态因此仍是虚线。回归锁见 `styles/empty-state.contract.test.js`。
+ *
+ * 覆盖范围 = 报告 P0-6 点名的四类：
+ *   - `.mp-home-zero-cta` / `.mp-home-recent-empty` —— 首页零数据与「最近为空」
+ *   - `.pi-empty-state` / `.pi-dim-empty`             —— 效能洞察的全空态与维度空态
+ * 付费占位（DashboardLockedPanel）走组件内的品牌色左边条，不在本块。
+ * --------------------------------------------------------------------------- */
+
+/* 首页两处空态：底色用柔面（它们直接落在画布上）。 */
+:where(.mp-home-zero-cta, .mp-home-recent-empty) {
+  border-style: solid !important;
+  border-color: var(--hairline) !important;
+  border-radius: var(--r-lg) !important;
+  background: var(--surface-sunken) !important;
+}
+
+/* 效能洞察两处空态：它们是**卡片网格里的卡片**，底色与圆角沿用组件自身口径，
+   这里只把虚线改实线发丝（否则白卡套柔面会显脏）。 */
+.pi-empty-state,
+.pi-dim-empty {
+  border-style: solid !important;
+  border-color: var(--hairline) !important;
+}

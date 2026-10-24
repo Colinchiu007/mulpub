@@ -40,6 +40,18 @@ const { isPlatformCookieDomain } = require('@multi-publish/shared-utils/src/plat
  * `auth-<真实 accountId>` 不在此列——后者可能是在用的账号分区，误删即抹凭证。
  */
 const THROWAWAY_PREFIXES = ['auth-auth-', 'silent-auth-']
+
+// 登录槽位（按平台复用的稳定分区）规则独立成模块（2026-10-21）：
+// 命名、豁免、清理、导航前清理都在 `auth-login-slot` 一处定义，
+// 本模块只负责「槽位不得进回收面」这一条豁免（见 isThrowawayPartitionName）。
+//
+// ⚠️ 依赖方向（2026-10-21 CCG 外部评审 i5）：
+//   auth-login-slot.js 是**叶子模块**（只依赖 node 内置 + 自己的常量），
+//   本模块 require 它、它**绝不** require 本模块 —— 双向依赖会成环。
+//   槽位目录名的通用规则（`auth-<accountId>`）在**本模块**的 `partitionNameOf`，
+//   槽位模块自己实现了同一规则，两份实现由**回环契约锁**钉在一起
+//   （见 auth-partition-reclaim.test.js「槽位目录名必须与通用命名规则一致」）。
+const authLoginSlot = require('./auth-login-slot')
 /**
  * 兜底选址的探测窗口 = 回收端的每组保留数（#2734 的耦合点，单一真源在本模块，
  * 由 auth-partition 再导出，避免两处数字各写一遍而互相吃掉候选）。
@@ -85,6 +97,9 @@ const RM_MAX_RETRIES = 3
 const RM_RETRY_DELAY_MS = 100
 
 function isThrowawayPartitionName (name) {
+  // 登录槽位（按平台复用的稳定分区）落在同一个前缀下，但**不是**一次性分区：
+  // 它不带时间戳、要跨多次登录存活（缓存就在里面），绝不能进回收面。
+  if (authLoginSlot.isLoginSlotPartitionName(name)) return false
   return THROWAWAY_PREFIXES.some(function (prefix) { return name.startsWith(prefix) })
 }
 
@@ -246,17 +261,25 @@ function scheduleReclaim (opts) {
 /**
  * 未取到凭证的会话就地清空分区（Cookie/localStorage/IndexedDB/缓存）。
  * 进程内安全动作，替代「直接删目录」——后者在 Session 对象仍存活时会写坏磁盘状态。
+ *
+ * `opts.keepHttpCache=true` 时**只清存储、不清 HTTP 缓存**：登录槽位靠这个保住
+ * 第三方登录页的静态资源缓存（见文件头「登录槽位」一节）。注意 `clearStorageData()`
+ * 清的是 Cookie/localStorage/IndexedDB 等**存储**，HTTP 磁盘缓存由 `clearCache()` 单独负责，
+ * 两者是不同机制 —— 保留缓存的收益正来自这里。
  * @param {any} partitionSession Electron Session（须有 clearStorageData/clearCache）
  * @param {any} log
+ * @param {{keepHttpCache?: boolean}} [opts]
  * @returns {Promise<boolean>} true = 已清空
  */
-function wipeSessionStorage (partitionSession, log) {
+function wipeSessionStorage (partitionSession, log, opts) {
+  const o = opts || {}
+  const keepHttpCache = o.keepHttpCache === true
   if (!partitionSession || typeof partitionSession.clearStorageData !== 'function') {
     if (log) log.notify('AuthReclaim', 'session-wipe-skipped', { level: 'WARN' })
     return Promise.resolve(false)
   }
   const tasks = [partitionSession.clearStorageData()]
-  if (typeof partitionSession.clearCache === 'function') tasks.push(partitionSession.clearCache())
+  if (!keepHttpCache && typeof partitionSession.clearCache === 'function') tasks.push(partitionSession.clearCache())
   return Promise.all(tasks).then(function () { return true }).catch(function (e) {
     if (log) log.notify('AuthReclaim', 'session-wipe-failed', { level: 'WARN', error: String((e && e.message) || 'unknown') })
     return false
@@ -305,9 +328,10 @@ function hasCapturedPartition (accountId) {
  * @param {any} partitionSession
  * @param {string|null|undefined} platform
  * @param {any} log
+ * @param {{keepHttpCache?: boolean}} [opts] keepHttpCache=true 时只清存储、保留 HTTP 缓存
  * @returns {Promise<boolean>} true = 已清空
  */
-function wipeUnlessUsableAsFallback (partitionSession, platform, log) {
+function wipeUnlessUsableAsFallback (partitionSession, platform, log, opts) {
   if (!partitionSession || typeof partitionSession.clearStorageData !== 'function') {
     if (log) log.notify('AuthReclaim', 'session-wipe-skipped-fallback', { level: 'WARN' })
     return Promise.resolve(false)
@@ -324,7 +348,7 @@ function wipeUnlessUsableAsFallback (partitionSession, platform, log) {
       if (log) log.notify('AuthReclaim', 'kept-as-publish-fallback', { params: { platform, cookies: usable } })
       return false
     }
-    return wipeSessionStorage(partitionSession, log)
+    return wipeSessionStorage(partitionSession, log, opts)
   }).catch(function (e) {
     if (log) log.notify('AuthReclaim', 'cookie-probe-failed-kept', { level: 'WARN', error: String((e && e.message) || 'unknown') })
     return false
@@ -334,7 +358,10 @@ function wipeUnlessUsableAsFallback (partitionSession, platform, log) {
 /**
  * 登录会话终态的回收动作：未取证的会话按内容判定是否清空（进程内安全），
  * 目录本体交给 scheduleReclaim 按「非最新即删」回收。属旁路，任何失败只留日志。
- * @param {{accountId?: string|null, session?: any, platform?: string|null, captured?: boolean, log?: any, activePartitionNames?: string[]}} opts
+ *
+ * `opts.keepHttpCache=true` 时清存储但**保留 HTTP 缓存**（登录槽位专用：
+ * 槽位目录要跨多次登录存活，缓存正是它存在的理由）。
+ * @param {{accountId?: string|null, session?: any, platform?: string|null, captured?: boolean, log?: any, activePartitionNames?: string[], keepHttpCache?: boolean}} opts
  */
 function reclaimLoginSession (opts) {
   const o = opts || {}
@@ -345,8 +372,18 @@ function reclaimLoginSession (opts) {
     scheduleReclaim({ activePartitionNames: o.activePartitionNames || [] })
     return null
   }
-  const captured = o.captured === true || capturedPartitions.has(name)
-  if (!captured) void wipeUnlessUsableAsFallback(o.session, o.platform, log)
+  // 「本轮是否取到凭证」必须按**轮次**判，不能按分区名判：登录视图现在按平台复用
+  // 同一个分区（登录槽位），上一轮成功不代表这一轮成功 —— 用分区名判会把
+  // 「本轮没登录成、槽位里还留着上一轮会话」误当成已取证 ⇒ 该清的没清。
+  // 调用方显式给出 captured 时以它为准；没给才回落到登记表（保守：宁可留着数据）。
+  // ⚠️ 槽位名 + 没给 captured ⇒ 登记表里那条是**上一轮**的证据，不能当本轮用 ⇒ 记一条 warn
+  // （2026-10-21 CCG 外部评审 i8：静默回落会让调用方以为按轮次判了，其实没有）。
+  if (o.captured === undefined && authLoginSlot.isLoginSlotPartitionName(name)) {
+    if (log) log.notify('AuthReclaim', 'login-slot-captured-missing', { level: 'WARN', params: { platform: o.platform || '' } })
+  }
+  const captured = o.captured === true ||
+    (o.captured === undefined && capturedPartitions.has(name))
+  if (!captured) void wipeUnlessUsableAsFallback(o.session, o.platform, log, { keepHttpCache: o.keepHttpCache === true })
   scheduleReclaim({ activePartitionNames: [name] })
   return name
 }

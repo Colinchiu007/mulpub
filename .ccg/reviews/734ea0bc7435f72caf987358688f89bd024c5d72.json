@@ -1,0 +1,60 @@
+{
+  "sha": "734ea0bc7435f72caf987358688f89bd024c5d72",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 200 行（≤ 200）但命中 auth/数据库/加密：敏感内容 3 处",
+  "stats": {
+    "changedLines": 200,
+    "fileCount": 8,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| 存量库补列 | 由 `migrateCreatorLinkageSchema` 的 `ALTER TABLE ... ADD COLUMN` 负责，**逐列先查 `PRAGMA table_info`**，已存在即跳过（`CREATE TABLE IF NOT EXISTS` 不会给已存在的表补列，所以这条不能省） |",
+      "`[ERROR] sqlite-wrapper all() error: no such column: external_id | SQL: SELECT platform, external_id, COUNT(*) AS n FROM viral_library`。",
+      "它查的 `external_id` 由**它自己所在那次迁移**的 `ALTER TABLE ADD COLUMN` 才加上；而新库建表 DDL 没有这两列。"
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-20T09:58:26.883Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "findings": null,
+    "error": "exit 1 [claude]: Backend: claude\n  Command: claude -p --dangerously-skip-permissions --setting-sources  --output-format stream-json --verbose -\n  PID: 8916\n  Log: D:\\tmp\\codeagent-wrapper-8916.log\n  Session-ID: 52ff959e-f6d3-4a1b-bbb3-f65a60910ae0\n\n=== Recent Errors ===\nUsing stdin mode for task due to: piped input, explicit \"-\", newline, backslash, double-quote, single-quote, backtick, dollar, length>800\nclaude exited with status 1\nLog file: D:\\tmp\\codeagent-wrapper-8916.log (deleted)",
+    "validationErrors": null,
+    "at": "2026-10-20T09:59:04.955Z",
+    "closureNote": "【第 1 轮 / 引擎基础设施层失败（未产出 findings）—— 由仓库所有者授权、由 agent 代为回写为 self_play_resolved】判定器判 mode=dual（变更 200 行且命中敏感内容 3 处：auth/数据库/加密），请求的评审对是 critic=claude + proposer=opencode；本轮 critic 启动后 **exit 1**（wrapper 日志已被删除，现场只剩 `exit 1 [claude]` 一行），**没有产出任何 findings** ⇒ 本条**不是「评审通过」，是「评审没跑成」**，findings 保持 null、逐条处置不存在，本条也不声称任何外部评审结论。\n\n为什么仍可闭环（按门禁自述的出口②「非高危面写 closureNote」）：① 本 PR **不触高危面** —— 改动面是 `apps/desktop/electron/services/{creator-schema,store-schema}.js` + 两个测试文件 + 执行记录/PRD/CHANGELOG，无 `.github/workflows/`、无判据本体（`scripts/check-`）、无凭证/登录态面；② 出口①「补跑 `sh scripts/deep-review.sh` 做真外部评审」在本机**不可达**（仓外后端 claude/opencode 在本机既未安装也不可运行，`which claude opencode` 皆空）；③ 缺陷本身已由**比评审更硬的证据**覆盖：真 sqlite 建表路径的 e2e 用例（`creator-wiring.e2e.test.js` 改为自建表、走真 DDL）与 `creator-schema.test.js` 的 schema 探测断言，直接钉住「预检查的那一列由谁建」这一根因 —— 评审要回答的问题，本 PR 用可执行的契约自己回答了；④ 本轮唯一的机器判定是**引擎侧 error**，与代码内容无关。\n\n**授权与署名**：本条的 status 由仓库所有者授权后由 agent 代为回写（owner 明确授权处理需要人判断的项）；`tier` 刻意保持**缺席** —— 缺席表示「未声明过外部评审出处」，而本条确实没有外部评审出处可声明；写成 external/或任何值都是把「没跑成」说成「跑过了」。`error` 字段原样保留，它是这一轮基础设施失败的全部现场。"
+  }
+}

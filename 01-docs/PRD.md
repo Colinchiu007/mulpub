@@ -11071,6 +11071,25 @@ platforms:
 - `model-provider-*` 测试：英文括号注释移除、errorCode 断言；
 - 受影响视图/composable 测试：技术文本不直出、自然语言透传。
 
+**7. 调用点统一口径 `userFacingErrorMessage`（2026-10-21 新增，UX 审计 3.8 / ux-audit-knowledge-error-classify）**
+
+> 上一节的第 4 步「未知错误」在 `matched='passthrough'` 时会**原样透出**自然语言原文，在 `matched='fallback'` 时给通用「操作失败，请稍后重试」。
+> 这两个出口对「调用点自带页面专属文案」的场景都是**负收益**：前者把技术串交给用户，后者把「草稿加载失败」换成信息量更低的「操作失败」。
+> 因此调用点不得直接取 `formatUserError(x).message`，必须经 `userFacingErrorMessage`。
+
+| 项 | 规则 |
+|----|------|
+| 单一实现 | `apps/desktop/src/utils/user-facing-error.js` 的 `userFacingErrorMessage(input, fallback)`，`fallback` 可为字符串或**惰性函数**（`(() => t('key'))`，避免每次调用都做一次 i18n 查表）；禁止在调用点各抄一份判断 |
+| 采纳条件 | 仅当 `matched ∈ {errorCode, code, pattern}`（= 真的认出来了）才采用分类文案；`matched ∈ {fallback, passthrough}` 一律**退回调用方兜底** |
+| 输入资格 | `input` 可为 IPC 返回对象（`{errorCode}` / `{code}` / `{message}`）、`Error` 实例、字符串、`null`/`undefined`；后两者不得抛错，直接走兜底 |
+| 显示项 | 轻提示（ElMessage.error）正文 = 采纳的分类文案或页面兜底文案；**不得**出现 `ECONNREFUSED`、`127.0.0.1:8000`、`Command failed:`、堆栈行、内部路径 |
+| 交互逻辑 | 失败提示仍走各页面既有的「toast + 页面内错误行」，本口径只改**取文案**这一步，不改触发时机、不改按钮、不改是否自动消失 |
+| 数据校验 | 判据是**枚举匹配**而非「message 非空」：`fallback`/`passthrough` 两档的 `message` 同样非空，用非空判据会把技术串放行 |
+| 收敛存量 | 本刀收敛 9 处：`PatternAnalysisPanel.vue` 1、`PersonalKnowledgePanel.vue` 1、`ViralLibraryTable.vue` 1、`KnowledgeBasePage.vue` 1、`PublishFrequencySettings.vue` 4、`PerformanceInsights.vue` 1；收敛后 `ElMessage.*((res|e) && (res|e).message) \|\| t(..)` 在渲染端源码内**存量为 0** |
+| 未收敛存量（已知欠账，逐条待产品裁决） | `notify.error(String((e && e.message) || e))` 形态 3 处（`useCollectionBatchPublish.js`，兜底是异常对象本身而非 locale 键）；`error.value = (res && res.message) \|\| t(...)` 一类**页面内错误行**（非 toast）另有若干处，需先定「错误行是否也一律经分类器」再统一收敛 |
+
+**回归测试（第 7 节）**：`src/utils/user-facing-error.call-site.test.js`（11 例）—— ① 技术串不透出；② `passthrough` 时保留页面专属兜底（前提自证：先断言分类器确实产出 `passthrough`）；③ 已知 `errorCode` 走分类文案、空输入走兜底不抛错；④ 逐个点名 6 个文件的「已走 `userFacingErrorMessage` + 不含禁形态」；⑤ 全域棘轮「禁形态存量为 0」，并配**扫描域非空 + 域内 `ElMessage.error(` 命中数下界**两条反失明断言（否则「零命中」可能只是探针没读到文件）。四道变异（M1 调用点退回禁形态 / M2 拆掉分类门 / M3 在未点名文件回潮 / M4 掏空扫描域）逐条指名红、红集互不相同，跑完文件 md5 回原值。
+
 #### 多语言内容同步机制（2026-08-13 新增，i18n-content-sync）
 
 > 独立设计文档：`01-docs/i18n-sync-mechanism.md`；OpenSpec change：`openspec/changes/i18n-content-sync/`（proposal / spec / design / tasks）。
@@ -20513,3 +20532,223 @@ DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底
 
 
 
+## 自动化页后台通知的注册时机合同（2026-10-20，ux-audit-automation-notify-first / 审计 2.4）
+
+### 一、合同
+
+| 项 | 口径 |
+|---|---|
+| 顺序 | `AutomationView.vue` 的 `onMounted` **必须先 `onAutomationNotification(...)` 注册，再 `await load()`**。反向（先 await 再注册）在「首屏列表请求在飞」这段窗口内没有任何监听者 |
+| 为什么不能靠"稍后再通知一次" | 后台任务的失败/恢复通知是**推送语义**：不排队、不补发。窗口期内到达的那一条**永久丢失**，用户侧症状是「任务失败了，但页面什么都没显示」，且运行日志里没有第二处痕迹可查 |
+| 分档 | `payload.level === 'error'` → `notifyError('automation.notifyFailed', { message })`；其余一律 → `notifySuccess('automation.notifyRecovered', { message })`。**两档不得合并成一条出口**（恢复通知走 error 档会把好消息播成故障） |
+| 空载荷 | `payload` 为 `null`/`undefined` 时**直接 return**，不产出任何 toast —— 「事件到了」不等于「有内容可展示」，空白 toast 比没有 toast 更伤 |
+| 显示项与提示文字 | 通知文案 key：`automation.notifyFailed` / `automation.notifyRecovered`，都带 `{ message }` 插值（zh/en 成对进 locales）；只出 toast，**不弹模态**、不打断当前操作（这是本页面既有的产品决定，本次不动） |
+| 收口 | `onUnmounted` 里必须调用注册返回的 `stopNotifier()` 并置空，且每次挂载**只注册一次**（重复注册会让一条通知触发多次 toast） |
+
+### 二、验收锚点
+
+- 行为锁 `apps/desktop/src/views/AutomationView.notify-registration.test.js`（4 条）：
+  ① 顺序锁断 `registerOrder.slice(0,2) === ['register','list']` 且 `register` 只出现一次；
+  ② 在首屏 `automationList` 仍 pending 的那段窗口内直接调用 notifier，断 `notifyError` 带原文被调用；
+  ③ 同一窗口内 `level:'recovered'` 走成功档、error 档不被调用；
+  ④ 负控：`notifier(null)` / `notifier(undefined)` 两次调用都不得产出任何 toast。
+- **⛔ 一条本批实测到的方法学教训（写给下一次写顺序锁的人）**：顺序断言的方向必须先问「哪个顺序才是要保护的形态」再落笔。本锁第一版把期望写成 `['list','register']`（即**被禁形态**），于是它在修复前**必然红**、修复后**也必然红**，看起来像"TDD 正常"，实际上这个期望若被"顺手改对"就会把缺陷永久钉成契约。当场暴露它的不是断言红了，而是**红之后去读实际读数** `['register','list']` 与预期比对。判据：任何"顺序/等值"型断言在首次变红时，必须先判断"是代码错还是期望错"，再决定改哪一侧。
+- 反证：把 `await load()` 挪回注册之前（被禁形态原样重造）⇒ 4 条锁全部指名变红（`SUMMARY=4 failed`），还原后 `byteEqual=true`。
+
+
+## 账号卡片「登录」按钮与已登录态重登语义（2026-10-24，account-card-login-button）
+
+> **单一真源在 `01-docs/PRD-ACCOUNT-CARD-LOGIN-BUTTON-2026-10-24.md`**（含现状取证、四个候选方案的
+> 逐条排除、状态分派表、两处连带缺陷的根因链、变异反证与验收标准）。本节只登记**产品契约本身**。
+
+### 一、契约
+
+**账号卡片底部恒有一个「登录」按钮，位置在「验证」右侧、「删除」左侧。**
+
+原「去登录」按钮是**条件式**的（仅当本会话检测确认失效才出现），本次由常驻「登录」取代 ——
+两者触发同一个 `open-login` 事件、跑同一条 `reloginAccount` 链路，功能同构，并存只会让卡片底部
+出现两个语义相同的相邻按钮。移除后操作条恒为 4 个：设置 / 验证 / 登录 / 删除。
+
+### 二、「登录」的语义
+
+**「登录」= 重建会话，不是「查看会话」。**
+
+| 用户动作 | 语义 | 会话来源 | 是否改写凭证 |
+|---|---|---|---|
+| 点击卡片主体 | 用现有会话去平台 | 账号分区 `persist:account-{id}`（失效时走干净会话） | 否 |
+| 「验证」 | 查状态（只读探测） | HTTP / DOM | 否（只写 `status` + `last_validated`） |
+| 「登录」 | **重建会话** | 平台登录槽位（**开局必清凭证**） | 是（**仅在登录成功后**覆盖） |
+
+⇒ 「验证」与「登录」正交且相邻，符合「先查后修」的扫读顺序。
+⇒ 想打开自己的后台请点卡片主体；点「登录」一定会走一遍平台的登录页。
+
+### 三、已登录态点「登录」的行为（本次落定的设计问题）
+
+**先弹一次二次确认，用户确认后才重新登录；其余登录态直接进入重新登录，不打扰。**
+
+| 登录态 | 徽章 | 行为 | 理由 |
+|---|---|---|---|
+| `online` | 已登录 | **二次确认**后重新登录 | 重新登录会用干净会话**覆盖**现有凭证 ⇒ 不可逆一步 ⇒ 交由用户显式决定 |
+| `expired` | 已失效 | 直接重新登录 | 已无「可用会话」需要保护；这正是唯一自救路径 |
+| `unverified` | 未确认 | 直接重新登录 | 从未拿到结论 ⇒ 无已知可用会话；重登即修复手段 |
+| `error` | 异常 | 直接重新登录 | 检测异常 ≠ 会话可用 |
+| `unknown` | 暂无检查记录 | 直接重新登录 | 同 `unverified` |
+
+判据落点：`apps/desktop/src/utils/account-status.js` 的 `needsReloginConfirmation(account)`
+（与 `accountStatusKind` 同文件，单一真源，配结构锁）。
+
+**为什么不用其它方案**：
+①「无脑重登」= 对明明在线的账号制造一次没有信息增量的重扫码打扰；
+②「已登录时禁用按钮」= 用**可能陈旧**的 `status` 当权威，一旦实际已失效就把唯一自救入口一起堵死；
+③「点登录先自动检测」= 多数平台检测取不到定论（2026-10-16 起只走 HTTP 单轨），
+一轮等待换不到决策，且与专职的「验证」按钮职责重叠。
+
+确认框必须携带：账号名、平台名、「当前显示为已登录」这一**界面事实**、**最近一次检测时间**（若已知）、
+以及「成功后会覆盖现有凭证」的后果。带上检测时间是关键 —— 结论可能陈旧，用户自己判断该结论有多新。
+
+### 四、连带修正：会话级失效集合的增删纪律
+
+`checkedExpiredIds` 的唯一语义 = 「**本会话内**已确认该账号登录态失效」。
+
+- **增**：检测确认失效时。
+- **删**：**重新登录成功**时。
+
+⇒ 取消重新登录**不删**（取消 ≠ 账号恢复登录，账号仍然失效）；
+删了会让它带着旧凭证进平台页，撞上 2026-09-16 公众号「二维码加载失败」事故路径。
+⇒ 重新登录成功**必须删**（不删则用户刚登录成功，点卡片打开创作者中心仍走干净会话，
+平台把他当未登录 ⇒ 看到的是登录页而不是自己的后台）。
+
+### 五、显示项与提示文字
+
+| 位置 | key | zh | en |
+|---|---|---|---|
+| 卡片按钮 | `accountsPage.accountCardLabels.login` | 登录 | Log in |
+| 卡片按钮 title | `accountsPage.accountCardLabels.loginTitle` | 重新登录该账号：会打开平台登录页，登录成功后覆盖该账号现有凭证 | Log in again: opens the platform login page and replaces this account's stored credentials on success |
+| 确认框标题 | `accountsPage.reloginConfirmTitle` | 重新登录 | Log in again |
+| 确认框正文 | `accountsPage.reloginConfirmMessage` | 函数：账号名 / 平台名 / 「已登录」/ 最近检测时间（可空）/ 覆盖后果 | 同结构英文版 |
+| 确认框按钮 | `accountsPage.reloginConfirmAction` | 继续登录 | Continue |
+
+（原 `accountCardLabels.goLogin` 随条件式按钮一并删除；顶层 `accountsPage.goLogin` 保留 ——
+它是「验证判定失效」确认框的按钮文案，与卡片按钮无关。）
+
+### 六、回归保护
+
+| 文件 | 锁什么 |
+|---|---|
+| `features/accounts/composables/useReloginGuard.test.js`（新增 8 例） | 确认框的出/不出、文案四要素（账号名·平台·已登录·最近检测时间）、无检测记录时不编造时间、两种「取消」的语义、确认后进链路 |
+| `features/accounts/components/AccountManagementCard.test.js` | 「登录」按钮常驻 + **位置契约**（按钮清单精确等于 设置/验证/登录/删除 四个） |
+| `utils/account-status.test.js` | `needsReloginConfirmation` 的 5 态矩阵 + 结构锁（全仓只允许一处实现）；`lastLoginCheckAt` 的取值/非法值 |
+| `views/Accounts.test.js` | 5 例：online 弹确认+取消不进链路 / online 确认进链路 / expired 不弹确认直接进 / 重登成功后清集合 / 取消重登后保留集合 |
+| `tests/e2e/specs/account-login-state-tristate.js` | 「按钮出现 ≠ 判为失效」：未确认账号按钮常驻但徽章仍是「未确认」 |
+
+变异反证：逐条撤掉四处修复（确认判据 / D-A 清集合 / D-B 保留集合 / 按钮常驻化），
+对应用例**指名变红**。
+
+**视觉基线**：`accounts-list` / `accounts-list-flag-on`（明档 + 暗档，共 **4 张**）随本次改动更新 ——
+基线取自 **CI 产物**（QM-4 第 7 条：基线只能取自 CI 产物，不得用本机截图代替），
+更新后用 `scripts/check-baseline-freshness.js` 复算为 `0 违规`。
+⚠️ 其中暗档 2 张在 CI 日志的节选里**没露出来**，是用判据本地复算全量才补齐的 ——
+**只读日志节选会漏基线，必须用判据复算全量**。
+
+### 七、代码归属：为什么「重新登录」被抽成独立 composable
+
+`Accounts.vue` 在逐文件行数门禁的**点名还账清单**里（`targets` = 1578 行，**零增长容差**）。
+把确认逻辑直接写进 `Accounts.vue`（净增 32 行）会让门禁报
+`TARGET_GREW: 现 1610 行已超过点名目标 1578 行（超 32）`。
+⇒ 解法不是上调 `targets`（那是「改谁来守门」，须人工过目），而是**把自己的代码放到放得下的地方**：
+抽成 `apps/desktop/src/features/accounts/composables/useReloginGuard.js`，
+`Accounts.vue` 反而**净减 12 行**（1577 → 1565），且新逻辑有独立归属与独立单测。
+
+### 八、不做什么
+
+不改登录链路底层实现（`authViewManager` / 登录槽位 / 凭证捕获）；不删「验证」按钮；
+不实现批量登录；不在登录成功后自动重跑「验证」；不改 `needsCleanLoginSession` 的判据口径；
+不新增登录方式；不把失效账号点「登录」也做成二次确认。
+===CL-TOP===
+# [未发布] fix(自动化页): 后台失败/恢复通知的注册提前到首屏请求之前 —— 窗口期内那条通知不再永久丢失（ux-audit-automation-notify-first）
+
+- `AutomationView.vue` 的 `onMounted` 原为 `await load()` 之后才 `onAutomationNotification(...)`。通知是推送语义（不排队、不补发），于是「进入页面 → 首屏列表请求在飞 → 后台任务此刻失败/恢复」这段窗口没有监听者，那一条**永久丢失**，用户看到的是「任务失败了但页面什么都没显示」，日志里也没有第二处痕迹。审计 2.4。
+- 修法只有一处顺序调整：先注册、再 `await load()`；分档（error / 其余走 recovered）、空载荷直接 return、`onUnmounted` 收口与「每次挂载只注册一次」全部保持既有语义。
+- 新增 `AutomationView.notify-registration.test.js` 4 条：顺序锁 + 窗口期内失败/恢复各一条行为锁 + 空载荷负控。反证按被禁形态原样重造 ⇒ 4 条指名变红，还原后逐字节相同。
+- 方法学收获（写进 PRD 验收锚点）：顺序断言第一版把期望写成了**被禁形态** `['list','register']`，它在修复前后都红 —— 是"红之后去读实际读数"才发现错的是期望而不是代码。这类断言首次变红时必须先判"代码错还是期望错"，否则顺手把期望改对就会把缺陷钉成契约。
+- 文档：`01-docs/PRD.md` 新增《自动化页后台通知的注册时机合同》（顺序 / 为什么不补发 / 分档 / 空载荷 / 显示项与提示文字 / 验收锚点）；执行记录 `openspec/records/ux-audit-automation-notify-first.md`。既有 `AutomationView.test.js` 同跑通过。
+
+## 本地库 schema 与迁移的顺序合同（2026-10-20，ux-viral-external-id）
+
+> 适用于 `apps/desktop/electron/services/store-schema.js`（新库建表真源）与
+> `apps/desktop/electron/services/creator-schema.js`（存量库列迁移真源）及其调用方 `store/base-store.js`。
+
+### 一、数据校验：列的"存在性"只能有一个来源，且不得由消费方猜
+
+| 项 | 口径 |
+|---|---|
+| 建表真源 | `store-schema.js` 的 `CREATE TABLE IF NOT EXISTS viral_library` **必须自带** `external_id TEXT DEFAULT ''` 与 `creator_id TEXT DEFAULT ''`。新库建完即含被查询的列，任何消费方（含迁移自己的预检）都不必再猜"这列在不在" |
+| 存量库补列 | 由 `migrateCreatorLinkageSchema` 的 `ALTER TABLE ... ADD COLUMN` 负责，**逐列先查 `PRAGMA table_info`**，已存在即跳过（`CREATE TABLE IF NOT EXISTS` 不会给已存在的表补列，所以这条不能省） |
+| 探列实现 | 唯一实现是 `creator-schema.js` 的 `viralLibraryColumns(db)`；迁移与冲突预检 MUST 共用它，禁止各写一份 PRAGMA 读法（两份"列在不在"的判断一旦分叉，就会出现"迁移认为有、预检认为没有"这类不可归因状态） |
+| 索引 | `(platform, external_id)` 唯一索引 MUST 带 `WHERE external_id <> ''`（partial）。存量行该列是空串，普通 UNIQUE 在建索引瞬间就会因重复键抛错 ⇒ schema 初始化失败 ⇒ **应用起不来** |
+
+### 二、流程：迁移前预检的资格判定
+
+`findViralLibraryConflicts(db)`（迁移前的重复分组预检）按三档返回，三档语义互不相同、不得合并成一句话：
+
+1. **列不存在**（含表还不存在，`PRAGMA table_info` 返回空集）⇒ 直接返回 `[]`，**且不得发出那条查询**。
+   理由：该列正是本次迁移要加的，查询它属于"结构上注定失败"；而 `sqlite-wrapper` 的兜底位置在
+   `Statement.all()` 里——它先 `log.error(...)` 再返回空数组。所以"用 catch 吞掉"并不能让这次失败无声，
+   它会在运行日志里留下一条 `[ERROR] sqlite-wrapper all() error: no such column: external_id`，
+   把"正常的未升级状态"记成故障（2026-10-16 真实现场一条，2026-10-18 打包态复现两次）。
+2. **列存在、查询成功** ⇒ 返回真实分组清单；非空时 `migrateCreatorLinkageSchema` **中止迁移并抛错点名明细**，
+   不得静默去重（擅自删行即数据损失，保留哪条由人决定）。
+3. **列存在、查询失败**（磁盘 I/O、库损坏等真故障）⇒ `console.warn('[creator-schema] viral_library 冲突预检查询失败：…')`
+   出声并返回 `[]`。这一档 MUST NOT 与第 1 档共用静默出口——"没拿到证据"和"没有证据可拿"是两件事。
+
+### 三、显示项与提示文字
+
+- 中止迁移的抛错文案：`viral_library 存在 N 组重复 (platform, external_id)：<platform>:<external_id>x<条数>[…]。为避免误删数据，迁移已中止；请人工清理后重试。`（最多列 5 组）
+- 出声日志前缀固定为 `[creator-schema]`，**禁止**记录 Cookie 值/凭证类内容；这里只记 SQL 失败原因字符串。
+- 该库的建表与迁移都不面向用户界面：用户侧唯一可见后果是"账号页/知识库能否打开"，因此日志留痕就是排障的唯一现场来源，静默等于失明。
+
+### 四、验收锚点
+
+1. `creator-schema-upgrade.test.js`：**必须用真实 sqlite 文件库**（`node:sqlite` + `os.tmpdir()` 唯一路径），
+   覆盖 ①旧库（无该列）被新代码打开时预检不抛错、②一次迁移后两列与 partial 索引齐备、
+   ③列在位且有真重复时预检照样查出且迁移中止、④表不存在时返回空、⑤真故障必须 warn、
+   ⑥缺列时那条查询一次都没被发出。
+2. `store-schema` 的 viral_library 建表体含 `external_id`/`creator_id` 由源码级锁守住，并按**产物 DDL** 建库再跑预检
+   （判据不能只读字符串——"读得到字样"与"建出来的表真的有这列"是两件事）。
+3. 打包产物面（QM-1）：`asar` 解包后读 `electron/services/store-schema.js` 与 `creator-schema.js`，
+   确认落进包里的就是同一份实现；并以产物代码跑一次"新库首次启动"路径。
+4. ⛔ **夹具纪律（本案的逃逸根因）**：`creator-schema.test.js` 的 `makeDb()` 对任意 SQL 的
+   `prepare().all()` 都返回同一份预置数组 ⇒ "列不存在 ⇒ 查询抛错"这一整类事实在该夹具里**无法表示**，
+   于是本地全绿而打包启动每次报 ERROR。给"恢复/迁移/探测"写测试时，被探测的存储必须**预置成真实形态**
+   （缺列的真库、有重复的真行），不得让夹具对所有输入同答。
+## 历史列表行视图缓存合同（2026-10-20，ux-audit-history-list-perf / 审计 2.2②）
+
+### 一、显示项与数据口径
+
+- 每行渲染需要的四个派生值 —— 实际封面缩略图 `thumb`、平台图标 `icon`、平台名 `platformLabel`、失败原因文本 `errorText` —— 由**单一实现** `buildRowView(record)` 产出，模板一律走 `rowView(record).<字段>`，**禁止**在 `v-for` 体内再写 `thumbnailUrl(record)` / `platformIcon(record.platform)` / `platformName(record.platform)` / `recordErrorText(record)`。
+- 改造前每行付 35 次模板函数调用（缩略图 2 次、图标 3 次、平台名 3 次、错误文本 3 次、指标 7 次…），筛选扫描态最多上千行进 DOM ⇒ 一次重渲染上万次调用。
+- **`metricValue` 不入缓存**：它只是千分位格式化，成本可忽略，而它的入参是任意数字 ⇒ 键域无上界，缓存会在长会话里无界增长（与 toast 去重集合同一类缺陷）。
+
+### 二、缓存形状（这是本节真正的判据）
+
+| 约束 | 为什么 |
+|---|---|
+| 缓存必须是 `computed`，依赖 `filteredRecords` | `platformName` / `platformIcon` 读 `platformStore`，而平台标签与图标**异步加载**（先用默认值、store 到货后再变）。跨渲染的常驻 `Map` 会把默认标签**永久钉住** —— 用户看到的就是"平台名一直是错的"，而单测与构建全绿 |
+| 兜底路径与建表路径共用 `buildRowView` | Map 未命中时按记录现算；**不得**返回空对象 —— 那会把"缓存未命中"变成"行内容消失" |
+| 键用记录对象本身（一次渲染内稳定） | 不用 `record.id`：id 缺失/重复时按 id 建 Map 会让两行互相覆盖，症状是"某一行凭空变空"且没有任何报错 |
+
+### 三、验收锚点
+
+- `PublishHistory.row-view.test.js` 4 条：① 缓存必须是 `computed` 且遍历 `filteredRecords`，并禁止旁边再出现常驻 `...Cache = new Map()`；② 兜底与建表同源、四个字段齐备；③ 模板内零裸调用 + 正向对偶（`rowView(record).<字段>` 至少 6 处，防"删掉需求"与"删掉被禁物"同形）；④ `metricValue` 不得进缓存（判据必须**限定在函数体内**，不加右边界会一路吞到文件后面任意一处 `metricValue`，把"没有"读成"有"）。
+- 反证两个被禁形态各自指名变红：模板回退成裸调用 ⇒ 红在③；缓存旁加常驻 Map ⇒ 红在①。`RESTORE byteEqual=true`。
+- 渲染等价性由既有 `PublishHistory.test.js`（该视图全量渲染用例）在**一字未改**的前提下继续全绿证明 —— 性能改造最忌"顺手改了显示"，那条套件就是这行的护栏。
+- 同批否证掉的一条审计建议：2.2①「`filteredRecords` 改读防抖值」实测与该视图既有的 84 条契约（筛选结果须与输入即时一致）正面冲突，已**退回人工裁决**，不在本批实施；2.2③「加 renderLimit」实测已由服务端分页 + `load-more-history`「加载更多」承担，照字面再补 slice 会少显示行。
+
+===CL-TOP===
+# [未发布] perf(历史列表): 每行 35 次模板函数调用收敛为一次渲染一份行视图缓存（ux-audit-history-list-perf / 审计 2.2②）
+
+- `PublishHistory.vue` 的列表行原先每行调用 `thumbnailUrl`×2、`platformIcon`×3、`platformName`×3、`recordErrorText`×3、`metricValue`×7；筛选扫描态最多上千行进 DOM ⇒ 一次重渲染上万次调用（`thumbnailUrl` 每次还跑 4 候选 + 3 正则 + 最多 5 次 `safeHttpUrl`）。
+- 新增 `buildRowView(record)` 单一实现 + `rowViews` **computed** 缓存 + `rowView(record)` 访问器，模板全部改走 `rowView(record).<字段>`；`metricValue` 明确**不入缓存**（键域无上界，缓存会在长会话里无界增长）。
+- 缓存刻意做成"一次渲染一份"而不是跨渲染常驻：平台名/图标来自**异步加载**的 platform store，常驻 Map 会把默认标签永久钉住 —— 那是把性能修复换成一处静默显示缺陷。
+- 新增 `PublishHistory.row-view.test.js` 4 条（形状 + 同源 + 模板零裸调用与正向对偶 + metricValue 不入缓存），反证两个被禁形态各自指名变红、还原逐字节相同。既有 `PublishHistory.test.js` 一字未改仍全绿 ⇒ 渲染结果未变。
+- 同批否证两条审计建议：2.2①「谓词改读防抖值」与该视图 84 条既有契约（筛选即时一致）冲突 ⇒ 退回人工裁决不硬改；2.2③「加 renderLimit」实测已由分页 + 既有「加载更多」承担。

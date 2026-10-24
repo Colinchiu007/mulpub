@@ -1,0 +1,70 @@
+{
+  "sha": "583880187bb8007d7767d72cc990e0b41335f7db",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 478 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 478,
+    "fileCount": 11,
+    "codeFileCount": 6,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/logto-runtime.js",
+      "packages/api-publish-engine/src/auth/payment-providers/wechat-native-factory.js",
+      "packages/api-publish-engine/src/auth/production-config.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 8,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "| `test/payment-provider-factory.test.js`（新增） | 工厂单测 + **真密钥对验签** + **组装根测试** |",
+      "| 仍未完成的实质待办 | `0.3` / `8.8`（真机凭据）；**`9.8`（provider 未接线，见下）** |",
+      "| 仍未完成的实质待办 | **只剩 `0.3` / `8.8`（真机凭据与 E2E）**；`9.8`（provider 接线）已于同日修复 |"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"| `test/payment-provider-factory.test.js`（新增） | 工厂单测 + **真密钥对验签** + **组装根测试** |\",",
+      "      \"| 仍未完成的实质待办 | `0.3` / `8.8`（真机凭据）；**`9.8`（provider 未接线，见下）** |\",",
+      "      \"| 仍未完成的实质待办 | **只剩 `0.3` / `8.8`（真机凭据与 E2E）**；`9.8`（provider 接线）已于同日修复 |\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T16:10:38.703Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4252#issuecomment-6346157825",
+    "reviewedAt": "2026-10-22T16:45:00Z",
+    "findings": 2,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对本 PR 的 src+test+env diff（23,916 字符）独立审阅，原始输出逐字公开于 evidence。给出 1 High + 1 Medium。逐条核验：①High「签名原文必须含域名」**驳回**——微信官方文档《请求参数里带Body参数，如何计算签名》原文写着「获取请求的绝对URL，请注意需要去除域名部分」，示例签名串为 POST\\n/v3/pay/transactions/jsapi\\n…，path-only 才正确；按评审改会让所有下单 SIGN_ERROR。评审自身矛盾（子代理 PASS、主检 BLOCK）。②Medium「readPem 不校验 PEM 格式」**采纳**——新增 assertPrivateKey（crypto.createPrivateKey）与 assertPlatformKey（X509 证书或 SPKI 公钥，含裸 Base64），在构造期抛 PAYMENT_CERT_INVALID，把「用户点购买时 502」变成「启动期明确报错」。新增 4 例，总计 25 例，全量 rc=0。"
+  }
+}

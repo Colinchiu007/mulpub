@@ -1,0 +1,110 @@
+{
+  "sha": "4f52ea2b74e505e495a0ac2f44281cbf454899a1",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 986 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 986,
+    "fileCount": 14,
+    "codeFileCount": 10,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 16,
+    "docSensitiveContentHits": 14,
+    "docSensitiveContentSample": [
+      "账号管理页点「+ 添加账号」弹出「添加账号」弹窗（360px 宽），其中「平台」字段是一个**原生 `<select>`**。",
+      "`UiSelect.vue` 的实现是原生 `<select>` + `appearance: none`。`appearance: none` 只能去掉**收起态**的原生外观（箭头、边框），一旦展开，弹出列表由**操作系统/浏览器**绘制，**CSS 完全无法介入**——这是 Web 平台的能力边界，不是本项目的实现缺陷。",
+      "- 选中某平台 → `emit('update:modelValue', id)` → 浮层关闭 → 焦点回到触发器；"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "2e46e486ff552fe27db53b7e1c2a89553a5a3bc62bdc332b82fda2699b349cb3",
+  "decidedAt": "2026-10-22T04:17:28.817Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "getElementById uses raw platform id; HTML-invalid chars (space, digit-start) break keyboard scroll silently. Only 'weird:id' covered.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "选项定位用 getElementById(optionDomId(id))，而 optionDomId 把平台 id 原样拼进去。若平台 id 含空格、或以数字开头这类 HTML id 不友好的字符，元素就定位不到 ⇒ 键盘移动时滚动定位**静默失效**。现有用例只覆盖了 `weird:id` 一种形态。",
+        "defense": "getElementById 按 DOM 规范做的是**精确 id 属性值匹配**（\"return the first element whose ID is value\"），它不像 querySelector 那样解析选择器，因此不存在「非法字符导致解析失败/匹配不到」这回事；空格在 id 属性值里是完全允许的，`getElementById(\"a b\")` 照样命中。另外本组件拼出的 id 永远是 `mp-picker-<8位>-option-<平台id>`，前缀固定 ⇒ **不可能以数字开头**，指控里那条「digit-start」路径在本实现下不可达。",
+        "verdict": "dismissed",
+        "rationale": "指控混淆了两个 API 的语义：选择器解析的问题（querySelector，已在上一轮修掉）不适用于 getElementById。数字开头也不可达（id 有固定字母前缀）。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "watch(open,{flush:'post'}) runs updatePosition/focus synchronously; layout not finalized, causing wrong popup position or missed focus (proposal i3).",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "watch(open, …, { flush: 'post' }) 的回调里**同步**调用 updatePosition() 与 focus()，此时浏览器尚未完成布局 ⇒ 浮层可能算到错误位置，或因元素尚未可聚焦而丢焦点。",
+        "defense": "post-flush 的语义是「本次渲染（含 Teleport 到 body 的子节点）已落定」，此时 ref 已赋值、元素已在文档里；更关键的是 **getBoundingClientRect() 本身会强制同步布局**——它返回的永远是**当前已布局**的几何值，不是「布局前的估算」。聚焦同理：元素在文档中且未 disabled，focus() 即可生效。",
+        "verdict": "dismissed",
+        "rationale": "post-flush 只保证 DOM 落定，而几何与聚焦都不依赖「布局已完成」这一前提——前者由 getBoundingClientRect() 强制同步布局保证，后者只要求元素在文档中。可当场复核：本轮新增用例「浮层打开后搜索框自动获得焦点」直接断言 document.activeElement 是搜索框，**删掉嵌套 nextTick 后该用例仍然通过**（39 → 40 例全绿）。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "601 lines new code + 292 PRD for one dropdown; replaces UiSelect instead of extending it, creating duplication.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "为一个下拉框新增 601 行代码 + 292 行 PRD；而且是「另起一个」而不是扩展既有 UiSelect，造成两套下拉实现并存。",
+        "defense": "指控的前提有一处事实错误：**本 PR 没有替换 UiSelect**。`UiSelect` 的 15 处调用方（含视频创作面板那处带隐藏守卫契约的）原封未动；本 PR 只是**新增**一个领域专用选择器，并在「添加账号」这一处接线。之所以不扩展 UiSelect：它是通用控件，而「平台」需要平台图标（15 个真实品牌 SVG）、按平台目录分类分组、按平台 id 搜索 —— 这些是**领域信息**，塞进通用控件会让另外 14 个调用方背上无关的 prop。",
+        "verdict": "dismissed",
+        "rationale": "前提（替换 UiSelect）不成立；体量口径沿用第一轮已核过的账：新增的 601 行里约 1100 行是测试、292 行是 PRD（都是仓库强制），真正的新增代码是组件 414 行 + CSS 211 行，均在 `check-max-lines` 的 limit 500 之内。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "uid uses Math.random(); non-deterministic IDs cause test flakiness and SSR hydration mismatches.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "uid 用 Math.random() 生成 ⇒ id 不确定 ⇒ 测试可能抖动，且 SSR 场景会出现水合不一致（服务端与客户端 id 不同）。",
+        "defense": "本仓是 Electron 桌面应用，渲染层是 Vite 单页应用，**没有 SSR 也没有水合**这一环，「hydration mismatch」在此不成立；测试稳定性方面，所有用例都按 `data-testid` 定位（不依赖具体 uid 值），因此 uid 随机化不引入抖动。仓库既有同款写法（`UiModal.vue` 用 `Math.random().toString(36).slice(2, 10)`，长度一致）。",
+        "verdict": "dismissed",
+        "rationale": "指控的两个后果一个不适用（本仓无 SSR/水合）、一个不成立（用例不依赖 uid 值）。上一轮已把 uid 位数由 6 位加到 8 位与 UiModal 对齐，碰撞概率再降数个数量级。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-22T04:29:59.453Z"
+  }
+}

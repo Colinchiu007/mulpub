@@ -52,6 +52,31 @@ const KNOWN_METHODS = [
   // （model-provider-manager.js 的 OPERATION_NOT_SUPPORTED 分支），不在本表里的
   // 方法即便子类实现了也永远不会被调到。
   'listAvatars',
+  // 形象/声音克隆（change: digital-human-multiprovider，飞影 HiFly 已实现全套）。
+  // 与 heygen-clone mixin 的方法同名同参，便于两家互换；HeyGen 侧暂不登记是
+  // 计划内的 fail-closed（无真实 Key 核字段），不是遗漏。
+  'createAvatar', 'getAvatarStatus', 'deleteAvatar', 'getVoiceCloneStatus',
+  // change: hifly-full-api —— 补齐飞影官方剩余 11 个端点（2026-10-24）。
+  // 分两类：辅助管理（免费）与 6 个收费创作模式。每一项都只有真的实现了
+  // 对应端点的 adapter 才登记；未实现的保持不登记 ⇒ supports() false ⇒
+  // callAdapter 闸门 fail-closed。
+  //
+  // 辅助与作品管理（全部免费）：
+  //   getAccountCredit     GET    /account/credit         查询账户积分
+  //   listLivelyTemplates  GET    /video/lively_templates 网感模板列表
+  //   listCoverStyles      GET    /project/cover_styles   封面模板列表
+  //   createCover          POST   /project/covers         创建封面（唯一的免费创建端点）
+  //   deleteWork           DELETE /video/task             删除作品（仅普通视频创作任务）
+  'getAccountCredit', 'listLivelyTemplates', 'listCoverStyles', 'createCover', 'deleteWork',
+  // 收费创作模式（官方均标注「会产生积分消耗」）：
+  //   createVideoByAudio    POST /video/create_by_audio     声音驱动
+  //   createVideoByTemplate POST /video/create_by_template  网感模板
+  //   translateVideo        POST /video/translate           视频翻译
+  //   createVideoBySing     POST /video/create_by_sing      唱歌
+  //   createVideoByImage    POST /video/create_by_image     图片驱动
+  //   createAudioByTts      POST /audio/create_by_tts       音频创作
+  'createVideoByAudio', 'createVideoByTemplate', 'translateVideo',
+  'createVideoBySing', 'createVideoByImage', 'createAudioByTts',
 ]
 
 /**

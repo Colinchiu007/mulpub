@@ -283,6 +283,16 @@ const PRESET_PROVIDERS = [
     id: 'heygen', name: 'HeyGen', category: 'video',
     base_url: 'https://api.heygen.com/v2',
     models: ['heygen-video'],
+    // change: digital-human-multiprovider —— 数字人能力标识，
+    // 前端「数字人服务商」下拉与主进程 provider 解析都按它发现（不写死名称）。
+    capabilities: ['video', 'digital_human'],
+    is_preset: 1,
+  },
+  {
+    id: 'hifly', name: '飞影 HiFly', category: 'video',
+    base_url: 'https://hfw-api.hifly.cc/api/v2/hifly',
+    models: ['hifly-video'],
+    capabilities: ['video', 'digital_human'],
     is_preset: 1,
   },
   {
@@ -391,7 +401,7 @@ const PRESET_PROVIDERS = [
     // Agnes-AI 多模态：合并 Agnes 文字推理 / 图片生成 / 视频生成三类模型（中国站）
     id: 'agnes-multimodal', name: 'Agnes-AI', category: 'multimodal',
     base_url: 'https://api.agnes-ai.cn/v1',
-    models: ['agnes-3.0-flash', 'agnes-image-2.5-flash', 'agnes-video-2.5-flash'],
+    models: ['agnes-3.0-flash', 'agnes-image-2.5-flash', 'agnes-video-2.5-flash', 'agnes-video-2.5'],
     is_preset: 1,
     capabilities: ['llm', 'image', 'video'],
     capability_models: {
@@ -451,6 +461,7 @@ const PRESET_RATE_LIMITS = {
   cogvideo: { rate_per_minute: 6 },
   'grok-video': { rate_per_minute: 6 },
   heygen: { rate_per_minute: 8 },
+  hifly: { rate_per_minute: 8 },
   kling: { rate_per_minute: 6 },
   runway: { rate_per_minute: 6 },
   veo: { rate_per_minute: 6 },

@@ -27,7 +27,7 @@
       <div style="margin-bottom:6px">
         <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:3px">提取关键词：</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          <span v-for="kw in suggestions.keywords" :key="kw"
+          <span role="button" tabindex="0" @keydown.enter.prevent="$emit('apply-tag', kw)" @keydown.space.prevent="$emit('apply-tag', kw)" v-for="kw in suggestions.keywords" :key="kw"
             class="cohere-tag suggested-tag"
             :class="kw.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
             data-testid="suggested-tag"
@@ -43,7 +43,7 @@
       <div v-if="suggestions.relatedTerms && suggestions.relatedTerms.length > 0" style="margin-bottom:6px">
         <div style="font-size: var(--font-size-xs);color:var(--muted);margin-bottom:3px">相关话题：</div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
-          <span v-for="term in suggestions.relatedTerms" :key="term"
+          <span role="button" tabindex="0" @keydown.enter.prevent="$emit('apply-tag', term)" @keydown.space.prevent="$emit('apply-tag', term)" v-for="term in suggestions.relatedTerms" :key="term"
             class="cohere-tag cohere-tag-info suggested-tag"
             data-testid="suggested-tag"
             :title="t('tagSuggest.applyTagHint')"
@@ -85,7 +85,7 @@
           <div v-for="row in summaryRows" :key="row.platform" class="ts-summary-row" data-testid="tag-summary-row">
             <span class="ts-summary-name">{{ platformLabel(row.platform) }}</span>
             <span class="ts-summary-tags">
-              <span v-for="tag in row.visibleTags" :key="row.platform + ':' + tag"
+              <span role="button" tabindex="0" @keydown.enter.prevent="$emit('apply-tag', tag)" @keydown.space.prevent="$emit('apply-tag', tag)" v-for="tag in row.visibleTags" :key="row.platform + ':' + tag"
                 class="cohere-tag suggested-tag"
                 :class="tag.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
                 data-testid="suggested-tag"
@@ -113,7 +113,7 @@
           <template v-if="activeGroup && activeGroup.detail">
             <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px"><el-icon><EditPen /></el-icon> {{ t('tagSuggest.contentTags') }}</div>
             <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
-              <span v-for="tag in activeGroup.detail.content" :key="'c-'+tag"
+              <span role="button" tabindex="0" @keydown.enter.prevent="$emit('apply-tag', tag)" @keydown.space.prevent="$emit('apply-tag', tag)" v-for="tag in activeGroup.detail.content" :key="'c-'+tag"
                 class="cohere-tag cohere-tag-info suggested-tag"
                 data-testid="suggested-tag"
                 :title="t('tagSuggest.applyTagHint')"
@@ -125,7 +125,7 @@
 
             <div style="font-size: var(--font-size-xs);color:var(--muted);margin:4px 0 3px"><el-icon><TrendCharts /></el-icon> {{ t('tagSuggest.trafficTags') }}</div>
             <div style="display:flex;flex-wrap:wrap;gap:4px">
-              <span v-for="tag in activeGroup.detail.traffic" :key="'t-'+tag"
+              <span role="button" tabindex="0" @keydown.enter.prevent="$emit('apply-tag', tag)" @keydown.space.prevent="$emit('apply-tag', tag)" v-for="tag in activeGroup.detail.traffic" :key="'t-'+tag"
                 class="cohere-tag cohere-tag-success suggested-tag"
                 data-testid="suggested-tag"
                 :title="hotTitle(activeGroup.platform, tag) || t('tagSuggest.applyTagHint')"

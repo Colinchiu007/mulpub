@@ -39,6 +39,7 @@ const {
 const { LEGACY_OWNER_SUBJECT } = require('./store-schema')
 const { findFfmpeg } = require('./media-tool-paths')
 const { resolveProviderDefaultModel } = require('./model-provider-manager')
+const { buildSceneVideoReferenceParams } = require('./scene-video-reference')
 
 const SETTING_KEY = 'story2video_projects_v1'
 const MAX_PROJECTS = 1000
@@ -2142,13 +2143,9 @@ class Story2VideoProjectService {
     if (index < 0) throw new Error('分段不存在')
     const segment = { ...project.segments[index], status: 'processing' }
     const promptText = safeText(segment.videoPrompt || segment.prompt || segment.text, 20000)
-    if (!promptText || !promptText.trim()) {
-      throw new Error('该场景没有视频优化词，请先编辑或重新生成视频优化词')
-    }
+    if (!promptText || !promptText.trim()) throw new Error('该场景没有视频优化词，请先编辑或重新生成视频优化词')
     const manager = this.modelProviderManager
-    if (!manager || typeof manager.callAdapter !== 'function' || typeof manager.getDefault !== 'function') {
-      throw new Error('AI 视频生成服务不可用，请在模型设置中启用视频供应商')
-    }
+    if (!manager || typeof manager.callAdapter !== 'function' || typeof manager.getDefault !== 'function') throw new Error('AI 视频生成服务不可用，请在模型设置中启用视频供应商')
     const generator = this._defaultVideoGenerator(manager)
     if (!generator) throw new Error('未配置可用的视频供应商，请在模型设置中启用视频生成能力')
     const projectDir = this._projectDir(projectId)
@@ -2159,6 +2156,8 @@ class Story2VideoProjectService {
       const size = this._videoSize(project.options || {})
       const fps = Number(project.options && project.options.fps) > 0 ? Number(project.options.fps) : 30
       const runDir = path.join(os.tmpdir(), 'story2video', 'videoscenes', 'history_' + projectId)
+      const reference = buildSceneVideoReferenceParams({ model: generator.model, imagePath: segment.imagePath, allowedRoots: [projectDir, ...getAllowedMediaRoots()] })
+      if (reference.reason && reference.reason !== 'no-scene-image') this.log?.warn?.('[Story2VideoProjectService] scene video reference skipped: ' + reference.reason)
       const outcome = await this.assetRetry(() => this.generateSceneVideoStage({
         manager,
         providerId: generator.providerId,
@@ -2170,6 +2169,7 @@ class Story2VideoProjectService {
         fps,
         runDir,
         pollIntervalMs: Number(project.options && project.options.video && project.options.video.pollIntervalMs) > 0 ? Number(project.options.video.pollIntervalMs) : 10000,
+        ...reference.params,
       }))
       if (!outcome || !outcome.success || !outcome.path) {
         throw new Error((outcome && (outcome.error || outcome.message)) || 'AI 视频生成失败')

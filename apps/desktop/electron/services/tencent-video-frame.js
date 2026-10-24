@@ -18,6 +18,9 @@
 /** 子 frame 的 URL 片段（真机取证） */
 const CONTENT_FRAME_HINT = '/micro/content/post/create'
 
+/** 视频号短标题字数上限（真机实测：超过 16 字页面报「标题超过16字限制」） */
+const SHORT_TITLE_MAX = 16
+
 /**
  * 在 win 的所有 frame 里找内容 frame。
  * @param {object} win BrowserWindow
@@ -51,8 +54,12 @@ async function fillTencentVideo (win, data, opts) {
   }
   if (log) log.info('RpaView', '[' + platform + '] content frame found: ' + String(frame.url).slice(0, 80))
 
-  const title = String((data && data.title) || '')
-  const content = String((data && data.content) || '')
+  const rawTitle = String((data && data.title) || '')
+  // 视频号「短标题」上限 16 字（真机取证 2026-10-22：18 字标题会被页面红字拦下「标题超过16字限制」）
+  const title = rawTitle.slice(0, SHORT_TITLE_MAX)
+  // 超限时把完整标题并入正文首行，避免信息丢失
+  const content0 = rawTitle.length > SHORT_TITLE_MAX && String((data && data.content) || '').indexOf(rawTitle) < 0
+  const content = content0 ? (rawTitle + String.fromCharCode(10) + String((data && data.content) || '')) : String((data && data.content) || '')
 
   // 1) 填「视频描述」= textarea（真机 ta=1）；没有 textarea 时退回 contenteditable
   const descCode = '(function(){'

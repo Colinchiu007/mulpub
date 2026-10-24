@@ -51,12 +51,56 @@ _STYLE_TO_STRATEGY = {
     "认知锚点": "rewrite",
 }
 
-# length→字数范围映射
+# length→字数范围映射：(min, max, target)
+#
+# 数字的来历（2026-10-21 现场取证）：
+#   · keep 的 (300, 3000, 1500) = 外部引擎 `content_aggregator_shared` 的
+#     `RewriteConfig` **默认值逐字**（rewriter.py: min=300 / max=3000 / target=1500）
+#     ⇒ keep 档的语义就是「用引擎默认配置」。
+#   · compress(100,800,400) / expand(800,5000,2500) 是 2026-09-06 `d0a9b00ba`
+#     （Phase 1.4，随「长度下拉：保持/精简/扩写」一起进）里人工挑的相对档，
+#     以 keep 为轴约缩 1/4 / 放大约 5/3；该提交**没有记录推导过程**。
+#   · 它们的时代背景：2026-09 全局输出上限还是 6000 字；后来 `rewrite-limits-50000`
+#     （2026-10-19）把引擎上限放到 50000，这三档**没跟着放大** ⇒ keep 的 3000
+#     反而成了整套体系里最紧的一道「暗上限」。
+#
+# 2026-10-21（feat-zhihu-fav-batch-wordcount 的 follow-up）：三档的 **max 统一提到
+# 50000**，与引擎输出上限对齐，解除上面那道历史暗上限。
+# ⚠️ **target 才是模型实际落点的锚**（prompt 写的是「目标 N 字」），max 只是硬上界；
+# 改 max = 解除人为上限；改 target 才会改变实际篇幅 —— 2026-10-22 据此把 compress
+# 的 target 由 400 重定为 800（400 是按 keep 的 1/4 取的相对档；详见对应 PRD）。
+#
+# 运行时消费链：max → `RewriteConfig.max_word_count` → 引擎写进 prompt 的字数区间
+# （「字数要求:{min}-{max}字,目标{target}字」），引擎**不按 max 截断** ⇒ 实际篇幅仍由
+# target 锚定；界面显示的目标字数取自渲染层镜像 `LENGTH_TARGET_CHARS`（跨语言结构锁保证一致）。
 _LENGTH_RANGES = {
-    "keep": (300, 3000, 1500),
-    "compress": (100, 800, 400),
-    "expand": (800, 5000, 2500),
+    "keep": (300, 50000, 1500),
+    "compress": (100, 50000, 800),
+    "expand": (800, 50000, 2500),
 }
+
+
+def _resolve_target_word_count(min_wc: int, max_wc: int, original_length: int) -> int:
+    """推导改写的**目标篇幅**（写进 prompt 的「目标 N 字」）。
+
+    动因（feat-zhihu-fav-batch-wordcount，2026-10-21）：原先显式区间一律用
+    **区间中点**当目标（``(min + max) // 2``）。用户把区间设成 0-6000 时目标变成 3000 字：
+    对一篇 300 字的知乎回答是「要求写 3000 字」（离谱膨胀），对 5000 字的长文则是「砍掉四成」。
+    中点语义对**宽区间**天然失真。
+
+    改法（与 Node 引擎 ``word-count-instruction.js`` 的 min=0 语义对齐）：
+
+    - ``min > 0``：仍是区间中点——用户给了窄区间，中点就是他要的（既有语义不动）；
+    - ``min == 0``（**不设下限**）：目标 = ``min(原文长度, 上限)``——与原文篇幅相当且不超上限。
+      原文长度未知时取上限。
+
+    注意 ``min == 0`` 只能由**显式传入**走到这里；``length`` 三档路径完全不受影响。
+    """
+    if min_wc > 0:
+        return (min_wc + max_wc) // 2
+    if original_length > 0:
+        return min(original_length, max_wc)
+    return max_wc
 
 
 class AggregationService:
@@ -286,7 +330,9 @@ class AggregationService:
         if "min_word_count" in fields_set and "max_word_count" in fields_set:
             min_wc = request.min_word_count
             max_wc = request.max_word_count
-            target_wc = (min_wc + max_wc) // 2
+            # 目标篇幅不再用区间中点（宽区间下中点会把内容砍一半/撑爆短文），
+            # 语义见 _resolve_target_word_count 的注释。
+            target_wc = _resolve_target_word_count(min_wc, max_wc, len(request.content or ""))
         else:
             min_wc, max_wc, target_wc = _LENGTH_RANGES.get(request.length, (300, 3000, 1500))
         rewrite_cfg = RewriteConfig(

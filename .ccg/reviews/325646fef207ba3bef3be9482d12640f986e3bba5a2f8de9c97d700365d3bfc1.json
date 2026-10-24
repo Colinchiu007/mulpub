@@ -1,0 +1,61 @@
+{
+  "sha": "87079c4557097e223be26c06fd8cfc0750eb9aba",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 6 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 6,
+    "fileCount": 7,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "| i7 | Warning | 「默认 GITHUB_TOKEN 已含 actions:read」只在未声明 permissions 时成立；需改承载判据的 workflow，而 Impact 未列 | **前提不成立（已核）**：**没有任何 workflow 跑 `scripts/check-main-red.js`**（quality-gate.yml:449 只是注释提到它），判据是**本地工具**（合并入口调用，用 gh CLI 本机凭据），CI 只跑它的**测试**（不联网）⇒ 不需要改任何 workflow 的 `permissions`，Impact 也不必加文件。文档已改写为该形态 |",
+      "**判据是本地工具**（由合并入口 `merge-when-green.{ps1,sh}` 调用，用 gh CLI 的本机凭据）；",
+      "本判据是**本地工具**（由合并入口调用，用 gh CLI 的本机凭据），CI 只跑它的测试（不联网）⇒"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "325646fef207ba3bef3be9482d12640f986e3bba5a2f8de9c97d700365d3bfc1",
+  "decidedAt": "2026-10-22T05:01:28.538Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

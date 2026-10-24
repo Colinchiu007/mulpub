@@ -1,0 +1,45 @@
+{
+  "sha": "c178a2dfbb22e65d2807bdeac59f2d2f5c65381d",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 5,
+          "clarity": 6,
+          "feasibility": 5,
+          "security": 6
+        }
+      }
+    ],
+    "error": "Revision校验失败",
+    "validationErrors": [
+      "edits[0]before 在方案原文中不存在（逐字匹配失败）：\"④ rename 旧 film-kit → film-kit.bak-<ts>\\n\"",
+      "edits[3]before 在方案原文中不存在（逐字匹配失败）：\"S18 **锁的存活判定用「租约心跳」，不用 PID**（PID 会被复用 ⇒ \"",
+      "edits[4]before 在方案原文中不存在（逐字匹配失败）：\"S6 **两遍扫描 + 逐文件哈希对账**：第一遍 `lstat` 全量算形状/\"",
+      "edits[6]before 在方案原文中不存在（逐字匹配失败）：\"`VALIDATION_ERROR` / `NOT_A_DIRECTORY` /\"",
+      "edits[7]before 在方案原文中不存在（逐字匹配失败）：\"S11 导入中 ⇒ service 不从磁盘重读 kit：标记 = 内存标志 *\"",
+      "edits[9]before 在方案原文中不存在（逐字匹配失败）：\"S16 第 0 步预检与校验（**全程只读源目录**，= §二 ⓪a-⓪d）：①\"",
+      "edits[10]before 在方案原文中不存在（逐字匹配失败）：\"S10 固定深度 + 隐藏名 + 扩展名（**只作用于白名单内条目**）：`pr\"",
+      "edits[11]before 在方案原文中不存在（逐字匹配失败）：\"③ `ERROR_ACCESS_DENIED`（被占用：杀毒/索引器/编辑器暂存\"",
+      "responses[3]decision=partially_accepted 但没有对应的 edit（issueId=i4）——方案将原封不动，循环无法收敛",
+      "responses[4]decision=accepted 但没有对应的 edit（issueId=i5）——方案将原封不动，循环无法收敛",
+      "responses[6]decision=accepted 但没有对应的 edit（issueId=i7）——方案将原封不动，循环无法收敛",
+      "responses[7]decision=accepted 但没有对应的 edit（issueId=i8）——方案将原封不动，循环无法收敛"
+    ],
+    "note": "第 1 轮修订失败",
+    "artifacts": ".adversarial\\ccg-plan-pr3b-import-design-codex",
+    "at": "2026-10-23T00:42:00.341Z"
+  }
+}

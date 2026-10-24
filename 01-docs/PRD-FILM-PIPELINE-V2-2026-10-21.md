@@ -75,6 +75,28 @@
 > - **存量 153 条分镜**：`videoPrompt` 归一化为空串，视频请求回落到 `imagePrompt`，**行为与本次变更前逐字一致**。实测块标记分布：`AUDIO` 命中 **62** 条（其中 **29** 条真正成块、可被运动子集剔除），`GEO SPATIAL LAYOUT` / `ACTION TIMING` / `CHARACTER ACTING` / `POSITIVE CONSTRAINTS` 在存量 kit 中命中 **0** 条 ⇒ **124** 条模板的运动子集与首帧图逐字相同。
 > - **既有拼装的已知缺口（本次不修）**：`shot[0].prompt` 原文 13,922 字符，但**改造前既有**的 `buildTemplatePrompt` 只取五类块标记内容，散文正文（角色外观描述等）本就不在拼装结果里 —— 与本次变更无关（本次对首帧图拼装**逐字不变**）；治理路径（一次性 LLM 重算 + 人工审核）列为后续项，**不阻塞本批次**。
 
+#### 3.1b 方法论接线字段（PR-3 · F-I）
+
+规划期把「方法论资产」接到每镜上，字段分**三级**落点 —— **长文本一律不落用户项目文件**（design D22）。
+
+| 字段 | 落点 | 类型 | 语义 |
+|------|------|------|------|
+| `promptContext.taskId` | plan 级（项目文件 + 计划文件） | string | 任务模板 id（`generate_shot_prompt`） |
+| `promptContext.locale` | plan 级 | string | 渲染语种（`zh` / `en`） |
+| `promptContext.promptAssetHash` | plan 级 | string（sha256 64 hex） | **提示词资产面**哈希：doctrine + 任务 system/user 原文 + locale + 回退事实。**域有边界**：**不含**色盘行 / 角色描述 / 逐镜时长与模型（那些由逐镜 `promptRenderHash` 覆盖）⇒ 「换色盘 ⇒ 提示词资产哈希变」是**假命题** |
+| `promptContext.frameConstraint` | plan 级 | object | 尾帧约束**只留哈希与长度**：`{ hash, length, locale, fallback, truncated, source, originalHash, originalLength }`；**不含原文**。`hash`/`length` 取**截断后**文本（上限 50000），`originalHash`/`originalLength` 取**截断前**原文（否则截断点之后的改动不可见） |
+| `promptContext.frameConstraintPending` | plan 级 | boolean | 本批次**不逐镜派生**尾帧文本（要 LLM）⇒ 规则已接入、逐镜待派生 |
+| `promptContext.fallbackLocales` | plan 级 | object | **按来源分组**的回退事实：`{ doctrine: {}, palette: {}, task: {} }` |
+| `promptContext.assetsIncomplete` | plan 级 | boolean | **只覆盖 kit 结构性缺失**（缺 doctrine / 缺 promptLibrary）；`style_prefix` 与 `geo_block` 走 `blockedVars`（计入它会恒为 true，且重导资产也解决不了） |
+| `promptContext.taskAvailable` | plan 级 | boolean | 任务模板库是否真的接上了（缺库时 taskId 仍在，但没有可渲染的原文） |
+| `shot.promptVars` | 逐镜（项目文件） | object（string→string） | 该镜的 7 个任务变量**已填**的值（不含长文本） |
+| `shot.promptMissing` | 逐镜（项目文件） | array | 缺失清单：`{ name, reason }`，reason ∈ `byDesign` / `assetMissing` / `templateVar` / `badVarName` |
+| `shot.promptRenderHash` | 逐镜（项目文件） | string（sha256 64 hex） | **渲染面**哈希：固定键序的该镜 vars + locale ⇒ 同镜同资产 ⇒ 渲染**逐字相同** |
+| `shot.endFramePrompt` | 逐镜（项目文件） | string | **本批次仍为 `''`**（逐镜尾帧文本要 LLM 派生）⇒ 留空即「不发送」，不会把规则原文当正文喂给模型 |
+| `methodology`（规划结果） | **仅 IPC 返回值，不落盘** | object | 只读面板的数据源：`{ taskId, locale, promptAssetHash, totalVars, hitVars, deliverable, blockedVars, assetsIncomplete, frameConstraintPending, frameConstraintHash }` |
+
+**为什么不落方法论原文**：`system` 原文已被判定「属提示词资产，导出面需单独权限评审」；同理，尾帧约束原文落进**用户项目文件**也多出一条外发/日志面（项目文件会随分享、日志、备份流出去）。原文本来就在用户**本地的 kit** 里，需要时按 kit 读 ⇒ 用户项目文件里**不含任何方法论原文**。
+
 ### 3.2 Project 修订号
 
 | 字段 | 类型 | 语义 |
@@ -138,6 +160,39 @@ costCheck: {
 | 单镜秒数 | `5` \| `8` \| `10`（默认 5） | `AUTO_BAD_PARAM` |
 
 > **本次新增**：派生三分后，若 `imagePrompt` 为空 ⇒ 该镜 `ready=false`（不阻断规划，规划本身仍出预览）。
+
+#### 4.1b 方法论接线的校验（PR-3 · F-I）
+
+| # | 校验点 | 判据 | 失败时 |
+|---|--------|------|--------|
+| V-M1 | 变量名合规 | 提供的变量名必须匹配 `^[a-z][a-z0-9_]*$` | 计入 `promptMissing`（reason=`badVarName`）⇒ `deliverable=false` |
+| V-M2 | 模板要但没给的变量 | `renderTemplate` 返回的 `missing` | 计入 `promptMissing`（reason=`templateVar`）⇒ `deliverable=false` |
+| V-M3 | 空串语义 | **已提供的空串** ⇒ 渲染为空串（不留占位符）；**未提供** ⇒ 保留 `{{var}}` 原样 | 两者分别锁进用例 |
+| V-M4 | 尾帧约束长度 | `frameConstraint.length ≤ FILM_PROMPT_MAX_LEN(50000)` | 超长截断并 `truncated=true`（**不放宽**上限）；`originalLength` 记**截断前**长度，`originalHash` 记**截断前**原文的指纹（否则截断点之后的改动**不可见**） |
+| V-M5 | 尾帧约束语种 | doctrine 的 `zh`/`en`；缺该语种回退 `zh` | 回退记进 `fallbackLocales.doctrine` |
+| V-M6 | 资产缺失可见 | 缺 doctrine ⇒ W10；缺 promptLibrary ⇒ W11 | 规划**仍出结果**，但 `assetsIncomplete=true` 且面板可见 |
+| V-M7 | 可直送判据 | `deliverable === true`（`missing` 为空）才允许把渲染文本直送模型 | false ⇒ 消费方**必须**拒绝直送（机器可判字段 + 测试锁死） |
+| V-M8 | 确定性 | 同 kit + 同 locale ⇒ `promptAssetHash` 与 `promptRenderHash` 相同 ⇒ 重渲染**逐字相同** | 哈希变了 ⇒ 必须重渲染并**显式记录**，不静默沿用 |
+| V-M9 | 碰撞防护 | 哈希拼接用**长度前缀**（`len:key=len:value`） | 杜绝 `a=bc` 与 `ab=c` 碰撞 |
+| V-M10 | 体积口径 | 项目文件里**不含**方法论原文（尾帧约束只留哈希与长度） | 用例直接断言「逐镜没有原文副本」 |
+| V-M11 | **kit 自由文本长度上限** | `palette_line` / `character_descriptors` 超过 **20,000 字符** ⇒ **不提供该变量** | 进 `promptMissing`（reason=`assetMissing`）⇒ `deliverable=false`；**不静默截断**（截断会把「资产异常」伪装成「资产正常」）。角色描述超限时**整个变量**不提供（部分提供会产出「看着完整、其实缺角色」的提示词） |
+| V-M12 | **尾帧约束截断两态** | `frameConstraint.hash`/`length` 取**截断后**文本；`originalHash`/`originalLength` 取**截断前** | 两段「前 50000 字相同、后半不同」的文本：截断后哈希**相同**、`originalHash` **不同** ⇒ 截断点之后的改动**可检测** |
+| V-M13 | **哈希域边界** | `promptAssetHash` 覆盖 doctrine / 任务 system / user；**不**覆盖色盘与角色描述 | 后两者由逐镜 `promptRenderHash` 覆盖；旧名 `assetHash` 在实现代码里**零残留** |
+| V-M24 | **截断名唯一** | 截断后的名字加 **6 位哈希后缀** | 两个前 63 字相同的长名字截断后**同名** ⇒ 面板按 name+reason 去重会把两条并成一条 |
+| V-M23 | **kit 自由文本净化** | `palette_line` / `character_descriptors` 剥除 C0/C1 控制字符与零宽字符（U+200B-200F、U+202A-202E、U+2060-2064、U+FEFF），**净化先于**长度判定 | 控制字符能破坏提示词结构、零宽字符能**藏**内容；长度上限按**净化后**的文本计 |
+| V-M14 | **逐镜字段长度上限** | `shot_json` 的 `title` / `characterNames` / `model` 超过 **2,000 字符**（`MAX_SHOT_FIELD_LEN`）；kit 自由文本用 `MAX_KIT_VAR_LEN` = **20,000**（`palette_line` 整行；`character_descriptors` **多角色拼接后的合计**） ⇒ **不提供** `shot_json` | 进 `promptMissing`（reason=`oversizeVar`）⇒ `deliverable=false`；**不静默截断** |
+| V-M17 | **超长是独立一类** | 超长的变量 reason = `oversizeVar`（**不是** `assetMissing`） | 「资产**有**，只是太大」与「资产**没有**」是两回事，混在一起会让面板显示错因 |
+| V-M18 | **哈希的域分层** | `promptAssetHash` 吃**完整** doctrine（**不截断**）；`frameConstraint.hash`/`length` 吃**截断后**文本；`originalHash` 吃**截断前** | 截断点之后的改动：`promptAssetHash` **变**、`frameConstraint.hash` **不变**、`originalHash` **变** |
+| V-M20 | **变量名封顶** | 清单里的变量名 ≤ **64 字符** | 名字来自**不可信**的 kit 模板 ⇒ 不封顶会让 1MB 的变量名进逐镜项目文件 |
+| V-M21 | **缺失态进哈希** | 逐镜渲染哈希覆盖**缺失清单**（`name + reason`） | 「变量超限」与「变量没有」**不同哈希**（否则两者都只是「不在 vars 里」⇒ 同哈希） |
+| V-M22 | **计数单位** | 长度与截断按 **UTF-16 code unit**（JS `.length` / `.slice` 语义） | 截断**不切开代理对**（回退一个 code unit）—— 跨实现一致 + 不留半个 emoji |
+| V-M21 | **缺失态进哈希** | 逐镜渲染哈希覆盖**缺失清单**（`name + reason`） | 「变量超限」与「变量没有」**不同哈希**（否则两者都只是「不在 vars 里」⇒ 同哈希） |
+| V-M22 | **计数单位** | 长度与截断按 **UTF-16 code unit**（JS `.length` / `.slice` 语义） | 截断**不切开代理对**（回退一个 code unit）—— 跨实现一致 + 不留半个 emoji |
+| V-M19 | **哈希的负向域** | 改色盘 / 角色描述**不改** `promptAssetHash`（不在它的域里），改的是**逐镜** `promptRenderHash` | 光有正向断言时，「把色盘也塞进哈希」这种过度覆盖**不会**被发现 |
+| V-M15 | **缺失分类判据** | `byDesign` = **产品里没有这个资产的形态** 或 **本批次不取**；`assetMissing` = **有资产形态、当前取不到** | `style_prefix` = byDesign（doctrine 的 `style` 块是规则描述，示例值不是资产）；`geo_block` = **byDesign**（第 17 轮 i3 改判：跨模板取 GEO 块的**选取规则未定义** ⇒ 本批次**不取** ⇒ 缺的不是资产，是「我们决定不取」） |
+| V-M16 | **清单计数只算任务变量**（非任务变量条目 **≤ 8**，**实现里强制**：超出部分不落清单、`deliverable` 仍为 false；单镜 `promptMissing` 序列化 **≤ 8 KiB（按 UTF-8 字节数）** —— 两条**自洽**：总条目 ≤ 15 × (64 字符 × **6 字节**（JSON 转义最坏）+ ~30 B) ≈ 6.2 KB ≤ 8 KB） | 「命中数 + 清单条数 == 7」中的清单条数**只统计 7 个任务变量** | `templateVar` / `badVarName`（模板多要的变量、我们给错的名字）**不在 7 个之内** ⇒ 一并计数会让该断言在模板多要变量时**必然为假** |
+
+**不做的事**：规划期**不调 LLM**（`planAutoShots` 的契约是「零 provider 调用、零落盘」，且成本闸 F-B 在 PR-5 才落地 ⇒ 此刻调 LLM 就是「没有闸的花钱」）。
 
 ### 4.2 Kit 加载期（`kit-loader`）
 
@@ -215,6 +270,35 @@ costCheck: {
 ```
 
 **参考图优先级声明**（自动模式侧）：同一镜绑定多张参考图时，**最早的一张 = 身份锚**，其余仅用于场景/光线/构图/情绪。该声明随 `imagePrompt` 一同派生。
+
+#### 5.1b 方法论接线的流程（PR-3 · F-I）
+
+**触发点**：自动模式的**规划**（`film-engineering:auto-plan`）。客户端只传剧本/参考图/画幅/时长/语种；
+**方法论资产由服务端从 kit 取**（客户端不得回传资产，也不得回传分镜）。
+
+```
+IPC auto-plan
+  ├─ service.getKitContext()  → { doctrine, palette, promptLibrary, manifest }（只给方法论接线要用的四样）
+  ├─ planAutoShots({ ..., kit, locale })
+  │    ├─ buildPlanPromptContext({ kit, locale })       ← plan 级，只做一次
+  │    │    ├─ 尾帧约束：doctrine.frame_constraint → { hash, length, locale, fallback, truncated }
+  │    │    ├─ 任务模板：getTaskPrompts(library, 'generate_shot_prompt', locale)（en 缺失 → 回落 zh）
+  │    │    ├─ promptAssetHash = sha256(v1 + locale + 回退事实 + doctrine + system + user)
+  │    │    └─ 产出 W10 / W11（缺资产时）+ assetsIncomplete
+  │    └─ 逐镜：buildShotTaskVars({ shot, kit, locale, durationSec })
+  │         ├─ 填 7 个变量（固定键序的 shot_json / palette_line / character_descriptors / duration_sec / model）
+  │         ├─ style_prefix ⇒ byDesign（**不提供** ⇒ 渲染保留 {{style_prefix}}）
+  │         ├─ geo_block ⇒ assetMissing（提供空串 ⇒ 渲染为空串）
+  │         └─ promptRenderHash = sha256(v1 + locale + 固定键序的 vars)
+  ├─ writePlan（计划文件：含 plan 级 promptContext 与逐镜 vars/missing/hash）
+  └─ 返回 { ..., methodology }（只读面板的数据源；**不落盘**）
+```
+
+**消费侧（本批次不消费）**：`endFramePrompt` **只产出不发送**（消费路径的前置条件未落地，见 C2）；
+`promptTask` 的渲染文本**只留在规划结果**，后续接 LLM 时直接消费，届时必须先校验 `deliverable`。
+
+**降级路径**：kit 缺 doctrine / promptLibrary ⇒ 规划**照常出结果**（老 kit 也能用），只是方法论没接上，
+面板显示「资产不完整，请重新导入」⇒ **缺失可见，不静默**。
 
 ### 5.2 成本闸 + 就绪度
 
@@ -333,6 +417,18 @@ split → scene_context（已有）
 - 提供「只生成可生成的 N 镜」次级操作（默认**关闭**，避免用户误以为全部生成）。
 - 就绪度为**只读**展示，不提供就地编辑。
 
+#### 6.1b 方法论接入状态面板（PR-3 · F-I · 只读）
+
+**位置**：自动标签 → 规划确认卡（预览态）内，**分镜清单上方**，plan 级（**不逐镜铺开**）。
+
+**显示什么**：① 任务模板（缺失时显示「任务模板库缺失（未接入）」）② 变量命中 `N/7` ③ 未接入的变量（代码标识符，逗号分隔）
+④ 存在未接入变量时提示「这份提示词不能直送模型」⑤ 资产不完整时提示「请重新导入」⑥ 尾帧规则已接入、逐镜待派生 ⑦ 资产版本戳（`promptAssetHash` 前 8 位）。
+
+**交互**：**纯只读**，无复制/导出/编辑入口（提示词资产的导出面需单独权限评审）。
+**为什么要有这个面板**：`promptTask` 在本批次**没有消费方**（接 LLM 是后续 PR），
+若只落在测试里，它就是「只有测试没有生产消费方」——面板让它在**用户路径上可见**，
+回答「我的自动分镜到底接上了多少方法论」，并如实显示「5/7」而不是假装「7 个变量都接上了」。
+
 ### 6.2 自动标签 · 运行中逐镜表
 
 | 状态 | 显示 | 可用操作 |
@@ -378,6 +474,38 @@ split → scene_context（已有）
 **不新增的显示项**：不新增顶部导航项、不新增标签页、不改既有「自动/画布/项目案例」三标签结构。
 
 ---
+
+### 7.b 方法论接入状态面板的显示项（PR-3 · F-I）
+
+| 显示项 | 数据源 | 形态 | 缺数据时 |
+|--------|--------|------|----------|
+| 任务模板 | `methodology.taskId` / `taskAvailable` | 文本（代码标识符） | `taskAvailable === false` ⇒ 显示「任务模板库缺失（未接入）」 |
+| 变量命中 | `methodology.hitVars` / `totalVars` | `N/7` | 无上下文 ⇒ **整个分区不渲染**（老 kit 兼容） |
+| 未接入的变量 | `methodology.blockedVars[].name` + `.reason` | 每项「变量名（原因文案）」 | 空 ⇒ 该行不渲染 |
+| 可否直送 | `methodology.deliverable === false` | 一行提示（**按 reason 分流两态**，见 §8.b 的 15/16 号 key） | true ⇒ 该行不渲染 |
+| 资产完整性 | `methodology.assetsIncomplete` | 一行提示（**不指向导入入口** —— 产品里没有该功能） | false ⇒ 该行不渲染 |
+| 尾帧约束状态 | `methodology.frameConstraintPending` | 一行提示 | false ⇒ 该行不渲染 |
+| 资产版本戳 | `methodology.promptAssetHash.slice(0, 8)` | 8 位十六进制 | 无 ⇒ 显示空 |
+| **资产已变** | `methodology.stale` | **区块级**警告（不是一行字段） | false ⇒ 不显示 |
+
+**每一行的行标签必须互不相同**（第 9 轮 i6）：本分区共 7 行，行标签分别是
+「任务模板 / 变量命中 / 未接入的变量 / 可否直送 / 资产完整性 / 尾帧约束 / 资产版本戳」——
+此前「可否直送 / 资产完整性 / 尾帧约束」三行**复用了「任务模板」**（key 都在、但标签错位）。
+
+**分区在两种状态下都可见**（第 9 轮 i4）：
+- 刚规划完 ⇒ 数据来自规划结果；
+- **重开一个已规划的项目** ⇒ 规划结果不在内存里，数据来自**落盘**的
+  `promptContext` + 逐镜 `promptMissing`（由服务端用**同一个**汇总实现重新算）。
+⇒ 面板读一个**计算属性**（规划结果优先、其次项目投影），**不是**直接读 `plan.methodology`。
+
+**方法论分区（F-H）新增的两个只读分区**（项目案例标签 → 提示词方法论）：
+
+| 分区 | 数据源 | 字段显示 |
+|------|--------|----------|
+| 配方 | `doctrine.recipes[]` | `label`（粗体）、`zh`、`blockKeys`（「包含块」行，斜杠分隔） |
+| 失败台账 | `doctrine.failureLedger[]` | `id · 症状`、成因、修法、标签（`el-tag` 列表） |
+
+**只读**：两个分区不含任何写操作（无点击、无输入框、无按钮）⇒ 方法论只能看，改法一律走「自动」标签。
 
 ## 八、提示文字（可直接使用的文案表）
 
@@ -448,6 +576,66 @@ split → scene_context（已有）
 
 ---
 
+### 8.b 方法论接线的文案（PR-3 · F-I · 27 个 key，zh/en 成对）
+
+| # | key | zh | en |
+|---|-----|----|-----|
+| 1 | `filmEngineering.doctrine.recipes` | 配方 | Recipes |
+| 2 | `filmEngineering.doctrine.recipeBlocks` | 包含块 | Blocks |
+| 3 | `filmEngineering.doctrine.failureLedger` | 失败台账 | Failure ledger |
+| 4 | `filmEngineering.doctrine.failureSymptom` | 症状 | Symptom |
+| 5 | `filmEngineering.doctrine.failureCause` | 成因 | Cause |
+| 6 | `filmEngineering.doctrine.failureFix` | 修法 | Fix |
+| 7 | `filmEngineering.doctrine.failureTags` | 标签 | Tags |
+| 8 | `filmEngineering.auto.methodology` | 方法论接入状态 | Methodology wiring |
+| 9 | `filmEngineering.auto.methodologyTask` | 任务模板 | Task template |
+| 10 | `filmEngineering.auto.methodologyHit` | 变量命中 | Variables filled |
+| 11 | `filmEngineering.auto.methodologyBlocked` | 未接入的变量 | Variables not wired |
+| 12 | `filmEngineering.auto.methodologyDeliverable` | 可否直送 | Ready to send to the model |
+| 13 | `filmEngineering.auto.methodologyAssets` | 资产完整性 | Asset completeness |
+| 14 | `filmEngineering.auto.methodologyFrame` | 尾帧约束 | Tail-frame constraint |
+| 15 | `filmEngineering.auto.methodologyNotDeliverable` | 存在未接入变量，这份提示词不能直送模型（请先人工补齐未接入的变量） | Some variables are not wired, so this prompt cannot be sent to the model as is (fill in the unwired variables first) |
+| 16 | `filmEngineering.auto.methodologyNotDeliverableAssets` | 存在未接入变量，这份提示词不能直送模型（请先人工补齐未接入的变量，或补齐对应资产） | Some variables are not wired, so this prompt cannot be sent to the model as is (fill in the unwired variables, or supply the missing assets) |
+| 17 | `filmEngineering.auto.methodologyAssetsIncomplete` | 影视工程资产不完整（缺少提示词方法论或任务模板库），相关能力未接入 | Film engineering assets are incomplete (prompt doctrine or task template library missing); the capability is not wired |
+| 18 | `filmEngineering.auto.methodologyFramePending` | 尾帧约束规则已接入（plan 级），逐镜尾帧文本待模型派生 | Tail-frame rules are wired (plan level); per-shot tail-frame text awaits model derivation |
+| 19 | `filmEngineering.auto.methodologyAssetHash` | 资产版本戳 | Asset version |
+| 20 | `filmEngineering.auto.methodologyNoLibrary` | 任务模板库缺失（未接入） | Task template library missing (not wired) |
+| 21 | `filmEngineering.auto.methodologyReasonByDesign` | 设计上不填（该变量没有资产源） | Not filled by design (this variable has no asset source) |
+| 22 | `filmEngineering.auto.methodologyReasonAssetMissing` | 资产缺口（该资产尚未提供） | Asset gap (this asset is not provided yet) |
+| 23 | `filmEngineering.auto.methodologyReasonTemplateVar` | 模板需要但未提供 | Required by the template but not provided |
+| 24 | `filmEngineering.auto.methodologyReasonBadVarName` | 变量名不合法（实现缺陷） | Invalid variable name (implementation defect) |
+| 25 | `filmEngineering.auto.methodologyReasonOversizeVar` | 变量内容过长（资产装不进提示词） | Variable content is too long (the asset does not fit the prompt) |
+| 26 | `filmEngineering.auto.methodologyStale` | 资产已变（哈希不一致），这份接入状态已过期，请重新规划 | Assets have changed (hash mismatch); this wiring status is out of date, please re-plan |
+| 27 | `filmEngineering.auto.methodologyTruncated` | 另有未接入的变量未显示（清单已按上限截断） | More unwired variables are not shown (the list was truncated at its cap) |
+
+**新增的警告文案（服务端，不进 i18n 渲染端）**：
+
+| code | 文案 |
+|------|------|
+| W10 | 影视工程资产缺少提示词方法论（prompt-doctrine）⇒ 尾帧约束未接入，逐镜尾帧提示词仍为空。资产补齐入口尚未提供（见 PR-3b）。 |
+| W11 | 影视工程资产缺少任务级提示词库（prompts/tasks）⇒ 任务模板未接入。资产补齐入口尚未提供（见 PR-3b）。 |
+
+**清单与计数必须对账**：方案里写「27 个 key」，测试就**逐条断言这 27 个 key 的字面量在 zh / en 都存在**
+（**不按命名空间计数** —— 那两个命名空间还有大量既有 key），另断言「清单条数 == 27」与「zh / en 命中数一致」；**再加一条「三处计数同源」**（本 PRD §8.b、方案简报、测试清单长度，出现的每一个 N 都必须等于 25）。
+**再加一条**：扫面板源码里的**行标签**，每一行的 `<dt>` 必须是**互不相同**的 key ——
+「key 存不存在」查不出「行标签被复用」这类缺口。
+
+> 计数从 16 → 20 → 24 → 25 → 26 → **27** 的来由：
+> ① 第 6 轮对抗评审 i2：阻断原因是机器枚举 ⇒ 面板会渲染出原始英文标记 ⇒ 补 4 个 `methodologyReason*` key；
+> ② 第 9 轮对抗评审 i6：面板的**三行行标签**（可否直送 / 资产完整性 / 尾帧约束）**复用了「任务模板」**
+>    ⇒ 补 3 个行标签 key（`methodologyDeliverable` / `methodologyAssets` / `methodologyFrame`）；
+> ③ 第 9 轮对抗评审 i7：聚合提示要**按 reason 分流**（有真·资产缺口时要说「或补齐对应资产」，
+>    只剩 byDesign 时只说「人工补齐」）⇒ 补 1 个第二态 key（`methodologyNotDeliverableAssets`）；
+> ④ 第 10 轮对抗评审 i4：超长的变量（色盘行 / 角色描述 / 逐镜字段）**不是**「资产缺口」
+>    （资产**有**，只是太大）⇒ 独立一类 `oversizeVar` ⇒ 补 1 个原因文案 key（`methodologyReasonOversizeVar`）；
+> ⑤ 第 12 轮对抗评审 i6：重开项目时要校验「资产有没有被换过」⇒ 补 1 个「资产已变」key（`methodologyStale`）；
+> ⑥ 第 17 轮对抗评审 i7：清单被闸门截断时**要说出来**（不静默丢弃）⇒ 补 1 个 key（`methodologyTruncated`）。
+>
+> 这条链路的教训：**新增一类用户可见枚举值、或新增一行面板行，就等于新增一组 i18n key**，
+> 计数必须同步三处（本 PRD §8.b、方案简报 §四末、测试断言）**并同次改完**。
+> 另注：第 9 轮 i1 指出「请重新导入完整资产」**指向了一个不存在的功能**（产品里没有资产导入入口，
+> 那是 PR-3b）⇒ 文案改为如实说明「缺什么 + 能力未接入」。
+
 ## 九、验收标准
 
 | # | 标准 | 命令 / 判据 |
@@ -489,6 +677,209 @@ split → scene_context（已有）
 | V-26 | 文档与实现同源 | `SCHEMA.md` ↔ `kit-loader` 校验器；本 PRD 字段表 ↔ 代码字段 |
 
 ---
+
+### 9.b 方法论接线的验收（PR-3 · F-I / F-H）
+
+| # | 断言 | 类别 | 测试 |
+|---|------|------|------|
+| M-1 | 渲染器：7 变量齐备 ⇒ 渲染无 `{{}}` 残留 + `missing` 为空 + `deliverable=true` | 合成 | `shot-prompt-task.test.js` |
+| M-2 | 生产路径：`style_prefix` ∈ `blockedVars` + `deliverable=false` | 真实 | 同上 + `auto-plan.test.js` |
+| M-3 | byDesign 保留 `{{style_prefix}}`；assetMissing 渲染为空串并进清单 | 合成 | `shot-prompt-task.test.js` |
+| M-4 | 模板多出的变量（templateVar）与非法变量名（badVarName）都计入 `missing` 且拦住直送 | 合成 | 同上 |
+| M-5 | 尾帧约束取自 `frame_constraint`；超 50000 截断且出声；缺 `en` 回落 `zh` 并记 `fallbackLocales` | 合成 | 同上 |
+| M-6 | 同输入两次渲染**逐字相等**；`promptAssetHash` 随 locale/回退变化、同输入稳定；不同镜的 `promptRenderHash` 不同 | 合成 | 同上 |
+| M-7 | 缺 doctrine ⇒ W10 + `assetsIncomplete`；缺 promptLibrary ⇒ W11 + `assetsIncomplete` | 合成 | `auto-plan.test.js` |
+| M-8 | 不传 kit ⇒ `prompt` 与三分字段**逐字不变**，且不产出任何方法论字段 | 合成 | 同上 |
+| M-9 | 项目文件里**方法论原文出现次数 == 0**（`frameConstraint` / `system` / `user` 的原文**一律不落盘**，只落哈希与长度）；单镜 `promptVars` + `promptMissing` 序列化 **≤ 256 KiB** | 合成 | `auto-project.test.js` |
+| M-10 | 真实 kit 抽样 20 镜 ⇒ **只断言不变量**（① 每镜「命中数 + **7 个任务变量**在清单里的条数 == 7」；② `style_prefix` 恒 `byDesign`）；**平均命中数只作打印读数，不参与判定**（阈值建在会随资产更新漂移的量上 ⇒ 假红；且与「真实巡检不设阈值」自相矛盾）。CI 无 film-kit ⇒ SKIP 并打印读数格式 | 真实 | `shot-prompt-task.test.js` |
+| M-11 | 方法论分区渲染 `recipes` 与 `failureLedger`，且**只读**（无写操作） | 合成 | `film-engineering-methodology.test.js` |
+| M-12 | 接入状态面板显示命中数、阻断原因、资产不完整、尾帧待派生；无上下文时不渲染 | 合成 | `FilmAutoPanel.test.js` |
+| M-13 | **27 个** i18n key 在 zh/en 均存在，清单条数 == **清单长度**（断言从清单长度取数、**不手写数字**）；且**三处计数同源**（本 PRD §8.b / 方案简报 / 测试清单长度） | 合成 | `film-engineering-methodology.test.js` |
+| M-14 | **篡改可检测**：`promptAssetHash` 对**每一个输入**（doctrine / 任务 system / user）敏感 —— 任一被改 ⇒ 哈希必变 ⇒ 资产被换时重算值与 plan 级存的不一致，消费方可据此拒绝直送 | 合成 | `shot-prompt-task.test.js` |
+| M-15 | **陈旧字段名回归锁**：实现代码（7 个文件）里 `sourceHash` / `blockedExport` **零出现**；同时现行名（`promptAssetHash` / `computePromptRenderHash` / `promptRenderHash` / `assetsIncomplete`）**确实在用**（防「一起删掉，锁成零命中」） | 合成 | 同上 |
+| M-16 | **聚合提示按 reason 分流**：`methodologyNotDeliverable`（只剩 byDesign）**只说「人工补齐」**，不出现「缺失资产」「导入」；`methodologyNotDeliverableAssets`（有 assetMissing）**说「或补齐对应资产」** | 合成 | `film-engineering-methodology.test.js` |
+| M-17 | **哈希域限定**：`promptAssetHash` 对 doctrine / system / user **每一个输入**敏感（任一被改 ⇒ 哈希变）；旧名 `assetHash` 在实现代码里**零残留**，同时现行名（`promptAssetHash` / `computePromptRenderHash` / `promptRenderHash` / `assetsIncomplete`）**确实在用** | 合成 | `shot-prompt-task.test.js` |
+| M-18 | **截断前后两态**：`frameConstraint.hash`/`length` 取截断后文本、`originalHash`/`originalLength` 取截断前 ⇒ 截断点之后的改动**可检测** | 合成 | 同上 |
+| M-19 | **kit 不可信的长度上限**：色盘行 / 角色描述超 20,000 字符 ⇒ **不提供该变量**（进 `promptMissing` ⇒ `deliverable=false`），**不静默截断**；未超限照常提供 | 合成 | 同上 |
+| M-20 | **防空集通过**：旧名扫描断言里**被扫描文件数 > 0**（路径写错或列表为空时该判据会恒真） | 合成 | 同上 |
+| M-21 | **逐镜清单体积有界**：`promptMissing` 里**7 个任务变量**的条目 ≤ 7（`templateVar` / `badVarName` / `oversizeVar` **另计**且总量有界）、每条只含 `name` + 枚举 `reason`、单镜**清单**序列化 ≤ **8 KiB**（8,192 字节，UTF-8） | 合成 | `auto-project.test.js` |
+| M-22 | **生产路径 CI 恒跑**：①b 用**合成夹具**实现（不依赖 film-kit）⇒ `style_prefix` 恒 `byDesign` ⇒ 进清单 + `deliverable=false` + 占位符原样保留 | 合成 | `auto-plan.test.js` |
+| M-23 | **不指向不存在的功能**：`methodologyAssetsIncomplete` 文案**不含「导入」**（产品里没有资产导入入口，那是 PR-3b），改为如实说明「缺什么 + 能力未接入」；W10/W11 同步 | 合成 | `film-engineering-methodology.test.js` |
+| M-24 | **面板行标签互不相同**：方法论分区每一行的 `<dt>` 是**互不相同**的 key（此前三行复用了「任务模板」）；且每个行标签在 zh/en 都存在 | 合成 | 同上 |
+| M-25 | **重开项目也可见**：服务端 `projectView` 用**同一个** `buildMethodologySummary` 从**落盘**的 `promptContext` + 逐镜 `promptMissing` 重新汇总 ⇒ `auto-status` 的项目投影里带 `methodology`；面板从**计算属性**读它（规划结果优先、其次项目投影） | 合成 | `film-engineering-auto.test.js` + `film-engineering-methodology.test.js` |
+| M-26 | **逐镜字段长度上限**：`shot_json` 的 `title` / `characterNames` / `model` 超 2,000 字符 ⇒ **不提供** `shot_json`（进 `promptMissing`，reason=`oversizeVar` ⇒ `deliverable=false`），**不静默截断** | 合成 | `shot-prompt-task.test.js` |
+| M-27 | **缺失分类判据**：`byDesign` = **产品里没有这个资产的形态**（不是「还没提供」）；`assetMissing` = **有资产形态但当前资产里没有** | 合成 | 同上 + 文档 |
+| M-28 | **超长是独立一类**：超长的变量 reason = `oversizeVar`（**不是** `assetMissing`）⇒ 面板有独立文案 | 合成 | `shot-prompt-task.test.js` + `film-engineering-methodology.test.js` |
+| M-29 | **三处计数同源**：本 PRD §8.b、方案简报、测试清单长度，出现的每一个「N 个 key / 编号 1-N / 清单条数 == N」的 N **必须都等于 27**；两份文档的 key 清单**逐条编号**都是 1..27；**分组数**也对得上（`doctrine` 7 + `auto.methodology*` 15 + `auto.methodologyReason*` 5 = 27） | 合成 | `film-engineering-methodology.test.js` |
+| M-30 | **哈希的域分层**：截断点**之后**的改动 ⇒ `promptAssetHash`（完整 doctrine）**变**、`frameConstraint.hash`（截断后）**不变**、`frameConstraint.originalHash`（截断前）**变** | 合成 | `shot-prompt-task.test.js` |
+| M-31 | **哈希的负向域**：改色盘 / 角色描述**不改** `promptAssetHash`（不在它的域里），改的是**逐镜** `promptRenderHash` | 合成 | 同上 |
+| M-32 | **巡检断言有内容**：真实 kit 巡检除不变量外，还要断言**每条 `missing` 的 reason ∈ 闭集**、**reason 与渲染行为一致**（byDesign 保留占位符 / assetMissing 不留占位符）、**`deliverable` 与 `blockedVars` 长度与清单一致** | 真实 | 同上 |
+| M-33 | **清单里的名字封顶**：`templateVar` / `badVarName` 的名字来自**不可信**的 kit 模板 ⇒ 落盘前截断到 **64 字符** | 合成 | `shot-prompt-task.test.js` |
+| M-34 | **重开项目时校验资产**：服务端用**当前** kit 重算 `promptAssetHash`，与落盘值不一致 ⇒ `methodology.stale = true` ⇒ 面板显示**区块级**警告「资产已变」 | 合成 | `film-engineering-auto.test.js` + `film-engineering-methodology.test.js` |
+| M-35 | **无任务库态**：缺 `promptLibrary` ⇒ `taskAvailable === false`、`deliverable === false`、`promptAssetHash` 仍按「doctrine + 空模板」算出（**不是**空串）、**不产出** `renderText` | 合成 | `auto-plan.test.js` + `shot-prompt-task.test.js` |
+| M-36 | **`shot_json` 缺值逐字段**：`index`/`shotId`/`beatIndex` → `null`；`title`/`model` → 空串；`characterNames` → `[]` | 合成 | `shot-prompt-task.test.js` |
+| M-37 | **单镜落盘体积**：单镜 `promptVars` + `promptMissing` 序列化 **≤ 256 KiB**；`promptMissing` 本身 **≤ 8 KiB**（8,192 字节，UTF-8）且**非任务条目 ≤ 8**（**实现里强制**，超出部分不落清单） | 合成 | `auto-project.test.js` |
+| M-38 | **缺失态进哈希**：逐镜渲染哈希覆盖**缺失清单** ⇒ 「变量超限」与「变量没有」**不同哈希** | 合成 | 同上 |
+| M-39 | **清单条目硬闸门**（条目数 + **字节数**两道）：模板要 100 个变量 ⇒ 清单仍被封住（任务变量 ≤ 7 + 非任务 ≤ 8，且序列化 ≤ 8 KiB），且 `deliverable` **仍为 false**（闸门不放行） | 合成 | 同上 |
+| M-40 | **截断不切开代理对**：emoji 截断后长度**必为偶数**，两次截断**逐字相同** | 合成 | 同上 |
+| M-41 | **验收编号连续**：简报 §四 验收表的条目编号按出现顺序**连续、无重号**（子项如 ①b 允许同号） | 合成 | `film-engineering-methodology.test.js` |
+| M-42 | **无 kit 时逐镜不写方法论字段**：不传 kit ⇒ 逐镜**不出现** `promptVars` / `promptMissing` / `promptRenderHash` | 合成 | `auto-plan.test.js` |
+| M-43 | **stale 与 assetsIncomplete 不并列**：`stale === true` ⇒ 面板**只显示**「资产已变」，不并列「资产不完整」（后者说的是**规划时**的事） | 合成 | `FilmAutoPanel.test.js` + `film-engineering-auto.test.js` |
+
+### 9.c 资产导入（写路径）· 功能与验收（PR-3b · F-J）
+
+> 方案与决策清单：`openspec/changes/film-pipeline-prompt-triple-and-guards/pr3b-import-design.md`；
+> 逐轮评审证据：同目录 `pr3b-import-critiques.md`。
+> ⚠ 本节是**写路径**（会整体替换用户当前资产）⇒ 与 §9.b（只读接线）**分节**，不合并。
+
+#### 9.c.1 目标与范围
+
+用户可以导入**自己的一份**完整影视工程资产包；导入后「自动」标签的规划基于**用户的资产**而非随包 min 版。
+
+- **整体替换**，不做增量/合并/差分。
+- 目标位置：`userData/film-kit`（与随包 `electron/film-kit` 同级，回退链首级）。
+- 来源：**只有本机本地目录**（原生对话框选出来的）；压缩包 / 网络路径 / 扫盘一律不做。
+- 本批**不做** `images/`（全仓无消费方 ⇒ 零价值却多一套校验面）；排除项清单写在 `SCHEMA.md`「文件清单」表。
+
+#### 9.c.2 用户流程（七步，逐段可断言）
+
+| 步 | 用户看到 | 系统做什么 | 失败时 |
+|----|----------|------------|--------|
+| 1 | 「项目案例」标签**顶部**的「导入我的影视工程资产」按钮 | — | 按钮不可用时（未登录）说明未授权 |
+| 2 | **确认框**（说明「整体替换、不可撤销」） | 等用户点确认 | 用户点取消 ⇒ **不算失败**，无错误提示 |
+| 3 | 操作系统**目录选择框** | 取 `filePaths[0]` | 取消 ⇒ `cancelled`；非目录 / UNC ⇒ 拒 |
+| 4 | 「正在导入…」**不可中断模态** | 严格校验源目录 → 审计「开始」行 → 建锁 → 两遍扫描 + 拷贝（逐文件哈希对账）→ staging 再校验 | 失败 ⇒ 旧 kit **逐字未变** |
+| 5 | 同上 | 清缓存 → 旧 kit 改名 `.bak-<时间戳>` → staging 改名 `film-kit`（同卷原子） | 换入失败 ⇒ 回滚；回滚也失败 ⇒ 保留 `.bak` 并给恢复路径（档位 `MISSING_KIT`，恢复动作 = **改名回来**） |
+| 6 | 同上 | 删 `.bak` → 删锁 → 审计结果行 | 删 `.bak` / 删锁失败 ⇒ **导入已生效但有残留** ⇒ 档位 `BAK_LEFT` / `LOCK_LEFT` + 恢复路径（**成功信封也要带**） |
+| 7 | 成功 toast / 失败 toast + 恢复指引告警 / **残留告警** / **审计不完整告警** | 刷新分镜库与状态 | 见 9.c.6 |
+
+#### 9.c.3 数据校验（判据 → 触发 → 失败原因 → 用户看到什么）
+
+| 判据 | 触发条件 | 失败原因（`reason`） | 用户看到 |
+|------|----------|----------------------|----------|
+| 必填齐备 | 缺 `film-manifest/shot-library/reference-registry/prompt-doctrine` 任一 | `VALIDATION_ERROR` | 「所选目录不符合资产要求」 |
+| v7 增强齐备 | 缺 `shot-grammar/compliance-checklist/palette/prompts/tasks` 任一 | `VALIDATION_ERROR` | 同上 |
+| 目录形状 | `prompts/tasks` 下**不是** 3 层（基准 `prompts/tasks`） | `VALIDATION_ERROR` | 同上 |
+| 任务库非普通文件 | `prompts/tasks/**` 任一层出现软链 / 联接点 / 设备文件 | `SYMLINK_REJECTED` / `VALIDATION_ERROR` | 同上 |
+| 隐藏名 | **候选路径**任一组件以 `.` 开头（`.`/`..` 枚举阶段先跳过） | `HIDDEN_NAME_REJECTED` | 同上 |
+| 扩展名 | 根文件非 `.json`；`prompts/tasks/**` 非 `.md` | `EXT_NOT_ALLOWED` | 同上 |
+| 软链 / 断链 | 白名单条目是软链，或软链指向不存在的目标 | `SYMLINK_REJECTED` | 同上 |
+| 越界 | `realpath` 落在源目录之外 | `PATH_ESCAPE` | 同上 |
+| 同目录硬链 | **同一目录内**两条目 `(dev, ino)` 相同（去重键带父目录） | `HARDLINK_REJECTED` | 同上 |
+| 魔数 | `*.json` 头不是 `{`/`[`（去 BOM/空白） | `MAGIC_MISMATCH` | 同上 |
+| 单文件体积 | > **32 MB** | `SIZE_EXCEEDED` | 同上 |
+| 整包体积 | > **256 MB** | `SIZE_EXCEEDED` | 同上 |
+| 源/目标重叠 | 源目录等于、包含或被包含于目标路径（`film-kit` / `.import-lock` / 审计文件 / `staging-*` / `.bak-*` **前缀目录**）；比较在 Windows 上**大小写不敏感** | `SOURCE_OVERLAPS_TARGET` | 同上 |
+| 源不是目录 | 选中的不是目录 | `NOT_A_DIRECTORY` | 同上 |
+| 目标不可写 | 父目录不可写 / 建 staging 失败 | `PARENT_NOT_WRITABLE` | 「目标目录不可写」 |
+| 审计不可写 | 审计父目录不可写 / 追加失败 | `AUDIT_UNAVAILABLE` | 「审计日志不可写或已满」 |
+| 审计超限 | 审计文件 > 10,000 行或 > 10 MB | `AUDIT_UNAVAILABLE` | 同上（附**手动轮转四步**） |
+| 有导入在跑 | 锁存在且**租约有效**（mtime ≤ 60 秒） | `LOCK_HELD` | 「已有导入正在进行，或上一次导入的锁还没清理」 |
+| 锁内容损坏 | 锁文件不是合法 JSON | `LOCK_HELD` | 同上（**不清锁**） |
+| 残留未恢复 | 存在 `.bak-*` 且 `film-kit` **缺失** | `VALIDATION_ERROR` + `recoveryState=MISSING_KIT` | 「上次导入未完成（当前资产缺失）」+ 恢复路径 |
+| 换入失败 | staging→`film-kit` 改名失败 | `SWAP_FAILED` | 「替换资产时出错（当前资产未受影响）」 |
+| 回滚失败 | `.bak` 改名回 `film-kit` 也失败（⇒ `film-kit` 缺失、`.bak` = 旧 kit） | `ROLLBACK_FAILED` + `recoveryState=MISSING_KIT` | 「上次导入未完成（当前资产缺失）」+ **旧资产路径**（恢复动作 = **改名回来**，**不是**删除） |
+| 残留 `.bak` 未删 | ⑥ 删 `.bak` 自身失败（⇒ 导入**已生效**） | — （成功路径） | 残留告警 + 「上次导入留下了备份目录 {path}，可安全删除」 |
+| 锁未删 | ⑦ 删锁自身失败（⇒ 只剩锁） | — （成功路径） | 残留告警 + 「检查并手动删除锁文件：{path}」 |
+| 审计结果行写失败 | 导入**已生效**，但审计结果行没落盘 | — （成功路径，`auditWritten=false`） | 「导入已生效，但审计结果行未能写入（审计不完整）」 |
+| 来源未授权 | 子框架 / 路由前缀不匹配 / 协议不在白名单 | `UNAUTHORIZED_SENDER` | 「调用来源未授权」 |
+
+**两条哈希对账（TOCTOU）**：① 第二遍拷出的**副本 SHA-256** == 第一遍记录的**源 SHA-256**；
+② 拷贝完成后**再次 `stat` 源文件**，其 `(dev, ino, size, mtime)` 与第一遍记录一致 ⇒ 任一不符即拒。
+
+**诚实边界（写进界面与文档）**：跨目录硬链在 FAT/exFAT/网络盘**检测不到**（`nlink` 恒为 1）⇒ 非防篡改边界
+（⇒ 代码也**不拒**跨目录同 inode，只拒**同一目录内**的重复条目）；审计防「静默」不防恶意篡改；
+组件级授权做不了（同文档承载三个标签页）。
+
+**⛔ 删除纪律**：staging 与 `.bak` 的清理**一律**「精确清单逐个 `unlink` + 自底向上 `rmdir` 空目录」，
+**禁止** `fs.rm(dir, {recursive:true})` 之类的递归删除原语（本仓 R0 铁律）⇒ 有一条**机械结构锁**盯着
+（`kit-tree-clean.test.js` 的「R0 结构锁」用例：导入链路源文件里不得出现 `rm`/`rmdir` + `recursive`）。
+
+#### 9.c.4 交互逻辑
+
+| 元素 | 行为 |
+|------|------|
+| 入口按钮 | 「项目案例」标签顶部；**导入中禁用**；`filmEngineering.filmKitImport.entry` |
+| 入口旁说明 | 一行灰字：`filmEngineering.filmKitImport.hint` |
+| 确认框 | 点入口 ⇒ 弹；**必须用户点「确认」才继续**（注入脚本无法代点）；「取消」关闭且**不触发**导入 |
+| 导入中模态 | **无关闭按钮 / 点遮罩不关 / ESC 不关 / 没有取消按钮**；文案「导入过程中不可中断，请勿关闭应用」 |
+| 失败 toast | 「导入失败：{原因}」；原因按 6 个桶本地化（VALIDATION / LOCK / AUDIT / SWAP / PERM / UNAUTHORIZED） |
+| 恢复指引告警 | 失败后**或成功但有残留时**在入口下方常驻 `el-alert`（warning，不自动关）：失败原因 + **可执行的恢复步骤**（按 `recoveryState` 选文案） |
+| 成功 toast | 「导入完成（N 个文件）」并**自动刷新**分镜库 / 状态 / 方法论 |
+| 残留告警 | 导入**已生效**但 `.bak` / 锁没删干净 ⇒ 额外一条 warning toast（标题 `filmEngineering.filmKitImport.residue`），正文复用对应恢复指引文案 |
+| 审计不完整告警 | 导入已生效但审计结果行没落盘 ⇒ 一条 warning toast（`filmEngineering.filmKitImport.auditLost`） |
+| 取消 | **不算失败**：无错误提示、无告警 |
+
+#### 9.c.5 显示项
+
+| 显示项 | 来源 | 备注 |
+|--------|------|------|
+| 导入入口按钮 | 渲染端 | 位于「项目案例」标签顶部（`FilmEngineeringView.vue`），**不在**「自动」标签（那是只读规划区） |
+| 入口说明文字 | 渲染端 | 一行灰字，说明「整体替换，不是合并」 |
+| 确认框 | 渲染端 | 标题 + 正文 + 取消/确认两按钮 |
+| 导入中模态 | 渲染端 | 标题 + 「勿关闭应用」提示；**无取消** |
+| 失败 toast | 主进程错误信封 → 渲染端本地化 | `errorCode` = `reason` 闭集值 |
+| 恢复指引告警 | 主进程回传 `recoveryState` + `recoveryPath` | 按档位选文案（**成功信封也可能带**） |
+| 成功 toast（含文件数） | 主进程回传 `fileCount` | — |
+| 审计完整性标记 | 主进程回传 `auditWritten` | `false` ⇒ 追加一条「审计不完整」告警 |
+| 导入后的分镜库 / 状态 | 服务端缓存失效后重读 | 导入成功后自动刷新 |
+
+#### 9.c.6 提示文字全量（`filmEngineering.filmKitImport.*`，zh/en 成对，**22 键**）
+
+| 键 | zh | en |
+|----|----|----|
+| `entry` | 导入我的影视工程资产 | Import my film engineering assets |
+| `hint` | 用你自己的资产包替换当前影视工程资产（整体替换，不是合并） | Replace the current film engineering assets with your own asset package (wholesale, not merged) |
+| `confirmTitle` | 确认导入影视工程资产 | Confirm asset import |
+| `confirm` | 导入将整体替换当前的影视工程资产（分镜库 / 提示词方法论 / 任务库），旧资产不可自动找回。要继续吗？ | Importing replaces the current film engineering assets (shot library / prompt doctrine / task library) as a whole; the old ones cannot be restored automatically. Continue? |
+| `importing` | 正在导入… | Importing… |
+| `importingHint` | 导入过程中不可中断，请勿关闭应用。若应用被强制关闭，下次导入会自动清理残留锁。 | The import cannot be interrupted — please do not close the app. If the app is force-quit, the next import will clean up the leftover lock automatically. |
+| `success` | 导入完成（{count} 个文件） | Import finished ({count} files) |
+| `failed` | 导入失败：{reason} | Import failed: {reason} |
+| `cancelled` | 已取消导入 | Import cancelled |
+| `recover` | 导入回滚失败，旧资产在 {path}，请手动恢复 | Import rollback failed; the old assets are at {path} — please restore them manually |
+| `recoverLock` | 存在未完成的导入。若确认当前没有导入在进行，请检查并手动删除锁文件：{path} | An unfinished import is present. If no import is running, check and delete the lock file manually: {path} |
+| `recoverMissing` | 上次导入未完成（当前资产缺失）。请把备份目录 {path} 手动改回 film-kit 后再试 | The last import did not finish (current assets are missing). Rename the backup directory {path} back to film-kit, then retry |
+| `recoverBak` | 上次导入留下了备份目录 {path}，可安全删除 | The last import left a backup directory {path} — it is safe to delete |
+| `residue` | 导入已生效，但有残留需要你手动清理 | The import took effect, but there is leftover residue for you to clean up manually |
+| `auditLost` | 导入已生效，但审计结果行未能写入（审计不完整）。请检查磁盘空间与目录权限 | The import took effect, but the audit result row could not be written (audit is incomplete). Please check disk space and directory permissions |
+| `auditFull` | 审计日志已满，请手动轮转：把 film-kit-import.log 改名为带时间戳的备份，再新建同名空文件 | The audit log is full; please rotate it manually: rename film-kit-import.log to a timestamped backup and create a new empty file with the same name |
+| `reason.VALIDATION` | 所选目录不符合资产要求 | the selected directory does not meet the asset requirements |
+| `reason.LOCK` | 已有导入正在进行，或上一次导入的锁还没清理 | an import is already running, or the previous import's lock was not cleaned up |
+| `reason.AUDIT` | 审计日志不可写或已满 | the audit log is not writable or is full |
+| `reason.SWAP` | 替换资产时出错（当前资产未受影响） | something went wrong while replacing the assets (current assets are unaffected) |
+| `reason.PERM` | 目标目录不可写 | the target directory is not writable |
+| `reason.UNAUTHORIZED` | 调用来源未授权 | the caller is not authorized |
+
+（「确认 / 取消」两按钮复用 `common.confirm` / `common.cancel`，不另计键。）
+
+#### 9.c.7 验收判据（26 条 + 验证层外部评审新增 10 条 = **36 条**）
+
+**A 组（4 条，原 `tasks.md`）**：① 严格模式校验失败 ⇒ 不落盘；② 成功 ⇒ `userData/film-kit` 齐备 + service 缓存已失效；③ 含符号链接 ⇒ 拒；④ 换入中途失败 ⇒ 无半份 kit、旧 kit 逐字未变。
+
+**B 组（17 条）**：⑤ 白名单外文件不被拷入（且不递归进入其子目录）；⑥ 超限 ⇒ 拒且未开始拷；⑦ 没写到 staging/.bak/.import-lock/审计文件 之外；⑧ 换入失败后旧 kit 逐字未变；⑨ 相对路径越界或绝对路径 ⇒ 拒、没写到 staging 之外；⑩ 硬链接 ⇒ 拒（同目录 `(dev,ino)` 相同 ⇒ 拒；跨目录靠 `nlink>1` ⇒ 最佳努力，不构成防篡改保证）；⑪ 隐藏名（含目录名）或 `prompts/tasks/` 深度不符 ⇒ 拒；⑫ 回滚本身失败 ⇒ `.bak` 仍在 + 报错带出恢复路径；⑬ 导入中 `_ensureKit()` 抛可识别错误、不读盘，标记先置后删且 `.import-lock` 同生命周期；⑭ 代码白名单集合 == `SCHEMA.md` 文件清单表**标 ✅ 行**解析集合（排序后逐行 `===`）；⑮ `.json` 魔数不匹配 ⇒ 拒且不写盘；⑯ 父目录不可写或锁文件建不出来 ⇒ 立即退出、旧 kit 逐字未动；⑰ 存在 `.import-lock` ⇒ service 抛可识别错误、导入也拒绝（**不自动清锁**）⇒ 恢复靠手动删锁；⑱ `images/` 不在导入白名单 ⇒ 目标目录里**没有** `images/`（镜像表里也没有 `images/*` 行）；⑲ 可选资产缺失（`prompt-doctrine.zh.md` 不存在）⇒ 导入照常成功；⑳ sender URL 与其 hash 路由段写入审计行（**不作为拒绝依据**）；㉑ 两条对账同时成立（副本哈希 == 源哈希；拷贝后源文件 `(dev,ino,size,mtime)` 未变）⇒ 任一不符即拒。
+
+**C 组（2 条，契约/镜像）**：㉒ `kit-mirror-check.test.js`：代码白名单 == `SCHEMA.md` 标 ✅ 行（归一化 + 字典序后逐行 `===`），且 `images/` 落在**排除项清单**；㉓ `kit-schema-contract.test.js`：`SCHEMA.md`「导入契约」小节存在且**非空**（审计字段 / reason 枚举 / 恢复档位 / 取舍），小节缺失 ⇒ **失败不跳过**。
+
+**win32 专项（3 条）**：① 硬链判定的**可断言部分**：同目录 `(dev,ino)` 相同 ⇒ 拒（**不断言 `nlink>1`**，该维度已声明无判据）⇒ 改为断言审计字段 `hardlink_check=best-effort`；② NTFS 的 `.` / `..` **不得**被当成合法目录项（`basename === "." || basename === ".."` ⇒ 枚举阶段跳过且**不计入层数**）；③ `ERROR_ACCESS_DENIED` 的重试分级：A 类（`copyFile`）套指数退避、B 类（目录 `rename`）只做一次立即重试、审计追加**不重试**。
+
+**D 组（10 条 · 2026-10-23 验证层**双家族**外部评审命中后新增）**：
+① **写路径不得登记为 public**：`filmEngineering.importKit` 不在 `PUBLIC_METHODS` 内（未登录不可用），主进程侧 `film-engineering:import-kit` 同样非 public —— claude i1 / codex i1（**两家独立命中**）；
+② **禁止递归删除原语**：导入链路源文件里不得出现 `rm`/`rmSync`/`rmdir` + `recursive`（R0 **机械结构锁**）—— codex i2 命中初版 `.bak` 的 `rm(recursive:true)`；
+③ 审计**写失败**时行数**不**递增（`lineCount` 与已落盘行一一对应）—— claude i2 / codex i7；
+④ 删 `.bak` 失败 ⇒ 导入**仍生效**，但成功信封必须带 `recoveryState=BAK_LEFT` + 恢复路径 —— claude i3 / codex i6；
+⑤ 删锁失败 ⇒ 成功信封必须带 `recoveryState=LOCK_LEFT` + 锁路径；
+⑥ **回滚失败 ⇒ 档位是 `MISSING_KIT`（不是 `BAK_LEFT`）** —— 两者互换会让用户**删掉旧资产仅存的一份**（数据丢失级误导）；
+⑦ 审计**结果行**写失败 ⇒ 成功信封带 `auditWritten=false`，渲染端给出「审计不完整」告警（**不得静默**）—— codex i3；
+⑧ 源目录 = `film-kit.staging-*` / `film-kit.bak-*` 残留目录 ⇒ 拒（`SOURCE_OVERLAPS_TARGET`）—— codex i5（初版这条判据**是死的**）；重叠比较在 Windows 上**大小写不敏感**；
+⑨ 跨目录同 inode **不拒**（去重键带父目录），**同目录**同 inode 仍拒 —— claude i5；任务库层级不符 / 非普通文件**拒**（不静默跳过）—— codex i8；
+⑩ 早退路径（未授权 / 对话框不可用 / 对话框失败 / 用户取消 / 所选路径非法）**各留一行审计**（`reason` 落在 18 值闭集内）—— codex i4。
+
+#### 9.c.8 明确不做
+
+❌ 增量/合并/差分（整体替换）· ❌ 导入历史/多版本 · ❌ 导出 · ❌ 压缩包/网络来源/扫盘 ·
+❌ 写 kit 之外的路径 · ❌ 导入 `images/` · ❌ `images-manifest.json` 契约 ·
+❌ 自动清理陈旧锁（只按**进程存活**判定）· ❌ 窗口级/组件级授权 · ❌ 磁盘空间预检（失败形态已知且安全）。
 
 ## 十、明确不做
 

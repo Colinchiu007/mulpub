@@ -12,6 +12,8 @@ python/__pycache__/
 data/
 # API 服务运行时状态，不进入版本库
 packages/api-publish-engine/config/api-keys.json
+# 微信支付商户私钥（compose 把该目录 bind 进容器，但私钥绝不能入库）
+packages/api-publish-engine/config/wechat-pay/
 packages/api-publish-engine/config/publish-api.json
 packages/api-publish-engine/config/*.tmp
 .DS_Store
@@ -110,6 +112,11 @@ scripts/*.js
 # 与 gui-ci-exit-contract.test.js 都按路径点名它 —— 漏这条 negation 的症状是本地全绿、CI 上
 # Cannot find module（#3011 / Gate 2c3 同族，第三次）。
 !scripts/ci-gui-relevance.js
+# 主规格基线零覆盖门禁本体（2026-10-24）：第 108 行 scripts/*.js 会把判据本体静默忽略。
+# 症状形态与上面几条同族：本地全绿（文件在工作区跑得通），但**文件没进仓** ⇒
+# CI 上 workflow 点名它时 Cannot find module。测试文件不单独反选 ——
+# `!scripts/*.test.js` 的通用例外已兜住（同上方各条注释口径）。
+!scripts/check-spec-delta-coverage.js
 # pre-commit 进程创建预算锁本体：第 106 行 scripts/*.js 会把判据本体静默忽略（CI 上 Cannot find module）。
 # 测试文件不单独反选 —— 第 204 行 !scripts/*.test.js 的通用例外已兜住（同上方各条注释口径）。
 !scripts/check-precommit-spawn-budget.js
@@ -255,6 +262,9 @@ scripts/*.js
 # 会把它静默忽略 —— 漏 negation 时 `git status` 里它根本不存在：本地在盘、`node --test` 跑得通，
 # 而 Gate 2b6 在 CI 上以 MODULE_NOT_FOUND 红在**别人的**文件上，读起来像"探针坏了"。
 !scripts/ccg-convergence-probe.js
+!scripts/qm6-exit-capabilities.js
+!scripts/qm6-exit-capabilities.test.js
+!scripts/qm6-exit-capabilities.mutation.js
 # scripts/*.js is ignored wholesale above, so every tracked script needs its own
 # negation. That per-file allowlist silently loses NEW test files (git add won't
 # warn). Test files must always be tracked, so un-ignore them by pattern instead.
@@ -294,6 +304,10 @@ gen_*.py
 *.png
 !01-docs/ui-reference/screenshots/mp-live-20260724/*.png
 !01-docs/assets/story2video-scene-context-architecture.png
+# UI 视觉巡检（2026-10-20）的改造前后对照证据：10 组关键页面 × before/after。
+# 进库理由：视觉改动的评审需要「肉眼可证」的同源对照，文字报告无法替代；
+# 体积控制：全量 387 张（48MB）按仓库约定留在 gitignored 的 screenshots/ 下不入库。
+!01-docs/assets/ui-visual-audit-2026-10-20/*.png
 # 产品品牌资产（非测试产物）：侧边栏左上角品牌 Logo，打包时必须随源码入库
 !apps/desktop/src/assets/brand/*.png
 
@@ -325,6 +339,18 @@ _bigfiles.txt
 # Environment
 .env
 .env.local
+# 业务 API 的真实环境文件（docker compose --env-file deploy/logto/api.env）。
+# ⛔ 里面会有微信商户私钥 / APIv3 密钥，绝不能入库。
+# 注意上面 `.env` 只匹配名为 `.env` 的文件，匹配不到 api.env —— 2026-10-23 实测它当时未被忽略。
+# 用 `api.env*` + 取反模板：既覆盖 api.env~ / api.env.bak / api.env.swp 这类编辑器备份，
+# 又保证 api.env.example 仍然被跟踪（**不要**只写 api.env*，那会把模板一起忽略）。
+deploy/logto/api.env*
+!deploy/logto/api.env.example
+# 微信支付商户凭据（与上面 api.env 分开，见 deploy/payment/wechat-pay.env.example）
+deploy/payment/wechat-pay.env*
+!deploy/payment/wechat-pay.env.example
+# 与上面同理，显式写一条，避免将来 `.env` 全局规则被调整时静默露出
+deploy/logto/.env
 .coverage
 
 # coverage annotate output
@@ -458,6 +484,16 @@ shared-user-data.backups/
 # 静默忽略 —— 漏这条 negation 的症状不是"少跑一个测试"，而是 Gate 2b8 在 CI 上 Cannot find module，
 # 以及发版侧 release-gate 找不到聚合器（同 #3011 家族）。自测由第 244 行 !scripts/*.test.js 兜住。
 !scripts/aggregate-changelog.js
+# artifact 清理脚本本体（2026-10-21）。同一行 106 的 scripts/*.js 会把它静默忽略，而它是被
+# cleanup-artifacts.yml 真调用的生产脚本 —— 漏 negation 的症状不是"测试少跑"，是定时作业
+# 每跑一次就 Cannot find module 一次（那条 workflow 只由 schedule 触发，红在 PR 侧不可见）。
+# 自测由 !scripts/*.test.js 通用例外兜住，此处只放行本体。
+!scripts/cleanup-artifacts.js
+# artifact 清理的变异反证驱动本体（2026-10-22，QM-6 i3）：取证工具必须入仓，
+# 否则"9/9 CAUGHT"只是别人复跑不了的一句话。它不是门禁、CI 不点名跑（要改被测源）。
+# 文件名不以 .test.js 结尾是刻意的：check-unwired-tests 的域按该后缀收，收进来就成了一条
+# "必须接进 CI 却永远不该接"的假欠账。
+!scripts/cleanup-artifacts.mutation.js
 # 热写面禁改门禁本体（2026-10-21，change: changelog-record-carrier 片3）。第 106 行 scripts/*.js
 # 同样会静默忽略判据本体：漏 negation 时本地在盘、跑得通，而 Gate 2b9 在 CI 上
 # Cannot find module（同 #3011 家族）。自测由第 244 行 !scripts/*.test.js 兜住，此处只放行本体。
@@ -467,6 +503,22 @@ shared-user-data.backups/
 # 静默忽略：而它的自测由第 244 行 !scripts/*.test.js 通用例外进了仓 ⇒ 漏这条 negation 的后果是
 # "测试在盘、判据不在盘"，CI 上以 Cannot find module 的形式红，本地全绿（同 #3011 家族）。
 !scripts/check-debt-recheck.js
+# 定时作业报警覆盖面判据（2026-10-22，change: schedule-failure-watch）：
+# 它要防的是"手抄的名单漂了没人知道"，所以本体与行为锁都必须入库、都必须被 Gate 2b13 点名跑。
+!scripts/check-schedule-failure-watch.js
+!scripts/check-schedule-failure-watch.test.js
+!scripts/check-schedule-failure-watch.mutation.js
+!scripts/check-schedule-heartbeat.js
+!scripts/check-schedule-heartbeat.test.js
+!scripts/check-schedule-heartbeat.mutation.js
+# QM-6 外部出处覆盖率水位 + 假想 enforce 扫描的本体（2026-10-23，change: qm6-tier-watermark）。
+# 同一个坑第三次兑现：规则 scripts/*.js 静默忽略新建脚本，而 !scripts/*.test.js 那条通用例外把
+# 测试文件兜住 ⇒ 只补本体这两条 negation，否则"测试在盘、判据不在盘"，
+# 本地全绿而 CI 以 Cannot find module 红（#3011 家族）。本刀实测踩过：前三笔提交只带了测试。
+# 刻意不写行号：本仓这份文件很长、行号会漂；判据在 scripts/qm6-tier-watermark.test.js 的
+#   「negation 必须各自存在」那条锁里，它按模式匹配 negation 清单，不依赖任何行位置。
+!scripts/qm6-tier-watermark.js
+!scripts/qm6-enforce-preview.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）
@@ -480,3 +532,7 @@ apps/desktop/electron/home-shell-preload.bundle.js
 apps/desktop/electron/monitor-preload.bundle.js
 apps/desktop/electron/services/generated/card-paginator.iife.js
 apps/desktop/electron/services/stealth/stealth-preload-enhanced.bundle.js
+!scripts/offline-live-contract-mutate.js
+
+# UX 审计 1.6：快捷键显示面反证驱动（scripts/*.js 的默认忽略会把它静默排除在 git 之外 ⇒ CI 永远不跑）
+!scripts/hotkey-labels-contract-mutate.js

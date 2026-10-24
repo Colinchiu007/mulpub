@@ -1,0 +1,61 @@
+{
+  "sha": "b25d32e0b8706bf5d8a15ddc28218b66297802fd",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 5,
+    "docSensitiveContentSample": [
+      "| S20 | **写路径的 sender 路由断言**：`film-engineering:import-kit` 在 `withSenderCheck` 之外**追加**断言 —— 解析 `event.senderFrame.url` 的 **hash 路由段**（本仓是 `createWebHashHistory` ⇒ 路由在 `#` 之后，`pathname` 恒为 `/`）⇒ 取出路由路径，断言命中 `/film-engineering` 或 `/film-engineering/classic`（**路由注册表** `src/router/index.js` 里这两条就是影视工程入口）⇒ 不命中 ⇒ **拒绝**（IPC 返回与 `withSenderCheck` 同形的 AUTH_ERROR + 审计行 `reason=UNAUTHORIZED_SENDER`，含 sender URL）；⚠ **诚实边界**：该断言证明的是「调用方**当前位于**影视工程路由」，**不是**「调用来自某个具体组件」（SPA 同一文档承载三个标签页，组件级归属**无法**从 sender URL 判别）⇒ 组件级授权仍留后续切片；⚠ 开发态 URL 形如 `http://localhost:<port>/#/film-engineering` ⇒ 同样取 `#` 段解析 |",
+      "**两条已核实的事实**：① `images/`（11 文件）**目前无任何代码消费**（全仓非注释命中 0）⇒ **要拷**（契约完整性）但**只做魔数校验**、不做语义校验（`images/` **无消费方**这一事实写进 `SCHEMA.md`，避免契约与实现各说各话）；`SCHEMA.md` 的「导入契约」小节里**有一行明写**「`images/` 目前无消费方（仅保留契约完整性）」，`kit-import.js` 注释同样明写，并在 `kit-import.js` 头部留 **TODO(images-consumption)** 指向本文件的 `SCHEMA.md` 小节（要有可追踪凭据，否则会被误当成 bug）；② `shot-library.json`/`reference-registry.json` 的媒体路径指向 **kit 之外**的媒体产物目录 ⇒ 不在白名单内、导入**不**碰。",
+      "**两条已核实的事实**：① `images/`（11 文件）**目前无任何代码消费**（全仓非注释命中 0）⇒ **移出首批导入白名单**（不拷、不校验、不进镜像表）—— 随包 kit 里的 `images/` **不受影响**（那是打包资产，不是导入契约）；**不引入 `images-manifest.json` 契约**（无消费方 ⇒ 契约零价值却带来镜像解析依赖）⇒ 将来若引入消费方，另开切片把它连同 manifest **一起加回**白名单；`SCHEMA.md` 与 `kit-import.js` 注释都**显式写**「`images/` 目前无消费方 ⇒ 不在导入白名单内」，并在 `kit-import.js` 头部留 **TODO(images-consumption)** 指向 `SCHEMA.md` 的说明小节（要有可追踪凭据，否则会被误当成 bug）；② `shot-library.json`/`reference-registry.json` 的媒体路径指向 **kit 之外**的媒体产物目录 ⇒ 不在白名单内、导入**不**碰。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "fd71294b3518cece6c7c9edcadcefc5f7abe35df5b14c5f249ba11966dc25204",
+  "decidedAt": "2026-10-22T22:32:09.912Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

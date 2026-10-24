@@ -130,7 +130,6 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowUp, CircleCloseFilled, Key, Medal, Refresh, Setting, SwitchButton, User } from '@element-plus/icons-vue'
 import { useIdentity } from '@/composables/useIdentity'
@@ -142,9 +141,8 @@ import {
   resolveIdentityStatusNoteKey,
 } from '@/utils/identity-error-messages'
 
-const emit = defineEmits(['open-settings', 'upgrade'])
+const emit = defineEmits(['open-settings', 'upgrade', 'navigate'])
 
-const router = useRouter()
 const { t } = useI18n()
 const licenseStore = useLicenseStore()
 const { status, user, displayName, loading, error, signIn, signInOrSwitch, switchAccount, signOut } = useIdentity()
@@ -263,9 +261,23 @@ async function handleSignOut() {
   }
 }
 
+/**
+ * 「会员中心」入口（2026-10-23 Bug 修复）。
+ *
+ * 原实现是裸 `router.push('/member-center')`：路由变了，但**活动标签没有变**。
+ * 当用户当前停在自媒体账号创作者中心这类外部网页标签时，主进程仍处于 browser 壳态，
+ * 外部网页的 WebContentsView（原生图层，永远压在 DOM 之上）继续盖住内容区，
+ * 会员中心页面渲染在它背后 ⇒ 用户表现为「点了会员中心，界面没有任何反应」。
+ *
+ * 修法：**不自建导航实现**，而是把「去会员中心」交回宿主（侧边栏）处理 ——
+ * 侧边栏的 `onNavClick` 已经是本应用唯一的可见导航范式（内嵌主页实例定向投递 /
+ * 否则先切回首页标签 / 最后路由跳转）。
+ * 新增任何「跳转到应用内页面」的入口都必须走这条范式，
+ * 契约见 01-docs/PRD-APP-ROUTE-NAV-VISIBILITY-2026-10-23.md。
+ */
 function goMemberCenter() {
   close()
-  router.push('/member-center')
+  emit('navigate', '/member-center')
 }
 
 // 设置入口：关闭菜单后交回宿主（侧边栏 → App.vue 打开设置弹窗）

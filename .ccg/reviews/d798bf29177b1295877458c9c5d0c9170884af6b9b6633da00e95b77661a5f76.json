@@ -1,0 +1,60 @@
+{
+  "sha": "5961336b72eb2b1a978a71106d20e2ad57e53d32",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 714 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 714,
+    "fileCount": 18,
+    "codeFileCount": 17,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 5,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "| 债务基线 | ⚠️ 用户授权 | `maxFileLines` 5630 → **5638**（+8，仅为桥接 computed；`max-lines` 门禁确认无新增超大文件） |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "d798bf29177b1295877458c9c5d0c9170884af6b9b6633da00e95b77661a5f76",
+  "decidedAt": "2026-10-23T19:23:00.936Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：不触及判据本体、.github/workflows、凭证/登录态。\n改动是数字人克隆链路的「形象+声音捆绑创建」。\n\n用户约束（本轮核心）：声音必须和形象走同一个 provider（飞影），\n两者绑在一起创建，才能用上飞影的整体克隆能力。\n这条推翻了此前「声音走 tts-voice-clone 独立链路」的设计。\n\n关键设计：\n1. 声音失败必须补偿删已建成的形象——否则留下「只有形象没有声音」的\n   半截克隆，用户下次生成视频仍会因缺 voice 失败，且形象是付费资产。\n2. voiceId 是 registry 条目的**选填**字段：老数据没有它，设必填会让\n   用户此前的克隆形象集体被拒。\n3. 录音没选也能创建（向后兼容「只克隆形象」）。\n\nmax-lines 拆文件：avatar-clone-service.js 涨到 506 行触发 500 硬限，\n把「素材两段式」的 service 侧 API 拆到新建的 avatar-clone-selection-api.js，\nservice 回到 465 行。CreateView.vue 净减 32 行（把选择逻辑抽到 composable）。\n\n踩过的坑（已修，均已在测试里锁住）：\n- git checkout 恢复文件时把同文件里未提交的 voice 逻辑一并丢了\n- import 的名字不会自动进 Vue 模板作用域（静默不执行），需显式桥接\n- 模板里对 ref 写 .value 是错的（22 例集体失败）\n- 测试里 beforeEach 内的 await import 作用域不外溢\n- chooseAvatarCloneMedia 没给默认 mock 值导致选择方法早退\n\n回归证据：20 个相关测试文件 479/479 全绿；\nmax-lines / locale(keys+cjk) / no-brand-residue / doc-abs-paths / r3(18) 通过；\ndebt-budget 通过（maxFileLines 5630→5638 经用户授权）。\n\n遗留：真实 clone 未执行（需花积分）；KNOWN_METHODS 仍未登记形象三方法，\n当前点「创建」会得到「服务商暂时不可用」——计划内 fail-closed，\n不产生半截状态，生成视频本身不受影响。"
+  }
+}

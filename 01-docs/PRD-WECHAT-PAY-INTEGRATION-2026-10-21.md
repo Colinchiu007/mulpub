@@ -470,11 +470,511 @@ COMMIT;
 
 ## 14. 上线检查清单
 
+- [ ] **先应用 `006_payment_orders.sql` 迁移**（`assertReady()` 会检查 `identity_payment_customers`；不先迁移，新版本**整个服务起不来**，不只是支付不可用）
 - [ ] 沙箱全链路 E2E-1 ~ E2E-7 通过
 - [ ] 生产商户凭据注入服务端环境（**不入仓、不入包**）
+- [ ] **确认 `docker-compose.yml` 已透传全部支付变量**（见 §15.2；漏传的表现是「配了也没用，前端恒显示通道未开放」）
 - [ ] `WECHAT_PAY_NOTIFY_URL` 指向生产域名，且该路径在 nginx/网关放行（免登录，但需防 CC）
 - [ ] 微信商户平台配置回调 URL + 开启 APIv3 回调加密（`AEAD_AES_256_GCM`）
 - [ ] `production-config` 校验通过（`PAYMENT_PROVIDER=wechat_native`）
 - [ ] 生产环境复跑 E2E-1（**沙箱通过不构成生产通过**）
 - [ ] 灰度：先白名单小流量，观察 webhook 到达率与订单 paid 率
 - [ ] 回滚待命：`PAYMENT_PROVIDER=none` 重启即关闭入口（零代码回退）
+
+## 15. 启用步骤（从「代码已合并」到「用户真的能付款」）
+
+> 本节为 2026-10-22 实测补写。此前的 PRD 只有「清单」，没有可执行步骤；
+> 而实测发现两个**不照做就永远付不了款**的坑，且它们都不报错，只表现为「前端功能不存在」。
+
+### 15.1 第一步：应用迁移（不做的后果是整站不可用）
+
+```bash
+# 在仓库根，DB 连接串与生产同源
+BUSINESS_DATABASE_URL='postgres://...' \
+  node packages/api-publish-engine/scripts/migrate-postgres.js --dry-run   # 先看 pending
+
+BUSINESS_DATABASE_URL='postgres://...' \
+  node packages/api-publish-engine/scripts/migrate-postgres.js            # 再真跑
+```
+
+容器内部署时：
+
+```bash
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/migrate-postgres.js --dry-run
+```
+
+| 事实 | 说明 |
+|---|---|
+| **生产禁止自动迁移** | `PostgresIdentityRepository.initialize()` 在 `production` 下直接抛 `PRODUCTION_AUTO_MIGRATE_FORBIDDEN` |
+| **就绪检查会验表** | `assertReady()` 校验 `REQUIRED_SCHEMA_RELATIONS`，其中已含 `identity_payment_customers` ⇒ 不迁移则 `BUSINESS_DATABASE_SCHEMA_NOT_READY` ⇒ **健康检查失败、整站不可用** |
+| **迁移有台账锁** | `identity_schema_migrations` 记 checksum；改已应用的迁移文件会 `MIGRATION_CHECKSUM_MISMATCH` 硬失败。**不要改 006，只能新增 007+** |
+
+`--dry-run` 输出示例：
+
+```json
+{"applied":[],"skipped":["002_logto_identity.sql","003_logto_webhook_events.sql","004_member_commerce.sql","005_cloud_accounts.sql"],"pending":["006_payment_orders.sql"]}
+```
+
+### 15.2 第二步：把支付变量真正送进容器
+
+`docker-compose.yml` 的 `environment` 必须逐项透传（**2026-10-22 之前一个都没传**）：
+
+| 变量 | 取值约束 | 缺失时 |
+|---|---|---|
+| `PAYMENT_PROVIDER` | `none`（默认）/ `wechat_native` | 视为 `none`：入口隐藏 |
+| `WECHAT_PAY_APPID` | 公众号/移动应用 AppID | 启动期 `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_MCH_ID` | 商户号 | 同上 |
+| `WECHAT_PAY_API_V3_KEY` | **必须 32 字符** | `PAYMENT_API_V3_KEY_INVALID` |
+| `WECHAT_PAY_CERT_SERIAL_NO` | 商户证书序列号 | `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_CERT_PATH` **或** `WECHAT_PAY_CERT_CONTENT` | 二选一：商户私钥 `apiclient_key.pem` 的**容器内路径** / PEM 全文 | `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_PLATFORM_PUBLIC_KEY` **或** `WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH` | 二选一：微信支付公钥（裸 Base64 SPKI 或 PEM）/ 其文件路径。**回调验签用，与商户私钥同等必需** | `PAYMENT_CONFIG_INVALID` |
+| `WECHAT_PAY_PUBLIC_KEY_ID` | 形如 `PUB_KEY_ID_…`；**可选**，配了就按它核对回调头里的 serial，对不上即 `PAYMENT_WEBHOOK_CERT_NOT_FOUND` | 不按 serial 过滤 |
+| `WECHAT_PAY_NOTIFY_URL` | **必须 HTTPS**，且与商户平台配置逐字一致 | `PAYMENT_NOTIFY_URL_HTTPS_REQUIRED` |
+
+证书文件放置（走 `CERT_PATH` 时）：`packages/api-publish-engine/config/wechat-pay/apiclient_key.pem`
+—— 该目录已被 compose 以 `./config → /app/packages/api-publish-engine/config` bind 进容器。
+
+**接线锁**：`packages/api-publish-engine/test/payment-env-passthrough.test.js` 断言
+「`.env.example` 声明的每个支付变量都在 compose 里透传」「compose 不得多传未声明的」「一律用 `:-` 默认而非 `:?` 必填」。
+新增支付变量而忘了改 compose，这条锁当场红。
+
+### 15.3 第三步：重启并自检
+
+**先跑支付预检**（一条命令查完四件事）：
+
+```bash
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/payment-preflight.js
+```
+
+| 检查项 | 查什么 | 失败时的典型原因 |
+|---|---|---|
+| `provider-kind` | `PAYMENT_PROVIDER` 取值合法；`none` 时直接 SKIP 并结束 | 拼错成 `wechat-natvie` |
+| `env` | 7 个支付变量的**存在性与形状**（复用 `validateProductionConfig`） | 少变量 / APIv3 密钥不是 32 字符 / notify_url 不是 https |
+| `credentials` | 私钥与平台公钥能否被 `crypto` **解析**（不是只看非空） | PEM 粘错、路径指错、只填了半边 |
+| `provider` | **provider 真的能被构造出来** | 这一项 FAIL 就意味着 `/me/checkout` 会恒 503 |
+| `database` | `identity_payment_customers` 等必需关系是否存在 | 没跑 006 迁移（见 §15.1） |
+
+退出码：`0` 全通过 / `1` 有失败项 / `2` 用法错误。`--json` 给机器读，`--skip-db` 只查配置时用。
+
+**再跑三条常规自检**：
+
+```bash
+# 1) 就绪探针
+curl -fsS http://127.0.0.1:3030/api/v1/ready
+
+# 2) 端点存在性（未登录应 401，而不是 404）
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:3030/api/v1/me/checkout
+
+# 3) 更全的配置校验（含 Logto / entitlement 等非支付项）
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/validate-production-config.js --phase required
+```
+
+**预检只能证明「我们这边准备好了」，不能证明「微信会接受」** —— 后者只有真机 E2E 能证明（§11.4）。
+
+### 15.4 前端用户会看到什么
+
+按钮显示条件是**「已登录」**，不是「已开通支付」—— 这是刻意设计（见 §7.4）：预判需要额外一次探测请求，
+而 503 的文案已能把「通道未开放」讲清楚。因此**「按钮在、点了报错」正是未配置时的预期形态**，不是 bug。
+
+弹窗状态机与逐态文案（`memberCenter.*`，zh/en 成对）：
+
+| 状态 | 触发 | 主提示文字（zh） | 可用操作 |
+|---|---|---|---|
+| `loading` | 打开后立即 | `payCreating`「正在创建订单…」 | 关闭 |
+| `qrcode` | 拿到 `codeUrl` | `payScanHint`「请使用微信「扫一扫」扫描下方二维码」+ `payAmountLabel`「支付金额」 | 关闭 |
+| `polling` | 轮询开始（与 qrcode 叠加） | `payWaiting`「等待支付结果…」 | 关闭 |
+| `paid` | 轮询到 `paid` | `paySuccess`「支付成功，权益已开通」 | **关闭按钮禁用**（让用户看到成功反馈） |
+| `failed` | `failed` | `payFailed`「支付未完成，未扣款，可重试」 | `payRetry`「重试」 |
+| `expired` | 二维码过期 | `payExpired`「二维码已过期」 | `payRefresh`「刷新二维码」 |
+| `timeout` | 30 分钟硬上限 | `payTimeout`「支付超时，可重新发起」 | `payRestart`「重新发起」 |
+| `error` | 其它失败 | `payChannelUnavailable`「支付通道暂未开放，可使用激活码开通」 | `payClose`「关闭」/ `payRetry`「重试」 |
+
+改前 / 改后对比：
+
+| 场景 | 改前（compose 未透传） | 改后（配置齐全） |
+|---|---|---|
+| 会员中心「订阅」页 | 有 `payNow`「立即购买」按钮 | 同左 |
+| 点「立即购买」 | 弹窗转 `error` 态：**「支付通道暂未开放，可使用激活码开通」** | 先「正在创建订单…」，随后出二维码与金额 |
+| 扫码支付成功 | 不可能发生 | 「支付成功，权益已开通」，关闭禁用；`paid` 事件触发 `identityStore.load()`，**档位与到期时间就地刷新** |
+| 取消 / 超时 | — | 30 分钟后「支付超时，可重新发起」；**权益不变** |
+
+### 15.5 回滚
+
+```bash
+# 只关入口：不动数据、不改代码
+PAYMENT_PROVIDER=none   # 然后重启服务
+```
+
+效果：`/me/checkout` 恢复 503 `PAYMENT_PROVIDER_UNAVAILABLE`，前端回到「支付通道暂未开放」；
+已产生的 `pending` 订单不会被清理（它们永远不会 `paid`，无副作用）；已生效的订阅不受影响。
+
+## 15.9 ✅ 支付回调留痕 `identity_webhook_events`（2026-10-23 发现缺口，当日修复）
+
+§5.3 写的是「`identity_webhook_events` 复用为支付 outbox」，但实现里**没有写这张表**：
+
+| 位点 | 事实 |
+|---|---|
+| `_handlePaymentWebhook` | 验签 → `settlePaymentWebhook` → 回 200，全程**不 INSERT** 任何事件行 |
+| `settlePaymentWebhook` | 幂等靠 `markOrderPaid` 的条件更新 + `identity_subscriptions.provider_reference` UNIQUE，不靠事件表 |
+
+**影响**：回调到达/处理**没有持久化记录**，事后追查只能翻服务端日志（`hook="payment-webhook"`）。
+
+**不影响**：幂等（E2E-4）与验签拒绝（E2E-5）仍然成立 —— 前者靠 UNIQUE、后者靠 401，都不依赖事件表。
+
+**建议的补法**（下一轮，非本次）：在 `_handlePaymentWebhook` 里验签通过后、结算之前，
+按 `identity_webhook_events` 既有形状插一行（`provider='wechat_pay'`、`auth_subject=<orderId>`、
+`event=<归一化类型>`、`status='processing'`），结算后置 `processed` + 写 `result`。
+唯一键 `(provider, id)` 已能承接 `Wechatpay-Nonce` 或 `transaction_id` 作为幂等 id。
+
+> 记这一条的理由：PRD 说了「复用」，代码没做 —— **文档与实现各说一套**。
+> 这类不一致比"没做"更危险，因为读文档的人会以为有。
+### 15.9.1 修复实现（2026-10-23）
+
+新增 `src/auth/payment-event-outbox.js`：
+
+| 函数 | 作用 |
+|---|---|
+| `paymentEventId(orderId)` | 事件行 id = `wechat_pay:<orderId>`。**一单一值**：重复投递落同一行 |
+| `claimPaymentEvent(client, record)` | `INSERT … ON CONFLICT (provider, id) DO NOTHING RETURNING id`；返回 `{id, claimed}` |
+| `completePaymentEvent(client, eventId, result)` | 结算后置 `status='processed'`、写 `result`、`processed_at=NOW()` |
+
+接入点在 `settlePaymentWebhook` 的**同一事务内**（`commerceTransaction`）：
+
+```
+claim(同一事务) → markOrderPaid → applySubscription → createNotification → complete(同一事务)
+```
+
+三条纪律：
+
+1. **重复投递短路**：`claimed=false` 时直接 `return {ignored:true, duplicate:true}`，
+   连 `markOrderPaid` / `applySubscription` 都不执行 —— 比"靠 UNIQUE 冲突收敛成 409"更早拦住。
+2. **事件表写失败不阻断结算**：用户已经付了钱，权益优先于可观测性。失败时结果带
+   `eventRecorded=false`，由 `_handlePaymentWebhook` 落 `PAYMENT_EVENT_NOT_RECORDED` 日志。
+   —— 不静默，但也不阻断。
+3. **收口失败同样不回滚**：权益已经发了，`eventRecorded` 降级为 false。
+
+### 15.9.1.1 `eventRecorded` 的三值契约
+
+结算结果里的 `eventRecorded` **键永远存在**（缺键会被调用方读成"成功"）：
+
+| 值 | 含义 | 调用方动作 |
+|---|---|---|
+| `true` | 事件已落库并收口为 `processed` | 无 |
+| `false` | 回调已结算，但事件写失败 | `_handlePaymentWebhook` 落 `PAYMENT_EVENT_NOT_RECORDED` 日志；响应仍 200 |
+| `null` | **不适用**（事务里没有 DB client，只出现在测试替身） | 无 |
+
+`null` 与 `false` 不能合并：前者是"没有可写的事件表"，后者是"有表但写失败了"。
+把两者混成一个值，会让"写失败"在测试环境里被习惯性忽略，进而漏到生产。
+### 15.9.2 幂等键的选择理由
+
+微信重投同一笔支付时 `Wechatpay-Nonce` **每次都会变**，`transaction_id` 才稳定；
+但本模块拿到的是 `orderId`（= 我们自己的 `out_trade_no`），它天然一单一值，比 `transaction_id`
+更适合当幂等键：**一单只会有一条支付事件**。
+
+**已知边界**：将来若同一订单出现第二类事件（退款/撤销通知），会与这条撞键。
+届时把键从 `wechat_pay:<orderId>` 扩成 `wechat_pay:<orderId>:<event>` ——
+`paymentEventId()` 是唯一改动点。
+
+### 15.9.3 判据
+
+新增 **12 例**（`test/payment-event-outbox.test.js`）。变异反证三条，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 去掉重复短路（`if (!claim.claimed)` → `if (false)`） | **10 pass / 2 fail**，重复投递用例精确变红 |
+| 失败也报"已留痕"（`eventRecorded = false` → `true`） | **9 pass / 3 fail**，两条降级用例精确变红 |
+| 结果不带 `eventRecorded` | **8 pass / 4 fail** |
+
+均逐字节还原 True。全量 `packages/api-publish-engine` rc=0（Vitest 47 文件 / 504 例）。
+## 15.10 灰度期对账：`payment-reconcile`
+
+### 15.10.1 为什么需要
+
+支付链路有四张表各记一半事实，任何一环错位，用户看到的现象都一样：**「我付了钱但没会员」**。
+日志只会告诉你「这个请求返回了什么」，**不会告诉你「有多少单处在不一致状态」**。
+
+灰度期每天要看的不是日志，是这个数。
+
+### 15.10.2 五项判据
+
+| # | 判据 | 等级 | 含义 |
+|---|---|---|---|
+| 1 | `paid-without-entitlement` | **阻塞** | 已支付但没发权益 —— 最严重，用户已损失 |
+| 2 | `entitlement-without-paid-order` | **阻塞** | 发了权益但订单不是已支付（反向孤儿） |
+| 3 | `event-processed-order-pending` | **阻塞** | 回调已处理但订单仍非 paid —— 事务边界被改坏的信号 |
+| 4 | `paid-order-without-event` | 提示 | 已支付但无事件行。**历史单必然如此**（事件表 2026-10-23 才上线）；新单出现才是问题 |
+| 5 | `stuck-processing` | 提示 | 事件卡 `processing` > 10 分钟。**权益已发**，仅留痕没闭环 |
+
+**只有「阻塞」项会让命令以 1 退出**；提示项不影响退出码 —— 否则历史单会把对账永久钉红。
+
+### 15.10.3 用法
+
+```bash
+# 容器内（推荐：读的就是容器真实环境）
+docker compose -f packages/api-publish-engine/docker-compose.yml \
+  exec publish-api node packages/api-publish-engine/scripts/payment-reconcile.js
+
+# 指定窗口与条数
+docker compose ... exec publish-api node packages/api-publish-engine/scripts/payment-reconcile.js \
+  --since-days 7 --limit 500
+
+# 机器读
+... --json
+```
+
+退出码：`0` 无阻塞差异 / `1` 有阻塞差异 / `2` 用法错误或连不上库。
+**`2` 不得读成「对账通过」** —— 工具失明与「没有问题」是两件事。
+
+### 15.10.4 ⛔ 只读硬约束
+
+本脚本**只允许 SELECT**，且有一条结构性测试锁住（`test/payment-reconcile.test.js` 的「只读硬锁」：
+五条判据都必须以 `SELECT` 开头且不含 `INSERT/UPDATE/DELETE/ALTER/DROP/TRUNCATE/CREATE`）。
+
+理由：对账工具一旦能写库，就会有人用它「顺手修一下」，而**自动修复资金不一致是资金路径上最危险的动作** ——
+改错了没人知道。修正一律人工核对 + 单独脚本 + 评审。
+
+### 15.10.5 发现差异后怎么处理
+
+| 判据 | 第一步 | 不要做 |
+|---|---|---|
+| 1 已付无权益 | 先查该单在 `identity_webhook_events` 有没有 `processed` 行；没有 ⇒ 回调没到/验签失败；有 ⇒ 结算抛错（查 `ORDER_REFERENCE_CONFLICT` / `PAYMENT_ORDER_NOT_FOUND`） | 不要直接点「补发」了事 —— 先确认微信侧真的收到钱 |
+| 2 权益无已付单 | 核对微信商户平台该单是否真收到钱；可能是人工改过订单状态 | **不要自动降级用户** |
+| 3 事件已处理但订单非 paid | 这是**代码缺陷信号**，先 `PAYMENT_PROVIDER=none` 回滚入口再查 | 不要继续放量 |
+| 4 已付无事件（新单） | 查日志有无 `PAYMENT_EVENT_NOT_RECORDED` | 不要据此补发（权益可能已发） |
+| 5 卡 processing | 人工清账 | 不要据此重新发放 |
+
+### 15.10.6 判据
+
+新增 **16 例**（`test/payment-reconcile.test.js`）。变异反证三条，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 判据里夹带 `UPDATE` | **14 pass / 2 fail**，只读锁精确变红 |
+| `blocking` 恒 0 | **11 pass / 5 fail** |
+| 忽略真实命中（`count > 0` → `> 99`） | **11 pass / 5 fail** |
+
+均逐字节还原 True。
+### 15.10.7 外部评审后的加固（同日）
+
+跨家族评审给了 2 Critical + 3 High。逐条核验后**大部分成立**，已全部落地：
+
+| # | 评审意见 | 核验 | 处置 |
+|---|---|---|---|
+| 1 | LIMIT 截断会把真实条数报小，可能让"200 条"被读成真实值 | 部分成立（**它说会报"干净"是不对的**：截断时 `count>0` ⇒ `blocking>0` ⇒ `ok=false`）；但"200 条"确实会骗人 | 每条结果加 `truncated`（`rows.length >= limit`）+ 报告加 `truncatedBlocking`；`formatText` 明确打印「被 LIMIT=N 截断，真实条数多于这个数」 |
+| 2 | `substring(provider_reference from 8)` 无长度守卫：`'wechat:'` 恰好 7 字符时得到空串 | 成立 | 加 `AND length(s.provider_reference) > 7` |
+| 3 | 事件-订单用 INNER JOIN，**孤儿事件被静默丢掉** | 成立 | 改 `LEFT JOIN` + `(o.id IS NULL OR o.status <> 'paid')` |
+| 4 | 默认 `--since-days 30` 会藏住历史差异且输出里看不出来 | 成立（透明度问题） | 报告加 `inspectionWindow {since, sinceDays, limit}`，`formatText` 首行打印 |
+| 5 | 连到空库/错库时所有 SELECT 返回 0 行 ⇒ 报"一致" | **成立且最危险**（工具失明伪装成好消息） | 加 **schema 预检**：`to_regclass()` 查三张表，缺任一即抛 `PAYMENT_RECONCILE_SCHEMA_MISSING`（rc=2）。**零行也算失败** —— `rows[0] \|\| {}` 会让"没返回任何东西"看起来像"什么都不缺" |
+| 6 | 只读锁不拦 `SELECT … FOR UPDATE` / `SELECT … INTO` | 成立 | 结构锁补两条断言 |
+| 7 | 测试可能在实现被掏空时仍通过 | 部分成立（已有 `calls.length` 断言） | 补「每条判据的 SQL 都真的被执行了」逐条比对 |
+| 8 | `formatText` 在截断时仍说"一致" | 与 #1 同源 | #1 已覆盖 |
+| 9 | `auth_subject` 若是 user_id 而非订单号，第 4 项会误报 | 成立（文档假设） | SQL 注释写明语义（`payment-event-outbox.js` 写入的是订单号） |
+
+### 15.10.8 判据（更新）
+
+新增 **27 例**（含 3 条 SQL 形状锁，把 #2/#3 两条修复钉死，防止重构时悄悄退回）。
+变异反证 **四条**，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 判据里夹带 `UPDATE` | 14 pass / 2 fail（只读锁精确变红） |
+| 整段短路 schema 预检 | 22 pass / 5 fail |
+| `truncated` 恒 false | 25 pass / 2 fail |
+| `LEFT JOIN` 退回 `JOIN` | 25 pass / 2 fail |
+| 去掉 `length(...) > 7` 守卫 | 25 pass / 2 fail |
+
+均逐字节还原 True。
+## 15.11 本地 mock 预演：证明「微信会认我们的请求」
+
+### 15.11.1 之前所有支付测试都缺的那一环
+
+先前 100+ 条支付测试**全都注入 `fetcher`**。它们证明的是「provider 拿到某个响应后怎么处理」，
+**证明不了**「provider 发出去的请求，微信会不会认」。
+
+而线上第一种失败恰恰是后者 —— `SIGN_ERROR`：签名原文 / 报文 / 时间戳任一处不对，**全部下单失败**。
+这类错误在注入式测试里永远暴露不出来，因为不存在的网络层不会拒绝你。
+
+### 15.11.2 mock 微信服务器做什么
+
+`test/payment-mock-wechat-e2e.test.js` 起一个本地 HTTP 服务器（`127.0.0.1` 临时端口，不出网），
+它**做和微信一样的事**：
+
+| 检查 | 判据 |
+|---|---|
+| 路径与方法 | `POST /v3/pay/transactions/native` |
+| 签名类型 | `WECHATPAY2-SHA256-RSA2048` |
+| `mchid` / `serial_no` | 与配置逐字一致 |
+| 时间戳 | **必须是 10 位秒级**且在 ±300s 内（毫秒会被当场挡下） |
+| **签名** | 用商户公钥对 `POST\n路径\n时间戳\n随机串\n原文报文\n` 做 `RSA-SHA256` verify |
+| 报文 | `appid` / `mchid` / `out_trade_no` / `notify_url` / `amount.total` / `attach` |
+
+签名不过就返回 `{code:'SIGN_ERROR'}` —— 与微信的错误体同形。**签名算错这个测试就红**，
+不是断言字符串前缀那种假绿。
+
+关键细节：测试里用的签名器是**生产签名器** `buildAuthorizationHeader`（与工厂同一份实现）。
+如果测试自带一套签名逻辑，那它就只是在验证自己。
+
+### 15.11.3 它抓到的真 bug（2026-10-23）
+
+`createCheckout` 原本在 `response.ok !== true` 时**先**抛 `PAYMENT_PROVIDER_UPSTREAM_FAILED`，
+**从不解析微信的错误体**。而微信把业务错误放在**非 2xx 的 JSON body 里**（`SIGN_ERROR` 是 401）。
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 签名错（微信 401 `SIGN_ERROR`） | `PAYMENT_PROVIDER_UPSTREAM_FAILED`「微信下单请求失败」 | `PAYMENT_PROVIDER_UPSTREAM_REJECTED`「微信下单被拒：SIGN_ERROR 签名错误」 |
+| 网关返回 HTML 401（无 code） | `UPSTREAM_FAILED`「返回异常」 | `UPSTREAM_FAILED`「返回 HTTP 401」（带状态码） |
+| 网络断开 | `UPSTREAM_FAILED` | `UPSTREAM_FAILED`（不变） |
+
+**修复前，运维看到 SIGN_ERROR 会以为是网络问题，实际是密钥/签名不对 —— 排查方向完全相反。**
+
+### 15.11.4 `apiBase` 为什么只能从代码传，不能从环境变量读
+
+新增 `options.apiBase`（默认 `https://api.mch.weixin.qq.com`，末尾斜杠会被规范化）。
+它**刻意不读环境变量**：线上某人把它设成 `http://…` 会把签名与报文暴露在明文链路上，
+而这类"配置能改安全属性"的口子一旦存在，迟早会被用来"临时绕过"。
+需要 mock/沙箱时，由测试或显式代码传，不经过 env。
+
+### 15.11.5 用法
+
+```bash
+cd packages/api-publish-engine
+node --test test/payment-mock-wechat-e2e.test.js
+```
+
+不需要任何真凭据。它验证的是**服务端半程**（下单 → 微信认签名 → 拿到 code_url）；
+真机扫码那半程仍然只有 E2E-1 能证明。
+
+### 15.11.6 判据
+
+新增 **5 例**。变异反证两条，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 恢复「先判 `ok` 再读报文」 | **3 pass / 2 fail**，SIGN_ERROR 用例精确变红 |
+| 忽略 `apiBase` 走生产域名 | **3 pass / 2 fail**，happy path 精确变红 |
+
+均逐字节还原 True。
+### 15.11.7 外部评审处置（1 Critical + 4 High，采纳 4、驳回 1、部分成立 1）
+
+| # | 评审意见 | 核验 | 处置 |
+|---|---|---|---|
+| 1 | **Critical**：`payload.code` 在非对象载荷上会崩 | **不成立**：`payload && payload.code` 对字符串/数组只会得到 `undefined`，不会抛。但「200 里带 truthy 非字符串 code」确实会误判 | **加固**：`isErrorPayload = 对象 && typeof code === 'string' && length > 0` |
+| 2 | **High**：`SIGN_ERROR` 应该返回 401 而不是 502 | **驳回** | 401 的语义是「**终端用户**未认证」，而这里是**我们服务端**没能向微信认证；用户本人已登录。改成 401 会让客户端误判会话过期、触发重新登录，比 502「支付暂不可用」更糟。诊断需求已由 message 里的 `SIGN_ERROR` 满足 |
+| 3 | High：`apiBase` 无 scheme 校验，`http://` 可指向任意主机 | 成立 | 只允许 `https://`，`http` 仅限回环（`127.0.0.1` / `localhost` / `::1`），构造期抛 `TypeError` |
+| 4 | High：mock 里 `assert` 抛在请求回调中会让服务端崩、客户端一直等 | 成立（失败会伪装成超时） | 整个 handler 包 try/catch，异常一律转成 500 响应并记进 `seen.errors`；断言改成「返回错误响应」而不是抛 |
+| 5 | High：缺 `signature` 时 `crypto.verify(undefined)` 会抛 OpenSSL 错误 | 成立 | 验签前先判 `fields.signature`，缺失即 401 `SIGN_ERROR` |
+| 6 | Medium：`server.close()` 遇 keep-alive 会一直等，CI 上随机超时 | 成立 | `closeAllConnections()`（Node ≥19.2）后再 `close()` |
+| 7 | Low：测试用的是生产签名器，系统性 bug 会两边同时错 | 已知设计取舍 | 不改：集成测试的目标是「端到端能过」，独立参考实现属另一类测试 |
+
+### 15.11.8 判据（更新）
+
+新增 **11 例**。变异反证 **四条**，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 恢复「先判 `ok` 再读报文」 | 3 pass / 2 fail |
+| 忽略 `apiBase` 走生产域名 | 3 pass / 2 fail |
+| 错误体判定放松为 `payload.code` | 9 pass / 2 fail |
+| 去掉 `apiBase` scheme 校验 | 9 pass / 2 fail |
+
+均逐字节还原 True。
+
+> 记一条自省：第一版变异「放松错误体判定」**没红**，因为我用的测试数据是 `code: 0`（falsy，两种实现都放过）。
+> 换成 truthy 的 `code: 42` 才真正区分开。**变异反证本身也会假绿** —— 数据要选在两种实现行为不同的那一侧。
+## 16. ✅ 已修复：provider 从未被构造（2026-10-22 发现并当日修复）
+
+> 本节记录的是一条**会让第 15 节全部白做**的缺口。它不属于"配置没做好"，是**代码没接上**。
+> **修复见 §16.6**；16.1~16.3 保留为问题现场，供后人理解为什么 111 条测试全绿也发现不了。
+
+### 16.1 事实（可在当前主干逐行核对）
+
+| 位点 | 代码 | 含义 |
+|---|---|---|
+| `src/auth/logto-runtime.js:127` | `new SubscriptionService({ repository, planOverrides })` | **没有传 `paymentProvider`** |
+| `src/auth/subscription-service.js:120` | `this.paymentProvider = options.paymentProvider \|\| null` | 于是生产里恒为 `null` |
+| `src/auth/subscription-payment.js:56` | `if (!this.paymentProvider) { … }` | `POST /me/checkout` 直接回 503 `PAYMENT_PROVIDER_UNAVAILABLE` |
+| 全仓 `src` | `WeChatNativeProvider` **只出现在它自己的定义文件里** | 生产代码从未 `new` 过它；只有测试构造 |
+
+### 16.2 后果
+
+**即使**：迁移已应用 + `docker-compose.yml` 已透传 + `.env` 填好 + 商户平台配置完成
+—— `POST /api/v1/me/checkout` **仍然恒返回 503**，用户仍然看到「支付通道暂未开放」。
+
+第 15 节解决的是"配置送不到进程"，第 16 节这条是"送到了也没人用"。
+
+### 16.3 为什么测试全绿也发现不了
+
+每条测试都是**注入** provider 的：
+
+```js
+return new SubscriptionService({ repository, paymentProvider: new WeChatNativeProvider({ ... }) })
+```
+
+`subscription-payment.test.js`（25 例）、`payment-api.test.js`（22 例）全部如此。
+**被注入的东西永远不需要有人去构造它** —— 这是"依赖注入 + 无组装根测试"的经典盲区：
+单元级覆盖率 100%，组合根覆盖率 0%。
+
+### 16.4 修它需要什么（下一个任务的验收面）
+
+1. `src/auth/payment-providers/wechat-native-factory.js`：
+   - `loadMerchantPrivateKey(env)`：`WECHAT_PAY_CERT_CONTENT`（PEM 全文）或 `WECHAT_PAY_CERT_PATH`（文件），二选一，缺失即抛错
+   - `buildAuthorizationHeader({ mchId, serialNo, privateKey, method, path, body, nonce, timestamp })`
+     → `WECHATPAY2-SHA256-RSA2048 mchid="…",nonce_str="…",signature="…",timestamp="…",serial_no="…"`
+     （签名原文 `METHOD\nPATH\nTIMESTAMP\nNONCE\nBODY\n`，RSA-SHA256）
+   - `createWeChatNativeProvider(env, deps)`：`PAYMENT_PROVIDER !== 'wechat_native'` 时返回 `null`
+2. 平台公钥（webhook 验签用）：需要新环境变量
+   - `WECHAT_PAY_PLATFORM_PUBLIC_KEY`（裸 Base64 SPKI 或 PEM）/ `WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH`
+   - `WECHAT_PAY_PUBLIC_KEY_ID`（微信 2024+ 公钥模式的 `PUB_KEY_ID_…`）
+   - **同时要在 `production-config` 里纳入必填**（没有它，checkout 能出码但 webhook 全部 401 ⇒ 用户付了钱拿不到权益）
+3. `logto-runtime.js` 接线：构造后传给 `SubscriptionService`
+4. **组装根测试**（关键）：`createLogtoRuntime({ PAYMENT_PROVIDER: 'wechat_native', …完整 env })`
+   ⇒ 断言 `subscriptionService.paymentProvider !== null`；`none` ⇒ `null`。
+   这条测试是唯一能防住本节的形态 —— 它不注入 provider，而是走真实组装路径。
+
+### 16.6 修复（同日，PR `wechat-pay-provider-wiring`）
+
+| 位点 | 改动 |
+|---|---|
+| `src/auth/payment-providers/wechat-native-factory.js`（新增） | `readPem`（内容/路径二选一）、`buildAuthorizationHeader`（微信 APIv3 签名）、`createWeChatNativeProvider(env, deps)` |
+| `src/auth/logto-runtime.js` | 构造 provider 并传给 `SubscriptionService({ paymentProvider })`；`options.paymentProvider !== undefined` 保留测试可控性 |
+| `src/auth/production-config.js` | 平台公钥纳入 `wechat_native` 必填（此前只校验商户私钥） |
+| `.env.example` / `docker-compose.yml` | 新增 `WECHAT_PAY_PLATFORM_PUBLIC_KEY(_PATH)` / `WECHAT_PAY_PUBLIC_KEY_ID`；恢复 `WECHAT_PAY_CERT_CONTENT`（现在真的有消费方了） |
+| `test/payment-provider-factory.test.js`（新增） | 工厂单测 + **真密钥对验签** + **组装根测试** |
+
+**签名原文**（微信固定格式，五行四换行 + 末尾换行）：
+
+```
+HTTP方法\nURL路径\n时间戳\n随机串\n请求报文主体\n
+```
+
+报文主体必须与实际发出的**逐字节一致**（本仓发的是 `JSON.stringify(body)`，签名原文也用它），
+否则线上表现是 `SIGN_ERROR`、所有下单失败。
+
+**验签侧**：`certificateProvider.getBySerial(serial)` 只持有一把平台公钥；配了
+`WECHAT_PAY_PUBLIC_KEY_ID` 就按 serial 核对，对不上返回 `null` ⇒ `PAYMENT_WEBHOOK_CERT_NOT_FOUND`。
+这是刻意 fail-closed：**换公钥却没更新配置必须吵出来**，不能拿旧公钥默默验过。
+
+**为什么保留 §16.5 的"不修"判断**：那条判断说的是"不能**半接**"。本次是**一次接全**
+（下单签名 + 回调验签 + 组装根测试同时落地），因此不违背它。
+
+### 16.7 判据
+
+新增 **21 例**（`payment-provider-factory.test.js`）。变异反证两条，均双向：
+
+| 变异 | 结果 |
+|---|---|
+| 撤掉 `logto-runtime` 里的 `paymentProvider,` | **19 pass / 2 fail**，组装根用例精确变红 |
+| 签名原文去掉末尾换行 | **19 pass / 2 fail**，验签用例精确变红 |
+
+均逐字节还原 True。全量 `packages/api-publish-engine` rc=0（Vitest 47 文件 / 504 例 + node:test）。
+### 16.5 为什么本轮不修
+
+签名与平台公钥是**安全关键路径**，且必须**一次接全**：
+只接下单不接验签 = 用户付了钱、webhook 401、权益不发放 —— **比现在（根本付不了款）更糟**。
+半接的失败形态是"钱收了但没给货"，那是资金事故，不是功能缺陷。
+
+因此本轮只做**可验证的那一半**（配置透传），并把这条缺口钉进文档与 `tasks.md`。
+

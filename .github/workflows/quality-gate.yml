@@ -68,6 +68,13 @@ jobs:
           # 它守的是"收紧基线后在飞 PR 的旧绿结论会被重算并点名"，而 static-gates 整块会被 docs-only 短路 ⇒
           # 一份改基线的 docs-only PR 恰好能绕过它（本仓同类反例见上方 check-gate-record-debt 那条注释）。
           node --test scripts/check-debt-recheck.test.js
+          # QM-6 外部出处覆盖率水位 + 假想 enforce 扫描的回归锁（change: qm6-tier-watermark）。
+          # 同上一条的理由留在 changes job：这两把锁守的是"advisory→enforce 何时可翻"的测量面，
+          # 而测量本体（scripts/check-pr-exec-record.js 的 tier 分类）就在本 step 里被点名跑。
+          # 刻意**不**给水位计另接一个 CI 打印档（派生数不需要累积日志，落点在路径过滤作业里
+          # 等于罕见触发）—— 否证与代价记在 openspec/changes/qm6-tier-watermark/design.md §D12。
+          node --test scripts/qm6-tier-watermark.test.js
+          node --test scripts/qm6-enforce-preview.test.js
           # 冻结判据按档拦：PR 档收口成"可见"。动因是 2026-10-16 实测 run 38781654774 ——
           # pull_request 检出的是 main⊕本分支的合并预览，主干每几分钟长一块，PR 档"等于基线"必红。
           # main push 那一档照旧拦，所以锁没被拆松，只是装回它真能成立的位置。
@@ -172,6 +179,8 @@ jobs:
             exit 1
           fi
           node --test scripts/check-pr-exec-record.test.js
+          # 只读审计档（--audit）的回归锁。不接这一行则锁不跑 —— 等于给新能力开了条无人守门的入库通道。
+          node --test scripts/check-pr-exec-record.audit.test.js
           node scripts/check-pr-exec-record.js --base="${EXEC_BASE:-}" --head-branch="${EXEC_HEAD_REF:-}" --head="${EXEC_HEAD_SHA:-HEAD}" --mode=advisory
 
       # --- Gate 2c5：CCG 门禁「存量命中过滤」的判据回归锁 ---
@@ -419,6 +428,51 @@ jobs:
         run: |
           node --test scripts/quality-rhythm-spec-mirror.test.js
 
+      # --- Gate 12f：主规格不得因本次合并而丢失基线内容（changes job）---
+      # 动因（2026-10-24 实测）：openspec 的 delta 语义是**增量补丁**，权威出处
+      # `.opencode/skills/openspec-sync-specs/SKILL.md` 的「MODIFIED Requirements」一节末行
+      # 「**Preserve scenarios/content not mentioned in the delta**」——
+      # 这句约定此前**没有任何机器消费者**（全仓 grep 只命中该文档自身），
+      # 属本仓反复出现的「注册≠注入≠生效」家族。后果很具体：
+      # 一次 delta 合并若把基线里的某条 Scenario 抹掉，**全仓没有任何门禁会红**。
+      # 本次实测就撞上了这个洞：两个 change 的 delta 各只写了基线 5 条 Scenario 里的 3 条，
+      # 靠人工逐条对账才没丢 —— 下一次靠自觉的概率就不是 1 了。
+      # 本判据把这句散文变成会红的东西：合并后（base ⊕ head）的主规格必须包含
+      # 基线（merge-base）主规格里的每一个 Requirement 与每一条 Scenario。
+      #
+      # 三条口径：
+      # ① 事后对账、不事前查 delta —— openspec 的 MODIFIED 是增量语义，delta 不自包含是**合法写法**；
+      #    事前判据实测会误报 3 处（其中 2 处是本仓自己按增量语义写的 change）。
+      # ② 基线取 **merge-base** 而非 base 分支当前 HEAD —— base 在 PR 打开期间前进时，
+      #    拿 base 当前 HEAD 当基线会把别人的新 Scenario 误判成"本次丢失"⇒ 假红。
+      # ③ 扫描域由**变更集**决定而非目录遍历 —— 扫描域不会塌缩（目录改名可能读到空集）。
+      #
+      # 落点必须是本 job：输入 `openspec/**` 命中 docs-only 白名单，
+      # 放进被 `docs-only != 'true'` 门控的 static-gates 等于给自己关掉校验
+      # （同族 #2718 / #2745 / #3000 / #3114 / Gate 12d / Gate 12e）；
+      # 而摆在 classify 之前时本 step 一红会让 docs-only 输出整条消失、下游重型 job 全部跑满。
+      # 位置与"排在 classify 之后"由 scripts/check-spec-delta-coverage.test.js 的结构锁钉住。
+      # 只用 node 内置模块（复用 classify-docs-only.changedFileStatuses），满足「本 job 无 Install deps」。
+      # `if` 是硬需求：本 workflow 另有 `push: branches:[main]` 与 `workflow_dispatch` 触发，
+      # 那两种事件下 `github.event.pull_request.*` 全为空 ⇒ --base 为空 ⇒ 门禁判「取证失败」(rc=2)
+      # ⇒ **main 的 push 会红**。本判据的语义是"这次合并会不会丢基线内容"，
+      # 它天然只在 PR 事件下有基线可比（push 到 main 时合并已发生，主规格已是结果）。
+      - name: "Gate 12f - Spec delta coverage (changes job)"
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          # 基线 = PR 打开时的 base.sha。**不传 --head**：pull_request 的默认检出 HEAD
+          # 就是 merge commit（父 = base.sha 与 head.sha），于是
+          #   merge-base(base.sha, HEAD) = base.sha  ⇒ 基线就是"这次 PR 的起点"
+          #   head 侧读到的是**合并结果**（merge commit 的树）
+          # 这正是门禁要验的那件事："这次合并有没有把基线内容抹掉"。
+          # 不传 --head 还有个硬理由：fork PR 的 head 对象可能不在本地对象库，
+          # 传 head.sha 会让 merge-base 取不到 ⇒ 全仓 fork PR 被 exit 2 打红。
+          SPEC_DELTA_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test scripts/check-spec-delta-coverage.test.js
+          node scripts/check-spec-delta-coverage.js --base="$SPEC_DELTA_BASE"
+
       # --- Gate 2b3：pre-commit 判定记录暂存的进程创建预算锁 ---
       # 为什么必须常驻 CI 而不只留在钩子测试里：scenario16 是行为测量，只有跑到那段代码才有效；
       # 「退回逐文件循环」这种改法可以被写成注释、被临时禁用、或在另一个入口里复活。
@@ -455,7 +509,11 @@ jobs:
       - name: "Gate 2b8 - Main-red merge gate (changes job)"
         shell: bash
         run: |
-          node --test scripts/check-main-red.test.js
+          # 2026-10-22 阶段 1（main-red-liveness）：新增 main-red-baseline.test.js ——
+          # 主干侧读数改为「最后一次完整结论」（pickBaseline 纯函数 + 接线锁 + 变异反证）。
+          # 两个文件同属这一道判据，必须由同一步一起跑：拆开会让「判据本体」与「它的基线化」
+          # 落在两个 step 里，任一步被单独跳过时另一半仍在装作验过。
+          node --test scripts/check-main-red.test.js scripts/main-red-baseline.test.js
 
       # --- Gate 2b7：全仓 CI 作业超时常量的取证对账（2026-10-20 起覆盖全部 24 格） ---
       # 编 2b7 而不是 2b5：#3724（未合并）占用 "Gate 2b5 - CCG evidence anchor"，2b6 已被收敛探针占用，
@@ -478,10 +536,15 @@ jobs:
       # 诚实边界：GitHub runner 上没有 ~/.claude/skills/adversarial-review-loop，
       # 所以 CI 跑的是「缺引擎 ⇒ rc=2 且点名探针失明」那一档；ladder 读数断言在本机那一档执行。
       # 两档都必须有产物 —— 缺引擎不 skip、不判绿（见 scripts/ccg-convergence-probe.test.js 头注）。
+      # 追加一把独立文件的契约锁（change: qm6-exit-capability-probe）。动因是实测事故：
+      # PR #4062 携带评审前的旧副本 squash 落地，把 #4067 在探针、探针测试、ccg-convergence-exit/tasks.md
+      # 三处的改动整段撤销（+1/−21、−25、−31），而"发现撤销"的那条断言与它守护的实现**同批被删**。
+      # ⇒ 检出必须住在不会被同一批旧副本带上的第三个文件里，并与探针同步点名。
       - name: "Gate 2b6 - CCG convergence-exit probe (changes job)"
         shell: bash
         run: |
           node --test scripts/ccg-convergence-probe.test.js
+          node --test scripts/qm6-exit-capabilities.test.js
 
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
@@ -616,6 +679,44 @@ jobs:
             scripts/ccg-review-writeback.test.js \
             scripts/ccg-closure-writeback-chain.test.js \
             scripts/deep-review-entry-rc.test.js
+      # --- Gate 2b13：定时作业的失败报警覆盖面 ---
+      # 动因（2026-10-22 现场，PR #4199 那一刀的上游）：Cleanup Artifacts 的定时 run 连红 9 次无人发现（run 38385152658…39570873661，最后一次成功是 run 38239617921）。
+      # 根因不在作业本身，在"没有任何东西在看它"—— 仓库其实早有 ci-failure-handler.yml
+      # （workflow_run 失败 ⇒ 自动开 Issue + 在 PR 留言），但它的 workflows 名单是手抄的 5 个名字，
+      # 四条带 `on.schedule:` 的作业一条都不在里面；定时作业没有 PR、不 participate 合并判定，
+      # 所以它红了多久都不会在任何 required check 上显形。
+      # 落点必须在 changes 作业且不得放进 static-gates：本判据的输入是 .github/workflows/**
+      # （全在 docs-only 白名单里），放进被 `docs-only != true` 门控的 static-gates，
+      # 等于让"只改工作流/只改文档"的那类 PR 给自己的锁关掉校验（AGENTS 白名单前提锁同一条）。
+      # 第一步跑判据本体（对真仓给结论），第二步跑行为锁（含夹具正/负控与接线自检）。
+      - name: "Gate 2b13 - Scheduled workflows are covered by the failure watchdog (changes job)"
+        shell: bash
+        run: |
+          node scripts/check-schedule-failure-watch.js
+          node --test scripts/check-schedule-failure-watch.test.js
+
+      # --- Gate 2b14：定时作业心跳锁的行为面（change: schedule-heartbeat-lock）---
+      # 判据本体**不在这里跑**：它要读 GitHub 的 run 历史，PR 侧既读不到稳定的 schedule 历史，
+      # 又会把"基础设施健康"耦合进合并判定；线上读数挂在 .github/workflows/schedule-heartbeat.yml（每日）。
+      # 这里跑的是**行为锁**（夹具正/负控 + 接线锁 + 采集器形状，全部零出站），作用是"锁不被拆"——
+      # 少了这一步，判据被人改坏后唯一的发现途径是等下一次日巡检红，而"日巡检根本没跑"恰恰是本判据
+      # 要抓的那一类失败：自己抓不到自己，就得由 PR 侧的接线证据来兜。
+      # 落点必须在 changes 作业（与 Gate 2b13 同一条理由）：本锁的输入含 .github/workflows/**，
+      # 那些路径全在 docs-only 白名单里，放进被 docs-only 门控的 static-gates 等于给自己的锁关掉校验。
+      - name: "Gate 2b14 - Scheduled-job heartbeat locks (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/check-schedule-heartbeat.test.js
+
+      # --- Gate 2b12：artifact 清理作业的行为锁 ---
+      # 被测对象是 .github/workflows/cleanup-artifacts.yml 里那段清理逻辑（已搬进 scripts/cleanup-artifacts.js）。
+      # 必须接在 changes 作业：cleanup 那条 workflow 只由 schedule 触发，接在那儿等于"红在 PR 侧不可见"，
+      # 那正是它的定时 run 连红 9 次而无人发现的成因（2026-10-21/22 实测：schedule 日日失败、非 required check、无监控；取证链见 openspec/records/schedule-failure-watch.md 与 PR #4234）。
+      # 本步骤刻意**不**执行清理脚本本体（它会真删 CI 产物），只跑它的行为锁 —— 注入式测试，零真实出站。
+      - name: "Gate 2b12 - Artifact cleanup logic (changes job)"
+        shell: bash
+        run: |
+          node --test scripts/cleanup-artifacts.test.js
 
   static-gates:
     name: QG Static

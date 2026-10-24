@@ -23,10 +23,14 @@ function safeError (error) {
 
 /** 只收两个白名单字段：其余键（尤其 amount）一律丢弃，绝不透传到服务端。 */
 function pickCheckoutBody (payload) {
-  return {
+  const body = {
     plan: payload && typeof payload.plan === 'string' ? payload.plan : '',
     period: payload && typeof payload.period === 'string' ? payload.period : '',
   }
+  // `orderId` 仅用于「继续支付」（复用既有 pending 订单）。有才带 —— 不传 undefined，
+  // 保持「新建订单」的调用形状与加入本功能之前一致。
+  if (payload && typeof payload.orderId === 'string' && payload.orderId) body.orderId = payload.orderId
+  return body
 }
 
 function registerWeChatPayHandlers (ipcMain, deps = {}) {
@@ -114,6 +118,43 @@ function registerWeChatPayHandlers (ipcMain, deps = {}) {
       return { code: EC.REQUEST_ERROR, message: safeError(error) }
     }
   }))
+
+  /**
+   * 会员中心「订单与账单」列表。
+   *
+   * **投影而不是透传**：服务端 listOrders 是 SELECT *，含 provider_order_id /
+   * provider_sub_id / discount_cents 等内部列。把它们原样交给渲染层等于把供应商侧
+   * 标识外泄给一个可能被 XSS 影响的上下文；这里只白名单八个字段。
+   */
+  ipcMain.handle('wechat-pay:list-orders', withSenderCheck(async () => {
+    try {
+      const fetched = await memberRequest({
+        path: '/api/v1/me/orders',
+        method: 'GET',
+        requireSubject: true,
+      })
+      if (fetched.code !== 0) return fetched
+      const rows = (fetched.data && Array.isArray(fetched.data.orders)) ? fetched.data.orders : []
+      return {
+        code: 0,
+        data: {
+          orders: rows.map((row) => ({
+            id: typeof row.id === 'string' ? row.id : '',
+            plan: typeof row.plan === 'string' ? row.plan : '',
+            amount: Number.isInteger(row.amount) ? row.amount : 0,
+            currency: typeof row.currency === 'string' ? row.currency : 'CNY',
+            status: typeof row.status === 'string' ? row.status : 'pending',
+            period: typeof row.period === 'string' ? row.period : null,
+            createdAt: row.created_at ? String(row.created_at) : null,
+            paidAt: row.paid_at ? String(row.paid_at) : null,
+          })),
+        },
+      }
+    } catch (error) {
+      return { code: EC.REQUEST_ERROR, message: safeError(error) }
+    }
+  }))
 }
+
 
 module.exports = { registerWeChatPayHandlers, pickCheckoutBody }

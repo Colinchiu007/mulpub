@@ -505,14 +505,25 @@
 
 ## 六、Feature 组件（账号模块）
 
-### 6.1 AccountLoginDialog（95 行）
+### 6.1 AccountLoginDialog（119 行）
 
 | 项目 | 内容 |
 |------|------|
 | **入口** | Accounts.vue → "添加账号" 按钮 |
 | **实现** | `UiModal(size="sm")` |
-| **内容** | 平台选择（`UiSelect`）+ 登录方式切换（网页/扫码）|
+| **内容** | 平台选择（`AccountPlatformPicker` 自绘浮层）+ 登录方式切换（网页/扫码）|
 | **操作** | 选择平台 → 打开登录窗口 |
+
+### 6.1b AccountPlatformPicker（390 行 + AccountPlatformPicker.css 211 行）
+
+| 项目 | 内容 |
+|------|------|
+| **入口** | AccountLoginDialog 的「平台」字段 |
+| **实现** | 自绘浮层（`Teleport` 到 body，避开 `UiModal` 的 `overflow` 裁剪）+ `PlatformIcon` 复用平台图标 |
+| **内容** | 收起态＝图标+平台名（或占位文案）；展开态＝搜索框 + 国内/海外分组 + 平台列表 + 快捷键提示 |
+| **交互** | 全键盘可达（`role="combobox"` + `role="listbox"` + `aria-activedescendant`）：↑↓ 移动、Enter 选中、Esc 收起并把焦点交还触发器；点击浮层外部收起；下方空间不足时向上翻转 |
+| **为什么不用原生 `<select>`** | 原生控件展开后由操作系统绘制，CSS 无法介入 —— 圆角/配色/图标/分组全都不归本应用管，做不到「精致」。详见 `01-docs/PRD-ACCOUNT-PLATFORM-PICKER-UX-2026-10-21.md` §1 |
+| **分组口径** | `usePlatformStore().getCategoryGroup(id)`（`domestic` / `international`），与发布页 `usePublishPlatformCatalog.js` 同源；分类值是中文「中文/海外」，故在 store 里翻成非本地化结构键，UI 层不写中文字面量 |
 
 ### 6.2 AccountProxyDialog（132 行）
 

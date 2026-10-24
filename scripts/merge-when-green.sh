@@ -58,6 +58,10 @@ done
 #     归因走环境变量 MAIN_RED_ALLOW（含空格，所以必须组数组，不能裸展开）。
 MAIN_RED_ARGS=()
 [[ -n "${MAIN_RED_ALLOW:-}" ]] && MAIN_RED_ARGS=(--allow-main-red "$MAIN_RED_ALLOW")
+# 稳定窗参数透传（2026-10-22，change: main-red-run-baseline）：主干 tip 在读数期间移动时，
+# 闸门自己会作废那次读数并有界重试（默认 3 次 × 90 秒）；这里只暴露覆盖口，不改判定。
+[[ -n "${MAIN_RED_ATTEMPTS:-}" ]] && MAIN_RED_ARGS+=(--attempts "$MAIN_RED_ATTEMPTS")
+[[ -n "${MAIN_RED_RETRY_SECONDS:-}" ]] && MAIN_RED_ARGS+=(--retry-seconds "$MAIN_RED_RETRY_SECONDS")
 node scripts/check-main-red.js --pr "$PR" ${MAIN_RED_ARGS[@]+"${MAIN_RED_ARGS[@]}"} || { echo "STOP：main-red 闸门拒绝合并 PR #$PR（rc=$?，读上一行 verdict）"; exit 7; }
 
 # 3) 解析结论（仅用 state，不依赖 conclusion 字段）

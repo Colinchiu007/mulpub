@@ -49,13 +49,23 @@ function getFilmRunDir (runId) {
   return path.join(os.tmpdir(), 'film-engineering', String(runId || 'run'))
 }
 
-/** 时长（秒）→ 帧数映射（与 videogen 同表语义） */
+/**
+ * 时长（秒）→ 帧数映射（与 videogen 同表语义）
+ *
+ * ⚠️ 12 秒档的映射 2026-10-24 修正（M0′.5）：原表 `d > 10 → 441`，
+ * 而 441 是**适配器上限**（8n+1 且 ≤441），不是 12 秒的映射 ——
+ * 441 帧 @24fps = **18.375 秒**，比目标时长长 53%。
+ * 且 12 秒档**今天就会走到**：`DEFAULT_TIERS = [5, 8, 10, 12]`，
+ * 台词推算出 10.3–12 秒时会吸附到 12 秒档 ⇒ 提交 441 帧 ⇒ 成片超时。
+ * 正确映射 = 12s × 24fps = 288，取 8n+1 ⇒ **289**（289/24 = 12.0417 秒）。
+ */
 function pickFilmFrameCount (seconds) {
   const d = Number(seconds)
   if (!Number.isFinite(d) || d <= 0) return 121
   if (d <= 5) return 121
   if (d <= 8) return 201
   if (d <= 10) return 241
+  if (d <= 12) return 289
   return 441
 }
 

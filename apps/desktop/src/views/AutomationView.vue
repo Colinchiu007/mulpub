@@ -341,14 +341,16 @@ async function remove (task) {
 }
 
 onMounted(async () => {
-  await load()
-  // 后台任务的失败/恢复通知：只做 toast，不弹模态，不打断当前操作
+  // 注册必须先于任何 await：首屏 load() 在飞的这段窗口里后台任务完全可能失败或恢复，
+  // 而通知不排队、不补发 —— 晚注册一秒，那一秒内的通知就永久丢失（审计 2.4）。
+  // 后台任务的失败/恢复通知：只做 toast，不弹模态，不打断当前操作。
   stopNotifier = onAutomationNotification((payload) => {
     if (!payload) return
     if (payload.level === 'error') notifyError('automation.notifyFailed', { message: payload.message || '' })
     else notifySuccess('automation.notifyRecovered', { message: payload.message || '' })
     load()
   })
+  await load()
 })
 
 onUnmounted(() => {

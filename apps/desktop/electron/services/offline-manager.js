@@ -241,6 +241,25 @@ function onNetworkChange(isOffline) {
     log.info("offline", "Network restored, processing cached tasks")
     processCachedTasks()
     notifyFrontend()
+  } else if (!wasOffline && isOffline) {
+    // UX 审计 1.7 主进程半边：断网方向原先什么都不做（不写日志、不通知前端），
+    // 于是渲染层只能靠自己的 online/offline 事件与轮询得知——而待发布数量与缓存任务的真源在这里。
+    // 判据是**状态迁移**而不是事件计数：net 的 offline 事件可以连发，重复推送会让横幅反复重算。
+    log.info("offline", "Network lost, new tasks will be cached")
+    notifyFrontendOffline()
+  }
+}
+
+function notifyFrontendOffline() {
+  const win = getMainWindow()
+  if (!win) return
+  try {
+    win.webContents.send("offline:lost", {
+      isOffline: true,
+      cachedCount: loadCache().length,
+    })
+  } catch (e) {
+    log.warn("offline", "Failed to notify frontend about network loss: " + e.message)
   }
 }
 

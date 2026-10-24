@@ -546,3 +546,66 @@ describe('FilmAutoPanel · 缺镜与成品回填（T4.4 / 5.5）', () => {
     w.unmount()
   })
 })
+
+describe('FilmAutoPanel · 方法论接入状态（F-I）', () => {
+  const METHODOLOGY = {
+    taskId: 'generate_shot_prompt',
+    locale: 'zh',
+    promptAssetHash: 'abcdef0123456789',
+    totalVars: 7,
+    hitVars: 5,
+    deliverable: false,
+    blockedVars: [{ name: 'style_prefix', reason: 'byDesign' }, { name: 'geo_block', reason: 'assetMissing' }],
+    assetsIncomplete: false,
+    frameConstraintPending: true,
+  }
+
+  async function previewWith (methodology) {
+    const data = Object.assign({}, PLAN_DATA, { methodology })
+    const api = makeApi({ autoPlan: vi.fn(async () => ({ code: 0, data: JSON.parse(JSON.stringify(data)) })) })
+    const w = mountPanel(api)
+    w.vm.form.script = '一场\n剧情'
+    await w.vm.runPlan()
+    await flushPromises()
+    return w
+  }
+
+  it('预览态展示命中数、未接入变量、不可直送与尾帧待派生', async () => {
+    const w = await previewWith(METHODOLOGY)
+    expect(w.find('[data-testid="fa-methodology"]').exists()).toBe(true)
+    expect(w.find('[data-testid="fa-methodology-hit"]').text()).toBe('5/7')
+    expect(w.find('[data-testid="fa-methodology-blocked"]').text()).toContain('style_prefix')
+    expect(w.find('[data-testid="fa-methodology-blocked"]').text()).toContain('geo_block')
+    expect(w.find('[data-testid="fa-methodology-not-deliverable"]').exists()).toBe(true)
+    expect(w.find('[data-testid="fa-methodology-frame-pending"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('资产不完整时提示「资产不完整」', async () => {
+    const w = await previewWith(Object.assign({}, METHODOLOGY, { assetsIncomplete: true }))
+    expect(w.find('[data-testid="fa-methodology-assets-incomplete"]').exists()).toBe(true)
+    w.unmount()
+  })
+
+  /**
+   * PRD §9.b M-43：**stale 与 assetsIncomplete 不并列**。
+   *
+   * 为什么必须锁：两者说的**不是同一件事** ——
+   *   · `assetsIncomplete` = **规划时**资产就不全（W10/W11）；
+   *   · `stale` = 规划**之后**资产被换了（重开项目时重算哈希对不上）。
+   * 并列显示 ⇒ 用户以为「现在既不全、又被换了」两件事同时成立 ⇒ 会去查错的方向。
+   * 面板实现是 `assetsIncomplete && !stale` ⇒ 判据锁住这个互斥。
+   */
+  it('「资产已变」与「资产不完整」**不并列**（stale=true ⇒ 只显示「资产已变」）', async () => {
+    const w = await previewWith(Object.assign({}, METHODOLOGY, { stale: true, assetsIncomplete: true }))
+    expect(w.find('[data-testid="fa-methodology-stale"]').exists()).toBe(true)
+    expect(w.find('[data-testid="fa-methodology-assets-incomplete"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('没有方法论上下文时**不渲染**该分区（老 kit 兼容）', async () => {
+    const w = await previewWith(undefined)
+    expect(w.find('[data-testid="fa-methodology"]').exists()).toBe(false)
+    w.unmount()
+  })
+})

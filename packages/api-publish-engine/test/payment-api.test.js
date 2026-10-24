@@ -140,6 +140,21 @@ test('POST /api/v1/me/checkout', async (t) => {
     assert.strictEqual(s.checkoutCalls[0].amount, undefined, 'amount 绝不能透传到 service')
   })
 
+  await t.test('继续支付：orderId 透传，但 amount 仍被丢弃（白名单不因新增键而放宽）', async () => {
+    const s = createStub({ body: { plan: 'standard', period: 'month', orderId: 'wpabc12345', amount: 1 } })
+    await s._handleMemberCheckout(req, res, 'POST', '/api/v1/me/checkout')
+    assert.strictEqual(s.checkoutCalls[0].orderId, 'wpabc12345')
+    assert.strictEqual(s.checkoutCalls[0].amount, undefined, 'amount 绝不能随 orderId 一起漏进来')
+    assert.deepStrictEqual(Object.keys(s.checkoutCalls[0]).sort(), ['orderId', 'period', 'plan', 'userId'])
+    assert.strictEqual(s.checkoutCalls[0].plan, 'standard')
+  })
+
+  await t.test('orderId 非字符串 → 不传该键（不是传 undefined：那会改变调用形状）', async () => {
+    const s = createStub({ body: { plan: 'standard', period: 'month', orderId: 123 } })
+    await s._handleMemberCheckout(req, res, 'POST', '/api/v1/me/checkout')
+    assert.strictEqual('orderId' in s.checkoutCalls[0], false, '非字符串时不得出现 orderId 键')
+  })
+
   await t.test('非字符串 plan/period → 传空串（由 service 判 400，不在路由层猜）', async () => {
     const s = createStub({ body: { plan: 123, period: { x: 1 } } })
     await s._handleMemberCheckout(req, res, 'POST', '/api/v1/me/checkout')

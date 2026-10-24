@@ -1,0 +1,58 @@
+{
+  "sha": "319313c192e0af4d2654fef5052c210dbda752a4",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 1,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "    \"closureNote\": \"第 3 轮 CCG 双家族评审（critic=claude 2.1.303 / proposer=opencode 1.18.34，跨家族校验通过）逐条处置结论：\\ni1 成立 —— 程序部分（self-play 单方面填 performedBy）已修：第三轮深度审查真跑并留产物 .adversarial/ccg-deep-20000c7d/，外部证据改为可 API 复核的公开评论；事实部分不成立（评论真实存在，gh api 可查 id/created_at/正文长度）。\\ni2 成立 —— 审计轨迹脱节已修：分支压成单提交，.adversarial/ 与 .ccg/reviews/ 与当前 head 对齐；维度分按评审原值登记未上调。\\ni3 成立 —— 缺机器可验取证已补：高危面零命中 + 3124 行新增行鉴权/加密关键字零命中，两条命令已公开在 PR 评论。\\ni4 成立 —— performance 维持 4 分不上调；真实 Electron 窗口帧率实测登记为 R6，未拿到数据前不宣称已解决。\\ni5 成立 —— 变异反证已补：抽出纯函数 ui-audit-scripts.lib.js#computeUncoveredRoutes，注入假路由 /__mutation-probe 断言守卫当场判红并点名它（6/6 通过）。\\ni6 部分成立 —— 仓内保留 10 组 before/after（约 3.5MB）+ 177 条标注清单，全量 387 张按仓库约定留在 gitignored 目录。\\ni7 成立 —— 暗色仅 headless 验证的局限已明文登记为 R6，correctness 不上调。\\ni8 成立 —— 审计轨迹脱节面已消除；「新增 SHA 对齐门禁」按 AGENTS.md 属改守门结构，登记为独立后续项 R7 交人工决定。\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T06:53:33.667Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

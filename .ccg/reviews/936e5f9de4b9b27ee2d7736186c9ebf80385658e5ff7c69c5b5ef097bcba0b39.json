@@ -1,0 +1,61 @@
+{
+  "sha": "6f9467cefd3dcbec29f32aa3be7525b645b9e6db",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 10 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 10,
+    "fileCount": 4,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "936e5f9de4b9b27ee2d7736186c9ebf80385658e5ff7c69c5b5ef097bcba0b39",
+  "decidedAt": "2026-10-22T18:32:53.192Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play(adjudication filled)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "findings": 6,
+    "template": ".adversarial\\ccg-deep-b2891094\\adjudication.json",
+    "note": "裁决已填写：5/5 条已定（i4 upheld 已落地；i1/i2/i3/i5 dismissed）。高危域条目 0 条，本轮不需要 externalReview 三格",
+    "at": "2026-10-22T18:36:07.463Z",
+    "closureNote": "第 1 轮（评审提交 b2891094，`sh scripts/deep-review.sh` 真起 critic=claude，基线 origin/main 138 行）：6 条问题、待裁决 5 条、高危域 0 条。逐条处置：i4 upheld（注释细节层级不一致 ⇒ 采纳\"出处集中一处 + 留指针\"，已改 `quality-gate.yml` 动因行）；i1/i5 dismissed（说统计与 sha 不符，复算结果 `changedLines=10 / fileCount=4` 与那笔提交 numstat 逐项相符，判定产物自身那 57 行不在计数内；sha 是父提交，属 pre-commit 在提交生成前运行的既定形状）；i2 dismissed（\"未经验证\"不成立，取证是 `gh run list`：最后成功 `38239617921`@2026-10-12T10:58:05Z、首次失败 `38385152658`@2026-10-13T10:42:02Z，连续 9 次失败；其\"出处在工作区读不到\"那一半并入 i4 落地）；i3 dismissed（pending 是拦截位不是背书位）。裁决由本会话自扮演完成（`confidenceWeight=0.6`），公开副本见 https://github.com/Colinchiu007/mulpub/pull/4265#issuecomment-6348860719（逐条 prosecution/defense/verdict/rationale 由 `.adversarial/ccg-deep-b2891094/adjudication.json` 生成，未手抄）。本刀 mode=single ⇒ 不在 dual 欠账评估范围内，这一格是留痕而非放行条件；\"single 可以永远 pending 且不报错\"是已登记的缺陷 G，不在本刀范围内。"
+  }
+}

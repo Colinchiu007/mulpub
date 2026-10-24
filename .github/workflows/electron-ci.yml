@@ -112,7 +112,7 @@ jobs:
 
       - name: Verify Electron checksum pin (win32, windows-latest)
         run: |
-          node -e "const checksums = require('./node_modules/electron/checksums.json'); const artifact = 'electron-v43.7.7-win32-x64.zip'; const pinned = checksums[artifact]; if (typeof pinned !== 'string' || pinned.length === 0) throw new Error('Electron checksum pin missing for ' + artifact); console.log('Electron ' + artifact + ' checksum verified present in manifest');"
+          node -e "const version = require('./node_modules/electron/package.json').version; const checksums = require('./node_modules/electron/checksums.json'); const artifact = 'electron-v' + version + '-win32-x64.zip'; const pinned = checksums[artifact]; if (typeof pinned !== 'string' || pinned.length === 0) throw new Error('Electron checksum pin missing for ' + artifact); console.log('Electron ' + artifact + ' checksum verified present in manifest');"
 
       - name: Install Electron runtime
         timeout-minutes: 10

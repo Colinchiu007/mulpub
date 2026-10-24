@@ -1,0 +1,58 @@
+{
+  "sha": "6fa1352c598825a78899a98bede136918f6f77bd",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 82 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 82,
+    "fileCount": 3,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "0f215340ba86284019ef43b4b15fed8fb0064af43764b6141c60e46f9bf48698",
+  "decidedAt": "2026-10-23T16:31:37.518Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：不触及判据本体、.github/workflows、凭证/登录态。\n改动是「按真实 Token 响应修正飞影列表契约」，纯字段名与翻页判据。\n\n本次修正的 5 处偏差（全部经真实 Token 核对，记录在\nopenspec/records/hifly-firstrun-verification.md）：\n1. 响应无 total 字段 ⇒ 翻页提前终止，109 条音色只会拿到 100 条。\n   改为「本页是否翻满」判据。\n2. 音色 kind 硬编码 '1'（自己的，未克隆时为 0 条）⇒ 用户一个音色都选不了。\n   改为 '2'（公共）。\n3. 形象封面字段 preview_url → cover_url。\n4. 音色标识字段 voice_id/id → voice（取空会导致整条丢弃）。\n5. 音色名称字段 name → title。\n\n首跑证据（1 条视频，最短文本，消耗 14 积分，成片 2 秒）：\n- testConnection success\n- listAvatars 2 条自己的形象\n- listVoices 109 条公共音色（翻页生效）\n- generateVideo → taskId；轮询 status:3 → video_Url + duration:2\n- 成片可下载（3.18MB MP4）\n\n回归证据：hifly.test.js 38/38；eslint 干净。"
+  }
+}

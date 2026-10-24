@@ -1,0 +1,66 @@
+{
+  "sha": "c5989071d5161aae7b833bd463ad3fee8cd96851",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 320 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 320,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 7,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| `env` | 7 个支付变量的**存在性与形状**（复用 `validateProductionConfig`） | 少变量 / APIv3 密钥不是 32 字符 / notify_url 不是 https |",
+      "task: 支付上线预检命令（配置 / 凭据 / 装配 / 迁移 四合一）",
+      "| 好凭据 | credentials PASS + **provider PASS** |"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"| `env` | 7 个支付变量的**存在性与形状**（复用 `validateProductionConfig`） | 少变量 / APIv3 密钥不是 32 字符 / notify_url 不是 https |\",",
+      "      \"task: 支付上线预检命令（配置 / 凭据 / 装配 / 迁移 四合一）\",",
+      "      \"| 好凭据 | credentials PASS + **provider PASS** |\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T18:02:11.957Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4256#issuecomment-6347881696",
+    "reviewedAt": "2026-10-22T18:10:00Z",
+    "findings": 5,
+    "closureNote": "QM-6 跨家族外部评审已执行：claude 2.1.303（claude-sonnet-4-5-20250929，非本实现作者家族）对 payment-preflight.js 及其测试独立审阅，原始输出逐字公开于 evidence。给出 1 Critical + 1 High + 2 Medium + 1 Low，**五条全部成立并已修**：①Critical close() 同步抛错会顶掉 database 结论（改 try/catch）；②High --database-url --json 把 flag 当连接串（加参数形状校验）；③Medium 错误分类只认 code 里的 CERT、Node crypto 原生错误无 code（加 message 兜底）；④Medium 缺 close 同步抛的测试（补 4 例）；⑤Low none 分支缺 database 行（补 SKIP）。变异反证：try/catch 改回 .catch() → 18 pass / 2 fail。新增 4 例、总计 20 例，全量 rc=0。"
+  }
+}

@@ -23,6 +23,7 @@ const {
   buildShotFingerprint, buildPayloadHash, buildPlanId,
   planAutoShots,
 } = require('./auto-plan')
+const { buildShotTaskPrompt, REASON_BY_DESIGN } = require('./shot-prompt-task')
 
 const MEDIA_ROOT = require('path').join(require('os').tmpdir(), 'film-engineering')
 const refPath = (n) => require('path').join(MEDIA_ROOT, 'references', 'ref-' + n + '.png')
@@ -432,3 +433,130 @@ describe('auto-plan · 主入口 planAutoShots', () => {
   })
 })
 
+
+describe('F-I · auto-plan · 方法论接线（plan 级 + 逐镜）', () => {
+  const USER_TPL = [
+    '## 分镜记录',
+    '{{shot_json}}',
+    '- 色盘：{{palette_line}}',
+    '- 风格前缀：{{style_prefix}}',
+    '- 本场 GEO 平面图：{{geo_block}}',
+    '- 角色：{{character_descriptors}}',
+    '- 时长：{{duration_sec}}',
+    '- 模型：{{model}}',
+  ].join('\n')
+  const SYSTEM_TPL = '你是 AI 视频提示词工程师。'
+
+  function kitCtx (opts) {
+    const o = opts || {}
+    const task = { zh: { system: SYSTEM_TPL, user: USER_TPL } }
+    if (o.noLibrary !== true) task.en = { system: SYSTEM_TPL, user: USER_TPL }
+    return {
+      doctrine: o.noDoctrine === true ? null : {
+        blocks: [
+          { key: 'style', label: 'STYLE', zh: 'z', en: 'e' },
+          { key: 'frame_constraint', label: 'FIRST / LAST FRAME CONSTRAINT', zh: '尾帧必须是可继续的稳定姿态。', en: 'tail' },
+        ],
+        rules: [{ key: 'r', title: 't', zh: 'z', en: 'e' }],
+        glossary: [{ term: 'g', zh: 'z', en: 'e' }],
+      },
+      palette: o.noPalette === true ? null : { paletteLine: { zh: '色盘：夜色近黑。', en: 'Palette: night.' } },
+      promptLibrary: o.noLibrary === true ? null : { root: '/x', tasks: { generate_shot_prompt: task }, taskNames: ['generate_shot_prompt'] },
+      manifest: { filmMeta: { characters: [{ name: 'ROKO', descriptor: 'Determined street kid.' }] } },
+    }
+  }
+
+  function planArgs (extra) {
+    return Object.assign({
+      script: '一场\n小强推开门。',
+      characterRefs: [],
+      sceneRefs: [],
+      aspect: '16x9',
+      seconds: 5,
+      targetDurationSec: 10,
+      templateShots: [templateShot(0)],
+      providerId: 'minimax',
+    }, extra || {})
+  }
+
+  it('传 kit ⇒ plan 级有 promptContext，逐镜有 promptVars / promptMissing / promptRenderHash', () => {
+    const r = planAutoShots(planArgs({ kit: kitCtx() }))
+    expect(r.ok).toBe(true)
+    expect(r.promptContext).toBeTruthy()
+    expect(r.promptContext.taskId).toBe('generate_shot_prompt')
+    expect(r.promptContext.promptAssetHash).toMatch(/^[0-9a-f]{64}$/)
+    expect(r.promptContext.frameConstraint.available).toBe(true)
+    // 尾帧约束**只留哈希与长度**，不留原文（design D22）
+    expect(r.promptContext.frameConstraint.text).toBeUndefined()
+    expect(r.promptContext.frameConstraint.length).toBeGreaterThan(0)
+    expect(r.promptContext.assetsIncomplete).toBe(false)
+    const s = r.shots[0]
+    expect(s.promptVars).toBeTruthy()
+    expect(Array.isArray(s.promptMissing)).toBe(true)
+    expect(s.promptRenderHash).toMatch(/^[0-9a-f]{64}$/)
+    // 逐镜 endFramePrompt 仍为空（不逐镜派生）
+    expect(s.endFramePrompt).toBe('')
+  })
+
+  it('缺 doctrine ⇒ W10 且 assetsIncomplete', () => {
+    const r = planAutoShots(planArgs({ kit: kitCtx({ noDoctrine: true }) }))
+    expect(r.ok).toBe(true)
+    expect(r.warnings.some(w => w.code === 'W10')).toBe(true)
+    expect(r.promptContext.assetsIncomplete).toBe(true)
+    expect(r.promptContext.frameConstraint.available).toBe(false)
+  })
+
+  it('缺 promptLibrary ⇒ W11 且 assetsIncomplete', () => {
+    const r = planAutoShots(planArgs({ kit: kitCtx({ noLibrary: true }) }))
+    expect(r.ok).toBe(true)
+    expect(r.warnings.some(w => w.code === 'W11')).toBe(true)
+    expect(r.promptContext.assetsIncomplete).toBe(true)
+  })
+
+  it('不传 kit ⇒ 既有字段逐字不变，且不产出任何方法论字段', () => {
+    const base = planAutoShots(planArgs())
+    const withKit = planAutoShots(planArgs({ kit: kitCtx() }))
+    expect(base.ok).toBe(true)
+    expect(base.promptContext).toBeNull()
+    expect(base.shots[0].promptVars).toBeUndefined()
+    expect(base.shots[0].promptMissing).toBeUndefined()
+    // 第 16 轮 i4：**无 kit 时逐镜也不写** `promptRenderHash`（否则 ⑨「三分字段逐字不变」不可判）
+    expect(base.shots[0].promptRenderHash).toBeUndefined()
+    // 既有字段（prompt / 三分）逐字不变
+    expect(base.shots[0].prompt).toBe(withKit.shots[0].prompt)
+    expect(base.shots[0].imagePrompt).toBe(withKit.shots[0].imagePrompt)
+    expect(base.shots[0].videoPrompt).toBe(withKit.shots[0].videoPrompt)
+    expect(base.shots[0].endFramePrompt).toBe(withKit.shots[0].endFramePrompt)
+  })
+
+  /**
+   * 第 8 轮 i7（Warning / feasibility）：①b「生产路径」原先**只存在于简报里**，
+   * 没有任何测试实现它；而真实 kit 巡检在 CI 上全部 SKIP
+   * ⇒ **真实资产面在流水线上零信号**（与 AGENTS.md 反对的「装饰性门禁」同型）。
+   *
+   * 这条用**合成夹具**实现同一语义（不依赖 film-kit）⇒ **CI 恒跑**；
+   * 真实 kit 巡检保持本地/手工门禁（只打印读数）。
+   */
+  it('生产路径：style_prefix 恒 byDesign ⇒ 进清单 + deliverable=false（**合成夹具，CI 恒跑**）', () => {
+    const kit = kitCtx()
+    const r = planAutoShots(planArgs({ kit }))
+    expect(r.ok).toBe(true)
+    const s = r.shots[0]
+    const miss = Array.isArray(s.promptMissing) ? s.promptMissing : []
+    const sp = miss.find(m => m.name === 'style_prefix')
+    expect(sp).toBeTruthy()
+    expect(sp.reason).toBe(REASON_BY_DESIGN)
+
+    // 用**同一份合成库**重渲染 ⇒ 必须拦住直送，且占位符原样保留
+    const rendered = buildShotTaskPrompt({
+      library: kit.promptLibrary,
+      vars: s.promptVars,
+      missing: miss,
+      locale: 'zh',
+    })
+    expect(rendered.ok).toBe(true)
+    expect(rendered.deliverable).toBe(false)
+    expect(rendered.blockedVars.some(m => m.name === 'style_prefix' && m.reason === REASON_BY_DESIGN)).toBe(true)
+    expect(rendered.renderText).toContain('{{style_prefix}}')
+  })
+})

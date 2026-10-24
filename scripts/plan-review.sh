@@ -11,7 +11,8 @@
 # 用法：
 #   sh scripts/plan-review.sh <方案文件>       # 对方案跑对抗评审
 #   sh scripts/plan-review.sh <方案文件> --dry-run
-#   sh scripts/plan-review.sh <方案文件> --force   # 忽略 mode=skip，强制跑
+#   （本入口没有"强制"旗标：判定器对方案输入恒不产出可跳过的那一档 ⇒ 分支不可达，旗标无对象。
+#     实测与理由见下面原分支位置的注记。验证层 deep-review.sh 的 --force 另有其病灶。）
 #   sh scripts/plan-review.sh <方案文件> --critic codex    # 临时换评审主力后端
 #   sh scripts/plan-review.sh <方案文件> --proposer gemini # 临时换出方案后端
 #   优先级：旗标 > MP_QM6_CRITIC/MP_QM6_PROPOSER > scripts/ccg-review-backends.list
@@ -53,7 +54,6 @@ say() { printf '%s\n' "$1"; }
 . "$_self_dir_abs/lib/ccg-backends.sh"
 
 PROPOSAL=""
-FORCE=0
 DRY=0
 CRITIC_ARG=""
 PROPOSER_ARG=""
@@ -61,7 +61,6 @@ PROPOSER_ARG=""
 # 当成一个陌生参数**静默丢掉** —— 那是「传了等于没传」的直接成因。
 while [ $# -gt 0 ]; do
   case "$1" in
-    --force) FORCE=1 ;;
     --dry-run) DRY=1 ;;
     --critic|--proposer)
       _v="${2:-}"
@@ -78,7 +77,7 @@ while [ $# -gt 0 ]; do
     -*)
       # 不再静默吞掉未知旗标：出声但不拒（本入口历史上对 -\* 是宽容的，
       # 直接改判红会把别的会话的调用一起打死）。
-      say "⚠ 忽略未知旗标：$1（本入口不认它；本脚本只认 --dry-run / --force / --critic <名> / --proposer <名>）" ;;
+      say "⚠ 忽略未知旗标：$1（本入口不认它；本脚本只认 --dry-run / --critic <名> / --proposer <名>）" ;;
     *) [ -z "$PROPOSAL" ] && PROPOSAL="$1" ;;
   esac
   shift
@@ -192,7 +191,7 @@ if _is_wsl; then
 fi
 
 [ -n "$PROPOSAL" ] || {
-  say "用法: sh scripts/plan-review.sh <方案文件> [--dry-run] [--force]"
+  say "用法: sh scripts/plan-review.sh <方案文件> [--dry-run]"
   say ""
   say "方案文件通常是 Phase 1 产出的 plan.md / PRD / 技术方案。"
   exit 2
@@ -233,12 +232,14 @@ say ""
 
 MODE="$(printf '%s' "$DEC_OUT" | sed -n 's/.*判定 \[\?[^]]*\]\?: *\([A-Z]*\).*/\1/p' | head -1)"
 [ -n "$MODE" ] || MODE="$(printf '%s' "$DEC_OUT" | grep -o '\(SKIP\|SINGLE\|DUAL\)' | head -1)"
+say "判定: $MODE ⇒ 决策层没有「按规模跳过」那一档（判定器对方案输入恒不给那个档），本入口一律把方案交给驱动评审。"
 
-if [ "$MODE" = "SKIP" ] && [ "$FORCE" -eq 0 ]; then
-  say "→ S 复杂度低风险，跳过跨家族对抗评审（--force 可强制）"
-  say "   按质量节拍继续 Phase 1→2 即可。"
-  exit 0
-fi
+# （这里原先是一格「判定为最低档就跳过对抗评审，带旗标可强制」的早退分支。2026-10-22 实测
+#  它不可达：判定器 isDocsOnly() 对 staged.proposal 首行直接短路，决策层拿不到那个档 ——
+#  两种路径形状的 2 行方案都判 SINGLE。于是那行"跳过（可强制）"永远不会打印，旗标也没有
+#  可作用的对象，属第二处装饰性承诺，随切片 ccg-force-flag-honest 一并删除（行为逐字不变：
+#  S 复杂度方案本来就走到这里再交给驱动）。要引入"方案可按规模豁免"是一个新的门禁豁免，
+#  须另立一刀并经人工过目；锁见 scripts/plan-review-deps.test.js 的「不得复活」那条。）
 
 # ---------- 4. 依赖体检 ----------
 # 体检体系与 deep-review.sh 同源（ABS-prepend），为什么不只靠 command -v

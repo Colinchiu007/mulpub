@@ -51,13 +51,25 @@ function makePipeline (aiGenerator, opts = {}) {
   return { get: (type) => executors.get(type), optimizeVideoPromptsBatch }
 }
 
-/** 带 getProvider 的 manager：heygen 可用，agnes-video 也可用（模拟真实双配置） */
+/**
+ * 带 getProvider/listProviders 的 manager（模拟真实双配置）。
+ *
+ * change: digital-human-multiprovider —— provider 解析改为 capability 驱动，
+ * 因此夹具必须提供 listProviders 与 capabilities 声明，否则解析返回 null。
+ * agnes-video 是通用文生视频（无 digital_human capability），用于验证
+ * 「数字人不会落到通用视频模型上」。
+ */
 function makeManager (overrides = {}) {
+  const heygen = { id: 'heygen', category: 'video', capabilities: ['video', 'digital_human'], models: ['heygen-video'] }
+  const agnesVideo = { id: 'agnes-video', category: 'video', capabilities: ['video'], models: ['agnes-video-v2.0'] }
+  const providers = overrides.providers || [heygen, agnesVideo]
+  const { providers: _drop, ...rest } = overrides
   return {
     getDefault: (type) => (type === 'video' ? { id: 'agnes-video', models: ['agnes-video-v2.0'] } : (type === 'llm' ? { id: 'agnes-llm', models: ['agnes-2.0-flash'] } : null)),
-    getProvider: (id) => (id === 'heygen' ? { id: 'heygen', category: 'video', models: ['heygen-video'] } : null),
+    getProvider: (id) => providers.find((p) => p.id === id) || null,
+    listProviders: () => providers.map((p) => ({ ...p })),
     callAdapter: vi.fn(async () => ({ code: 0, data: { taskId: 't1' } })),
-    ...overrides,
+    ...rest,
   }
 }
 
@@ -94,6 +106,26 @@ describe('数字人分支（avatar-spokesperson）', () => {
     it('manager 缺失 → null', () => {
       expect(resolveDigitalHumanProvider(null, {})).toBeNull()
     })
+
+    // ── change: digital-human-multiprovider ──
+    it('多家数字人 provider 时按 capability 解析，不写死 heygen', () => {
+      const manager = makeManager({
+        providers: [
+          { id: 'heygen', category: 'video', capabilities: ['video', 'digital_human'], models: ['heygen-video'] },
+          { id: 'hifly', category: 'video', capabilities: ['video', 'digital_human'], models: ['hifly-video'] },
+        ],
+        getDefault: () => ({ id: 'hifly' }),
+      })
+      const result = resolveDigitalHumanProvider(makeAi(manager), {})
+      expect(result.providerId).toBe('hifly')
+    })
+
+    it('一家都没声明 digital_human ⇒ null（不回落通用视频模型）', () => {
+      const manager = makeManager({ providers: [
+        { id: 'kling', category: 'video', capabilities: ['video'], models: ['kling-v1'] },
+      ] })
+      expect(resolveDigitalHumanProvider(makeAi(manager), {})).toBeNull()
+    })
   })
 
   describe('resolveDigitalHumanInputs', () => {
@@ -101,7 +133,10 @@ describe('数字人分支（avatar-spokesperson）', () => {
 
     it('三要素齐全时返回解析结果', () => {
       const result = resolveDigitalHumanInputs(full, { options: {} }, {})
-      expect(result).toEqual({ character: 'ava-1', voice: 'voice-1', script: '主题' })
+      // subtitle 缺省为 null（change: hifly-voice-subtitle-parity）；
+      // 用 toMatchObject 而非 toEqual，避免每次加可选字段都要改这条。
+      expect(result).toMatchObject({ character: 'ava-1', voice: 'voice-1', script: '主题' })
+      expect(result.subtitle).toBeNull()
     })
 
     it('优先取 context.script 作为口播文案', () => {
@@ -113,7 +148,8 @@ describe('数字人分支（avatar-spokesperson）', () => {
       const result = resolveDigitalHumanInputs({}, { options: {} }, {
         avatar_select: { script: '文案A', avatarId: 'ava-2', voiceId: 'voice-2' },
       })
-      expect(result).toEqual({ character: 'ava-2', voice: 'voice-2', script: '文案A' })
+      expect(result).toMatchObject({ character: 'ava-2', voice: 'voice-2', script: '文案A' })
+      expect(result.subtitle).toBeNull()
     })
 
     const missing = [
@@ -287,6 +323,51 @@ describe('数字人分支（avatar-spokesperson）', () => {
       })
       expect(result.success).toBe(false)
       expect(result.error).toContain('params.text')
+    })
+
+    // ── change: hifly-voice-subtitle-parity：字幕透传 ──────────────────
+    it('subtitle 透传给 adapter（params 优先）；缺省时不出现该键', async () => {
+      const subtitle = { show: true, fontSize: 120 }
+      const manager = makeManager()
+      manager.callAdapter = vi.fn(async (_p, method) => (
+        method === 'getVideoStatus'
+          ? { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } }
+          : { code: 0, data: { taskId: 't-sub' } }
+      ))
+      const { get } = makePipeline(makeAi(manager))
+
+      const result = await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_sub',
+        // digitalHuman:true 才会走数字人分支（否则落通用文生视频分支，
+        // 那条路根本不认 subtitle）
+        stage: { options: { digitalHuman: true } },
+        params: { text: '主题', avatarId: 'ava-1', voiceId: 'voice-1', subtitle },
+        context: { avatar_select: { script: '口播文案' } },
+      })
+
+      expect(result.success).toBe(true)
+      const call = manager.callAdapter.mock.calls.find((c) => c[1] === 'generateVideo')
+      expect(call[2].subtitle).toEqual(subtitle)
+    })
+
+    it('无 subtitle 时请求体不含该键（让服务商用自己「默认不显示」语义）', async () => {
+      const manager = makeManager()
+      manager.callAdapter = vi.fn(async (_p, method) => (
+        method === 'getVideoStatus'
+          ? { code: 0, data: { status: 'completed', videoUrl: VIDEO_URL } }
+          : { code: 0, data: { taskId: 't-nosub' } }
+      ))
+      const { get } = makePipeline(makeAi(manager))
+
+      await get(VIDEOGEN_STAGE_TYPES.GENERATE)({
+        runId: 'run_nosub',
+        stage: { options: { digitalHuman: true } },
+        params: { text: '主题', avatarId: 'ava-1', voiceId: 'voice-1' },
+        context: { avatar_select: { script: '口播文案' } },
+      })
+
+      const call = manager.callAdapter.mock.calls.find((c) => c[1] === 'generateVideo')
+      expect('subtitle' in call[2]).toBe(false)
     })
   })
 })

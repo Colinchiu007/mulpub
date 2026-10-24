@@ -68,6 +68,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { userFacingErrorMessage } from '@/utils/user-facing-error'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { listPatternCards, reextractPattern } from '@/api/knowledge-library'
@@ -132,7 +133,7 @@ async function reextract(row) {
       ElMessage.success(t('knowledgeBase.patternReextractQueued'))
       loadData()
     } else {
-      ElMessage.error((res && res.message) || t('knowledgeBase.patternReextractFailed'))
+      ElMessage.error(userFacingErrorMessage(res, () => t('knowledgeBase.patternReextractFailed')))
     }
   } catch {
     ElMessage.error(t('knowledgeBase.patternReextractFailed'))

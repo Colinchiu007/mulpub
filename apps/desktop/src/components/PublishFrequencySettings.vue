@@ -142,6 +142,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { userFacingErrorMessage } from '@/utils/user-facing-error'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 // 项目约定：Vue 组件一律经 @/api/publisher 访问 IPC，禁止直接调 window.electronAPI
@@ -383,13 +384,13 @@ async function onSave () {
     const res = await setPublishFrequencyPolicy(buildPolicy())
     if (!res || res.code !== 0) {
       // 主进程是「全有或全无」判据的唯一真源：非法时它整体拒绝且不写库，此处如实回显
-      ElMessage.error((res && res.message) || t('settings.publishFrequency.saveInvalid'))
+      ElMessage.error(userFacingErrorMessage(res, () => t('settings.publishFrequency.saveInvalid')))
       return
     }
     ElMessage.success(t('settings.publishFrequency.saveOk'))
     await load()
   } catch (e) {
-    ElMessage.error((e && e.message) || t('settings.publishFrequency.saveInvalid'))
+    ElMessage.error(userFacingErrorMessage(e, () => t('settings.publishFrequency.saveInvalid')))
   } finally {
     saving.value = false
   }
@@ -400,13 +401,13 @@ async function onReset () {
   try {
     const res = await setPublishFrequencyPolicy(null)
     if (!res || res.code !== 0) {
-      ElMessage.error((res && res.message) || t('settings.publishFrequency.saveInvalid'))
+      ElMessage.error(userFacingErrorMessage(res, () => t('settings.publishFrequency.saveInvalid')))
       return
     }
     ElMessage.success(t('settings.publishFrequency.resetOk'))
     await load()
   } catch (e) {
-    ElMessage.error((e && e.message) || t('settings.publishFrequency.saveInvalid'))
+    ElMessage.error(userFacingErrorMessage(e, () => t('settings.publishFrequency.saveInvalid')))
   } finally {
     saving.value = false
   }

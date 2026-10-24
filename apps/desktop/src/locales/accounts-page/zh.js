@@ -34,7 +34,26 @@ export default {
     batchCheckAllStarted: (ctx) => '开始检测 ' + ctx.named('count') + ' 个账号的登录状态…',
     loginUnconfirmed: '未能确认 {platform} 的登录状态：本轮检测未取到定论，登录状态保持不变',
     batchCheckAllDone: (ctx) => '检测完成：' + ctx.named('valid') + ' 个正常，' + ctx.named('invalid') + ' 个失效' + (Number(ctx.named('unconfirmed')) > 0 ? '，' + ctx.named('unconfirmed') + ' 个未取到定论（保持原状态）' : ''),
+    // 2026-10-22 fix-batch-check-toast-unify：「下一步」段，拼在 batchCheckAllDone 尾部。
+    // 为什么必须是「其中 …」而不是原来的「N 个账号需要重新登录」：原句读不出它与汇总句的关系，
+    // 于是「0 个失效」与「5 个账号需要重新登录」同屏时被用户读成自相矛盾 ——
+    // 两句其实在说同一批账号（6 个未取到定论里 5 个带负向倾向证据）。「其中」把这个指代关关系写明。
+    // 两者都为 0 时返回空串：调用方据此不追加分隔符，绝不留下悬空的「；」。
+    checkHintsSummaryInline: (ctx) => {
+      const relogin = Number(ctx.named('relogin')) || 0
+      const retry = Number(ctx.named('retry')) || 0
+      const parts = []
+      if (relogin > 0) parts.push(relogin + ' 个建议重新登录')
+      if (retry > 0) parts.push(retry + ' 个建议稍后重试')
+      return parts.length ? '其中 ' + parts.join('；') : ''
+    },
+    // 2026-10-22：固化失败段，拼在汇总句最尾部。原为独立红色 error toast
+    // （batchCheckAllPersistFailed），把「部分账号结论没落库」渲染成「整个检测失败」，
+    // 用户以为一键检测功能坏了。现降级为汇总尾段，与汇总同级（warning）。
+    checkHintsPersistFailedInline: (ctx) => '另有 ' + ctx.named('count') + ' 个账号的检测结论未能保存到服务端，请重试或检查后端服务',
     batchCheckAllAllValid: (ctx) => '检测完成：' + ctx.named('count') + ' 个账号登录状态全部正常',
+    // ⚠️ 保留但不再由一键检测使用：首页失效横幅的 reportError 标题仍在读它（useExpiredAccountsBanner.js）。
+    // 删键会打破 Gate 7 --keys 与横幅告警，故此处仅标注「一键检测不再用它」。
     batchCheckAllPersistFailed: (ctx) => '检测完成，但有 ' + ctx.named('count') + ' 个账号的登录状态未能保存到服务端，请重试或检查后端服务',
     persistFailedTitle: (ctx) => '登录态固化失败（' + ctx.named('count') + ' 个账号）',
     batchCheckAllNoAccounts: '暂无可检测的账号',
@@ -47,6 +66,21 @@ export default {
     addAccount: '添加账号',
     loginMethod: '登录方式',
     selectPlatformLabel: '选择平台',
+    // 平台选择器（自绘浮层）：分组名与无障碍文案都必须可翻译，
+    // 分类值（中文/海外）只作结构键用，不直接当标签。
+    platformPicker: {
+      searchPlaceholder: '搜索平台',
+      emptyResult: '未找到匹配的平台',
+      emptyPlatforms: '暂无可选平台',
+      groupDomestic: '国内平台',
+      groupInternational: '国际平台',
+      triggerAria: '选择平台',
+      searchAria: '按平台名称搜索',
+      clearSearchAria: '清空搜索',
+      listAria: '平台列表',
+      optionAria: '选择平台 {platform}',
+      hint: '↑↓ 选择 · Enter 确认 · Esc 关闭',
+    },
     browserLogin: '网页登录',
     qrLogin: '扫码登录',
     qrUnavailable: '当前平台暂不支持扫码登录',
@@ -162,6 +196,18 @@ export default {
     reloginFailed: '重新登录失败',
     verifyFailed: '验证失败',
     goLogin: '去登录',
+    // 重新登录二次确认（2026-10-24，account-card-login-button）：
+    // 账号已显示「已登录」时点「登录」会覆盖现有凭证 ⇒ 不可逆一步 ⇒ 先告知再执行。
+    // checkedAt 为空串时表示「从未检测过」，此时不输出「最近检测」那一段。
+    reloginConfirmTitle: '重新登录',
+    reloginConfirmMessage: (ctx) => {
+      const at = ctx.named('checkedAt')
+      const when = at ? '（最近检测：' + at + '）' : ''
+      return '账号「' + ctx.named('name') + '」当前显示为「已登录」' + when +
+        '。重新登录会打开' + ctx.named('platform') + '登录页，需要你重新完成登录流程；' +
+        '登录成功后会覆盖该账号现有的凭证。是否继续？'
+    },
+    reloginConfirmAction: '继续登录',
     accountIncomplete: '账号信息不完整',
     creatorUnsupported: '暂不支持该平台的创作者中心',
     cardCreatorTitle: '点击打开创作者中心',
@@ -256,6 +302,12 @@ export default {
       publisherLabel: '运营人',
       notSet: '未设置',
       noData: '暂无数据',
+      // 账号资料（昵称/头像/粉丝）缺失时的提示（2026-10-22）：
+      // 用户看到灰色通用头像时无法判断「平台没设头像」还是「我们没取到」，
+      // 故明确告知「可点验证重新获取」，并把按钮名写进文案（与卡片上的按钮逐字一致）。
+      avatarMissing: '未获取到账号头像',
+      avatarMissingHint: '未获取到账号头像，点「验证」可重新获取账号资料',
+      followersMissingHint: '未获取到粉丝数，点「验证」可重新获取账号资料',
       unnamedAccount: '未命名账号',
       statusLoggedIn: '已登录',
       statusExpired: '已失效',
@@ -267,7 +319,9 @@ export default {
       unknownDate: '未知日期',
       settings: '设置',
       verify: '验证',
-      goLogin: '去登录',
+      // 「登录」常驻（2026-10-24）：原「去登录」是条件式按钮，已被本按钮取代。
+      login: '登录',
+      loginTitle: '重新登录该账号：会打开平台登录页，登录成功后覆盖该账号现有凭证',
       delete: '删除',
       accountLoginStatus: (ctx) => '账号登录状态：' + ctx.named('status'),
       selectAccount: (ctx) => '选择 ' + ctx.named('name'),

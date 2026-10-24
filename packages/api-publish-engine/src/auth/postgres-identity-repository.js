@@ -3,6 +3,7 @@ const path = require('path')
 const { discoverMigrations, validateMigrationLedger } = require('./postgres-migrations')
 const { PostgresCommerceTransaction, CommerceMethods } = require('./postgres-commerce-store')
 const { PAYMENT_SCHEMA } = require('./payment-schema')
+const { CREDIT_SCHEMA } = require('./credit-schema')
 const { PostgresWebhookTransaction } = require('./postgres-webhook-store')
 
 const DEFAULT_MIGRATION_DIRECTORY = path.resolve(__dirname, '../../../..', 'migrations', 'postgresql')
@@ -21,6 +22,8 @@ const REQUIRED_SCHEMA_RELATIONS = [
   'cloud_accounts',
   'cloud_account_tombstones',
   'identity_payment_customers',
+  'identity_credit_accounts',
+  'identity_credit_ledger',
 ]
 
 const SCHEMA = [
@@ -173,6 +176,8 @@ const SCHEMA = [
   // 006 微信 Native 支付：语句组独立成 payment-schema.js（内联会把本文件推过 500 行债务基线）。
   // 与迁移的逐字比对口径不变（迁移 → SCHEMA，单向）。
   ...PAYMENT_SCHEMA,
+  // 008 积分账户与不可变账本：同样独立成 credit-schema.js（理由同上）。
+  ...CREDIT_SCHEMA,
 ]
 
 class PostgresIdentityRepository {

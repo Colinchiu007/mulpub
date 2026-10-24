@@ -1,0 +1,128 @@
+{
+  "sha": "64c9e43b8d497ffc099d237ad6349be0e9171312",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 18 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 18,
+    "fileCount": 3,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6694bcdf9ec0759f46eed6a82b6e9be5e8ac404b181d77aa4b1f55a42e6f66a2",
+  "decidedAt": "2026-10-22T03:53:57.084Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "多个 .ccg/reviews/*.json 记录 deepReview.status 为 self_play_pending / pending 且 findings: null，并明确标注“裁决尚未填写”——这些是未完成的评审过程产物，被直接提交入库。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：多个 `.ccg/reviews/*.json` 的 `deepReview.status` 是 `self_play_pending` / `pending`、`findings: null`，并标注「裁决尚未填写」⇒ 把**未完成的**评审过程产物直接提交入库。",
+        "defense": "防线成立：① 评审记录状态由评审链在**裁决填完并重跑深审后**由引擎 `writeBack` 回写，属**流程状态**；本轮已逐条填完裁决，重跑即闭合。② `.ccg/**` 是本仓**被跟踪**的评审链产物目录（主干 2977 个文件），门禁正是从版本库读它判定深审债务是否闭合 ⇒ 入库是机制要求，不入库则债务永远挂账。",
+        "verdict": "dismissed",
+        "rationale": "流程状态 + 机制要求，非代码缺陷；裁决填完并重跑深审后即闭合。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "9a7a360e JSON 泄露内部后端错误细节：opencode 后端上限 7800、输入 10318 字符、退出码 1、响应时间 ~120ms，且包含精确边界值测试区间 (8125, 8145]。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：`9a7a360e` 的 JSON 泄露了内部后端错误细节 —— opencode 后端上限 7800、输入 10318 字符、退出码 1、响应 ~120ms，以及精确边界区间 (8125, 8145]。",
+        "defense": "防线成立且**已取证**：这些数值**本就公开在仓库里**——`01-docs/LEARNINGS-DASH-FULL-ENTITLEMENT-2026-10-17.md` 第 51–53 行写着「跨家族评审的 opencode 后端有 7800 字符输入上限（实测边界 (8125, 8145]）会被同步拒绝（~120ms、exit 1、无任何错误信息）」。评审记录只是再次记录了同一条**已公开的工程事实**，且这些是**实测参数**、不是凭据/密钥/内网地址。",
+        "verdict": "dismissed",
+        "rationale": "被指「泄露」的数值早已在仓库公开文档中，属非敏感工程实测参数，不构成泄露。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "新增契约测试使用 Path(__file__).resolve().parents[3] 定位仓库根，且依赖跨语言读取 JS 源码（rewrite-engine-core.js、rewrite-engine-limits.js）的正则解析来验证 Python 三档——文件深度或路径变化即失效。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：契约测试用 `Path(__file__).resolve().parents[3]` 定位仓库根并跨语言正则解析 JS 源码，文件深度或路径变化即失效。",
+        "defense": "防线成立且**已实测**：`Path(__file__)` 锚定测试文件自身位置，**与 cwd 无关**（从仓库根执行该用例实测通过）；与仓库既有结构锁同构（JS 侧 `rewrite-engine-limits.test.js` 同样读 monorepo 内文件）；失效时是**明确报错**（找不到权威源 ⇒ 断言失败并打印路径），不会静默通过。跨语言读取是**有意的**对齐锁用途：不读对方源文件就无从判断是否脱钩。",
+        "verdict": "dismissed",
+        "rationale": "cwd 无关性已实测；路径失效时 fail-closed 且可诊断；跨语言读取是设计目的。无缺陷。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "test_length_ranges_max_aligned_with_engine_output_cap 依赖 text.count / 正则 \bCONST\b 计数来证明“活的权威源”，并将测试文件（.test.js/.spec.js）排除在消费点外，但仍无法防止同名变量或注释污染；且反证方法依赖手动改名验证。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：契约测试靠 `text.count` / 正则 `\\bCONST\\b` 计数证明「活的权威源」，即使排除了测试文件，仍防不住同名变量或注释污染；反证方法依赖手动改名验证。",
+        "defense": "防线成立：该项**上一轮已经外部后端独立复核判定 upheld**并已按其建议处置完毕 —— ① 计数已改为**只数非注释代码行 + 词边界正则**（影子名字 `X_UNUSED` 不再被计入，注释提及也不计入）；② 消费点扫描已排除 `*.test.js`/`*.spec.js`、**只认生产代码**；③ docstring 已如实写明这是**文本级代理**而非编译值验证，并列出三道补偿（JS 侧既有结构锁作第二道闸 + 反证逐条实测 + fail-closed）。外部复核同时明确否掉了「下沉 JSON」等更彻底方案（收益低于成本）。本轮为**同类意见的再次表述**。",
+        "verdict": "dismissed",
+        "rationale": "上一轮已按外部复核结论处置完毕（upheld → 已修），本轮无新增事实；维持既有处置。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": ".ccg/reviews JSON 混合反斜杠与正斜杠路径（.adversarial\\ccg-deep-...），且多个记录缺少 newline-at-EOF，格式不一致。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：`.ccg/reviews` JSON 混合反斜杠与正斜杠路径（`.adversarial\\ccg-deep-...`），且多个记录缺 newline-at-EOF，格式不一致。",
+        "defense": "防线成立：该路径字段与文件尾换行均由 **CCG 引擎自身**写回（`writeBack` 的 `template` 字段 / 引擎的文件写入），不是本 PR 产生的格式；本 PR 不修改引擎，跨平台化与 newline-at-EOF 属引擎侧改动，不在本 PR 范围。",
+        "verdict": "dismissed",
+        "rationale": "非本 PR 产物与范围，驳回。"
+      },
+      {
+        "id": "i8",
+        "severity": "Critical",
+        "finding": "契约测试断言 `0 <= min < target <= max`，而 PRD §4.1 原文为 `0 ≤ min < target ≤ max`（下界严格 `<`），但测试中 `min_wc <= max_wc` 与 `0 <= min_wc < target_wc <= max_wc` 混合使用，若未来将 `target == min` 设为合法值则会矛盾。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "指控：契约测试同时用了 `min_wc <= max_wc` 与 `0 <= min_wc < target_wc <= max_wc` 两条断言，混用 `<=` 与 `<`，若将来把 `target == min` 设为合法值就会矛盾。",
+        "defense": "防线成立：两条断言**不是矛盾，而是包含关系**——`min <= max` 被 `min < target <= max` **蕴含**（前者是冗余但无害的表述），且 PRD §4.1 已明确写下界取**严格** `<` 的理由（target 是「目标 N 字」的落点，等于 min 会让区间退化成一点、目标失去意义）。文档与实现口径**一致**，不存在「文档说一种、实现守另一种」的错配。",
+        "verdict": "dismissed",
+        "rationale": "两条断言是包含关系而非矛盾；PRD 已写明严格不等号的理由，文档与实现口径一致。无缺陷。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-22T04:04:07.761Z"
+  }
+}

@@ -66,9 +66,13 @@ const { t } = useI18n()
   --dash-cta-bg: #7c5cbf;
   margin-bottom: var(--space-md);
   padding: 16px;
-  border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-md, 12px);
-  background: var(--cream-surface, transparent);
+  /* 旧：1px dashed 虚线框 —— 视觉上像"这里坏了/还没做完"，不像"这是付费功能"。
+   * 新：实线发丝描边 + 极浅的暖紫底 + 左侧品牌色条，表达"未解锁但完整"。 */
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-lg, 16px);
+  background: var(--surface-sunken);
+  box-shadow: var(--elevation-1);
 }
 .dash-locked-head {
   display: flex;
@@ -93,12 +97,13 @@ const { t } = useI18n()
   color: #fff;
   cursor: pointer;
   padding: 6px 14px;
-  border-radius: var(--radius-sm, 8px);
+  border-radius: var(--radius-pill, 32px);
   font-size: var(--font-size-xs);
   font-weight: 500;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .dash-locked-cta:hover {
   filter: brightness(0.88);
+  transform: translateY(-1px);
 }
 </style>

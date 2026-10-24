@@ -1,0 +1,106 @@
+{
+  "sha": "9740eb6dbaf8afb5407be1789b6a5ecbacb8dd0d",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 53 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 53,
+    "fileCount": 5,
+    "codeFileCount": 2,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "f81a33da83ed45c74d9ecb000ce69b195425205024a71ba6c5998f2e30ffe93f",
+  "decidedAt": "2026-10-22T17:25:29.075Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "layer": "diff",
+    "status": "cleared",
+    "performedBy": "claude",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": ".ccg/reviews/f81a...json 包含 status=pending、performedBy=null、findings=null 的未完成评审工件，提交后会破坏审计链。",
+        "suggestion": "提交前删除或补全该 pending 工件（填写 performedBy、evidence、findings）。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "dimension": "maintainability",
+        "finding": "rewrite-engine-limits.test.js 用正则直接解析 Python 源文件；Python 侧格式（空格、引号、变量名）变化即断锁。",
+        "suggestion": "让 Python 侧导出 JSON 契约文件，测试只读契约，消除正则耦合。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "dimension": "correctness",
+        "finding": "buildRewriteLengthOptions 对三档都传入 {count}，但测试只验证 compress 档插值；若 resolveNotifyText 对 keep/expand 不支持 params，则 UI 残留占位符。",
+        "suggestion": "在测试中增加对 keep 与 expand 的真实插值断言，确保无 {count} 残留。"
+      },
+      {
+        "id": "i4",
+        "severity": "Info",
+        "dimension": "maintainability",
+        "finding": "LENGTH_TARGET_CHARS 是 Python 常量的副本，结构锁可防止一边漂移，但无机制检测 Python 侧该变量被删除或重命名。",
+        "suggestion": "在锁内增加断言：Python 源文件必须包含 '_LENGTH_RANGES' 定义字符串。"
+      }
+    ],
+    "minScore": 6,
+    "dimensionScores": {
+      "correctness": 8,
+      "security": 9,
+      "performance": 9,
+      "maintainability": 6
+    },
+    "unresolvedBySeverity": {
+      "Critical": 0,
+      "High": 0,
+      "Warning": 3,
+      "Info": 1
+    },
+    "roundsRun": 1,
+    "roundsMax": 1,
+    "stoppedBy": "severity",
+    "note": "验证层单轮：无 Critical、无 High ⇒ 外部评审结论可采信（最低维度分 6 仅作参考，不作放行判据）",
+    "artifacts": ".adversarial\\ccg-deep-bc1f5eda",
+    "at": "2026-10-22T17:32:37.816Z",
+    "tier": "external",
+    "evidence": "delivery@61dbda5e77d97b39053df0630e4f3dbea65bfae57156bb55f4c6b426c29f2bea"
+  }
+}

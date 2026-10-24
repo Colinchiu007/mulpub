@@ -20,6 +20,8 @@ const log = require('./logger')
 const { attachExternalProtocolGuard } = require('./external-protocol-guard')
 // #2701：本文件创建的 persist:auth-* 分区在回收白名单内，必须登记存活
 const authReclaim = require('./auth-partition-reclaim')
+// 登录槽位（按平台复用的稳定分区）：命名 / 豁免 / 开局清
+const authLoginSlot = require('./auth-login-slot')
 // eslint-disable-next-line no-unused-vars
 const {
   PLATFORM_LOGIN_URLS,
@@ -132,7 +134,15 @@ class QrCodeLogin {
         })
       }
 
-      const accountId = `auth-${platform}-${Date.now()}-${++this._sessionSequence}`
+      // 登录槽位：**同一平台复用同一分区目录**（2026-10-21，与 auth-view-manager 同策略）。
+      // 原实现每次 `Date.now()` 新建空分区 ⇒ 第三方登录页的 HTTP 缓存每次从零开始
+      // （头条号登录页实测 43MB 背景视频 + 1.8MB bundle + 1.3MB 风控 SDK）。
+      // 复用槽位让这些资源第二次起命中缓存；代价是凭证隔离改由「开局清槽位」保证。
+      const slotAccountId = authLoginSlot.loginSlotAccountIdOf(platform)
+      if (!slotAccountId) {
+        log.warn('QrCodeLogin: 平台 id 非法，登录槽位退回一次性分区: ' + String(platform))
+      }
+      const accountId = slotAccountId || `auth-${platform}-${Date.now()}-${++this._sessionSequence}`
       const loginSession = {
         accountId,
         platform,
@@ -191,7 +201,17 @@ class QrCodeLogin {
 
       // 导航到登录页
       // R49 修复：loadURL 返回 Promise，必须 .catch()
-      view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
+      // 导航前先清掉槽位里的旧凭证（保留 HTTP 缓存）：复用槽位后凭证隔离靠这一步保证，
+      // 否则第二次扫码会带着上一个账号的登录态直接进已登录页。清理是旁路且带超时。
+      authLoginSlot.navigateAfterSlotCleanup({
+        view,
+        session: authSession,
+        isCurrent: () => this._isSessionActive(loginSession),
+        navigate: () => {
+          view.webContents.loadURL(loginUrl).catch(function () { /* ignore nav errors */ })
+        },
+        log
+      })
 
       // 页面加载后开始检测 QR 码
       view.webContents.on('did-finish-load', () => {

@@ -1,0 +1,59 @@
+{
+  "sha": "7249011922971f1e671140475e6edadd88a48bc6",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 70 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 70,
+    "fileCount": 9,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 1,
+    "ccgSensitiveContentSample": [
+      "        \"finding\": \"Locale files (en 496, zh 495) near 500-line block but unregistered; PRD notes NEW_OVER_LIMIT risk but doesn't update ledger or exclusions.\","
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6d378fbdf36c1765e01a4b066114b5a26ecc43298cdd9a8179c1068b207fb084",
+  "decidedAt": "2026-10-21T08:42:28.140Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

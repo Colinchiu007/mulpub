@@ -96,6 +96,79 @@ describe("OfflineManager", function() {
   })
 })
 
+/**
+ * UX 审计 1.7 主进程半边 —— 网络状态变化的**两个方向**都必须推给渲染层。
+ *
+ * 写这组之前先记录一个现场：上面那条用例名字写着 "sends offline:restored event"，
+ * **断言里一次 send 都没查**，只查了 `isOffline()`；而本文件顶部的 `mockSend = vi.fn()`
+ * 全文件零引用（死夹具）。⇒ 「offline:restored 被推出去」这件事从来没被测过，
+ * 而"断网方向不推"就更不可能被测到。用例名声称保护的东西与断言实际测量的东西不相交，
+ * 是本仓反复出现的同一形状（见 01-docs/learnings.md「装饰性链路」）。
+ *
+ * 另一条现场：`getMainWindow()` 优先用 `_mainWin`，而 `_mainWin` 只在 `startMonitoring` 里赋值，
+ * 且跨 describe 存活 ⇒ 不显式 `startMonitoring(自己的窗口)` 就直接断言 send，
+ * 量的可能是**别的用例留下的那扇窗**（同一模块单例）。下面的 beforeEach 因此先绑自己的窗。
+ */
+describe("OfflineManager 网络状态变化的前端推送（1.7 主进程半边）", function() {
+  var electron = require("electron")
+  var win, sendSpy
+
+  beforeEach(function() {
+    vi.clearAllMocks()
+    win = new electron.BrowserWindow()
+    sendSpy = vi.fn()
+    // 宿主 mock 的 webContents.send 是**空函数**（不是 vi.fn），必须自己换成探针才有调用记录
+    win.webContents.send = sendSpy
+    offlineManager.startMonitoring(win)
+    offlineManager.onNetworkChange(false)   // 状态机归位到"在线"
+    sendSpy.mockClear()
+  })
+
+  function callsOf(channel) {
+    return sendSpy.mock.calls.filter(function(c) { return c[0] === channel })
+  }
+
+  test("断网（在线→离线）必须推 offline:lost，且带可归因的载荷", function() {
+    offlineManager.onNetworkChange(true)
+    var lost = callsOf("offline:lost")
+    expect(lost.length).toBe(1)
+    expect(lost[0][1]).toMatchObject({ isOffline: true })
+    expect(typeof lost[0][1].cachedCount).toBe("number")
+  })
+
+  test("已在离线态时重复的 offline 事件不得重发（判据是状态迁移，不是事件计数）", function() {
+    offlineManager.onNetworkChange(true)
+    offlineManager.onNetworkChange(true)
+    offlineManager.onNetworkChange(true)
+    expect(callsOf("offline:lost").length).toBe(1)
+  })
+
+  test("恢复（离线→在线）仍必须推 offline:restored（不得把已工作的那半边改坏）", function() {
+    offlineManager.onNetworkChange(true)
+    sendSpy.mockClear()
+    offlineManager.onNetworkChange(false)
+    var back = callsOf("offline:restored")
+    expect(back.length).toBe(1)
+    expect(typeof back[0][1].cachedCount).toBe("number")
+  })
+
+  test("startMonitoring 必须同时挂上 online 与 offline 两个监听", function() {
+    var handlers = {}
+    electron.net = {
+      on: vi.fn(function(evt, h) { handlers[evt] = h }),
+      isConnected: vi.fn(function() { return true }),
+    }
+    try {
+      offlineManager.startMonitoring(new electron.BrowserWindow())
+      expect(typeof handlers.online).toBe("function")
+      expect(typeof handlers.offline).toBe("function")
+      // 只挂一侧 = 另一个方向永久静默，而这条锁正是本批要消灭的形态
+    } finally {
+      delete electron.net
+    }
+  })
+})
+
 describe("OfflineManager integration", function() {
   var mockTaskQueue
 

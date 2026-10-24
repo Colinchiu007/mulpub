@@ -212,7 +212,7 @@ film_generate_videos 的 checkpoint SHALL 在等待态暴露成本预估载荷�
 
 **路径二（新增，出片台账批次）**：`film-engineering:production-retry-shot` 通道，参数 `{taskId, batchIndex, shotIndex, aspect?, seconds?}`。主进程 SHALL 从 `<mediaRoot>/production/<taskId>/ledger.json` 解析批次：按 `batchIndex` 定位批次，取 `batch.shotIds[shotIndex]` 为目标分镜，经 `service.getShot(shotId)` 取其**原文 prompt**，重新生成并覆盖 `getFilmRunDir(batch.runId)/shot_<shotIndex 补零三位>.mp4`。渲染端 SHALL NOT 自行拼接任何 runId——批次身份 SHALL 完全由主进程从台账解析。
 
-路径二 SHALL 逐条 fail-closed 校验：`taskId` 非空且满足 `taskId === path.basename(taskId)`（路径遍历防护）、台账存在且结构合法、`batchIndex` 命中某批次、`shotIndex` 在 `batch.shotIds` 范围内、目标分镜 prompt 非空。任一不满足 SHALL 返回带字段名与边界的校验错误且**不发生任何 provider 调用**。
+路径二 SHALL 逐条 fail-closed 校验：`taskId` 非空且满足**路径安全段判据**（见下「任务标识的路径安全段合同」）、台账存在且结构合法、`batchIndex` 命中某批次、`shotIndex` 在 `batch.shotIds` 范围内、目标分镜 prompt 非空。任一不满足 SHALL 返回带字段名与边界的校验错误且**不发生任何 provider 调用**。
 
 `film_render` 阶段 SHALL 以磁盘实际产物清单为准判定可用性，不信任生成阶段的内存态结果。
 
@@ -231,6 +231,10 @@ film_generate_videos 的 checkpoint SHALL 在等待态暴露成本预估载荷�
 #### Scenario: 重试入参非法拒绝
 - **WHEN** 重试请求携带路径不安全的 taskId、越界的 batchIndex/shotIndex、缺失台账，或目标分镜 prompt 为空
 - **THEN** IPC 返回带字段名与原因的校验错误，不发生 provider 调用
+
+#### Scenario: taskId 为相对路径段时拒绝（路径遍历防护）
+- **WHEN** 重试请求携带 `taskId` 为 `..`、`.`、`../evil` 或含路径分隔符的字符串
+- **THEN** 通道 SHALL 返回带字段名与边界的校验错误，SHALL NOT 发生任何 provider 调用，SHALL NOT 写出任何文件
 
 ### Requirement: 成片合成与产物合同
 film_render 阶段 SHALL 将镜头清单中按顺序可用的镜头视频合成为 final.mp4。镜头清单来源分两种：（a）默认——本 run 的 selectedShots 与本 run 目录 shot_NNN.mp4 磁盘扫描对齐（既有行为，单批 ≤ MAX_VIDEO_BATCH）；（b）全量模式——context.renderManifest 数组，每项含 `{shotId, path, sourceKind: generated|downloaded, orderIndex}`，path 必须位于 film-engineering 受控媒体根内（规范化后越界 SHALL 拒绝），清单条目间可来自不同 run 目录。**全量模式的 `path` SHALL 由「台账所载批次 `runId` + `shotFileName(orderIndex)`」得出，SHALL NOT 由调用方按 runId 派生规则重算**——派生规则是主进程内部实现细节，跨层重算即制造第二份真相源。合成规则不变：全部片段编解码规格一致时 SHALL 零重编码直拷拼接；不一致时 SHALL 仅做最小 scale+pad 归一到目标画幅（不添加转场、调色、字幕或音轨处理）；存在缺失或不可读条目时 SHALL 失败并按 orderIndex 列出缺失清单，不得输出缺镜假成片。完成后前端 SHALL 提供打开所在文件夹与另存入口，报告 SHALL 含成片时长（ffprobe 实测）与清单规模。
@@ -262,6 +266,12 @@ film-engineering SHALL 提供"全量出片"模式：输入超过 MAX_VIDEO_BATCH
 
 断点续跑 SHALL 一律使用**台账所载 `b.runId`**，SHALL NOT 在续跑路径重新派生——因此既有台账（无论何种 runId 格式）SHALL 无需迁移即可继续续跑。`createLedger`（唯一调用派生的入口）SHALL 仅在台账缺失、损坏或分镜集不匹配时调用；分镜集不匹配时重建台账并按新格式派生即为期望行为。
 
+**自动模式（film-auto-mode）的批次产物目录 SHALL 按轮次隔离。** 自动模式的 `taskId` 由用户手输，同一 `taskId` 以 overwrite 重新 plan 时 SHALL 递增轮次号（`runSeq`）并归档上一轮的 `project.json` / `ledger.json`；**批次 `runId` SHALL 携带该轮次号**，使新旧轮次的产物目录互不重叠：
+- 轮次 ≥ 2 ⇒ `runId` 形如 `auto/<taskId>/r<runSeq>/b<N>`
+- 轮次 = 1（缺失或非法轮次号时同此）⇒ 沿用 `auto/<taskId>/b<N>` ⇒ **存量项目零影响**（不换目录、不丢已生成产物）
+
+**SHALL NOT** 以分镜集指纹派生自动模式的批次目录：自动模式的 `project.shots` 是活状态（`updateShot` 可改提示词/参考图/时长），按内容派生目录会使「改一个字」导致整批产物作废、续跑失效。轮次只在新 plan 时变，编辑不动它。
+
 #### Scenario: 144 镜全量切分与逐批过闸
 - **WHEN** 用户对 144 镜发起全量出片
 - **THEN** 驱动切分为 15 批（14×10+1×4），每批生成前展示该批 costCheck 并等待确认，确认前该批零调用
@@ -290,6 +300,13 @@ film-engineering SHALL 提供"全量出片"模式：输入超过 MAX_VIDEO_BATCH
 - **WHEN** 调用方注入只接受 `(taskId, batchIndex)` 的 `runIdFor`（如 auto 模式）
 - **THEN** 其批次 `runId` 按该注入方的自有规则派生，不受指纹影响，产物落点与既有行为完全一致
 
+#### Scenario: 自动模式换轮次不采纳上一轮产物（本 change 新增）
+- **WHEN** 用户在同一 `taskId` 上以 overwrite 重新 plan 出一组新分镜
+- **THEN** 新轮次的批次 `runId` SHALL 与上一轮不同，磁盘复核 SHALL NOT 把上一轮的 `shot_NNN.mp4` 判为本次已完成，驱动 SHALL 真实调用 provider 生成新分镜的视频，SHALL NOT 出现「零 provider 调用 + 清单声称新分镜 + 成片实为旧分镜」的静默假成功
+
+#### Scenario: 存量自动模式项目零影响（本 change 新增）
+- **WHEN** 一个轮次号为 1 的既有自动模式项目被重新读取
+- **THEN** 其批次 `runId` SHALL 仍为 `auto/<taskId>/b<N>`，既有产物路径不变，续跑与合成行为与变更前完全一致
 ### Requirement: 原片 resultUrl 下载通道
 film-engineering SHALL 提供 kit 镜产物下载通道：对携带 https resultUrl 的分镜，用户可将原作者已生成的视频拉取到本地受控媒体目录（film-engineering 根下），落盘文件 SHALL 经 ffprobe 验证可读并登记为 renderManifest 的 sourceKind=downloaded 条目。下载 SHALL 仅允许 https、限制单文件大小与总并发、校验响应为视频内容类型；URL 失效（404/过期）或内容校验失败 SHALL 将该镜标记"下载不可用"并降级为生成路径，不得产出损坏片段。下载动作 SHALL 显式用户触发，不在浏览/查询时自动预取。
 
@@ -305,3 +322,27 @@ film-engineering SHALL 提供 kit 镜产物下载通道：对携带 https result
 - **WHEN** 下载请求目标为 http（非 https）或指向受控目录之外
 - **THEN** 请求被拒绝并记录原因，不发起网络调用
 
+## ADDED Requirements
+
+### Requirement: 任务标识的路径安全段合同
+影视工程全部以 `taskId` 定位受控媒体根下目录的入口（`production-plan` / `production-run-batch` / `production-status` / `production-retry-shot` / `download-recycled`）SHALL 复用**同一个**路径安全段判据实现，SHALL NOT 各自拼装。
+
+判据 SHALL 仅依赖字符串本身，**跨平台同结果**：被接受当且仅当 `taskId` 为非空字符串、不含首尾空白、不等于 `.` 或 `..`、且不含路径分隔符（`/` 与 `\` 两者皆禁）。
+
+**SHALL NOT** 以 `taskId === path.basename(taskId)` 作为该判据的实现，理由有二：
+1. `path.basename` 的分隔符语义**平台相关**——POSIX 上 `\` 是合法文件名字符，于是 Windows 风格的穿越串在 POSIX 上会被放行，同一份代码在两个平台对同一输入给出不同结论；
+2. `.` 与 `..` 的 basename 就是自身，恒等式成立因而**被放行**，而 `..` 会使 `path.join(root, 'production', taskId, …)` 逃出 `production/` 一层。
+
+该判据 SHALL 是**只多拒、不少拒**的收紧：原先可被接受的 `taskId`（含中文、内部空格、`my..task` 这类合法文件名）SHALL 继续被接受；被拒的仅限 `.` / `..` / 含分隔符 / 空 / 首尾空白五类。
+
+#### Scenario: 危险 taskId 一律被拒
+- **WHEN** 任一以 `taskId` 定位目录的入口收到 `taskId` 为 `..`、`.`、`../evil`、`a\b` 或 `a/b` 的请求
+- **THEN** 该入口 SHALL 返回非零信封并指明 `taskId` 字段，SHALL NOT 读取或写出任何目录
+
+#### Scenario: 合法 taskId 不被误拒
+- **WHEN** `taskId` 为 `normal`、`my-task-01`、`task.with.dots`、`my..task` 或含中文的字符串
+- **THEN** 该入口 SHALL 正常受理，SHALL NOT 因路径安全判据而拒绝
+
+#### Scenario: 跨平台判据一致
+- **WHEN** 同一组 `taskId` 输入分别在 POSIX 与 Windows 语义下被校验
+- **THEN** 判定结果 SHALL 完全相同，SHALL NOT 出现「同一输入两平台一放一拒」

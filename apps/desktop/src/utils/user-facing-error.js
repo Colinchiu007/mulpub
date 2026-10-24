@@ -178,7 +178,7 @@ function toRawText (input) {
  * 把 IPC 错误（或异常）格式化为当前语言的用户可见文案。
  * @param {*} input - { code, errorCode, message } | Error | string
  * @param {{ locale?: string, fallback?: string }} [options]
- * @returns {{ errorCode: string, message: string, matched: 'errorCode'|'code'|'pattern'|'fallback' }}
+ * @returns {{ errorCode: string, message: string, matched: 'errorCode'|'code'|'pattern'|'passthrough'|'fallback' }}
  */
 export function formatUserError (input, options = {}) {
   const locale = normalizeLocale(options.locale || defaultLocale())
@@ -228,4 +228,24 @@ export function formatUserError (input, options = {}) {
   }
   const passThrough = rawText && rawText.length <= 200 ? rawText : fallbackMessage
   return { errorCode: USER_ERROR_CODES.OPERATION_FAILED, message: passThrough, matched: passThrough === rawText ? 'passthrough' : 'fallback' }
+}
+
+/**
+ * 调用点统一口径：**只有真的认出来了**（errorCode / code / pattern）才用分类结果，
+ * 否则退回调用方给的页面专属文案。
+ *
+ * 为什么不直接用 `formatUserError(x).message`：它在认不出时会给出通用兜底
+ * （或 matched='passthrough' 原样透出），前者把「草稿加载失败」这种页面专属信息换成
+ * 「操作失败」= 信息量下降，后者等于把技术串直出。
+ * 为什么不在调用点各写一遍这个判断：四处同一策略写四份必然漂移（本仓已有多起两份口径的事故）。
+ *
+ * @param {*} input - IPC 返回的错误对象 / Error / 字符串
+ * @param {string|(() => string)} fallback - 页面专属兜底文案（可为惰性求值，避免无谓的 t() 调用）
+ * @returns {string}
+ */
+export function userFacingErrorMessage (input, fallback) {
+  const matched = formatUserError(input)
+  const classified = matched.matched === 'errorCode' || matched.matched === 'code' || matched.matched === 'pattern'
+  if (classified && matched.message) return matched.message
+  return typeof fallback === 'function' ? fallback() : fallback
 }

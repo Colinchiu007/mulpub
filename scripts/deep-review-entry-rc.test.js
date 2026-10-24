@@ -36,7 +36,12 @@ const SCRIPT_CLOSURE = [
   'ccg-review-backends.list',
   'lib/ccg-backends.sh',
   'lib/ccg-review-backends.js',
-  'lib/ccg-delivery-digest.js'
+  'lib/ccg-delivery-digest.js',
+  // ↓ #4093 之后新增的两个本地依赖：入口在加载期、审计期会 require 它们。
+  //   漏抄的后果是临时仓缺模块 ⇒ 入口在**加载期**就抛 "Cannot find module"，
+  //   整批子测试同形失败（实测 Gate 2b11 在 2026-10-23 打红就是这个形态）。
+  'lib/exec-record-statuses.js',
+  'lib/exec-record-audit.js'
 ]
 
 const FAKE_DRIVER = `'use strict'
@@ -244,18 +249,27 @@ test('③ 驱动 rc=2 ⇒ 入口 rc 逐字等于 2', (t) => {
   assert.strictEqual(r.rc, 2, `实得 ${r.rc}\n---\n${r.out.slice(-2500)}`)
 })
 
-test('④ 驱动 rc 与写回成败无关：写回被拒（backend-mismatch）时入口 rc 仍是驱动的 rc', (t) => {
-  const fx = makeFixture(t)
-  const r = runEntry(fx, { MP_FAKE_RC: '1', MP_FAKE_DELIVER: '1', MP_FAKE_PERFORMED_BY: 'self-play' })
-  assert.strictEqual(r.rc, 1, `期望后端不符不得改变评审 rc，实得 ${r.rc}\n---\n${r.out.slice(-2500)}`)
-  assert.ok(r.out.includes('reason=backend-mismatch'),
-    `必须点名是"期望后端不符"这一格（证明入口把清单里的 critic 透传下来了），实得：\n${r.out.slice(-2500)}`)
-  // ⚠ 这里**不能**断"记录逐字节不变"——驱动自己刚整体替换过 deepReview，字节当然变了。
-  //   写回器的职责边界是"不加 tier/evidence、不动驱动写的值"，就按这两条断。
-  const after = readRec(fx.recFile)
-  assert.ok(!('tier' in after.deepReview), '被拒时不得添加 tier 键，实得：' + JSON.stringify(after.deepReview))
-  assert.ok(!('evidence' in after.deepReview), '被拒时不得添加 evidence 键')
-  assert.strictEqual(after.deepReview.performedBy, 'self-play', '驱动写进去的值不得被写回器顺手改掉（它只补自己的两个键）')
+test('④ 驱动 rc 与写回成败无关：写回被拒时入口 rc 仍是驱动的 rc', (t) => {
+  // 两个被拒原因各测一格，且都必须"不改 rc"——
+  // 期望后端不符（证明入口把清单里的 critic 透传下来了）与"自扮演收口没带公开复核"
+  // 是两条不同的出口判据（2026-10-24 起 self-play 有了第二出口，文案也随之分开）。
+  for (const [performedBy, wantReason] of [['Claude', 'reason=backend-mismatch'], ['self-play', 'reason=no-adjudication-evidence']]) {
+    const fx = makeFixture(t)
+    const r = runEntry(fx, { MP_FAKE_RC: '1', MP_FAKE_DELIVER: '1', MP_FAKE_PERFORMED_BY: performedBy })
+    assert.strictEqual(r.rc, 1, `${performedBy} 被拒不得改变评审 rc，实得 ${r.rc}\n---\n${r.out.slice(-2500)}`)
+    assert.ok(r.out.includes(wantReason),
+      `必须点名是哪一格（${wantReason}），实得：\n${r.out.slice(-2500)}`)
+    if (wantReason === 'reason=backend-mismatch') {
+      assert.ok(r.out.includes('期望 "claude"'),
+        'backend-mismatch 那行必须带期望后端 ⇒ 这才是"入口把清单里的 critic 透传下来"的证据')
+    }
+    // ⚠ 这里**不能**断"记录逐字节不变"——驱动自己刚整体替换过 deepReview，字节当然变了。
+    //   写回器的职责边界是"不加 tier/evidence、不动驱动写的值"，就按这两条断。
+    const after = readRec(fx.recFile)
+    assert.ok(!('tier' in after.deepReview), `${performedBy} 被拒时不得添加 tier 键，实得：` + JSON.stringify(after.deepReview))
+    assert.ok(!('evidence' in after.deepReview), `${performedBy} 被拒时不得添加 evidence 键`)
+    assert.strictEqual(after.deepReview.performedBy, performedBy, '驱动写进去的值不得被写回器顺手改掉（它只补自己的两个键）')
+  }
 })
 
 test('⑤ 上一轮已闭环、本轮驱动没写过 ⇒ reason=no-write，记录逐字节不变（两侧哈希同形的现场证据）', (t) => {
@@ -347,4 +361,38 @@ test('⑪ 驱动只刷新时间戳 ⇒ 入口侧 reason=no-new-delivery，且不
   assert.notDeepStrictEqual(after, before, '驱动确实写过（字节变了），否则这条测的是 no-write')
   assert.ok(!after.includes(Buffer.from('"tier"')), '不得把上一轮的闭环交付当本次产出补 tier')
   assert.strictEqual(readRec(fx.recFile).deepReview.status, 'cleared', '既有 status 不得被改写')
+})
+
+
+/**
+ * 夹具闭包守卫（2026-10-24）：被复制进临时仓库的脚本，其**本地** require（`./` 开头）
+ * 必须同样在 SCRIPT_CLOSURE 清单里。
+ *
+ * 动因：#4093 给 `check-pr-exec-record.js` 加了 `require('./lib/exec-record-statuses')`
+ * （加载期必执行）却没同步本清单 ⇒ 临时仓缺模块 ⇒ 入口一加载就抛
+ * `Cannot find module './lib/exec-record-statuses'` ⇒ 本文件 6 个子测试同形失败，
+ * 于是 Gate 2b11 在 changes 作业里对**每一个** PR 转红 —— 而红的原因与 PR 改的东西无关。
+ * 那个形态最坏的地方在于：报错点在夹具里、判据在别处，肉眼扫 CI 日志只会看到一串
+ * `not ok`，看不出「是清单漏了一项」。
+ *
+ * 这条断言把「加 require 就得加清单」从自觉变成机械拦截：漏了当场红，且红在
+ * 「缺哪个模块、谁 require 的」这两个可读信息上。
+ */
+test('⑫ SCRIPT_CLOSURE 覆盖被复制脚本的全部本地 require（漏抄模块 ⇒ 夹具加载期就崩）', () => {
+  const missing = []
+  for (const rel of SCRIPT_CLOSURE) {
+    if (!rel.endsWith('.js')) continue
+    const src = fs.readFileSync(path.join(ROOT, 'scripts', rel), 'utf8')
+    for (const m of src.matchAll(/require\(['"](\.\.?\/[^'"]+)['"]\)/g)) {
+      // require 里的 specifier **不带扩展名**（'./lib/foo'），而清单里带（'lib/foo.js'）——
+      // 所以不能直接比字符串：按 Node 的解析规则把 specifier 还原成**实际文件**再比。
+      const base = path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[1]))
+      const resolved = [base, base + '.js', base + '/index.js']
+        .find(cand => fs.existsSync(path.join(ROOT, 'scripts', cand)))
+      if (!resolved) { missing.push(`${rel} → ${base}（仓内找不到该文件）`); continue }
+      if (!SCRIPT_CLOSURE.includes(resolved)) missing.push(`${rel} → ${resolved}`)
+    }
+  }
+  assert.deepStrictEqual(missing, [],
+    `这些本地 require 没进 SCRIPT_CLOSURE，临时仓会缺模块并在加载期抛 Cannot find module：\n${missing.join('\n')}`)
 })

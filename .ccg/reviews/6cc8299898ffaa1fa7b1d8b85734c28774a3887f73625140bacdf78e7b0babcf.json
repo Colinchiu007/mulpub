@@ -1,0 +1,71 @@
+{
+  "sha": "3254ec9b7593353219339c195497d951325a7be0",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2163 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2163,
+    "fileCount": 95,
+    "codeFileCount": 17,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 28,
+    "docSensitiveContentSample": [
+      "+      \"| 失败 | 用户可行动作优先 | 「发布失败：账号授权已过期，请到『账号管理』重新授权后再试。」 |\",",
+      "+      \"所有输入类控件（`input` / `textarea` / `select`）统一：圆角 `--r-md`、发丝描边、\",",
+      "+      \"| P2-4 | `<select>` 原生外观混在 styled 按钮之间 | `030-a-performanceinsights.png` | 统一 `.el-select__wrapper` 与 `--r-md` 圆角 + 发丝描边 |\""
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "6cc8299898ffaa1fa7b1d8b85734c28774a3887f73625140bacdf78e7b0babcf",
+  "decidedAt": "2026-10-21T05:27:03.519Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "claude critic 2.1.303 + opencode proposer 1.18.34 (CCG deep-review.sh, cross-family validation passed) + manual adjudication; high-risk domains externally reviewed by claude with public evidence PR #4124#issuecomment-6308886338",
+    "findings": [
+      "i1-adj (Critical, high-risk): 成立 — 第一轮对高危域用 self-play 裁决且 externalReview 三格留空，违反 adjudication 自身规则；已补齐 performedBy=claude / evidenceRef=公开评论 URL / reviewedAt=ISO 时间。",
+      "i2-adj (Critical): 成立 — 裁决书目录整体是重放残留，引用 SHA 全非本提交；已删除 .adversarial/ccg-deep-780717af/，只保留与 head 严格对齐的 ccg-deep-3667f7b6/。当前提交 .ccg/reviews/ 仅本条（内容寻址生成）。",
+      "i3-adj (Critical): 成立 — 审计轨迹与实际提交脱节；已随 i2-adj 一并对齐。",
+      "i4-adj (Critical, high-risk): 成立 — 同 i1-adj，externalReview 三格已补齐；另确认本轮 diff 不含鉴权/加密逻辑。",
+      "i5-adj (Warning): 成立 — items 与 critique 的 issue 列表已一一对应（8/8），i6/i7 各自立项。",
+      "i6-adj (Warning): 成立 — accept-baselines.js 的 escapeRegExp() 已落地并立入 items；验证：两条 accept-baselines 命令实跑各更新 20 张、跳过 0。",
+      "i7-adj (Info): 成立 — 取证：run-pixel-tests.js 亮/暗双主题各 20/20 零漂移；vitest run src/styles 等 73/73。",
+      "i8-score (Info): 成立 — 审计轨迹对齐 + 高危域补公开证据 + 三层分工写进报告 §6.0 / 规范 §四之二 / 文件头注释；performance 维持 5（缺真实窗口 GPU 帧率数据，登记为遗留项，不虚报）。"
+    ],
+    "evidence": ".adversarial/ccg-deep-3667f7b6/adjudication.json",
+    "adjudication": ".adversarial/ccg-deep-3667f7b6/adjudication.json",
+    "at": "2026-10-21T05:37:43.493Z"
+  }
+}

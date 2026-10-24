@@ -41,9 +41,17 @@ allowBuilds:
 # 三条覆写一律带 ^（有上界），由 packages/api-publish-engine/test/production-dependency-security.test.js
 # 的「override 必须全部有上界」棘轮守着 —— 加一条新的无上界覆写会当场红，不再靠读注释自觉。
 # pnpm 11 起 overrides 只从本文件读取；package.json 的 pnpm 字段会被忽略并告警。
+# ⛔ 覆写的**下界就是「已登记公告的修复下界」**，两者必须同步抬（2026-10-24 实测踩到）：
+#   公告库当日新增 undici 3 条（GHSA-xjj6-f33q-929c high / GHSA-4qv8-2p9j-2685 /
+#   GHSA-f72v-6w45-q472，修复下界 >=7.30.1）与 fast-uri 4 条（GHSA-w74x-v6f9-j3xg /
+#   GHSA-wjr9-j795-jxcr / GHSA-333x-w4r6-6crp / GHSA-xhq7-xmqj-769h，修复下界 >=3.1.9），
+#   使依赖漏洞审计门禁在 main 上以 7 条 NEW_ADVISORY 连红。
+#   **只刷 lockfile 不抬下界** ⇒ 锁里解析出的版本（7.30.0 / 3.1.8）仍满足旧下界、却**低于**公告的
+#   修复下界 ⇒ 「覆写地板棘轮」判绿而「依赖漏洞审计」判红，两条判据各说各话。
+#   **只抬下界不刷 lockfile** ⇒ 锁里那份旧解还在，同样两条判据各说各话。⇒ 两边必须一起动。
 overrides:
-  undici: '^7.29.1'
-  fast-uri: '^3.1.7'
+  undici: '^7.30.1'
+  fast-uri: '^3.1.9'
   # ip-address：7 条新公告（GHSA-22jq-vg5j-6vgg / 2vr4-cq9g-pvrc / 4xrf-jv44-h6hh /
   #   h3mg-xc3c-68pw / j6r3-76f7-8jcv / mwp4-54f8-5fhr(high) / rpw4-54j3-4h4q），
   #   全部要求 >=10.2.1 ~ >=10.7.1 ⇒ 取 latest 10.7.4 一次覆盖。
@@ -60,7 +68,7 @@ overrides:
 # 刻意写 ^1.20.0 而不是 >=1.20.0：override 整体替换依赖区间，无上界的写法允许下一次非
 # --frozen-lockfile 的 install 把 axios 静默 resolve 到 2.x。undici / fast-uri 两条原也是 >=，
 # 2026-10-05 实测已一并收成 ^：registry 的 undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，
-# 而锁里解析到的是 undici@7.30.0 / fast-uri@3.1.8 ⇒ 保留 >= 就等于允许下一次非 frozen 的
+# 而锁里解析到的是 undici@7.30.1 / fast-uri@3.1.9 ⇒ 保留 >= 就等于允许下一次非 frozen 的
 # install 把它们静默抬到 8.x / 4.x（major 跳变）。两者都是**传递依赖**（undici 由
 # @electron/get@5.0.0 / cheerio@1.2.0 / jsdom@29.1.1 声明；fast-uri 由 ajv@8.18.0 / ajv@8.20.0 声明，
 # workspace 内无人直接声明），^ 后解析结果不变，改的只是"将来允许解析到什么"。
@@ -77,4 +85,24 @@ overrides:
 # 刻意不把两个包的 peer 区间收成 >=43.7.7：那是它们对外的兼容契约（收窄等于宣布放弃更老的 electron 消费方），
 # override 只改本仓解析结果，不改对外声明。带 ^ 与同段三条一致（有上界，见下方整表棘轮），
 # 43.x 内不再跨 major；43-x-y 线的最新是 43.7.7（44.x 已发布但属 major 抬升，另议）。
-  electron: '^43.7.7'
+  electron: '^43.8.1'
+  zod: '^4.6.6'
+# brace-expansion：6 条 high 公告（GHSA-3jxr-9vmj-r5cp / GHSA-mh99-v99m-4gvg /
+#   GHSA-rgw5-rvv9-x895 / GHSA-q2hr-2g5m-vwhr / GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p），
+#   修复下界 1.x 线 >=1.1.21、4.x/5.x 线 >=5.0.12；2.x 线**无一条覆盖**。
+#   锁里原解析出三个版本：1.1.15（apps__desktop>…>rimraf>glob>minimatch）、
+#   5.0.6（.>@askjo/camofox-browser>…>glob>minimatch）、2.1.4（其余 minimatch 5/7/9，不中招）。
+# ⚠️ **必须用 parent>child 限定式，不能平铺**（2026-10-24 实测）：
+#   brace-expansion@5.x 是 ESM（"type":"module"）+ CJS 构建导出**具名** exports.expand，
+#   而 brace-expansion@1.x 是 CommonJS 的 module.exports = expandTop（**函数**）。
+#   minimatch@3.1.5 是 CJS 且 `var expand = require('brace-expansion')` **当函数调用**
+#   ⇒ 平铺把 1.x 槽位也抬到 5.0.12 会直接打断它（拿到 {expand} 而不是函数）。
+#   minimatch@10.2.5 用的正是 .expand ⇒ 5.x 槽位必须留在 5.x。⇒ 两个槽位各自钉在自己 major 内。
+# ⚠️ **也不能靠升消费方绕开**：1.x 槽位的源头是 puppeteer-extra-plugin-user-data-dir@2.4.1
+#   （**最新版**）声明 rimraf: ^3.0.2 ⇒ rimraf@3 → glob@7 → minimatch@3，
+#   而 rimraf@3 的 minimatch 区间 ^3.0.4 的最高版就是 3.1.5 ⇒ 消费方侧无路可走。
+#   （node-gyp@9.4.1 也经 rimraf@3 落在同一个 1.x 槽位，同一条 override 一起盖住。）
+# 两条都带 ^（有上界），由 packages/api-publish-engine/test/production-dependency-security.test.js
+# 的「每条 pnpm override 都必须有上界」整表棘轮守着（该用例的解析器已一并放宽以接受 parent>child 键）。
+  'minimatch@3>brace-expansion': '^1.1.21'
+  'minimatch@10>brace-expansion': '^5.0.12'

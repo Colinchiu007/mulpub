@@ -1,0 +1,60 @@
+{
+  "sha": "1c7a300441e38693703feb1ffee632bc03bc70c1",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "**未擅自 `--update`**（AGENTS：属「改谁来守门」，必须人工过目）。且这已是同一文件**第四次**因数字人功能申请抬基线（5423 → 5495 → 5528 → 5630）。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "984c66fa1a4fef8f967200f4a0295e0bc517a3cf64d1c1bbebf38c161d63fe6a",
+  "decidedAt": "2026-10-23T17:34:27.988Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：纯文档变更（PRD 附录 A.5.4/A.5.5 + user-manual），不触及判据本体、\nworkflows、凭证/登录态。\n\n文档内容：\n- A.5.4 素材上传的 provider 契约差异（HeyGen 收 Blob / 飞影只收 file_id），\n  含适配位置取舍（adapter 内闭环而非 service 分叉）与后缀推断三级兜底。\n- A.5.5 形象克隆的 fail-closed 现状说明——KNOWN_METHODS 未登记三方法是\n  计划内的安全行为，不是回归；明确告知用户当前两家克隆入口都处于该状态，\n  但生成视频本身不受影响。\n- user-manual 状态表新增「当前服务商暂时不可用」一行及解释；\n  注意事项去掉 HeyGen 硬编码、补按服务商隔离与飞影自动上传说明。\n\n门禁：doc-abs-paths PASS、no-brand-residue PASS。"
+  }
+}

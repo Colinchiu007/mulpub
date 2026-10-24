@@ -151,7 +151,7 @@
           <p class="member-center-error" role="alert">{{ errorMessage }}</p>
           <IdentityDiagnostics />
         </div>
-        <component :is="activeView" />
+        <component :is="activeView" @navigate="onChildNavigate" />
       </div>
     </div>
 
@@ -192,6 +192,12 @@ const { status, user, loading, error, signIn, switchAccount, signOut } = useIden
 
 const showUpgrade = ref(false)
 const activeKey = ref('overview')
+
+// 子视图（订单页空态）的导航请求。`redeem` 不是独立分区——激活码卡片常驻在订阅页上方，
+// 所以切到订阅分区即可，用户落眼就是激活码输入框。
+function onChildNavigate (key) {
+  activeKey.value = key === 'redeem' ? 'subscription' : key
+}
 
 const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
 const entitlement = computed(() => identityStore.entitlement)

@@ -1,5 +1,5 @@
 <template>
-  <div class="scene-card" :class="'scene-' + statusClass" @click="$emit('select', scene.id)">
+  <div role="button" tabindex="0" @keydown.enter.prevent="$emit('select', scene.id)" @keydown.space.prevent="$emit('select', scene.id)" class="scene-card" :class="'scene-' + statusClass" @click="$emit('select', scene.id)">
     <div class="scene-header">
       <span class="scene-index">#{{ scene.index !== undefined ? scene.index : '' }}</span>
       <span class="scene-badge" :class="'badge-' + statusClass">{{ statusLabel }}</span>

@@ -155,8 +155,12 @@ for (const required of [
 const dockerfile = fs.readFileSync(path.resolve(__dirname, '../Dockerfile'), 'utf8')
 const packageManifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../package.json'), 'utf8'))
 assert(packageManifest.files.includes('upload/'), 'API 发布包必须包含 upload/ 运行时目录')
-assert.match(dockerfile, /COPY package\.json package-lock\.json/)
-assert.match(dockerfile, /--workspace @multi-publish\/api-publish-engine/)
+// 依赖安装走 pnpm（2026-08-13 的 npm→pnpm 迁移删除了 package-lock.json）。
+// 这里断言的是"deps 阶段确实拷入了依赖清单"，清单从 npm 时代的两件换成了 pnpm 的三件；
+// 具体安装参数（--frozen-lockfile / --ignore-scripts / deploy --legacy）由
+// test/dockerfile-pnpm-build.test.js 单独守。
+assert.match(dockerfile, /COPY package\.json pnpm-lock\.yaml pnpm-workspace\.yaml/)
+assert.match(dockerfile, /--filter @multi-publish\/api-publish-engine/)
 assert.match(dockerfile, /COPY --chown=publishapi:publishapi migrations\/postgresql \.\/migrations\/postgresql/)
 assert.match(dockerfile, /COPY --chown=publishapi:publishapi packages\/api-publish-engine\/scripts \.\/packages\/api-publish-engine\/scripts/)
 assert.match(dockerfile, /ENV NODE_ENV=production/)

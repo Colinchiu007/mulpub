@@ -46,7 +46,7 @@
             {{ $t('autoPipeline.urlCount', { count: config.urls.length }) }}：
             <span v-for="(u, i) in config.urls" :key="i" class="ap-url-chip">
               {{ u.slice(0, 50) }}{{ u.length > 50 ? '...' : '' }}
-              <span @click="removeUrl(i)" class="ap-url-remove">×</span>
+              <span role="button" tabindex="0" @keydown.enter.prevent="removeUrl(i)" @keydown.space.prevent="removeUrl(i)" @click="removeUrl(i)" class="ap-url-remove">×</span>
             </span>
           </div>
         </div>
@@ -194,6 +194,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { getApi } from '@/api/electron-bridge'
 import { useNotify } from '@/composables/useNotify'
 import { resolveNotifyText } from '@/utils/notifyCore'
+import { buildRewriteLengthOptions } from '@/utils/rewrite-engine-limits'
 import { formatUserError } from '@/utils/user-facing-error'
 
 const { notifyError, notifySuccess, notifyWarning, notifyInfo } = useNotify()
@@ -230,11 +231,11 @@ const rewriteStyles = [
   { label: resolveNotifyText('collection.rewriteStyleCognitive').text, value: '认知锚点' },
 ]
 
-const rewriteLengths = [
-  { label: resolveNotifyText('collection.rewriteLengthKeep').text, value: 'keep' },
-  { label: resolveNotifyText('collection.rewriteLengthCompress').text, value: 'compress' },
-  { label: resolveNotifyText('collection.rewriteLengthExpand').text, value: 'expand' },
-]
+// 长度三档：文案带目标字数（用户点之前就知道会拿到多少字）。
+// 取值来自渲染层镜像常量 LENGTH_TARGET_CHARS，由跨语言结构锁保证 === Python 侧 target。
+const rewriteLengths = buildRewriteLengthOptions(
+  (key, params) => resolveNotifyText(key, params).text
+)
 
 const STAGE_LABEL_KEYS = [
   'autoPipeline.stage1',

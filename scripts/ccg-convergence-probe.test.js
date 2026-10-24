@@ -17,6 +17,19 @@ const path = require('path');
 const cp = require('child_process');
 
 const probe = require('./ccg-convergence-probe.js');
+
+/**
+ * "这行 require 会不会在 CI 上 Cannot find module" 的唯一判据：
+ * 内置模块、以及**相对路径**的兄弟文件都不会（changes 作业没有 Install deps，但仓库自带这些文件）。
+ * 把相对 require 也算成第三方是错的收窄 —— 它会让"把读数器拆成兄弟文件"这件事只能靠把逻辑抄回探针本体来做，
+ * 而抄第二份实现正是本仓点名的漂移源。
+ */
+function isThirdPartyRequire (id) {
+  if (typeof id !== 'string' || id === '') return false;
+  if (id.startsWith('node:')) return false;
+  if (id.startsWith('./') || id.startsWith('../')) return false;
+  return !['fs', 'path', 'os', 'child_process', 'crypto'].includes(id);
+}
 const PROBE = path.join(__dirname, 'ccg-convergence-probe.js');
 
 function runProbe (env, args) {
@@ -173,7 +186,7 @@ test('P6 探针只能 require node 内置模块（Gate 2b5 所在的 changes 作
   const bad = [];
   while ((m = re.exec(src))) {
     const id = m[1];
-    if (!id.startsWith('node:') && !['fs', 'path', 'os', 'child_process', 'crypto'].includes(id)) bad.push(id);
+    if (isThirdPartyRequire(id)) bad.push(id);
   }
   assert.deepStrictEqual(bad, [], '探针引入了第三方依赖，CI 上会是 Cannot find module：' + bad.join(','));
 });
@@ -214,4 +227,68 @@ test('P8 判据本体的 gitignore 放行必须是"最后命中的那条规则"�
   assert.strictEqual(r.status, 0, 'check-ignore 取不到读数（rc=' + r.status + '）⇒ 判据失明，不得当成通过：' + r.stderr);
   assert.ok(out.includes(':!scripts/ccg-convergence-probe.js'),
     '最后命中的规则必须是放行规则；命中 scripts/*.js 说明有人把忽略规则挪到了放行规则之后，本体将不会入库：' + out);
+});
+
+test('P9 isThirdPartyRequire 的反向夹具：收窄不等于放行 —— 真第三方必须仍被拦', () => {
+  // 本刀把 P6 从「非内置即第三方」收窄成「非内置且非相对」，因为兄弟文件的 require 不需要 Install deps。
+  // 收窄后的判据必须各配一条取被禁形态本身的用例，否则守的是什么只剩我的说法。
+  assert.equal(isThirdPartyRequire('js-yaml'), true, '真第三方被放行 ⇒ 这条白名单被推平了');
+  assert.equal(isThirdPartyRequire('@scope/pkg'), true);
+  assert.equal(isThirdPartyRequire('node:fs'), false);
+  assert.equal(isThirdPartyRequire('fs'), false);
+  assert.equal(isThirdPartyRequire('./qm6-exit-capabilities.js'), false, '相对 require 不是第三方：changes 作业没有 Install deps 也解析得到');
+  assert.equal(isThirdPartyRequire('../x.js'), false);
+  assert.equal(isThirdPartyRequire(''), false, '空 id 由调用方的正则决定，这里不得凭空造一条违规');
+});
+
+test('P10 行为档必须真的被取到：本机有 vendor 时读数不得是 unavailable（否则两路交叉退化成一路）', () => {
+  // A15 只查"探针源码里这次调用在位"，查不出"调用在位但结果被常数覆盖"这一格 —— 只有真跑一次才看得见。
+  const r = runProbe();
+  if (!found) {
+    assert.strictEqual(r.rc, 2, 'runner 上没有 vendor ⇒ 探针必须按失明档退出，不得静默把缺席读成"两路一致"');
+    return;
+  }
+  const j = JSON.parse(r.out);
+  assert.ok('upheldBehavioral' in j.exitCapabilities, '读数里没有行为档这一格 ⇒ 交叉验证根本没有第二条路');
+  assert.notEqual(j.exitCapabilities.upheldBehavioral, 'unavailable',
+    '本机有 vendor 却报 unavailable ⇒ 行为路径根本没跑，此时"两路一致"只是在复述结构读法');
+  assert.strictEqual(j.exitCapabilities.receiptLive, true,
+    '正控读数必须为真：夹具那份凭证在 vendor 上确实被某个分支消费。为 false 时下面两句关于「带凭证仍阻断」的话什么也没测');
+  assert.equal(j.upheldCrossCheck.ok, j.exitCapabilities.upheld === j.exitCapabilities.upheldBehavioral,
+    '交叉结论必须由同一份 JSON 里的两个读数推出，不得是独立写死的常量');
+  assert.match(j.upheldCrossCheck.note, /两路一致/, '一致时的文案必须点名"两路"，不得退化成一句单路读数');
+});
+
+test('P11 vendor 在位但 blockingFromAdjudication 改名 ⇒ 行为档失明必须 rc=1 并点名，不得按"跳过"结案', () => {
+  // 这一格测的是"结构读数与真跑读数一条都不剩"的组合：没有守卫时它长成"两路一致：不在位"，
+  // 与"真跑确认过、确实没有出口"逐字同形 —— 那正是本刀立项要消灭的那类假话。
+  // vendor 缺席时无此路可走，缺席侧由 P1/P4 守（沿用 P3 的先例：机器侧断言在 found 分支内）。
+  if (!found) return;
+  const driverSrc = fs.readFileSync(probe.locateVendor().driver, 'utf8');
+  const doctored = driverSrc.replace('module.exports = { blockingFromAdjudication, ', 'module.exports = { ');
+  assert.notStrictEqual(doctored, driverSrc, '夹具必须真的摘掉那个导出名，否则下面三句量的不是这一格');
+  assert.ok(/blockingFromAdjudication/.test(doctored), '摘掉的必须只是导出名：函数本体还在，结构读数才不会被顺带改成 unknown');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-nobehav-'));
+  try {
+    const scripts = path.join(dir, 'scripts');
+    fs.mkdirSync(scripts, { recursive: true });
+    const vendorDir = path.dirname(probe.locateVendor().engine);
+    for (const f of fs.readdirSync(vendorDir)) {
+      const src = path.join(vendorDir, f);
+      if (fs.statSync(src).isFile()) fs.copyFileSync(src, path.join(scripts, f));
+    }
+    fs.writeFileSync(path.join(scripts, 'ccg-deep-review.js'), doctored, 'utf8');
+    const r = runProbe({ CCG_ARL_DIR: dir }, ['--json']);
+    assert.strictEqual(r.rc, 1, '行为档失明必须 rc=1，不得仍是 0：' + r.out + r.err);
+    const j = JSON.parse(r.out);
+    assert.strictEqual(j.exitCapabilities.upheldBehavioral, 'unavailable', '这一条测的就是 unavailable 那条支路');
+    assert.ok(j.problems.some((p) => /行为档/.test(p)), '偏离原因必须点名行为档，不得让人去猜哪一路瞎了：' + JSON.stringify(j.problems));
+    assert.strictEqual(j.upheldCrossCheck.ok, true,
+      '行为档缺席本身不参与比较（CI 没引擎不得判偏离）；拦住它的是上一条 rc=1，两者不得混为一谈');
+    fs.writeFileSync(path.join(scripts, 'ccg-deep-review.js'), driverSrc, 'utf8');
+    const clean = runProbe({ CCG_ARL_DIR: dir }, ['--json']);
+    assert.strictEqual(clean.rc, 0, 'A/B 对照：只换回导出名就必须回到 0，否则上一条红不能归因：' + clean.err + clean.out);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -1,0 +1,36 @@
+{
+  "sha": "5e2319029e6d3e61385e9d5ee16693441c54550e",
+  "layer": "diff",
+  "decidedBy": "ccg-review-decider",
+  "deepReview": {
+    "required": true,
+    "layer": "decision",
+    "status": "error",
+    "performedBy": "claude",
+    "objectType": "plan",
+    "rounds": [
+      {
+        "round": 1,
+        "issues": 8,
+        "critical": 3,
+        "minScore": 5,
+        "dimensionScores": {
+          "completeness": 6,
+          "consistency": 5,
+          "clarity": 7,
+          "feasibility": 5,
+          "security": 6
+        }
+      }
+    ],
+    "error": "Revision校验失败",
+    "validationErrors": [
+      "edits[7]before 在方案原文中不存在（逐字匹配失败）：\"| C1 | **主干基准改读「该 tip 的 run 集合」**：采集层新增 \"",
+      "edits[9]before 在方案原文中不存在（逐字匹配失败）：\"重试的**唯一触发条件是 tip SHA 变化**；fetch/API 耗时计入\"",
+      "responses[0]decision=partially_accepted 但没有对应的 edit（issueId=i1）——方案将原封不动，循环无法收敛"
+    ],
+    "note": "第 1 轮修订失败",
+    "artifacts": ".adversarial\\ccg-plan-plan-v5-main-red-run-baseline-codex",
+    "at": "2026-10-22T05:06:32.379Z"
+  }
+}

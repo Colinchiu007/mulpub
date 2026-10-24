@@ -37,6 +37,12 @@ describe('采集条目 · 归一化形状一致', () => {
     expect(normalizeCollectedItem({ content: 'abcd', wordCount: 4 }).wordCount).toBe(4)
   })
 
+  it('wordCount 按**码点**计（与改写稿字数同口径，外部评审 i4）', () => {
+    // '😀' = 1 码点 / 2 UTF-16 码元：卡片上「原文 N 字 · 改写 M 字」必须同口径
+    const item = normalizeCollectedItem({ content: '😀' })
+    expect(item.wordCount).toBe(1)
+  })
+
   it('空输入不抛错，产出带 id 的空条目', () => {
     const item = normalizeCollectedItem(null)
     expect(typeof item.id).toBe('string')

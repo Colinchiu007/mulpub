@@ -19,6 +19,7 @@ const crypto = require('crypto')
 const {
   WebhookSignatureError,
   PaymentProviderError,
+  OUT_TRADE_NO_PATTERN,
 } = require('./index')
 
 const WECHAT_API_BASE = 'https://api.mch.weixin.qq.com'
@@ -165,7 +166,7 @@ function decryptResource({ apiV3Key, resource }) {
 }
 
 /** 我方订单号格式：`wp` + base36 时间戳 + base36 随机。服务端生成，这里只校验形状。 */
-const OUT_TRADE_NO_PATTERN = /^wp[a-z0-9]{8,64}$/
+// 订单号形状由抽象层单一真源提供（payment-providers/index.js），此处不再重复定义。
 
 class WeChatNativeProvider {
   /**
@@ -196,6 +197,15 @@ class WeChatNativeProvider {
     this.notifyUrl = notifyUrl
     this.fetcher = options.fetcher
     this.now = typeof options.now === 'function' ? options.now : () => new Date()
+    // 默认生产地址；`apiBase` 只为「本地 mock 预演」与将来的沙箱域名开放。
+    // 注意：它**不能**由环境变量直接驱动 —— 线上被改成 http:// 会把签名和报文暴露在明文链路上。
+    this.apiBase = String(options.apiBase || WECHAT_API_BASE).replace(/\/+$/, '')
+    // 只允许 https；http 仅限回环（mock 测试）。理由：apiBase 一旦能指向明文 http，
+    // 签名与报文就会暴露在链路上 —— 这种"配置能改安全属性"的口子迟早会被用来临时绕过。
+    const isLoopback = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(this.apiBase)
+    if (!/^https:\/\//.test(this.apiBase) && !isLoopback) {
+      throw new TypeError('WeChatNativeProvider: apiBase 必须是 https，或 http 回环地址（仅测试用）')
+    }
     this.certificateProvider = options.certificateProvider || null
     this.signRequest = options.signRequest || null
   }
@@ -244,11 +254,16 @@ class WeChatNativeProvider {
       if (typeof this.signRequest === 'function') {
         Object.assign(init.headers, this.signRequest('POST', '/v3/pay/transactions/native', body))
       }
-      response = await this.fetcher(`${WECHAT_API_BASE}/v3/pay/transactions/native`, init)
+      response = await this.fetcher(`${this.apiBase}/v3/pay/transactions/native`, init)
     } catch (error) {
       throw new PaymentProviderError('PAYMENT_PROVIDER_UPSTREAM_FAILED', '微信下单请求失败：' + (error && error.message))
     }
-    if (!response || response.ok !== true || typeof response.json !== 'function') {
+    // ⛔ 必须先读报文再判状态码。
+    // 微信把**业务错误放在非 2xx 的 JSON body 里**（`SIGN_ERROR` 是 401、`PARAM_ERROR` 是 400）。
+    // 若先按 `ok !== true` 抛 `UPSTREAM_FAILED`，签名错误会被报成"请求失败"——
+    // 运维看到的是"网络问题"，实际是"密钥/签名不对"，排查方向完全相反。
+    // 2026-10-23 由 mock 微信 E2E 抓出（原本确实先判 ok）。
+    if (!response || typeof response.json !== 'function') {
       throw new PaymentProviderError('PAYMENT_PROVIDER_UPSTREAM_FAILED', '微信下单返回异常')
     }
     let payload
@@ -257,12 +272,23 @@ class WeChatNativeProvider {
     } catch {
       throw new PaymentProviderError('PAYMENT_PROVIDER_UPSTREAM_FAILED', '微信下单响应不可解析')
     }
-    if (payload && payload.code) {
+    // 只认「对象 + code 是字符串」为错误体：字符串/数组载荷上的 .code 是 undefined（不会崩），
+    // 但 200 的成功体若恰好带一个非字符串 code 字段，不能当成错误。
+    const isErrorPayload = payload !== null && typeof payload === 'object' && typeof payload.code === 'string' && payload.code.length > 0
+    if (isErrorPayload) {
       // 微信错误体形如 { code: 'PARAM_ERROR', message: '...' }；原样上抛 code 供对账。
       throw new PaymentProviderError(
         'PAYMENT_PROVIDER_UPSTREAM_REJECTED',
         `微信下单被拒：${payload.code} ${payload.message || ''}`.trim(),
         502,
+      )
+    }
+    if (response.ok !== true) {
+      // 非 2xx 且报文里没有 `code`（例如网关返回的 HTML/空体）：仍是上游异常，但要带上状态码，
+      // 否则"401 但没 code"和"网络断了"在日志里长得一样。
+      throw new PaymentProviderError(
+        'PAYMENT_PROVIDER_UPSTREAM_FAILED',
+        `微信下单返回 HTTP ${response.status}`,
       )
     }
     if (!payload || typeof payload.code_url !== 'string' || !payload.code_url) {

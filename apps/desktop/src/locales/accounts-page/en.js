@@ -34,7 +34,26 @@ export default {
     batchCheckAllStarted: (ctx) => 'Checking login status of ' + ctx.named('count') + ' accounts…',
     loginUnconfirmed: 'Could not confirm {platform} login: this check returned no verdict, status unchanged',
     batchCheckAllDone: (ctx) => 'Check complete: ' + ctx.named('valid') + ' valid, ' + ctx.named('invalid') + ' expired' + (Number(ctx.named('unconfirmed')) > 0 ? ', ' + ctx.named('unconfirmed') + ' unresolved (status kept)' : ''),
+    // 2026-10-22 fix-batch-check-toast-unify: "next steps" segment appended to batchCheckAllDone.
+    // "of which ..." (not the old standalone "N account(s) need to log in again") because the old
+    // wording gave no hint that it referred to the same accounts as the summary line — users read
+    // "0 expired" and "5 need to log in again" as a contradiction. Returns '' when both are 0 so the
+    // caller can skip the separator instead of leaving a dangling ";".
+    checkHintsSummaryInline: (ctx) => {
+      const relogin = Number(ctx.named('relogin')) || 0
+      const retry = Number(ctx.named('retry')) || 0
+      const parts = []
+      if (relogin > 0) parts.push(relogin + ' should log in again')
+      if (retry > 0) parts.push(retry + ' should be retried later')
+      return parts.length ? 'of which ' + parts.join('; ') : ''
+    },
+    // 2026-10-22: persist-failure segment appended at the end of the summary line. It used to be a
+    // standalone red error toast (batchCheckAllPersistFailed), which rendered "some accounts' verdicts
+    // were not saved" as "the whole check failed" and made users think the feature was broken.
+    checkHintsPersistFailedInline: (ctx) => 'login status of ' + ctx.named('count') + ' account(s) could not be saved to the server. Retry or check the backend service',
     batchCheckAllAllValid: (ctx) => 'Check complete: all ' + ctx.named('count') + ' accounts are valid',
+    // ⚠️ Kept but no longer used by check-all: the home expired-banner's reportError title still reads
+    // it (useExpiredAccountsBanner.js). Deleting the key would break Gate 7 --keys and that alert.
     batchCheckAllPersistFailed: (ctx) => 'Check finished, but login status of ' + ctx.named('count') + ' account(s) could not be saved. Please retry or check the backend service',
     persistFailedTitle: (ctx) => 'Failed to persist login status (' + ctx.named('count') + ' account(s))',
     batchCheckAllNoAccounts: 'No accounts to check',
@@ -47,6 +66,21 @@ export default {
     addAccount: 'Add Account',
     loginMethod: 'Login method',
     selectPlatformLabel: 'Select platform',
+    // Platform picker (self-drawn popup): group names and a11y labels must be
+    // translatable — the platform directory category is a structural key only.
+    platformPicker: {
+      searchPlaceholder: 'Search platforms',
+      emptyResult: 'No matching platform',
+      emptyPlatforms: 'No platforms available',
+      groupDomestic: 'Domestic',
+      groupInternational: 'International',
+      triggerAria: 'Select platform',
+      searchAria: 'Search platforms by name',
+      clearSearchAria: 'Clear search',
+      listAria: 'Platform list',
+      optionAria: 'Select {platform}',
+      hint: '↑↓ to move · Enter to select · Esc to close',
+    },
     browserLogin: 'Browser login',
     qrLogin: 'QR login',
     qrUnavailable: 'QR login is not available for this platform',
@@ -162,6 +196,18 @@ export default {
     reloginFailed: 'Re-login failed',
     verifyFailed: 'Verification failed',
     goLogin: 'Go to login',
+    // Relogin confirmation (2026-10-24, account-card-login-button):
+    // an account that already shows "Logged in" would have its stored credentials
+    // replaced, so the user decides explicitly. Empty checkedAt = never checked.
+    reloginConfirmTitle: 'Log in again',
+    reloginConfirmMessage: (ctx) => {
+      const at = ctx.named('checkedAt')
+      const when = at ? ' (last checked: ' + at + ')' : ''
+      return 'Account "' + ctx.named('name') + '" currently shows as "Logged in"' + when +
+        '. Logging in again opens the ' + ctx.named('platform') + ' login page and requires you to ' +
+        'complete the login flow again; on success it replaces this account\'s stored credentials. Continue?'
+    },
+    reloginConfirmAction: 'Continue',
     accountIncomplete: 'Account info is incomplete',
     creatorUnsupported: 'Creator center is not supported for this platform yet',
     cardCreatorTitle: 'Click to open the creator center',
@@ -256,6 +302,11 @@ export default {
       publisherLabel: 'Publisher',
       notSet: 'Not set',
       noData: 'No data',
+      // 账号资料（昵称/头像/粉丝）缺失时的提示（2026-10-22）：
+      // 与中文文案逐字对应：按钮名取自同文件的 verify。
+      avatarMissing: 'Account avatar not fetched',
+      avatarMissingHint: 'Account avatar not fetched. Click "Verify" to fetch account info again',
+      followersMissingHint: 'Follower count not fetched. Click "Verify" to fetch account info again',
       unnamedAccount: 'Unnamed account',
       statusLoggedIn: 'Logged in',
       statusExpired: 'Invalid',
@@ -267,7 +318,9 @@ export default {
       unknownDate: 'Unknown date',
       settings: 'Settings',
       verify: 'Verify',
-      goLogin: 'Log in',
+      // 「登录」常驻（2026-10-24）：原「去登录」是条件式按钮，已被本按钮取代。
+      login: 'Log in',
+      loginTitle: 'Log in again: opens the platform login page and replaces this account\'s stored credentials on success',
       delete: 'Delete',
       accountLoginStatus: (ctx) => 'Account login status: ' + ctx.named('status'),
       selectAccount: (ctx) => 'Select ' + ctx.named('name'),

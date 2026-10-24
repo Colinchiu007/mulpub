@@ -58,6 +58,8 @@ function registerAllHandlers(ipcMain, deps) {
   require('./tts-voice-clone')(ipcMain, deps)
   // 数字人形象/音色目录（avatar-spokesperson 流水线接通 HeyGen）
   require('./avatar-catalog')(ipcMain, deps)
+  // 数字人形象克隆（avatar-voice-clone：上传照片/视频 → 长期可复用的形象）
+  require('./avatar-clone')(ipcMain, deps)
   require('./prompt-eval')(ipcMain, deps)
   require('./generation-feedback')(ipcMain, deps)
   // 影视工程（film-engineering）流水线
@@ -65,6 +67,9 @@ function registerAllHandlers(ipcMain, deps) {
   // 影视工程「自动」模式（film-auto-mode）：规划/执行/片段编辑/收口校验
   // 注意：执行不经 pipeline 引擎（直连 production-driver + auto-runner），合成仍走既有 manifest 通道
   require('./film-engineering-auto')(ipcMain, deps)
+  // 影视工程「资产导入」写路径（PR-3b · F-J）：整体替换 userData/film-kit
+  // ⚠ 与上面的只读/自动模式**分文件**（写路径独立 ⇒ 不把 446 行的 auto handler 顶过 500 行门禁）
+  require('./film-engineering-import')(ipcMain, deps)
   require('./aggregation')(ipcMain, deps)
   // 博主监控与采集（PRD-CREATOR-WIRING-2026-10-07）。
   // 必须注册：缺了它，渲染端点「博主监控」会拿到 Electron 原生的

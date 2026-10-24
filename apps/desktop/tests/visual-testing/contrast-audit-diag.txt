@@ -1,10 +1,10 @@
-[start] 2026-10-09T11:25:32.811Z
-[cwd] D:\Data\projects\mp-worktrees\mp-ue-p4e-contrast-fix\apps\desktop
+[start] 2026-10-21T06:03:36.430Z
+[cwd] D:\Data\projects\mp-worktrees\mp-ui-visual-premium\apps\desktop
 [node] v22.23.1
-[TEST_URL] http://127.0.0.1:5203
-[HEADLESS] (unset)
+[TEST_URL] http://127.0.0.1:5174
+[HEADLESS] true
 [require-playwright-core] OK
-[resolve-playwright-core] D:\Data\projects\mp-worktrees\mp-ue-p4e-contrast-fix\node_modules\playwright-core\index.js
+[resolve-playwright-core] D:\Data\projects\mp-worktrees\mp-ui-visual-premium\node_modules\playwright-core\index.js
 [launch-browser] begin
 [launch-browser] OK
 [newPage] begin

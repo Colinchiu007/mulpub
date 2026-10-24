@@ -1,0 +1,58 @@
+{
+  "sha": "d98acb981a3b505abc4bd16531df515d7db93ca8",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 263 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 263,
+    "fileCount": 5,
+    "codeFileCount": 5,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "3db48d288e668156856405fc573b6b0afc8426c28913fadedb73c1f73b8a4590",
+  "decidedAt": "2026-10-23T17:26:42.010Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：不触及判据本体、.github/workflows、凭证/登录态。\n改动是形象克隆的 provider 路由 + 飞影素材上传。\n\n本 commit 修的两个缺陷：\n1. avatar-clone-remote.js 硬编码 AVATAR_CLONE_PROVIDER = heygen。\n   service 已按 providerId 分段存 registry，远端调用却仍打 HeyGen：\n   切到飞影后「用照片创建」会拿 HeyGen 的 avatar id 存进飞影的 registry，\n   生成视频时飞影不认这个 id —— 不报错，静默错配。\n   改为 providerId 一律由 owner 传入，常量只兜底。\n2. 飞影克隆接口只接受 *_url / file_id，不接受二进制；而 service 按\n   HeyGen 契约传 Blob。在 adapter 内加 ensureFileId（create_upload_url\n   → PUT → file_id）消化契约差异，service/IPC/UI 不长 provider 分支。\n\n后缀推断三级兜底：显式 fileName > Blob MIME 反查（含别名 mpeg→mp3、\nquicktime→mov、jpeg→jpg）> type 兜底。Blob 没有文件名，而飞影\ncreate_upload_url 必须要 file_extension。\n\n免费验证（真实 token，0 积分消耗）：\n- create_upload_url 真实可用，拿到 upload_url + file_id\n- 5 种 MIME 后缀推断全部正确\n- service 侧 createAvatar 打到的 providerId = hifly\n\n回归证据：21 个相关测试文件 473/473 全绿；eslint 干净；\nmax-lines / locale(keys+cjk) / no-brand-residue / r3(18) 通过。\n\n已知待办：CreateView.vue 相对 origin/main +109 行，触发 maxFileLines\n债务熔断（基线 5528，实际 5630）。该增量来自本分支未合并的数字人\n多 provider + 字幕 + 声音克隆工作，非主干腐烂；provider 下拉相关逻辑\n（约 45 行）可进一步抽到 composable，留给后续重构。"
+  }
+}

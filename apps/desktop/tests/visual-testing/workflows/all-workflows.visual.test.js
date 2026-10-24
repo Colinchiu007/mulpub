@@ -94,6 +94,33 @@ const workflowTests = [
       { action: 'screenshot', name: '取消添加后的账号列表' },
     ],
   },
+  // 平台选择器（AccountPlatformPicker，自绘浮层）的交互回归。
+  //
+  // 为什么复用 accounts-list 基线、而不是给「浮层展开态」单独建一张基线：
+  // 本仓的视觉基线必须与 **CI 同一次渲染**逐像素相等（QM-4 第 7 条 + Gate 7b 的 0 px 判定），
+  // 基线 PNG 只能取自 CI 产物 —— 本机截图当基线是明确禁止的。所以本条用例把
+  // 「浮层展开 → 搜索 → Esc 收起 → 关弹窗」整段交互跑完，**末态回到账号列表**，
+  // 于是既拿到了交互层的回归保护（浮层打不开 / 搜索不生效 / 收不回弹窗都会让本条红），
+  // 又不需要引入一张来路不明的基线。
+  // 「浮层展开态」的像素基线需要等 CI 产出同源渲染后再补（见 openspec/records/platform-picker-ux.md 遗留项）。
+  {
+    name: 'accounts-platform-picker', route: '/accounts', baseline: 'accounts-list',
+    steps: [
+      { action: 'waitFor', selector: '.account-command-bar' },
+      { action: 'click', selector: '[data-testid="account-add"]' },
+      { action: 'waitFor', selector: '.ui-modal-overlay' },
+      { action: 'click', selector: '[data-testid="platform-picker-trigger"]' },
+      { action: 'waitFor', selector: '[data-testid="platform-picker-popup"]' },
+      { action: 'fill', selector: '[data-testid="platform-picker-search"]', value: '抖' },
+      { action: 'waitFor', selector: '[data-testid="platform-picker-option-douyin"]' },
+      { action: 'press', key: 'Escape' },
+      { action: 'waitForSelector', selector: '[data-testid="platform-picker-popup"]', state: 'hidden' },
+      { action: 'click', selector: '.ui-modal-close' },
+      { action: 'waitForSelector', selector: '.ui-modal-overlay', state: 'hidden' },
+      { action: 'click', selector: '.accounts-page' },
+      { action: 'screenshot', name: '平台选择器交互后复位' },
+    ],
+  },
   // 曾有一条 accounts-group-dialog-close（点 .page-actions 里的「分组管理」→ 关弹窗）。已删除，两条原因：
   // ① 产品形态变了 —— 分组管理不再是弹窗，而是 shell 模块导航（MpModuleNav.vue:38）以 ?tab=groups
   //    打开的**内联面板** AccountGroupsPanel；② 改成面板断言后仍无法像素比对：本套件有
@@ -262,8 +289,11 @@ const workflowTests = [
       { action: 'waitFor', selector: '.view-tabs' },
       { action: 'click', selector: '.view-tab:nth-child(2)' },
       { action: 'waitFor', selector: '.quick-render' },
-      { action: 'click', selector: '.mode-tab:nth-child(2)' },
-      { action: 'waitFor', selector: '.mode-tab:nth-child(2).active' },
+  // 模式 tab 的数量是**能力驱动**的（text/keyframe/reference 按 provider 能力增减，gallery 恒在）
+  // ⇒ 位置选择器 `.mode-tab:nth-child(N)` 会随能力漂移（能力足时 nth-child(2) 是 keyframe 而非 gallery）。
+  // 改用 data-testid 锚定具体模式值，语义不变且不受能力集影响。
+      { action: 'click', selector: '[data-testid="quick-mode-gallery"]' },
+      { action: 'waitFor', selector: '[data-testid="quick-mode-gallery"].active' },
       { action: 'click', selector: '.view-tab:nth-child(1)' },
       { action: 'click', selector: '.page-header h1' },
       { action: 'screenshot', name: '恢复流水线创作视图' },
@@ -275,11 +305,11 @@ const workflowTests = [
       { action: 'waitFor', selector: '.view-tabs' },
       { action: 'click', selector: '.view-tab:nth-child(2)' },
       { action: 'waitFor', selector: '.view-tab:nth-child(2).active' },
-      { action: 'click', selector: '.mode-tab:nth-child(1)' },
-      { action: 'waitFor', selector: '.mode-tab:nth-child(1).active' },
-      { action: 'waitFor', selector: 'textarea[placeholder="输入视频文案，每行一个场景..."]' },
-      { action: 'fill', selector: 'textarea[placeholder="输入视频文案，每行一个场景..."]', value: '第一幕\n第二幕' },
-      { action: 'fill', selector: 'textarea[placeholder="输入视频文案，每行一个场景..."]', value: '' },
+      { action: 'click', selector: '[data-testid="quick-mode-text"]' },
+      { action: 'waitFor', selector: '[data-testid="quick-mode-text"].active' },
+      { action: 'waitFor', selector: '[data-testid="quick-ai-prompt"]' },
+      { action: 'fill', selector: '[data-testid="quick-ai-prompt"]', value: '第一幕\n第二幕' },
+      { action: 'fill', selector: '[data-testid="quick-ai-prompt"]', value: '' },
       { action: 'click', selector: '.view-tab:nth-child(1)' },
       { action: 'waitFor', selector: '.view-tab:nth-child(1).active' },
       { action: 'click', selector: '.page-header h1' },

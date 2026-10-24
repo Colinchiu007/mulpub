@@ -83,9 +83,19 @@ class PaymentProvider {
   }
 }
 
+/**
+ * 我方订单号形状：`wp` + base36 时间戳 + base36 随机。
+ *
+ * 放在抽象层而不是微信适配器里，是因为它**不是某个供应商的约束**：订单号由本服务生成，
+ * 服务层的「继续支付」与适配器的入参校验必须用同一份形状。此前两处各写一份，
+ * 改一处就漂移（本仓已有「两份真源漂移」的先例）。
+ */
+const OUT_TRADE_NO_PATTERN = /^wp[a-z0-9]{8,64}$/
+
 module.exports = {
   PaymentProvider,
   WebhookSignatureError,
   PaymentProviderError,
   NORMALIZED_EVENT_TYPES,
+  OUT_TRADE_NO_PATTERN,
 }

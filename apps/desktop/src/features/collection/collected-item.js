@@ -14,6 +14,7 @@
  */
 
 import { CATEGORY_KEY_RE } from '@/features/content/content-categories'
+import { countRewriteChars } from '@/utils/rewrite-engine-limits'
 
 /** 单条目类别标签上限 */
 export const MAX_ITEM_CATEGORY_TAGS = 5
@@ -74,7 +75,10 @@ export function normalizeCollectedItem (raw, ctx = {}) {
     publishTime: String(src.publishTime || ''),
     source: String(src.source || 'url'),
     sourceUrl: String(src.sourceUrl || ''),
-    wordCount: Number(src.wordCount) || Number(src.word_count) || content.length,
+    // 字数按**码点**计（feat-zhihu-fav-batch-wordcount，外部评审 i4）：改写稿字数来自 Python 的
+    // len()（码点），若这里用 JS 的 .length（UTF-16 码元），带 emoji 的文本会让卡片上
+    // 「原文 N 字 · 改写 M 字」两个数不同口径。引擎侧口径也是码点（countRewriteChars）。
+    wordCount: Number(src.wordCount) || Number(src.word_count) || countRewriteChars(content),
     platform: String(src.platform || ''),
     author: String(src.author || ''),
     engagement: (src.engagement && typeof src.engagement === 'object') ? src.engagement : undefined,

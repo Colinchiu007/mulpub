@@ -674,14 +674,21 @@ test('结构锁：saveRecord 必须经由 recordFileName 取名（防纯函数�
 // ═══════════════════════════════════════════════════════════════════
 
 test('QM-6 i3：闭环白名单与门禁同源（改一处忘另一处必须当场红）', () => {
-  // 重复定义的风险只能用等价锁兜底：直接读门禁源码断言两处集合相等。
-  const gate = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
-  const m = gate.match(/CLOSED_DEEP_REVIEW_STATUSES = new Set\(\[([^\]]*)\]\)/)
-  assert.ok(m, '门禁侧的白名单定义形态变了，本锁需同步更新（不允许静默失配）')
-  const fromGate = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort()
+  // 2026-10-20：白名单已收敛为**单一真源** scripts/lib/exec-record-statuses.js
+  // （外部评审第 2 轮 i2 提为 Critical：相等测试只能发现漂移、不能消除漂移）。
+  // 本锁随之升级——不再用正则扒门禁源码里的字面量（那只是"两份副本相等"的兜底），
+  // 改为直接消费真源，并额外断言门禁**确实**引用它、且不得再长出私有副本。
+  const shared = require('./lib/exec-record-statuses')
+  const fromGate = [...shared.CLOSED_DEEP_REVIEW_STATUSES].sort()
   const fromDecider = [...decider.CLOSED_DEEP_REVIEW_STATUSES].sort()
   assert.deepStrictEqual(fromDecider, fromGate,
     'decider 与门禁的闭环白名单必须一致；否则「已闭环」在两处判定不同 ⇒ 要么丢结论要么误红')
+
+  const gate = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.match(gate, /require\(['"]\.\/lib\/exec-record-statuses['"]\)/,
+    '门禁必须 require 单一真源；否则本锁比的是真源与它自己（退化成同义反复，什么都没守）')
+  assert.ok(!/CLOSED_DEEP_REVIEW_STATUSES\s*=\s*new Set\(\s*\[\s*'/.test(gate),
+    '门禁不得再定义字面量白名单副本 —— 那就是第二份真源')
 })
 
 test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹掉审查结论）', () => {
@@ -1165,7 +1172,11 @@ test('丙3.3 默认路径不得丢字段：不注入后端时也要写出可读�
 
 test('丙3.2 接线锁：main 必须把已算出的 backends 传给 saveRecord', () => {
   const src = fs.readFileSync(path.join(__dirname, 'ccg-review-decider.js'), 'utf8').replace(/\r\n/g, '\n')
-  assert.match(src, /saveRecord\(\s*result,\s*sha,[\s\S]{0,90}staged\.plannedFiles,\s*backends\s*\)/,
+  // ★ 2026-10-21（ccg-decider-merge-skip）：尾部从 `\s*\)` 放宽为 `\s*[,)]` —— 调用点
+  //   新增了第 6 参（合并态的 opts.diffPaths）。**放宽的只是「第 5 参之后还有没有参数」，
+  //   不是「第 5 参是谁」**：`backends` 这个标识符仍是逐字要求，所以「改成第二次探测」
+  //   这一类真缺陷照样变红（变异 M7 实测）。
+  assert.match(src, /saveRecord\(\s*result,\s*sha,[\s\S]{0,90}staged\.plannedFiles,\s*backends\s*[,)]/,
     '调用点漏传 backends ⇒ 记录里的可用性来自第二次探测，与判定时的现场不是同一份（本机 PATH 中途变了就漂移）')
 })
 
@@ -1450,4 +1461,800 @@ test('谓词形态表：段边界必须逐项可失败（推导不构成防御�
   const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
   const hits = src.split(NEEDLE).length - 1
   assert.strictEqual(hits, 1, `段边界子面必须恰有一处（谓词单一出处）；needle=${JSON.stringify(NEEDLE)} 命中=${hits}（0 = 探针失效，不是通过）`)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  遗留 10：merge 提交不该被当成「本次改动」判 dual
+//  遗留 7 ：判定记录必须补尾 LF
+//  change: ccg-decider-merge-skip（设计见 openspec/changes/ccg-decider-merge-skip/）
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 现场证据（遗留 10）：一次 `git merge origin/main` 的 pre-commit 记录写成
+//   mode=dual / changedLines=1880 / files=606 / status=pending
+// 而那次合并**没有引入任何新内容** —— 606 个文件全是从 main 那侧带进来的。
+//
+// 根因：判定器读 `git diff --cached`，在合并态下它等于「ours tip → 合并结果」，
+// 也就是**对方那一侧**的改动。于是「合并主干」这件零语义动作要付 23–40 分钟的
+// QM-6，且必然判 dual —— 主干每前进一次，对方那侧的规模就必然很大。
+//
+// 修法口径：合并态下只看 **ours ∩ theirs** —— 两侧都动过的文件才可能是
+// 「真冲突、真需人判」；单侧导入的文件属于「把别人的东西搬进来」，它们已经有
+// 自己的 PR 评审过。交集为空 ⇒ 这次合并零语义 ⇒ judge 必须给 skip，且不落盘。
+//
+// 为什么夹具必须**真造合并**，而不是拼一个带 mergeScope 的对象：
+//   被测性质是 `git rev-parse --verify MERGE_HEAD` + `git merge-base` +
+//   两侧 `git diff --no-renames base..side` 三者的**组合语义**。拼对象等于测我
+//   自己的想象 —— 本仓已有先例（夹具按调用方想象的形状收参数，缺陷全绿躺一轮）。
+//
+// ★ `git merge --no-ff --no-commit` 的 `--no-commit` 不可省：不加它会直接生成
+//   合并提交，MERGE_HEAD 当场消失，夹具静默退化成「普通仓库 + 干净 index」，
+//   于是每条断言都以「交集为空」的假象通过。
+// ★ `core.autocrlf=false` 由夹具自己声明：本仓踩过「行尾由宿主配置决定」导致
+//   本机绿 / CI 红；夹具不声明就等于把断言绑在某台机器的 git 配置上。
+
+/** 切到 dir 执行 fn，然后无论成败都切回来（process.chdir 是全局态） */
+function withCwd(dir, fn) {
+  const orig = process.cwd()
+  try {
+    process.chdir(dir)
+    return fn()
+  } finally {
+    process.chdir(orig)
+  }
+}
+
+/**
+ * 造一个真 git 仓库，可选地停在「合并中」状态。
+ *
+ * 布局：ours / theirs 两条分支都从同一个 base 分叉；`git checkout ours` 后
+ * `git merge --no-ff --no-commit theirs` ⇒ 索引里是合并结果、MERGE_HEAD 存在。
+ * 这正是 pre-commit 钩子被触发时判定器看到的现场。
+ */
+function mkGitFixture(opts) {
+  const o = opts || {}
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), `ccg-merge-${process.pid}-`))
+  const repo = path.join(parent, "repo")
+  fs.mkdirSync(repo, { recursive: true })
+
+  const write = (root, spec) => {
+    for (const [f, text] of Object.entries(spec || {})) {
+      const abs = path.join(root, f)
+      fs.mkdirSync(path.dirname(abs), { recursive: true })
+      fs.writeFileSync(abs, text, "utf8")
+    }
+  }
+  const g = (args, cwd) => {
+    const r = spawnSync("git", args, { cwd: cwd || repo, encoding: "utf8" })
+    if (r.status !== 0) {
+      throw new Error(
+        `git ${args.join(" ")} 失败 (rc=${r.status}): ${String(r.stderr || r.stdout || "").trim()}`
+      )
+    }
+    return r.stdout
+  }
+
+  g(["init", "-q"])
+  g(["config", "user.email", "t@example.invalid"])
+  g(["config", "user.name", "t"])
+  g(["config", "commit.gpgsign", "false"])
+  g(["config", "core.autocrlf", "false"])
+
+  g(["checkout", "-q", "-b", "ours"])
+  write(repo, o.baseFiles)
+  g(["add", "."])
+  g(["commit", "-q", "-m", "base"])
+  const base = g(["rev-parse", "HEAD"]).trim()
+
+  g(["checkout", "-q", "-b", "theirs"])
+  write(repo, o.theirs)
+  g(["add", "-A"])
+  g(["commit", "-q", "-m", "theirs"])
+  const theirsTip = g(["rev-parse", "HEAD"]).trim()
+
+  g(["checkout", "-q", "ours"])
+  write(repo, o.ours)
+  g(["add", "-A"])
+  g(["commit", "-q", "-m", "ours"])
+  const oursTip = g(["rev-parse", "HEAD"]).trim()
+
+  // 工作目录默认是主仓库；worktree 档把「合并」搬到 linked worktree 里做，
+  // 那个目录的 `.git` 是**文件**（`gitdir: ...`），用来钉「不得硬编码 .git/MERGE_HEAD」。
+  let dir = repo
+  if (o.worktree) {
+    const wt = path.join(parent, "wt")
+    g(["worktree", "add", "-q", "-b", "merged", wt, "ours"])
+    dir = wt
+  }
+
+  let mergeHead = null;
+  if (o.merge !== false) {
+    // ★ `--no-commit` 不可省，理由见上方注释块
+    g(["merge", "--no-ff", "--no-commit", "theirs"], dir);
+    mergeHead = g(["rev-parse", "--verify", "MERGE_HEAD"], dir).trim()
+  }
+  if (o.stageOnly) {
+    write(dir, o.stageOnly)
+    g(["add", "-A"], dir)
+  }
+
+  return {
+    parent,
+    repo,
+    dir,
+    g,
+    base,
+    oursTip,
+    theirsTip,
+    mergeHead,
+    cleanup: () => fs.rmSync(parent, { recursive: true, force: true }),
+  }
+}
+
+/** 稳定的 20 行源码，便于「两侧各改一行、区间隔开 ⇒ 干净合并」 */
+function twentyLines(prefix) {
+  const p = prefix || "const v"
+  return Array.from({ length: 20 }, (_, i) => `${p}${i + 1} = ${i + 1};`).join("\n") + "\n"
+}
+
+test("遗留10-T1 合并态·交集为空 ⇒ judge 判 skip，且 CLI 不写记录", () => {
+  const fx = mkGitFixture({
+    baseFiles: { "a.js": "const a = 1;\n", "b.js": "const b = 1;\n" },
+    ours: { "a.js": "const a = 2;\n" },
+    theirs: { "b.js": "const b = 2;\n" },
+  })
+  try {
+    // 先钉住「旧口径会把它读成一次真改动」。没有这一步，本用例的 skip 也可能只是
+    // 因为夹具根本没造出暂存内容 —— 空夹具对任何判定都返回 single/skip，
+    // 那样这条锁对「遗留 10 是否真的被修掉」是免疫的。
+    const legacy = withCwd(fx.dir, () => decider.collectStaged())
+    assert.ok(legacy, "collectStaged 必须返回对象")
+    assert.deepStrictEqual(
+      legacy.files.map((f) => f.file),
+      ["b.js"],
+      "旧口径在合并态读到的是「对方那一侧」的改动（b.js）—— 这就是遗留 10 的输入"
+    )
+
+    assert.strictEqual(
+      withCwd(fx.dir, () => decider.detectMergeState().merging),
+      true,
+      "夹具必须真的停在合并中（MERGE_HEAD 存在），否则本用例测的是另一件事"
+    )
+
+    const collected = withCwd(fx.dir, () => decider.collectMergeStaged())
+    assert.ok(collected, "collectMergeStaged 在合并态必须返回对象（不是 null，也不得抛）")
+    assert.strictEqual(collected.files.length, 0, "交集为空 ⇒ 参与判定的文件数必须为 0")
+    assert.strictEqual(collected.mergeScope.intersectionFileCount, 0)
+
+    const r = decider.judge(collected)
+    assert.strictEqual(r.mode, "skip", "零语义的合并不得被判成 dual/single")
+    assert.match(r.reason, /交集为空/)
+
+    // CLI 真跑：判 skip 的同时**不得落盘**
+    const cli = spawnSync(process.execPath, [SRC], { cwd: fx.dir, encoding: "utf8" })
+    assert.strictEqual(
+      cli.status,
+      0,
+      "CLI 必须以 0 退出：" + String(cli.stderr || "").slice(0, 500)
+    )
+    assert.match(cli.stdout, /交集为空/, "CLI 必须把「交集为空」说出来，不能静默 skip")
+    assert.match(
+      cli.stdout,
+      /不落盘|不写记录|未落盘/,
+      "CLI 必须显式声明这次没写记录 —— 静默不写与静默写错一样坏"
+    )
+    const reviews = path.join(fx.dir, ".ccg", "reviews")
+    const produced = fs.existsSync(reviews) ? fs.readdirSync(reviews) : []
+    assert.deepStrictEqual(
+      produced,
+      [],
+      "merge 提交不得引入新的 .ccg/reviews 产物：它没有新内容可审，而 pre-commit 会无条件 git add 这些文件（每次合并都脏一个文件）"
+    )
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test("遗留10-T2 合并态·交集非空 ⇒ 只按交集判，不把对方整侧导入算进去", () => {
+  const shared = twentyLines()
+  const oursShared = shared.replace("const v1 = 1;", "const v1 = 100;")
+  const theirsShared = shared.replace("const v20 = 20;", "const v20 = 200;")
+  assert.notStrictEqual(oursShared, shared, "夹具自检：ours 侧必须真的改到第 1 行")
+  assert.notStrictEqual(theirsShared, shared, "夹具自检：theirs 侧必须真的改到第 20 行")
+
+  const fx = mkGitFixture({
+    baseFiles: { "shared.js": shared },
+    ours: { "shared.js": oursShared },
+    // extra.js 只有对方动过：它是「搬别人的东西」，必须被交集挡掉
+    theirs: { "shared.js": theirsShared, "extra.js": "const extra = 1;\n" },
+  })
+  try {
+    const legacy = withCwd(fx.dir, () => decider.collectStaged().files.map((f) => f.file).sort())
+    assert.deepStrictEqual(
+      legacy,
+      ["extra.js", "shared.js"],
+      "旧口径读 2 个文件 —— 其中 extra.js 只有对方动过"
+    )
+
+    const collected = withCwd(fx.dir, () => decider.collectMergeStaged())
+    assert.ok(collected)
+    assert.deepStrictEqual(
+      collected.files.map((f) => f.file),
+      ["shared.js"],
+      "只应保留两侧都动过的文件；extra.js 只有对方动过，属「搬别人的东西」"
+    )
+
+    const ms = collected.mergeScope
+    assert.deepStrictEqual(
+      Object.keys(ms).sort(),
+      ["base", "intersectionFileCount", "mergeHead", "oursFileCount", "theirsFileCount"],
+      "mergeScope 必须是固定五元组（多一个键就意味着有人往里面塞了随实现变化的东西）"
+    )
+    assert.strictEqual(ms.mergeHead, fx.mergeHead)
+    assert.strictEqual(ms.base, fx.base)
+    assert.strictEqual(ms.oursFileCount, 1, "ours 侧自 base 起只改了 shared.js")
+    assert.strictEqual(ms.theirsFileCount, 2, "theirs 侧改了 shared.js 并新增 extra.js")
+    assert.strictEqual(ms.intersectionFileCount, 1)
+
+    const r = decider.judge(collected)
+    assert.strictEqual(r.mode, "single", "交集只有 shared.js 的小改 ⇒ 不该被判成 dual")
+    assert.strictEqual(
+      r.stats.fileCount,
+      1,
+      "stats.fileCount 必须等于交集大小（1），不是对方整侧的 2"
+    )
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test("遗留10-T3 非合并态对照：同一形态的暂存改动照旧判定并落盘（merge 分支不得外溢）", () => {
+  const fx = mkGitFixture({
+    baseFiles: { "a.js": "const a = 1;\n" },
+    ours: { "a.js": "const a = 2;\n" },
+    theirs: { "t.js": "const t = 1;\n" },
+    merge: false,
+    stageOnly: { "c.js": "const c = 3;\n" },
+  })
+  try {
+    assert.strictEqual(
+      withCwd(fx.dir, () => decider.detectMergeState().merging),
+      false,
+      "非合并态必须判 false —— 否则合并分支会外溢到所有提交上"
+    )
+    assert.strictEqual(
+      withCwd(fx.dir, () => decider.collectMergeStaged()),
+      null,
+      "非合并态必须返回 null，让调用方明确回落到 collectStaged（返回空对象会被读成「交集为空 ⇒ skip」，把每次提交都跳掉）"
+    )
+
+    const staged = withCwd(fx.dir, () => decider.collectStaged())
+    assert.ok(staged)
+    assert.deepStrictEqual(staged.files.map((f) => f.file), ["c.js"])
+    const r = decider.judge(staged)
+    assert.strictEqual(r.mode, "single")
+    assert.strictEqual(r.stats.mergeScope, undefined, "非合并态不得在 stats 里冒出 mergeScope")
+
+    // 与 T1 镜像：非合并态**必须**照旧落盘（否则「merge 不落盘」就退化成「都不落盘」）
+    const cli = spawnSync(process.execPath, [SRC], { cwd: fx.dir, encoding: "utf8" })
+    assert.strictEqual(cli.status, 0, "CLI 必须以 0 退出：" + String(cli.stderr || "").slice(0, 500))
+    const reviews = path.join(fx.dir, ".ccg", "reviews")
+    const produced = fs.existsSync(reviews) ? fs.readdirSync(reviews) : []
+    assert.strictEqual(produced.length, 1, "非合并态必须写出恰好一条判定记录：" + JSON.stringify(produced))
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test("遗留10-T4 worktree 里的合并态同样成立（防硬编码 .git/MERGE_HEAD）", () => {
+  const fx = mkGitFixture({
+    baseFiles: { "a.js": "const a = 1;\n", "b.js": "const b = 1;\n" },
+    ours: { "a.js": "const a = 2;\n" },
+    theirs: { "b.js": "const b = 2;\n" },
+    worktree: true,
+  })
+  try {
+    // 两态都要断：只断 true 无法区分「探测对了」与「探测恒真」
+    const mainState = withCwd(fx.repo, () => decider.detectMergeState())
+    assert.strictEqual(mainState.merging, false, "主仓库当前不在合并中（合并发生在 linked worktree 里）")
+
+    const wtState = withCwd(fx.dir, () => decider.detectMergeState())
+    assert.strictEqual(
+      wtState.merging,
+      true,
+      "worktree 的 .git 是**文件**（gitdir: ...），硬编码 path.join(repoRoot, '.git', 'MERGE_HEAD') 必然读不到 ⇒ 这条锁的就是那个实现选择"
+    )
+    assert.strictEqual(wtState.mergeHead, fx.mergeHead)
+
+    // 交集口径也必须在 worktree 里成立（同一段代码走两条 cwd = 会分叉的地方）
+    const collected = withCwd(fx.dir, () => decider.collectMergeStaged())
+    assert.ok(collected)
+    assert.strictEqual(collected.files.length, 0, "ours 改 a.js、theirs 改 b.js ⇒ 交集为空")
+    assert.strictEqual(collected.mergeScope.mergeHead, fx.mergeHead)
+    assert.strictEqual(collected.mergeScope.base, fx.base)
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test("遗留7-T5 saveRecord 两处写盘都补尾 LF（主路径与 alt 路径各断一条）", () => {
+  const fx = mkGitFixture({
+    baseFiles: { "a.js": "const a = 1;\n" },
+    ours: { "a.js": "const a = 2;\n" },
+    theirs: { "t.js": "const t = 1;\n" },
+    merge: false,
+    stageOnly: { "c.js": "const c = 3;\n" },
+  })
+  const sha = "e".repeat(40)
+  const stub = { wrapperExists: false, names: [], byName: {} }
+  try {
+    const first = withCwd(fx.dir, () =>
+      decider.saveRecord({ mode: "single", reason: "x", stats: {} }, sha, "diff", undefined, stub)
+    )
+    assert.ok(first && fs.existsSync(first), "首次写盘必须落在主路径上")
+    const firstRaw = fs.readFileSync(first, "utf8")
+    assert.ok(
+      firstRaw.endsWith("\n"),
+      "主路径（fs.writeFileSync(file, ...)）必须补尾 LF —— 末字节实际是 " + JSON.stringify(firstRaw.slice(-1))
+    )
+    assert.doesNotThrow(() => JSON.parse(firstRaw), "补尾 LF 不得破坏 JSON 可解析性")
+
+    // 把主路径那份弄成「解析不动」⇒ 第二次走 alt 分支（既有行为：不覆盖、另存 alt）
+    fs.writeFileSync(first, "{ 这不是 JSON", "utf8")
+    const alt = withCwd(fx.dir, () =>
+      decider.saveRecord({ mode: "single", reason: "x", stats: {} }, sha, "diff", undefined, stub)
+    )
+    assert.ok(alt && alt !== first, "alt 路径必须是另一个文件")
+    const altRaw = fs.readFileSync(alt, "utf8")
+    assert.ok(
+      altRaw.endsWith("\n"),
+      "alt 路径（fs.writeFileSync(alt, ...)）必须补尾 LF —— 末字节实际是 " + JSON.stringify(altRaw.slice(-1))
+    )
+    assert.doesNotThrow(() => JSON.parse(altRaw), "补尾 LF 不得破坏 JSON 可解析性")
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test("遗留10-T6 saveRecord 的 stagedDiffHash 必须与本次判定同源（opts.diffPaths）", () => {
+  const fx = mkGitFixture({
+    baseFiles: { "a.js": "const a = 1;\n", "b.js": "const b = 1;\n" },
+    ours: { "a.js": "const a = 2;\n" },
+    theirs: { "t.js": "const t = 1;\n" },
+    merge: false,
+    stageOnly: { "a.js": "const a = 9;\n", "b.js": "const b = 9;\n" },
+  })
+  const sha = "f".repeat(40)
+  const stub = { wrapperExists: false, names: [], byName: {} }
+  const run = (opts) =>
+    withCwd(fx.dir, () => {
+      const p = decider.saveRecord(
+        { mode: "single", reason: "x", stats: {} },
+        sha,
+        "diff",
+        undefined,
+        stub,
+        opts
+      )
+      assert.ok(p, "saveRecord 必须返回路径")
+      return { p, rec: JSON.parse(fs.readFileSync(p, "utf8")) }
+    })
+  try {
+    const onlyA = run({ diffPaths: ["--", "a.js"] })
+    const onlyB = run({ diffPaths: ["--", "b.js"] })
+    const dflt = run(undefined)
+    const explicitDefault = run({ diffPaths: ["--", ".", ":(exclude).ccg"] })
+
+    assert.notStrictEqual(
+      onlyA.rec.stagedDiffHash,
+      onlyB.rec.stagedDiffHash,
+      "换 pathspec 必须换哈希 —— 否则 stagedDiffHash 与本次判定的范围不同源（merge 场景会把「交集」的判定挂在「对方整侧」的哈希上）"
+    )
+    assert.strictEqual(
+      dflt.rec.stagedDiffHash,
+      explicitDefault.rec.stagedDiffHash,
+      "默认档必须逐字节等于历史配方 [\"--\", \".\", \":(exclude).ccg\"] —— 非合并路径的行为不得有任何漂移"
+    )
+    assert.strictEqual(
+      path.basename(dflt.p),
+      path.basename(explicitDefault.p),
+      "同上，落到哪个文件也必须一致（否则默认档会写出两份内容相同的产物）"
+    )
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test("命名配方行为锁：默认档必须排除 .ccg（位置不是判据，行为才是）", () => {
+  // ── 动因（本 PR 实测，Gate 2c2 当场红） ──────────────────────────────────
+  // `check-pr-exec-record.test.js` 的「命名配方」结构锁用
+  //   src.indexOf('diff", "--cached", "--no-textconv"') → src.slice(h, h + 200)
+  // 读那一次 git 调用的字符窗口，再断言窗口内出现排除 `.ccg` 的 pathspec。
+  // 本 PR 为了给合并态换 pathspec，把缺省配方上提到了 saveRecord 的函数头
+  // （更"整洁"的写法），于是字面量从窗口内的 114 偏移飘到窗口外 —— **行为一寸未变**
+  // 而锁失明、CI 红。修法是让缺省留在调用点实参里（见 decider 函数体注释）。
+  //
+  // ── 为什么这里还要一条行为锁 ────────────────────────────────────────────
+  // 上面那条锁守的是**字面量位置**，那是别人的实现形态；一旦有人合理地重排代码，
+  // 它会红（可发现）；但它也可能被人为了变绿而放宽。真正不能被破坏的是行为：
+  // 「默认档不把判定器自己写出的 `.ccg/` 产物算进 stagedDiffHash」。
+  // 两条锁各守一侧，谁也不替谁：
+  //   ① 结构锁（既有）＝ 配方在窗口内可被找到；
+  //   ② 行为锁（本用例）＝ 配方真的排除了 `.ccg`。
+  // 变异反证：把默认档尾巴上的排除项摘掉 ⇒ 默认档读到 `.ccg` 内容 ⇒ 本用例变红。
+  const fx = mkGitFixture({
+    baseFiles: { "seed.txt": "seed\n" },
+    ours: { "a.js": "const a = 1;\n" },
+    theirs: { "t.js": "const t = 1;\n" },
+    merge: false,
+    // 只暂存一个 `.ccg/` 产物 —— 这是 pre-commit 在「纯流程/文档提交」里真实遇到的形状
+    stageOnly: { ".ccg/reviews/trace.json": '{"trace":1}\n' },
+  })
+  const sha = "e".repeat(40)
+  const stub = { wrapperExists: false, names: [], byName: {} }
+  const save = (opts) =>
+    withCwd(fx.dir, () =>
+      decider.saveRecord({ mode: "skip", reason: "x", stats: {} }, sha, "diff", undefined, stub, opts)
+    )
+  try {
+    const dflt = save(undefined)
+    const noFilter = save({ diffPaths: ["--", "."] })
+    assert.ok(dflt && noFilter, "两次都必须返回路径（否则断言会以 TypeError 假红）")
+
+    assert.strictEqual(
+      path.basename(dflt),
+      `${sha}.json`,
+      "默认档必须排除 .ccg ⇒ 暂存区只剩 .ccg 产物时读到空 diff ⇒ 回落父 sha 名；" +
+        "读到内容说明排除项没生效（判定器会把自己的输出算进自己的文件名，随自身输出移位）"
+    )
+    assert.match(
+      path.basename(noFilter),
+      /^[0-9a-f]{64}\.json$/,
+      "显式放开 .ccg 的档必须读到内容 ⇒ 64 位内容寻址名。这一半是**反向对照**：" +
+        "缺了它，未暂存任何东西的空夹具也会让上面那条「默认档回落」通过（对排除项失效免疫）"
+    )
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test("遗留10-T7 交集里的 glob 元字符文件名必须按字面量取（:(literal) 锁）", () => {
+  const shared = twentyLines("const w")
+  const oursLib = shared.replace("const w1 = 1;", "const w1 = 100;")
+  const theirsLib = shared.replace("const w20 = 20;", "const w20 = 200;")
+  const fx = mkGitFixture({
+    baseFiles: { "scripts/a[1].js": shared, "scripts/a1.js": shared },
+    ours: { "scripts/a[1].js": oursLib },
+    // 诱饵：a1.js 只有对方动过（不在交集里）。若 pathspec 没加 :(literal)，
+    // `scripts/a[1].js` 会被当成 glob 命中 `scripts/a1.js` ⇒ 判定读到**另一个文件**，
+    // 而那个文件本次合并两侧都没共同改过。
+    theirs: { "scripts/a[1].js": theirsLib, "scripts/a1.js": theirsLib },
+  })
+  try {
+    const collected = withCwd(fx.dir, () => decider.collectMergeStaged())
+    assert.ok(collected)
+    assert.strictEqual(
+      collected.mergeScope.intersectionFileCount,
+      1,
+      "交集必须只有 a[1].js（a1.js 只有对方动过，不进交集）"
+    )
+    assert.deepStrictEqual(
+      collected.files.map((f) => f.file),
+      ["scripts/a[1].js"],
+      "glob 元字符必须按字面量匹配：少了 :(literal)，这里会读到 scripts/a1.js"
+    )
+    assert.ok(
+      (collected.files[0].added || 0) > 0,
+      "字面量命中后必须真的读到该文件的行数，不能是 0 行空壳"
+    )
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test("遗留10-T8 接线锁：CLI 在合并态必须按「交集」算 stagedDiffHash（不是全域）", () => {
+  // 这条锁的是 **main 的第 6 参接线**。只测 saveRecord 本体（T6）证明不了
+  // 「调用点接上了」：把 `mergeDiffPaths ? {...} : undefined` 整个摘掉，T1/T2/T6
+  // 仍然全绿（T6 自己传 opts，不经过 main），而记录名又会回到「对方整侧」的哈希上
+  // —— 正是遗留 10 的形态换了个落点。所以要在这里真跑一次 CLI。
+  const shared = twentyLines("const w")
+  const oursLib = shared.replace("const w1 = 1;", "const w1 = 100;")
+  const theirsLib = shared.replace("const w20 = 20;", "const w20 = 200;")
+  const fx = mkGitFixture({
+    baseFiles: { "shared.js": shared, "far.js": twentyLines("const q") },
+    ours: { "shared.js": oursLib },
+    theirs: { "shared.js": theirsLib, "extra.js": twentyLines("const e") },
+  })
+  try {
+    const crypto = require("node:crypto")
+    // 独立算两条哈希：交集档（本次判定实际依据）与全域档（旧口径）。
+    // 配方必须与实现同源，否则本用例会拿一个没人用的数字去对账。
+    const hashOf = (pathspec) => {
+      const d = fx.g(["diff", "--cached", "--no-textconv", "--no-ext-diff", "--no-renames", "--", ...pathspec])
+      return crypto.createHash("sha256").update(d).digest("hex")
+    }
+    const intersectionHash = hashOf([":(literal)shared.js", ":(exclude).ccg"])
+    const wholeHash = hashOf([".", ":(exclude).ccg"])
+    assert.notStrictEqual(
+      intersectionHash,
+      wholeHash,
+      "夹具必须让两档算出不同哈希 —— 相同的话这条锁对「用的是哪一档」结构性免疫"
+    )
+
+    const cli = spawnSync(process.execPath, [SRC], { cwd: fx.dir, encoding: "utf8" })
+    assert.strictEqual(cli.status, 0, "CLI 必须以 0 退出：" + String(cli.stderr || "").slice(0, 500))
+    const reviews = path.join(fx.dir, ".ccg", "reviews")
+    const produced = fs.existsSync(reviews) ? fs.readdirSync(reviews) : []
+    assert.strictEqual(
+      produced.length,
+      1,
+      "合并态·交集非空 ⇒ 必须落盘恰好一条（只有交集为空才不落盘）：" + JSON.stringify(produced)
+    )
+    assert.strictEqual(
+      produced[0],
+      `${intersectionHash}.json`,
+      "记录名必须由**交集**的 diff 算出。落在 wholeHash(" +
+        wholeHash.slice(0, 12) +
+        "…) 名下就说明 main 没把 opts.diffPaths 接下去 ⇒ 判定域与哈希域不同源"
+    )
+
+    const rec = JSON.parse(fs.readFileSync(path.join(reviews, produced[0]), "utf8"))
+    assert.strictEqual(rec.stagedDiffHash, intersectionHash)
+    assert.strictEqual(
+      rec.stats.mergeScope.intersectionFileCount,
+      1,
+      "记录里必须留下合并域的取证快照（事后才能回答「这次到底按什么范围判的」）"
+    )
+  } finally {
+    fx.cleanup()
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════
+// QM-6 自扮演裁决 i1 / i6 的行为锁（2026-10-21）
+//
+// i1：`detectMergeState` 原来复用 `git()` 的「catch → null」，把两种不同的事实压成同形 ——
+//     ① `rev-parse --verify MERGE_HEAD` 以 128/1 退出（该 ref 不存在 = 真的不在合并中）；
+//     ② spawn 失败 / git 崩溃（探测失明，我们什么都不知道）。
+//     ② 被静默读成「不在合并中」，与遗留 10 是同一族错法（把工具的失明读成结论）：
+//     它不改变判定方向（仍是 fail-open），但「我不知道」必须**可见**。
+//     所以下面锁三格：合并中 / 干净仓库 / 探测失明，第三格必须挂 `probeError`。
+//
+// i6：`changedLines` 的正确性完全依赖「files 恰是 merge-base 交集」这条不变量。
+//     交集之外的文件一旦漏进判定域（例如有人把交集写成 ours ∪ theirs），行数就是高估的，
+//     而记录里 `mergeScope` 与 `changedLines` 各自自洽 ⇒ 高估在产物上不可见。
+//     破坏时必须出声并升 dual（最保守方向），**不得**静默 skip：交集为空的形态下
+//     静默会正好走「零语义 ⇒ skip」，把判定域被撑大读成「这次合并没什么内容」。
+// ═══════════════════════════════════════════════════════════════════
+
+test("遗留10-T9 「探测失明」不得与「真的不在合并中」同形（i1）", () => {
+  // 两侧各改各的（不碰同一行）⇒ 干净合并、MERGE_HEAD 存在。
+  // 这条测试只关心「探测读到什么」，交集是否有内容与它无关。
+  const fx = mkGitFixture({
+    baseFiles: { "a.js": "const a = 1;\n" },
+    ours: { "a.js": "const a = 2;\n" },
+    theirs: { "t.js": "const t = 1;\n" },
+  })
+  const plain = mkGitFixture({
+    baseFiles: { "a.js": "const a = 1;\n" },
+    ours: { "a.js": "const a = 2;\n" },
+    theirs: { "t.js": "const t = 1;\n" },
+    merge: false,
+  })
+  // Windows 的环境键可能叫 Path / PATH（Node 的 process.env 大小写不敏感，
+  // 但枚举出来只有实际存的那一个），所以按实测键保存与还原，不硬编码 "PATH"。
+  const pathKeys = Object.keys(process.env).filter((k) => /^path$/i.test(k))
+  const savedEnv = pathKeys.map((k) => [k, process.env[k]])
+  const bogusPath = path.join(os.tmpdir(), "ccg-no-such-bin-dir-" + process.pid)
+  try {
+    // ① 合并中：三键齐备，且不得挂 probeError（否则「正常」与「失明」又混了）
+    const merging = withCwd(fx.dir, () => decider.detectMergeState())
+    assert.strictEqual(merging.merging, true)
+    assert.strictEqual(merging.mergeHead, fx.mergeHead)
+    assert.strictEqual(merging.probeError, null, "探测成功时不得挂 probeError")
+
+    // ② 干净仓库：ref 不存在是**正常返回**，同样不得挂 probeError。
+    //    这一格是否证「只要有非零退出码就算失明」的那半边 —— git 对缺失 ref 恒以 128 退出。
+    const notMerging = withCwd(plain.dir, () => decider.detectMergeState())
+    assert.strictEqual(notMerging.merging, false)
+    assert.strictEqual(notMerging.mergeHead, null)
+    assert.strictEqual(notMerging.probeError, null, "ref 不存在不是故障，不得记成 probeError")
+
+    // ③ 探测失明：把 PATH 指到不存在的目录 ⇒ spawn 失败。
+    //    合并态的夹具**原样不动**，只换环境 —— 这样「读不到」只可能来自探测侧。
+    for (const k of pathKeys) process.env[k] = bogusPath
+    const blind = withCwd(fx.dir, () => decider.detectMergeState())
+    assert.strictEqual(blind.merging, false, "读不到时必须 fail-open，不得宣称在合并中")
+    assert.strictEqual(blind.mergeHead, null)
+    assert.strictEqual(
+      blind.probeError,
+      "ENOENT",
+      "spawn 失败必须如实记进 probeError（这一格原来与「干净仓库」完全同形）"
+    )
+
+    // ④ 还原后必须重新读到 MERGE_HEAD：证明上面的 ENOENT 来自我们换掉的环境，
+    //    而不是夹具本身就坏了（否则这条锁对「真的读不到」毫无判别力）。
+    for (const [k, v] of savedEnv) process.env[k] = v
+    assert.strictEqual(
+      withCwd(fx.dir, () => decider.detectMergeState()).merging,
+      true,
+      "恢复 PATH 后必须重新读到合并态"
+    )
+  } finally {
+    for (const [k, v] of savedEnv) process.env[k] = v
+    fx.cleanup()
+    plain.cleanup()
+  }
+})
+
+test("遗留10-T10 判定域漏进非交集文件 ⇒ 出声并升 dual（i6 不变量）", () => {
+  /** 把 judge 的告警收下来（判「出声」那半边，只看 mode 证明不了） */
+  const captureLogs = (fn) => {
+    const lines = []
+    const orig = console.log
+    console.log = (...a) => lines.push(a.map((x) => String(x)).join(" "))
+    try {
+      return { result: fn(), logs: lines.join("\n") }
+    } finally {
+      console.log = orig
+    }
+  }
+
+  const shared = twentyLines()
+  const oursShared = shared.replace("const v1 = 1;", "const v1 = 100;")
+  const theirsShared = shared.replace("const v20 = 20;", "const v20 = 200;")
+  const fx = mkGitFixture({
+    baseFiles: { "shared.js": shared },
+    // extra.js 只有对方动过：它属于「搬别人的东西」，绝不进判定域
+    ours: { "shared.js": oursShared },
+    theirs: { "shared.js": theirsShared, "extra.js": "const extra = 1;\n" },
+  })
+  // 交集为空的那一格（T1 的形态），用来证明「不变量判据排在零语义短路之前」
+  const fx0 = mkGitFixture({
+    baseFiles: { "a.js": "const a = 1;\n" },
+    ours: { "a.js": "const a = 2;\n" },
+    theirs: { "t.js": "const t = 1;\n" },
+  })
+  try {
+    const real = withCwd(fx.dir, () => decider.collectMergeStaged())
+    assert.ok(real)
+    assert.strictEqual(real.mergeScope.intersectionFileCount, 1)
+    assert.strictEqual(real.files.length, 1)
+
+    // ① 正例：不变量成立时不得冒出 mergeScopeLeak，判定照旧（single）
+    const okRes = decider.judge(real)
+    assert.strictEqual(okRes.mode, "single", "正例必须不受影响 —— 判据只管破坏形态")
+    assert.strictEqual(
+      okRes.stats.mergeScopeLeak,
+      undefined,
+      "不变量成立时 stats 里不得出现 mergeScopeLeak（否则记录里会留下假警报）"
+    )
+
+    // ② 交集非空 + 漏进一个对方独有的文件：必须 dual + 告警
+    const leaked = Object.assign({}, real, {
+      files: real.files.concat([{ file: "extra.js", added: 1, deleted: 0 }]),
+    })
+    assert.strictEqual(
+      leaked.mergeScope.intersectionFileCount,
+      1,
+      "夹具自检：交集声明保持 1，破坏的是判定域（不是 mergeScope）"
+    )
+    assert.strictEqual(leaked.files.length, 2)
+    const leakCase = captureLogs(() => decider.judge(leaked))
+    assert.strictEqual(
+      leakCase.result.mode,
+      "dual",
+      "判定域被撑大时必须按最保守方向判 dual（行数已不可信）"
+    )
+    assert.match(leakCase.result.reason, /不变量/, "reason 必须点名不变量被破坏")
+    assert.strictEqual(leakCase.result.stats.mergeScopeLeak, true)
+    assert.match(
+      leakCase.logs,
+      /不变量被破坏/,
+      "必须出声：静默的高估在产物上与正常判定同形，事后无从发现"
+    )
+    assert.match(leakCase.logs, /2 个/, "告警要带上实测计数，便于事后定位是哪一侧漏的")
+
+    // ③ 交集为空 + 有人把文件漏进来：这是 i6 最危险的形态 ——
+    //    若判据排在零语义短路之后，这里会返回 skip（「这次合并没什么内容」），
+    //    而事实是「判定域已经被撑大，只是我们没看」。
+    const emptyStaged = withCwd(fx0.dir, () => decider.collectMergeStaged())
+    assert.ok(emptyStaged)
+    assert.strictEqual(emptyStaged.mergeScope.intersectionFileCount, 0)
+    assert.deepStrictEqual(emptyStaged.files, [], "零交集时本进程不该派生任何 diff 子进程")
+    assert.strictEqual(
+      decider.judge(emptyStaged).mode,
+      "skip",
+      "未破坏时零交集仍判 skip（与 T1 同形，作为对照组）"
+    )
+
+    const forgedZero = Object.assign({}, emptyStaged, {
+      files: [{ file: "t.js", added: 5, deleted: 0 }],
+      codeChangedLines: ["const t = 1;"],
+    })
+    const zeroCase = captureLogs(() => decider.judge(forgedZero))
+    assert.strictEqual(
+      zeroCase.result.mode,
+      "dual",
+      "交集为空却有文件漏进来 ⇒ 必须 dual；判 skip 等于把「判定域被撑大」读成「零语义」"
+    )
+    assert.strictEqual(zeroCase.result.stats.mergeScopeLeak, true)
+    assert.match(zeroCase.logs, /不变量被破坏/)
+  } finally {
+    fx.cleanup()
+    fx0.cleanup()
+  }
+})
+
+test("遗留10-T11 合并态与暂存档同口径：.ccg 自身产物进观测、不进消费", () => {
+  // 动因（合并主干时暴露）：主干刚把「排除 .ccg」从 git 层收敛到 `isSelfArtifact`
+  // 单点持有，理由是**在 git 层排除会让 JS 层收不到那些行**，于是 `ccgChangedLines`
+  // 结构性恒为 0、观测面凭空少一档。本 PR 新写的 `collectMergeStaged` 是照着旧
+  // `collectStaged` 抄的（当时它确实带 `:(exclude).ccg`），合进来后两档口径就分叉了：
+  // 同一个 `.ccg` 产物在暂存档**能**被观测到，在合并档永远观测不到。
+  //
+  // 这条锁必须同时钉住两侧，缺任何一侧都不是口径对齐：
+  //   ① 观测（进交集、进 ccgChangedLines）—— 证明没有在 git 层排除；
+  //   ② 消费（不进 codeFiles、不计入 changedLines）—— 证明仍由 isSelfArtifact 兜着。
+  // 只钉 ② 的话，把 git 层排除加回去照样全绿（排除也满足"不消费"）。
+  const shared = twentyLines("const w")
+  const ccgShared = twentyLines("const c")
+  const fx = mkGitFixture({
+    baseFiles: { "shared.js": shared, ".ccg/reviews/trace.js": ccgShared },
+    // 两侧改同一文件的不同行 ⇒ 干净合并，且该文件同时出现在「两侧都改过」与
+    // 「合并结果与 ours tip 有差异」两个集合里。若两侧改的是**同一行**，结果与 ours
+    // 相同 ⇒ 它不进 `--cached` 的 numstat，观测断言会拿一个空集去对账。
+    ours: {
+      "shared.js": shared.replace("const w1 = 1;", "const w1 = 100;"),
+      ".ccg/reviews/trace.js": ccgShared.replace("const c1 = 1;", "const c1 = 100;"),
+    },
+    theirs: {
+      "shared.js": shared.replace("const w20 = 20;", "const w20 = 200;"),
+      ".ccg/reviews/trace.js": ccgShared.replace("const c20 = 20;", "const c20 = 200;"),
+    },
+  })
+  try {
+    const collected = withCwd(fx.dir, () => decider.collectMergeStaged())
+    assert.ok(collected, "必须在合并态采集到结果")
+
+    assert.deepStrictEqual(
+      collected.files.map((f) => f.file).sort(),
+      [".ccg/reviews/trace.js", "shared.js"],
+      "两侧都改过的 .ccg 自身产物必须进交集 —— 在 git 层加回排除后这里只剩 shared.js"
+    )
+    assert.strictEqual(
+      collected.mergeScope.intersectionFileCount,
+      2,
+      "交集计数必须把 .ccg 产物算进去（它是判定域的边界，不是消费面）"
+    )
+
+    // ① 观测面
+    assert.ok(
+      collected.ccgChangedLines.length > 0,
+      ".ccg 自身产物的变更行必须被观测到：被 git 层排除时这里恒为 0，与主干刚修掉的暂存档缺陷同形"
+    )
+    assert.ok(
+      collected.ccgChangedLines.some((l) => l.includes("const c20 = 200;")),
+      "采集到的必须是本侧真实读到的行；实际=" + JSON.stringify(collected.ccgChangedLines.slice(0, 4))
+    )
+
+    // ② 消费面
+    assert.deepStrictEqual(
+      collected.codeFiles.map((f) => f.file),
+      ["shared.js"],
+      ".ccg 下的 .js 不得进 codeFiles —— 否则判定器把自己产物的规模算进判定"
+    )
+    const verdict = decider.judge(collected)
+    assert.strictEqual(
+      verdict.stats.changedLines,
+      2,
+      "只有 shared.js 的 1+/1- 计入规模；变成 4 就说明 isSelfArtifact 的排除丢了"
+    )
+    assert.strictEqual(
+      verdict.stats.mergeScopeLeak,
+      undefined,
+      "本用例不得触发 i6 不变量（交集与 files 必须自洽）"
+    )
+  } finally {
+    fx.cleanup()
+  }
 })

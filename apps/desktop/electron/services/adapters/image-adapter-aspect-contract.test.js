@@ -121,9 +121,14 @@ describe('图片适配器宽高比参数契约结构锁', () => {
       expect(source).toMatch(/readAspectRatio\s*\(params\)/)
     })
 
-    it('agnes-multimodal.js 的 generateVideo 显式画幅解析必须含 aspect_ratio 分支', () => {
-      const source = readSource('agnes-multimodal.js')
-      expect(source).toMatch(/params\.aspect_ratio\s*\|\|\s*params\.aspectRatio\s*\|\|\s*pickAspectRatio/)
+    // 2026-10-23：视频侧的请求体构造收敛到 agnes-video-request.js（单一真源），
+    // 显式画幅解析随之迁到该文件 ⇒ 结构锁改指新位置，**意图不变**：
+    // 两个键名都要在（只认一个会让竖屏请求被静默丢弃、永远回退 16:9），
+    // 且缺省时必须仍由宽高推导（两个分支都要在）。
+    it('agnes-video-request.js 的显式画幅解析必须含 aspect_ratio 分支', () => {
+      const source = readSource('agnes-video-request.js')
+      expect(source).toMatch(/params\.aspect_ratio\s*\|\|\s*params\.aspectRatio/)
+      expect(source).toMatch(/pickAspectRatio\(params\.width,\s*params\.height\)/)
     })
 
     it('minimax-image.js 必须经单一真源读画幅，并保留 size → 画幅 的既有兜底', () => {

@@ -20,6 +20,8 @@
  * 登录视图 session（persist:auth-*）上；幂等标记防止同一 session 被多个登录标签复用时监听器翻倍。
  */
 const log = require('./logger')
+// 监测域清单 / 过滤面 / 判定口径（独立成模块，2026-10-21）
+const monitor = require('./login-network-monitor')
 
 // 监听微信登录链路全部域名（覆盖 mp/open/long.open/res.wx 等子域）
 const URL_FILTERS = [
@@ -28,6 +30,11 @@ const URL_FILTERS = [
   '*://weixin.qq.com/*',
   '*://wx.qq.com/*'
 ]
+
+/** 代理解析探针：回答「这个平台的登录请求会走哪条线路」。 */
+const PROXY_PROBE_URLS = {
+  toutiao: 'https://mp.toutiao.com/'
+}
 
 /**
  * net 错误码 → 用户可执行的排查提示（纯函数，便于单测）
@@ -105,7 +112,8 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
   var platform = (ctx && ctx.platform) || 'unknown'
   var accountId = (ctx && ctx.accountId) || 'unknown'
   var tag = '[' + platform + '/' + accountId + '] '
-  var filter = { urls: URL_FILTERS }
+  // 过滤面按平台取：未登记平台走默认（微信域）常量，既有行为与既有契约锁不变
+  var filter = { urls: monitor.urlFiltersFor(platform, URL_FILTERS) }
   // 挂接点即计时原点：openLogin 在 loadURL 前一刻挂上，相对耗时可直接当作"首屏到出码"
   const attachedAt = Date.now()
   let qrImageCount = 0
@@ -143,9 +151,10 @@ function attachLoginNetworkDiagnostics (ses, ctx) {
 
   // 挂接时探测代理解析路径：结果（如 "DIRECT" 或 "PROXY 127.0.0.1:7892"）
   // 直接回答"二维码请求会走哪个代理"
+  var probeUrl = PROXY_PROBE_URLS[platform] || 'https://open.weixin.qq.com/'
   try {
-    Promise.resolve(ses.resolveProxy('https://open.weixin.qq.com/')).then(function (result) {
-      log.notify('LoginNetDiag', 'proxy-resolved', { params: { tag, proxy: result } })
+    Promise.resolve(ses.resolveProxy(probeUrl)).then(function (result) {
+      log.notify('LoginNetDiag', 'proxy-resolved', { params: { tag, proxy: result, probe: probeUrl } })
     }).catch(function (e) {
       log.notify('LoginNetDiag', 'resolve-proxy-failed', { level: 'WARN', params: { tag }, error: String((e && e.message) || 'unknown') })
     })
@@ -213,7 +222,8 @@ function attachLoginPageNoiseCancel (ses, ctx) {
 function attachAuthResponseDiagnostics (debuggerObj, ctx) {
   if (!debuggerObj || typeof debuggerObj.on !== 'function' || typeof debuggerObj.sendCommand !== 'function') return false
   var platform = (ctx && ctx.platform) || 'unknown'
-  if (!AUTH_ENDPOINT_MATCHERS[platform] && QR_BYTE_OBSERVE_PLATFORMS.indexOf(platform) < 0) return false
+  var timingPlatform = monitor.TIMING_OBSERVE_PLATFORMS.indexOf(platform) >= 0
+  if (!AUTH_ENDPOINT_MATCHERS[platform] && QR_BYTE_OBSERVE_PLATFORMS.indexOf(platform) < 0 && !timingPlatform) return false
   if (debuggerObj.__loginRespDiagAttached) return true
   debuggerObj.__loginRespDiagAttached = true
 
@@ -223,6 +233,11 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
   var qrByRequestId = new Set()
   var qrFinished = 0
   var attachedAtMs = Date.now()
+  // 计时层（2026-10-21）：登记监测域内请求的发起时刻与状态码，
+  // 结束时算出耗时 —— 「点发送验证码后灰显几秒」这类症状终于有数。
+  var timingByRequestId = new Map()
+  var slowRequestMs = monitor.resolveSlowRequestMs((ctx && ctx.env) || process.env)
+  var slowLogged = 0
 
   // Network.enable 失败（域不可用 / debugger 实际未 attach）只降级为「收不到事件」，
   // 绝不让观测代码影响登录本身。
@@ -247,10 +262,26 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
           if (qrByRequestId.size >= MAX_TRACKED_REQUESTS) qrByRequestId.delete(qrByRequestId.values().next().value)
           qrByRequestId.add(requestId)
         }
+        if (timingPlatform && requestId && monitor.isMonitoredHost(platform, sentUrl)) {
+          if (timingByRequestId.size >= MAX_TRACKED_REQUESTS) timingByRequestId.delete(timingByRequestId.keys().next().value)
+          timingByRequestId.set(requestId, {
+            url: sentUrl,
+            startedAt: typeof params.timestamp === 'number' ? params.timestamp : null,
+            status: null
+          })
+        }
         return
       }
 
       if (method === 'Network.loadingFailed') {
+        if (timingPlatform && requestId && timingByRequestId.has(requestId)) {
+          var timingRec = timingByRequestId.get(requestId)
+          timingByRequestId.delete(requestId)
+          var timingError = (params && params.errorText) || '<unknown>'
+          if (timingError !== 'ERR_ABORTED') {
+            log.notify('LoginRespDiag', 'monitored-request-failed', { level: 'WARN', params: { tag, url: diagnosticUrl(timingRec.url), netError: timingError, classify: classifyNetError(timingError) } })
+          }
+        }
         if (!requestId || !urlByRequestId.has(requestId)) return
         var failedUrl = urlByRequestId.get(requestId)
         urlByRequestId.delete(requestId)
@@ -262,6 +293,23 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
 
       // 出码真实字节数：webRequest 层拿不到跨域 iframe 的 content-length，只有 CDP 给得出。
       if (method === 'Network.loadingFinished') {
+        if (timingPlatform && requestId && timingByRequestId.has(requestId)) {
+          var finishedRec = timingByRequestId.get(requestId)
+          timingByRequestId.delete(requestId)
+          var elapsed = null
+          if (typeof params.timestamp === 'number' && typeof finishedRec.startedAt === 'number') {
+            elapsed = Math.round((params.timestamp - finishedRec.startedAt) * 1000)
+          }
+          var finishedBytes = params && typeof params.encodedDataLength === 'number' ? params.encodedDataLength : 'unknown'
+          // 图形验证码组件的两个包：它们加载完 = 用户看到的灰显遮罩结束
+          if (monitor.isCaptchaSdkUrl(finishedRec.url)) {
+            log.notify('LoginRespDiag', 'captcha-sdk-loaded', { params: { tag, url: diagnosticUrl(finishedRec.url), ms: elapsed, bytes: finishedBytes } })
+          }
+          if (elapsed !== null && elapsed >= slowRequestMs && slowLogged < monitor.SLOW_REQUEST_LOG_LIMIT) {
+            slowLogged += 1
+            log.notify('LoginRespDiag', 'slow-request', { level: 'WARN', params: { tag, url: diagnosticUrl(finishedRec.url), ms: elapsed, status: finishedRec.status, thresholdMs: slowRequestMs } })
+          }
+        }
         if (!requestId || !qrByRequestId.has(requestId)) return
         qrByRequestId.delete(requestId)
         if (qrFinished >= QR_IMAGE_LOG_LIMIT) return
@@ -274,6 +322,17 @@ function attachAuthResponseDiagnostics (debuggerObj, ctx) {
       if (method !== 'Network.responseReceived') return
       var response = params && params.response
       var url = response && response.url
+      // 计时层：把状态码补记到在途记录上（loadingFinished 才有耗时）
+      if (timingPlatform && requestId && timingByRequestId.has(requestId)) {
+        timingByRequestId.get(requestId).status = response && typeof response.status === 'number' ? response.status : null
+      }
+      // 隐私边界：**只有 OBSERVATION_GUARD.readsResponseBodyPlatforms 登记的平台才读响应体**
+      // （2026-10-21 CCG 外部评审 i2 把它从「隐式保证」改成显式闸门；
+      //  2026-10-22 CCG 外部评审 i1 再把闸门本身改为**由清单驱动**——
+      //  边界写在注释里不算门禁，删掉注释就没有任何运行时保障）。
+      // 未登记的平台（头条号等计时平台）**在任何分支都不碰 getResponseBody**。
+      if (monitor.OBSERVATION_GUARD.readsResponseBodyPlatforms.indexOf(platform) === -1) return
+      if (!AUTH_ENDPOINT_MATCHERS[platform]) return
       if (!matchesAuthEndpoint(platform, url)) return
 
       var status = typeof response.status === 'number' ? response.status : 0
@@ -308,6 +367,9 @@ const AUTH_ENDPOINT_MATCHERS = {
 // 与 AUTH_ENDPOINT_MATCHERS 分两档，是因为「读响应体」有隐私与时序代价，而 loadingFinished
 // 只带一个数字 —— 二者成本不同档，门槛也不该同一张表。
 const QR_BYTE_OBSERVE_PLATFORMS = ['wechat_mp', 'tencent_video']
+
+// 只观察「请求耗时」的平台与慢请求阈值/上限：已外移到 `login-network-monitor`
+// （2026-10-21：该模块同时承载监测域清单与判定口径，与本模块的「诊断机制」两类关注点分开）。
 
 const MAX_TRACKED_REQUESTS = 64
 const MAX_MESSAGE_CHARS = 80
@@ -344,4 +406,13 @@ function extractAuthError (bodyText) {
   return { code: code, message: message }
 }
 
-module.exports = { attachLoginNetworkDiagnostics, attachAuthResponseDiagnostics, attachLoginPageNoiseCancel, isLoginPageNoiseUrl, classifyNetError }
+module.exports = {
+  attachLoginNetworkDiagnostics,
+  attachAuthResponseDiagnostics,
+  attachLoginPageNoiseCancel,
+  isLoginPageNoiseUrl,
+  classifyNetError,
+  // 2026-10-21：监测域清单与判定口径已外移到 `login-network-monitor`
+  // （本模块只管「诊断机制」，那边只管「覆盖面与口径」）
+  URL_FILTERS
+}
