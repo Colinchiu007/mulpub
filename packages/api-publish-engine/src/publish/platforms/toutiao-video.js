@@ -168,6 +168,7 @@ class ToutiaoVideoChain {
     this.cookie = opts.cookie || ''
     this.userAgent = opts.userAgent || UA
     this.logger = opts.logger || console
+    this._csrf = opts.csrf || '' // 2026-10-24：允许调用方注入页面运行时令牌
     this.region = opts.region || REGION
     this.appId = opts.appId === undefined ? TT_APP_ID : opts.appId
     this.mpBase = opts.mpBase || MP_BASE
