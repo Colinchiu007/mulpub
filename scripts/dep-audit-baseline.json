@@ -51,6 +51,7 @@
       "patched": ">=4.3.2",
       "targetVersion": "4.3.2",
       "roots": [
+        ".",
         "apps__desktop",
         "packages__api-publish-engine",
         "packages__shared-utils"
@@ -106,9 +107,10 @@
       "id": "GHSA-3jxr-9vmj-r5cp",
       "module": "brace-expansion",
       "severity": "high",
-      "patched": ">=1.1.16",
+      "patched": ">=5.0.7",
       "targetVersion": "1.1.16",
       "roots": [
+        ".",
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
@@ -122,6 +124,7 @@
       "patched": ">=6.16.0",
       "targetVersion": "6.16.0",
       "roots": [
+        ".",
         "packages__ai-writer-api"
       ],
       "decision": "upgrade-tracked",
@@ -135,6 +138,7 @@
       "patched": ">=4.3.1",
       "targetVersion": "4.3.1",
       "roots": [
+        ".",
         "apps__desktop",
         "packages__api-publish-engine",
         "packages__shared-utils"
@@ -164,6 +168,7 @@
       "patched": ">=5.0.10",
       "targetVersion": "5.0.10",
       "roots": [
+        ".",
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
@@ -260,6 +265,7 @@
       "patched": ">=5.0.8",
       "targetVersion": "5.0.8",
       "roots": [
+        ".",
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
@@ -287,6 +293,7 @@
       "patched": ">=5.0.12",
       "targetVersion": "5.0.12",
       "roots": [
+        ".",
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
@@ -300,6 +307,7 @@
       "patched": ">=5.0.11",
       "targetVersion": "5.0.11",
       "roots": [
+        ".",
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
@@ -328,6 +336,7 @@
       "patched": ">=1.1.18",
       "targetVersion": "1.1.18",
       "roots": [
+        ".",
         "apps__desktop"
       ],
       "decision": "upgrade-tracked",
@@ -380,6 +389,7 @@
       "patched": ">=6.15.4",
       "targetVersion": "6.15.4",
       "roots": [
+        ".",
         "packages__ai-writer-api"
       ],
       "decision": "upgrade-tracked",
@@ -395,7 +405,11 @@
         "ops-center/backend"
       ],
       "decision": "no-fix-available",
-      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
+      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。",
+      "aliases": [
+        "CVE-2024-23342",
+        "GHSA-wj6h-64fc-37mp"
+      ]
     },
     {
       "source": "pip",
@@ -407,7 +421,11 @@
         "ops-center/backend"
       ],
       "decision": "not-exploitable",
-      "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。"
+      "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。",
+      "aliases": [
+        "CVE-2026-85394",
+        "GHSA-3qf3-8w2g-rqmx"
+      ]
     }
   ]
 }
