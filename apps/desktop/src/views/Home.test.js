@@ -325,6 +325,18 @@ describe("HomeView", () => {
     expect(pushSpy).toHaveBeenCalledWith("/accounts");
   });
 
+  // 键盘可达性合同的**行为证据**（不只是属性在位）：
+  // 快捷入口是 role="button" 化的非原生可点元素（2026-10-24 补 role/tabindex/Enter/Space），
+  // 键盘路径必须与点击同出口（同一 router.push），否则 role="button" 只是个谎言。
+  it("navigates on shortcut Enter and Space (same exit as click)", async () => {
+    const w = await flushMounted(mountHome());
+    const first = w.findAll(".mp-home-shortcut")[0];
+    await first.trigger("keydown.enter");
+    expect(pushSpy, "Enter 必须与点击同出口").toHaveBeenCalledWith("/publish");
+    await first.trigger("keydown.space");
+    expect(pushSpy, "Space 也必须与点击同出口（不得只认 Enter）").toHaveBeenCalledWith("/publish");
+  });
+
   it("handles missing electronAPI gracefully", async () => {
     delete window.electronAPI;
     const w = await flushMounted(mountHome());

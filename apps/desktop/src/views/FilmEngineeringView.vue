@@ -108,7 +108,7 @@
               <div v-else class="fe-shot-list">
                 <div v-for="s in shots" :key="s.shotId" class="fe-shot-card" :class="{ 'is-selected': selectedShotIds.includes(s.shotId) }">
                   <el-checkbox :model-value="selectedShotIds.includes(s.shotId)" @change="() => toggleShot(s.shotId)" class="fe-shot-check" />
-                  <div class="fe-shot-body" @click="onOpenShot(s.shotId)">
+                  <div class="fe-shot-body" role="button" tabindex="0" @click="onOpenShot(s.shotId)" @keydown.enter.prevent="onOpenShot(s.shotId)" @keydown.space.prevent="onOpenShot(s.shotId)">
                     <div class="fe-shot-head">
                       <el-tag size="small" type="info">{{ s.model }}</el-tag>
                       <el-tag v-if="s.width && s.height" size="small" effect="plain">{{ s.width }}×{{ s.height }}</el-tag>

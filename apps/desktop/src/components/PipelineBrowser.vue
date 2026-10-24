@@ -26,6 +26,7 @@
         role="button"
         :aria-label="pipelineName(p.name)"
         @keydown.enter="$emit('select', p)"
+        @keydown.space.prevent="$emit('select', p)"
       >
         <div class="card-header">
           <span class="badge" :class="p.category">{{ pipelineCategory(p.category) }}</span>

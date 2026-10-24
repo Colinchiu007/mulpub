@@ -32,6 +32,7 @@
       tabindex="0"
       @click="go('/publish')"
       @keydown.enter="go('/publish')"
+      @keydown.space.prevent="go('/publish')"
     >
       <div class="hero-icon" aria-hidden="true">
         <el-icon :size="24"><Promotion /></el-icon>
@@ -98,27 +99,27 @@
     <section class="mp-home-shortcuts" data-testid="mp-home-shortcuts">
       <h3 class="mp-home-section-title">{{ t('home.shortcuts') }}</h3>
       <div class="mp-home-shortcut-grid">
-        <div class="mp-home-shortcut" @click="go('/publish')">
+        <div class="mp-home-shortcut" role="button" tabindex="0" @click="go('/publish')" @keydown.enter.prevent="go('/publish')" @keydown.space.prevent="go('/publish')">
           <el-icon class="shortcut-icon" :size="22"><Promotion /></el-icon>
           <span class="shortcut-label">{{ t('home.quickPublish') }}</span>
         </div>
-        <div class="mp-home-shortcut" @click="go('/accounts')">
+        <div class="mp-home-shortcut" role="button" tabindex="0" @click="go('/accounts')" @keydown.enter.prevent="go('/accounts')" @keydown.space.prevent="go('/accounts')">
           <el-icon class="shortcut-icon" :size="22"><Lock /></el-icon>
           <span class="shortcut-label">{{ t('home.accountManage') }}</span>
         </div>
-        <div class="mp-home-shortcut" @click="go('/publish/history')">
+        <div class="mp-home-shortcut" role="button" tabindex="0" @click="go('/publish/history')" @keydown.enter.prevent="go('/publish/history')" @keydown.space.prevent="go('/publish/history')">
           <el-icon class="shortcut-icon" :size="22"><DataAnalysis /></el-icon>
           <span class="shortcut-label">{{ t('home.publishHistory') }}</span>
         </div>
-        <div class="mp-home-shortcut" @click="go('/dashboard')">
+        <div class="mp-home-shortcut" role="button" tabindex="0" @click="go('/dashboard')" @keydown.enter.prevent="go('/dashboard')" @keydown.space.prevent="go('/dashboard')">
           <el-icon class="shortcut-icon" :size="22"><TrendCharts /></el-icon>
           <span class="shortcut-label">{{ t('home.dashboard') }}</span>
         </div>
-        <div class="mp-home-shortcut" @click="go('/collection')">
+        <div class="mp-home-shortcut" role="button" tabindex="0" @click="go('/collection')" @keydown.enter.prevent="go('/collection')" @keydown.space.prevent="go('/collection')">
           <el-icon class="shortcut-icon" :size="22"><Collection /></el-icon>
           <span class="shortcut-label">{{ t('home.collection') }}</span>
         </div>
-        <div class="mp-home-shortcut" @click="go('/comments')">
+        <div class="mp-home-shortcut" role="button" tabindex="0" @click="go('/comments')" @keydown.enter.prevent="go('/comments')" @keydown.space.prevent="go('/comments')">
           <el-icon class="shortcut-icon" :size="22"><ChatDotRound /></el-icon>
           <span class="shortcut-label">{{ t('home.comments') }}</span>
         </div>

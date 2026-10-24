@@ -48,6 +48,7 @@
               :data-testid="'sas-preview-' + scene.index + '-' + candidate.id"
               @click="openPreview(scene, candidate)"
               @keydown.enter.prevent="openPreview(scene, candidate)"
+              @keydown.space.prevent="openPreview(scene, candidate)"
             >
               <img
                 class="sas-thumb"
