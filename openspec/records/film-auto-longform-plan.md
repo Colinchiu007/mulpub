@@ -210,10 +210,32 @@ docs-only，无代码改动。保留门禁本地实跑结果：
 `SCRIPT_CLOSURE` 复制清单**没跟着加这个 lib 文件** ⇒ 临时目录里缺依赖。
 ⇒ **主干级存量债**（且因是 required 检查，挡住全仓所有 open PR，本 PR 是被殃及的）。
 
-**处置**：**不在本 PR 里混改代码**（本 PR 是 docs-only 方案文档），
-**另开 PR 修那一行** ⇒ `Colinchiu007/mulpub#4348`（分支 `fix/deep-review-entry-lib-closure`，
-与本 PR **零文件重叠**，可独立合并）。
-⇒ #4348 合并后本 PR 的该门禁即转绿。
+**处置（已收口）**：**不在本 PR 里混改代码**（本 PR 是 docs-only 方案文档），
+另开 PR 修那一行 ⇒ `Colinchiu007/mulpub#4348`。
+⚠️ **但我提的那条是弱版**（只补了加载期必需的 `lib/exec-record-statuses.js`，漏了惰性 require 的
+`lib/exec-record-audit.js`，也没有机械锁），与 `#4347` / `#4349` / `#4350` 同题 ⇒ **已被关闭**。
+**保留的是 #4347**（补全两个 lib + 加机械锁扫清单里每个文件的本地 require），
+已由 Colinchiu007 于 2026-10-23T20:17:34Z squash 合并（merge SHA `ff1d09cfb`），远端分支已删。
+⇒ 本 PR 的 Gate 2b11 已随之转绿（quality-gate 的 QG Changes / Gate Result 现均 ✅）。
+
+## 7b. 当前唯一未绿项：依赖漏洞审计基线（**仓库级运维债，不是本 PR 的问题**）
+
+| 读数 | 结果 |
+|---|---|
+| 本 PR 的 CI | 除「依赖漏洞审计门禁」外**全绿**（quality-gate / Electron CI / Doc Sync / GUI Tests / 债务熔断 / Build ✅） |
+| 失败步骤 | `❌ NEW_ADVISORY: npm/GHSA-mrhx-c7xc-m3w5`（zod high，路径 `.\|packages__remotion-composer`） |
+| 扩展后 | 同一波共 **3 条**新公告：zod / body-parser `GHSA-27r3-jxmh-p828` / electron `GHSA-jr5w-w6x2-84p9` |
+| 本 PR 与之的关系 | **零文件重叠**（本 PR 只动 `01-docs/` 与 `openspec/records/` 的两个 markdown） |
+| 在修的 PR | `#4354`（分支 `dep-audit-zod-baseline`）已**登记全部 3 条**、自身零失败；`#4345` 也登记了 3 条 |
+
+**机制层根因（值得单独立项）**：`scripts/dep-audit-baseline.json` 是**手工维护**的挂账清单，
+`node scripts/check-dep-audit.js --update` 是**手工命令**，CI（`.github/workflows/dep-audit.yml`）**只跑检查不跑刷新**。
+⇒ 上游 advisory 库持续更新 ⇒ 新公告持续涌现 ⇒ **全仓 PR 周期性被挡**（本次同时挡住 #4351 / #4342 / #4341 / #4328 等）。
+
+> **建议（待决，本 PR 不做）**：给 dep-audit 加一个**定期自动刷新 workflow**（跑 `--update` + 人工 review decision），
+> 把「基线追公告」从人工变成机器；否则每个 PR 都要等一次「有人手工登记公告」才能合并。
+> 这与本方案 R8「自动模式绕开 governor / 无成本闸」是**同一种病**：
+> **治理装置挂在人工自觉上，而不是挂在机制上。**
 
 ## 8. 遗留（不在本 PR 范围）
 
@@ -221,6 +243,7 @@ docs-only，无代码改动。保留门禁本地实跑结果：
 - 本 PR **只落方案，不落任何代码**。代码落地按 M0 / M0′ → M1–M6 逐里程碑独立 PR。
 - 上游 `01-docs/PRD-FILM-AUTO-MODE-2026-10-09.md` 的 §14.7（G5/G8）与 §14.8（清单式而非金额报价）
   将被本方案 R8.6 / R11.1 修订，**修订在对应里程碑的 PR 里做**，本 PR 不动上游 PRD。
+- **dep-audit 自动刷新**（§7b）属仓库级运维项，等团队决策，本 PR 不落代码。
 
 ## 远程同步
 
@@ -233,7 +256,7 @@ docs-only，无代码改动。保留门禁本地实跑结果：
 
 # docs(film): 新增影视工程「自动」模式长篇化改造实施落地方案（film-auto-longform-plan）
 
-- 新增 `01-docs/PRD-FILM-AUTO-LONGFORM-2026-10-24.md`：把「自动模式能否从剧本文案产出 30 分钟以上短剧成片」的调研结论，转成可执行的落地方案（14 条需求 + 8 个里程碑 + 28 条可断言验收 + 10 条风险登记）。
+- 新增 `01-docs/PRD-FILM-AUTO-LONGFORM-2026-10-24.md`：把「自动模式能否从剧本文案产出 30 分钟以上短剧成片」的调研结论，转成可执行的落地方案（14 条需求 + 8 个里程碑 + 29 条可断言验收 + 10 条风险登记）。
 - 结论：**当前不具备**该能力 —— 目标时长被硬编码在 600 秒（10 分钟），1800 秒在输入校验阶段即被拒；仓库里唯一 30 分钟以上的成片路径是「重生成一部既有参考片」，不是从新剧本文案生成。
 - 方案给出三个**必须先做的前置取证**并设为门禁：视频 Provider 是否真的产出对白音轨（实测 9 个适配器**无任何** audio 参数）、是否接受应用下发的镜长（实测**只有 2/9** 消费 `numFrames`）、以及出片成功路径首次真机跑通。
 - 明确音轨不单建（对白与声音交给视频生成模型统一完成），但据此把「台词长度 vs 镜长」与「提示词结构化台词」提升为核心需求；并修正一处既有规则冲突：模板的音频语义块此前被当作静态内容从视频提示词中剔除。
