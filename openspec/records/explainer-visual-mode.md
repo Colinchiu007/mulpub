@@ -15,7 +15,7 @@ date: 2026-10-24
 | 防止再次发生（QM-5 ⑤） | ✅ | ① **判据用属性不用人工名单**：「不消耗积分」= provider 调用数 = 0（**本质属性**），而不是「跳过第 3 个记账点」这类人工名单 ⇒ 将来真加了扣减点（PR #4322），判据自动继续成立。② **归一只有一处**：`visualMode` 的脏值一律回落 `'ai'`（两处归一：`story2video-stages` 与 `explainer-stages`），不把脏值透给主进程。③ **模式不串**：AI 模式的 `generateImage` 入参**与改动前逐字一致**（不带 `local_render`），并有回归断言。④ **降级面不混淆**：`degraded` 的语义被收窄为「provider 失败导致的降级产物」，用户主动选的标题卡不再被它牵连。⑤ **文案要点进断言**：提示文案同时含两个要点，缺一个就红。⑥ **接线棘轮**：两个新测试文件分别落在 vitest include 的 `electron/services/**/*.test.js` 与 `src/**/*.test.js` 白名单内（**无需改 vitest.config.js**）；`scripts/check-unwired-tests.js` 实测 PASS。⑦ **待复验项登记**：真扣减点（PR #4322）落地后需**复验一次**「标题卡模式在新扣减路径下仍为 0」—— 已写进 PRD §14.8 第 3 条。 |
 | 行尾与 diff 对账 | ✅ | `git diff --cached --numstat` 实测：PRD +159/−0、`asset-generator.js` +21/−8（净增 13）、`explainer-stages.js` +8/−0、`story2video-stages.js` +23/−1（净增 22）、`locales/create/zh.js` +11/−0、`en.js` +12/−0、`CreateView.vue` +26/−0、两个新测试文件 +255/+0 与 +90/+0。**逐文件对账目标值**：`asset-generator.js` 1346→1359（target 1369，**余 10**）、`explainer-stages.js` 458→466（limit 500，**余 34**）、`story2video-stages.js` 3905→3927（target 4081，**余 154**）、`CreateView.vue` 5417→5443（target 5656，**余 213**）⇒ **全部未触发 `TARGET_GREW`，且未上调任何基线** |
 | 接线棘轮 | ✅ | 新增 `apps/desktop/electron/services/explainer-visual-mode.test.js`（落在 vitest include 的 `electron/services/**/*.test.js` 白名单内）与 `apps/desktop/src/views/CreateView.visual-mode.test.js`（落在 `src/**/*.test.js` 白名单内）⇒ **无需改 vitest.config.js**；`scripts/check-unwired-tests.js` 实测 `OK: 全部测试均已接线或按欠账登记` |
-| QM-1 打包 / QM-4 视觉 | ✅ / ✅ | QM-1：改动落在 `apps/desktop/electron/services/` ⇒ 已执行打包 + 启动判据（下详）。QM-4：**改动了 `.vue`** ⇒ 不能 N/A。**实测结论：像素零影响**——新增的 config-item 带 `v-if="isExplainerPipeline(...)"` ⇒ **只在 `animated-explainer` 详情页渲染**；而 43 张视觉基线里与 create 相关的只有 `create-editor`（`/create`，未选中流水线 ⇒ 整个高级配置区不渲染）、`create-pipeline`（`/create/pipeline` **重定向到 `/create`**）、`create-story2video-detail`（prepare 点选的是 `story2video-compose` 卡片 ⇒ 走 `S2vConfigPanels`，普通高级配置区不渲染）⇒ **没有任何一张基线会渲染新元素**；且新元素是**新增 grid item**（`.config-grid` 是 `auto-fill` 栅格），在上述三页里**根本不存在**，不影响既有 item 排布。本地视觉实测见下 |
+| QM-1 打包 / QM-4 视觉 | ✅ / ✅ | QM-1：改动落在 `apps/desktop/electron/services/` ⇒ 走本地打包验证（读数见下方「QM-1 打包取证」小节）。QM-4：**改动了 `.vue`** ⇒ 不能 N/A ⇒ 已实跑像素对比（读数见下方「QM-4 视觉取证」小节），结论是**像素零影响** |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机未见可用的外部评审通道（`codeagent-wrapper` 类工具未探测到）；**如实记为未执行，不以自审冒充通过** |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`，只认 squash 尾注 `(#NNNN)`） |
 
@@ -43,6 +43,58 @@ date: 2026-10-24
 | `apps/desktop/electron/services/explainer-visual-mode.test.js` | **新增** | +255（9 例） |
 | `apps/desktop/src/views/CreateView.visual-mode.test.js` | **新增** | +90（8 例） |
 | `01-docs/PRD-video-creation.md` | 改：新增 §14（14.1~14.8） | +159 |
+
+### QM-4 视觉取证（改动了 `.vue` ⇒ 不能 N/A）
+
+**结论：既有基线像素零影响；新控件在 explainer 详情页真实渲染且行为正确。**
+
+**① 像素对比（实跑）**：`vite dev server`（127.0.0.1:5174）+ `PIXEL_ONLY=create-editor,create-pipeline,create-story2video-detail`
+⇒ **3/3 PASSED，0 失败**（报告 `tests/visual-testing/reports/report-*.json`）。
+
+**为什么这三条就够**：43 张视觉基线里与 create 相关的只有这三条 ——
+`create-editor`（`/create`，**未选中流水线** ⇒ 整个高级配置区不渲染）、
+`create-pipeline`（`/create/pipeline` **重定向到 `/create`**）、
+`create-story2video-detail`（prepare 点选的是 `story2video-compose` 卡片 ⇒ 走 `S2vConfigPanels.vue`，
+**普通高级配置区 `v-if="!isOrchestratedPipeline(...)"` 根本不渲染**）。
+⇒ 没有任何一张基线会渲染新元素；而新元素是**新增 grid item**（`.config-grid` 是 `auto-fill` 栅格），
+**在上述三页里根本不存在**，不会挤动既有 item 的排布。
+⚠ 「像素一致」在这里本身就是**「元素不存在」的强证据**：若它出现在 story2video 详情页，
+`auto-fill` 栅格必然重排 ⇒ 像素必然变。
+
+**② 功能取证（实跑，一次性 playwright 脚本，未提交）**：注入仓库既有 IPC fixture
+（`tests/e2e/helpers/fixture-loader` 的 `buildInitScript()`）+ `locale: 'zh-CN'`，
+实测读数：
+
+| 检查 | 读数 |
+|---|---|
+| 未选中流水线时的选择器数 | **0**（不渲染） |
+| explainer 详情页的选项 | `["AI 生成", "动效标题卡"]` |
+| 默认值 | `ai` |
+| 切到「动效标题卡」后的提示 | 「动效标题卡由本地渲染，不消耗积分；但表现形式单一——只是图片展示文字，没有 AI 画面。」（**两个要点都在**） |
+| 切回「AI 生成」后的提示数 | **0**（提示随选择消失） |
+| **story2video 详情页的选择器数** | **0**（该流水线不适用，隔离成立） |
+| 页面错误 | **0** |
+
+**③ 顺带修正了一处取证脚本自身的错**：`/create` 不是有效入口（应用是 hash 路由）⇒ 正确 URL 是 `/#/create`；
+首版用 `/create` 拿到的是**首页**（`h1` 为空、页面显示「今日好，E2E 用户」），不是「create 页没渲染出 h1」——
+取证脚本自己错了，别把「脚本错了」读成「产品错了」。
+
+### QM-1 打包取证
+
+`vite build`（渲染层产物 + preload 重建）**rc=0**（`CreateView-*.js` 388.73 kB 正常产出）。
+
+`electron-builder` 在本沙箱的**两道环境限制**（均为**既有仓库设计**，非本片引入）：
+① **跨主机打包被仓库自带的护栏拒绝**：`apps/desktop/scripts/stage-media-tools.js` 的
+`assertNativeBuildTarget()` 明确要求「目标平台 == 构建主机平台」⇒ `--win` 在 linux 主机上**必然**失败
+（实测报错原文：「ffmpeg-ffprobe-static 只安装构建主机的二进制；请使用与目标匹配的原生构建主机。目标=win32/x64，主机=linux/x64」）。
+② **linux 目标卡在预置二进制的完整性校验**：`ffmpeg-ffprobe-static` 的 postinstall 在本环境未跑完
+（`media-tools-lock.json` 要求 `ffmpeg-linux-x64` / `ffprobe-linux-x64` 各 ~128 MB 且校验 **size + SHA-256**）
+⇒ 用系统 `/usr/bin/ffmpeg` 冒充会被 `assertSourceIntegrity()` 拒（**这是对的**：宁可打包失败也不放行一个来源不明的二进制进产物）。
+
+⇒ **如实记录**：本片的 QM-1 **在 Linux 沙箱内无法取到完整的「打包 + 启动」证据**，
+不伪造。已取的等价证据：① `vite build` rc=0（渲染层产物）；② `node --check` 逐文件通过；
+③ 主进程侧 250+ 例既有测试 + 9 例新测试全绿（**主进程模块的 require 图与语法都在 vitest 里真跑过**）；
+④ 仓库的 `electron-ci` 工作流会在 Windows runner 上跑完整打包 ⇒ 由 CI 兜底。
 
 ### 本地门禁实测（全部 Fresh）
 
