@@ -174,25 +174,72 @@ test('限流器：IP 维度在「速率条件」满足时独立生效', () => {
 test('限流器：共享出口下的慢速偶发失败**不**触发 IP 档（防误伤同出口所有正常用户）', () => {
   // 可注入时钟：不靠真实等待就能构造「10 分钟内 30 次、最近 60 秒内只有 3 次」这一格。
   let clock = Date.parse('2026-10-24T00:00:00Z')
+  // ⚠️ 阈值用**生产默认**（200），不要为「测得快」调小 —— 调小会让本用例变成另一个语义。
   const limiter = new RedeemFailureLimiter({
     userWindowMs: 60000, userMaxFailures: 100,
-    ipWindowMs: 600000, ipMaxFailures: 30,
-    ipBurstWindowMs: 60000, ipBurstFailures: 10,
+    ipWindowMs: 600000, ipMaxFailures: 200,
+    ipBurstWindowMs: 60000, ipBurstFailures: 60,
     now: () => clock,
   })
   try {
     // 30 个不同用户在同一出口 IP 上各失败 1 次（公司 NAT / 校园网的典型形态），
-    // 每次间隔 19 秒 ⇒ 总量 30 次落在 10 分钟窗口内（**总量条件已满足**），
-    // 但最近 60 秒内只有 3 次 ⇒ **速率条件不满足** ⇒ 不拦。
+    // 每次间隔 19 秒 ⇒ 10 分钟内共 30 次。
+    // ⇒ 总量 30 < 200（不达标）、最近 60 秒内 3 次 < 60（不达标）⇒ 两个条件都不达标 ⇒ 不拦。
     for (let i = 0; i < 30; i++) {
       clock += 19 * 1000
       limiter.acquire(`u${i}`, '9.9.9.9')
       limiter.recordFailure(`u${i}`, '9.9.9.9')
     }
     const counts = limiter.counts(null, '9.9.9.9')
-    assert.strictEqual(counts.ipFailures, 30, '总量条件确实已满足（否则这个用例没测到东西）')
+    assert.strictEqual(counts.ipFailures, 30)
     const gate = limiter.acquire('fresh-user', '9.9.9.9')
     assert.strictEqual(gate.blocked, false, '慢速分散失败不应锁死整个出口')
+  } finally { limiter.stop() }
+})
+
+test('IP 取值：X-Forwarded-For 取**最右**元素（反代拓扑下 socket 恒为回环地址）', () => {
+  // 红队实测打穿：生产 nginx 把 /api/v1/ 反代到 127.0.0.1:3030、引擎只绑回环
+  // ⇒ req.socket.remoteAddress 恒为 127.0.0.1 ⇒ 若以 socket 为准，
+  // **全站所有用户共用同一个 IP 桶** ⇒ 攻击者打满它，所有正常用户也换不了。
+  // ⇒ 必须优先取 XFF；且取**最右**（nginx 的 $proxy_add_x_forwarded_for 把它看到的
+  // 真实客户端 IP 追加在末尾，取最左的话客户端自带伪造 XFF 就能把计数打到别人头上）。
+  const { PublishApiRedeemHelpers } = require('../src/auth/publish-api-redeem')
+  const helper = Object.create(PublishApiRedeemHelpers.prototype)
+  // ⚠️ req 的形状是 { headers: <headers对象>, socket: <socket对象> }
+  //    ⇒ 第一个参数是**裸的 headers**，第二个是**裸的 socket**，不要再多包一层。
+  const ipOf = (headers, socket) => helper._redeemClientIp({ headers: headers, socket: socket })
+
+  assert.strictEqual(ipOf({ 'x-forwarded-for': '1.2.3.4' }, { remoteAddress: '127.0.0.1' }), '1.2.3.4')
+  assert.strictEqual(ipOf({ 'x-forwarded-for': '1.2.3.4, 5.6.7.8' }, { remoteAddress: '127.0.0.1' }), '5.6.7.8')
+  // 没有 XFF 时回退到 socket（直连场景）
+  assert.strictEqual(ipOf({}, { remoteAddress: '9.9.9.9' }), '9.9.9.9')
+  // XFF 为空串 ⇒ 回退
+  assert.strictEqual(ipOf({ 'x-forwarded-for': '  ' }, { remoteAddress: '9.9.9.9' }), '9.9.9.9')
+})
+
+test('限流器：IP 档在「总量达标但速率不达标」时也触发（节流规避形态）', () => {
+  // 红队实测打穿：两条件若是 AND，把速率压在 60 次/分以下就能让 burst 永不达标
+  // ⇒ 即便 10 分钟累计 500+ 次失败，IP 档也一条不拦（实测 1770 次 0 次 429）。
+  // ⇒ 两个条件必须是 OR。
+  let clock = Date.parse('2026-10-24T00:00:00Z')
+  const limiter = new RedeemFailureLimiter({
+    userWindowMs: 60000, userMaxFailures: 100,
+    ipWindowMs: 600000, ipMaxFailures: 200,
+    ipBurstWindowMs: 60000, ipBurstFailures: 60,
+    now: () => clock,
+  })
+  try {
+    // 每 2.5 秒一次 ⇒ 10 分钟 240 次；最近 60 秒内只有 24 次（< 60 ⇒ 速率不达标）
+    for (let i = 0; i < 240; i++) {
+      clock += 2500
+      limiter.acquire(`u${i}`, '6.6.6.6')
+      limiter.recordFailure(`u${i}`, '6.6.6.6')
+    }
+    const counts = limiter.counts(null, '6.6.6.6')
+    assert.strictEqual(counts.ipFailures, 240, '总量已远超阈值')
+    const gate = limiter.acquire('fresh-user', '6.6.6.6')
+    assert.strictEqual(gate.blocked, true, '节流规避（低速但量大）也必须被 IP 档拦住')
+    assert.strictEqual(gate.scope, 'ip')
   } finally { limiter.stop() }
 })
 

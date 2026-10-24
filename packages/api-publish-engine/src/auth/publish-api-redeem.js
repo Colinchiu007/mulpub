@@ -42,14 +42,34 @@ class PublishApiRedeemHelpers {
     return this[LIMITER_KEY]
   }
 
-  /** 取请求来源 IP：优先 socket，其次 X-Forwarded-For（部署在反向代理后面时）。 */
+  /**
+   * 取请求来源 IP。
+   *
+   * ⚠️ **必须优先取 X-Forwarded-For 的最右元素**（红队实测打穿）：
+   * 生产真源（`deploy/logto/nginx/auth.iart.work.conf.new`）把 `/api/v1/` 反代到
+   * `127.0.0.1:3030`，而引擎容器**只绑回环**（`docker-compose.yml`）⇒
+   * 引擎看到的 `req.socket.remoteAddress` **恒为 127.0.0.1**，与真实客户端无关。
+   * ⇒ 若以 socket 为准，**全站所有用户共用同一个 IP 桶** ⇒ 攻击者打满它，
+   * **所有持有效码的正常用户也换不了**（实测 429）。
+   *
+   * 为什么取**最右**而不是最左：nginx 用 `$proxy_add_x_forwarded_for`，
+   * 它把**自己看到的真实客户端 IP 追加到已有 XFF 的末尾** ⇒ 最右元素才是可信的那个。
+   * 取最左的话，客户端自带一个伪造 XFF 就能把计数打到别人头上。
+   *
+   * ⚠️ 直连（不经反代）时 XFF 完全由客户端控制 ⇒ 可被伪造来绕开 IP 桶。
+   * 那时 socket 地址是真实 IP，但已被上面分支覆盖。**这是有意取舍**：
+   * 生产必然经 nginx（引擎只绑回环，外网不可直连），故「用不可信的 XFF」
+   * 比「用恒为 127.0.0.1 的 socket」**危害小得多**（后者是全站共享一个桶）。
+   * 且用户维度（60 秒 5 次失败）不受 IP 维度被绕开的影响 ⇒ 单账号探测仍被拦。
+   */
   _redeemClientIp (req) {
     if (!req) return null
-    const direct = req.socket && req.socket.remoteAddress
-    if (direct) return direct
     const forwarded = req.headers && req.headers['x-forwarded-for']
-    if (typeof forwarded === 'string' && forwarded) return forwarded.split(',')[0].trim()
-    return null
+    if (typeof forwarded === 'string' && forwarded) {
+      const parts = forwarded.split(',').map((part) => part.trim()).filter(Boolean)
+      if (parts.length) return parts[parts.length - 1]
+    }
+    return (req.socket && req.socket.remoteAddress) || null
   }
 
   /**

@@ -117,7 +117,14 @@ class RedeemFailureLimiter {
     if (ip) {
       const bucket = this._bucket(this._ips, ip, now, this.ipWindowMs)
       const burst = bucket.failures.filter((ts) => ts > now - this.ipBurstWindowMs).length
-      if (bucket.failures.length >= this.ipMaxFailures && burst >= this.ipBurstFailures) {
+      // ⚠️ 两个条件是 **OR**，不是 AND。
+      // 红队实测打穿：用 AND 时，把速率压在 60 次/分以下就能让 burst 永远不达标
+      // ⇒ 即便 10 分钟内累计 500+ 次失败，IP 档也**一条不拦**（实测 1770 次 0 次 429）。
+      // OR 语义下：
+      //   - 慢速但总量很大（节流规避）⇒ 总量条件命中 ⇒ **拦**
+      //   - 高速（burst 达标）⇒ **拦**
+      //   - 共享出口的偶发失败（两个条件都不达标）⇒ **不拦**（不误伤）
+      if (bucket.failures.length >= this.ipMaxFailures || burst >= this.ipBurstFailures) {
         return { blocked: true, scope: 'ip' }
       }
     }
