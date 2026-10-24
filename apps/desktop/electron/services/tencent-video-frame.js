@@ -67,8 +67,8 @@ async function fillTencentVideo (win, data, opts) {
     + 'var el=ta||document.querySelector("[contenteditable]");'
     + 'if(!el)return "NO_EDITOR";'
     + 'var v=' + JSON.stringify(content) + ';'
-    + 'if(ta){el.focus();el.value=v;el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))}'
-    + 'else{el.focus();el.textContent=v;el.dispatchEvent(new InputEvent("input",{bubbles:true}))}'
+    + 'if(ta){el.focus();var _d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,"value");if(_d&&_d.set){_d.set.call(el,v)}else{el.value=v}el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))}/*native-value-setter*/'
+    + 'else{el.focus();var _sel=window.getSelection();var _r=document.createRange();_r.selectNodeContents(el);_sel.removeAllRanges();_sel.addRange(_r);var _ok=false;try{_ok=document.execCommand("insertText",false,v)}catch(e){}if(!_ok){el.textContent=v}el.dispatchEvent(new InputEvent("input",{bubbles:true,inputType:"insertText",data:v}))}/*exec-insertText*/'
     + 'return String(el.value!==undefined?el.value:el.textContent).length'
     + '})()'
   let descLen
