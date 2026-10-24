@@ -158,15 +158,56 @@ PR #4354 已修掉同批的 zod / body-parser / electron 三条，这 7 条仍�
 实测：直接 `git rebase origin/main` 会在 #4341 的旧提交上全冲突（squash 后历史形状不同），
 所以采用「reset 到 main + `git apply` 净补丁」，避免重放已被 squash 的提交。
 
-## 七、遗留
+## 七、第二轮真实首跑：成功路径已全部验证（2026-10-24 下午）
+
+第一轮用 5 秒**纯静音** WAV，服务端无法提取声纹 ⇒ `status: 4` 且 `message` 空。
+本轮改用**系统 TTS 合成的真实人声**（Windows SAPI「Microsoft Kangkang」，中文男声，
+约 20 秒、896992 字节、22050 Hz WAV）重跑，**一次通过**。
+
+| 步骤 | 结果 |
+|---|---|
+| `tool/create_upload_url` + PUT | ✅ 拿到真实 `fileId`（`hM2ngP7P…`） |
+| `voice/create`（`name` + `fileId`） | ✅ 返回 `taskId = o_H3AgCdtvfa_DsepFAR2g` |
+| `voice/task` 轮询 | ✅ **第 1 次轮询（5 秒）即 `status: completed`** |
+| 拿到 `voiceId` | ✅ `2kA0_AhP6HW4IYAyYjrY4w` |
+| `voice/list?kind=1` | ✅ 1 条，`type = 8`（声音克隆基础版 v2） |
+| **积分变化** | 1582 → **1582**（**0 消耗**） |
+
+### `editVoice` 成功路径也验证了（此前是「未验证」）
+
+| 参数 | 结果 |
+|---|---|
+| `rate 1.2 / volume 1.0 / pitch 1.0` | `{ ok: true }` |
+| `rate 0.9 / volume 1.1 / pitch 1.05` | `{ ok: true }` |
+| 恢复 `1.0 / 1.0 / 1.0` | `{ ok: true }` |
+| **积分变化** | 三次调用后仍 **1582**（差额 0 ⇒ **免费**） |
+
+### 这轮验证推翻/确认了什么
+
+| 此前状态 | 现在 |
+|---|---|
+| `voice/create` 成功路径**未验证** | ✅ 已跑通，5 秒完成 |
+| `editVoice` 成功路径**未验证** | ✅ 三次全成功 |
+| `editVoice` 是否消耗积分**未知** | ✅ **免费**（1582→1582） |
+| 首跑失败原因**推断为素材** | ✅ **证实**：同一链路换真实人声即成功 |
+
+> 注意：`editVoice` 只返回 `{ok:true}`，**官方没有查询参数的端点**，
+> 所以「参数确实被服务端保存」只能由后续合成效果间接体现，本轮无法直接读回。
+> 这也是为什么 UI 侧把参数同时持久化到本地 registry（供回显）。
+
+### 账号现状
+
+- 克隆音色：**1 个**（`2kA0_AhP6HW4IYAyYjrY4w`「音色372773」），本轮真实产物
+- 积分：**1582**（两轮首跑总消耗 **0**）
+- 飞影官方**没有删除声音的端点** ⇒ 该音色只能本地隐藏/删除，远端会长期存在
+
+### 仍未验证
 
 | 项 | 状态 |
 |---|---|
-| `create_by_image` 真实计费额 | **未验证**（未花积分） |
-| `voice/create` 成功路径（`status: 3`） | 未跑到（静音素材导致失败） |
-| 录音素材要求的 UI 提示 | **已由另一提交补上**（并入 #4341）：`avatarCloneVoiceMaterialHint` |
-| 失败时的具体原因 | 依然拿不到（飞影 `message` 空），只能通用兜底文案 |
-
+| `create_by_image` 真实计费额 | **未验证**（未花积分；文档只说「会产生积分消耗」，额度未给） |
+| `create_by_image` / `create_by_video` 完整 create→poll 链 | 未跑（视频克隆免费但需真实视频素材） |
+| 克隆音色的**合成效果**（音色像不像） | 未验证（需生成视频，`video/create_by_tts` 收费） |
 ## CHANGELOG 条目
 
 # fix(video): 飞影声音克隆状态查询补 demo_url 与失败原因，修一处 task 查询的 code 语义冲突
