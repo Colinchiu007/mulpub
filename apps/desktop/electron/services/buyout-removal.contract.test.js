@@ -114,7 +114,17 @@ describe('买断授权模型移除契约锁', () => {
     })
 
     it('UpgradeModal 不得再出现买断价格文案与支付调用', () => {
-      const src = read(path.join('..', '..', 'src', 'components', 'UpgradeModal.vue'))
+      // 2026-10-24 member-center-revamp（P0-6）：UpgradeModal 已整体退役
+      // （死胡同 + 「已开通」假陈述文案），文件删除是比「内容不含 ¥99」更强的满足。
+      // 锁的意图不变——**若将来有人复活该组件，内容断言立即恢复生效**。
+      const modalPath = path.join('..', '..', 'src', 'components', 'UpgradeModal.vue')
+      if (!fs.existsSync(modalPath)) {
+        // 组件不存在 ⇒ 买断文案无从出现，本条通过（保留显式分支而非静默 skip，
+        // 让「删除」这个事实本身可见）
+        expect(true).toBe(true)
+        return
+      }
+      const src = fs.readFileSync(modalPath, 'utf8')
       // 只允许出现在注释里的历史说明，不允许出现在模板/逻辑里
       const codeOnly = src
         .replace(/<!--[\s\S]*?-->/g, '')
@@ -272,16 +282,27 @@ describe('买断授权模型移除契约锁', () => {
   })
 
   describe('④ 订阅侧能力必须保持完好（本次不动的边界）', () => {
+    // 2026-10-24 member-center-revamp（P0-1）：价目与兑换区从壳层迁入
+    // Subscription 子视图（七 tab 不再恒定重复渲染）。链路本身不变——
+    // 兑换仍走服务端 POST /api/v1/redeem，价目仍来自 GET /api/v1/plans。
+    // 锁的落点随迁移更新，**判定强度不减**（入口必须在某处渲染、服务端权威不变）。
+    const subscriptionPath = path.join('..', '..', 'src', 'views', 'member-center', 'Subscription.vue')
+
     it('会员中心兑换码核销链路不受影响（服务端权威）', () => {
-      const src = read(path.join('..', '..', 'src', 'views', 'MemberCenter.vue'))
+      const src = read(subscriptionPath)
       expect(src, '兑换码入口必须仍在').toContain('member-center-redeem')
       expect(src, '兑换码必须仍走服务端核销').toMatch(/redeem/i)
+      // 壳层不得回退：迁移后壳层不再持有兑换区（P0-1 结构锁的契约侧）
+      const shell = read(path.join('..', '..', 'src', 'views', 'MemberCenter.vue'))
+      expect(shell, '壳层又渲染兑换区：P0-1 回退').not.toContain('member-center-redeem')
     })
 
     it('三档价目展示必须仍在（订阅制的对外呈现）', () => {
-      const src = read(path.join('..', '..', 'src', 'views', 'MemberCenter.vue'))
+      const src = read(subscriptionPath)
       expect(src).toContain('member-center-plans')
       expect(src).toMatch(/priceMonthlyCents/)
+      // v4：价目卡已升级为可购买卡片，与购买按钮共用同一 openPay 入口
+      expect(src, '价目卡必须可购买（v4 E6：禁双路径）').toMatch(/openPay/)
     })
   })
 })
