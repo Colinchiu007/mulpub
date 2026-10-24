@@ -49,7 +49,7 @@ async function publishViaPage (accountId, path, bodyJson, opts) {
     })
     await win.loadURL(PAGE_URL)
     // 等 secsdk 初始化（页面自身的请求会带 csrf 头是初始化完成的标志，这里给固定等待）
-    await sleep(Number(o.warmupMs) || 5000)
+    await sleep(Number(o.warmupMs) || 15000) // 2026-10-24：5s 时页面 secsdk 尚未完成签名初始化（实测 403 invalid csrf token）
     const code = '(async function(){try{' +
       'var r=await fetch(' + JSON.stringify(path) + ',{method:"POST",credentials:"include",' +
       'headers:{"Content-Type":"application/json","Accept":"application/json"},' +
