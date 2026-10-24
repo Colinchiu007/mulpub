@@ -367,51 +367,10 @@ class SubscriptionService {
     })
   }
 
-  /**
-   * 批量生成兑换码（运营入口）：上限 500/批，内存去重后批量入库。
-   *
-   * 碰撞补足：createRedeemCodes 用 ON CONFLICT (code) DO NOTHING，与库中既有码
-   * 撞车的那几条会被**静默丢弃**——原实现直接返回 generated < requested，运营看不到
-   * 差额来源。这里改成按缺口重试生成，最多 REDEEM_TOPUP_MAX_ROUNDS 轮。
-   *
-   * 补不满时抛 REDEEM_BATCH_INCOMPLETE（409）并把**已签成的码**挂在异常上：
-   * 报错但不丢弃，调用方可据实交付或重试；既不静默少发，也不会因死循环挂死。
-   */
-  async createRedeemBatch({ plan, durationDays, count, batch = null, expiresAt = null }) {
-    if (!PLAN_IDS.includes(plan) || plan === 'free') {
-      throw new CommerceError('兑换码仅支持付费档位', 'PLAN_INVALID', 400)
-    }
-    if (!Number.isInteger(durationDays) || durationDays <= 0) {
-      throw new CommerceError('时长必须为正整数天', 'DURATION_INVALID', 400)
-    }
-    if (!Number.isInteger(count) || count < 1 || count > 500) {
-      throw new CommerceError('批量数量需在 1-500 之间', 'BATCH_COUNT_INVALID', 400)
-    }
-    const batchId = batch || `batch-${new Date(this.now()).toISOString().slice(0, 10)}-${crypto.randomBytes(3).toString('hex')}`
-    const created = []
-    // seen 始终以已入库码打底，保证本批内不会重复投递同一个 code
-    const seen = new Set()
-    const done = new Set()
-    let rounds = 0
-    for (; created.length < count && rounds < REDEEM_TOPUP_MAX_ROUNDS; rounds++) {
-      while (seen.size < count) seen.add(generateRedeemCode())
-      const pending = [...seen].filter((code) => !done.has(code))
-      if (pending.length === 0) break
-      const records = pending.map((code) => ({ code, plan, durationDays, batch: batchId, expiresAt }))
-      const inserted = await this.repository.createRedeemCodes(records)
-      for (const code of inserted) done.add(code)
-      created.push(...inserted)
-    }
-    if (created.length < count) {
-      const error = new CommerceError('批量签发未补足，请按已签发码交付或重试', 'REDEEM_BATCH_INCOMPLETE', 409)
-      error.requested = count
-      error.generated = created.length
-      error.rounds = rounds
-      error.created = created
-      throw error
-    }
-    return { batch: batchId, plan, durationDays, requested: count, generated: created.length, codes: created }
-  }
+  // createRedeemBatch（批量签发）已搬去 ./subscription-redeem-batch.js（mixin）。
+  // 搬走的原因：本文件 496 行，而逐文件行数门禁对未挂账文件是「≥ 500 行即阻断」；
+  // 加 issued_to 透传需要额外行数 ⇒ 抽模块把本文件压回安全区，而不是抬基线。
+  // 对外契约不变：service.createRedeemBatch({...}) 仍在原型上（mixin 挂载）。
 
   /**
    * 运营列表（默认掩码）。reveal 必须严格等于 true 才放行完整码——字符串 "true"、
@@ -439,6 +398,7 @@ class SubscriptionService {
         durationDays: row.duration_days,
         batch: row.batch,
         status: row.status,
+        issuedTo: row.issued_to || null,
         usedBy: row.used_by || null,
         usedAt: row.used_at || null,
         expiresAt: row.expires_at || null,
@@ -484,6 +444,8 @@ class SubscriptionService {
 // 注意：本行必须排在 class 定义之后、module.exports 之前 —— require 是循环的一侧，
 // subscription-payment.js 内部用惰性 require 取 CommerceError（见该文件 commerceError()）。
 require('./subscription-payment').applySubscriptionPaymentOps(SubscriptionService)
+// 006 兑换码批量签发（含 issued_to 透传）：同样以 mixin 体例挂上，见该文件头注释。
+require('./subscription-redeem-batch').applySubscriptionRedeemBatchOps(SubscriptionService)
 
 module.exports = {
   SubscriptionService,

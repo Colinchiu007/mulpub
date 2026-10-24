@@ -30,9 +30,15 @@ def _raise_http(e: EngineAdminError) -> None:
 
     REDEEM_BATCH_INCOMPLETE 携带的已签发码必须到达前端：engine 已签了一部分码
     却补足失败，若这里只回 400 文本，运营既不知道拿到了几个、也拿不到可交付的码。
+
+    ⚠️ `detail`（人可读原因）也要透传：此前被丢弃 ⇒ 前端只剩一个错误码，
+    运营看不懂「到底失败在哪」。它只来自本层的固定文案，不含 engine 原始响应体。
     """
-    if e.payload:
-        raise HTTPException(e.status, {"error": e.code, **e.payload})
+    payload = dict(e.payload) if e.payload else {}
+    if e.detail:
+        payload["message"] = e.detail
+    if payload:
+        raise HTTPException(e.status, {"error": e.code, **payload})
     raise HTTPException(e.status, e.code)
 
 

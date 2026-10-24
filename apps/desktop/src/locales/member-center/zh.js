@@ -16,6 +16,7 @@ export default {
     redeemSuccess: '兑换成功，已开通 {plan}，有效期至 {end}',
     redeemAlreadyUsed: '该激活码此前已兑换，当前订阅有效至 {end}',
     redeemReplayExpired: '该激活码此前已兑换，对应订阅已到期，重放不会再次增加时长',
+    redeemErrRateLimited: '尝试过于频繁，请稍后再试',
     redeemErrFormat: '激活码格式不正确，应形如 ABCD-EFGH-JKMN',
     redeemErrNotFound: '激活码不存在，请核对后重试',
     redeemErrUsed: '该激活码已被他人使用',

@@ -109,3 +109,128 @@ test('006 支付迁移与开发态 SCHEMA 一致', async (t) => {
   })
 })
 
+
+// 009 兑换码「发放对象」列。判据 = **列级 (表.列) 双向集合比对**，不是语句字面量。
+//
+// ⚠ 为什么不用「语句字面量」比（第 2 轮对抗审查用 5 个变异实测出来的）：
+//   ① 引号写法（`ADD COLUMN IF NOT EXISTS "issued_to" TEXT`，语义等价）⇒ 字面量锁看不见 ⇒ 假绿
+//   ② 换一列（issued_by）/ 换一张表 ⇒ 字面量锁仍绿 ⇒ 假绿（超出它宣称的覆盖范围）
+//   ③ 未来 010 合法给同表加一列（迁移与 SCHEMA 两处一致）⇒ 若拿 009 当全集 ⇒ 假红地雷
+//   ④ 类型演进（TEXT → VARCHAR）⇒ 若逐字比语句 ⇒ 假红
+// ⇒ 改为**解析出 (表, 列) 再比集合**：引号归一化、列类型不在比对维度内、
+//   且比较域是**全部迁移文件**（每一份迁移各管自己那一段 ⇒ 职责边界正确）。
+test('009 兑换码发放对象列与开发态 SCHEMA 双向一致', async (t) => {
+  const { discoverMigrations, normalizeMigrationSql } = require('../src/auth/postgres-migrations')
+  const { SCHEMA } = require('../src/auth/postgres-identity-repository')
+
+  const normalizeStatement = (statement) => statement.replace(/\s+/g, ' ').trim()
+  const splitDdl = (sql) => normalizeMigrationSql(sql)
+    .replace(/--[^\r\n]*/g, '')
+    .split(';')
+    .map(normalizeStatement)
+    .filter(Boolean)
+    .filter((statement) => !/^(?:BEGIN|COMMIT|ROLLBACK)\b/i.test(statement))
+
+  // 列级解析：容忍标识符引号（`"issued_to"` ≡ `issued_to`）。
+  // 列类型不在比对维度内 ⇒ TEXT → VARCHAR 这类演进不误报。
+  const ADD_COLUMN_RE = /ALTER TABLE\s+("[A-Za-z0-9_.]+"|[A-Za-z0-9_.]+)\s+ADD COLUMN\s+(?:IF NOT EXISTS\s+)?("[A-Za-z0-9_]+"|[A-Za-z0-9_]+)/i
+  const addedColumnsOf = (statements) => {
+    const out = new Set()
+    for (const statement of statements) {
+      const m = ADD_COLUMN_RE.exec(statement)
+      if (!m) continue
+      out.add(`${m[1].replace(/"/g, '').toLowerCase()}.${m[2].replace(/"/g, '').toLowerCase()}`)
+    }
+    return out
+  }
+
+  const migrations = discoverMigrations(MIGRATIONS_DIR)
+
+  await t.test('迁移文件可发现且含 issued_to 的 ALTER', async () => {
+    const target = migrations.find((item) => item.name === '009_redeem_code_issued_to.sql')
+    assert.ok(target, '缺少 009_redeem_code_issued_to.sql')
+    assert.doesNotThrow(() => normalizeMigrationSql(target.sql))
+    // 列级断言（容忍引号写法）：列必须落在正确的表上
+    const columns = addedColumnsOf(splitDdl(target.sql))
+    assert.ok(
+      columns.has('identity_redeem_codes.issued_to'),
+      '009 迁移必须给 identity_redeem_codes 加 issued_to 列（且用 IF NOT EXISTS 保证可重跑）',
+    )
+    // 编号纪律：009 必须在 006 之后（编号撞车会让 identity 仓储启动期硬失败）
+    const names = migrations.map((item) => item.name)
+    assert.ok(
+      names.indexOf('009_redeem_code_issued_to.sql') > names.indexOf('006_payment_orders.sql'),
+      '009 必须排在 006 之后',
+    )
+  })
+
+  await t.test('列级双向一致：迁移加过的列 SCHEMA 必须有，SCHEMA 有的列迁移必须也加过', async () => {
+    const migrationColumns = new Set()
+    for (const migration of migrations) {
+      for (const key of addedColumnsOf(splitDdl(migration.sql))) migrationColumns.add(key)
+    }
+    const schemaColumns = addedColumnsOf(SCHEMA.map(normalizeStatement))
+
+    // 方向一：迁移加过的列，SCHEMA 里没有 ⇒ 开发库缺列、生产正常（只在开发环境复现）
+    for (const key of migrationColumns) {
+      assert.ok(
+        schemaColumns.has(key),
+        `迁移有、开发态 SCHEMA 没有的列：${key}（开发库会缺这一列，生产走迁移正常）`,
+      )
+    }
+    // 方向二：SCHEMA 里多出的列 ⇒ 生产没有（迁移缺）⇒ 两边漂移
+    for (const key of schemaColumns) {
+      assert.ok(
+        migrationColumns.has(key),
+        `开发态 SCHEMA 有、但任何迁移都没有的列：${key}（生产与开发 schema 将不一致）`,
+      )
+    }
+    // 009 专项：这一列必须落在正确的表上（换表 ⇒ 上面两个方向都抓得到）
+    assert.ok(
+      schemaColumns.has('identity_redeem_codes.issued_to'),
+      '开发态 SCHEMA 必须给 identity_redeem_codes 加 issued_to 列',
+    )
+    // 两个集合必须逐个相等（防止「两个方向各自漏掉『都缺』」的情形）
+    assert.deepStrictEqual(
+      [...schemaColumns].sort(),
+      [...migrationColumns].sort(),
+      '开发态 SCHEMA 的加列集合与全部迁移的加列集合不一致',
+    )
+  })
+
+  await t.test('SCHEMA 的执行顺序：同表的每条 ADD COLUMN 都必须在 CREATE TABLE 之后', async () => {
+    // 锁对顺序不敏感、而 SCHEMA 的执行是**顺序敏感**的：把 ALTER 挪到建表之前仍全绿，
+    // 但开发库启动即炸（列还不存在）。所以这里显式断言顺序。
+    const statements = SCHEMA.map((statement) => normalizeStatement(statement))
+    const indicesMatching = (re) => statements
+      .map((statement, index) => (re.test(statement) ? index : -1))
+      .filter((index) => index >= 0)
+    for (const table of ['identity_redeem_codes', 'identity_orders', 'identity_user_sessions']) {
+      const creates = indicesMatching(new RegExp(`^CREATE TABLE IF NOT EXISTS ${table}\\b`, 'i'))
+      const alters = indicesMatching(new RegExp(`^ALTER TABLE ${table}\\s+ADD COLUMN`, 'i'))
+      if (creates.length === 0 || alters.length === 0) continue
+      const createAt = creates[0]
+      for (const alterAt of alters) {
+        assert.ok(
+          alterAt > createAt,
+          `SCHEMA 里 ${table} 的 ADD COLUMN 必须排在 CREATE TABLE 之后（create@${createAt} alter@${alterAt}）`,
+        )
+      }
+    }
+  })
+
+  await t.test('SCHEMA 侧必须用 ALTER 兜底（CREATE TABLE IF NOT EXISTS 不会给已存在的表加列）', async () => {
+    const statements = SCHEMA.map((statement) => normalizeStatement(statement))
+    const schemaColumns = addedColumnsOf(statements)
+    assert.ok(
+      schemaColumns.has('identity_redeem_codes.issued_to'),
+      'SCHEMA 数组必须包含 identity_redeem_codes.issued_to 的 ALTER —— 只靠 CREATE TABLE IF NOT EXISTS 不会给已存在的表加列',
+    )
+    // 必须是 ALTER 形态（不是把 issued_to 写进 CREATE TABLE 的列清单里）
+    assert.ok(
+      statements.some((statement) => /^ALTER TABLE identity_redeem_codes\s+ADD COLUMN\b/i.test(statement)
+        && /issued_to/i.test(statement)),
+      'issued_to 必须是 ALTER TABLE ... ADD COLUMN 语句（写进 CREATE TABLE 对已存在的表是 no-op）',
+    )
+  })
+})

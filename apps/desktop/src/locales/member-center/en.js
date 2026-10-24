@@ -16,6 +16,7 @@ export default {
     redeemSuccess: 'Redeemed successfully. {plan} is active until {end}.',
     redeemAlreadyUsed: 'This code was already redeemed. Your current subscription runs until {end}.',
     redeemReplayExpired: 'This code was already redeemed and its subscription has expired; replaying it does not extend your membership.',
+    redeemErrRateLimited: 'Too many attempts. Please try again later.',
     redeemErrFormat: 'Invalid code format. It should look like ABCD-EFGH-JKMN.',
     redeemErrNotFound: 'No such activation code. Please check and try again.',
     redeemErrUsed: 'This activation code has already been used by someone else.',

@@ -230,6 +230,9 @@ const canSubmitRedeem = computed(
 
 // 服务端错误码 → i18n key。message 放的是 error.code（见 ipc-handlers/identity.js 的 safeError）
 const REDEEM_ERROR_KEYS = {
+  // 兑换限流（引擎 2026-10-24 新增）：不映射的话会落到 redeemErrNetwork，
+  // 用户看到「网络错误」而实际是「你试得太频繁」—— 属于误导。
+  REDEEM_RATE_LIMITED: 'redeemErrRateLimited',
   REDEEM_CODE_FORMAT: 'redeemErrFormat',
   REDEEM_CODE_NOT_FOUND: 'redeemErrNotFound',
   REDEEM_CODE_USED: 'redeemErrUsed',

@@ -282,8 +282,10 @@ class CommerceMethods {
   async createRedeemCodes(records) {
     if (!Array.isArray(records) || records.length === 0) return []
     const result = await this.pool.query(
-      `INSERT INTO identity_redeem_codes (code, plan, duration_days, batch, expires_at)
-       SELECT * FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::timestamptz[])
+      // issued_to 是第 6 个 unnest 数组：PG 的多参数 unnest 按行并排（ROWS FROM 语义），
+      // 不是笛卡尔积 ⇒ 与既有 5 段写法同构。
+      `INSERT INTO identity_redeem_codes (code, plan, duration_days, batch, expires_at, issued_to)
+       SELECT * FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::timestamptz[], $6::text[])
        ON CONFLICT (code) DO NOTHING
        RETURNING code`,
       [
@@ -292,6 +294,7 @@ class CommerceMethods {
         records.map((r) => r.durationDays),
         records.map((r) => r.batch),
         records.map((r) => (r.expiresAt ? new Date(r.expiresAt).toISOString() : null)),
+        records.map((r) => r.issuedTo || null),
       ],
     )
     return (result.rows || []).map((row) => row.code)
@@ -312,7 +315,7 @@ class CommerceMethods {
     const pLimit = params.length + 1
     const pOffset = params.length + 2
     const result = await this.pool.query(
-      `SELECT code, plan, duration_days, batch, status, used_by, used_at, expires_at, created_at
+      `SELECT code, plan, duration_days, batch, status, used_by, used_at, expires_at, created_at, issued_to
        FROM identity_redeem_codes ${where}
        ORDER BY created_at DESC, code ASC LIMIT $${pLimit} OFFSET $${pOffset}`,
       [...params, limit, offset],
