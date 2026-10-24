@@ -1,0 +1,61 @@
+{
+  "sha": "ce8c64bcbb99c0af7beb1d2c490849ad77f0b4ab",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 3,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 4,
+    "docSensitiveContentSample": [
+      "**两条已核实的事实**：① `images/`（11 文件）**目前无任何代码消费**（全仓非注释命中 0）⇒ **要拷**（契约完整性）但**只做魔数校验**、不做语义校验；`SCHEMA.md` 与 `kit-import.js` 注释**显式写明「`images/` 目前无消费方」**，并在 `kit-import.js` 头部留 **TODO(images-consumption)** 指向本文件（要有可追踪凭据，否则会被误当成 bug）；② `shot-library.json`/`reference-registry.json` 的媒体路径指向 **kit 之外**的媒体产物目录 ⇒ 不在白名单内、导入**不**碰。",
+      "**两条已核实的事实**：① `images/`（11 文件）**目前无任何代码消费**（全仓非注释命中 0）⇒ **要拷**（契约完整性）但**只做魔数校验**、不做语义校验（`images/` **无消费方**这一事实写进 `SCHEMA.md`，避免契约与实现各说各话）；`SCHEMA.md` 的「导入契约」小节里**有一行明写**「`images/` 目前无消费方（仅保留契约完整性）」，`kit-import.js` 注释同样明写，并在 `kit-import.js` 头部留 **TODO(images-consumption)** 指向本文件（要有可追踪凭据，否则会被误当成 bug）；② `shot-library.json`/`reference-registry.json` 的媒体路径指向 **kit 之外**的媒体产物目录 ⇒ 不在白名单内、导入**不**碰。",
+      "**三处取舍写进 `SCHEMA.md`**（防被误读为遗漏）：① `nlink > 1` **一律拒绝**是设计选择（不做跨目录 inode/dev 对比）；② `.bak` 残留的两种恢复路径（S15）；③ **窗口级写限制是后续切片** —— 本批只做 `withSenderCheck` + 审计，**不**假装已有视图级授权。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "29368f91866d75bd4ee26aec3b4ba9d44b3482784fb7be02f31900eb463fd559",
+  "decidedAt": "2026-10-22T17:16:02.454Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

@@ -674,14 +674,21 @@ test('结构锁：saveRecord 必须经由 recordFileName 取名（防纯函数�
 // ═══════════════════════════════════════════════════════════════════
 
 test('QM-6 i3：闭环白名单与门禁同源（改一处忘另一处必须当场红）', () => {
-  // 重复定义的风险只能用等价锁兜底：直接读门禁源码断言两处集合相等。
-  const gate = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
-  const m = gate.match(/CLOSED_DEEP_REVIEW_STATUSES = new Set\(\[([^\]]*)\]\)/)
-  assert.ok(m, '门禁侧的白名单定义形态变了，本锁需同步更新（不允许静默失配）')
-  const fromGate = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort()
+  // 2026-10-20：白名单已收敛为**单一真源** scripts/lib/exec-record-statuses.js
+  // （外部评审第 2 轮 i2 提为 Critical：相等测试只能发现漂移、不能消除漂移）。
+  // 本锁随之升级——不再用正则扒门禁源码里的字面量（那只是"两份副本相等"的兜底），
+  // 改为直接消费真源，并额外断言门禁**确实**引用它、且不得再长出私有副本。
+  const shared = require('./lib/exec-record-statuses')
+  const fromGate = [...shared.CLOSED_DEEP_REVIEW_STATUSES].sort()
   const fromDecider = [...decider.CLOSED_DEEP_REVIEW_STATUSES].sort()
   assert.deepStrictEqual(fromDecider, fromGate,
     'decider 与门禁的闭环白名单必须一致；否则「已闭环」在两处判定不同 ⇒ 要么丢结论要么误红')
+
+  const gate = fs.readFileSync(path.join(__dirname, 'check-pr-exec-record.js'), 'utf8')
+  assert.match(gate, /require\(['"]\.\/lib\/exec-record-statuses['"]\)/,
+    '门禁必须 require 单一真源；否则本锁比的是真源与它自己（退化成同义反复，什么都没守）')
+  assert.ok(!/CLOSED_DEEP_REVIEW_STATUSES\s*=\s*new Set\(\s*\[\s*'/.test(gate),
+    '门禁不得再定义字面量白名单副本 —— 那就是第二份真源')
 })
 
 test('QM-6 i3：已闭环的同名记录不得被静默覆盖（否则 amend 抹掉审查结论）', () => {

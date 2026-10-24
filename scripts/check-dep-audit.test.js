@@ -945,3 +945,239 @@ test('Z5 正控（Z4 的对偶）：所有域都有产出时 --update 照常写�
     fs.rmSync(bp, { force: true }); fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── 刷新路径（定时作业 dep-audit-refresh.yml 用）：合成底 + 刷新报告 + PR 正文 ──
+
+test('刷新合成底：分支上人已补的结论必须保住，且不得把主干上补的结论当成新公告', () => {
+  const main = {
+    reviewBy: '2026-12-31',
+    advisories: [
+      Object.assign(ledger('npm', 'GHSA-main'), { note: '主干上补的结论' }),
+    ],
+  };
+  const branch = {
+    reviewBy: '2026-12-31',
+    advisories: [
+      Object.assign(ledger('npm', 'GHSA-branch'), { decision: 'accepted-risk', note: '分支上补的结论' }),
+    ],
+  };
+  const merged = D.mergeBaselines(main, branch);
+  const keys = merged.advisories.map((a) => a.source + '/' + a.id);
+  assert.deepEqual(keys.sort(), ['npm/GHSA-branch', 'npm/GHSA-main'], '并集：任一侧有就要在');
+  assert.equal(merged.advisories.find((a) => a.id === 'GHSA-main').note, '主干上补的结论',
+    '主干那条的人工结论不得被分支那份覆盖掉');
+  assert.equal(merged.advisories.find((a) => a.id === 'GHSA-branch').decision, 'accepted-risk');
+});
+
+test('刷新合成底：reviewBy 只许往后走（人顺延的生效，机器不得缩短）', () => {
+  assert.equal(D.laterDate('2026-12-31', '2027-01-31'), '2027-01-31');
+  assert.equal(D.laterDate('2027-01-31', '2026-12-31'), '2027-01-31');
+  assert.equal(D.laterDate('', '2026-12-31'), '2026-12-31');
+  const merged = D.mergeBaselines({ reviewBy: '2027-03-01', advisories: [] }, { reviewBy: '2026-12-31', advisories: [] });
+  assert.equal(merged.reviewBy, '2027-03-01', '更晚的那个胜出');
+});
+
+test('刷新路径：--update 带上 --merge-from 后，人在分支上补的 decision/note 不得被冲成 TODO', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-refresh-merge-'));
+  const bp = path.join(dir, 'baseline.json');
+  const branchBp = path.join(dir, 'branch-baseline.json');
+  // 主干：一条已登记（无结论）+ 一条本轮新公告
+  fs.writeFileSync(bp, JSON.stringify({ reviewBy: FUTURE, advisories: [ledger('npm', 'GHSA-known')] }, null, 2), 'utf8');
+  // 分支：人给 GHSA-known 补了结论
+  fs.writeFileSync(branchBp, JSON.stringify({
+    reviewBy: FUTURE,
+    advisories: [Object.assign(ledger('npm', 'GHSA-known'), { decision: 'accepted-risk', note: '人已复核：不可达' })],
+  }, null, 2), 'utf8');
+  try {
+    const code = D.runCheck({
+      isUpdate: true,
+      baselinePath: bp,
+      mergeFrom: branchBp,
+      log: () => {}, error: () => {},
+      runners: {
+        npm: () => ({ ok: true, json: npmJsonOf(['GHSA-known', 'GHSA-brand-new']) }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
+        pip: () => ({ ok: true, json: { dependencies: [] } }),
+      },
+    });
+    assert.equal(code, 0);
+    const after = JSON.parse(fs.readFileSync(bp, 'utf8'));
+    const known = after.advisories.find((a) => a.id === 'GHSA-known');
+    assert.equal(known.decision, 'accepted-risk', '分支上补的结论必须保住（被冲成 TODO 就等于删掉人的风险分析）');
+    assert.equal(known.note, '人已复核：不可达');
+    const fresh = after.advisories.find((a) => a.id === 'GHSA-brand-new');
+    assert.equal(fresh.decision, 'TODO', '新公告仍必须留 TODO 等人给结论');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('刷新路径：--merge-from 读不到时必须拒刷（拿主干当底硬刷会把人刚补的结论冲掉）', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-refresh-missing-'));
+  const bp = path.join(dir, 'baseline.json');
+  fs.writeFileSync(bp, JSON.stringify({ reviewBy: FUTURE, advisories: [] }, null, 2), 'utf8');
+  try {
+    const before = fs.readFileSync(bp, 'utf8');
+    const out = [];
+    const code = D.runCheck({
+      isUpdate: true,
+      baselinePath: bp,
+      mergeFrom: path.join(dir, 'no-such-file.json'),
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push('ERR ' + a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: npmJsonOf([]) }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }),
+        pip: () => ({ ok: true, json: { dependencies: [] } }),
+      },
+    });
+    assert.equal(code, 1, '读不到分支基线必须失败');
+    assert.ok(out.some((l) => l.includes('MERGE_BASELINE_UNREADABLE')), '必须点名哪道闸：\n' + out.join('\n'));
+    assert.equal(fs.readFileSync(bp, 'utf8'), before, '拒刷时基线必须一字节不变');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('刷新路径：--merge-from 与判定路径同用必须被拒（判定底只能是主干那份）', () => {
+  const out = [];
+  const code = D.runCheck({
+    baselinePath: path.join(os.tmpdir(), 'never-written.json'),
+    mergeFrom: path.join(os.tmpdir(), 'x.json'),
+    log: (...a) => out.push(a.join(' ')),
+    error: (...a) => out.push('ERR ' + a.join(' ')),
+    runners: { npm: () => ({ ok: true, json: npmJsonOf([]) }) },
+  });
+  assert.equal(code, 1);
+  assert.ok(out.some((l) => l.includes('只能与 --update 同用')), '必须出声：\n' + out.join('\n'));
+});
+
+test('刷新报告：新增 / 清账 / 换号三档必须分开（混成一句「基线变了」会把两件事说成一件事）', () => {
+  const oldBase = {
+    reviewBy: FUTURE,
+    advisories: [
+      Object.assign(ledger('npm', 'GHSA-old'), { decision: 'accepted-risk', note: '旧结论' }),
+      Object.assign(ledger('npm', 'GHSA-gone'), { decision: 'accepted-risk', note: '待清' }),
+      Object.assign(ledger('pip', 'PYSEC-old'), { decision: 'not-exploitable', note: '换号前' }),
+    ],
+  };
+  const newBase = {
+    reviewBy: FUTURE,
+    advisories: [
+      Object.assign(ledger('npm', 'GHSA-old'), { decision: 'accepted-risk' }),
+      Object.assign(ledger('npm', 'GHSA-new'), { decision: 'TODO', note: '待补结论（新公告）' }),
+      Object.assign(ledger('pip', 'PYSEC-new'), { decision: 'not-exploitable', aliases: ['PYSEC-old'] }),
+    ],
+  };
+  const r = D.buildRefreshReport(oldBase, newBase, { scanAt: '2026-10-24T00:00:00Z' });
+  assert.deepEqual(r.added.map((e) => e.key), ['npm/GHSA-new'], '只有真新公告算新增');
+  assert.deepEqual(r.cleared.map((e) => e.key), ['npm/GHSA-gone'], '换号的那条不算清账');
+  assert.deepEqual(r.migrated.map((m) => m.from + '→' + m.to), ['pip/PYSEC-old→pip/PYSEC-new']);
+  assert.deepEqual(r.needDecision.map((e) => e.key), ['npm/GHSA-new'], '待补结论 = decision 仍是 TODO 的');
+  assert.equal(r.needDecision[0].isNew, true, '本轮新登记的必须标出来');
+  assert.equal(r.changed, true);
+});
+
+test('刷新报告：待补结论清单要含「此前就没人补的」，不能只列本轮新增（否则清单会清空而人以为没事了）', () => {
+  const oldBase = { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-x'), { decision: 'TODO' })] };
+  const newBase = { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-x'), { decision: 'TODO' })] };
+  const r = D.buildRefreshReport(oldBase, newBase, {});
+  assert.deepEqual(r.needDecision.map((e) => e.key), ['npm/GHSA-x']);
+  assert.equal(r.needDecision[0].isNew, false, '不是本轮新登记的');
+  assert.equal(r.changed, false, '什么都没变 ⇒ changed=false（不该白推一次）');
+});
+
+test('PR 正文：必须写清机器做了什么、没做什么，以及每个 decision 要额外填什么', () => {
+  const r = D.buildRefreshReport(
+    { reviewBy: FUTURE, advisories: [] },
+    { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-x'), { decision: 'TODO', note: '待补结论（新公告）', patched: '>=4.17.21' })] },
+    { scanAt: '2026-10-24T00:00:00Z' },
+  );
+  const body = D.renderRefreshBody(r, {});
+  assert.ok(body.includes('`upgrade-tracked`'), '必须列出合法 decision 取值');
+  assert.ok(body.includes('targetVersion'), '必须写清 upgrade-tracked 还要填 targetVersion');
+  assert.ok(body.includes('npm/GHSA-x'), '必须点名待补的那条');
+  assert.ok(body.includes('BASELINE_META_INVALID'), '必须写清不补会怎样判红');
+  assert.ok(body.includes('reviewBy'), '必须交代复核日');
+  assert.ok(body.includes('GITHUB_TOKEN'), '必须写清首轮 CI 不会自动跑（GITHUB_TOKEN 不触发工作流）');
+});
+
+test('PR 正文：没有任何待补条目时不得留一张空表冒充待办', () => {
+  const r = D.buildRefreshReport(
+    { reviewBy: FUTURE, advisories: [] },
+    { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-x'), { decision: 'accepted-risk', note: '有结论' })] },
+    {},
+  );
+  const body = D.renderRefreshBody(r, {});
+  assert.ok(body.includes('无「decision 还是 TODO」的条目'), '应当明说没有待补结论的条目');
+  assert.ok(!body.includes('| source/id | 包 | 严重度 | 修复版本 | 本轮新登记 | 要填 |'), '不得留空待办表');
+});
+
+test('刷新路径：合成底喂给「0 产出」那道闸时必须更保守（分支上有、主干上没有的域也别被静默清空）', () => {
+  // 动因：--merge-from 之后，零产出守卫看到的底从「主干那份」变成「主干 ∪ 分支」。
+  // 这一格若判错方向，刷新就会把「这轮没量到」当成「已修」——那正是这道闸存在的理由。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-refresh-zero-'));
+  const bp = path.join(dir, 'baseline.json');
+  const branchBp = path.join(dir, 'branch-baseline.json');
+  // 主干：没有 npm-opscenter 的条目；分支：有（上一轮刷新登记的）
+  fs.writeFileSync(bp, JSON.stringify({ reviewBy: FUTURE, advisories: [] }, null, 2), 'utf8');
+  fs.writeFileSync(branchBp, JSON.stringify({
+    reviewBy: FUTURE,
+    advisories: [Object.assign(ledger('npm-opscenter', 'GHSA-x'), { decision: 'TODO', note: '待补结论（新公告）' })],
+  }, null, 2), 'utf8');
+  try {
+    const before = fs.readFileSync(bp, 'utf8');
+    const out = [];
+    const code = D.runCheck({
+      isUpdate: true,
+      baselinePath: bp,
+      mergeFrom: branchBp,
+      log: (...a) => out.push(a.join(' ')),
+      error: (...a) => out.push('ERR ' + a.join(' ')),
+      runners: {
+        npm: () => ({ ok: true, json: npmJsonOf([]) }),
+        'npm-opscenter': () => ({ ok: true, json: { vulnerabilities: {} } }), // 扫成了，但 0 产出
+        pip: () => ({ ok: true, json: { dependencies: [] } }),
+      },
+    });
+    assert.equal(code, 1, '分支上挂着、而该域本轮 0 产出 ⇒ 必须拒写（未证实 ≠ 已修）');
+    assert.ok(out.some((l) => l.includes('拒绝写基线')), '必须点名拒绝：\n' + out.join('\n'));
+    assert.equal(fs.readFileSync(bp, 'utf8'), before, '拒写时基线一字节不变');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('刷新报告：必须带上「刷新后仍会判红」的条目（结论已失效 ≠ 还没给结论）', () => {
+  // 动因（2026-10-24 首次真实运行实测）：公告库把 patched 的修复下界改了
+  // （brace-expansion >=1.1.16 → >=5.0.7），人写的 targetVersion 还是 1.1.16
+  // ⇒ 门禁判 DECISION_CONTRADICTS_PATCHED。而刷新报告若只列「decision 还是 TODO 的」，
+  // 正文会说「无需补结论」而门禁其实红着 —— 而机器人开的 PR 永远不跑 CI（正文是唯一信号）。
+  const e = Object.assign(ledger('npm', 'GHSA-3jxr-9vmj-r5cp'), {
+    decision: 'upgrade-tracked', targetVersion: '1.1.16', patched: '>=5.0.7', note: '原有结论',
+  });
+  const viol = [D.checkTargetEscapes(e)].filter(Boolean);
+  assert.equal(viol.length, 1, '这条必须真被判红：' + JSON.stringify(e));
+  const r = D.buildRefreshReport(
+    { reviewBy: FUTURE, advisories: [e] },
+    { reviewBy: FUTURE, advisories: [e] },
+    { violations: viol },
+  );
+  assert.deepEqual(r.needDecision.map((x) => x.key), [], '它不是「还没给结论」（decision 合法且非 TODO）');
+  assert.equal(r.violations.length, 1, '但必须被单独列出来');
+  const body = D.renderRefreshBody(r, {});
+  assert.ok(body.includes('DECISION_CONTRADICTS_PATCHED'), '正文必须带上门禁的原话：\n' + body);
+  assert.ok(body.includes('刷新后门禁仍会判红'), '正文必须有这一档的标题');
+  assert.ok(body.includes('不要因为上一节写「无」就以为没事'), '正文必须点破两档的区别');
+});
+
+test('刷新正文：没有失效结论时那一档必须说「无」（不留空表冒充待办）', () => {
+  const r = D.buildRefreshReport(
+    { reviewBy: FUTURE, advisories: [] },
+    { reviewBy: FUTURE, advisories: [Object.assign(ledger('npm', 'GHSA-x'), { decision: 'accepted-risk', note: '有结论' })] },
+    { violations: [] },
+  );
+  const body = D.renderRefreshBody(r, {});
+  assert.ok(body.includes('刷新后的基线自洽'), '应当明说没有失效结论');
+  assert.ok(!body.includes('| 判据 | 说明 |'), '不得留一张空表');
+});

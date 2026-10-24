@@ -1,7 +1,7 @@
 <template>
   <div class="stage-indicator">
     <template v-for="(stage, i) in stages" :key="i">
-      <div
+      <div role="button" tabindex="0" @keydown.enter.prevent="$emit('select', i)" @keydown.space.prevent="$emit('select', i)"
         class="stage-node"
         :class="stageClass(stage, i)"
         @click="$emit('select', i)"

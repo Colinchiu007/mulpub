@@ -345,6 +345,19 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
 最终 PR 差集 = **19 个业务/文档文件**（`apps/desktop/**` 15 + 文档/台账 4）+ **三十余份评审产物**
 （`.ccg/reviews/*.json`；每轮深审收口落一份 ⇒ **刻意不写精确数**，写了必然过期）。
 
+**第 2 次覆盖（2026-10-24 上午，同一形态）**：本会话把分支推回完整谱系后，远端**又**被覆盖成
+**再 rebase 版**（head `f432cb8f4`）。这版**同样丢了配置档案实现**；另外
+`.ccg/reviews/*.json` 被写成**带 BOM 的 JSON**（`JSON.parse` 直接抛 `Unexpected token '﻿'`）
+⇒ 该轮 CI 的 `QG Changes` 与「依赖漏洞审计」转红。
+取证：① `git ls-tree f432cb8f4 -- apps/desktop/src/features/collection/collection-video-config-profile.js`
+⇒ **空**；② 该版 `e768b04c….json` 的首三字节是 BOM（`EF BB BF`），而本会话本地同名文件**无 BOM**。
+⇒ 处置：把**最新主干**（含主干侧修好 Gate 2b11 夹具闭包的 #4347）与完整谱系**一次性合并**
+（`4c53e3fce`，零冲突）后覆盖回去；覆盖后**逐文件核验**（这次不是「看着没问题」）：
+① `collection-video-config-profile.js` 在；② 编排层仍接着它（`:42` import、`:201` 调用）；
+③ locale 装配后与主干**只差 12 个新键**（`collection.videoCreate.*`，475 → 487 键）；
+④ 8 项静态门禁全绿。**教训**：覆盖别人（或被别人覆盖）之后，核验必须落到
+「关键文件在不在 + 装配结果差多少 + 门禁过没过」这三样可复算的读数上，不能只看提交信息像不像。
+
 #### ② 「成片 ↔ 文案同源」的复核结论：**不引入**（驳回，附可复算理由）
 
 外部复核曾指出「文案挂在函数作用域的可变 `let` 上，发布出口可能把上一轮成片配上新一轮文案」。

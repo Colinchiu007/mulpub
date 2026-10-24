@@ -119,7 +119,7 @@
             <p class="config-hint">{{ mediaRequirementsAudioText }}</p>
           </div>
           <div v-if="inputMode === 'video' && !isOrchestratedPipeline(selectedPipeline.name)" class="input-area">
-            <div class="upload-zone" @click="$refs.pipelineVideoInput?.click()">
+            <div role="button" tabindex="0" @keydown.enter.prevent="$refs.pipelineVideoInput?.click()" @keydown.space.prevent="$refs.pipelineVideoInput?.click()" class="upload-zone" @click="$refs.pipelineVideoInput?.click()">
               <p v-if="!pipelineVideo">点击上传参考视频（用于电影感/蒙太奇流水线）</p>
               <p v-else>✅ {{ pipelineVideo.name }}</p>
             </div>
@@ -383,48 +383,8 @@
 
     <!-- ==================== 快速渲染视图 ==================== -->
     <div v-if="view === 'quick'" class="quick-render">
-      <div class="mode-tabs">
-        <button v-for="m in quickModes" :key="m.value" :class="['mode-tab', { active: quickMode === m.value }]" @click="quickMode = m.value">{{ m.label }}</button>
-      </div>
-      <div class="form-group" v-if="quickMode === 'text'">
-        <label>输入文案</label>
-        <textarea v-model="quickText" placeholder="输入视频文案，每行一个场景..." rows="8" class="form-input textarea"></textarea>
-        <button class="btn-secondary" @click="aiWrite" :disabled="aiLoading">{{ aiLoading ? '生成中...' : 'AI 写稿' }}</button>
-      </div>
-      <div class="form-group" v-if="quickMode === 'gallery'">
-        <label>上传图片</label>
-        <div class="upload-zone" @click="$refs.quickFileInput?.click()" @dragover.prevent @drop.prevent="handleQuickDrop">
-          <p v-if="quickImages.length === 0">点击或拖拽图片到此处</p>
-          <div v-else class="image-grid">
-            <div v-for="(img, i) in quickImages" :key="i" class="image-thumb">
-              <img :src="img.preview" />
-              <button class="remove-btn" @click.stop="quickImages.splice(i, 1)">×</button>
-              <span class="image-index">{{ i + 1 }}</span>
-            </div>
-          </div>
-        </div>
-        <input ref="quickFileInput" type="file" accept="image/*" multiple style="display:none" @change="handleQuickFiles" />
-      </div>
-      <div class="form-group">
-        <label>输出平台</label>
-        <UiSelect v-model="quickProfile" :options="profileOptions" />
-      </div>
-      <div class="form-group">
-        <label>视频主题</label>
-        <UiSelect v-model="quickTheme" :options="themeOptions" />
-      </div>
-      <div class="actions">
-        <UiButton @click="startQuickRender" :disabled="!canQuickRender || quickRendering">{{ quickRendering ? '渲染中...' : '开始渲染' }}</UiButton>
-        <button v-if="quickRendering" class="btn-secondary" @click="cancelQuickRender">取消</button>
-      </div>
-      <div v-if="quickRendering" class="progress-section">
-        <div class="progress-bar"><div class="progress-fill" :style="{ width: quickProgress + '%' }"></div></div>
-        <p class="progress-text">{{ quickProgress }}% — {{ quickStage }}</p>
-      </div>
-      <div v-if="quickResult" class="result-banner success"><p>视频渲染完成</p><UiButton @click="viewQuickResult">查看视频</UiButton></div>
-      <div v-if="quickError" class="result-banner error"><p>{{ quickError }}</p><button class="btn-secondary" @click="quickError = null">重试</button></div>
+      <QuickRenderPanel @view-result="viewQuickResult" />
     </div>
-
 
     <!-- ==================== 历史记录视图 ==================== -->
     <div v-if="view === 'history'">
@@ -997,7 +957,6 @@ import '@/styles/create-view.css'
 import '@/styles/avatar-clone-panel.css'
 import UiButton from '@/components/UiButton.vue'
 import UiModal from '@/components/UiModal.vue'
-import UiSelect from '@/components/UiSelect.vue'
 import CreateViewHistory from './CreateViewHistory.vue'
 import { buildPublishFromProject, publishDataToQuery } from '@/features/publish/publish-from-project'
 import { extractRunContextVideoPath } from '@/features/pipeline/run-context-video-path'
@@ -1014,8 +973,8 @@ import {
 } from '@multi-publish/story2video-engine/template-library'
 
 import {
-  renderStart, renderStartAiVideo, renderCancel, renderGetStatus, renderInstallDeps,
-  onRenderProgress, onRenderComplete, onRenderError, onRenderInstallProgress, onPipelineUpdate,
+  renderGetStatus, renderInstallDeps,
+  onRenderInstallProgress, onPipelineUpdate,
   pipelineList, pipelineStart, pipelinePause, pipelineResume, pipelineCancel,
   pipelineStatus, pipelineAdvance, pipelineHistory,
   pipelineStartOrchestrated, pipelineResumeOrchestration, pipelineAdvanceToNextCheckpoint, pipelineConfirmSceneAssets, pipelineGetRunContext,
@@ -1038,6 +997,8 @@ import { avatarCatalogRefs, avatarCatalogComputeds, avatarCatalogMethods } from 
 import { avatarCloneRefs, avatarCloneComputeds, avatarCloneMethods } from './video-creation/composables/useAvatarClone'
 import AvatarClonePanel from './video-creation/AvatarClonePanel.vue'
 import AvatarProviderPicker from './video-creation/AvatarProviderPicker.vue'
+// 快速渲染（AI 视频生成）面板：模式/参数/素材/进度自成一体，CreateView 只做编排
+import QuickRenderPanel from './video-creation/QuickRenderPanel.vue'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
@@ -1141,7 +1102,7 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { AvatarProviderPicker, AvatarClonePanel, UiButton, UiModal, UiSelect, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
+  components: { AvatarProviderPicker, AvatarClonePanel, QuickRenderPanel, UiButton, UiModal, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
   // 配置面板子树的受控访问入口：白名单由 s2v-panel-contract 单一来源定义，
   // 这里只转发，不复制任何 optionKey 语义（见该文件头注释）。
   provide() {
@@ -1199,11 +1160,6 @@ export default {
       s2vOutputConfig: { resolution: '720x1280', fps: 30, format: 'mp4' },
       // 输出分辨率能力开关（运营后台）：'1080p'（默认，前端不出现 4K）| '4k'
       maxOutputResolution: '1080p',
-      // 快速渲染
-      quickMode: 'text', quickText: '', quickImages: [],
-      quickProfile: 'youtube-landscape', quickTheme: 'clean-professional',
-      quickRendering: false, quickProgress: 0, quickStage: '', quickResult: null, quickError: null,
-      aiLoading: false,
       // Remotion 状态
       renderStatus: null, installing: false, installLog: '',
       // S2V 编排模式（story2video-compose）
@@ -1317,13 +1273,6 @@ export default {
     }
   },
   computed: {
-    // 快速渲染的模式标签（data 阶段 this.$t 不可用 → 移到 computed，locale 切换也能响应）
-    quickModes() {
-      return [
-        { value: 'text', label: this.$t('create.story2video.ui.quickModeText') },
-        { value: 'gallery', label: this.$t('create.story2video.ui.quickModeGallery') },
-      ]
-    },
     // ── 批量创作域（useBatchCreate，拆分方案 v3 §2.2 第 3 步）────────────────
     // 状态桥接：整体赋值经 setter 替换 ref.value；原地变异要求 getter 返回 ref 内对象本身。
     s2vBatchDialogOpen: { get() { return batchCreateRefs.s2vBatchDialogOpen.value }, set(v) { batchCreateRefs.s2vBatchDialogOpen.value = v } },
@@ -1577,19 +1526,6 @@ export default {
       )
     },
     s2vPlatforms() { return S2V_PLATFORMS },
-    profileOptions() {
-      return [
-        { value: 'youtube-landscape', label: this.$t('create.story2video.ui.quickProfileYouTube') },
-        { value: 'youtube-shorts', label: 'YouTube Shorts (1080x1920)' },
-        { value: 'tiktok', label: this.$t('create.story2video.ui.quickProfileTikTok') },
-        { value: 'bilibili', label: 'Bilibili (1920x1080)' },
-        { value: 'wechat', label: this.$t('create.story2video.ui.quickProfileWechat') },
-        { value: 'xiaohongshu', label: this.$t('create.story2video.ui.quickProfileXiaohongshu') },
-      ]
-    },
-    themeOptions() {
-      return STYLES.map(s => ({ value: s.value, label: s.label }))
-    },
     canStartPipeline() {
       if (!this.selectedPipeline) return false
       if (!this.pipelineAvailable(this.selectedPipeline.name)) return false
@@ -2002,12 +1938,6 @@ export default {
         messageKey: STORY2VIDEO_NOTIFICATION_KEYS.BATCH_DELETE_CONFIRM,
         messageParams: { count },
       }).message
-    },
-    canQuickRender() {
-      if (this.quickRendering) return false
-      if (this.quickMode === 'text') return this.quickText.trim().length > 0
-      if (this.quickMode === 'gallery') return this.quickImages.length > 0
-      return false
     },
 
     // M-12：S2V 选项的浅层快照，供 watch 比较用。
@@ -5273,46 +5203,9 @@ export default {
     requestBgmDelete(item) { return bgmLibraryMethods.requestBgmDelete(item) },
     closeBgmDeleteDialog() { return bgmLibraryMethods.closeBgmDeleteDialog() },
     async confirmBgmDelete() { return bgmLibraryMethods.confirmBgmDelete() },
-    handleQuickFiles(e) {
-      Array.from(e.target.files || []).forEach(file => {
-        const reader = new FileReader()
-        reader.onload = (ev) => { this.quickImages.push({ name: file.name, preview: ev.target.result }) }
-        reader.readAsDataURL(file)
-      })
-    },
-    handleQuickDrop(e) {
-      Array.from(e.dataTransfer?.files || []).forEach(file => {
-        if (!file.type.startsWith('image/')) return
-        const reader = new FileReader()
-        reader.onload = (ev) => { this.quickImages.push({ name: file.name, preview: ev.target.result }) }
-        reader.readAsDataURL(file)
-      })
-    },
+    // 快速渲染：成片查看（子组件 QuickRenderPanel 通过 view-result 事件回传路径）
+    viewQuickResult(path) { this.$router.push({ path: '/create/result', query: { path: path || '' } }) },
 
-    // 快速渲染
-    async startQuickRender() {
-      this.quickRendering = true; this.quickProgress = 0; this.quickStage = '开始渲染'; this.quickError = null; this.quickResult = null
-      try {
-        // text 模式调用 AI 视频生成（主进程提交+轮询+下载）；gallery 模式本地 Remotion 图片轮播
-        const res = this.quickMode === 'text'
-          ? await renderStartAiVideo({ prompt: this.quickText.split('\n').filter(l => l.trim()).join('。').trim() })
-          : await renderStart({ props: { cuts: this.quickImages.map((img, i) => ({ id: 'scene-' + i, type: 'anime_scene', images: [img.preview], animation: 'ken-burns', in_seconds: i * 5, out_seconds: (i + 1) * 5 - 0.5 })), theme: this.quickTheme, renderer_family: 'explainer-data' }, profile: this.quickProfile })
-        if (res?.code === 0) { this.quickResult = res.data; this.quickRendering = false }
-        else { this.quickError = formatUserError(res, { fallback: '渲染失败' }).message; this.quickRendering = false }
-      } catch (e) { this.quickError = '渲染异常: ' + formatUserError(e, { fallback: '未知错误' }).message; this.quickRendering = false }
-    },
-    cancelQuickRender() { renderCancel(); this.quickRendering = false },
-    viewQuickResult() { this.$router.push({ path: '/create/result', query: { path: this.quickResult?.outputPath || '' } }) },
-    async aiWrite() {
-      this.aiLoading = true
-      try {
-        const { aiGenerate, modelProviderGetDefault } = await import('@/api/publisher')
-        const def = await modelProviderGetDefault('llm'), providerId = def?.code === 0 && def.data?.id ? def.data.id : null
-        const r = await aiGenerate('llm', providerId, { prompt: '为短视频写一个30秒文案，风格：' + this.quickTheme })
-        if (r?.code === 0 && r.data?.content) this.quickText = r.data.content // P0-1: content 非 text
-      } catch (e) { this.quickError = 'AI 写稿失败: ' + formatUserError(e, { fallback: '未知错误' }).message }
-      finally { this.aiLoading = false }
-    },
     // Remotion 安装
     async installDeps() {
       this.installing = true; this.installLog = ''
@@ -5493,11 +5386,8 @@ export default {
     // 背景音乐素材库（2026-08-14）：静默加载，失败不打扰创作主流程（弹窗打开时再提示）
     this.loadS2VBgmLibrary({ silent: true })
         renderGetStatus().then(s => { this.renderStatus = s?.code === 0 && s.data ? s.data : { ready: false, ipcError: true, message: s?.message || 'IPC 调用失败' } }).catch(() => { this.renderStatus = { ready: false, ipcError: true, message: 'renderGetStatus 异常' } })
-    this.cleanups.push(onRenderProgress((pct, stg) => { if (this.quickRendering) { this.quickProgress = pct; this.quickStage = stg } }))
-    this.cleanups.push(onRenderComplete((res) => { this.quickRendering = false; this.quickResult = res }))
     // 流水线阶段进度实时推送（openspec pipeline-progress-real-time-push）：事件驱动更新，3s 轮询兜底
     this.cleanups.push(onPipelineUpdate((snapshot) => this.handlePipelinePush(snapshot)))
-    this.cleanups.push(onRenderError((err) => { this.quickRendering = false; this.quickError = formatUserError(err, { fallback: '渲染错误' }).message }))
     this.cleanups.push(onRenderInstallProgress(({ text }) => { this.installLog += text + '\n' }))
     // 改写页跳转预填充：加载草稿文案并自动选择流水线
     const rewriteDraftId = this.$route?.query?.draft

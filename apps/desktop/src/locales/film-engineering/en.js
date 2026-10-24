@@ -213,6 +213,33 @@ export default {
     "gb": "{n} GB",
     "mb": "{n} MB"
     },
+    // Asset import (PR-3b · F-J write path): wholesale replacement of the user's own film kit
+    "filmKitImport": {
+      "entry": "Import my film engineering assets",
+      "hint": "Replace the current film engineering assets with your own asset package (wholesale, not merged)",
+      "confirmTitle": "Confirm asset import",
+      "confirm": "Importing replaces the current film engineering assets (shot library / prompt doctrine / task library) as a whole; the old ones cannot be restored automatically. Continue?",
+      "importing": "Importing…",
+      "importingHint": "The import cannot be interrupted — please do not close the app. If the app is force-quit, the next import will clean up the leftover lock automatically.",
+      "success": "Import finished ({count} files)",
+      "failed": "Import failed: {reason}",
+      "cancelled": "Import cancelled",
+      "recover": "Import rollback failed; the old assets are at {path} — please restore them manually",
+      "recoverLock": "An unfinished import is present. If no import is running, check and delete the lock file manually: {path}",
+      "recoverMissing": "The last import did not finish (current assets are missing). Rename the backup directory {path} back to film-kit, then retry",
+      "recoverBak": "The last import left a backup directory {path} — it is safe to delete",
+      "residue": "The import took effect, but there is leftover residue for you to clean up manually",
+      "auditLost": "The import took effect, but the audit result row could not be written (audit is incomplete). Please check disk space and directory permissions",
+      "auditFull": "The audit log is full; please rotate it manually: rename film-kit-import.log to a timestamped backup and create a new empty file with the same name",
+      "reason": {
+        "VALIDATION": "the selected directory does not meet the asset requirements",
+        "LOCK": "an import is already running, or the previous import's lock was not cleaned up",
+        "AUDIT": "the audit log is not writable or is full",
+        "SWAP": "something went wrong while replacing the assets (current assets are unaffected)",
+        "PERM": "the target directory is not writable",
+        "UNAUTHORIZED": "the caller is not authorized"
+      }
+    },
     "canvas": {
       "title": "Film Canvas",
       "subtitle": "Fill in the script, wire reference images, split into shots and drive to the final film in one click.",

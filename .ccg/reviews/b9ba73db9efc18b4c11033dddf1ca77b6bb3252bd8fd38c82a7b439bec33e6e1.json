@@ -1,0 +1,61 @@
+{
+  "sha": "41635b3348ed5b59a5c1d0a20ba251e521a1ef09",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| i8 | Info / completeness | \"§八『明确不做』缺失『不引入 images-manifest.json 契约』『不处理压缩包/网络下载』『不做增量/差分合并』三条.\" / \"补充三行.\" | **成立·已改**：§八 补齐（含**不自动清理陈旧锁**、**不做窗口级/组件级授权**两条本轮新增的不做项） | §八 |",
+      "3. **授权边界**：窗口级/组件级授权**不在本批**，处置**只写在 §四 取舍③**（此处不重复）。本批做法 = `withSenderCheck` + **审计**（含 sender 路由，S20 **只做审计增强、不作拒绝依据**）。",
+      "3. **授权边界**：窗口级/组件级授权**不在本批**，处置**只写在 §四 取舍③**（此处不重复）。本批做法 = `withSenderCheck` + **S20 的 sender 路由前缀硬断言**（路由不在 `/film-engineering` ⇒ 拒绝）+ 全量审计。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b9ba73db9efc18b4c11033dddf1ca77b6bb3252bd8fd38c82a7b439bec33e6e1",
+  "decidedAt": "2026-10-22T23:41:58.416Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

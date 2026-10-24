@@ -1,0 +1,62 @@
+{
+  "sha": "68664cda829ce2fc10b1a9374edd586e7c4ac4da",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 625 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 625,
+    "fileCount": 16,
+    "codeFileCount": 8,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T17:19:47.322Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": null,
+    "requiresExternalReview": [],
+    "findings": null,
+    "template": null,
+    "note": null,
+    "at": null,
+    "closureNote": "【第 2 轮 / 外部 critic 真跑过（critique=claude，fingerprint 49325d0d49dcec88，3 条 Warning）—— 由仓库所有者授权后由 agent 代为回写为 self_play_resolved】外部评审**真实跑过**：critic=claude，交付 3 条 Warning；逐条裁决与落点**逐条写在仓内可核的记录里**（`openspec/records/ux-audit-offline-live.md` §三「QM-6 第二轮评审处置」）：\n- i1「复核/初始读回没有序列标记，乱序落地会把已确认的离线改回在线」→ **dismissed**（已在上一轮修掉，本轮是对旧 tip 的重复）\n- i2「恢复时整个 live region 被 `v-if` 移除，『已恢复』这半边不会被读屏播报」→ **upheld，已修**（`role=status`/`aria-live` 改挂常驻 region）\n- i3「`disposers` 从不 push，清理是空操作，window 监听跨用例泄漏」→ **dismissed**（`useOfflineStatus.live.test.js:57` 已有 `disposers.push(api.dispose)`，有 afterEach 清理）\n\n反证总数：`node scripts/offline-live-contract-mutate.js` **18 条 ALL_CAUGHT**（记录 §三末行）。\n\n`tier=external` 的含义：**外部评审确实跑过，且逐条处置在仓内可核** —— evidence 指向本记录（它在本 PR 的变更集内，路径形态可被门禁核到）。引擎原始产物在 gitignored 的 `.adversarial/` 下、不随提交入库，所以把**记录**作为可核出处；这不代表引擎写过闭环词。\n`findings` 保持 null（引擎未产出结构化 findings；逐条结论在记录里）。\n**由仓库所有者授权处理需要人判断的项后，agent 代为回写。**",
+    "tier": "external",
+    "evidence": "openspec/records/ux-audit-offline-live.md"
+  }
+}

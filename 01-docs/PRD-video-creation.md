@@ -1888,6 +1888,60 @@ SettingsDialog 关闭（App.vue @close）
 9. **启动门禁**：`missing`/`unusable` 时 `canStartPipeline=false`，`pipelineBlockedReason` 依次给 `blockedReason.bgmLost` / `bgmUnusable`；`handleStartPipeline` 在有历史路径时先 `await` 一次核验；`unknown` 永不阻断。compose 的 `bgmSkipped` 降级语义保留为最后防线。
 10. **验收增补**：面板测试断言分组归属与三种状态渲染；壳测试断言 missing 阻断+清除恢复、adopt 后自动选中、unknown 不阻断、声音摘要含 BGM；服务层 `inspectPath` 判定矩阵 8 例、IPC 2 例、preload/权限 1 例、composable 6 例；locale zh/en 成对且无新增硬编码中文。完整合同见 `01-docs/PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`。
 
+### 3.1.42 快速渲染接入 Agnes Video 2.5 Flash 全能力（模式 / 素材 / 参数 / 真实进度）（2026-10-23）
+
+**需求来源**：`agnes-multimodal` 适配器**已完整实现 Agnes Video 2.5 Flash 协议**（text / keyframe / reference 三模式、首尾帧、参考图 ≤5、参考音频 ≤3、seconds、aspect_ratio、seed），但产品上**一个都不可见**——快速渲染页只有「文案生成 / 图片轮播」两个 tab，AI 视频路径只传 `prompt`，其余能力全部在链路上被丢弃。同时暴露两个当下就在冒烟的缺陷：**「输出平台」下拉在 AI 视频路径上完全失效**（选了 YouTube 横屏也出竖屏），**AI 视频进度条不反映真实进度**。
+
+**根因**：
+
+1. **参数在三层被丢弃**：① `story2video-stages.js` 的 `generateSceneVideo` 提交时只传 `{ prompt, model, width, height, numFrames, frameRate }`，`mode` / `images` / `audios` / `first_frame` / `last_frame` / `seconds` / `aspect_ratio` / `seed` 全部不传；② IPC `render:start-ai-video` 契约只有 `{ prompt }`，宽高/时长在主进程**硬编码**（720×1280 / 8s / 30fps）；③ 渲染层无对应 UI 入口。
+2. **「输出平台」失效**：该下拉只在 gallery 模式被消费（传给本地 Remotion），AI 视频路径压根没传画幅，成片恒为 9:16。
+3. **进度条失真（两层原因）**：① 主进程只在提交前推一次进度，轮询期间无回调；② **载荷形状不匹配**——preload 的 `onRenderProgress` 把 IPC 载荷**原样**传给回调（`(_e, p) => callback(p)`），主进程发的是 `{ percent, stage }` **对象**，而渲染层按 `(pct, stg)` 两个位置参数解构 ⇒ `pct` 拿到的是整个对象。
+
+**合同**：
+
+1. **模式集合**：快速渲染的 AI 视频模式扩为 3 个 + 本地 1 个：
+   - `文生视频`（`mode=text`）：不带任何素材；
+   - `首尾帧`（`mode=keyframe`）：首帧 / 尾帧**至少一个**；
+   - `参考素材`（`mode=reference`）：参考图 / 参考音频**至少一类**；
+   - `图片轮播`：本地 Remotion 路径，不调 AI 视频模型（语义不变）。
+2. **能力由模型属性决定**：能力描述单一真源 `electron/services/adapters/agnes-video-models.js`（按模型 ID 给出尺寸档位 / 素材上限 / 是否支持参考视频 / 合法画幅）。**未知模型 ⇒ 保守回落（只支持文生视频）**。判据落在**模型的能力属性**上而非「providerId 名单」——名单判据对新增对象默认不成立。
+3. **参数区**：输出平台（6 个）→ 画幅映射（6 个合法 `aspect_ratio`）；时长 4–12 秒；随机种子（**0 是合法值**，不得被当作空值丢弃）；分辨率档位（单档位时控件禁用并显示该档位）。
+4. **素材上限（客户端预校验，不发无谓请求）**：参考图 ≤5、参考音频 ≤3；单文件体积：参考图 ≤5MB、参考音频 ≤10MB（Base64 膨胀约 33%，为单请求 50MB 上限留余量）。
+5. **模式 ↔ 媒体契约**（渲染层与主进程**共用同一判据** `packages/shared-utils/src/agnes-video-request.js`）：text 禁媒体 / keyframe 至少一首尾帧且禁参考素材 / reference 至少一类素材且禁首尾帧。违规返回**领域码**（如 `keyframe-requires-frame`），渲染层据此取本地化文案，**不把英文码原样透给用户**。
+6. **真实进度**：进度经既有 `render:progress` 通道由**主进程 push**（提交 2% / 排队中 / 生成中 / 下载 90% / 完成 100%）。**百分比如实透传服务端 `progress`，不伪造连续增长**（服务端只有 10 / 100 两档）；「排队中 / 生成中」按服务端**原始状态**区分（归一化后两者都是 `processing`）。进度来源是主进程 push 而非前端轮询——切到其它 tab 视为离开创作页、须停前端轮询（既有 spec `s2v-start-foreground-tracking`）。
+7. **取消语义**：`renderCancel` 只取消**本地 Remotion 渲染**（图片轮播路径）；上游未公开任务取消端点 ⇒ AI 视频的【取消】只停本地等待，并**如实提示**「远端任务可能仍在生成」。
+8. **模块归属**：`generateSceneVideo` 及其依赖抽到 `electron/services/scene-video-generator.js`（`story2video-stages.js` 在「点名还账」清单里、target=4081 容差 0，加行即打红主干 ⇒ 抽出还债，净减 173 行；`CreateView.vue` 同理净减 109 行）。
+9. **i18n**：新增文案全部走 `create.story2video.ui.quick*`（zh/en 成对）；渲染端**零新增硬编码中文**（CJK 门禁按 file+content 增量比对基线，新文件里的中文即视为新增硬编码）。
+10. **验收边界**：真实 AI 视频生成依赖已配置的视频供应商与真实第三方服务，属外部验收；本地单测覆盖 IPC 契约、参数校验、能力描述、进度载荷形状与渲染层行为。
+
+**未做（明确边界）**：参考视频（Flash 服务端硬拒 `videos is not supported`，需非 Flash 模型 + 公网素材托管，另立 change）；`n > 1`（服务端仅支持 1）；`width/height/fps/num_frames` 直传（非 Flash 2.5 会 400）；`negative_prompt`（2.5 Flash 拒收该字段）。
+
+### 3.1.43 参考视频 + 非 Flash 模型 + 生成成本可见（2026-10-23）
+
+**需求来源**：`agnes-video-2.5-flash` **服务端硬拒**参考视频（400 `videos is not supported`），而支持它的 `agnes-video-2.5` 在产品上完全没露出来（模型种子、模型清单、UI 三处都没有）；同时非 Flash 按秒计费，且**输入视频的秒数与输出秒数相加**——8 秒输出 + 3 秒参考视频 = 11 秒 × ¥0.15 = ¥1.65，比不带参考视频的 ¥1.20 **多 37%**，而此前成本**完全不可见**。
+
+**合同**：
+
+1. **模型暴露**：模型种子与模型清单加入 `agnes-video-2.5`（720P/1080P/1K/2K、参考图 ≤8、参考视频 ≤1）。**能力与端点解耦**——端点仍由用户在「模型设置」里配置。
+2. **参考视频**：参考素材模式的第三类素材，**仅当模型能力声明 `supportsReferenceVideo` 时渲染**（UI 里不出现模型名）。以 Data URI 提交；客户端把关：单文件 ≤20MB、类型限 mp4/mov/webm/mkv、数量按能力上限。
+3. **成本可见**：显示「输出秒数 × 档位现行单价」；现行价 ¥0（限时免费）时显示「限时免费」而非 ¥0.00；有参考视频时追加「其时长另计」——**时长客户端读不到**（需 ffprobe）⇒ 不虚报总额。
+4. **计费口径来源**：能力描述（`agnes-video-models.js`）随能力一起下发 `prices` / `listPrices`，渲染层据此算，**不另抄单价**。
+
+**验收边界**：参考视频的 Data URI 形态与非 Flash 的端点可用性**均未实测**（见执行记录的待实测清单）；被拒时的回退是改走公网素材托管（OSS PUT 原语已在 `podcast-hosting-upload.js` 备好）。
+
+### 3.1.44 视频任务编辑页「生成 AI 视频」接入场景已选定的图（2026-10-23）
+
+**需求来源**：编辑页重新生成某场景的 AI 视频时只带提示词，而**该场景已选定的图片不参与生成** ⇒ 人物/商品跨镜头一致性无法保证。
+
+**合同**：
+
+1. **落点**：视频任务编辑页 →「生成 AI 视频」。该场景的图由用户在编辑页挑过，**一定存在** ⇒ 零额外图片生成、零串行化、零成本。
+2. **能力分流**：模型支持 `keyframe` ⇒ 首帧锁构图；只支持 `reference` ⇒ 参考图；都不支持 ⇒ 纯文本（行为与引入前一致）。读能力**属性**，不读 providerId 名单。
+3. **读图三道防线**：受控媒体根（拒绝越界 / 软链接 / 非文件 / 扩展名不符）→ 体积 ≤5MB（Base64 膨胀约 33%，为上游单请求 50MB 留余量）→ **魔数嗅探**（只信内容不信扩展名）。任一关不过 ⇒ 降级为纯文本 + 可归因 reason，**不阻断该段生成**。
+
+**范围边界（2026-10-23 核实）**：**主流水线不做**该能力——视频场景根本不生成图片（图片只是视频失败时的回退），且视频提交早于该分镜图片的生成请求（manual 模式同理）⇒ 任何模式下视频生成时该分镜的图都不存在。要让它存在需把资产策略改成「每个视频场景也先生成图 + 该段视频等这张图」（多出 V 次图片生成 + 阶段内串行化），与 2026-08-13 的并行优化直接冲突 ⇒ **属产品决策，未做**。
+
 ### 3.1.26 视频任务编辑页场景多素材选择与再次合成（2026-08-14；2026-08-20 布局与交互修订）
 
 **需求**：「视频创作-历史记录 → 视频任务编辑页」每个场景固定展示 4 个视觉卡：**图1 / 图2（备选图）/ 视频1 / 视频2（两个视频显示位）**；底层仍只有 3 个持久化素材身份 `image1 | image2 | video`。新增按钮【生成新图】【生成 AI 视频】（生成更多素材供选择）与【再次合成视频】（用当前选定素材 + 已有 TTS 旁白/字幕/背景音乐重新合成成片）；流水线完成后即可从视频任务编辑页继续生成、预览、选择素材并重新合成。其余既有功能（分段编辑、替换旁白、重试、重新合成、导出等）保持不变。
@@ -3683,3 +3737,457 @@ provider 显示名集中维护：minimax-multimodal、minimax-image 显示为 Mi
 
 
 
+
+## 12. AI 讲解视频（animated-explainer）离线可复跑与四处缺陷收口（2026-10-23）
+
+### 12.1 目标与范围
+
+「视频创作 → AI 讲解视频」（流水线 `animated-explainer`）此前只能在**配齐付费 API Key、且设备能访问模型服务**的前提下端到端跑通，导致两个后果：① 流水线八段链路（研究 → 方案 → 文案 → 分镜 → 素材 → 剪辑 → 合成 → 发布）无法被**自动**回归，改一处素材/合成逻辑只能靠人工点界面；② 出了问题（例如成片没有旁白）只能在真实账号上复现，代价高。
+
+本次目标：
+1. 让 `animated-explainer` 具备**零凭据、零外网**的端到端复跑能力（本地 Provider 桩 + CDP 驱动），并把「跑通」变成**可断言的**（成片存在 / 可播放 / 规格合规 / 音轨非静音）。
+2. 借这次复跑，定位并修复流水线链路上**四个真实缺陷**（见 §12.8），其中两个是**会命中真实用户**的：默认音色下成片完全无旁白、本地模型服务商被强制要求 API Key。
+3. 把本次的能力边界、判据与遗留项写进本 PRD，供后续维护者复现与审阅。
+
+**范围边界**：本次不新增任何用户可见的流水线能力，不改 `animated-explainer` 的阶段划分与产线口径，不改 UI 交互形态；新增物全部落在**开发/自测侧**（`apps/desktop/tests/e2e/**`、`apps/desktop/scripts/**`）与**模型服务商的凭据判定**（`model-provider-manager.js`）。UI 侧唯一的可见变化是「本地回环服务商不再被要求填 API Key」。
+
+### 12.2 数据合同与校验
+
+#### 12.2.1 流水线启动入参（`pipelineStartOrchestrated`）
+
+| 键 | 类型 | 校验 | 缺省 / 失败回退 |
+|---|---|---|---|
+| `text` | string | trim 后非空；空则 UI 层拦截（`canStartPipeline`） | 主进程侧 `explainer_research` 阶段再校验一次，失败即 `success:false` |
+| `inputMode` | `'text'` | 固定值 | — |
+| `checkpointPolicy` | `'none'` \| `'manual_all'` \| `'auto_noncreative'` | `'none'` ⇒ 全程无人工暂停 | 缺省走 `stageDef` 的 `checkpointRequired`（本流水线全为 false） |
+| `autoAdvance` | boolean | false ⇒ 跑完当前阶段即挂起等 `advanceToNextCheckpoint` | — |
+| `background` | boolean | true ⇒ IPC **立即返回 runId**，推进在后台进行 | false ⇒ IPC 阻塞到本轮结束 |
+| `resolution` | `'1920x1080'` \| `'1280x720'` \| … | 受 `validateResolution`（像素上限）与 `validateResolutionCapability`（运营开关 1080p/4k）**双重**校验 | 缺省 `1920x1080` |
+| `aspectRatio` | `'16:9'` \| `'9:16'` \| `'1:1'` | 供出图换算像素尺寸 | 缺省 `'16:9'` |
+| `fps` | number | 1..120 | 缺省 30 |
+| `format` | `'mp4'` \| `'webm'` | — | 缺省 `mp4` |
+| `subtitleEnabled` | boolean | 仅影响合成期是否烧录字幕 | 缺省 false |
+
+**并发闸**：设备上同时运行的流水线达到上限（默认 2）时，启动被拒，`errorCode = PIPELINE_CONCURRENCY_LIMIT`，`errorParams = { count, max }`。这是**正常的容量保护**，调用方应当**等待后重试**而不是判定为失败。
+
+#### 12.2.2 模型能力前置校验（`checkPipelineModelRequirements`）
+
+`animated-explainer` 申报的能力需求为 **LLM + IMAGE**（TTS 不申报）。
+
+| 能力 | 解析方式 | 通过条件 | 缺失时 |
+|---|---|---|---|
+| LLM | 未显式指定 → `ModelProviderManager.getDefault('llm')` | 命中任一 `enabled=1` 的 llm provider，且**有可用 Key 或属于回环免 Key** | `PIPELINE_MODEL_REQUIREMENTS_MISSING`，`errorParams.missing = ['llm']` |
+| IMAGE | 同上，取 `'image'` | 同上 | `errorParams.missing = ['image']` |
+| TTS | 不申报 | — | 不拦截；TTS 走「默认 provider → Edge TTS → 静音兜底」链路 |
+
+用户可见文案（`locales/story2video/zh.js` 的 `models_required`）：
+
+> 启动前置校验未通过：缺少{能力中文名}。请到「模型设置」中添加对应模型后重试。
+
+能力中文名映射：推理模型 / 图片生成 / 视频模型 / TTS语音 / 语音识别。
+
+#### 12.2.3 本地 Provider 桩的协议契约
+
+桩严格复刻真实服务商协议，**桌面端适配器零改动**即可对接：
+
+| 桩 | 协议 | 请求 | 响应 | 对应适配器 |
+|---|---|---|---|---|
+| LLM 桩 | OpenAI 兼容 | `POST {base}/chat/completions`，体含 `{model, messages, temperature, max_tokens}` | `{choices:[{message:{content}, finish_reason}]}` | `adapters/openai.js` / `adapters/ollama.js`（薄包装 OpenAICompatible） |
+| 图片桩 | Stable Diffusion WebUI | `POST {base}/sdapi/v1/txt2img`，体含 `{prompt, width, height, steps, sampler_name}` | `{images:[base64png]}` | `adapters/local-diffusion.js` |
+| 图片桩连活探针 | 同上 | `GET {base}/sdapi/v1/options` | `{sd_model_checkpoint, samples}` | `local-diffusion.testConnection` |
+
+**阶段路由**：LLM 桩按**阶段 system prompt**（而非用户输入）判定当前阶段 —— `结构化的讲解视频大纲` → research、`分镜方案` → proposal、`逐段旁白文案` → script、`视频场景` / `严格的 JSON 输出助手` → scenes。判据必须只认 **system 消息**：scenes 阶段的 user 消息里含「旁白文案」字样，若连 user 消息一起匹配就会被误判成 script。
+
+**文案基准**：`tests/e2e/fixtures/explainer-copy.json` 是四个阶段输出的**单一事实源**。桩按阶段返回对应字段；scenes 字段返回 `JSON.stringify(scenes)`，其元素形状固定为 `{prompt, text, duration}`。
+
+**出图画幅**：桩必须**消费 width/height**并按其渲染；`local-diffusion` 适配器的画幅契约是「显式 width/height 优先，未给时按 `aspect_ratio` 换算」，桩收到的已是换算后的像素值。
+
+#### 12.2.4 卡片版面的标题安全区（本地出图必须遵守）
+
+合成引擎默认动效 `zoom-in` 的实现是 `1+0.25*progress` 的**居中**缩放（`story2video-compose-engine.js` 的 `buildImageEffectFilter`），即画面在场景内从 1.0 放大到 **1.25** 倍并居中裁切 —— 左右各被裁掉 `(1 - 1/1.25) / 2 = 10%`。
+
+因此：**任何本地出图 Provider 生成的画面，其文字/主体必须距左右边缘 ≥ 10% 画幅**。本地桩的边距取 **13%**（留 3% 余量）。违反该约束的实测症状：成片里「好消息是」被裁成「消息是」——首字丢失且**不报任何错**。
+
+#### 12.2.5 成片校验（复跑断言）
+
+| 断言 | 判据 |
+|---|---|
+| 成片存在 | `context.compose.videoPath` 指向的文件在磁盘上存在 |
+| 成片是视频 | 扩展名 ∈ {mp4, webm, mov, mkv}。**不得**用泛用键 `path` 匹配后当作成片 —— compose 产物结构里同时挂着素材图（`imagePath`）与分段视频（`videoPath`），泛用匹配会先命中 `img_0000.png`，产生「成片是 PNG」的假阳性 |
+| 可播放 | `ffprobe` 能读出视频流 |
+| 规格 | 视频流存在且宽高 > 0 |
+| 有声 | 存在音频流（`hasAudio`）。**仅有音频流不足以证明有旁白** —— 静音兜底同样产出音频流 |
+| 非静音 | 音轨 `mean_volume` 显著大于 -91 dB（ffmpeg 数字静音下界）。实测真实旁白 `mean_volume = -19.7 dB / max_volume = -2.9 dB` |
+| 时长 | 与「场景数 × 场景时长」量级相符；纯静音兜底下每场景固定 3.0s（总时长 = 3 × 场景数），真实旁白下每场景时长随文案长度变化 |
+
+### 12.3 流程逻辑（八阶段与产线口径）
+
+| # | 阶段 | stage `type` | 产出 | 检查点 | 关键说明 |
+|---|---|---|---|---|---|
+| 1 | research | `explainer_research` | `research_brief` | 否 | 主题 → 结构化解说大纲（3-6 个要点） |
+| 2 | proposal | `explainer_proposal` | `proposal_packet` | 是 | 大纲 → 分镜方案 |
+| 3 | script | `explainer_script` | `script` | 是 | 分镜方案 → 逐段旁白文案（段落间空行分隔） |
+| 4 | scenes | `explainer_scenes` | `scenes` | 是 | 文案 → 场景数组 `{prompt, text, duration}`，**上限 30 个**；JSON 解析失败先做一次「修复为严格 JSON」重试，仍失败则按行级兜底拆分 |
+| 5 | assets | `explainer_generate_assets` | `asset_manifest` | 是 | 复用 `story2video_generate_assets`：并行出图（并发 3）+ 旁白合成（含内容政策重试）。图片 provider / 音色 provider **未显式指定时自动取模型设置里的默认 provider** |
+| 6 | editing | `explainer_editing` | `asset_manifest` | 是 | 校验并透传：资源清单非空即通过（真实动效/转场由合成引擎执行） |
+| 7 | compose | `compose`（内置） | `render_report` | 是 | `inputFrom: assets` → `serviceBus.composeVideo` → ffmpeg 合成引擎 |
+| 8 | publish | `publish`（内置） | `publish_log` | 是 | `inputFrom: compose`；未选平台时跳过 |
+
+**阶段推进契约**：`_autoAdvanceRun` 循环执行 `while (run.status === 'running')`；阶段失败 ⇒ 发 `stage:fail` + `pipeline:fail` 并把 run 收敛为 `failed`；遇人工检查点 ⇒ run 置 `paused` 并发 `checkpoint:pause`；全部完成 ⇒ `completed`。
+
+**失败即终止**：任一阶段失败后，后续阶段保持 `pending`，不继续执行。失败信息同时进 `snapshot.error` / `snapshot.errorCode` / `snapshot.errorParams` 与该阶段的 `stage.error`。
+
+**compose 阶段的关键约束**：
+- 素材路径必须在**受控媒体根**内（默认 `os.tmpdir()/story2video` + `process.cwd()` + userData 下的项目/素材库目录），否则报 `SCENE_MEDIA_UNREADABLE`。
+- 每个场景必须同时具备**图片（或视频）与音频**，否则报 `SCENE_AUDIO_UNREADABLE`。
+- 产物路径：分段 `s2v_<ts>_<seq>_segments/segment_NNNN.mp4` → 合并 `s2v_<ts>_<seq>/output.mp4` → **成片 `s2v_<ts>_<seq>_output.mp4`**；旁白音轨 `s2v_<ts>_<seq>_narration.m4a`。
+- 分段转场 `transition: fade`（时长 0.4s），画面动效 `imageEffect: zoom-in`（见 §12.2.4）。
+
+**运行期参数与 stageDef 的关系（易踩）**：运行期参数经 `resolveRuntimeStageOptions` 按**阶段名**注入。本流水线的素材阶段名叫 `assets`（不是 `generate_assets`），因此 `params.imageProvider` / `params.voiceId` / `params.aspectRatio` **不会**注入该阶段；素材阶段的 provider 由 `explainer_generate_assets` 执行器自己从「模型设置的默认 provider」解析。`compose` 阶段的 `resolution/fps/format` 则**会**被运行期参数覆盖。
+
+### 12.4 交互逻辑
+
+#### 12.4.1 UI 驱动（DOM）
+
+1. 路由 `#/create`（hash 模式；`/create/pipeline` 重定向到 `/create`）。
+2. 选流水线：点击 `[data-pipeline-id="animated-explainer"]`（卡片标题「AI 讲解视频」，描述「从主题或创意自动生成完整讲解视频」）。
+3. 填主题：`.input-area textarea.form-textarea`。**Vue `v-model` 必须写 `.value` 后再 `dispatchEvent(new Event('input', {bubbles:true}))`**，只赋值不派发事件则 `pipelineText` 不会更新。
+4. 启动：点击 `[data-testid="start-story2video"]`。按钮可用性闸 `canStartPipeline` 对本流水线要求**主题 trim 后非空**。
+5. 启动前会经过**登录门**（`ensureLoginForStart` → `useLoginGate.ensureLogin`）：已登录直接放行；身份服务 `disabled`/`error` 时提示并拒绝；未登录则弹确认框走 OAuth。
+
+> **实测（2026-10-23，CDP 驱动真实界面）**：身份服务处于「未启用」态时，**UI 路径点【启动流水线】不会启动流水线** —— 登录门按 `status === 'disabled'` 弹提示后返回 `false`，`startPipeline()` 根本不被调用。这是既有安全策略（未接入身份服务时不允许发起需要身份的主动操作），**不是缺陷**。
+> 而 **API 路径（`pipelineStartOrchestrated`）不受这层登录门约束**：它只看 IPC 访问级别，未打包运行（`app.isPackaged === false`）时主进程直接给 `admin`。
+> 两条路径的差异必须分清，否则会把「UI 跑不通」误判成流水线缺陷、或把「API 跑得通」误当成登录门失效。
+
+> **导航实测**：**只改 `location.hash` 不足以切到视频创作页** —— 实测把 hash 置为 `#/create` 后 `location.href` 确实变了，但视图仍停在首页（壳层不响应这次 hash 变更）。真实用户路径是点侧边栏的「视频创作」入口 `[data-testid="mp-primary-create"]`，那才会挂载 `CreateView` 并出现流水线卡片。CDP 驱动必须走这条路径。
+
+#### 12.4.2 API 驱动（编排入口）
+
+`window.electronAPI.pipelineStartOrchestrated('animated-explainer', params)` → 返回 `{code:0, data:{success:true, runId}}`；`background:true` 时**立即**返回。
+
+进度观察：`window.electronAPI.pipelineGetRunContext(runId)` → `{status:{status, currentStage, progress}, stages[], context{}, error, errorCode, errorParams}`，终态 `status ∈ {completed, failed, cancelled}`。另有 `pipeline:update` 推送通道（`onPipelineUpdate`）。
+
+**权限**：非 `public` 通道需要 `authenticated` 级。**未打包运行（`app.isPackaged === false`）时主进程返回 `admin`**，免登录可用；**但身份服务一旦启用**，主进程以身份状态为准（`authenticated` / `offline_authenticated` 才算通过），此时未登录会被拒。两条判据必须分清，否则会把「dev 模式应当免登录」当成无条件成立。
+
+#### 12.4.3 CDP 驱动（本地复跑专用）
+
+用**原生 WebSocket** 直连 `http://127.0.0.1:<cdpPort>/json/list` 里 url 以 `http://127.0.0.1:<vitePort>` 开头的 page target，再发 `Runtime.evaluate`（`awaitPromise:true, returnByValue:true, userGesture:true`）。
+
+> 不用 Playwright 的 `connectOverCDP`：本仓 Electron 43 上实测侧握手稳定超时（15s × 6 次全 timeout），而原生 WebSocket 直连完全正常。点击一律走 DOM `.click()`，与既有 E2E 驱动一致。
+
+CDP 握手需 Electron 侧带 `--remote-allow-origins=*`（本仓 dev 启动器已有 `MP_CDP_ALLOW_ALL_ORIGINS=1` 开关）。
+
+### 12.5 显示项与提示文字
+
+#### 12.5.1 阶段显示项
+
+阶段中文名（`locales/pipelines/zh.js` 的 `stages`）：
+
+| 阶段 | 显示名 | 阶段 | 显示名 |
+|---|---|---|---|
+| research | 内容调研 | assets | 素材准备 |
+| proposal | 方案提议 | editing | 剪辑 |
+| script | 脚本撰写 | compose | 视频合成 |
+| scenes | 分镜规划 | publish | 发布 |
+
+流水线卡片显示名「AI 讲解视频」，分类「AI 生成」，描述「从主题或创意自动生成完整讲解视频」。
+
+#### 12.5.2 阶段进度提示文字（`locales/stage-progress/zh.js`）
+
+| 阶段 | 进行中 | 完成 | 摘要 |
+|---|---|---|---|
+| research | 正在生成解说大纲… | 解说大纲生成完成 | 已生成解说视频大纲 |
+| proposal | 正在生成分镜方案… | 分镜方案生成完成 | 已生成解说视频分镜方案 |
+| script | 正在生成旁白文案… | 旁白文案生成完成 | 已生成逐段旁白文案 |
+| scenes | 正在拆分视频场景… | 视频场景拆分完成 | 已拆分为 {count} 个视频场景 |
+| assets | 正在准备素材 · 图片 {images}/{imagesTotal} · 视频 {videos}/{videosTotal} · 旁白 {tts}/{ttsTotal}（出图/出视频/出旁白各有细粒度变体，含「正在改写敏感提示词并重试」） | 素材生成完成 | 已生成 {done}/{total} 项素材 |
+| compose | 正在合成片段 {done}/{total} · {percent}% / 视频合成 {percent}% | — | — |
+| editing | （无独立进度键，直接透传资源清单） | — | — |
+| publish | 正在发布到 {platform} · {done}/{total} | — | — |
+
+> 说明：只有 research / proposal / script / scenes 四个 LLM 阶段有 **explainer 专属**文案键；
+> assets / editing / compose / publish 走**通用**的 Story2Video 阶段文案（`assetsStarting` / `assetsImage` /
+> `assetsVideo` / `assetsTts` / `assetsComplete` / `composeSegments` / `composeVideo` / `publishing`）。
+> 这是既有实现，本次未改；它的代价是：用户在这条流水线上看到的是「正在准备素材」这类通用措辞，
+> 而看不到「解说」语境下的专属提示。
+
+#### 12.5.3 状态枚举显示名
+
+待开始 / 等待中 / 进行中 / 已完成 / 已跳过 / 失败 / 需要用户输入 / 已暂停 / 等待确认 / 已取消。
+
+#### 12.5.4 失败与降级的可见性（本次重点收口项）
+
+| 情形 | 用户可见现象 | 本次收口 |
+|---|---|---|
+| 音色参数是占位值 `'default'` 且无 TTS provider | **成片完全没有旁白**，界面无任何异常提示（只有主进程日志一行 WARN） | 已修（§12.8 ②）：占位值统一判为「未指定」，回落到真实音色名 |
+| 旁白整体降级为静音 | 成片能播，但每场景固定 3.0s、无声 | 本次新增断言：`hasAudio` **且** `mean_volume` 显著大于 -91 dB 才算「有旁白」 |
+| 本地服务商被要求填 API Key | 「模型设置」里填不进本地端点的 Key（safeStorage 不可用时直接 `CRYPTO_UNAVAILABLE`） | 已修（§12.8 ①） |
+| 素材图被 zoom-in 裁掉边缘文字 | 成片里首尾字缺失，**不报错** | 本次新增「标题安全区」契约（§12.2.4）与版式实现 |
+
+### 12.6 测试与验收矩阵
+
+| 层级 | 必测场景 | 载体 |
+|---|---|---|
+| 桩单测 | 阶段路由四态 + 修复提示词；user 消息不得参与路由；基准文件缺字段即抛错；场景 prompt 精确匹配；中文折行不丢字；LLM 端点返回 OpenAI 兼容结构；scenes 阶段返回可直接解析的 JSON 数组；图片端点返回 PNG 魔数 + 尺寸符合请求 | `apps/desktop/tests/local-provider-hub.test.js`（vitest） |
+| 驱动单测 | `--key=value` / `--key value` 两种参数写法；成片路径发现只认视频扩展名；优先顶层成片而非素材图；不存在文件不得被当成成片；ffprobe 读出视频/音频流/时长 | `apps/desktop/tests/animated-explainer-cdp.test.js`（vitest） |
+| 免 Key 判据单测 | ollama / local-whisper 回环免 Key；**远端端点仍必须 Key**；回环判定对 `127.0.0.1` / `localhost` / `::1` / 空值成立、对 `https://api.openai.com` 与 `http://10.0.0.5` 不成立 | `apps/desktop/electron/services/model-provider-local-no-key.test.js`（vitest） |
+| 音色占位单测 | `default` / `male` / `female-soft` 一律判为「未指定」；真实音色名原样保留；edge-tts 路径不得把占位值传给 edge-tts | `apps/desktop/electron/services/asset-generator.test.js`（vitest） |
+| 启动器单测 | 口令存储后端白名单与非法取值抛错；未设置时不下发开关；`--password-store=` 保持末位为应用路径；dev.js 接线锁与留痕锁 | `apps/desktop/scripts/dev-launcher.test.js`（node --test） |
+| dev.js 一次性守卫 | Electron 至多启动一次（源码级性质锁） | `apps/desktop/scripts/dev-launcher.test.js`（node --test） |
+| 端到端 | 两轮连续复跑均产出**带非静音人声**的 MP4；ffprobe 规格合规；阶段全部 `completed` | `apps/desktop/tests/e2e/animated-explainer-cdp.js` |
+
+### 12.7 复跑操作手册（无凭据 / 无外网模型）
+
+前置：Node 22、Python 3.11+（含 `edge-tts`）、ffmpeg/ffprobe、系统 CJK 字体、本地 X 显示（无头用 Xvfb）。
+
+**Linux 上的依赖注意**：仓库根 `.npmrc` 把 `supported-architectures` 钉在 `win32`（Windows 优先，避免在 Windows 机器上下载 Linux/macOS 的可选依赖）。在 Linux 上复跑时需要额外装上 Linux 侧的可选原生依赖（rollup / esbuild 等），否则 Vite 起不来；本机复跑时是在 worktree 内**临时**放开该键（`supported-architectures[os]=linux`）后安装的，**该临时改动未入库**（它会改变所有 Windows 开发者的安装体积，属另一件事）。
+
+1. 起本地 Provider 桩：`node apps/desktop/tests/e2e/lib/local-provider-hub.js`（见该文件导出，默认 8787 / 7860）。
+2. 起桌面端（开发模式，CDP 端口由 `MP_CDP_PORT` 指定），确保 `--remote-allow-origins=*`（`MP_CDP_ALLOW_ALL_ORIGINS=1`）。
+3. 跑：`node apps/desktop/tests/e2e/animated-explainer-cdp.js --cdp-port=<cdp> --vite-port=<vite> --runs=2 --resolution=1280x720 --out-dir=<out>`。
+4. 产物：`explainer-run-N.mp4` + `explainer-cdp-report.json`（含每轮 runId、阶段状态、成片路径、ffprobe 规格）。
+
+**Linux 无头环境的两个必备开关**：
+- `MP_ELECTRON_PASSWORD_STORE=basic`：无头容器没有 gnome-keyring/kwallet，Chromium 的 `basic_text` 后端在 Linux 上**不算加密**，`safeStorage.isEncryptionAvailable()` 恒为 false ⇒ 模型 API Key 存不进去（`CRYPTO_UNAVAILABLE`）。`basic` 是唯一不依赖守护进程的后端。
+- 身份服务需处于「未启用」态（`config/identity-public.json` 的 `identityAuthEnabled: false`）：身份服务启用时主进程以身份状态为准，未登录拿不到 `authenticated` 级，`model-provider:update` 与 `pipeline:startOrchestrated` 都会被拒。
+
+### 12.8 本次修复的四个缺陷
+
+#### ① 本地服务商被强制要求 API Key（`model-provider-manager.js`）
+
+- **现象**：内置预置「Ollama (本地)」「本地 Whisper」在管理器里被要求必须填 API Key，而它们自己的适配器契约写明「apiKey 可空」；在 safeStorage 不可用的环境里连假 Key 都存不进去。
+- **第一性原因**：免 Key 判据写成**硬编码服务商 id 白名单**（`piper / local-diffusion / comfyui`），而不是**「地址在回环接口上」这一属性**。两个本地预置因为不在白名单里被漏掉。
+- **修复**：判据改为「**显式回环地址** + 本地预置」两路：
+  - `base_url` **显式**指向回环地址 ⇒ 免 Key（`ollama` / `local-whisper` / 用户自建的本地 OpenAI 兼容端点）；
+  - 本地预置（`piper` / `local-diffusion` / `comfyui` / `local-whisper`，其适配器默认地址在回环）⇒ 免 Key；**但它们若显式指向非回环地址，仍然拒绝**。
+- **安全性**：远端服务商**仍严格要求 Key**，「无 Key 配置」永远变不成一条远程请求通道。
+- ⛔ **空 `base_url` 不等于「本地」**：空值的语义是「**用适配器自带的默认地址**」，而那个默认地址**可能是远端**（`heygen` 的默认是 `https://api.heygen.com/v2`）⇒ 空地址只有本地预置才免 Key，其余一律要求 Key。
+  这条边界有既有回归锁（`electron/tests/pipeline-model-preflight.digital-human.test.js` 的「HeyGen 已配但无 API Key → 拦截」）：判据**从名单放宽到属性**时若不单独判空值语义，安全边界会被静默放宽。
+- **副作用（正向）**：用户自建的本地 OpenAI 兼容端点（Ollama / LM Studio / vLLM / 自建网关）终于能免 Key 配置。
+
+#### ② 默认音色下成片完全没有旁白（`asset-generator.js`）
+
+- **现象**：用默认音色 + 未配置 TTS provider（走内置 edge-tts 免 Key 路径）时，成片**没有任何旁白**，每个场景固定 3.0s 静音；界面无异常提示。
+- **第一性原因**：上游取音色的兜底是哨兵串 `'default'`（`firstDefined(params.voiceId, stage.options?.voiceId, 'default')`）。provider 路径早就会把 `'default' / 'male' / 'female-soft'` 过滤掉（当 undefined 交给适配器挑默认），**edge-tts 路径没有过滤**，原样把 `'default'` 当音色名传给 edge-tts，edge-tts 抛 `ValueError: Invalid voice 'default'` ⇒ TTS 静默降级为 3s 静音。
+- **修复**：把「未指定音色」的哨兵值收敛为**单一常量** `PLACEHOLDER_VOICE_IDS`，两条路径共用同一个解析函数 `resolveConcreteVoiceId`；edge-tts 路径在无具体音色时回落到 `zh-CN-XiaoxiaoNeural`。
+- **落点约束**（易踩）：`asset-generator.js` 与 `model-provider-manager.js` 都在**「点名还账」名单**里（逐文件行数门禁 `check-max-lines.js` 的 `targets`，**零增长容差**）⇒ 新逻辑优先进**新文件**（本次音色占位值判定抽成 `apps/desktop/electron/services/tts-voice-id.js`）。
+  但 `model-provider-manager.js` 另有**双零余量**约束：它同时受「逐文件行数门禁」（上限 1284）与「债务预算门禁」的 `MODEL_PROVIDER_FAN_OUT`（**唯一 require 数上限 66**）管着 ⇒ 把判据抽成新模块会**多一个 require**（fan-out 67 > 66）⇒ 该文件的改动必须**行数净 0、require 数净 0**（本次靠压缩 `isLoopbackBaseUrl` 的两行实现腾出额度）。
+- **逃逸分析**：单测层只锁了 provider 路径的过滤（`asset-generator.test.js` 里没有 edge-tts 音色断言）；端到端层此前没有「音轨非静音」这一断言（只有「有音频流」，而静音兜底同样产出音频流）⇒ 缺陷得以逃逸。
+- **防再犯**：① 哨兵值收敛为单一常量 + 两条路径共用（杜绝再次漂移）；② 新增单测锁「edge-tts 路径不得把占位值传给 edge-tts」；③ 复跑断言从「有音频流」升级为「有音频流 **且** 响度显著大于数字静音下界」。
+
+#### ③ dev 启动器反复拉起 Electron 导致 OOM（`dev.js`）
+
+- **现象**：开发机/容器上启动桌面端后，进程数在几分钟内冲到 100+（实测 189 个 Electron 进程、合计 RSS 3.4GB），Vite 被 OOM `SIGKILL`，表现为「窗口刚起来就没了」。
+- **第一性原因**：`waitForVite` 缺少「Electron 只启动一次」的一次性守卫。`req.setTimeout(1000, ...)` 触发的重试与随后的成功回调存在竞态，**两条路径都会走到 spawn**。
+- **修复**：加 `electronSpawned` 一次性守卫，重复的 vite 就绪回调只告警不再 spawn。
+- **防再犯**：源码级性质锁（守卫判据必须先于置位、置位必须先于 spawn）。
+
+#### ④ 无头 Linux 下模型 API Key 无法落库（`dev-launcher.js`）
+
+- **现象**：`modelProviderUpdate` 返回 `CRYPTO_UNAVAILABLE`（「系统安全存储不可用」）。
+- **第一性原因**：Electron 在 Linux 上的 `safeStorage` 只有在存在真实口令存储后端时才可用；无头容器里没有 gnome-keyring/kwallet，`basic_text` 后端在 Linux 上**不算加密** ⇒ `isEncryptionAvailable()` 恒 false。实测 `basic` 与 `gnome-libsecret` 两种后端均为 false。
+- **修复**：`dev-launcher` 新增 `MP_ELECTRON_PASSWORD_STORE` 开关（白名单：basic / gnome-libsecret / kwallet / kwallet5 / kwallet6），下发 Chromium 的 `--password-store=`；**未设置时完全不下发该开关**，Windows/macOS 行为一字不变。
+- **非法取值抛错而非静默忽略**：静默忽略会让「我明明配了口令存储」变成「配置形同虚设」，且失败点会推迟到保存 Key 时才以 `CRYPTO_UNAVAILABLE` 现身。
+
+### 12.9 未闭合 / 明确不做
+
+1. **Python 后端未在本环境跑通**：splitter / prompt 引擎因 `splitter` / `prompt_engine` 两个 Python 包未安装而反复重启；`animated-explainer` 的八阶段不依赖它们，**不影响本次结论**，但「主服务未启动」状态下若干旁路能力不可用。
+2. **1080p 合成在 3GB 内存容器下会被 OOM**：8 路 `xfade` 居中拼接在 1080p 下内存峰值超限（`dmesg` 实测 `oom-kill ... task=ffmpeg`）。本次以 720p 复跑通过；**这是环境容量约束，不是流水线缺陷**，桌面端 8GB+ 机器上不存在该问题。
+3. **不解除身份服务启用时的登录要求**：dev 管理员短路在「身份服务未启用」时生效，这是既有安全策略（已有回归锁），本次不动。
+4. **不改流水线阶段划分与产线口径**：八阶段、checkpoint 策略、资产并发度等一律保持原样。
+5. **合成素材图的标题安全区只在本地桩里落实**：真实 AI 出图是照片/插画，不受该约束；该契约记录在 §12.2.4，供后续做「本地/程序化出图」的 Provider 参考。
+
+## 13. 文字标题卡渲染能力（title-card-renderer，2026-10-24）
+
+### 13.1 目标与范围
+
+**能力定义**：给定文字（标题 + 副标题 + 标签 + 序号）与画幅，**确定性地**产出一张标题卡 PNG。
+不调用任何 AI 服务、无外部网络、同输入必得同输出 —— 可当素材、可当兜底、可当封面、可当章节卡。
+
+**为什么抽成独立模块（2026-10-24 实测）**：
+
+1. **既有占位图有静默缺陷**。`asset-generator.js` 的 provider 失败兜底是内联的 ffmpeg drawtext：
+   「单色底 + 提示词前 30 字居中」，**没有标题安全区**。合成阶段默认动效 `zoom-in`
+   会把画面从 1.0 放大到 1.25 倍并居中裁切（左右各裁 10%），于是边缘文字被**无声切掉** ——
+   实测「好消息是」在成片里变成「消息是」，成片**不报错、不降级、只是少字**。
+   仓库里没有任何既有断言能看见这个形态。
+2. **「用文字做一张卡」是跨流水线通用需求**（讲解视频标题卡、字幕卡、封面卡、章节卡、演示要点卡），
+   每个流水线各写一份 ffmpeg 参数只会各错各的（换行、转义、安全区、CJK 字体四个坑都要重踩一遍）。
+
+**范围**：本节只覆盖**静态图形渲染**。视频卡（给视频加标题条）已有 `providers/video/showcase_card.py`，
+形态不同（输入是视频、产物是视频），本节不重复。
+
+### 13.2 落点与调用链（为什么在桌面主进程侧）
+
+| 候选落点 | 结论 | 依据 |
+|---|---|---|
+| Python `video_creation/providers/image/`（`diagram_gen` / `code_snippet` 同族） | ❌ **注册了没人用** | `registry.discover()` 在生产代码里 **0 调用**；`tools_available` / `required_tools` 在全仓 JS/TS 里 **0 命中**；Python 侧**没有 pipeline engine**（`VC/pipeline/` 只有 loader + definitions + schema）；桌面 `pipeline-engine.js` 用自己的 15 条硬编码注册表、**从不读 YAML**；`ServiceBus.callPythonSkill` 指向的 `/api/skills/*` 路由在 Python 后端**不存在**（仓库自己记在 `.ccg/tasks/archive/2026-09/story2video-all-pipelines-e2e-ue/ENGINE-FEASIBILITY.md`） |
+| **桌面主进程 `apps/desktop/electron/services/title-card-renderer.js`** | ✅ **采纳** | 这是桌面流水线的素材出图实际执行路径（`asset-generator.generateImage` → `model-provider-manager` → adapter）；ffmpeg 是既有硬依赖；CJK 字体问题仓库已解决（`font-resolver.js`） |
+
+**调用方**：
+- `asset-generator.js` 的 provider 失败兜底（**所有走 `story2video_generate_assets` 的流水线自动受益**）；
+- 任何流水线需要程序化卡片时直接 `require('./title-card-renderer')`。
+
+### 13.3 数据合同与校验
+
+`renderTitleCard(options) → Promise<{ path, width, height, size, theme, safeMarginRatio, degraded }>`
+
+| 字段 | 类型 | 校验 / 夹取 | 缺省 | 说明 |
+|---|---|---|---|---|
+| `outputPath` | string | **必填**，空串抛错 | — | 输出 PNG 路径；父目录自动创建 |
+| `title` | string | trim 后为空且 `subtitle` 也为空 ⇒ **抛错** | `''` | 主标题 |
+| `subtitle` | string | 同上 | `''` | 副标题（通常是画面提示词） |
+| `label` | string | 空串 ⇒ 不渲染 | `''` | 顶部小标签（如「AI 讲解视频」）+ 强调色短横线 |
+| `counter` | string | 空串 ⇒ 不渲染 | `''` | 右下角序号（如「场景 2 / 8」） |
+| `width` | number | 夹到 ≥ 320 | `1280` | 画幅宽 |
+| `height` | number | 夹到 ≥ 240 | `720` | 画幅高 |
+| `theme` | string | **不在主题表内 ⇒ 回落到 `cinematic`**（不抛错） | `'cinematic'` | 键名沿用既有 `imageStyle` 取值域 |
+| `safeMarginRatio` | number | 夹到 `[0, 0.4]` | `0.13` | 标题安全区边距（占宽比例） |
+| `titleMaxLines` | number | ≥ 1 | `3` | 标题最多几行，超出截断（不无限撑高画面） |
+| `subtitleMaxLines` | number | ≥ 1 | `4` | 副标题最多几行 |
+| `progress` | number \| null | 夹到 `[0,1]`；未给 ⇒ `null`（**不画进度条**） | `null` | 底部进度条填充比例 |
+| `ffmpegPath` | string | 未给 ⇒ 走 `media-tool-paths.findFfmpeg()` | — | 注入点（测试与自定义路径） |
+
+**主题表**（`THEMES`）：`cinematic` / `realistic` / `cartoon` / `anime` / `cyberpunk` / `watercolor` / `minimalist` ——
+键名与 `asset-generator.js` 既有 `styleColors` **同一取值域**，避免调用方多记一张映射表。
+
+### 13.4 渲染流程与产线口径
+
+1. **归一化**（§13.3 的夹取全部在此发生）⇒ 不合法的值**不抛错**，一律回落到安全缺省。
+2. **算版面**（`computeCardLayout`，纯函数、无 IO，**可被机械断言**）：
+   - `margin = round(width × safeMarginRatio)`；`contentWidth = width - 2×margin`；
+   - 标题字号 `54 × (width/1920)`、副标题 `30 × (width/1920)`、标签 `26 ×`、序号 `30 ×`；
+   - **按像素预算折行**（全角 1em / 半角 0.55em / 空格 0.35em）⇒ 中英混排不会排歪
+     （按「字数」折行在混排时必歪）。
+3. **逐行渲染**：每行一条 `drawtext`，行距 `标题字号 × 1.35`。
+   不用 `text=` 里塞 `\n` ⇒ 不用和 ffmpeg 的换行转义打架，行距也可控。
+4. **背景**：优先 `gradients` 滤镜（ffmpeg ≥ 4.4），**失败自动回退纯色 `color=`**
+   —— 用户机器的 ffmpeg 版本不可控，不能因为「要好看」让出图整条失败。
+   成功走渐变 ⇒ `degraded: false`；回退到纯色 ⇒ `degraded: true`。
+4b. **ffmpeg 可执行性校验**（`resolveFfmpegBinary`）：候选顺序 = 显式注入 → 仓库解析器
+   （打包资源 / 环境变量 / 预置包 / PATH / 常见路径）→ 裸命令名；**逐个过「可执行」校验**。
+   理由：`media-tool-paths.findFfmpeg()` 只判「文件存在」不判「能不能执行」——
+   预置包的二进制可能**存在但不可执行**（实测：NFS 挂载丢失执行位 ⇒ spawn 报 `EACCES`；
+   真实世界还有文件权限被改、postinstall 未跑完只落了半截文件等形态）。
+   不校验就直接 spawn，失败会被读成「渲染失败」，而根因其实是「选错了二进制」。
+   全部候选都不可用 ⇒ 返回 `null`，调用方给出明确错误（而不是甩一个 EACCES）。
+5. **装饰**：强调色短横线（标签下）、底部半透明进度条（`progress` 给了才画）。
+6. **产出**：单张 PNG。
+
+**画幅与像素**：`width`/`height` 由调用方给（桌面端走 `asset-generator` 的 `resolveImageSize(aspect_ratio)`，
+即 `16:9 → 1280×720`、`9:16 → 720×1280`）。**输出尺寸必须与请求一致**（验收断言）。
+
+### 13.5 标题安全区（核心契约）
+
+**来源**：合成引擎默认动效 `zoom-in` 的实现是 `1+0.25×progress` 的**居中**缩放
+（`story2video-compose-engine.js` 的 `buildImageEffectFilter`）⇒ 画面放大到 1.25 倍时，
+左右各被裁掉 `(1 − 1/1.25) / 2 = 10%`。
+
+**契约**：
+- `safeMarginRatio` 默认 **0.13**（> 10% 的裁切量，留 3% 余量；10% 是临界值，「刚好在边上的字」会被切掉）；
+- **所有文字的 x 坐标 ≥ margin**（右下角计数的右边距同样是 margin）；
+- `contentWidth ≤ width − 2×margin`。
+
+**为什么这条要写成契约而不是「注意点」**：它是一个**静默失败**形态 —— 成片能播、时长正常、
+不报错、不降级，**只是少了字**。任何按「有没有报错」的验收都看不见它，只能靠版面层断言。
+
+### 13.6 交互逻辑与显示项
+
+| 显示项 | 位置 | 视觉 | 缺省 |
+|---|---|---|---|
+| 标签 | 左上，距边 = margin | 强调色，字号 `26×` | 不显示 |
+| 强调色短横线 | 标签下方 | 强调色细条 | 不显示 |
+| 主标题 | 左侧，纵向排布 | 白色，字号 `54×`，行距 `1.35×` | 不显示 |
+| 副标题 | 标题下方 | 正文色 82% 透明，字号 `30×` | 不显示 |
+| 进度条 | 底部左侧 | 底轨 18% 白 + 强调色填充 | 不显示（`progress` 未给） |
+| 序号 | 右下，距边 = margin | 白色 75% 透明，字号 `30×` | 不显示 |
+
+**排序与截断**：主标题先于副标题；两者各自超出行数上限即**截断**（不缩字号、不溢出画面）。
+`title` 与 `subtitle` 都为空 ⇒ **抛错**（不出空卡）。
+
+### 13.7 错误语义与提示
+
+| 情形 | 行为 | 上层可见 |
+|---|---|---|
+| 缺 `outputPath` | 抛 `renderTitleCard: outputPath 必填` | 调用方捕获 |
+| 标题与副标题都为空 | 抛 `renderTitleCard: title 与 subtitle 至少要有一个非空` | 调用方捕获 |
+| 找不到 ffmpeg | 抛 `renderTitleCard: 找不到 ffmpeg（FFMPEG_PATH 可覆盖）` | 调用方捕获 |
+| ffmpeg 执行失败（两次：渐变 + 纯色） | 抛 `renderTitleCard: ffmpeg 渲染失败: <原因>` | 调用方捕获 |
+| 渐变不可用、纯色成功 | **正常返回**，`degraded: true` | 不阻断 |
+
+**降级语义与占位图一致**：`asset-generator` 接入后仍返回 `source: 'ffmpeg-placeholder'` + `degraded: true`
+—— `source` 的**字面量必须保留**：发布侧（`publish.js`）、视频克隆（`video-clone/asset-generator.js`）、
+结果页（`ResultView`）都按这个字符串判「占位图不得当成功封面」，改字面量会让那道既有防线失效。
+
+### 13.7b drawtext 文本转义（含一处既有静默失败）
+
+转义面：`\` 与 `'` 是 ffmpeg 滤镜语法的定界符；`: ,` 分隔 filter 参数；`%` 触发 expansion；
+`{ }` 参与 expansion 表达式。
+
+⛔ **单引号必须写成 `'\''`（闭合-转义-重开），不能写成 `\'`**（2026-10-24 实测）：
+
+ffmpeg 的 filtergraph 引号规则是「单引号内一切都是字面量（含反斜杠）；想在引号内表示字面单引号，
+只能闭合引号 → 转义的单引号 → 重开引号」。旧写法 `\'` 在 `text='...'` 里会把引号**提前闭合**，
+后面的文本被当成 **filter 参数**解析，两种表现：
+
+| 文本形态 | 旧写法（`\'`）的表现 | 新写法（`'\''`） |
+|---|---|---|
+| 含 `{word}` | `Option 'w' not found` ⇒ **渲染直接失败** | 正常渲染 |
+| 不含大括号 | **rc=0、不报错，但产出空白图**（实测 630 字节 vs 正常 3210 字节） | 正常渲染 |
+
+后者是**静默失败**：英文提示词里的 `'s`、各类引号极常见 ⇒ 素材占位图会变成空白图，
+而流水线一路绿灯。**旧实现的这条转义从未被带引号的文案测过**（既有单测只覆盖
+`a:b,c%{x}` 这类不含引号的输入）。
+
+⇒ 转义函数从 `asset-generator.js` **迁到**本模块（迁的是「渲染 drawtext 文本」的固有归属），
+`asset-generator` 改为转发并再导出 ⇒ **外部 require 路径不变、公共 API 不破**；
+同时用「函数引用相等」断言锁住「没换成另一份实现」。
+
+### 13.8 调用示例
+
+```js
+const { renderTitleCard } = require('./title-card-renderer')
+
+// 讲解视频的标题卡
+await renderTitleCard({
+  title: '拖延症不是懒：拖延背后的情绪调节机制',
+  subtitle: '深夜卧室，蓝白色屏幕光映在年轻人的脸上',
+  label: 'AI 讲解视频',
+  counter: '场景 1 / 8',
+  progress: 0.125,
+  width: 1280,
+  height: 720,
+  theme: 'cinematic',
+  outputPath: '/tmp/cards/scene_01.png',
+})
+```
+
+### 13.9 测试与验收矩阵
+
+| 层级 | 必测场景 |
+|---|---|
+| 折行 | CJK 感知折行不丢字；空串/空白返回空数组；半角比全角占更少宽度；预算非法时回落默认值而非抛错 |
+| 入参校验 | 画幅下限；未知主题回落默认主题；`safeMarginRatio` 夹取 `[0,0.4]`；`progress` 夹取 `[0,1]` 且未给时为 `null`；缺 `outputPath` / 标题副标题全空 ⇒ 抛错 |
+| **安全区** | 默认边距 > zoom-in 裁切量；**所有 drawtext 的 x ≥ margin**（右下角计数含 margin）；`contentWidth ≤ width − 2×margin`；显式调小边距允许但不得为负；标题超行数上限被截断 |
+| 转义 | `'`（写成 `'\''`）`:` `,` `%` `{` `}` `\` 全部转义；换行折成空格；空值不炸；**`asset-generator` 转发的是同一个函数**（公共 API 不破） |
+| 转义·静默失败 | 带单引号 + 大括号的文案必须**真渲染出内容**（体积 > 2000 字节）—— 旧转义在这类文案上 rc=0 但产出 630 字节空白图 |
+| ffmpeg 可执行性 | 解析到的二进制**不可执行**时必须回退到下一个候选（PATH 上的 ffmpeg），而不是直接甩 `EACCES`；全部候选不可用时给出明确错误 |
+| 实际渲染 | 产出 PNG（魔数校验）+ 尺寸与请求一致 + **体积下限 3000 字节**（豆腐块会退化成 ~765 字节，用来挡「渲染了但字全是方块」的静默失败）；含 ffmpeg 滤镜特殊字符的文案不得让渲染炸掉 |
+| 主题 | 覆盖既有 `imageStyle` 取值域全部 7 个键（流水线 style 传进来不能落空） |
+| 接线 | `asset-generator` 的兜底分支返回 `source: 'ffmpeg-placeholder'` + `degraded: true`（发布侧既有防线不破） |
+
+> ffmpeg 不可用时（CI 用 `--ignore-scripts` 装依赖则预置二进制不存在）**跳过渲染类断言**，
+> 纯函数契约（安全区/折行/校验）**始终执行** —— 环境不可用不该红成代码问题。
+
+### 13.10 已知限制与未闭合项
+
+1. **Python 侧同名能力仍缺位**：`video_creation/providers/image/` 下没有 `title_card`。
+   调研结论是**在 Python 侧加会重蹈 `diagram_gen` / `code_snippet` 的覆辙**（注册了、YAML 声明了、没人用），
+   故本片**不加**，改为在此登记事实。若将来 Python 侧要补，须同时补齐：① `registry.discover()` 的生产调用点
+   （现在 0 调用 ⇒ 注册表恒空）；② `/api/skills/title_card` 路由（`callPythonSkill` 打的是这个前缀，现在不存在）；
+   ③ `providers/image/__init__.py` 的导出与 `tests/test_image_providers.py` 的硬编码计数（14 → 15）。
+2. **本能力只产出静态图**。给视频加标题条用 `providers/video/showcase_card.py`（输入视频、输出视频）。
+3. **渐变依赖 ffmpeg ≥ 4.4**。更老的 ffmpeg 自动回退纯色（`degraded: true`），不影响出图成功。
+4. **CJK 字体依赖 `font-resolver` 的解析结果**。字体解析失败会出豆腐块（仓库既有问题，已由 font-resolver 的
+   回归锁覆盖）；本模块不再自己找字体，避免出现第二套找字体逻辑。
+5. **不覆盖竖屏专有排版**。`9:16` 沿用同一套版面规则（内容宽度按宽度算），未针对竖屏调优。

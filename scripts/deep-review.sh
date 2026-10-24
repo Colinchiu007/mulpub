@@ -11,6 +11,7 @@
 # 用法：
 #   sh scripts/deep-review.sh              # 读 HEAD 的判定记录，按 mode 决定跑不跑
 #   sh scripts/deep-review.sh --force      # 想强制审查：验证层**不会强制**（mode 由驱动从判定记录自己读）
+#   sh scripts/deep-review.sh --evidence https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>   # 自扮演收口要拿工具签名时必须带；也可用 MP_QM6_ADJUDICATION_EVIDENCE
 #   sh scripts/deep-review.sh --dry-run    # 只打印将要做什么
 #   sh scripts/deep-review.sh --check-deps # 只体检评审后端依赖（不需要 node / git 记录）
 #   sh scripts/deep-review.sh --critic codex    # 临时换评审主力后端（不改清单）
@@ -57,6 +58,9 @@ cd "$ROOT" || exit 2
 FORCE=0
 DRY=0
 CHECK_DEPS=0
+# 自扮演收口要拿工具签名的 tier=external，必须带一条**公开可核**的 PR 评论 URL（写回器的第二出口）。
+# 旗标 > 环境变量；两者都没给时写回器照旧拒写并点名 no-adjudication-evidence。
+EVIDENCE_ARG="${MP_QM6_ADJUDICATION_EVIDENCE:-}"
 # 后端覆盖：旗标 > 环境变量 > 清单文件。空串按「没配」处理（CI 表达式里 VAR="" 是常态，
 # 把它判成故障会把所有 PR 打红），但非空且不合法的名字一律早退（见 resolve_review_backends）。
 CRITIC_ARG=""
@@ -77,13 +81,26 @@ while [ $# -gt 0 ]; do
       esac
       if [ "$1" = "--critic" ]; then CRITIC_ARG="$_v"; else PROPOSER_ARG="$_v"; fi
       shift ;;
+    --evidence)
+      # 空格形与等号形都认：URL 里常带 `=`（#issuecomment-…），等号形更容易被 shell 切碎，
+      # 但操作者从 gh 的输出里直接复制时拿到的就是 `--evidence=<url>`，两种都得能用。
+      _v="${2:-}"
+      case "$_v" in
+        ""|-*)
+          say "✗ 旗标 $1 缺值（必须是 https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>）"
+          exit 2 ;;
+      esac
+      EVIDENCE_ARG="$_v"
+      shift ;;
+    --evidence=*)
+      EVIDENCE_ARG="${1#--evidence=}" ;;
     --help|-h)
       # 打印整段文件头注释（到 set -u 为止），不再用写死的行号区间：
       # 固定区间会在我给用法块加行时**静默截断**最新那几行 —— 而 '--help' 看起来照样有输出。
       sed -n '2,/^set -u/{/^set -u/!p}' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *)
-      say "✗ 未知旗标：$1（本入口只认 --force / --dry-run / --check-deps / --critic <名> / --proposer <名> / --help）"
+      say "✗ 未知旗标：$1（本入口只认 --force / --dry-run / --check-deps / --critic <名> / --proposer <名> / --evidence <url> / --help）"
       say "  参数不得静默忽略：静默忽略会让「我传了」与「传进去了」在产物上完全同形。"
       exit 2 ;;
   esac
@@ -882,6 +899,7 @@ run_driver_with_writeback() {
   _wb_rc=$?
   node scripts/ccg-review-writeback.js \
     --record="$REC" --expected-critic="$RB_CRITIC" --before-sha256="$_wb_before" --before-fingerprint="$_wb_before_fp" \
+    --adjudication-evidence="$EVIDENCE_ARG" \
     || say "⚠ 写回器自身未能运行（它不改评审 rc）—— 本次 tier/evidence 不会被补齐，需人工核对记录。"
   exit "$_wb_rc"
 }

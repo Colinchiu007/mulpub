@@ -198,8 +198,10 @@ export function onAccountStatusChanged(callback) { return bridgeOn("AccountStatu
 
 // ─── 渲染 API ────────────────────────────
 export async function renderStart(data) { return invoke("renderStart", data) }
-// 快速渲染 text 模式：调用 AI 视频生成模型（主进程提交+轮询+下载），返回本地视频路径
+// 快速渲染 AI 视频：调用 AI 视频生成模型（主进程提交+轮询+下载），返回本地视频路径
 export async function renderStartAiVideo(data) { return invoke("renderStartAiVideo", data) }
+// 快速渲染 AI 视频：查询当前视频 provider 的能力描述（模式集合 / 素材上限 / 分辨率档位 / 画幅）
+export async function renderAiVideoCapabilities() { return invoke("renderAiVideoCapabilities") }
 export async function renderCancel () {
   return invokeWithFallback("renderCancel", {})
 }
@@ -400,6 +402,10 @@ export async function offlineClearCache() { return invokeWithFallback("offlineCl
 
 export function onOfflineRestored(callback) { return bridgeOn("OfflineRestored", callback) }
 
+/** 主进程侧网络状态变化（UX 审计 1.7）：断网方向也会推送，载荷 `{isOffline, cachedCount}`。
+ *  与 onOfflineRestored 同为"事件订阅"，返回取消函数；桥不可用时 bridgeOn 自己返回 no-op。 */
+export function onOfflineLost(callback) { return bridgeOn("OfflineLost", callback) }
+
 export function showNotification (data) {
   return invoke("showNotification", data)
 }
@@ -428,6 +434,9 @@ export async function pipelineConfirmSceneAssets(runId, selections) { return inv
 export async function pipelineConfirmStageGate(runId, contextPatch) { return invokeWithFallback("pipelineConfirmStageGate", { code: -1, message: 'electronAPI not available' }, runId, contextPatch) }
 export async function filmEngineeringRetryShot(payload) { const res = await invokeNamespace("filmEngineering", "retryShot", payload); return res === undefined ? { code: -1, message: 'electronAPI not available' } : res }
 export async function filmEngineeringProductionRetryShot(payload) { const res = await invokeNamespace("filmEngineering", "productionRetryShot", payload); return res === undefined ? { code: -1, message: 'electronAPI not available' } : res }
+// 资产导入（PR-3b · F-J **写路径**）：**无参数** —— 路径只能由主进程的原生对话框返回
+// （renderer 不能指定替换内容）；失败时 errorCode = reason 闭集值，调用方据此本地化。
+export async function filmEngineeringImportKit() { const res = await invokeNamespace("filmEngineering", "importKit"); return res === undefined ? { code: -1, message: 'electronAPI not available' } : res }
 export async function pipelineGetRunContext(runId) { return invokeWithFallback("pipelineGetRunContext", null, runId) }
 
 // ─── Story2Video 本地交付 API ──────────────────────

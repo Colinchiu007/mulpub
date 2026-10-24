@@ -88,7 +88,8 @@ async function probeWorksPage (win, title, opts) {
   } catch (e) {
     return { ok: false, detail: 'navigate-failed:' + String(e && e.message).slice(0, 60) }
   }
-  const timeoutMs = Number(o.timeoutMs) > 0 ? Number(o.timeoutMs) : 20000
+  // 2026-10-23 真机：works-page-timeout 说明 20s 不够（头条作品页首屏较慢），放宽到 45s
+  const timeoutMs = Number(o.timeoutMs) > 0 ? Number(o.timeoutMs) : 45000
   const intervalMs = Number(o.intervalMs) > 0 ? Number(o.intervalMs) : 2000
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {

@@ -149,6 +149,9 @@
   --color-danger-soft: #fef0f0;
   --color-success-soft: #d1fae5;
   --color-warning-soft: #fef3c7;
+  /* 警告横幅文字档（原 OfflineIndicator.vue 硬编码 #92400e，UX 审计 1.7 收编）：浅档 6.37:1 ≥ AA 4.5。
+   * 暗档必须另给一档 —— 深褐底上沿用这个深棕字读不出来（见下方 dark 块）。 */
+  --color-warning-ink: #92400e;
   --color-canvas-translucent: rgba(255, 255, 255, 0.95);
   --color-module-nav-text: #8b8e9a;
   /* 批次 6（2026-09-29）：原 17 个 `--color-apple-*` 收编槽位已随别名层退役一并删除。
@@ -391,6 +394,9 @@
   --color-danger-soft: #3a1d1d;
   --color-success-soft: #14301f;
   --color-warning-soft: #33240c;
+  /* 暗档重声明（与浅档成对存在，不得只定义一次 —— 本仓既有教训：「只定义一次」会静默回退浅值）：
+   * 提亮档 #fbbf24 在深褐 #33240c 上 9.00:1。 */
+  --color-warning-ink: #fbbf24;
   --color-info-soft: #14232e;
 
   /* 品牌主色暗色覆盖（P4C 2026-10-09）：--color-primary 原先只在亮色区定义，
@@ -450,20 +456,14 @@
 
 /* ---- P4 深色可读性系列 · 视图级 dark 覆盖（P4D 2026-10-09）----
  * PublishHistory 的 history-tab/secondary-action 与 ProfileMenu 的登录标题/
- * 徽章/触发按钮的硬编码亮色在暗底不可读（contrast-audit 实测）。
- * 集中放 tokens.css（PublishHistory 登记零容差，组件内无法再放），但 tokens
- * 经 main.js 最先注入，同特异性会被后注入的组件样式按序反超（实测 +16 退化），
- * 故全部规则加 html 前缀抬特异性（(0,2,1)/(0,3,1) 压过 scoped 的 (0,2,0)/(0,3,0)）。
- * 作用域契约（CCG i4）：history-tab/secondary-action/toolbar-button/icon-action
- * 四个类名为 PublishHistory 独占（2026-10-09 全 src 检索证实，各 1 文件）；
- * 其他视图复用同名 class 前必须改名或加前缀，否则暗色会被本区意外染色。
- * P4E 追加：history-filters select（PublishHistory 页原生下拉收起态，
- * #4f505a 硬编码在暗底 2.08:1；PublishHistory 登记 1394 行零容差，无法组件内加行）；
- * media-upload-trigger（Publish 页选择图片按钮，#4d5574 在暗卡底 2.13:1；
- * Publish 登记 1773 行零容差，同理迁出）；
- * account-* / platform-filter-* / page-button / filter-tabs（Accounts 页 5+3 处：
- * 工具条下拉/视图切换/过滤页签/次级按钮/平台过滤面板的硬编码亮色在暗底 1.91-2.95:1；
- * Accounts 登记 1578 行零容差，同理迁出）。 */
+ * 徽章/触发按钮的硬编码亮色在暗底不可读（contrast-audit 实测）。 集中放 tokens.css（PublishHistory 登记零容差，组件内无法再放），但 tokens 经
+ * main.js 最先注入，同特异性会被后注入的组件样式按序反超（实测 +16 退化）， 故全部规则加 html 前缀抬特异性（(0,2,1)/(0,3,1) 压过 scoped 的
+ * (0,2,0)/(0,3,0)）。 作用域契约（CCG i4）：history-tab/secondary-action/toolbar-button/icon-action 四个类名为
+ * PublishHistory 独占（2026-10-09 全 src 检索证实，各 1 文件）； 其他视图复用同名 class 前必须改名或加前缀，否则暗色会被本区意外染色。 P4E
+ * 追加：history-filters select（PublishHistory 页原生下拉收起态， #4f505a 硬编码在暗底 2.08:1；PublishHistory 登记 1394
+ * 行零容差，无法组件内加行）； media-upload-trigger（Publish 页选择图片按钮，#4d5574 在暗卡底 2.13:1； Publish 登记 1773
+ * 行零容差，同理迁出）； account-* / platform-filter-* / page-button / filter-tabs（Accounts 页 5+3 处：
+ * 工具条下拉/视图切换/过滤页签/次级按钮/平台过滤面板的硬编码亮色在暗底 1.91-2.95:1； Accounts 登记 1578 行零容差，同理迁出）。 */
 html[data-theme='dark'] .history-tab { color: var(--color-text-secondary); }
 html[data-theme='dark'] .history-tab.active { color: var(--color-text-primary); }
 html[data-theme='dark'] .secondary-action,

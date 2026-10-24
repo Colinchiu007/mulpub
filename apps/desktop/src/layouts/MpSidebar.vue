@@ -95,13 +95,16 @@
       <!-- 登录区 banner：收起时只显示这一条，点击向上展开菜单（账号操作 / 设置 / 升级 Pro） -->
       <ProfileMenu
         @open-settings="emit('open-settings')"
-        @upgrade="router.push('/member-center')"
+        @upgrade="onNavClick('/member-center')"
+        @navigate="onNavClick"
       />
       <!-- 升级入口跳会员中心，不再渲染 UpgradeModal：
            正式包里那个弹窗只有「付费通道筹备中」，是死胡同；会员中心才有真实档位、
            真实价格与服务端兑换码核销（当前唯一真实可用的开通渠道）。
            原先这里开着弹窗，还配了一个 watch 去挂起内嵌 WebContentsView 以防被原生
-           图层压住 —— 没有弹窗后这套互斥机制随之不需要（函数本身其它 7 处在用）。 -->
+           图层压住 —— 没有弹窗后这套互斥机制随之不需要（函数本身其它 7 处在用）。
+           2026-10-23：升级入口与头像菜单的「会员中心」入口统一走 onNavClick ——
+           裸 router.push 会让会员中心页面渲染在外部网页的原生图层背后，用户看不到。 -->
     </footer>
   </aside>
 </template>
@@ -187,9 +190,13 @@ const navPath = computed(() => {
 
 /**
  * 侧边栏导航点击：把「点了没反应」变为「当前标签可见跳转」。
- * - 聚焦内嵌主页实例（home-shell）→ 经 IPC 定向让该实例自身 router.push，主窗口隐藏路由保持不动；
- * - 聚焦普通网页标签 → 先切回首页标签再导航，让变化可见；
- * - 聚焦首页标签 → 维持原有主窗口路由跳转。
+ *
+ * 这是本应用**唯一**的可见导航范式（2026-10-23 起，头像菜单的「会员中心」入口
+ * 也经 emit 交回这里，不再各自写一份裸 router.push）：
+ *   ① 聚焦内嵌主页实例（home-shell）→ 经 IPC 定向让该实例自身 router.push；
+ *   ② 聚焦普通网页标签 → 先切回首页标签再导航，让变化可见；
+ *   ③ 聚焦首页标签 → 维持原有主窗口路由跳转。
+ * 契约与判据见 01-docs/PRD-APP-ROUTE-NAV-VISIBILITY-2026-10-23.md。
  */
 async function onNavClick (to) {
   if (typeof to !== 'string' || !to) return

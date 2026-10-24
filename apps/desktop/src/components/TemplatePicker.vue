@@ -22,7 +22,7 @@
           {{ categoryLabel(cat) }}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px">
-          <div
+          <div role="button" tabindex="0" @keydown.enter.prevent="apply(tpl)" @keydown.space.prevent="apply(tpl)"
             v-for="tpl in list"
             :key="tpl.id"
             class="template-item"

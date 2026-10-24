@@ -11071,6 +11071,25 @@ platforms:
 - `model-provider-*` 测试：英文括号注释移除、errorCode 断言；
 - 受影响视图/composable 测试：技术文本不直出、自然语言透传。
 
+**7. 调用点统一口径 `userFacingErrorMessage`（2026-10-21 新增，UX 审计 3.8 / ux-audit-knowledge-error-classify）**
+
+> 上一节的第 4 步「未知错误」在 `matched='passthrough'` 时会**原样透出**自然语言原文，在 `matched='fallback'` 时给通用「操作失败，请稍后重试」。
+> 这两个出口对「调用点自带页面专属文案」的场景都是**负收益**：前者把技术串交给用户，后者把「草稿加载失败」换成信息量更低的「操作失败」。
+> 因此调用点不得直接取 `formatUserError(x).message`，必须经 `userFacingErrorMessage`。
+
+| 项 | 规则 |
+|----|------|
+| 单一实现 | `apps/desktop/src/utils/user-facing-error.js` 的 `userFacingErrorMessage(input, fallback)`，`fallback` 可为字符串或**惰性函数**（`(() => t('key'))`，避免每次调用都做一次 i18n 查表）；禁止在调用点各抄一份判断 |
+| 采纳条件 | 仅当 `matched ∈ {errorCode, code, pattern}`（= 真的认出来了）才采用分类文案；`matched ∈ {fallback, passthrough}` 一律**退回调用方兜底** |
+| 输入资格 | `input` 可为 IPC 返回对象（`{errorCode}` / `{code}` / `{message}`）、`Error` 实例、字符串、`null`/`undefined`；后两者不得抛错，直接走兜底 |
+| 显示项 | 轻提示（ElMessage.error）正文 = 采纳的分类文案或页面兜底文案；**不得**出现 `ECONNREFUSED`、`127.0.0.1:8000`、`Command failed:`、堆栈行、内部路径 |
+| 交互逻辑 | 失败提示仍走各页面既有的「toast + 页面内错误行」，本口径只改**取文案**这一步，不改触发时机、不改按钮、不改是否自动消失 |
+| 数据校验 | 判据是**枚举匹配**而非「message 非空」：`fallback`/`passthrough` 两档的 `message` 同样非空，用非空判据会把技术串放行 |
+| 收敛存量 | 本刀收敛 9 处：`PatternAnalysisPanel.vue` 1、`PersonalKnowledgePanel.vue` 1、`ViralLibraryTable.vue` 1、`KnowledgeBasePage.vue` 1、`PublishFrequencySettings.vue` 4、`PerformanceInsights.vue` 1；收敛后 `ElMessage.*((res|e) && (res|e).message) \|\| t(..)` 在渲染端源码内**存量为 0** |
+| 未收敛存量（已知欠账，逐条待产品裁决） | `notify.error(String((e && e.message) || e))` 形态 3 处（`useCollectionBatchPublish.js`，兜底是异常对象本身而非 locale 键）；`error.value = (res && res.message) \|\| t(...)` 一类**页面内错误行**（非 toast）另有若干处，需先定「错误行是否也一律经分类器」再统一收敛 |
+
+**回归测试（第 7 节）**：`src/utils/user-facing-error.call-site.test.js`（11 例）—— ① 技术串不透出；② `passthrough` 时保留页面专属兜底（前提自证：先断言分类器确实产出 `passthrough`）；③ 已知 `errorCode` 走分类文案、空输入走兜底不抛错；④ 逐个点名 6 个文件的「已走 `userFacingErrorMessage` + 不含禁形态」；⑤ 全域棘轮「禁形态存量为 0」，并配**扫描域非空 + 域内 `ElMessage.error(` 命中数下界**两条反失明断言（否则「零命中」可能只是探针没读到文件）。四道变异（M1 调用点退回禁形态 / M2 拆掉分类门 / M3 在未点名文件回潮 / M4 掏空扫描域）逐条指名红、红集互不相同，跑完文件 md5 回原值。
+
 #### 多语言内容同步机制（2026-08-13 新增，i18n-content-sync）
 
 > 独立设计文档：`01-docs/i18n-sync-mechanism.md`；OpenSpec change：`openspec/changes/i18n-content-sync/`（proposal / spec / design / tasks）。
@@ -20513,3 +20532,34 @@ DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底
 
 
 
+## 自动化页后台通知的注册时机合同（2026-10-20，ux-audit-automation-notify-first / 审计 2.4）
+
+### 一、合同
+
+| 项 | 口径 |
+|---|---|
+| 顺序 | `AutomationView.vue` 的 `onMounted` **必须先 `onAutomationNotification(...)` 注册，再 `await load()`**。反向（先 await 再注册）在「首屏列表请求在飞」这段窗口内没有任何监听者 |
+| 为什么不能靠"稍后再通知一次" | 后台任务的失败/恢复通知是**推送语义**：不排队、不补发。窗口期内到达的那一条**永久丢失**，用户侧症状是「任务失败了，但页面什么都没显示」，且运行日志里没有第二处痕迹可查 |
+| 分档 | `payload.level === 'error'` → `notifyError('automation.notifyFailed', { message })`；其余一律 → `notifySuccess('automation.notifyRecovered', { message })`。**两档不得合并成一条出口**（恢复通知走 error 档会把好消息播成故障） |
+| 空载荷 | `payload` 为 `null`/`undefined` 时**直接 return**，不产出任何 toast —— 「事件到了」不等于「有内容可展示」，空白 toast 比没有 toast 更伤 |
+| 显示项与提示文字 | 通知文案 key：`automation.notifyFailed` / `automation.notifyRecovered`，都带 `{ message }` 插值（zh/en 成对进 locales）；只出 toast，**不弹模态**、不打断当前操作（这是本页面既有的产品决定，本次不动） |
+| 收口 | `onUnmounted` 里必须调用注册返回的 `stopNotifier()` 并置空，且每次挂载**只注册一次**（重复注册会让一条通知触发多次 toast） |
+
+### 二、验收锚点
+
+- 行为锁 `apps/desktop/src/views/AutomationView.notify-registration.test.js`（4 条）：
+  ① 顺序锁断 `registerOrder.slice(0,2) === ['register','list']` 且 `register` 只出现一次；
+  ② 在首屏 `automationList` 仍 pending 的那段窗口内直接调用 notifier，断 `notifyError` 带原文被调用；
+  ③ 同一窗口内 `level:'recovered'` 走成功档、error 档不被调用；
+  ④ 负控：`notifier(null)` / `notifier(undefined)` 两次调用都不得产出任何 toast。
+- **⛔ 一条本批实测到的方法学教训（写给下一次写顺序锁的人）**：顺序断言的方向必须先问「哪个顺序才是要保护的形态」再落笔。本锁第一版把期望写成 `['list','register']`（即**被禁形态**），于是它在修复前**必然红**、修复后**也必然红**，看起来像"TDD 正常"，实际上这个期望若被"顺手改对"就会把缺陷永久钉成契约。当场暴露它的不是断言红了，而是**红之后去读实际读数** `['register','list']` 与预期比对。判据：任何"顺序/等值"型断言在首次变红时，必须先判断"是代码错还是期望错"，再决定改哪一侧。
+- 反证：把 `await load()` 挪回注册之前（被禁形态原样重造）⇒ 4 条锁全部指名变红（`SUMMARY=4 failed`），还原后 `byteEqual=true`。
+
+===CL-TOP===
+# [未发布] fix(自动化页): 后台失败/恢复通知的注册提前到首屏请求之前 —— 窗口期内那条通知不再永久丢失（ux-audit-automation-notify-first）
+
+- `AutomationView.vue` 的 `onMounted` 原为 `await load()` 之后才 `onAutomationNotification(...)`。通知是推送语义（不排队、不补发），于是「进入页面 → 首屏列表请求在飞 → 后台任务此刻失败/恢复」这段窗口没有监听者，那一条**永久丢失**，用户看到的是「任务失败了但页面什么都没显示」，日志里也没有第二处痕迹。审计 2.4。
+- 修法只有一处顺序调整：先注册、再 `await load()`；分档（error / 其余走 recovered）、空载荷直接 return、`onUnmounted` 收口与「每次挂载只注册一次」全部保持既有语义。
+- 新增 `AutomationView.notify-registration.test.js` 4 条：顺序锁 + 窗口期内失败/恢复各一条行为锁 + 空载荷负控。反证按被禁形态原样重造 ⇒ 4 条指名变红，还原后逐字节相同。
+- 方法学收获（写进 PRD 验收锚点）：顺序断言第一版把期望写成了**被禁形态** `['list','register']`，它在修复前后都红 —— 是"红之后去读实际读数"才发现错的是期望而不是代码。这类断言首次变红时必须先判"代码错还是期望错"，否则顺手把期望改对就会把缺陷钉成契约。
+- 文档：`01-docs/PRD.md` 新增《自动化页后台通知的注册时机合同》（顺序 / 为什么不补发 / 分档 / 空载荷 / 显示项与提示文字 / 验收锚点）；执行记录 `openspec/records/ux-audit-automation-notify-first.md`。既有 `AutomationView.test.js` 同跑通过。

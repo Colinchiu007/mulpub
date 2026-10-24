@@ -27,6 +27,22 @@ const PUBLISH_ID_NAV_WORDS = new Set(['article', 'articles', 'content', 'manage'
 const BILIBILI_HOST = /(?:^|\.)bilibili\.(?:com|tv)$/i
 const BILIBILI_WORK_ID_SHAPE = /^(?:BV[0-9A-Za-z]{5,20}|av\d{4,})$/
 const BILIBILI_AID_SHAPE = /^\d{4,}$/
+// 抖音作品标识：键名 aweme_id / group_id，值为 19 位左右纯数字。
+// 与 B 站同型约束：必须 host 命中 douyin **且** 值合形态，不按键名盲取。
+// 动因：2026-10-21 抖音 E2E 首次成功（PRD §16.22）时 result 无任何平台侧 ID，
+// 根因是 DOM 轨成功分支丢掉 resp.body；补上后又发现 aweme_id 不匹配通用键表。
+const DOUYIN_HOST = /(?:^|\.)douyin\.(?:com|co)$/i
+const DOUYIN_ITEM_ID_SHAPE = /^\d{10,25}$/
+
+/** 抖音 aweme_id / group_id 键：host 命中 douyin 且值合形态才采纳（不按键名盲取） */
+function matchDouyinItemIdKey (key, value, hostname) {
+  if (!DOUYIN_HOST.test(String(hostname || ''))) return null
+  const name = String(key || '').toLowerCase()
+  if (name !== 'aweme_id' && name !== 'group_id') return null
+  const raw = typeof value === 'number' ? String(value) : (typeof value === 'string' ? value.trim() : '')
+  if (!raw || !DOUYIN_ITEM_ID_SHAPE.test(raw)) return null
+  return normalizePublishId(raw)
+}
 
 /** B 站 aid/bvid 键：只有值合形态才采纳，不按键名盲取 */
 function matchBilibiliWorkIdKey (key, value) {
@@ -52,10 +68,10 @@ function normalizePublishId (value) {
 }
 
 /** 递归收集对象里所有 key 命中发布 ID 命名的值（规范化后去空） */
-function collectPublishIds (value, key, ids, allowBilibiliWorkIdKeys) {
+function collectPublishIds (value, key, ids, allowBilibiliWorkIdKeys, hostname) {
   if (value === null || value === undefined) return
   if (Array.isArray(value)) {
-    value.forEach(item => collectPublishIds(item, key, ids, allowBilibiliWorkIdKeys))
+    value.forEach(item => collectPublishIds(item, key, ids, allowBilibiliWorkIdKeys, hostname))
     return
   }
   if (typeof value !== 'object') {
@@ -71,9 +87,12 @@ function collectPublishIds (value, key, ids, allowBilibiliWorkIdKeys) {
       const workId = matchBilibiliWorkIdKey(keyName, value)
       if (workId) ids.push(workId)
     }
+    // 平台专属判据（与 B 站同型：host + 值形态双重门，不按键名盲取）
+    const douyinId = matchDouyinItemIdKey(keyName, value, hostname)
+    if (douyinId) ids.push(douyinId)
     return
   }
-  Object.entries(value).forEach(([childKey, childValue]) => collectPublishIds(childValue, childKey, ids, allowBilibiliWorkIdKeys))
+  Object.entries(value).forEach(([childKey, childValue]) => collectPublishIds(childValue, childKey, ids, allowBilibiliWorkIdKeys, hostname))
 }
 
 /** 从页面 URL（query param 或 pathname 段）提取发布 ID */
@@ -123,7 +142,7 @@ function extractPublishIdsFromResponseBody (body, opts = {}) {
   const ids = []
   const allowBilibiliWorkIdKeys = BILIBILI_HOST.test(hostnameOf(opts.endpoint))
   try {
-    collectPublishIds(JSON.parse(String(body || '')), '', ids, allowBilibiliWorkIdKeys)
+    collectPublishIds(JSON.parse(String(body || '')), '', ids, allowBilibiliWorkIdKeys, hostnameOf(opts.endpoint))
   } catch (_) {
     const matches = String(body || '').match(/(?:post|article|media|content|clue|work|video|photo|material|resource|publish)[_-]?(?:id)?["'=:\s]+([A-Za-z0-9][A-Za-z0-9._:-]{3,})/ig) || []
     matches.forEach(match => {

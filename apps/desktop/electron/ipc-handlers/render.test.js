@@ -215,6 +215,158 @@ describe('render:start-ai-video — 快速渲染 AI 视频生成', () => {
     expect(result.message).toContain('视频生成超时')
     expect(sendMock).toHaveBeenCalledWith('render:error', { success: false, error: '视频生成超时' })
   })
+
+  // ── 2026-10-23 扩展契约（模式 / 媒体 / 画幅 / 时长 / 种子） ──
+
+  it('模式与媒体不匹配时返回**领域码**（渲染层据此取本地化文案），且不发请求', async () => {
+    const generateSceneVideoMock = vi.fn()
+    const deps = createMockDeps({
+      generateSceneVideo: generateSceneVideoMock,
+      modelProviderManager: {
+        callAdapter: vi.fn(),
+        getDefault: vi.fn(() => ({ id: 'agnes-video', enabled: true, is_configured: true })),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('render:start-ai-video')
+
+    // keyframe 模式但没有首帧/尾帧
+    const r = await handler(TRUSTED_EVENT, { prompt: 'x', mode: 'keyframe' })
+    expect(r.code).toBeLessThan(0)
+    expect(r.message).toBe('keyframe-requires-frame')
+    // text 模式带素材
+    const r2 = await handler(TRUSTED_EVENT, { prompt: 'x', mode: 'text', images: ['u'] })
+    expect(r2.message).toBe('text-disallows-media')
+    expect(generateSceneVideoMock).not.toHaveBeenCalled()
+  })
+
+  it('时长越界返回 VIDEO_SECONDS_OUT_OF_RANGE（不静默夹取）', async () => {
+    const generateSceneVideoMock = vi.fn()
+    const deps = createMockDeps({
+      generateSceneVideo: generateSceneVideoMock,
+      modelProviderManager: {
+        callAdapter: vi.fn(),
+        getDefault: vi.fn(() => ({ id: 'agnes-video', enabled: true, is_configured: true })),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('render:start-ai-video')
+
+    const r = await handler(TRUSTED_EVENT, { prompt: 'x', seconds: 20 })
+    expect(r.message).toBe('VIDEO_SECONDS_OUT_OF_RANGE')
+    expect(generateSceneVideoMock).not.toHaveBeenCalled()
+  })
+
+  it('画幅 / 时长 / 种子 / 模式 / 素材透传给 generateSceneVideo', async () => {
+    const generateSceneVideoMock = vi.fn().mockResolvedValue({ success: true, path: '/tmp/x.mp4' })
+    const deps = createMockDeps({
+      generateSceneVideo: generateSceneVideoMock,
+      modelProviderManager: {
+        callAdapter: vi.fn(),
+        getDefault: vi.fn(() => ({ id: 'agnes-video', enabled: true, is_configured: true })),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('render:start-ai-video')
+
+    await handler(TRUSTED_EVENT, {
+      prompt: 'x',
+      mode: 'reference',
+      images: ['u1'],
+      audios: ['a1'],
+      aspectRatio: '9:16',
+      seconds: 7,
+      seed: 0,
+      size: '1080P',
+    })
+    const arg = generateSceneVideoMock.mock.calls[0][0]
+    expect(arg.mode).toBe('reference')
+    expect(arg.images).toEqual(['u1'])
+    expect(arg.audios).toEqual(['a1'])
+    expect(arg.aspectRatio).toBe('9:16')
+    expect(arg.seconds).toBe(7)
+    // seed=0 是合法值，不能被 || 吞掉
+    expect(arg.seed).toBe(0)
+    // 像素宽高（供只认 width/height 的适配器）
+    expect(arg.size).toEqual({ width: 720, height: 1280 })
+    // 分辨率档位（sizeTier）：只有模型声明支持多档时才下发
+    expect(arg.sizeTier).toBe('1080P')
+  })
+
+  it('缺 prompt 时返回 VALIDATION_ERROR 且不请求', async () => {
+    const generateSceneVideoMock = vi.fn()
+    const deps = createMockDeps({
+      generateSceneVideo: generateSceneVideoMock,
+      modelProviderManager: {
+        callAdapter: vi.fn(),
+        getDefault: vi.fn(() => ({ id: 'agnes-video', enabled: true, is_configured: true })),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('render:start-ai-video')
+
+    const r = await handler(TRUSTED_EVENT, {})
+    expect(r.code).toBeLessThan(0)
+    expect(generateSceneVideoMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('render:ai-video-capabilities — 能力描述查询', () => {
+  it('返回 provider / model / capabilities（能力由**模型**属性决定）', async () => {
+    const deps = createMockDeps({
+      modelProviderManager: {
+        callAdapter: vi.fn(),
+        getDefault: vi.fn(() => ({ id: 'agnes-multimodal', models: ['agnes-video-2.5-flash'], enabled: true, is_configured: true })),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('render:ai-video-capabilities')
+
+    const r = await handler(TRUSTED_EVENT, {})
+    expect(r.code).toBe(0)
+    expect(r.data.providerId).toBe('agnes-multimodal')
+    expect(r.data.model).toBe('agnes-video-2.5-flash')
+    expect(r.data.capabilities.modes).toContain('keyframe')
+    expect(r.data.capabilities.sizes).toEqual(['720P'])
+  })
+
+  it('非 Agnes 模型 ⇒ 保守默认（只支持文生视频）', async () => {
+    const deps = createMockDeps({
+      modelProviderManager: {
+        callAdapter: vi.fn(),
+        getDefault: vi.fn(() => ({ id: 'kling', models: ['kling-video'], enabled: true, is_configured: true })),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('render:ai-video-capabilities')
+
+    const r = await handler(TRUSTED_EVENT, {})
+    expect(r.data.capabilities.modes).toEqual(['text'])
+    expect(r.data.capabilities.maxImages).toBe(0)
+  })
+
+  it('未配置视频供应商时返回空能力（不报错）', async () => {
+    const deps = createMockDeps({
+      modelProviderManager: {
+        callAdapter: vi.fn(),
+        getDefault: vi.fn(() => null),
+      },
+    })
+    const ipcMain = createMockIpcMain()
+    registerHandlers(ipcMain, deps)
+    const handler = ipcMain._get('render:ai-video-capabilities')
+
+    const r = await handler(TRUSTED_EVENT, {})
+    expect(r.code).toBe(0)
+    expect(r.data.providerId).toBe('')
+    expect(r.data.capabilities).toBe(null)
+  })
 })
 
 // ───────────────────────────────────────────────────────────────────────────

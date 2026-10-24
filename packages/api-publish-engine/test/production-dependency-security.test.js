@@ -144,7 +144,13 @@ test('每一个 axios 直接消费方的声明区间与实际解析版本都必�
 // 它与其他三条形态不同：undici / fast-uri / axios 是**传递依赖**，electron 是 workspace 根与
 // apps/desktop 的 devDependency，同时又是 rpa-engine / shared-utils 的 optional peer —— 后两条的
 // 区间（>=33.0.0 / >=20.0.0）本来就包含修复版，pnpm 会沿用旧解，只有 override 能同时按住这四条路径。
-const OVERRIDE_FLOORS = { undici: '7.29.1', 'fast-uri': '3.1.7', axios: AXIOS_FLOOR, electron: '43.5.0' }
+// undici / fast-uri 的地板在 2026-10-24 抬过一次：GitHub Advisory Database 当日新增
+// undici 3 条（GHSA-xjj6-f33q-929c high / GHSA-4qv8-2p9j-2685 / GHSA-f72v-6w45-q472，修复下界 >=7.30.1）
+// 与 fast-uri 4 条（GHSA-w74x-v6f9-j3xg / GHSA-wjr9-j795-jxcr / GHSA-333x-w4r6-6crp / GHSA-xhq7-xmqj-769h，
+// 修复下界 >=3.1.9），使依赖漏洞审计门禁在 main 上以 7 条 NEW_ADVISORY 连红。
+// 地板必须跟着公告的修复下界走：地板停在 7.29.1 / 3.1.7 时，锁里解析到 7.30.0 / 3.1.8
+// （都在地板之上、都在修复下界之下）⇒ 这条棘轮判绿、审计门禁判红，两条判据各说各话。
+const OVERRIDE_FLOORS = { undici: '7.30.1', 'fast-uri': '3.1.9', axios: AXIOS_FLOOR, electron: '43.5.0' }
 
 function readOverridesBlock(text, label) {
   const lines = text.split(/\r?\n/)
@@ -172,7 +178,7 @@ test('每条 pnpm override 都必须有上界（裸 >= 下限一律判红）', (
   for (const [name, range] of Object.entries(overrides)) {
     assert(
       hasUpperBound(range),
-      `override ${name}: "${range}" 没有上界。override 是整体替换依赖区间，写 >=x.y.z 就等于允许下一次非 --frozen-lockfile 的 install 把它静默抬到新 major（实测 registry：undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，而锁里是 7.30.0 / 3.1.8）。${boundedHint()}。`,
+      `override ${name}: "${range}" 没有上界。override 是整体替换依赖区间，写 >=x.y.z 就等于允许下一次非 --frozen-lockfile 的 install 把它静默抬到新 major（实测 registry：undici dist-tags.latest=8.11.2、fast-uri latest=4.2.1，而锁里是 7.30.1 / 3.1.9）。${boundedHint()}。`,
     )
   }
   for (const [name, floor] of Object.entries(OVERRIDE_FLOORS)) {
