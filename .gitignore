@@ -456,6 +456,11 @@ shared-user-data.backups/
 !scripts/check-clock-shift-oracle.js
 !scripts/check-clock-shift-oracle.test.js
 !apps/desktop/test-setup-clock-shift.js
+# v-for 索引 :key 棘轮（UX 审计 4.8，2026-10-19）：判据本体同样被第 106 行 scripts/*.js 默认忽略，
+# 漏 negation 的症状是「本地跑得通、CI Cannot find module」（#3011 家族）。测试文件由 240 行
+# !scripts/*.test.js 已放行，这里只补判据本体。
+!scripts/check-vfor-stable-key.js
+!scripts/check-label-association.js
 
 # oss-b1-rpa-hardening: evasions 提取脚本被 106 行 scripts/*.js 默认忽略, 不 negation 则 CI 与本地 require 不到 (同 #3011 家族)
 !scripts/extract-evasions.js
