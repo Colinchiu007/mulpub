@@ -63,14 +63,33 @@ const DEFAULT_IMAGE_PORT = 7860
  */
 const SAFE_MARGIN_RATIO = 0.13
 
-/** 阶段 system prompt 特征串 → copy fixture 的键。键名与 explainer-stages.js 的 prompt 常量一一对应。 */
+/**
+ * 阶段 system prompt 特征串 → copy fixture 的键。
+ *
+ * ⚠ **这些特征串必须与 `electron/services/explainer/explainer-preprod-stages.js` /
+ *   `explainer/explainer-prod-stages.js` 里的 system prompt 一一对应。**
+ *   ⚠ 2026-10-24 实测踩坑：P2a 把前三个阶段的 system prompt 全改写了
+ *   （「结构化的讲解视频大纲」→「你是资深视频研究员」等）⇒ 旧特征串**全部失效**
+ *   ⇒ 四个阶段一起落到 default 'research' ⇒ E2E 拿到的全是 research 文案，且**不报错**。
+ *   ⇒ 特征串选「阶段角色名」这种语义稳定的措辞，别选会随改写消失的描述；
+ *     并且 `lib/local-provider-hub.test.js` 里有机械守卫断言每个特征串都能在
+ *     对应的提示词常量里找到 ⇒ 提示词一改，守卫立刻红。
+ */
 const STAGE_ROUTES = [
-  { key: 'scenes', match: '视频场景' },
+  { key: 'scenes', match: '你是视频分镜师' },
   { key: 'scenes', match: '严格的 JSON 输出助手' },
-  { key: 'script', match: '逐段旁白文案' },
-  { key: 'proposal', match: '分镜方案' },
-  { key: 'research', match: '结构化的讲解视频大纲' },
+  { key: 'script', match: '你是视频编剧' },
+  { key: 'proposal', match: '你是视频制片人' },
+  { key: 'research', match: '你是资深视频研究员' },
 ]
+
+/**
+ * 组装提示词里的镜头语言标记。
+ * ⚠ 必须与 `electron/services/explainer/explainer-shot-language.js` 的组装格式一致
+ *   （那边是「镜头：{值}」）⇒ 改了那边就要改这里。
+ *   `local-provider-hub.test.js` 里有守卫断言。
+ */
+const SHOT_LANGUAGE_MARKER = '镜头：'
 
 /** 卡片配色（背景渐变起止色 + 强调色），按画面提示词哈希稳定选取 */
 const CARD_PALETTES = [
@@ -107,11 +126,33 @@ function resolveStageKey (messages) {
   return 'research'
 }
 
-/** 画面提示词 → 场景文案（让出图带上旁白标题，而不是干巴巴的提示词） */
+/**
+ * 画面提示词 → 场景文案（让出图带上旁白标题，而不是干巴巴的提示词）。
+ *
+ * ⚠ P2b 起，生图提示词由**代码确定性组装**（风格 + description + 六段镜头语言 + texture），
+ *   **不再等于** fixture 里的 prompt ⇒ 纯「相等匹配」会失配 ⇒ 退化成「拿提示词前 40 字当标题」。
+ * ⇒ 三级匹配：description 相等 → prompt 相等（旧形态）→ description 被提示词包含（组装形态）。
+ */
 function findSceneByPrompt (copy, prompt) {
   const target = String(prompt || '').trim()
   if (!target) return null
-  return (copy.scenes || []).find(scene => String(scene.prompt || '').trim() === target) || null
+  const scenes = copy.scenes || []
+  const byDescription = scenes.find(scene => String(scene.description || '').trim() === target)
+  if (byDescription) return byDescription
+  const byPrompt = scenes.find(scene => String(scene.prompt || '').trim() === target)
+  if (byPrompt) return byPrompt
+  // 第三级：**P2b 组装形态**。组装结果 = 风格 + description + 六段镜头语言 + texture
+  //   ⇒ 含 SHOT_LANGUAGE_MARKER，且 description 不是首段 ⇒ 只能用「包含」匹配。
+  //   ⚠ 用标记做门槛（而不是无条件包含）—— 否则「description + 追加内容」也会命中 ⇒ 相似提示词串台。
+  //   ⚠ 且**必须唯一命中**才返回：多个场景都命中 ⇒ 判为串台 ⇒ 返回 null。
+  if (target.includes(SHOT_LANGUAGE_MARKER)) {
+    const hits = scenes.filter(scene => {
+      const description = String(scene.description || scene.prompt || '').trim()
+      return description && target.includes(description)
+    })
+    if (hits.length === 1) return hits[0]
+  }
+  return null
 }
 
 /** 稳定字符串哈希（用于按提示词挑配色，保证同一场景每次渲染一致） */

@@ -4658,3 +4658,362 @@ scenes 阶段改为读 `script.sections[].text` 拼成文本，**并保留对旧
 4. **`landscape` / `audience_insights` 是 object 不是 string**：上游的 research_brief 本身就是结构化产物
    ⇒ 本片按 schema 实现，不做「文本版简化」。
 5. **不可机械判的项仍靠人**：本片不试图自动判「概念是否真正不同」。
+
+---
+
+## 17. 生产五阶段的产物契约（scene_plan / asset_manifest / edit_decisions / render_report / final_review / publish_log，explainer-production-artifact-contract，2026-10-24）
+
+### 17.1 目标与范围
+
+P1（§15）把上游 14 个 artifact schema **逐字 1:1** 落地并建了零依赖校验器；P2a（§16）把**前生产三阶段**（research / proposal / script）改为产出上游 artifact 对象。本节补齐**生产五阶段**：`scenes → scene_plan`、`assets → asset_manifest`、`editing → edit_decisions`、`compose → render_report + final_review`、`publish → publish_log`。
+
+本节的**能力增量**有四项，其余是契约对齐：
+
+1. **结构化镜头语言 → 生图提示词组装**：P2a 之前，场景的画面提示词由 LLM 写成一段散文（`explainer-stages.js` 的 `buildScenesPrompt` 要求 LLM 直接输出 `{"prompt": "该场景的画面提示词…"}`）。本节改为 LLM 只产**结构化** `shot_language`（镜别/运镜/焦段/光位/景深/色温），**提示词由代码确定性组装** ⇒ 同一部片的视觉语言可复现、可校验，且 `description` 里带逐字文字的场景能被判为 `text_card`（见 17.5.3）。
+2. **真剪辑决策**：`editing` 阶段从「资源清单校验/透传」升级为**产出 `edit_decisions`**（cuts / 字幕 / 音频层 / 转场 / pacing 校验）⇒ 剪辑不再是 compose 引擎的隐式行为，而是可审计的产物。
+3. **`render_runtime` 锁定 + 漂移检测**：runtime 在 proposal 阶段锁定，edit 原样携带，compose 之后比对实际跑的 runtime，不一致即记为**契约违规**（对应上游 `final_review.checks.promise_preservation.runtime_swap_detected`）。
+4. **产物有效性判据**：`final_review` 的五项检查全部用**机械判据**落地（ffprobe / 抽帧 / 响度 / runtime 比对 / 字幕覆盖）⇒ 成片「可播」不再等于「可用」。
+
+**不在本节范围**：P3 的人工审批门（5 个 checkpoint + 批准/驳回路径）、P4 的 EP 编排（REVIEW/REVISE/SEND_BACK + 预算）、P5 的 Remotion 表现层改造（compose 仍走现有 ffmpeg 轮播）、P6 的 assets 工具扩展（music_gen / math_animate / diagram_gen / code_snippet）。本节只做**契约与判据**，为 P3/P4/P5/P6 铺路。
+
+### 17.2 上游依据（权威事实）
+
+上游来源：`calesthio/OpenMontage` 的 `skills/pipelines/explainer/{scene-director,edit-director}.md` + `schemas/artifacts/*.schema.json`（本仓已 1:1 落地，§15）。
+
+| 上游规则 | 出处 | 本节落点 |
+|---|---|---|
+| 每个场景必须写全 5 要素（Subject / Subject Motion / Scene / Spatial Framing / Camera） | scene-director Step 4c | 17.5.1 的提示词组装表（缺项 ⇒ 显式标注，不静默省略） |
+| 时长预算：旁白目标占视频时长 85–90%；语速 2.0–2.5 词/秒（纪录片）/ 2.5–3.0（快节奏）；每场景词数按时长比例分配；转场留 0.5–1s | scene-director Step 4b | 17.6.4 的 `narration_budget` 自检 |
+| 覆盖检查：首场景从 0s 起、末场景结束于总时长、每脚本节至少一场景、场景间隙 ≤ 1s | scene-director Step 6 | 17.6.2 `coverage` 自检 |
+| 多样性：不超过 3 个连续同 type、至少 3 种 scene type | scene-director Step 6 | 17.4.1 计数型判据（按**原始计数**判定，见 17.4.4） |
+| **带逐字文字的场景必须 `type: "text_card"`，绝不能用 `generated`** | scene-director Common Pitfalls | 17.5.3 的 `text_card` 强制判定（AI 生图会编造文字） |
+| cuts 覆盖全时长（**无黑帧**）、primary cuts 不重叠、每个 scene 至少一个 cut | edit-director Step 6 | 17.6.3 `coverage` 自检 |
+| 每个 cut 的 `source` 必须引用有效 asset_id；每个 narration segment 必须引用有效音频资产 | edit-director Step 6 | 17.6.3 `references` 自检 |
+| 字幕**强制开启**，时间从 narration 音频时间戳推导 | edit-director Step 3 | 17.6.5 |
+| 音乐 ducking 必须配置（用 playbook 的 `audio.ducking_threshold_db`） | edit-director Step 4 / Pitfalls | 17.6.6 |
+| 剪辑节奏：cut 不短于 `min_scene_hold_seconds`、不长于 `max_scene_hold_seconds` | edit-director Step 5 | 17.6.7 `pacing` 自检 |
+| **按实际 narration 时长调整 cut**（不是计划时长） | edit-director Pitfalls | 17.6.4（`assets` 的真实 audio duration 优先于 scene_plan 的计划时长） |
+| 转场不应全片同一个 | edit-director Pitfalls | 17.6.7（转场多样性计数） |
+| `render_runtime` 在 proposal 锁定，edit 原样携带 | edit_decisions schema | 17.7 |
+
+### 17.3 架构决策：explainer 专属 compose / publish 执行器
+
+**问题**：`compose` 与 `publish` 是**内置通用阶段**（`stage-executor.js` 的 `STAGE_TYPES.COMPOSE` / `STAGE_TYPES.PUBLISH`），story2video 等 5 条流水线共用。要让 explainer 的这两个阶段产出上游 artifact，有三条路：
+
+| 方案 | 评价 |
+|---|---|
+| A. 改内置 compose/publish 的输出形态 | ❌ 直接破坏 story2video 等 5 条流水线的下游消费点 |
+| B. 在 `pipeline-engine.js` 的 explainer `stageDefs` 里加 explainer 专属 type | ⚠️ `pipeline-engine.js` 的 `files` 与 `targets` **两侧都是 2776**（**点名还账，零容差**）⇒ **加一行就红，且主干立刻变红挡住全仓 PR** |
+| C. **改 type 字符串，不加行** | ✅ **采纳** |
+
+**采纳方案 C 的具体形态**：
+
+- `pipeline-engine.js` 中 explainer 的 `stageDefs`：`type: 'compose'` → `type: 'explainer_compose'`、`type: 'publish'` → `type: 'explainer_publish'`。
+  **这是纯字符串替换，行数不变** ⇒ 零容差天花板读数仍为 2776 ⇒ 不触发 `TARGET_GREW`。
+  ⚠️ 合并前必须按「merge preview」口径实测（见 17.13.4），不能凭 head 读数。
+- `explainer-stages.js` 注册 `explainer_compose` / `explainer_publish` 两个执行器：
+  - 内部**先调用内置执行器**拿到原始产物（`pipelineEngine.stageExecutor.execute({ stage: { type: 'compose', ... } })`）；
+  - 再把原始产物**包装成上游 artifact**。
+  ⚠️ 内层调用必须把 `stage.options` 原样带过去（内置 compose 读 `stage.options` 的 18 个白名单 key：`transition` / `imageEffect` / `resolution` / `fps` / `format` / `bgmPath` / `voiceVolume` / `defaultSceneDuration` 等），否则合成参数会被静默丢掉。
+- **隔离性**：`stage-executor.js` 的 `execute` 是「**自定义 executor 优先**」，内置 map 的 key 是 `'compose'` / `'publish'`，explainer 用 `'explainer_compose'` / `'explainer_publish'` ⇒ **key 不重叠 ⇒ story2video 等流水线零影响**。
+- **不能用 `registerPipeline` 绕开**：`pipeline-engine.js` 的 `registerPipeline` 对已存在的静态流水线返回 `PIPELINE_ALREADY_EXISTS` ⇒ 动态注册覆盖不了 explainer。
+
+**产物写回 context 的位置**：`pipeline-engine.js` 把每个阶段的 `output` 写入 `context[stage.name]` ⇒ explainer 的 `context.editing` 是 `edit_decisions`、`context.compose` 是 `render_report` + `final_review`、`context.publish` 是 `publish_log`。
+
+### 17.4 数据合同
+
+#### 17.4.1 六个 artifact 的必填字段与判据
+
+| Artifact | schema 必填 | 本节追加的自检（机械可判） |
+|---|---|---|
+| `scene_plan` | `version` + `scenes[]`（每项 `id`/`type`/`description`/`start_seconds`/`end_seconds`） | ① 场景类型**原始计数** ≥ 3 种；② 无连续 3 个同 type；③ 每场景有 `shot_language`（缺项按 17.5.1 显式标注） |
+| `asset_manifest` | `version` + `assets[]`（每项 `id`/`type`/`path`/`source_tool`/`scene_id`） | ① 每个 `scene_id` 都能在 `scene_plan` 里找到；② 每个 `scene_id` 至少一条资产；③ `total_cost_usd` = 各资产 `cost_usd` 之和 |
+| `edit_decisions` | `version` + `cuts[]`（每项 `id`/`source`/`in_seconds`/`out_seconds`）+ `render_runtime` | ① cuts 覆盖全时长无黑帧；② primary cuts 不重叠；③ 每个 scene 至少一个 cut；④ `source` 全部引用有效 asset_id；⑤ narration segments 有序不重叠；⑥ ducking 已配置；⑦ 字幕已启用；⑧ pacing 规则满足；⑨ 转场不全是同一个 |
+| `render_report` | `version` + `outputs[]`（每项 `path`/`format`/`resolution`/`duration_seconds`，`minItems: 1`） | 产物**有效性**由 `final_review` 的 `technical_probe` 承担（不重复判） |
+| `final_review` | `version` + `output_path` + `status` + `checks`（5 项 required） | 五项检查的**每个布尔字段**都必须有对应的机械读数，不允许「填 true 了事」 |
+| `publish_log` | `version` + `entries[]`（每项 `platform`/`status`/`timestamp`） | 每个平台一条；`failed` 必须带 `error`；跳过发布时记一条 `status: "draft"` |
+
+#### 17.4.2 `shot_language` 的枚举取值（schema 权威，1:1 落地）
+
+`shot_size` 10 种、`camera_movement` 18 种、`lens_mm` 7 种（14/24/35/50/85/135/200）、`lighting_key` 11 种、`depth_of_field` 3 种、`color_temperature` 4 种。
+⚠️ 提示词组装表**只允许用这些取值**；组装时若拿到枚举外的值 ⇒ 记 `issues` 并跳过该维度（**不静默映射到最近值**）。
+
+#### 17.4.3 `cut.layer` 与 `transform`
+
+`layer` ∈ `primary` / `overlay` / `background`（primary 同一时刻只有一个）；`transform` ∈ `scale` / `position` / `animation` / `crop`；`animation` 是运动预设串（如 `ken-burns-slow-zoom`、`pan-left`、`static`）。
+⚠️ `animation` 的取值**不来自 schema enum**（schema 里是自由 string）。
+⇒ 白名单取**仓内合成层真实可执行的取值**（真源：`story2video-compose-engine.js` 的
+  `buildImageEffectFilter` 的 switch 分支）：`none` / `zoom-in` / `zoom-out` / `pan-left` /
+  `pan-right` / `pan-up` / `pan-down` / `zoom-pan` / `rotate` / `blur-in`。
+⇒ ⚠️ **上游的概念名（`ken-burns-slow-zoom` 等）在本仓合成层不认** ⇒ 写进去 ⇒ 静默无动效
+  （不报错、不降级）。⇒ 白名单外的运动名回落 `none` 并记 issue；
+  上游概念名经 `metadata.motion_aliases` 映射到仓内等价值（`ken-burns-slow-zoom → zoom-in`）。
+
+#### 17.4.4 「补齐」与「达标」是两个量（沿用 §16.4）
+
+`scene_plan` 的「类型多样性 ≥ 3」是**质量阈值**，必须按 **LLM 原始输出**的计数判定，不能按归一化后的数组长度判定。
+⇒ 归一化时把原始计数写进 `metadata.source_counts`，自检按原始计数判定。
+⚠️ 与 §16 同源：`minItems` 补齐会让计数判据永远绿。
+
+### 17.5 功能逻辑 A：`shot_language` → 生图提示词组装
+
+#### 17.5.1 组装表（确定性，代码实现）
+
+LLM 只产结构化字段，**提示词由代码按固定顺序拼接**（顺序即画面语义顺序）：
+
+| 段 | 来源 | 渲染形式 |
+|---|---|---|
+| 1 主体 | `scenes[].description` | 原样前置（描述已含主体+动作） |
+| 2 镜别 | `shot_language.shot_size` | `镜头：{值}`（缺 ⇒ `镜头：未指定`） |
+| 3 运镜 | `shot_language.camera_movement` | `运镜：{值}`（缺 ⇒ `未指定`） |
+| 4 焦段 | `shot_language.lens_mm` | `{值}mm 镜头`（缺 ⇒ `未指定`） |
+| 5 光位 | `shot_language.lighting_key` | `光线：{值}`（缺 ⇒ `未指定`） |
+| 6 景深 | `shot_language.depth_of_field` | `景深：{值}`（缺 ⇒ `未指定`） |
+| 7 色温 | `shot_language.color_temperature` | `色温：{值}`（缺 ⇒ `未指定`） |
+
+⚠️ **缺项必须显式标注为「未指定」而不是静默省略**（上游 scene-director Step 4c：静默省略是最常见的失败模式，会产出不可预测的模型输出与脆弱提示词）。
+⚠️ 六个维度**一律**如此（焦段/景深/色温也不例外）——「有的维度省略、有的维度标注」本身就是不一致 ⇒ 消费方无法用统一规则判「这个维度有没有被指定」。
+⚠️ 枚举外的值 ⇒ 该维度标「未指定」**并**记入 `issues`（不静默映射）。
+
+#### 17.5.2 风格前缀
+
+`scenes[].texture_keywords` 追加在末段；风格前缀来自 `stage.options.imageStyle`（现有 `imageStyle: 'cinematic'`）⇒ 组装结果 = `风格前缀 + 主体 + 6 段镜头语言 + texture_keywords`。
+
+#### 17.5.3 文字场景强制 `text_card`（**不可省**）
+
+若场景的 `description` / `required_assets` / `overlay_notes` 中出现**逐字文字**（CTA、业务信息、联系方式、法务条款、标题文案）⇒ 该场景**必须** `type: "text_card"`。
+理由（上游 Common Pitfalls）：AI 图像模型会**编造文字**（错字、错号码、错品牌名）⇒ 文字准确性要求高的场景必须交给 Remotion 精确渲染。
+⚠️ 本仓现状：compose 走 ffmpeg 图片轮播，尚无 Remotion 文字渲染 ⇒ 本节的落点是**把这类场景判出来并标成 `text_card`**，实际渲染能力留给 P5；本节**不假装**已经能精确渲染。
+
+#### 17.5.4 既有行为的兼容
+
+`scene.prompt` 字段（P2a 之前 LLM 直接写的散文提示词）继续存在且**优先**：若 LLM 给了 `prompt` 且没给 `shot_language` ⇒ 沿用旧提示词路径（**双形态适配**，与 P2a 对 `context.script` 的处理同型）。
+⚠️ 但若**同时**给了 `shot_language` ⇒ 以组装结果为准（结构化优先），并把原 `prompt` 记进 `metadata.legacy_prompt`。
+
+### 17.6 功能逻辑 B：`edit_decisions` 生成
+
+#### 17.6.1 输入
+
+`context.scene_plan`（场景与时间轴）+ `context.assets`（`asset_manifest`）+ `context.script`（`script` artifact）。
+
+#### 17.6.2 时间轴映射（上游 Step 1）
+
+对每个 scene：按 `scene_id` 找资产；按 `script_section_id` 找旁白音频；取 `start_seconds` / `end_seconds`。
+⚠️ **实际音频时长优先于计划时长**（上游 Pitfall「Audio drift」）：若 `asset_manifest` 里该场景的 narration 资产带真实 `duration_seconds` ⇒ 用它校正 `out_seconds`。
+
+#### 17.6.3 cuts 生成（上游 Step 2）
+
+每个 scene 生成一个 `primary` cut：`{id: "cut-N", source: <资产 id>, in_seconds, out_seconds, layer: "primary", transform: {scale: 1.0, position: "center", animation: <按类型选>}, transition_in, transition_out, transition_duration}`。
+- `transform.animation` 按 scene type 选：`text_card` → `static`；`generated` / `broll` → `ken-burns-slow-zoom`；`diagram` / `animation` → `static`（动效由 Remotion/图形层负责，不做图片位移）。
+- `transition_*`：从 `stage.options.transition`（现有 `transition: 'fade'`）取默认值，并**按转场多样性规则**在相邻 cut 之间轮换（上游 Pitfall「Same transition everywhere」）：`fade → dissolve → wipe` 循环，**不允许全片同一个**。
+
+#### 17.6.4 旁白预算自检（上游 Step 4b）
+
+`words / seconds` 与目标区间比对：
+- 目标区间：`2.0–2.5` 词/秒（纪录片，default）/ `2.5–3.0` 词/秒（快节奏，由 `stage.options.narrationPace` 选）。
+- 总旁白目标占视频时长 **85–90%**。
+- 每场景词数按 `duration` 比例分配；5s 场景 ≈ 10–12 词，6s 场景 ≈ 12–15 词。
+⚠️ 超限时**记 issue 并给出建议**（削词 / 延长收尾场景），**不静默截断**（与仓内既有「时长契约 fail-closed」口径一致：真正该拦的是「用户选的档位装不下」）。
+
+#### 17.6.5 字幕（上游 Step 3，**强制开启**）
+
+`subtitles: {enabled: true, style, font, font_size, color, background, position, max_words_per_line}`。
+- `style` 默认 `word-by-word`（上游示例值），可由 `stage.options.subtitleStyle` 覆盖。
+- `position` 默认 `bottom-center`；`max_words_per_line` 默认 8。
+- ⚠️ **时间轴从 narration 音频时间戳推导**；无旁白音频时**不伪造时间轴** ⇒ `subtitles.enabled` 仍为 true 但 `source` 留空并记 issue（无音频就没有可推导的字幕源）。
+
+#### 17.6.6 音频层（上游 Step 4）
+
+- `audio.narration.segments[]`：每条 `{asset_id, start_seconds, end_seconds}`，**有序且不重叠**。
+- `audio.music`：`{asset_id, volume, fade_in_seconds, fade_out_seconds, ducking: {enabled: true, threshold_db, reduction_db, attack_ms, release_ms}}`。
+  ⚠️ 本仓当前**无 BGM 资产**（compose 的 `bgmPath` 未启用）⇒ `audio.music` 可缺省，但**一旦有 `asset_id` 就必须带 ducking**（上游 Pitfall「No ducking」）。
+- `audio.sfx`：`[]`（SFX 工具在 P6）。
+
+#### 17.6.7 pacing 与完整性自检（上游 Step 5/6）
+
+| 自检项 | 判据 | 失败处理 |
+|---|---|---|
+| `coverage` | cuts 首尾覆盖 `[0, 总时长]`；相邻 cut 间隙 ≤ 1s（无黑帧）；primary cuts 不重叠；每个 scene 至少一个 cut | 记 issue（`severity: error`） |
+| `references` | 每个 cut 的 `source` ∈ asset_manifest 的 asset id；每个 narration segment 的 `asset_id` 存在且 `type` 为音频类 | 记 issue（`severity: error`） |
+| `pacing` | 每个 cut 时长 ∈ `[min_scene_hold_seconds, max_scene_hold_seconds]`（可由 `stage.options` 给，缺省 3–15s） | 记 issue（`severity: warn`） |
+| `transitions` | 转场取值不全片相同 | 记 issue（`severity: warn`） |
+| `narration_budget` | 见 17.6.4 | 记 issue（`severity: warn`）+ 建议 |
+
+⚠️ 计数型自检（场景类型数、连续同 type）按 §17.4.4 的**原始计数**判定。
+
+### 17.7 功能逻辑 C：`render_runtime` 锁定与漂移检测
+
+- **锁定源**：`context.proposal.production_plan.render_runtime`（P2a 已产出，缺省 `remotion`，`metadata.render_runtime_source` 标注是缺省还是 LLM 给的）。
+- **携带**：`edit_decisions.render_runtime` = 锁定值，**原样**（上游 schema 明确：edit MUST carry this forward unchanged）。
+- **实际值**：compose 阶段实际走的 runtime（本节仍为 `ffmpeg`；P5 才会切到 Remotion）。
+- **漂移检测**：compose 之后比对「锁定值」与「实际值」：
+  - 一致 ⇒ `final_review.checks.promise_preservation.runtime_swap_detected = false`，`runtime_swap_check = "ok — …"`。
+  - 不一致 ⇒ `runtime_swap_detected = true` + `runtime_swap_check = "detected — …"`，**并**记 `decision_log` 条目。
+- ⚠️ **P2a 的现实**：proposal 阶段 `approval.status` 强制 `pending`，而 `render_runtime` 的**真正选择**在 P3 的 G1 门（remotion 预选 + ffmpeg 显式可选，禁止静默默认）。
+  ⇒ **本节的漂移检测在 P2a 状态下必然报 `detected`**（锁定 remotion / 实际 ffmpeg）—— 这是**正确的**：
+  它把「P5 还没接 Remotion」这个事实**显式化**，而不是藏在「成片能播就行」里。
+  ⇒ 同时必须记 `issues` 说明「runtime 尚未落地 Remotion（P5）」，避免被读成「静默偷换 runtime」。
+  ⚠️ **不得**为了让漂移检测变绿而把锁定值改成 ffmpeg（那是把「用户将来会选的 remotion」偷换成「当前只有 ffmpeg」）。
+
+### 17.8 功能逻辑 D：`render_report` 与 `final_review`
+
+#### 17.8.1 `render_report`
+
+`outputs[]` 每项：`{path, format, codec, audio_codec, resolution, fps, duration_seconds, file_size_bytes, platform_target}`。
+⚠️ 字段**从 ffprobe 实测读数来**，不是从 compose 的意图参数抄（`stage.options.resolution` 是**意图**，ffprobe 是**事实**）。
+`render_grammar` 取 `edit_decisions.renderer_family`（P2a 的 proposal 未产出 `renderer_family` ⇒ 本节用 `explainer-data` 缺省并标注 `metadata.renderer_family_source`）。
+`decision_log_ref` / `final_review_ref` 指向对应产物路径。
+
+#### 17.8.2 `final_review` 的五项检查（全部机械判据）
+
+| 检查 | 判据 | 工具 |
+|---|---|---|
+| `technical_probe` | `valid_container` / `duration_seconds` / `resolution` / `fps` / `has_audio` / `codec` / `file_size_bytes` + `issues[]` | **ffprobe**（复用 `media-tool-paths.js` 的 `findFfprobe()`，与 `cinematic-stages.js` 同源） |
+| `visual_spotcheck` | 抽帧数 ≥ 4（开头/中段/高潮/结尾）+ `black_frames_detected` / `broken_overlays` / `missing_assets` / `unreadable_text` | **ffmpeg 抽帧**（新建；用 `media-tool-paths.js` 的 `findFfmpeg()`） |
+| `audio_spotcheck` | `narration_present` / `music_present` / `unexpected_silence` / `clipping_detected` / `mix_intelligible` | **ffmpeg `volumedetect`**（新建） |
+| `promise_preservation` | `delivery_promise_honored` / `renderer_family_used` / `render_runtime_used` / `runtime_swap_detected` / `runtime_swap_check` / `motion_ratio_actual` / `silent_downgrade_detected` | 17.7 的比对逻辑 |
+| `subtitle_check` | `subtitles_expected` / `subtitles_present` / `coverage_ratio` / `timing_drift_detected` | 字幕文件与 narration 时间轴比对 |
+
+⚠️ **「有音轨」对静音缺陷完全失明**（数字静音同样产出完整音频流）⇒ `unexpected_silence` 必须用**响度读数**判（`volumedetect` 的 mean volume；数字静音约 −91 dB，真人旁白约 −30 dB）⇒ **阈值取 0 附近需按实测标定**，并把阈值写进 `metadata`。
+⚠️ `status` ∈ `pass` / `revise` / `fail`：`revise` / `fail` 时**不得**把成片当作完成品呈现（上游 schema 明写）。
+⚠️ **判定口径（本节定案）**：产物无效（容器坏 / 音轨静音）⇒ `fail`；有 **error 级** issue ⇒ `revise`；
+  否则 `pass`。`warn` / `info` 级**不降 status**。
+  ⇒ 否则 P2a 状态下（`render_runtime` 是**未确认的缺省值**、真实选择要等 P3 的 G1 门）
+    会因「runtime 漂移」永远判 `revise` ⇒ 成片永远出不来。
+⚠️ `recommended_action` ∈ `present_to_user` / `re_render` / `revise_edit` / `revise_assets` / `block` / `re_author`。
+⚠️ `visual_spotcheck.frames_sampled` 的 schema `minimum` 是 4 ⇒ 少于 4 帧**不合法**（不是「少抽几帧也能过」）。
+
+### 17.9 功能逻辑 E：`publish_log`
+
+- `entries[]` 每项：`{platform, status, url, video_id, visibility, export_path, timestamp, metadata_used, error}`。
+- `status` ∈ `published` / `exported` / `failed` / `draft` / `pending_review`。
+- ⚠️ 内置 publish 阶段在「未开启发布且无平台」时返回 `{skipped: true, publishedTo: [], failedPlatforms: []}` ⇒ 本节记**一条** `status: "draft"` 的 entry（`platform` 记实际选中的平台或 `"none"`），**不记 0 条**（schema 的 `entries` 无 `minItems`，0 条会静默通过 ⇒ 用「至少一条」自检兜住）。
+- ⚠️ `failed` 必须带 `error`；`published` 必须带 `url` 或 `video_id`。
+
+### 17.10 交互逻辑 / 显示项 / 提示文字
+
+**本节不改任何用户可见界面**：
+- 生产五阶段是**全自动**阶段（`checkpointRequired: false`），不弹审批窗（P3 才加）。
+- 阶段进度沿用现有 `emitStageStart` / `emitStageComplete` 的 `messageKey` 机制。
+- ⚠️ **新增文案必须走 i18n**（`locales/create/zh.js` + `en.js` 成对），`.vue` template 里的中文会被 `check-locale-sync --cjk` 扫。
+- 本节新增的 messageKey（若需要）：`stageProgress.explainerScenePlanComplete` / `explainerAssetManifestComplete` / `explainerEditDecisionsComplete` / `explainerRenderReportComplete`。
+- ⚠️ 阶段自检的 `issues` **不进 UI 弹窗**（会打断自动流程）⇒ 落在 artifact 的 `metadata.issues` 与执行记录里；P3 的审批门才把它们变成「人审要点」（上游 `review_focus` 的角色）。
+
+### 17.11 流程（一次 explainer 运行的生产五步）
+
+```
+research → proposal → script          （P2a 已完成）
+   ↓ context.scene_plan
+scenes   → scene_plan（含 shot_language；组装出生图提示词）
+   ↓ context.assets（asset_manifest）
+assets  → asset_manifest（复用 story2video_generate_assets；把结果登记成 manifest 条目）
+   ↓ context.editing（edit_decisions）
+editing → edit_decisions（cuts / 字幕 / 音频层 / pacing 自检；render_runtime 锁定值原样携带）
+   ↓ context.compose（render_report + final_review）
+compose  → 先调内置 compose（合成 + ffprobe 实测）→ 组装 render_report + final_review（五项检查）
+   ↓ context.publish（publish_log）
+publish  → 先调内置 publish → 组装 publish_log
+```
+
+⚠️ 顺序不可换：`edit_decisions` 必须在 compose 之前（cut 的时间轴要对齐真实音频时长）；`final_review` 必须在 compose 之后（要看真实产物）。
+⚠️ `scene_plan` 的 `scenes[].end_seconds` 与 `asset_manifest` 的真实音频时长不一致时，**以真实音频为准**并把差异记进 `edit_decisions.metadata` 的 issues（上游 Pitfall「Audio drift」）。
+
+### 17.12 口径偏离登记（必须写进执行记录，不得默默做）
+
+| 偏离 | 上游做法 | 本节做法 | 理由 |
+|---|---|---|---|
+| `render_runtime` 实际值 | Remotion | 本节仍是 `ffmpeg` | P5 才接 Remotion；漂移检测**显式报出**而非掩盖（17.7） |
+| `renderer_family` | proposal 阶段锁定 | 缺省 `explainer-data` + 标 `metadata.renderer_family_source` | P2a 的 proposal 未产出该字段 |
+| `text_card` 精确文字渲染 | Remotion 渲染 | 本节只**判型**，不假装能渲染 | compose 仍是 ffmpeg 图片轮播 |
+| 音乐 ducking | 必须配置 | 无 BGM 资产时 `audio.music` 缺省；**有 asset_id 时必须带 ducking** | 本仓 compose 未启用 BGM |
+| 视觉抽帧检查 | 抽 4 帧人工看 | 机械判「黑帧/缺资产」；「文字不可读」**不自动判** | 读文字需要视觉模型；P6 再谈 |
+| `motion_ratio_actual` | 统计运动画面占比 | 本节从 `edit_decisions` 的 `transform.animation ≠ 'none'` 比例计算 | 可机械算 |
+| `transform.animation` 取值 | 上游用概念名（`ken-burns-slow-zoom`） | 本节写**仓内合成层真实可执行**的 `imageEffect` 值，概念名映射记 `metadata.motion_aliases` | 上游概念名在本仓不认 ⇒ 写进去静默无动效（假契约） |
+| `status` 判定 | 未定义 | 产物无效（容器坏 / 音轨静音）⇒ `fail`；有 error 级 issue ⇒ `revise`；否则 `pass` | 「有 warn 就降级」会让 P2a 状态（runtime 漂移待确认）永远出不了片 |
+
+### 17.13 测试与验收矩阵
+
+#### 17.13.1 单元测试（新增 `explainer-prod-artifacts.test.js`）
+
+| # | 场景 | 期望 |
+|---|---|---|
+| 1 | 完整 `shot_language` → 提示词组装 | 7 段按固定顺序出现，含 mm 焦段与 texture_keywords |
+| 2 | 缺 `shot_language` → 沿用旧 `prompt`（双形态） | 提示词等于旧 prompt，组装路径不生效 |
+| 3 | 同时有 `prompt` 与 `shot_language` | 以组装结果为准，旧 prompt 记进 `metadata.legacy_prompt` |
+| 4 | `shot_language` 含枚举外值 | 该维度标「未指定」**且**记 issue（不静默映射） |
+| 5 | 缺项（只给 shot_size） | 其余维度显式「未指定」/省略，**不静默丢字段** |
+| 6 | 场景描述含逐字文字 | `type` 被判为 `text_card` |
+| 7 | 场景类型原始计数 2 种（归一化后被补成 3） | 多样性自检**按原始计数判红**（§17.4.4） |
+| 8 | 连续 3 个同 type | 多样性自检报红 |
+| 9 | 连续 2 个同 type | 不报红 |
+| 10 | asset 的 `scene_id` 不在 scene_plan | 引用自检报红 |
+| 11 | scene 没有对应资产 | 覆盖自检报红 |
+| 12 | `total_cost_usd` ≠ 各资产之和 | 报红 |
+| 13 | cuts 间隙 0.5s | 报「黑帧」 |
+| 14 | primary cuts 重叠 | 报红 |
+| 15 | 某 scene 无对应 cut | 报红 |
+| 16 | cut 的 `source` 指向不存在的 asset_id | 报红 |
+| 17 | narration segments 乱序 | 报红 |
+| 18 | 旁白 3.5 词/秒（超区间） | 报 issue + 给削词建议 |
+| 19 | 旁白占视频时长 80%（低于 85%） | 报 issue |
+| 20 | cut 时长 1s（低于 min_hold 3s） | 报 issue |
+| 21 | 全部 cut 用同一转场 | 转场多样性报 issue |
+| 22 | `render_runtime` 锁定 remotion、实际 ffmpeg | `runtime_swap_detected = true` + 记 issue（**不许变绿**） |
+| 23 | 锁定值与实际值一致 | `runtime_swap_detected = false` |
+| 24 | `publish_log` 的 `failed` 条目缺 `error` | 报红 |
+| 25 | publish 跳过（未开平台） | 记**一条** `draft` 条目，不是 0 条 |
+
+#### 17.13.2 变异验证（锁要有牙齿）
+
+对关键判据逐条注入缺陷，确认对应用例变红：`minItems` 补齐后计数仍判红、`source_counts` 缺失时判红、枚举外值被静默映射时判红、`runtime_swap_detected` 被写死 false 时判红、`entries` 为空时判红、抽帧数 < 4 时 schema 判红。
+
+#### 17.13.3 端到端验收（本节的**硬验收**，不可省）
+
+**零凭据 CDP 复跑一次完整的 explainer 运行**（复用 PR #4336 的 `apps/desktop/tests/e2e/animated-explainer-cdp.js` + `lib/local-provider-hub.js`），并断言：
+
+| # | 断言 | 判据（**产物有效性**，不是存在性） |
+|---|---|---|
+| E1 | 成片可播 | ffprobe `valid_container = true` |
+| E2 | 规格合规 | 分辨率/帧率/时长与 `render_report.outputs[0]` 一致 |
+| E3 | **音轨非静音** | `volumedetect` 的 mean volume 显著高于数字静音下界（阈值按实测标定，写进 `metadata`） |
+| E4 | 画面非空白 | 抽帧 ≥ 4 帧，黑帧比例 ≈ 0 |
+| E5 | 六个 artifact 齐备 | `scene_plan` / `asset_manifest` / `edit_decisions` / `render_report` / `final_review` / `publish_log` 全部通过 schema 校验 |
+| E6 | `final_review.status` | 非 `revise` / `fail` 才算通过 |
+| E7 | runtime 漂移**被报出** | `runtime_swap_detected = true` 且带说明（P2a 锁定 remotion、实际 ffmpeg ⇒ **这是期望值**） |
+
+⚠️ **E3 是「有音轨 ≠ 音轨可用」的教训**：只断言「有音频流」对静音缺陷完全失明。
+⚠️ **E1/E2 用产物读数，不看进程退出码**（Remotion 实测过 rc≠0 但产物有效；本节 ffmpeg 同理）。
+
+#### 17.13.4 门禁与合并闸门
+
+| 门禁 | 命令 |
+|---|---|
+| 逐文件行数 | `node .github/scripts/check-max-lines.js`（**按 merge preview 口径**，确认 `pipeline-engine.js` 读数仍 2776） |
+| 债务预算 | `node scripts/check-debt-budget.js` |
+| 执行记录 QM-5 | `node scripts/check-record-qm5-rows.js --base=origin/main --head=HEAD` |
+| 执行记录存在 | `node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce` |
+| 热写面 | `node scripts/check-no-hot-carrier-edit.js` |
+| 编码完整性 | `node scripts/check-text-encoding-integrity.js` |
+| 品牌残留 | `node scripts/check-no-brand-residue.js` |
+| i18n | `node .github/scripts/check-locale-sync.js --cjk` |
+| ESLint | `npx eslint <改动文件> --quiet` |
+| 主干无红 | `node scripts/check-main-red.js --pr <n>`（本沙箱需 git shim 补 CA，见执行记录） |
+
+### 17.14 已知限制与未闭合项
+
+1. **`render_runtime` 实际仍是 ffmpeg**：Remotion 表现层改造在 **P5**。本节只做锁定与漂移检测，不假装已接 Remotion。
+2. **`text_card` 只能判型、不能精确渲染**：精确文字渲染依赖 Remotion（P5）。
+3. **视觉检查不判「文字不可读」**：需要视觉模型；P6 再议。
+4. **`renderer_family` 缺省**：P2a 的 `proposal_packet` 未产出该字段 ⇒ 本节用 `explainer-data` 缺省并标注来源。
+5. **BGM / SFX 资产不存在**：本仓 compose 未启用 BGM ⇒ `audio.music` 缺省；SFX 工具在 P6。
+6. **成本金额为 0**：本仓无单价表（ModelPriceCard 未合并）⇒ `cost_usd` 记 0 + `notes` 标「单价未知」，**不让 0 元被读成不要钱**。
+7. **审批门未做**：`approval.status` 仍强制 `pending`；真正批准在 P3。
+8. **EP 编排未做**：无 REVIEW / REVISE / SEND_BACK，驳回后重跑靠人工重跑（P4）。
+9. **`explainer-artifacts.js` 已 457 行（贴脸 limit 500）**：本节的归一化逻辑**必须**放新模块，不得往该文件堆。
+10. **CI 队列饱和**：单轮 1~2 小时是常态；本地门禁全绿 ≠ CI 绿（反之亦然）。
+11. **E2E 桩与提示词「同源」是易碎点**：桩靠 system prompt 特征串路由阶段 ⇒ 提示词一改就静默失效
+    （P2a/P2b 已各触发一次）。本节加了**机械守卫**（`local-provider-hub.test.js`）：
+    断言每个路由特征串都能在阶段提示词源码里找到 ⇒ 漏改当场红。
+12. **E2E 文案基准（fixture）必须与上游契约同步**：P2a 之后 `research`/`proposal`/`script`
+    必须是**JSON 形态**（散文会被归一化成空 artifact ⇒ 计数自检必红）；
+    `scenes` 必须带结构化镜头语言字段，且**与 `script.sections` 一一对应**（否则末几段旁白会丢）。
