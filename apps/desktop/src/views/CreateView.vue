@@ -472,6 +472,7 @@
           :show-time-guidance="isOrchestratedPipeline(selectedPipeline?.name)"
           :orchestration-context="orchestrationContext"
           :checkpoint="pipelineRunStatus?.checkpoint || null"
+          :queue="pipelineRunStatus?.queue || null"
         />
         <div
           v-if="!isOrchestratedPipeline(selectedPipeline?.name) && pipelineProgressStages.length === 0 && pipelineRunStatus && pipelineRunStatus.progress !== undefined"
@@ -4383,11 +4384,17 @@ export default {
       const checkpoint = hasOwn(snapshot, 'checkpoint')
         ? snapshot.checkpoint
         : (hasOwn(snapshot.status, 'checkpoint') ? snapshot.status.checkpoint : prevStatus.checkpoint)
+      // 排队快照（本地 governor 的排队状态）：推送与轮询两条路径都会带，
+      // 合并时取「新快照有就用新的、否则沿用上一次的」，避免排队结束后提示残留。
+      const queue = hasOwn(snapshot, 'queue')
+        ? snapshot.queue
+        : (hasOwn(snapshot.status, 'queue') ? snapshot.status.queue : prevStatus.queue)
       const normalized = normalizePipelineStatusSnapshot({
         ...prevStatus,
         ...snapshot.status,
         stages: incomingStages,
         checkpoint,
+        queue,
       }, this.orchestrationStages)
       if (!normalized) return
       this.orchestrationStages = mergePipelineStages(this.orchestrationStages, normalized.stages)

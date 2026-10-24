@@ -14,6 +14,16 @@
           </span>
         </div>
         <div v-if="summary" class="progress-summary">{{ summary }}</div>
+        <!-- 排队提示（2026-10-24）：本地限流器排队期间告诉用户「还要等多久」，
+             避免用户只看到"卡住了"几十秒后突然失败。详见 governor-queue-snapshot.js。 -->
+        <div
+          v-if="queueHintText"
+          class="progress-summary queue-hint"
+          role="status"
+          :data-testid="tid('queue-hint')"
+        >
+          {{ queueHintText }}
+        </div>
       </div>
       <div
         v-for="(stage, index) in stages"
@@ -65,6 +75,7 @@
 </template>
 
 <script>
+import { buildQueueHint, QUEUE_HINT_KIND } from '@/domain/queue-hint'
 import '@/styles/stage-progress.css'
 import { getPipelineStage } from '@/i18n/pipeline-labels'
 import { getAppLocale } from '@/i18n'
@@ -82,6 +93,9 @@ export default {
     orchestrationContext: { type: Object, default: null },
     // 当前运行检查点（scene_asset_selection 等）：用于区分「等待用户选择素材」与「手动暂停」
     checkpoint: { type: Object, default: null },
+    // 本地限流器的排队快照（{ totalQueued, entries }）：见 governor-queue-snapshot.js。
+    // 约定：entries 为空 ⇒ 无排队；entries[0] 是最紧急的那条。
+    queue: { type: Object, default: null },
     // testid 前缀（跨流水线复用）：默认 'story2video' 保持既有测试与先例逐字不变；
     // 影视工程自动模式传 'film-auto'，避免同一页面出现两套 story2video 命名的节点。
     testidPrefix: { type: String, default: 'story2video' },
@@ -259,6 +273,18 @@ export default {
       // 使全部已完成阶段子进度条等长。skipped 阶段不补（本就无进度语义）。
       if (stage.status === 'completed') return 100
       return null
+    },
+    /**
+     * 排队提示文案。判定逻辑在 @/domain/queue-hint.js（纯函数，可单测）；
+     * 快照来源与口径见 apps/desktop/electron/services/governor-queue-snapshot.js。
+     */
+    queueHintText() {
+      const hint = buildQueueHint(this.queue)
+      if (!hint) return ''
+      if (hint.kind === QUEUE_HINT_KIND.WAITING) {
+        return this.$t('stageProgress.modelQueueWaiting', { count: hint.count })
+      }
+      return this.$t('stageProgress.modelQueueEta', { eta: this.formatDuration(hint.etaMs) })
     },
     formatDuration(ms) {
       const totalSeconds = Math.max(0, Math.floor(Number(ms) / 1000))
