@@ -67,6 +67,10 @@ export default {
   // change: avatar-voice-clone-bundled — voice is created together with the avatar
   avatarCloneVoiceHintBundled: 'Pick a recording to create it together with the avatar. It then appears under Digital human voice above; skip it to clone the avatar only.',
   avatarCloneVoiceChooseMedia: 'Choose a local audio file',
+  // change: hifly-clone-material-hints — material requirements. Hifly returns no
+  // reason on clone failure (observed: empty message), so all hard limits plus the
+  // "must contain a voice" warning have to be stated up front.
+  avatarCloneVoiceMaterialHint: 'Requires mp3 / m4a / wav, up to 20MB, 5s-3min, and must contain a clear human voice (silence or music-only audio will fail).',
   avatarCloneVoiceSelected: 'Recording selected',
   // Subtitles (change: hifly-voice-subtitle-parity): Hifly only (the official
   // create_by_tts st_* family). HeyGen has no equivalent contract, so the panel

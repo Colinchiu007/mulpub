@@ -569,6 +569,40 @@ describe('形象克隆面板（avatar-voice-clone）', () => {
       expect(arg.selectionId).toBe('sel-av')
     })
   })
+  // ── change: hifly-clone-material-hints：克隆素材要求提示 ────────────
+  // 飞影在克隆失败时不返回原因（实测 message 空串），所以素材约束必须由 UI 主动告知，
+  // 否则用户上传静音/超时文件后只会拿到一个无原因的失败。
+
+  describe('克隆素材要求提示', () => {
+    it('录音选择入口旁展示格式/时长/大小约束', async () => {
+      const w = await mountView()
+      await selectPipeline(w, 'avatar-spokesperson')
+      await w.find('[data-testid="avatar-clone-manage"]').trigger('click')
+      await flushAsync()
+      await w.vm.probeAvatarVoiceCloneSupport(w.vm.avatarProviderId || 'heygen')
+      await flushAsync()
+
+      const hint = w.find('[data-testid="avatar-clone-voice-material-hint"]')
+      expect(hint.exists()).toBe(true)
+      // 必须点出三个硬约束：格式、大小、时长
+      expect(hint.text()).toContain('mp3')
+      expect(hint.text()).toContain('20MB')
+      expect(hint.text()).toContain('5 秒')
+      // 且必须警告「需要人声」——这是静音素材失败的根因
+      expect(hint.text()).toContain('人声')
+      w.unmount()
+    })
+
+    it('提示文案走 locale，渲染端不写中文字面量', async () => {
+      const zh = (await import('@/locales/create/avatar/zh.js')).default
+      const en = (await import('@/locales/create/avatar/en.js')).default
+      expect(zh.avatarCloneVoiceMaterialHint).toBeTruthy()
+      expect(en.avatarCloneVoiceMaterialHint).toBeTruthy()
+      expect(zh.avatarCloneVoiceMaterialHint).toContain('人声')
+      expect(en.avatarCloneVoiceMaterialHint.toLowerCase()).toContain('voice')
+    })
+  })
+
   describe('字幕面板（仅飞影支持）', () => {
     it('当前 provider 支持字幕 ⇒ 渲染字幕开关', async () => {
       listAvatarClones.mockResolvedValue({ code: 0, data: { avatars: CLONES } })

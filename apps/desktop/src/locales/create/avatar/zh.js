@@ -66,6 +66,9 @@ export default {
   // change: avatar-voice-clone-bundled —— 声音与形象绑在一次创建里
   avatarCloneVoiceHintBundled: '选一段录音，与形象一起创建。创建成功后可直接在上方「数字人音色」中选用；不选则只克隆形象。',
   avatarCloneVoiceChooseMedia: '选择本地录音文件',
+  // change: hifly-clone-material-hints —— 素材要求提示。
+  // 飞影克隆失败不返回原因（实测 message 空串），故三个硬约束 + 「必须含人声」都要主动告知。
+  avatarCloneVoiceMaterialHint: '要求 mp3 / m4a / wav，≤20MB，时长 5 秒～3 分钟，且必须包含清晰人声（静音或纯音乐会导致克隆失败）。',
   avatarCloneVoiceSelected: '已选录音',
   // 字幕（change: hifly-voice-subtitle-parity）：仅飞影支持（官方 create_by_tts 的
   // st_* 字段族）；HeyGen 无对应契约，故面板对不支持的 provider 整个不渲染。

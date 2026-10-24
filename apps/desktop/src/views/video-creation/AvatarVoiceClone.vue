@@ -16,6 +16,14 @@
     <h5>{{ t('avatarCloneVoiceTitle') }}</h5>
     <p class="config-hint">{{ t('avatarCloneVoiceHintBundled') }}</p>
 
+    <!-- 素材要求（change: hifly-clone-material-hints）。
+         为什么必须主动提示：飞影克隆失败时 message 是空串（真实首跑实测），
+         用户上传静音/超时文件后只会拿到一个无原因的失败，无从下手。
+         三个硬约束（格式 / 大小 / 时长）+ 「必须含人声」都要点明。 -->
+    <p class="config-hint" data-testid="avatar-clone-voice-material-hint">
+      {{ t('avatarCloneVoiceMaterialHint') }}
+    </p>
+
     <div class="clone-voice-create">
       <button
         type="button"
