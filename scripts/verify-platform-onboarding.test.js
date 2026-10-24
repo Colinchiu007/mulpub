@@ -119,15 +119,15 @@ const YAML_CASES = [
   // [slug, 期望块行数（不含键行）, 期望 has_api]
   // 2026-10-18（toutiao-video-api）：toutiao 的 has_api 由 false 翻成 true（补了视频 API 轨），
   // 块行数 17→19（新增 2 行说明注释）。本表是「记录现状」的快照，配置有意变更时同步更新。
-  // 2026-10-23（移除死字段 id）：`config/platforms.yaml` 的 `id:` 字段被移除 ——
-  // 它运行时被 `platform-config.js` 的 `cfg.id = id` 用一级键覆盖，无任何消费者，
-  // 且唯一有值的 `tencent_video: id: 21` 是错的（视频号是厂商 53，21 是腾讯视频）。
-  // 移除后有 id 的三个平台各少一行：zhihu 17→16、toutiao 19→18、baijiahao 17→16。
-  // weibo / douyin 原本就没有 id 字段，行数不变。
-  ['toutiao', 18, true],
-  ['weibo', 14, false],
-  ['zhihu', 16, false],
-  ['baijiahao', 16, true],
+  ['toutiao', 19, true],
+  // 2026-10-24（fix-publish-cover-url）：本 PR 往 weibo 块补了 publish_url + 8 行取值依据注释
+  //   （原先缺 publish_url ⇒ 微博只能走 _publish_generic ⇒ 每次发布 0ms 就
+  //   return { success:false, error:'weibo no publish_url' }）。
+  //   ⇒ 块行数 14→23（新增 9 行）。**本表是「记录现状」的快照，配置有意变更时同步更新**
+  //   （该表头注释原话）。has_api 不变（仍为 false）。
+  ['weibo', 23, false],
+  ['zhihu', 17, false],
+  ['baijiahao', 17, true],
   ['douyin', 16, true],
 ]
 
