@@ -37,11 +37,18 @@ const INFO = 'info';
 /**
  * 五项对账判据。
  *
- * `sql` 约定两个参数：`$1` = 起始时间，`$2` = LIMIT（未使用时也照样传，PG 允许多余参数绑定）。
+ * ⚠️ 每个判据用 `params` 声明自己绑定几个参数，`sql` 里的占位符必须从 `$1` 开始**连续**编号。
+ *
+ * 不能"统一传两个、用不用随缘"：PostgreSQL 对**没有出现在语句里**的占位符无法推断类型，
+ * 会直接报 `could not determine data type of parameter $1`。
+ * 2026-10-23 在真实库上实测踩到 —— 当时 `entitlement-without-paid-order` 与
+ * `stuck-processing` 只用 `$2`、不用 `$1`，脚本一句 SQL 都没跑成；
+ * 而单元测试里的假 client 直接忽略了参数数组，所以全绿。
  */
 const CHECKS = [
   {
     id: 'paid-without-entitlement',
+    params: ['since', 'limit'],
     severity: BLOCKING,
     title: '已支付但没发权益',
     hint: '最严重：用户付了钱拿不到会员。先看该单在 identity_webhook_events 有没有 processed 行；' +
@@ -58,6 +65,7 @@ const CHECKS = [
   },
   {
     id: 'entitlement-without-paid-order',
+    params: ['limit'],
     severity: BLOCKING,
     title: '发了权益但订单不是已支付',
     hint: '反向孤儿：权益来源指向一个未支付/不存在的订单。可能是人工改了订单状态，' +
@@ -71,10 +79,11 @@ const CHECKS = [
                SELECT 1 FROM identity_orders o
                 WHERE o.id = substring(s.provider_reference from 8)
                   AND o.status = 'paid')
-           LIMIT $2`,
+           LIMIT $1`,
   },
   {
     id: 'event-processed-order-pending',
+    params: ['since', 'limit'],
     severity: BLOCKING,
     title: '回调已处理但订单仍非已支付',
     hint: '结算事务提交了事件收口却没把订单置 paid —— 事务边界可能被改坏。' +
@@ -89,6 +98,7 @@ const CHECKS = [
   },
   {
     id: 'paid-order-without-event',
+    params: ['since', 'limit'],
     severity: INFO,
     title: '已支付但无回调事件行',
     hint: '事件表 2026-10-23 才上线，历史订单必然没有 —— 属正常。' +
@@ -104,6 +114,7 @@ const CHECKS = [
   },
   {
     id: 'stuck-processing',
+    params: ['limit'],
     severity: INFO,
     title: '事件卡在 processing 超过 10 分钟',
     hint: '结算成功但收口 UPDATE 失败。**权益已发**，不要据此重新发放；' +
@@ -112,9 +123,22 @@ const CHECKS = [
             FROM identity_webhook_events e
            WHERE e.provider = 'wechat_pay' AND e.status = 'processing'
              AND e.received_at < now() - interval '10 minutes'
-           LIMIT $2`,
+           LIMIT $1`,
   },
 ];
+// 装配期自检：占位符必须从 $1 开始连续编号，且个数与 params 声明一致。
+// 这类错误漏到线上会让整条 SQL 直接失败、拿不到任何部分结果，所以放在模块加载时。
+for (const check of CHECKS) {
+  const nums = [...new Set([...check.sql.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])))].sort((a, b) => a - b);
+  const expected = Array.from({ length: check.params.length }, (_, i) => i + 1);
+  const ok = nums.length === expected.length && nums.every((n, i) => n === expected[i]);
+  if (!ok) {
+    throw new Error(
+      `PAYMENT_RECONCILE_SQL_PARAM_MISMATCH: ${check.id} 的占位符是 ${JSON.stringify(nums)}，` +
+      `但 params 声明了 ${check.params.length} 个 —— 必须从 $1 连续编号`,
+    );
+  }
+}
 
 function parseArgs (argv = process.argv.slice(2)) {
   const result = { json: false, sinceDays: 30, limit: 200, databaseUrl: null, help: false, error: null };
@@ -173,7 +197,10 @@ async function runReconcile (options = {}) {
 
   const results = [];
   for (const check of CHECKS) {
-    const { rows } = await client.query(check.sql, [since, limit]);
+    // 只绑定该判据真正用到的参数。多绑一个未出现的占位符会让 PG 报
+    // "could not determine data type of parameter $N"（实测 2026-10-23）。
+    const values = check.params.map((name) => (name === 'since' ? since : limit));
+    const { rows } = await client.query(check.sql, values);
     results.push({
       id: check.id,
       severity: check.severity,
