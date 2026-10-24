@@ -886,3 +886,70 @@ function safeEval (win, expr, ms, label) {
 
 **为什么必须机械化**：今晚同一个坑以四种不同形态出现（base64 注入、探针、ready-wait、_click），
 每次都是「加了超时就好了」，但每次都要等一次静默失败才发现——靠人工发现必然漏。
+
+## 8.28 视频号发布成功：真正的提交按钮是「直接发表」（2026-10-24 10:04，真机）
+
+### 结论
+
+点「发表」只是**打开确认面板**，真正发稿的是面板里的 **「直接发表」**。
+点它之后立刻产生：
+
+```
+02:04:16  clicked-直接发表 120x40
+02:04:17  REQ  POST https://channels.weixin.qq.com/micro/content/cgi-bin/mmfinderassistant-bin/post/post_create?_aid=…&_rid=…&_pageUrl=…
+02:04:18  RESP 200
+```
+
+### post_create 真实请求体（抓包原文，逆向文档此前标 INFERRED）
+
+```json
+{
+  "objectType": 0, "longitude": 0, "latitude": 0,
+  "feedLongitude": 0, "feedLatitude": 0,
+  "originalFlag": 0, "topics": [], "isFullPost": 1, "handleFlag": 2,
+  "videoClipTaskId": "15039158777382504633",
+  "traceInfo": { "traceKey": "FPT_…", "uploadCdnStart": …, "uploadCdnEnd": … },
+  "objectDesc": {
+    "mpTitle": "", "description": "", "extReading": {}, "mediaType": 4,
+    "location": { "latitude": 40.22…, "longitude": 116.23…, "city": "北京市", "poiClassifyId": "" },
+    "topic": { "finderTopicInfo": "" }, "event": {}, "mentionedUser": [],
+    "media": [ { "url": "https://finder.video.qq.com/251/20302/stodownload?…" } ]
+  }
+}
+```
+
+与我方 `buildShipinhaoPostData` 的差异（**结构完全不同**）：
+
+| 我方 | 平台实际 |
+| --- | --- |
+| 扁平 `{title,isOriginal,videoCover,topic,description,media{...}}` | **嵌套** `objectDesc.{mpTitle,description,media[],location,topic,event,mentionedUser}` |
+| 无 | `videoClipTaskId`（= post_clip_video 的 clipKey） |
+| 无 | `objectType/isFullPost/handleFlag/originalFlag/topics` |
+| 无 | `traceInfo`（在顶层，不在 objectDesc） |
+
+### 其它实测事实
+
+| 项 | 值 |
+| --- | --- |
+| 接口前缀 | `/micro/content/cgi-bin/mmfinderassistant-bin/post/…` |
+| 固定 query | `?_aid=<32hex>&_rid=<uuid前8-8>&_pageUrl=<编码后的页面URL>` |
+| 响应码 | **200**（`post_clip_video` 是 **201**） |
+| 按钮位置 | 在 `.wujie_iframe`.shadowRoot 内（light DOM 里 0 个，shadow 里 85 个） |
+| 「发表」位置 | `top≈1271`（视口高 763）⇒ **必须 scrollIntoView 才能点**；「直接发表」`top≈429` 可见 |
+| dpr | 1.25 |
+| XPath | `document.evaluate` 对 shadowRoot 报错（`#document-fragment` 不是合法上下文）⇒ 竞品的 XPath 方案在 shadow 页面**结构性不可用** |
+
+### 竞品代码（用于对照）
+
+```js
+function getElementByText(dom, text, container = document) {
+  const xr = document.evaluate(`//${dom}[text()='${text}']`, container, …)
+}
+const start5 = getElementByText('button', '发表'); start5.click();
+```
+
+竞品脚本里**只有**「发表」，没有「直接发表」——说明他们那边该面板默认不存在或以别的方式处理。
+
+### 落库
+
+`2b49b0ec1`：在点完「发表」后追加「直接发表」点击（仅当可见 120×40）。
