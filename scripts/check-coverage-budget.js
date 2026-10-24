@@ -209,7 +209,7 @@ function provenanceOf(entry) {
   return Object.assign({ jobName: entry.displayName, workflowPath: entry.workflow }, entry.provenance, {
     safetyMultiplier: require('./gate-budget.js').SAFETY_MULTIPLIER,
     timeoutMinutes: entry.timeoutMinutes,
-    remeasureCommand: '(见 scripts/gate-timeout-sample.js)',
+    remeasureCommand: '(见 scripts/coverage-budget-sample.js)',
   });
 }
 
@@ -356,7 +356,7 @@ function main(argv) {
     }
     if (!result.ok) {
       for (const v of result.violations) console.error('[GATE-TIMEOUT] ' + v.rule + ' — ' + v.detail);
-      console.error('[GATE-TIMEOUT] 正解只有两条：① 跑 `node scripts/gate-timeout-sample.js --workflow=<f> --limit=60`' +
+      console.error('[GATE-TIMEOUT] 正解只有两条：① 跑 `node scripts/coverage-budget-sample.js --workflow=<f> --limit=60`' +
         ' 重采集后更新 `scripts/gate-timeout-registry.json`；② 把该格 `timeout-minutes` 抬到 required 之上。' +
         '禁止改宽本判据（minSamples / staleDays / safetyMultiplier）或删登记项来消红。');
       return EXIT_VIOLATION;

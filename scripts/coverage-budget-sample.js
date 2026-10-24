@@ -2,12 +2,12 @@
 //
 // 它存在的理由不是"今天量过一次"，而是让下一次调预算的人能一句话重取；
 // 因此它的输出字段集与 `scripts/lib/gate-timeout-registry.js` 的 PROVENANCE 逐字同源，
-// 由 `check-gate-timeouts.test.js` 第 7 条锁钉住 —— 字段漂移的 provenance 读起来完全像有效。
+// 由 `check-coverage-budget.test.js` 第 12 条锁钉住 —— 字段漂移的 provenance 读起来完全像有效。
 //
 // 2026-10-20（change: gate-timeout-all-cells）：治理面从 1 格扩到全仓 24 格，本文件随之从
 // "量 QG Coverage" 升格为"量注册表里任意一格"：
-//   `node scripts/gate-timeout-sample.js --limit=60`                       ← 全仓（按注册表逐格）
-//   `node scripts/gate-timeout-sample.js --workflow=quality-gate.yml --job=QG Coverage --limit=120`
+//   `node scripts/coverage-budget-sample.js --limit=60`                   ← 全仓（按注册表逐格）
+//   `node scripts/coverage-budget-sample.js --workflow=quality-gate.yml --job=QG Coverage --limit=120`
 // 矩阵作业（`QG Desktop Shards (1/2)`）按去掉 `(n/m)` 后缀归并；模板名作业
 // （`Autonomous Loop (迭代 ${{ inputs.rounds }} 轮)`）按注册表里声明的 `samplerPattern` 前缀归并 ——
 // 这两类名字不归并就会被读成"没有样本"，而"没采到"和"没有长尾"必须分得开。
@@ -306,7 +306,7 @@ function main(argv) {
       jobName: entry.displayName,
       workflowPath: entry.workflow,
       timeoutMinutes: ceilingOverride !== undefined ? entry.timeoutMinutes : entry.timeoutMinutes,
-      remeasureCommand: 'node scripts/gate-timeout-sample.js --workflow=' + wfBase +
+      remeasureCommand: 'node scripts/coverage-budget-sample.js --workflow=' + wfBase +
         ' --job=' + entry.jobId + ' --limit=' + maxRuns,
     });
     if (sum.noDuration > 0) gaps += sum.noDuration;

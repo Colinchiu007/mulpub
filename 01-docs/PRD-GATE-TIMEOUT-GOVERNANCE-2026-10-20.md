@@ -112,7 +112,7 @@
 | 15 | quality-gate.yml | QG Static | 15 | 16 | 7.9 | 7.9 | 12 | 3 | seeded |
 | 16 | quality-gate.yml | QG Unit Tests | 55 | 17 | 3.6 | 3.5 | 6 | 49 | seeded |
 | 17 | quality-gate.yml | QG Desktop Shards | 55 | 57 | 22 | 20.8 | 33 | 22 | measured |
-| 18 | quality-gate.yml | QG Coverage | 65 | 53 | 43.3 | 41.4 | **65** | **0** | measured |
+| 18 | quality-gate.yml | QG Coverage | 72 | 51 | 47.37 | 45.27 | **72** | **0** | measured |
 | 19 | quality-gate.yml | QG Visual | 20 | 16 | 5.4 | 5.1 | 9 | 11 | seeded |
 | 20 | quality-gate.yml | QG Browser E2E | 20 | 17 | 7.3 | 7.2 | 11 | 9 | seeded |
 | 21 | quality-gate.yml | QG Autonomous | 15 | 17 | 7 | 6.5 | 11 | 4 | seeded |
@@ -163,5 +163,6 @@ node --test scripts/check-coverage-budget.test.js
   新东西已用准确名字：`scripts/lib/gate-timeout-registry.js` + `scripts/gate-timeout-registry.json`。
   重命名留作一次**独立的小提交**（纯 `git mv` + 改 5 处 require，0 逻辑改动），那时 diff 只有个位数行。
 - **`MIN_SAMPLES` 与另外三个"=20"** 同值不同事（分母是不同的池），**显式不许统一**（同前几片的判断）。
-- **耗时仍在涨**：本轮 `QG Coverage` 43.3、`QG Desktop Shards` 22、`autonomous-loop` 18。若某格 max 逼近 0.9×天花板，`HUGGING` 会先叫；
+- **耗时仍在涨**：本轮 `QG Coverage` 43.3、`QG Desktop Shards` 22、`autonomous-loop` 18。
+  （2026-10-24 复测：120 趟窗口同口径重采，`QG Coverage` 升到 **47.37** ⇒ `ceil(47.37 × 1.5) = 72` ⇒ 65 这一档已欠账，timeout 提到 **72**（= required，不多给）；`QG Desktop Shards` 升到 23.28 ⇒ required 35，仍在 55 之内。）若某格 max 逼近 0.9×天花板，`HUGGING` 会先叫；
   但**它需要有人去看那条读数**才生效 —— 这条机制只保证"变红"，不保证"有人行动"。
