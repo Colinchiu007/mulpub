@@ -159,4 +159,30 @@ describe('Collection.vue — 批量平台默认值不得被"挂载那一帧"锁�
       expect(w.vm.batchVideoPlatformScope).toBe('')
     }
   })
+
+  // QM-6（claude 轴，SINGLE 评审）i1：上面三例都从「挂载时目录仍 pending」出发，
+  // 于是 `{ immediate: true }` 那一支一次都没被走过 —— 摘掉它 4/4 照绿（实测）。
+  // 而"目录已在场"不是边角场景，它正是**被本批删掉的那段 onMounted 代码原本唯一覆盖得住的场景**
+  // （热 store 下同帧读派生值本来就拿得到），所以漏掉这一支 = 修复把老场景重新弄坏。
+  it('目录已在场（从别的路由切回采集页，store 是热的）⇒ 挂载当帧就必须有默认值（immediate 那一支）', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+
+    // 第一趟只负责把 store 焐热；**前提是它真的热了**，所以这一步要自己断言，不能假设
+    const warm = mount(CollectionView, { global: { plugins: [pinia, i18n] } })
+    await settle()
+    catalog.resolve(TWO_PLATFORMS)
+    await settle()
+    await settle()
+    expect(warm.vm.batchPlatformOptions.length, '前提：第一趟结束时目录已就位').toBe(2)
+    warm.unmount()
+
+    // 第二趟：同一个 pinia ⇒ setup 时 options 就非空，此后 source 不会再变，
+    // 只有 watch 的 immediate 会让默认值出现；非 immediate 写法在这里必须红。
+    catalog.calls = 0
+    const w = mount(CollectionView, { global: { plugins: [pinia, i18n] } })
+    expect(catalog.calls, '前提：热目录不得再发一次请求（发了就说明本用例走的还是冷启动那一支）').toBe(0)
+    expect(w.vm.batchPlatformScope, '热目录必须在挂载当帧就补上图文默认值').toBe('douyin')
+    expect(w.vm.batchVideoPlatformScope, '热目录必须在挂载当帧就补上视频默认值').toBe('xiaohongshu')
+  })
 })

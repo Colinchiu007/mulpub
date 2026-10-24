@@ -65,14 +65,14 @@ watch(batchVideoPlatformOptions, (list) => { …同形… }, { immediate: true }
 | --- | --- | --- |
 | 变更类型与隔离 | ✅ | `scripts/start-mp-task.ps1` 建 `mp-ux-audit-collection-batch-default`；`verify-worktree-deps.js` OK（11 项） |
 | TDD 红证 | ✅ | 修前跑新测试：`1 failed`，断言原文 `默认目标平台必须自动取目录首项: expected '' to be 'douyin'`，**且同一用例里 `平台目录应已就位` 已先断出 options=2** ⇒ 红的是"目录到了但默认值没补"这一格，不是"目录没到" |
-| TDD 绿证 | ✅ | 修后 `src/views/Collection.batch-platform-default.test.js` 4 passed；`it(` 计数 4（防插入吞行） |
+| TDD 绿证 | ✅ | 修后 `src/views/Collection.batch-platform-default.test.js` **5 passed**；`it(` 计数 5（防插入吞行）。第 5 条由 QM-6 外部评审补，见 §8 |
 | 消费者并集 | ✅ | 按 AGENTS「改调用形态就是改契约」取并集：7 个 Collection/批量发布相关文件 **161 passed / 0 failed** |
 | QM-2 首屏口径 | ✅ | 未新增 await；结构锁第 4 条钉住 fire-and-forget 原样 |
 | QM-4 视觉 | ⏳ 交 CI 判 | 未新增像素用例；`Collection.vue` 无样式改动，`QG Visual` 由 CI 在同一次渲染里判 |
 | eslint | ✅ | rc=0（`Collection.vue` 另余 2 条 **既有** warning：`asrInstallPendingUrl` / `ERROR_CODES` 未使用，非本批引入，不认领） |
 | 行尾对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致后再提交 |
 | 台账（CHANGELOG） | ✅ 按新规 | **不直接编辑 `CHANGELOG.md`**，变更说明写进本文件的 §7 由聚合器搬运（AGENTS `CHANGELOG.md` 条） |
-| QM-6 | 见 §6 | 规模 S，判定预计 single（<200 行），据实回填 |
+| QM-6 | 见 §8 | `sh scripts/deep-review.sh` 实跑：判定 **SINGLE**（变更 177 行 ≤ 200 且无敏感命中）；critic=claude 输出被截断（`DEEP_RC=2`），但截断前的 i1 是一条**真缺陷** ⇒ 已采纳并补锁，读数见 §8 |
 | 远程同步 | 见 §6 | PR 号与合并 SHA 在合并后由 `scripts/lib/merge-ledger.js` 推导，不手写状态词 |
 
 ## 5. 明确留给另批的（不静默吞掉）
@@ -109,11 +109,77 @@ watch(batchVideoPlatformOptions, (list) => { …同形… }, { immediate: true }
   （Collection 早已并行但默认值时机错、PodcastChannelView 两批独立请求被串成两次 await、
   Publish.vue 相邻步骤有真实数据依赖不能机械并行）。**按条目字面施工会把已完成的部分重做一遍，
   并把真缺陷原样留在原地** —— 现状必须逐个读，不能按审计文档的写成什么样就做什么。
-- **测试**：新增 `src/views/Collection.batch-platform-default.test.js`（4 条：目录晚到必须补默认值 /
+- **测试**：新增 `src/views/Collection.batch-platform-default.test.js`（5 条：目录晚到必须补默认值 /
   已手选不被冲掉 / 视频形态同契约（fixture 里刻意放一个 VIDEO 形态，让那条**非空可断**而不是走进
-  else 变恒真）/ 结构锁：唯一写者 + 数据流驱动 + fire-and-forget 未被改回 await）。
+  else 变恒真）/ 结构锁：唯一写者 + 数据流驱动 + fire-and-forget 未被改回 await /
+  **热目录（从别的路由切回）必须在挂载当帧就有默认值** —— 这一条由 QM-6 外部评审补，
+  见下一段）。
   红证为 `默认目标平台必须自动取目录首项: expected '' to be 'douyin'`，
   且同用例先断出 `options.length === 2` —— 红在"目录到了但没人补"，不是一句"目录没到"。
+- **评审抓到的一条**：前 4 条用例全部从「挂载时目录仍 pending」出发，于是 `{immediate:true}`
+  那一支**一次都没被走过**——把 `immediate` 整段摘掉，4/4 照绿（实测 rc=0）。而"目录已在场"不是边角：
+  Pinia store 跨路由存活，切回采集页时 options 在 setup 就非空、此后 source 不再变化，
+  只有 `immediate` 会让默认值出现；**这一支恰是被删掉的那段 onMounted 原本唯一覆盖得住的场景**，
+  漏掉它等于让修复把老场景重新弄坏。补第 5 条（同一个 pinia 挂两次把 store 焐热 + 夹具前提自证：
+  `batchPlatformOptions.length===2`、第二趟 `catalog.calls===0`），反证 N1（摘 `immediate`）
+  现指名变红 `热目录必须在挂载当帧就补上图文默认值: expected '' to be 'douyin'`，其余 4 条仍绿。
 - **验证**：修后 4 passed；消费者并集 7 文件 **161 passed / 0 failed**；eslint rc=0
   （`Collection.vue` 余 2 条既有未使用变量 warning，非本批引入）。
 - **台账口径**：本批按 AGENTS 新规不直接编辑 `CHANGELOG.md`，条目由聚合器从本记录搬运。
+
+
+## 8. QM-6 外部评审（claude 轴）实跑读数与 i1 处置
+
+命令：`sh scripts/deep-review.sh`（cwd = 本 worktree，基线 `origin/main`），日志 `/d/tmp/mw-4399-deep.log`。
+
+```
+提交判定: SINGLE  (变更 177 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派)
+变更基线: origin/main（353 行）
+[轮 1/1] 调用 critic=claude 评审...
+评审失败: JSON解析失败:模型输出被截断，JSON 不完整 ……共 3382 字符
+[ccg-review-writeback] 未写回 reason=not-closed detail=status="error"
+DEEP_RC=2
+```
+
+**这条评审"失败了"，但它截断前的那半截抓到一条真缺陷，而且是我自己的 4 条用例结构性看不见的。**
+所以不能因为 `DEEP_RC=2` 就当没发生 —— "评审没出结论"与"评审没内容"是两件事，后者才是可以跳过的。
+
+### i1（成立，已采纳）：`immediate` 那一支一次都没被走过
+
+指控原文（截断处以下丢失，此处只引可见部分）：三条用例都从「挂载时目录仍 pending」出发
+（用例 1/2/4 都是 mount → settle → resolve），没有任何用例真正走 `{immediate: true}` 那一支，
+即「setup 时 `batchPlatformOptions` 已非空、立刻补默认值」。
+
+**可达性与真伪各自验了一遍**（不把评审的话当结论）：
+
+| 验法 | 读数 |
+| --- | --- |
+| 把两个 `watch` 的 `, { immediate: true }` 整段摘掉，跑同一批用例 | **4 passed / 0 failed，rc=0** ⇒ 指控成立：`immediate` 对现有测试面完全不可见（日志 `/d/tmp/mw-4399-mut-noimmediate.log`） |
+| 生产侧走不走这一支 | 走。Pinia store 跨路由存活，从别的视图切回采集页时 `platformStore.loaded === true` 且 `platforms` 非空 ⇒ setup 时 options 就非空、此后 source **不会再变** ⇒ 只有 `immediate` 会让默认值出现 |
+| 这一支是不是"新增的额外覆盖" | **不是——它正是被本批删掉的那段 onMounted 代码原本唯一覆盖得住的场景**（热 store 下同帧读派生值本来就拿得到）。漏掉它 = 修复把老场景重新弄坏，且症状与缺陷本体反向（切回来时不再自动选、冷启动才自动选） |
+
+处置：新增第 5 条用例「目录已在场（从别的路由切回采集页，store 是热的）⇒ 挂载当帧就必须有默认值」。
+写法上的三个必要点：
+
+1. **同一个 pinia 挂两次**（第一趟负责把 store 焐热）——既有 4 条各用 `createPinia()` 现挂，
+   store 永远是冷的，结构上表示不出"目录已在场"；
+2. **夹具前提自己断言**：`expect(warm.vm.batchPlatformOptions.length).toBe(2)`（第一趟结束时目录确实就位）、
+   `expect(catalog.calls).toBe(0)`（第二趟确实没再发请求 —— 若发了，本用例就又退回冷启动那一支，
+   断言会绿在错误的原因上）；
+3. 图文与视频**两个形态各自断言**具体 id（`douyin` / `xiaohongshu`），不用 `options[0].id` 自证。
+
+### 反证（取被禁形态本身，不是摘判据）
+
+| 变异 | 结果 |
+| --- | --- |
+| N1 摘掉两个 `watch` 的 `, { immediate: true }`（= 让 `immediate` 那一支失效的被禁形态） | **CAUGHT**：`Tests 1 failed | 4 passed (5)`，红的是指名那条 —— `热目录必须在挂载当帧就补上图文默认值: expected '' to be 'douyin'`（`/d/tmp/mw-4399-mut2.log`，`REAL_RC=1`）。改前同一刀是 `4 passed` ⇒ 这一格此前无覆盖 |
+| 还原 | `Collection.vue` md5 `273fbdfecfca29fde28dbc9db5524ab6` 与变异前备份**逐字相等**，`git status` 该文件不再出现改动 |
+
+### 仍开着的（不假装闭合）
+
+- 截断导致 i2 及以后**没有拿到**。本轮不重跑第 2 次评审的理由：本 PR 判定为 SINGLE，
+  机械 QM-6 闸门（`evaluateDeepReviewDebt`）对 `mode !== 'dual'` 直接 `continue`，
+  所以合并资格不依赖这条评审闭合；但 `status=error` 的产物会随 pre-commit 一起入库，
+  它如实记录的是"外部评审跑过、被截断、i1 已采纳"，**不得**为让它好看而改写 status。
+- 下一次动这一片时，应先按驱动提示「只挑 Critical / Warning、暂不要求 Info」重跑一次，
+  把 i2 之后的部分拿全。
