@@ -387,6 +387,7 @@ import { getPlatformIconUrl, isPlatformIconUrl } from '@/composables/usePlatform
 import { formatUserError } from '@/utils/user-facing-error'
 import { resolveAccountDisplayName } from '@/utils/account-display-name'
 import { needsCleanLoginSession } from '@/utils/account-status'
+import { terminateStartupPromise } from '@/utils/startup-promise'
 import { useReloginGuard } from '@/features/accounts/composables/useReloginGuard'
 import { useIdentityStore } from '@/stores/identity'
 import { useLoginGate } from '@/composables/useLoginGate'
@@ -1254,13 +1255,17 @@ async function handleBatchSetActive (isActive) {
 }
 
 onMounted(() => {
-  accountStore.loadGroups()
-  startAccountEvents()
-  refresh()
-  // 运营开关只影响入口显隐，读不到即关闭（ADR-0006），因此不阻塞首帧、失败也不提示
-  refreshCloudSyncFlag()
+  // 首屏启动链的每个入口必须自己收口：浮空的 rejection 会浮到进程级（本仓的独立缺陷家族），
+  // 而"接了但什么都不记"的空处理器又把故障整条吞成零痕迹 —— 两条都由同一个原语挡住。
+  // 写成 thunk 是为了把**同步抛错**也纳进来：一个入口坏不得带走整条启动链。
+  // 口径与"为什么默认 warn 必须是真 console.warn"见 utils/startup-promise.js。
+  terminateStartupPromise('account-groups', () => accountStore.loadGroups())
+  terminateStartupPromise('account-events', () => startAccountEvents())
+  terminateStartupPromise('accounts-list', () => refresh())
+  // 运营开关只影响入口显隐，读不到即关闭（ADR-0006），因此不阻塞首帧、失败也不提示——但必须留日志
+  terminateStartupPromise('cloud-sync-flag', () => refreshCloudSyncFlag())
   // 统一类别：全应用单例，这里只需触发一次加载 + 订阅运营变更
-  loadContentCategories().catch(() => {})
+  terminateStartupPromise('content-categories', () => loadContentCategories())
   categoriesUnsubscribe = watchContentCategories()
 })
 

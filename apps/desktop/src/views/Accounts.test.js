@@ -1918,3 +1918,79 @@ describe("AccountsView — 失效账号打开平台页必须干净会话", () =>
   });
 
 });
+
+describe('AccountsView — 首屏启动链不得留浮空 promise，也不得静默吞掉（审计 1.2 / Unhandled Rejection 家族）', () => {
+  // 真实 store 的 loadGroups/load 都是 async ⇒ 必然返回 promise；
+  // 夹具若让 vi.fn() 返回 undefined 就表示不出"拒绝"这一态（形状不同形 = 结构性免疫）。
+  let escapes;
+  const onUnhandled = (reason) => { escapes.push(reason); };
+
+  beforeEach(() => {
+    escapes = [];
+    _spies.loadGroups.mockReset();
+    _spies.loadGroups.mockResolvedValue([]);
+    _spies.load.mockReset();
+    _spies.load.mockResolvedValue(undefined);
+    process.on('unhandledRejection', onUnhandled);
+  });
+
+  afterEach(() => {
+    process.off('unhandledRejection', onUnhandled);
+    escapes = [];
+  });
+
+  // 至少两个宏任务：Node 把"无人处理的 rejection"报到进程级要过一次检查点
+  async function settleTwoTicks() {
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    await nextTick();
+  }
+
+  it('分组真源拒绝 ⇒ 不得逃逸成进程级 unhandledRejection，且日志必须点名为哪一步', async () => {
+    _spies.loadGroups.mockRejectedValue(new Error('groups bridge exploded'));
+    const warns = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args) => { warns.push(args.map(String).join(' ')); });
+    try {
+      const w = createAccountsView();
+      await settleTwoTicks();
+      w.unmount();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(escapes.map(String), `逃逸到进程级的 rejection: ${escapes.map(String).join(' | ')}`).toEqual([]);
+    expect(warns.join('\n'), '失败必须留下带标签的日志').toContain('groups bridge exploded');
+  });
+
+  it('列表刷新拒绝（refresh 的 try/finally 没有 catch）⇒ 同样不得逃逸，且必须出声', async () => {
+    _spies.load.mockRejectedValue(new Error('accounts list exploded'));
+    const warns = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...args) => { warns.push(args.map(String).join(' ')); });
+    try {
+      const w = createAccountsView();
+      await settleTwoTicks();
+      w.unmount();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(escapes.map(String), `逃逸到进程级的 rejection: ${escapes.map(String).join(' | ')}`).toEqual([]);
+    expect(warns.join('\n'), '失败必须留下带原因的日志').toContain('accounts list exploded');
+  });
+
+  // 行为锁覆盖不到的第三条（loadContentCategories().catch(() => {})）用结构锁钉：
+  // 它的"必须出声"半边由 utils/startup-promise.test.js 的单元锁负责，
+  // 这条只钉"启动链里不得再出现空 catch，且每个异步入口都走同一个原语"。
+  it('结构锁：启动链不得出现空 catch，且每个异步调用点都经 terminateStartupPromise', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync(new global.URL('./Accounts.vue', import.meta.url), 'utf8');
+    const block = src.match(/onMounted\(\(\) => \{[^]*?\n\}\)/);
+    expect(block, '必须能取到 onMounted 启动块（取不到=解析退化，不得当通过）').toBeTruthy();
+    const body = block[0];
+    expect(body, '启动块里不得再有空 catch').not.toMatch(/\.catch\(\s*\(\s*\)\s*=>\s*\{\s*\}\s*\)/);
+    const wrapped = body.match(/terminateStartupPromise\(/g) || [];
+    // 反失明下界：4 个异步入口（分组 / 事件订阅 / 列表刷新 / 运营开关 / 统一类别）里至少 4 个必须走原语
+    expect(wrapped.length, '启动链必须逐个经收口原语接线').toBeGreaterThanOrEqual(4);
+    for (const label of ['account-groups', 'account-events', 'accounts-list', 'content-categories']) {
+      expect(body, `必须给每个入口一个可归因的标签: 缺 ${label}`).toContain(label);
+    }
+  });
+});
