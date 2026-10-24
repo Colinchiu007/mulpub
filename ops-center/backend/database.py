@@ -23,6 +23,10 @@ class Base(DeclarativeBase):
 async def init_db():
     """Create all tables and enable WAL mode."""
     import sqlalchemy
+    # 价格卡 / 事件级用量 / 积分单价配置三张表的 ORM 注册。
+    # 必须在 create_all 之前 import —— 否则 Base.metadata 里没有它们，
+    # 存量库不会建出这三张表（延迟 import 是为了避开 models → database 的循环依赖）。
+    import models_credit  # noqa: F401
     async with engine.begin() as conn:
         # Enable WAL mode first
         await conn.execute(sqlalchemy.text("PRAGMA journal_mode=WAL"))
