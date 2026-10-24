@@ -107,7 +107,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
   async function bootChain (opts = {}) {
     srv = await startFakeServer([
       { method: 'GET', match: /^\/xigua\/api\/upload\/getAuthKey\//, body: authKeyResp(opts.auth || {}) },
-      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: opts.publishBody || { status: 0, data: { Code: 0, ItemId: 'ITEM_123', Message: '' }, message: 'success' } },
+      { method: 'POST', match: /^\/ugc\/publish\/video\/v4\/commit/, body: opts.publishBody || { status: 0, data: { Code: 0, ItemId: 'ITEM_123', Message: '' }, message: 'success' } },
     ])
     vodSrv = await startFakeServer([])
     const uid = opts.uid || '1342958645023752'
@@ -219,12 +219,12 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     } finally { fs.unlinkSync(f) }
   })
 
-  it('Step6 publish：POST /xigua/api/upload/PublishVideo，成功判据 status=0 && data.Code=0 && data.ItemId', async () => {
+  it('Step6 publish：POST /ugc/publish/video/v4/commit/，成功判据 status=0 && data.Code=0 && data.ItemId', async () => {
     await bootChain()
     const r = await chain.publish({ ItemId: '', Title: 'T', Abstract: 'A', VideoInfo: { Vid: 'v123' } })
     expect(r).toMatchObject({ success: true, platform: 'toutiao', publishId: 'ITEM_123' })
 
-    const req = srv.requests.find((x) => /PublishVideo/.test(x.url))
+    const req = srv.requests.find((x) => /v4\/commit/.test(x.url))
     expect(req.method).toBe('POST')
     // 头条是 PascalCase 形状（bundle 取证），不是 snake_case
     expect(req.body).toMatchObject({ Title: 'T', Abstract: 'A', VideoInfo: { Vid: 'v123' } })
@@ -263,13 +263,13 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       ItemId: '',
       Title: '标题',
       Abstract: '简介',
-      VideoInfo: { Vid: 'V1', VName: 'a.mp4', ThumbUri: 'tos/x', Duration: 12, VideoWidth: 1920, VideoHeight: 1080 },
+      VideoInfo: { Vid: 'V1', VName: 'a.mp4', ThumbUri: 'tos/x', ThumbUriFrom: 'custom', Duration: 12, VideoWidth: 1920, VideoHeight: 1080 },
       VideoType: 3,        // 横版
       PublishType: 1,      // 发布
       From: 'mp',
-      EnterFrom: 5,
+      EnterFrom: 54,
       IsNew: true,
-      CreateSource: 2,
+      CreateSource: 1,
       Praise: false,
     })
     // 不得残留 snake_case 旧形状（那是臆断产物）
@@ -357,7 +357,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_POSTER') },
       // 推荐封面：刻意用 Url 键，验证候选探测
       { method: 'POST', match: /GetPosterList/, body: { code: 0, data: { Posters: [{ Url: 'poster-from-platform' }] } } },
-      { method: 'POST', match: /PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_POSTER' } } },
+      { method: 'POST', match: /v4\/commit/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_POSTER' } } },
     ])
     all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
     const c = new ToutiaoVideoChain({
@@ -373,7 +373,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       expect(r.cover).toMatchObject({ source: 'platform-poster', pickedKey: 'Url', posterCount: 1 })
       const posterReq = all.requests.find((x) => /GetPosterList/.test(x.url))
       expect(posterReq.body).toEqual({ vid: 'VID_POSTER' })
-      const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
+      const pub = all.requests.find((x) => /v4\/commit/.test(x.url))
       expect(pub.body.VideoInfo.ThumbUri).toBe('poster-from-platform')
     } finally { fs.unlinkSync(f); await all.close() }
   })
@@ -387,7 +387,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
       { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_NOPOSTER') },
       { method: 'POST', match: /GetPosterList/, body: { code: 0, data: { Posters: [] } } },
-      { method: 'POST', match: /PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'SHOULD_NOT_HAPPEN' } } },
+      { method: 'POST', match: /v4\/commit/, body: { status: 0, data: { Code: 0, ItemId: 'SHOULD_NOT_HAPPEN' } } },
     ])
     all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
     const c = new ToutiaoVideoChain({
@@ -398,7 +398,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
     try {
       await expect(c.run({ title: 't', video: { path: f } })).rejects.toBeInstanceOf(ToutiaoVideoError)
       // 关键：绝不能发出 PublishVideo（否则就是无视封面必填硬发）
-      expect(all.requests.some((x) => /PublishVideo/.test(x.url))).toBe(false)
+      expect(all.requests.some((x) => /v4\/commit/.test(x.url))).toBe(false)
     } finally { fs.unlinkSync(f); await all.close() }
   })
 
@@ -412,7 +412,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       { method: 'GET', match: /Action=ApplyUploadInner/, body: null },
       { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
       { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_COVER') },
-      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_COVER' } } },
+      { method: 'POST', match: /^\/ugc\/publish\/video\/v4\/commit/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_COVER' } } },
     ])
     all.replaceRouteBody(/Action=ApplyUploadInner/, applyResp(all.url.replace(/^http:\/\//, '')))
     const c = new ToutiaoVideoChain({
@@ -424,7 +424,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       // 只给 thumbUri（模拟「封面早已上传」），不该被闸门拦
       const r = await c.run({ title: 't', video: { path: f } }, { thumbUri: 'tos-cn-v/cover-uri' })
       expect(r).toMatchObject({ success: true, publishId: 'ITEM_COVER' })
-      const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
+      const pub = all.requests.find((x) => /v4\/commit/.test(x.url))
       expect(pub.body.VideoInfo.ThumbUri).toBe('tos-cn-v/cover-uri')
     } finally { fs.unlinkSync(f); await all.close() }
   })
@@ -482,7 +482,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       { method: 'POST', match: /\/upload\/v1\//, body: 'ok', raw: true },
       { method: 'POST', match: /Action=CommitUploadInner/, body: commitResp('VID_RUN') },
       { method: 'POST', match: /GetPosterList/, body: { code: 0, data: { Posters: [{ Uri: 'poster-run' }] } } },
-      { method: 'POST', match: /^\/xigua\/api\/upload\/PublishVideo/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_RUN' } } },
+      { method: 'POST', match: /^\/ugc\/publish\/video\/v4\/commit/, body: { status: 0, data: { Code: 0, ItemId: 'ITEM_RUN' } } },
     ])
     const host = all.url.replace(/^http:\/\//, '')
     // 把 apply 路由的响应体替换成携带真实 host 的版本
@@ -508,7 +508,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       const iUpload = raws.findIndex((p) => /^POST \/upload\/v1\//.test(p))
       const iCommit = raws.findIndex((p) => /Action=CommitUploadInner/.test(p))
       const iPoster = raws.findIndex((p) => /GetPosterList/.test(p))
-      const iPublish = raws.findIndex((p) => /PublishVideo/.test(p))
+      const iPublish = raws.findIndex((p) => /v4\/commit/.test(p))
       // 顺序不变量：闸门 < auth < apply < 二进制上传 < commit < publish，且每一步都真实发生
       for (const [name, i] of [['gate', iGate], ['auth', iAuth], ['apply', iApply], ['upload', iUpload], ['commit', iCommit], ['poster', iPoster], ['publish', iPublish]]) {
         expect(i, name + ' 必须发生').toBeGreaterThan(-1)
@@ -521,7 +521,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
       expect(iPoster).toBeLessThan(iPublish)
 
       // PublishVideo 的 body 必须是 bundle 取证的真实形状，且带 apply 阶段拿到的 Vid
-      const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
+      const pub = all.requests.find((x) => /v4\/commit/.test(x.url))
       expect(pub.body).toMatchObject({
         Title: 'T标题',
         Abstract: '正文内容',
@@ -579,7 +579,7 @@ describe('ToutiaoVideoChain — 头条视频 API 轨', () => {
         { vid: 'VID_CSRF', draft: true }
       )
       await chain.publish(body)
-      const pub = all.requests.find((x) => /PublishVideo/.test(x.url))
+      const pub = all.requests.find((x) => /v4\/commit/.test(x.url))
       expect(pub).toBeTruthy()
       expect(String(pub.headers['x-secsdk-csrf-token'] || '')).toBe('OUTGOING_CSRF_VALUE_1234')
     } finally { fs.unlinkSync(f); await all.close() }
