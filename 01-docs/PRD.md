@@ -20672,3 +20672,52 @@ DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底
 - 新增 `AutomationView.notify-registration.test.js` 4 条：顺序锁 + 窗口期内失败/恢复各一条行为锁 + 空载荷负控。反证按被禁形态原样重造 ⇒ 4 条指名变红，还原后逐字节相同。
 - 方法学收获（写进 PRD 验收锚点）：顺序断言第一版把期望写成了**被禁形态** `['list','register']`，它在修复前后都红 —— 是"红之后去读实际读数"才发现错的是期望而不是代码。这类断言首次变红时必须先判"代码错还是期望错"，否则顺手把期望改对就会把缺陷钉成契约。
 - 文档：`01-docs/PRD.md` 新增《自动化页后台通知的注册时机合同》（顺序 / 为什么不补发 / 分档 / 空载荷 / 显示项与提示文字 / 验收锚点）；执行记录 `openspec/records/ux-audit-automation-notify-first.md`。既有 `AutomationView.test.js` 同跑通过。
+
+## 本地库 schema 与迁移的顺序合同（2026-10-20，ux-viral-external-id）
+
+> 适用于 `apps/desktop/electron/services/store-schema.js`（新库建表真源）与
+> `apps/desktop/electron/services/creator-schema.js`（存量库列迁移真源）及其调用方 `store/base-store.js`。
+
+### 一、数据校验：列的"存在性"只能有一个来源，且不得由消费方猜
+
+| 项 | 口径 |
+|---|---|
+| 建表真源 | `store-schema.js` 的 `CREATE TABLE IF NOT EXISTS viral_library` **必须自带** `external_id TEXT DEFAULT ''` 与 `creator_id TEXT DEFAULT ''`。新库建完即含被查询的列，任何消费方（含迁移自己的预检）都不必再猜"这列在不在" |
+| 存量库补列 | 由 `migrateCreatorLinkageSchema` 的 `ALTER TABLE ... ADD COLUMN` 负责，**逐列先查 `PRAGMA table_info`**，已存在即跳过（`CREATE TABLE IF NOT EXISTS` 不会给已存在的表补列，所以这条不能省） |
+| 探列实现 | 唯一实现是 `creator-schema.js` 的 `viralLibraryColumns(db)`；迁移与冲突预检 MUST 共用它，禁止各写一份 PRAGMA 读法（两份"列在不在"的判断一旦分叉，就会出现"迁移认为有、预检认为没有"这类不可归因状态） |
+| 索引 | `(platform, external_id)` 唯一索引 MUST 带 `WHERE external_id <> ''`（partial）。存量行该列是空串，普通 UNIQUE 在建索引瞬间就会因重复键抛错 ⇒ schema 初始化失败 ⇒ **应用起不来** |
+
+### 二、流程：迁移前预检的资格判定
+
+`findViralLibraryConflicts(db)`（迁移前的重复分组预检）按三档返回，三档语义互不相同、不得合并成一句话：
+
+1. **列不存在**（含表还不存在，`PRAGMA table_info` 返回空集）⇒ 直接返回 `[]`，**且不得发出那条查询**。
+   理由：该列正是本次迁移要加的，查询它属于"结构上注定失败"；而 `sqlite-wrapper` 的兜底位置在
+   `Statement.all()` 里——它先 `log.error(...)` 再返回空数组。所以"用 catch 吞掉"并不能让这次失败无声，
+   它会在运行日志里留下一条 `[ERROR] sqlite-wrapper all() error: no such column: external_id`，
+   把"正常的未升级状态"记成故障（2026-10-16 真实现场一条，2026-10-18 打包态复现两次）。
+2. **列存在、查询成功** ⇒ 返回真实分组清单；非空时 `migrateCreatorLinkageSchema` **中止迁移并抛错点名明细**，
+   不得静默去重（擅自删行即数据损失，保留哪条由人决定）。
+3. **列存在、查询失败**（磁盘 I/O、库损坏等真故障）⇒ `console.warn('[creator-schema] viral_library 冲突预检查询失败：…')`
+   出声并返回 `[]`。这一档 MUST NOT 与第 1 档共用静默出口——"没拿到证据"和"没有证据可拿"是两件事。
+
+### 三、显示项与提示文字
+
+- 中止迁移的抛错文案：`viral_library 存在 N 组重复 (platform, external_id)：<platform>:<external_id>x<条数>[…]。为避免误删数据，迁移已中止；请人工清理后重试。`（最多列 5 组）
+- 出声日志前缀固定为 `[creator-schema]`，**禁止**记录 Cookie 值/凭证类内容；这里只记 SQL 失败原因字符串。
+- 该库的建表与迁移都不面向用户界面：用户侧唯一可见后果是"账号页/知识库能否打开"，因此日志留痕就是排障的唯一现场来源，静默等于失明。
+
+### 四、验收锚点
+
+1. `creator-schema-upgrade.test.js`：**必须用真实 sqlite 文件库**（`node:sqlite` + `os.tmpdir()` 唯一路径），
+   覆盖 ①旧库（无该列）被新代码打开时预检不抛错、②一次迁移后两列与 partial 索引齐备、
+   ③列在位且有真重复时预检照样查出且迁移中止、④表不存在时返回空、⑤真故障必须 warn、
+   ⑥缺列时那条查询一次都没被发出。
+2. `store-schema` 的 viral_library 建表体含 `external_id`/`creator_id` 由源码级锁守住，并按**产物 DDL** 建库再跑预检
+   （判据不能只读字符串——"读得到字样"与"建出来的表真的有这列"是两件事）。
+3. 打包产物面（QM-1）：`asar` 解包后读 `electron/services/store-schema.js` 与 `creator-schema.js`，
+   确认落进包里的就是同一份实现；并以产物代码跑一次"新库首次启动"路径。
+4. ⛔ **夹具纪律（本案的逃逸根因）**：`creator-schema.test.js` 的 `makeDb()` 对任意 SQL 的
+   `prepare().all()` 都返回同一份预置数组 ⇒ "列不存在 ⇒ 查询抛错"这一整类事实在该夹具里**无法表示**，
+   于是本地全绿而打包启动每次报 ERROR。给"恢复/迁移/探测"写测试时，被探测的存储必须**预置成真实形态**
+   （缺列的真库、有重复的真行），不得让夹具对所有输入同答。

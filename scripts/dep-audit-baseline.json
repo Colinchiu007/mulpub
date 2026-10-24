@@ -1,5 +1,5 @@
 {
-  "//": "依赖漏洞审计挂账清单（audit-batch-4）。升级/新增依赖后请跑：node scripts/check-dep-audit.js --update 并补齐 decision/note。",
+  "//": "依赖漏洞审计挂账清单（audit-batch-4）。新条目由机器预填「已登记、待升级」+ 修复下界 + 到期日；请确认承诺版本兜得住（兜不住就改 decision 并写清理由）。跑 node scripts/check-dep-audit.js --update 刷新。",
   "reviewBy": "2026-12-31",
   "advisories": [
     {

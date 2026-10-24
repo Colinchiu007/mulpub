@@ -180,7 +180,7 @@ const SCHEMA_SQL = [
     like_collect_ratio  REAL DEFAULT 0,
     published_at        TEXT DEFAULT '',
     platform            TEXT DEFAULT '',
-    source              TEXT DEFAULT 'manual',
+    source              TEXT DEFAULT 'manual', external_id TEXT DEFAULT '', creator_id TEXT DEFAULT '',
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
   )`,

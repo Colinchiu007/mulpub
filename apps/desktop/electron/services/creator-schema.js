@@ -140,15 +140,37 @@ const CREATOR_OUTBOX_SQL = [
 
 const CREATOR_TABLE_SQL = CREATOR_TABLES.concat(CREATOR_OUTBOX_SQL)
 
-/** 迁移前冲突预检：返回存在重复 (platform, external_id) 的分组 */
+/**
+ * 迁移前冲突预检：返回存在重复 (platform, external_id) 的分组。
+ *
+ * ⛔ 不得无条件去查 `external_id`：这条预检跑在**加列的 ALTER 之前**，而一个尚未升级的库
+ * （或 PRAGMA 读不到该列的库）里这一列根本不存在 ⇒ 每次新库首次启动都要发一条**结构上注定失败**
+ * 的查询。过去用 `catch (_) { return [] }` 兜住，但兜的位置在 sqlite-wrapper 里——它先
+ * `log.error` 再返回空，于是打包启动日志每次都留下一条
+ * `no such column: external_id` 的假 ERROR（2026-10-18 两次复现）。
+ * 判据一律先看列在不在（与下面的迁移用同一个 PRAGMA 口径），缺列直接返回空。
+ */
+function viralLibraryColumns (db) {
+  try {
+    return db.prepare('PRAGMA table_info(viral_library)').all().map(c => c.name)
+  } catch (_) {
+    return []   // 连 PRAGMA 都读不到（表还不存在）⇒ 无行即无重复
+  }
+}
+
 function findViralLibraryConflicts (db) {
+  if (!viralLibraryColumns(db).includes('external_id')) return []
   try {
     return db.prepare(
       `SELECT platform, external_id, COUNT(*) AS n FROM viral_library
         WHERE external_id <> '' AND external_id IS NOT NULL
         GROUP BY platform, external_id HAVING n > 1`
     ).all() || []
-  } catch (_) { return [] }   // 列尚未添加（首次升级）时无冲突
+  } catch (err) {
+    // 列在位却查失败 = 真故障（磁盘 I/O、库损坏），不得与"缺列"共用一条静默出口
+    console.warn(`[creator-schema] viral_library 冲突预检查询失败：${err && err.message}`)
+    return []
+  }
 }
 
 /**
@@ -178,7 +200,8 @@ function migrateCreatorLinkageSchema (db, execSchemaSql) {
   try { run('BEGIN'); began = true } catch (_) { /* 无事务能力，降级直跑 */ }
 
   try {
-    const cols = db.prepare('PRAGMA table_info(viral_library)').all().map(c => c.name)
+    // 与上面的预检共用同一个 PRAGMA 口径（两份"列在不在"的判断必须同形）
+    const cols = viralLibraryColumns(db)
     for (const [name, ddl] of [
       ['external_id', 'ALTER TABLE viral_library ADD COLUMN external_id TEXT DEFAULT \'\''],
       ['creator_id', 'ALTER TABLE viral_library ADD COLUMN creator_id TEXT DEFAULT \'\''],

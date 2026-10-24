@@ -375,15 +375,29 @@ async function renderTitleCard (options) {
 
   let degraded = false
   let lastError = null
+  let lastArgv = null
   for (const source of [gradientSource, solidSource]) {
     try {
-      await execFileAsync(ffmpeg, [
+      // -nostdin：ffmpeg 官方开关「禁用 stdin 交互」。不给它时，ffmpeg 一旦因任何原因
+      // 去读 stdin 就会**永久等待**（父进程的 pipe 写端一直开着）⇒ 调用方只能看到
+      // 「超时」，看不到 ffmpeg 自己说了什么（2026-10-24 主干红实测：两个含特殊字符的
+      // 用例在 Windows runner 上各卡满 vitest 的 10s，日志里没有任何 ffmpeg 现场）。
+      // 内部 timeout（8s）也**必须小于**调用方的用例超时，否则 ffmpeg 还没被杀，
+      // vitest 已经先判超时 ⇒ 失败形态永远是「Test timed out」而不是可读的 ffmpeg 错误。
+      lastArgv = [
+        '-nostdin',
         '-y', '-hide_banner', '-loglevel', 'error',
         '-f', 'lavfi', '-i', source,
         '-vf', filters.join(','),
         '-frames:v', '1',
         '-f', 'image2', opts.outputPath,
-      ], { timeout: 30000, maxBuffer: 4 * 1024 * 1024 })
+      ]
+      await execFileAsync(ffmpeg, lastArgv, {
+        timeout: 8000,
+        maxBuffer: 4 * 1024 * 1024,
+        // stdin 显式关闭：不给它，ffmpeg 若去读 stdin 就会一直等（见上）。
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
       if (!fs.existsSync(opts.outputPath)) throw new Error('ffmpeg 未产出文件')
       const stat = fs.statSync(opts.outputPath)
       return {
@@ -400,8 +414,16 @@ async function renderTitleCard (options) {
       degraded = true
     }
   }
+  // 失败信息必须带出**可诊断的现场**：argv（含 -nostdin）与 ffmpeg 的 stderr 尾巴。
+  // 缺了它，ffmpeg 挂住或报错时只得到一句「渲染失败」——CI 上只能看到超时，
+  // 拿不到 ffmpeg 自己说了什么（2026-10-24 主干红实测：Windows runner 上两个含
+  // 特殊字符的用例各卡满 vitest 的 10s，日志里没有任何 ffmpeg 现场）。
+  const argvText = Array.isArray(lastArgv) ? lastArgv.join(' ') : ''
+  const stderrText = String((lastError && lastError.stderr) || '').trim().slice(-400)
   throw new Error('renderTitleCard: ffmpeg 渲染失败: ' +
-    (lastError && lastError.message ? lastError.message : String(lastError)))
+    (lastError && lastError.message ? lastError.message : String(lastError)) +
+    (argvText ? ' | argv: ' + argvText : '') +
+    (stderrText ? ' | stderr: ' + stderrText : ''))
 }
 
 module.exports = {
