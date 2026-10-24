@@ -335,6 +335,35 @@ test('接线锁：门禁必须带 if: pull_request 事件条件（push 事件下
     + '那两种事件下 pull_request.base.sha 为空 ⇒ 门禁 exit 2 ⇒ main 的 push 会红');
 });
 
+test('本地锁：工作区里被 gitignore 吞掉的 scripts/*.js ⇒ 红（新增判据本体会静默不进仓）', () => {
+  // 家族形态（本仓已发生三次，.gitignore 里逐条记着）：`.gitignore` 有 `scripts/*.js`，
+  // 新增的判据本体会被**静默忽略** ⇒ 文件在工作区跑得通（本地全绿）但**没进仓** ⇒
+  // CI 上 workflow 点名它时 Cannot find module。本次新增
+  // scripts/check-spec-delta-coverage.js 时就撞上了（被 ignore ⇒ 不在变更集里）。
+  //
+  // 判据形态说明：这条是**本地向**的（看工作区里被 ignore 的文件）。
+  // CI 上工作区 = checkout 出来的已提交内容，被 ignore 的文件根本不在工作区 ⇒ 0 命中、无害。
+  // CI 上并不需要它兜底：workflow 点名一个不存在的脚本，job 本来就会红（Cannot find module），
+  // 危害是「浪费一轮 CI」而不是「静默通过」。这条锁的价值是**本地提前发现**。
+  //
+  // 前一版曾试图扫 workflow 的引用做全仓完整性检查，误报了两类：
+  //   ① `packages/x/scripts/y.js` / `.github/scripts/y.js` —— 路径后半段，不是仓根下的 scripts/；
+  //   ② `working-directory: packages/api-publish-engine` 下的 `node scripts/y.js` —— 相对工作目录解析；
+  //   ③ `[A-Za-z0-9._-]+` 里的点号贪婪吃掉 `.json` ⇒ `...ledger.json` 被切成 `...ledger.js`。
+  // 三类都是匹配器自己的错（逐条查证才发现），故改成下面这个不依赖文本解析的口径。
+  const { execFileSync } = require('node:child_process');
+  const out = execFileSync('git', ['-C', REPO_ROOT, 'status', '--ignored', '--porcelain', 'scripts/'],
+    { encoding: 'utf8' });
+  const ignored = out.split('\n')
+    .filter(l => l.startsWith('!! '))
+    .map(l => l.slice(3).trim())
+    .filter(f => /\.js$/.test(f) && !/\.test\.js$/.test(f));
+  assert.deepEqual(ignored, [],
+    '工作区里这些 scripts/*.js 被 .gitignore 静默忽略了 ⇒ 它们不会进仓，'
+    + 'CI 上 workflow 点名时会 Cannot find module。请在 .gitignore 加 `!scripts/<name>.js` 反选：\n  '
+    + ignored.join('\n  '));
+});
+
 test('接线锁：门禁必须被点在 QG Changes job 里（不被 docs-only 短路的那个）', () => {
   const wf = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'), 'utf8');
   // 定位 changes job 段
