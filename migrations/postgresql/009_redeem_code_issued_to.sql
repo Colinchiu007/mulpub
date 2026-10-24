@@ -10,7 +10,7 @@
 --   ⚠️ issued_to **当前不是列表筛选条件**（列表只支持 plan/status/batch 过滤）。
 --
 -- ⚠️ 迁移编号纪律（AGENTS.md「迁移编号的唯一性纪律」）：本文件用 009，刻意**跳过 007 与 008**。
---   008 已被在飞 PR #4322（credit_ledger）占用；007 预留给尚未开 PR 的
+--   008 已被 #4322（credit_ledger）占用**并已合入主干**；007 预留给尚未开 PR 的
 --   compute-key-envelope-migration change。迁移台账按「文件名 + checksum」双向锁定，
 --   **撞号会让 identity 仓储启动期硬失败**（MIGRATION_PENDING / MIGRATION_CHECKSUM_MISMATCH
 --   ⇒ MEMBERSHIP_UNAVAILABLE ⇒ 会员中心整体降级）⇒ 宁可跳号，不可撞号。
