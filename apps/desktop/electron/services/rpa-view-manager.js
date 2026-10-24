@@ -211,10 +211,17 @@ class RpaViewManager {
             log.warn('RpaView', 'signer cookie bind failed platform=' + platform + ' accountId=' + signerAccountId + ' err=' + e.message)
           }
         }
+        // 头条 CSRF 令牌（2026-10-24 抓包）：由 secsdk 运行时生成，cookie/本地存储都没有，
+        // 只能开隐藏窗口实时抓（见 services/toutiao-csrf-grab.js）。
+        let _csrfTok = ''
+        if (platform === 'toutiao' && signerAccountId) {
+          try { _csrfTok = await require('./toutiao-csrf-grab').grabToutiaoCsrf(signerAccountId, { log: log, timeoutMs: 25000 }) } catch (_eC) {}
+        }
         const apiResult = await Promise.race([
           publishViaApi(platform, taskData, cookie, {
             onProgress: (pct, msg) => this._emitProgress(platform, msg, pct),
             accountId: signerAccountId || undefined,
+            csrf: _csrfTok || undefined,
           }),
           new Promise(function(_, rj) { const _t = setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout); if (_t && _t.unref) _t.unref() })
         ]);
