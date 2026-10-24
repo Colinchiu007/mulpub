@@ -29,6 +29,19 @@ function registerHandlers(ipcMain, deps) {
     } catch (e) { log.warn('[ipc:misc]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
   })
 
+  // 首启完成标记的唯一写入口（向导上的「完成」/「跳过」）。
+  // 必须同批登记 license-access-control.js 的 PUBLIC_CHANNELS 与 preload 导出，
+  // 少任一处的症状是"点了没反应且没有错误"（由 electron/services/first-run.test.js 锁三处配对）。
+  ipcMain.handle('first-run:complete', async () => {
+    try {
+      const res = firstRun.markDone()
+      if (!res || !res.ok) {
+        return { code: EC.REQUEST_ERROR, message: (res && res.message) || 'first-run mark failed' }
+      }
+      return { code: 0, data: { setupDone: true, reused: Boolean(res.reused) } }
+    } catch (e) { log.warn('[ipc:misc]', ((e && e.message) || String(e))); return { code: EC.REQUEST_ERROR, message: e.message } }
+  })
+
   ipcMain.handle('show-notification', async (_, data) => {
     try {
       const win = BrowserWindow.getAllWindows()[0]

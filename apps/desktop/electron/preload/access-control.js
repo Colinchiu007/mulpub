@@ -13,7 +13,7 @@ const ADMIN_ONLY_METHODS = [
 const PUBLIC_METHODS = [
   'getVersion', 'getPlatform',
   'updateCheck', 'updateDownload', 'updateInstall', 'updateInstallNow', 'onUpdateStatus',
-  'firstRunCheck', 'onFirstRunStatus',
+  'firstRunCheck', 'firstRunComplete', 'onFirstRunStatus',
   'showNotification', 'onNotification',
   'onNavigate',
   'onboardingComplete', 'onboardingGetSteps', 'onboardingStatus',

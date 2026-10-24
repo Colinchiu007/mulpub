@@ -55,7 +55,7 @@ const exportedNames = [
   // 二维码登录与账号状态事件
   "authOpenQrCodeLogin", "authQrCodeClose", "onQrCodeOpened", "onQrCodeDetected", "onQrCodeCompleted", "onQrCodeClosed", "onAccountStatusChanged",
   // 首次运行
-  "firstRunCheck", "onFirstRunStatus",
+  "firstRunCheck", "firstRunComplete", "onFirstRunStatus",
   // 离线
   "offlineStatus", "offlineAddToCache", "offlineClearCache", "onOfflineRestored",
   // 通知
@@ -172,7 +172,7 @@ publishWechat: { args: [{ title: "t", content: "c" }], fallback: undefined, retu
   onQrCodeCompleted: { args: [vi.fn()], fallback: undefined, returns: "function" },
   onQrCodeClosed: { args: [vi.fn()], fallback: undefined, returns: "function" },
   onAccountStatusChanged: { args: [vi.fn()], fallback: undefined, returns: "function" },
-  firstRunCheck: { args: [], fallback: { code: 0, data: { setupDone: false } }, returns: "object" },
+  // ux-audit-first-run-launch：兜底从 { code: 0, data: { setupDone: false } } 改成 code:-1 ——
   onFirstRunStatus: { args: [vi.fn()], fallback: undefined, returns: "function" },
   offlineStatus: { args: [], fallback: { code: -1, data: { offline: false, cachedCount: 0, cachedTasks: [] } }, returns: "object" },
   offlineAddToCache: { args: [{ task: "x" }], fallback: { code: -1 }, returns: "object" },
@@ -332,4 +332,35 @@ describe("api/publisher -- 边界条件", () => {
     await expect(pub.storeGetSetting("theme")).resolves.toBeNull();
   });
 });
+  describe("首启通道在无桥环境下的兜底形状（QM-6 i5）", () => {
+  afterEach(() => { delete window.electronAPI; });
+
+  it("firstRunCheck 不得把『桥不可用』伪装成 setupDone:false", async () => {
+    vi.resetModules();
+    delete window.electronAPI;
+    const pub = await import("./publisher.js");
+    const res = await pub.firstRunCheck();
+    expect(res.code).toBe(-1);
+    expect(res.data).toBeNull();
+  });
+
+  it("firstRunComplete 无桥时必须返回非 0，不得声称已落标记", async () => {
+    vi.resetModules();
+    delete window.electronAPI;
+    const pub = await import("./publisher.js");
+    const res = await pub.firstRunComplete();
+    expect(res.code).toBe(-1);
+    expect(res.data && res.data.setupDone).not.toBe(true);
+  });
+
+  it("firstRunComplete 有桥时按原样透传主进程结论（含 reused）", async () => {
+    vi.resetModules();
+    const fn = vi.fn().mockResolvedValue({ code: 0, data: { setupDone: true, reused: true } });
+    window.electronAPI = { firstRunComplete: fn };
+    const pub = await import("./publisher.js");
+    await expect(pub.firstRunComplete()).resolves.toEqual({ code: 0, data: { setupDone: true, reused: true } });
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
 

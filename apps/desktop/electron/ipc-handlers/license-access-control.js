@@ -6,7 +6,7 @@ const { isTrustedSender } = require('../core/ipc-security')
 const PUBLIC_CHANNELS = new Set([
   'app:get-version', 'app:get-platform',
   'update:check', 'update:download', 'update:install', 'update:install-now',
-  'first-run:check', 'show-notification',
+  'first-run:check', 'first-run:complete', 'show-notification',
   'onboarding:complete', 'onboarding:get-steps', 'onboarding:status',
   'license:info', 'license:deactivate',
   'license:activate-trial', 'license:has-feature', 'license:features',

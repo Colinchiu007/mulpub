@@ -68,6 +68,7 @@ function createSystemApi(ipcRenderer) {
 
     // 首次运行引导 API
     firstRunCheck: () => ipcRenderer.invoke('first-run:check'),
+    firstRunComplete: () => ipcRenderer.invoke('first-run:complete'),
     onFirstRunStatus: (callback) => {
       const handler = (_event, payload) => callback(payload)
       ipcRenderer.on('first-run:status', handler)

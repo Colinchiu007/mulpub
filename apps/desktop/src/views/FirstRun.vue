@@ -14,7 +14,7 @@
           <div class="fr-step-list">
             <div class="fr-step-item">
               <span class="fr-step-num">①</span>
-              <div><strong>环境检测</strong><br><span class="fr-step-item-desc">自动安装 Python 依赖和 Playwright</span></div>
+              <div><strong>{{ $t("onboarding.runtimeTitle") }}</strong><br><span class="fr-step-item-desc">{{ $t("onboarding.runtimeShortDesc") }}</span></div>
             </div>
             <div class="fr-step-item">
               <span class="fr-step-num">②</span>
@@ -31,35 +31,12 @@
         <!-- Step 1: Dependencies -->
         <div v-else-if="currentStep === 1" class="fr-step">
           <div class="fr-step-icon"><el-icon><Setting /></el-icon></div>
-          <h2 class="fr-step-title-sm">环境检测</h2>
-          <p class="fr-step-desc">自动安装依赖，可能需要几分钟</p>
-
-          <div class="fr-dep-list">
-            <div v-for="(step, idx) in depSteps" :key="idx"
-              class="fr-dep-item"
-              :class="'fr-dep-item--' + step.status"
-            >
-              <span class="fr-dep-icon">
-                <span v-if="step.status === 'done'">✅</span>
-                <span v-else-if="step.status === 'active'">⏳</span>
-                <span v-else-if="step.status === 'error'">❌</span>
-                <span v-else>⬜</span>
-              </span>
-              <div class="fr-dep-body">
-                <div class="fr-dep-label">{{ step.label }}</div>
-                <div v-if="step.message" class="fr-dep-msg">{{ step.message }}</div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="allDepsDone" class="fr-step-actions">
-            <p class="fr-ready-text">✅ 环境就绪</p>
+          <h2 class="fr-step-title-sm">{{ $t("onboarding.runtimeTitle") }}</h2>
+          <p class="fr-step-desc">
+            {{ $t("onboarding.runtimeNote") }}
+          </p>
+          <div class="fr-step-actions">
             <button class="cohere-btn-primary" @click="currentStep = 2">下一步：添加账号 →</button>
-          </div>
-          <div v-if="depError" class="fr-step-actions">
-            <p class="fr-error-text">❌ 安装出错：{{ depErrorMessage }}</p>
-            <button class="cohere-btn-secondary" @click="retryDeps">重试</button>
-            <button class="cohere-btn-primary fr-btn-skip" @click="currentStep = 2">跳过</button>
           </div>
         </div>
 
@@ -111,8 +88,11 @@
           </div>
 
           <div class="fr-final-actions">
-            <button class="cohere-btn-secondary" @click="$router.push('/accounts')">管理账号</button>
-            <button class="cohere-btn-primary" @click="$router.push('/publish')">开始发布 →</button>
+            <!-- 出口必须落首启标记：否则下次启动又回到向导（UX 审计 1.4）。
+                 标记写失败不挡用户离开 —— 把人困在向导里比"下次还要再走一遍"更糟，
+                 失败态以提示与日志出声（见 finishAndGo）。 -->
+            <button class="cohere-btn-secondary" :disabled="finishing" data-testid="first-run-exit-accounts" @click="finishAndGo('/accounts')">管理账号</button>
+            <button class="cohere-btn-primary" :disabled="finishing" data-testid="first-run-exit-publish" @click="finishAndGo('/publish')">开始发布 →</button>
           </div>
         </div>
 
@@ -132,7 +112,7 @@ import UiButton from "../components/UiButton.vue";
 import { getApi } from '@/api/electron-bridge'
 // eslint-disable-next-line no-unused-vars
 import UiInput from "../components/UiInput.vue";
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 // 欢迎语文案走 locale 单一来源（onboarding.welcome，zh/en 成对）：
@@ -145,25 +125,21 @@ const notificationType = ref('success')
 const showNotification = ref(false)
 
 // eslint-disable-next-line no-unused-vars
+const router = useRouter()
+
 function notify(msg, type = 'success') {
   notificationMsg.value = msg
   notificationType.value = type
   showNotification.value = true
   setTimeout(() => { showNotification.value = false }, 3000)
 }
-import { onFirstRunStatus, firstRunCheck, authOpenLogin, accountAdd } from '@/api/publisher'
+import { firstRunComplete, authOpenLogin, accountAdd } from '@/api/publisher'
+import { useRouter } from 'vue-router'
 import { getPlatformIconUrl } from '@/composables/usePlatformIconUrl'
 
 const currentStep = ref(0)
 const addingPlatform = ref('')
-const allDepsDone = ref(false)
-const depError = ref(false)
-const depErrorMessage = ref('')
-
-const depSteps = ref([
-  { label: 'Python 依赖', status: 'pending', message: '' },
-  { label: 'Playwright 浏览器', status: 'pending', message: '' },
-])
+const finishing = ref(false)
 
 const quickPlatforms = [
   { id: 'wechat_mp', label: '微信公众号', icon: '💬', iconUrl: getPlatformIconUrl('wechat_mp') },
@@ -174,40 +150,10 @@ const quickPlatforms = [
   { id: 'youtube', label: 'YouTube', icon: '▶', iconUrl: getPlatformIconUrl('youtube') },
 ]
 
-let cancelListen = null
-
-const stepIndex = { python: 0, playwright: 1 }
-
-onMounted(async () => {
-  const checkResult = await firstRunCheck()
-  if (checkResult?.code === 0 && checkResult.data?.setupDone) {
-    allDepsDone.value = true
-    depSteps.value.forEach(s => { s.status = 'done' })
-    currentStep.value = 1  // skip deps
-  }
-  cancelListen = onFirstRunStatus((payload) => {
-    if (!payload) return
-    if (payload.type === 'step' && stepIndex[payload.data?.step] !== undefined) {
-      depSteps.value[stepIndex[payload.data.step]].status = 'active'
-      depSteps.value[stepIndex[payload.data.step]].message = payload.data.message || ''
-    } else if (payload.type === 'done') {
-      depSteps.value.forEach(s => { s.status = 'done' })
-      allDepsDone.value = true
-    } else if (payload.type === 'error') {
-      const idx = depSteps.value.findIndex(s => s.status === 'active')
-      if (idx >= 0) {
-        depSteps.value[idx].status = 'error'
-        depSteps.value[idx].message = payload.data?.data || '未知错误'
-      }
-      depError.value = true
-      depErrorMessage.value = payload.data?.data || '安装失败'
-    }
-  })
-})
-
-onBeforeUnmount(() => {
-  if (cancelListen) cancelListen()
-})
+// 首启向导不再订阅主进程推送，也不再显示"环境检测通过"：
+// P2-E 之后主进程首启流程不做任何安装或检测（它现在只负责告知"还需不需要引导"），
+// 而旧实现把推送 type:done 当成"两项依赖都 ✅"来点亮 —— 那是给用户看的假证据。
+// 依赖状态从 UI 里整条撤下，进度改由用户自己点「下一步」推进。
 
 async function addAccount (platform) {
   addingPlatform.value = platform
@@ -227,11 +173,37 @@ async function addAccount (platform) {
   finally { addingPlatform.value = '' }
 }
 
-function retryDeps () {
-  depError.value = false
-  depSteps.value.forEach(s => { if (s.status === 'error') s.status = 'pending'; s.message = '' })
-  // Re-trigger setup
-  firstRunCheck()
+/**
+ * 向导出口：先落首启标记再离开。
+ * 三条口径：
+ *  1. 标记不落就离开 ⇒ 下次启动又回到向导，所以这是唯一写者入口（主进程已不再自动落，见 1.4）。
+ *  2. 标记写失败**不挡用户离开** —— 把人困在向导里比"下次还要再走一遍"更糟；但必须出声
+ *     （toast + console.warn），不得静默，否则用户只会反复重启排障。
+ *  3. 这条链由点击处理函数 await，异常必须自己收口：浮出去的 promise 会变成 Unhandled Rejection。
+ */
+async function finishAndGo (path) {
+  if (finishing.value) return
+  finishing.value = true
+  try {
+    const res = await firstRunComplete()
+    if (!res || res.code !== 0) {
+      notify($t('onboarding.saveFailedNotice'), 'error')
+      console.warn('[first-run] mark write rejected: ' + ((res && res.message) || 'unknown'))
+    }
+  } catch (error) {
+    notify($t('onboarding.saveFailedNotice'), 'error')
+    console.warn('[first-run] mark write threw: ' + ((error && error.message) || String(error)))
+  } finally {
+    finishing.value = false
+  }
+  // QM-6 i3：这句原先落在 try/finally **之外**，与本函数注释第 3 条（"异常必须自己收口，
+  // 浮出去的 promise 会变成 Unhandled Rejection"）自相矛盾 —— 导航守卫 reject/redirect 时
+  // 它会逃逸成未处理 rejection，而用户停在原地却看不到任何解释。
+  try {
+    await router.push(path)
+  } catch (error) {
+    console.warn('[first-run] navigation after wizard exit failed: ' + ((error && error.message) || String(error)))
+  }
 }
 </script>
 <style scoped>
@@ -268,16 +240,10 @@ function retryDeps () {
 .fr-step-num { font-size: var(--font-size-md); }
 .fr-step-item-desc { font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
-.fr-dep-list { display: flex; flex-direction: column; gap: var(--space-md); }
-.fr-dep-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: var(--r-sm); text-align: left; }
-.fr-dep-item--done { background: var(--color-success-soft); }
-.fr-dep-item--active { background: var(--color-primary-light); }
-.fr-dep-item--error { background: var(--color-danger-soft); }
-.fr-dep-item--pending { background: var(--color-bg-inset); }
-.fr-dep-icon { font-size: var(--font-size-lg); line-height: 24px; }
-.fr-dep-body { flex: 1; }
-.fr-dep-label { font-weight: 500; font-size: var(--font-size-sm); }
-.fr-dep-msg { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 4px; }
+/* 原 .fr-dep-* 十条规则随「环境检测」步骤一起撤下（ux-audit-first-run-launch）：
+ * 那两行状态从未对应任何真实检测；历史形态用 `git log -p --follow` 取证。
+ * 这里必须用 CSS 块注释而不是双斜线行注释 —— 写成行注释时 vitest 全绿（它不编译 style 块），
+ * 只有 build:dir 里的 vite/postcss 会炸；QM-1 正是拦这一类的闸。 */
 
 .fr-step-actions { margin-top: var(--space-xl); }
 .fr-ready-text { color: var(--color-success); margin-bottom: var(--space-lg); }

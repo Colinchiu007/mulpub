@@ -132,6 +132,7 @@ import {
 import { isHomeShellSearch } from '@/utils/home-shell'
 import { suspendEmbeddedViewsForOverlay, releaseEmbeddedViewsForOverlay } from '@/composables/useEmbeddedViewSuspension'
 import { useTabDocumentTitle } from '@/composables/useTabDocumentTitle'
+import { maybeEnterFirstRun } from '@/composables/useFirstRunGate'
 import { storeToRefs } from 'pinia'
 
 const router = useRouter()
@@ -396,6 +397,14 @@ function refreshRouteLoad() {
 // ── 生命周期 ──
 
 onMounted(() => {
+  // 首启判定走「拉」不走主进程的推送：推送发生在窗口创建时，早于任何渲染端订阅，
+  // 事件必然丢失（UX 审计 1.4）。判据只在 code===0 且 setupDone 是布尔时生效，
+  // 桥不可用一律不动导航 —— 兜底值把「没读到」伪装成「还没做过」会让 dev server 每次访问都跳向导。
+  // 这条链跑在 onMounted 里、没人 await，所以必须自己收口：漏出去就是 Unhandled Rejection
+  // （单元 1.2 刚踩过同一格）。
+  maybeEnterFirstRun({ router }).catch((error) => {
+    console.warn('[first-run] startup navigation failed: ' + ((error && error.message) || String(error)))
+  })
   licenseStore.load()
   identityStore.load()
   // home-shell 实例：启动页面标题同步（路由 → document.title → 主进程标签标题）
