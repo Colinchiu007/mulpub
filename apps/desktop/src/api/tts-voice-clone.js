@@ -73,3 +73,19 @@ export async function renameTtsVoiceClone (input) {
     return unavailable(null)
   }
 }
+
+/**
+ * 修改克隆音色的语速/音量/语调（change: hifly-voice-edit-ui）。
+ *
+ * 只对**自己克隆的**音色可用——服务端对公共音色返回通用失败、无法区分，
+ * 所以 UI 只应在克隆音色列表里给入口。参数必须是字符串且在界内，
+ * 越界由主进程拒绝（VOICE_CLONE_INVALID_ARGUMENTS）。
+ */
+export async function editTtsVoiceCloneParams (input) {
+  try {
+    const r = await invokeNamespace(NS, 'editParams', input)
+    return r === undefined ? unavailable(null) : r
+  } catch (_) {
+    return unavailable(null)
+  }
+}

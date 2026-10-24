@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { CAPABILITY_TYPES, getVoiceCapability } = require("./tts-voice-catalog");
+const { isSafeCloneVoiceParams, editParamsMethods, publicVoice } = require("./tts-voice-clone-params");
 const { findFfprobe } = require("./media-tool-paths");
 
 const CLONE_REGISTRY_VERSION = 2;
@@ -287,6 +288,7 @@ function isSafeCloneVoice(value, providerId, model, owner) {
     "createdAt",
     "deletionState",
     "sampleStorage",
+    "params", // 语速/音量/语调（选填，写入由 editCloneParams 负责）
   ]);
   if (Object.keys(value).some((key) => !allowed.has(key))) return false;
   const id = safeIdentifier(value.id, MAX_VOICE_ID_LENGTH);
@@ -300,6 +302,7 @@ function isSafeCloneVoice(value, providerId, model, owner) {
     Number.isFinite(value.createdAt) &&
     Object.values(DELETE_STATES).includes(deletionState) &&
     (value.sampleStorage === undefined || isSafeCloneSampleStorage(value.sampleStorage, owner)) &&
+    (value.params === undefined || isSafeCloneVoiceParams(value.params)) &&
     providerId.length > 0 &&
     model.length > 0,
   );
@@ -323,14 +326,6 @@ function isSafeCloneRegistry(value, providerId, model, owner) {
   return new Set(value.voices.map((voice) => voice.id)).size === value.voices.length;
 }
 
-function publicVoice(voice) {
-  return {
-    id: voice.id,
-    name: voice.name,
-    source: voice.source,
-    createdAt: voice.createdAt,
-  };
-}
 
 class TtsVoiceCloneService {
   constructor(deps = {}) {
@@ -1769,6 +1764,8 @@ async renameClone(input) {
     });
   }
 }
+
+Object.assign(TtsVoiceCloneService.prototype, editParamsMethods);
 
 module.exports = {
   ALLOWED_AUDIO_EXTENSIONS,
