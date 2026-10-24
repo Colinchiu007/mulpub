@@ -27,22 +27,16 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const ROOT = path.resolve(__dirname, '..')
 
 /** 写回器（及其 require 闭包）在真跑时会被入口调到；夹具必须把它们一起放进临时仓库。 */
-const SCRIPT_CLOSURE = [
-  'deep-review.sh',
-  'ccg-review-writeback.js',
-  'ccg-review-decider.js',
-  'check-pr-exec-record.js',
-  'classify-docs-only.js',
-  'ccg-review-backends.list',
-  'lib/ccg-backends.sh',
-  'lib/ccg-review-backends.js',
-  'lib/ccg-delivery-digest.js',
-  // ↓ #4093 之后新增的两个本地依赖：入口在加载期、审计期会 require 它们。
-  //   漏抄的后果是临时仓缺模块 ⇒ 入口在**加载期**就抛 "Cannot find module"，
-  //   整批子测试同形失败（实测 Gate 2b11 在 2026-10-23 打红就是这个形态）。
-  'lib/exec-record-statuses.js',
-  'lib/exec-record-audit.js'
-]
+// 入口链闭包**只有一份实现**：scripts/lib/deep-review-fixture-closure.js。
+// 动因（两次同形红，都是"手抄清单与真实依赖边漂开"）：① 上游把闭环状态词搬进
+// lib/exec-record-statuses.js ⇒ 本文件的旧手抄清单少拷一个文件，CI 上六条入口用例一起红；
+// ② 本刀给入口新增 lib/ccg-review-rounds.js 调用点 ⇒ **另一个**夹具（deep-review-deps）没跟着长。
+// 所以这里不再维护清单，也不许第二个消费者自带一份（⓱ 里有这条锁）。
+const { ENTRY_ROOTS, closureOf, entryClosure } = require('./lib/deep-review-fixture-closure')
+
+const CLOSURE = entryClosure(path.join(ROOT, 'scripts'))
+const SCRIPT_CLOSURE = CLOSURE.files
+const CLOSURE_UNRESOLVED = CLOSURE.unresolved
 
 const FAKE_DRIVER = `'use strict'
 // 假驱动：只复刻真引擎 ccg-deep-review.js 的**收口站点形状**（:1252-1256）——
@@ -61,7 +55,9 @@ if (process.env.MP_FAKE_DELIVER === '1') {
     required: true,
     status: process.env.MP_FAKE_STATUS || 'cleared',
     performedBy: process.env.MP_FAKE_PERFORMED_BY || 'claude',
-    findings: [{ id: 'f1', severity: 'Info', finding: '假驱动交付的一条意见' }],
+    // findings 文本变一定进语义指纹（只有 at 变不算新交付，写回器④-b 钉着）。
+    // 入口级要造「同一个 sha、又真跑出一批新交付」这一格，没这个旋钮两边就永远同指纹。
+    findings: [{ id: 'f1', severity: 'Info', finding: '假驱动交付的一条意见' + (process.env.MP_FAKE_NOTE || '') }],
     minScore: 6,
     at: new Date().toISOString()
   }
@@ -127,6 +123,13 @@ function makeFixture (t, opts) {
     const dst = path.join(dir, 'scripts', rel)
     fs.mkdirSync(path.dirname(dst), { recursive: true })
     fs.copyFileSync(src, dst)
+  }
+  // 闭包完整性在这里落地成**测试自己的红**：缺一个 lib 文件时，症状原本埋在入口子进程的输出里
+  // （`⚠ 写回器自身未能运行` + 一句 Cannot find module），六条用例一起红却没人点名缺的是谁。
+  if (CLOSURE_UNRESOLVED.length) {
+    throw new Error('脚本闭包缺件（夹具会少拷一个文件，红被推到被测子进程深处）：'
+      + CLOSURE_UNRESOLVED.map((u) => `${u.from} -> ${u.rel}`).join(' , ')
+      + `｜现有闭包 ${SCRIPT_CLOSURE.length} 项`)
   }
   const exclude = path.join(dir, '.git', 'info', 'exclude')
   fs.mkdirSync(path.dirname(exclude), { recursive: true })
@@ -363,36 +366,207 @@ test('⑪ 驱动只刷新时间戳 ⇒ 入口侧 reason=no-new-delivery，且不
   assert.strictEqual(readRec(fx.recFile).deepReview.status, 'cleared', '既有 status 不得被改写')
 })
 
+/* ---------------- 跨调用轮次上限（openspec change: qm6-rebuttal-round-cap）----------------
+   这三条测的是**入口真跑**，不是库：轮次账挂在什么键上、超限那一档到底调不调模型，
+   只有真跑一遍 sh scripts/deep-review.sh 才看得见。库侧的锁在 ccg-review-rounds.test.js。 */
 
-/**
- * 夹具闭包守卫（2026-10-24）：被复制进临时仓库的脚本，其**本地** require（`./` 开头）
- * 必须同样在 SCRIPT_CLOSURE 清单里。
- *
- * 动因：#4093 给 `check-pr-exec-record.js` 加了 `require('./lib/exec-record-statuses')`
- * （加载期必执行）却没同步本清单 ⇒ 临时仓缺模块 ⇒ 入口一加载就抛
- * `Cannot find module './lib/exec-record-statuses'` ⇒ 本文件 6 个子测试同形失败，
- * 于是 Gate 2b11 在 changes 作业里对**每一个** PR 转红 —— 而红的原因与 PR 改的东西无关。
- * 那个形态最坏的地方在于：报错点在夹具里、判据在别处，肉眼扫 CI 日志只会看到一串
- * `not ok`，看不出「是清单漏了一项」。
- *
- * 这条断言把「加 require 就得加清单」从自觉变成机械拦截：漏了当场红，且红在
- * 「缺哪个模块、谁 require 的」这两个可读信息上。
- */
-test('⑫ SCRIPT_CLOSURE 覆盖被复制脚本的全部本地 require（漏抄模块 ⇒ 夹具加载期就崩）', () => {
-  const missing = []
-  for (const rel of SCRIPT_CLOSURE) {
-    if (!rel.endsWith('.js')) continue
-    const src = fs.readFileSync(path.join(ROOT, 'scripts', rel), 'utf8')
-    for (const m of src.matchAll(/require\(['"](\.\.?\/[^'"]+)['"]\)/g)) {
-      // require 里的 specifier **不带扩展名**（'./lib/foo'），而清单里带（'lib/foo.js'）——
-      // 所以不能直接比字符串：按 Node 的解析规则把 specifier 还原成**实际文件**再比。
-      const base = path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[1]))
-      const resolved = [base, base + '.js', base + '/index.js']
-        .find(cand => fs.existsSync(path.join(ROOT, 'scripts', cand)))
-      if (!resolved) { missing.push(`${rel} → ${base}（仓内找不到该文件）`); continue }
-      if (!SCRIPT_CLOSURE.includes(resolved)) missing.push(`${rel} → ${resolved}`)
-    }
-  }
+function branchOf (dir) {
+  return execFileSync('git', ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+    encoding: 'utf8', stdio: 'pipe'
+  }).trim()
+}
+
+test('⓬ 轮次账按 (分支, HEAD sha) 记：首跑计第 1 轮、同 sha 重跑不计数', (t) => {
+  const fx = makeFixture(t)
+  const change = branchOf(fx.dir)
+  const ledgerDir = path.join(fx.dir, 'openspec', 'changes', change)
+  const ledger = path.join(ledgerDir, 'external-rounds.json')
+  fs.mkdirSync(ledgerDir, { recursive: true })
+
+  const r1 = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
+  assert.strictEqual(r1.rc, 0, r1.out.slice(-1500))
+  assert.match(r1.out, /外部评审轮次 第 1\/3 轮（本轮真调用外部评审/,
+    `首跑必须报「第 1 轮」而不是「已记 0 轮」——0/3 读起来像没跑：\n${r1.out.slice(-2500)}`)
+  assert.match(r1.out, /\[rounds\] counted=1 round=1/,
+    `驱动返回后必须落账一次：\n${r1.out.slice(-2500)}`)
+  assert.ok(fs.existsSync(ledger), '账本必须落在 openspec/changes/<分支>/ 下（受管、能随 PR diff 看见）')
+
+  const r2 = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
+  assert.match(r2.out, /同一载荷重跑，本轮不计数/,
+    `同 sha 重跑要明说不计数：\n${r2.out.slice(-2500)}`)
+  // 键换成 (sha, 交付指纹) 之后，入口**总是**调用 record（旧的 seen 跳过守卫已删），
+  // 所以断言从「这一行不许出现」改成「这一行必须出现且报 counted=0」：
+  // 要守的语义没变（同一次交付不重复计费），能看见的产物变了——不跟着改会把正确实现判成红。
+  assert.match(r2.out, /\[rounds\] counted=0 round=1/,
+    `同 sha 重跑不得再发起记账调用（少了这一格，"不计数"只剩库里的幂等在兜）：\n${r2.out.slice(-2500)}`)
+
+  const data = JSON.parse(fs.readFileSync(ledger, 'utf8'))
+  const rounds = data.changes[change].rounds
+  assert.strictEqual(rounds.length, 1,
+    `账本里必须只有 1 条，实得 ${rounds.length} 条：${JSON.stringify(rounds)}`)
+  assert.strictEqual(rounds[0].headSha, fx.sha,
+    '记的必须是 HEAD sha —— 挂到内容寻址的记录名上，重投一次提交就每次归零且全程静默')
+})
+
+test('⓭ 已达上限 ⇒ 不调模型、打印 ESCALATED、非零退出，且记录与账本都不被动', (t) => {
+  const fx = makeFixture(t)
+  const change = branchOf(fx.dir)
+  const ledgerDir = path.join(fx.dir, 'openspec', 'changes', change)
+  const ledger = path.join(ledgerDir, 'external-rounds.json')
+  fs.mkdirSync(ledgerDir, { recursive: true })
+  const rounds = ['a', 'b', 'c'].map((s) => ({ headSha: s.repeat(40), recordName: null, at: '2026-01-01T00:00:00.000Z' }))
+  fs.writeFileSync(ledger, JSON.stringify({ version: 1, changes: { [change]: { rounds } } }, null, 2) + '\n', 'utf8')
+  const before = fs.readFileSync(fx.recFile, 'utf8')
+
+  const r = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
+  assert.strictEqual(r.rc, 1, `超限必须非零退出（升级不是自动放行），实得 ${r.rc}\n${r.out.slice(-2500)}`)
+  assert.match(r.out, /ESCALATED：外部评审已达轮次上限（3\/3）/,
+    `读数要点名上限已到：\n${r.out.slice(-2500)}`)
+  assert.match(r.out, /不再调用模型/, `必须说清这一轮没花额度：\n${r.out.slice(-2500)}`)
+  assert.ok(!/本轮真调用外部评审/.test(r.out),
+    '已达上限那一档不得再说「本轮真调用外部评审」——紧接着就是不调用，那是一句假话')
+  assert.strictEqual(fs.readFileSync(fx.recFile, 'utf8'), before,
+    '判定记录一个字节都不能动 —— 动了就说明驱动其实被调用了，「不调模型」是假话')
+  const after = JSON.parse(fs.readFileSync(ledger, 'utf8')).changes[change].rounds
+  assert.strictEqual(after.length, 3,
+    `拒绝调用那一步不得顺手再记一轮（把配额花在没发生的事上）：实得 ${after.length} 条`)
+})
+
+test('⓮ 入口以 scripts/ 路径 node 调用的每个 js 都必须在夹具 require 闭包里', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'deep-review.sh'), 'utf8')
+  const called = new Set()
+  for (const m of src.matchAll(/node [^\n]*?scripts\/([A-Za-z0-9_./-]+\.js)/g)) called.add(m[1])
+  assert.ok(called.size >= 3,
+    `扫描必须真的命中调用点（实得 ${called.size}）—— 命中 0 条的扫描器就是把锁写成装饰`)
+  const missing = [...called].filter((f) => !SCRIPT_CLOSURE.includes(f))
   assert.deepStrictEqual(missing, [],
-    `这些本地 require 没进 SCRIPT_CLOSURE，临时仓会缺模块并在加载期抛 Cannot find module：\n${missing.join('\n')}`)
+    `入口会 node 调它们，但夹具没复制过去：${missing.join(', ')}。后果不是报错而是被兜底成一句告警，`
+      + '锁全绿而生产路径一次都没被跑过（本仓「装饰性门禁」的形状）')
+  // 范围如实划定：本条只覆盖「以 scripts/ 字面路径调用」的 js。
+  // 形如 node "$DRIVER"（变量寻址到仓外引擎）那一条不在本判据域内，由 deep-review-deps.test.js 负责。
+})
+
+test('⓯ 账本读不出 ⇒ 不调用模型、非零退出，且读数必须与"跑满了"分档（QM-6 第二轮 i3/i5）', (t) => {
+  const fx = makeFixture(t)
+  const change = branchOf(fx.dir)
+  const ledgerDir = path.join(fx.dir, 'openspec', 'changes', change)
+  const ledger = path.join(ledgerDir, 'external-rounds.json')
+  fs.mkdirSync(ledgerDir, { recursive: true })
+  const broken = '{ 这不是 json'
+  fs.writeFileSync(ledger, broken, 'utf8')
+  const before = fs.readFileSync(fx.recFile, 'utf8')
+
+  const r = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
+  assert.strictEqual(r.rc, 1, `读不出必须拦（旧取向"照常调用 + 一句告警"给了零成本绕行）：实得 ${r.rc}\n${r.out.slice(-2500)}`)
+  assert.match(r.out, /轮次账本读不出/, `读数要点名是没读数：\n${r.out.slice(-2500)}`)
+  assert.ok(!/已达轮次上限/.test(r.out),
+    `这一档不得复用"跑满了"的文案 —— 一个是配额用尽、一个是判据自己失明，处置动作完全不同：\n${r.out.slice(-2500)}`)
+  assert.ok(!/本轮真调用外部评审/.test(r.out), '拦下的那一轮没有调用模型，读数不能说反话')
+  assert.strictEqual(fs.readFileSync(fx.recFile, 'utf8'), before,
+    '判定记录一字节都不动 ⇒ 驱动确实没被调用（"不调模型"如果是假话，这一条必红）')
+  assert.strictEqual(fs.readFileSync(ledger, 'utf8'), broken,
+    '拦下时不得顺手改写那份坏账本：把"读不出"静默修成"零轮"就是自己给自己清预算')
+})
+
+test('⓰ 同一 sha 但产出新交付 ⇒ 必须再计一轮（i4 那个松口的入口级证据）', (t) => {
+  const fx = makeFixture(t)
+  const change = branchOf(fx.dir)
+  const ledgerDir = path.join(fx.dir, 'openspec', 'changes', change)
+  const ledger = path.join(ledgerDir, 'external-rounds.json')
+  fs.mkdirSync(ledgerDir, { recursive: true })
+
+  const r1 = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1', MP_FAKE_NOTE: '第一批内容' })
+  assert.strictEqual(r1.rc, 0, r1.out.slice(-1500))
+  assert.match(r1.out, /\[rounds\] counted=1 round=1/,
+    `首记必须 counted=1：\n${r1.out.slice(-2500)}`)
+
+  // 第二次不重新提交（sha 始终不变），只让交付换一批内容。
+  // 只按 sha 去重的旧实现在这里报 counted=0 —— 于是"同一份载荷上反复真调模型"永远只算一轮，
+  // 上限对最花钱的那种循环完全不起作用。这一条就是那格的入口级证据。
+  const r2 = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1', MP_FAKE_NOTE: '第二批内容' })
+  assert.match(r2.out, /\[rounds\] counted=1 round=2/,
+    `同 sha 的新交付必须计入第二轮：\n${r2.out.slice(-2500)}`)
+
+  const rounds = JSON.parse(fs.readFileSync(ledger, 'utf8')).changes[change].rounds
+  assert.strictEqual(rounds.length, 2,
+    `账本应有两条，实得 ${rounds.length} 条：${JSON.stringify(rounds)}`)
+  assert.strictEqual(new Set(rounds.map((r) => r.delivery)).size, 2,
+    '两条记录的交付指纹必须不同 ⇒ 计数的增量来自交付身份，而不是来自新提交：' + JSON.stringify(rounds))
+  assert.strictEqual(new Set(rounds.map((r) => r.headSha)).size, 1,
+    '而 sha 始终是同一个 —— 否则这条测的是"换载荷"，与 R2 重复')
+})
+
+test('⓱ 脚本闭包沿 require 与 bash 调用两条边传递：上游新增的 lib 不需要手抄就必须在夹具里', () => {
+  // 这条是 CI 六条入口用例红的**根因锁**：闭包原先是手抄数组，上游把闭环状态词搬进
+  // lib/exec-record-statuses.js 之后清单没跟着长，夹具少拷一个文件，而红埋在子进程输出里。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `mp-dr-clo-${process.pid}-`))
+  try {
+    fs.mkdirSync(path.join(dir, 'lib'), { recursive: true })
+    // 合成树：种子 a.js 要求 ./lib/b（**无 .js 后缀**的写法），b 再要求 ./c —— 两跳都要走出来。
+    fs.writeFileSync(path.join(dir, 'a.js'), "require('./lib/b')\n")
+    fs.writeFileSync(path.join(dir, 'lib', 'b.js'), "require('./c')\n")
+    fs.writeFileSync(path.join(dir, 'lib', 'c.js'), 'module.exports = 1\n')
+    fs.writeFileSync(path.join(dir, 'keep.list'), 'x\n')
+    const un = []
+    const got = closureOf(dir, ['a.js', 'keep.list'], un)
+    assert.deepStrictEqual(got, ['a.js', 'keep.list', 'lib/b.js', 'lib/c.js'],
+      `闭包要把两跳都收进来（含无后缀写法与非 js 种子），实得 ${JSON.stringify(got)}`)
+    assert.deepStrictEqual(un, [], `不该有缺件，实得 ${JSON.stringify(un)}`)
+    // 缺件必须被**点名**（连"是谁要求的"一起报），不得静默丢掉——那正是本次事故的形状。
+    fs.writeFileSync(path.join(dir, 'a.js'), "require('./lib/ghost')\n")
+    const u2 = []
+    closureOf(dir, ['a.js'], u2)
+    assert.deepStrictEqual(u2, [{ from: 'a.js', rel: 'lib/ghost' }],
+      `缺件的报告必须带引用方，实得 ${JSON.stringify(u2)}`)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+
+  // 真树那一侧：本分支的入口链闭包里必须同时含「被 require 的 lib」与「被 bash node 调的 lib」。
+  // 只测合成树会留下"合成树对、真树靠运气"的空档。
+  assert.ok(SCRIPT_CLOSURE.includes('lib/ccg-review-rounds.js'),
+    `bash 调的那个 lib 必须在闭包里（它不被任何 .js require，纯 require 图会整块丢掉它）：${JSON.stringify(SCRIPT_CLOSURE)}`)
+  assert.ok(SCRIPT_CLOSURE.includes('lib/ccg-delivery-digest.js'),
+    `入口两侧都调的交付指纹实现必须在闭包里：${JSON.stringify(SCRIPT_CLOSURE)}`)
+  assert.deepStrictEqual(CLOSURE_UNRESOLVED, [],
+    `真树闭包不得有缺件（有就说明夹具会在被测子进程里炸成 Cannot find module）：${JSON.stringify(CLOSURE_UNRESOLVED)}`)
+  const scriptsDir = path.join(ROOT, 'scripts')
+  const backends = fs.readFileSync(path.join(scriptsDir, 'ccg-review-writeback.js'), 'utf8')
+  const required = [...backends.matchAll(/require\((['"])\.\/([^'"]+)\1\)/g)].map((m) => m[2])
+  assert.ok(required.length > 0, `写回器应当有相对 require（实得 ${required.length} 条 ⇒ 扫描器读不到东西）`)
+  for (const r of required) {
+    const cands = ['lib/' + r, 'lib/' + r + '.js', r, r + '.js']
+    assert.ok(cands.some((c) => SCRIPT_CLOSURE.includes(c)),
+      `写回器 require 的 ${r} 必须在闭包里（候选 ${JSON.stringify(cands)}，闭包 ${JSON.stringify(SCRIPT_CLOSURE)}）`)
+  }
+  // **单一实现锁**：所有"把入口拷进临时仓库再真跑"的夹具都必须引用同一份闭包，
+  // 且不得在自己文件里再写一份算法——第二份不需要写错，只需要没人记得同步（这两次红的共同成因）。
+  for (const f of ['deep-review-entry-rc.test.js', 'deep-review-deps.test.js']) {
+    const src = fs.readFileSync(path.join(scriptsDir, f), 'utf8')
+    assert.match(src, /require\((['"])\.\/lib\/deep-review-fixture-closure\1\)/,
+      `${f} 必须引用共享闭包实现（自带一份清单就一定会漂）`)
+    assert.ok(!/function\s+closureOf\s*\(/.test(src),
+      `${f} 不得自带第二份闭包算法；要扩大闭包只有"加真入口"或"让两条边走到它"两种正当方式`)
+  }
+})
+
+test('⓲ 轮次 CLI 跑不起来（缺文件）必须自成一档：不得冒充「账本读不出」', (t) => {
+  // 现场：本刀给入口加了 lib/ccg-review-rounds.js 这个调用点，而 deps 那份手抄闭包没跟着长 ⇒
+  // 三条与本刀无关的用例红成"入口说账本读不出、于是不调模型"，归因指向一个**根本没坏**的文件。
+  // 这一条锁的就是那两句文案不许再互相冒充：动作相同（都拦），修的对象不同（装文件 vs 修 json）。
+  const fx = makeFixture(t)
+  fs.rmSync(path.join(fx.dir, 'scripts', 'lib', 'ccg-review-rounds.js'))
+  const before = fs.readFileSync(fx.recFile, 'utf8')
+
+  const r = runEntry(fx, { MP_FAKE_RC: '0', MP_FAKE_DELIVER: '1' })
+  assert.strictEqual(r.rc, 1,
+    `CLI 没跑起来必须拦下本轮（无证据不放行），实得 rc=${r.rc}\n${r.out.slice(-2500)}`)
+  assert.match(r.out, /轮次判据 CLI 未正常退出/,
+    `要说出真实那一档（判据没跑起来），实得：\n${r.out.slice(-2500)}`)
+  assert.ok(!/轮次账本读不出/.test(r.out),
+    '不得说成「账本读不出」——那会把人支使去查一份没坏的 external-rounds.json（本刀就是这么绕的）')
+  assert.match(r.out, /Cannot find module|不调用模型/,
+    `必须带上 CLI 原文或"本轮不调用模型"，让人一眼看到缺的是谁：\n${r.out.slice(-2500)}`)
+  assert.strictEqual(fs.readFileSync(fx.recFile, 'utf8'), before,
+    '判定记录一个字节都不能动 —— 动了就是驱动其实被调了，"不调模型"是假话')
 })

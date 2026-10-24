@@ -1,0 +1,61 @@
+{
+  "sha": "b9c8e8416bc41228a5a3e1940abf756672bd760a",
+  "layer": "diff",
+  "mode": "skip",
+  "reason": "改动全部命中文档白名单 → 走 §11.2b docs-only 快通道",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 2,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "> **状态（2026-10-23 更新）：§0 与 §1 已落，§2 卡在 vendor 授权。**",
+      "> **「必须改仓外引擎」**，因此 §2 一条未动，等人工授权（另见 PR #4304 那份规格）。",
+      "> **状态（2026-10-24 更新）：§0/§1/§3 已落，§2 卡在 vendor 授权，§4.2 待人工拍板。**"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "9fc797de6f0399eb85a159fb479016d66ac3f3074dc28914e60399780d5242cc",
+  "decidedAt": "2026-10-23T21:02:18.361Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": false,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}
