@@ -953,3 +953,37 @@ const start5 = getElementByText('button', '发表'); start5.click();
 ### 落库
 
 `2b49b0ec1`：在点完「发表」后追加「直接发表」点击（仅当可见 120×40）。
+
+## 8.29 视频号 post_create 业务错误码 300002（2026-10-24 11:00）
+
+### 抓到的响应体（决定性的"没发出去"证据）
+
+```json
+{"errCode":300002,"errMsg":"request failed"}
+```
+
+HTTP 状态是 **200**，但业务层失败。作品列表 `post_list` 最新一条仍是 2026-10-23T16:54:56Z ⇒ **今天所有尝试都没有产生作品**。
+
+### 判据教训（写进流程）
+
+> **HTTP 200 ≠ 发布成功。** 唯一有效判据是「作品列表里出现新作品」。抓包必须抓 `response.body`，只记 status 会把业务失败读成成功（本次踩过：10:04 的 `post_create` 200 被我误报为"已发布"）。
+
+### 面板行为更正
+
+「发表」并不会打开面板；**发布面板是平台在视频处理完成后自动弹出的**。
+判据：面板未开时「直接发表」`0×0`；打开后 `120×40 @ top≈429`。
+正确做法是**轮询等它可见**再点（`0552b94f2`），而不是先点「发表」。
+
+### 两个未证伪的候选原因
+
+1. **重复提交** —— 同一 `videoClipTaskId` 已提交过；已换 3MB 新素材 `hifly-firstrun.mp4` 做对照（进行中）
+2. **`objectDesc.description` 为空** —— 抓包显示面板生成的 body 里描述是 `""`；我方填进编辑器的文字没有进入 React 状态。已改用「原生 value setter / execCommand insertText」（`bf1806f34`）
+
+### 附带发现
+
+- 页面编辑器偶发不渲染：`waitForElement timeout sel=.ql-editor` / `[contenteditable="true"]`，已加填写重试 3 次（`9d75d1c06`）
+- 3MB 视频上传明显更慢，会出现重复 `cdp-drop: dispatched`
+
+### 落库
+
+`bf1806f34`（描述同步）、`0552b94f2`（轮询面板）为当前最新；两者均已在 tv-host-final。
