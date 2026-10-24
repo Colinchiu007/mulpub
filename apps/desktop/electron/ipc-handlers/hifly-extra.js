@@ -286,44 +286,63 @@ const NORMALIZERS = Object.freeze({
 function registerHiflyExtraHandlers (ipcMain, deps = {}) {
   const manager = deps.modelProviderManager || null
 
-  for (const [channel, method] of Object.entries(CHANNEL_METHODS)) {
-    const normalize = NORMALIZERS[channel]
-    ipcMain.handle(channel, withSenderCheck(async (_event, args) => {
-      // credit 无参；其余必须传对象
-      const rawArgs = args === undefined || args === null ? {} : args
-      if (typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return invalidArguments()
-      const params = normalize(rawArgs)
-      if (params === null) return invalidArguments()
+  /**
+   * 构造一个通道处理器。
+   *
+   * 为什么用工厂 + 11 条显式注册，而不是循环 `ipcMain.handle(channel, ...)`：
+   * `check-ipc-sender-guard.js` 是静态判据，只认 `ipcMain.handle(<字面量通道名>, ...)`。
+   * 循环写法会被读成 `<expr:channel>`，与 automation.js 的同型表达式判为
+   * 「重复注册且守卫状态不一致」而红——那条判据的意图正是让每条通道的守卫看得见，
+   * 所以通道名保持字面量，公共逻辑收进工厂。
+   */
+  const makeHandler = (method, normalize) => withSenderCheck(async (_event, args) => {
+    // credit 无参；其余必须传对象
+    const rawArgs = args === undefined || args === null ? {} : args
+    if (typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return invalidArguments()
+    const params = normalize(rawArgs)
+    if (params === null) return invalidArguments()
 
-      if (!manager || typeof manager.callAdapter !== 'function') {
-        return { code: EC.REQUEST_ERROR, message: 'HIFLY_EXTRA_UNAVAILABLE' }
+    if (!manager || typeof manager.callAdapter !== 'function') {
+      return { code: EC.REQUEST_ERROR, message: 'HIFLY_EXTRA_UNAVAILABLE' }
+    }
+
+    try {
+      // 能力探测：上游方法未实现时 fail-closed（UI 据此隐藏入口）
+      if (typeof manager.supportsAdapterMethod === 'function') {
+        const supported = await manager.supportsAdapterMethod(PROVIDER_ID, method)
+        if (!supported) {
+          return { code: EC.REQUEST_ERROR, message: 'HIFLY_EXTRA_UNSUPPORTED' }
+        }
       }
-
-      try {
-        // 能力探测：上游方法未实现时 fail-closed（UI 据此隐藏入口）
-        if (typeof manager.supportsAdapterMethod === 'function') {
-          const supported = await manager.supportsAdapterMethod(PROVIDER_ID, method)
-          if (!supported) {
-            return { code: EC.REQUEST_ERROR, message: 'HIFLY_EXTRA_UNSUPPORTED' }
-          }
-        }
-        const result = await manager.callAdapter(PROVIDER_ID, method, params)
-        if (!result || result.code !== 0) {
-          return {
-            code: EC.REQUEST_ERROR,
-            message: (result && result.message) || 'HIFLY_EXTRA_FAILED',
-          }
-        }
-        return { code: 0, data: result.data === undefined ? null : result.data }
-      } catch (error) {
-        logHandlerError(method, error)
+      const result = await manager.callAdapter(PROVIDER_ID, method, params)
+      if (!result || result.code !== 0) {
         return {
           code: EC.REQUEST_ERROR,
-          message: (error && error.message) || 'HIFLY_EXTRA_FAILED',
+          message: (result && result.message) || 'HIFLY_EXTRA_FAILED',
         }
       }
-    }))
-  }
+      return { code: 0, data: result.data === undefined ? null : result.data }
+    } catch (error) {
+      logHandlerError(method, error)
+      return {
+        code: EC.REQUEST_ERROR,
+        message: (error && error.message) || 'HIFLY_EXTRA_FAILED',
+      }
+    }
+  })
+
+  // 11 条显式注册（通道名字面量，供静态判据逐条核对守卫状态）
+  ipcMain.handle('hifly-extra:credit', makeHandler('getAccountCredit', NORMALIZERS['hifly-extra:credit']))
+  ipcMain.handle('hifly-extra:lively-templates', makeHandler('listLivelyTemplates', NORMALIZERS['hifly-extra:lively-templates']))
+  ipcMain.handle('hifly-extra:cover-styles', makeHandler('listCoverStyles', NORMALIZERS['hifly-extra:cover-styles']))
+  ipcMain.handle('hifly-extra:create-cover', makeHandler('createCover', NORMALIZERS['hifly-extra:create-cover']))
+  ipcMain.handle('hifly-extra:delete-work', makeHandler('deleteWork', NORMALIZERS['hifly-extra:delete-work']))
+  ipcMain.handle('hifly-extra:create-by-audio', makeHandler('createVideoByAudio', NORMALIZERS['hifly-extra:create-by-audio']))
+  ipcMain.handle('hifly-extra:create-by-template', makeHandler('createVideoByTemplate', NORMALIZERS['hifly-extra:create-by-template']))
+  ipcMain.handle('hifly-extra:translate', makeHandler('translateVideo', NORMALIZERS['hifly-extra:translate']))
+  ipcMain.handle('hifly-extra:create-by-sing', makeHandler('createVideoBySing', NORMALIZERS['hifly-extra:create-by-sing']))
+  ipcMain.handle('hifly-extra:create-by-image', makeHandler('createVideoByImage', NORMALIZERS['hifly-extra:create-by-image']))
+  ipcMain.handle('hifly-extra:audio-tts', makeHandler('createAudioByTts', NORMALIZERS['hifly-extra:audio-tts']))
 }
 
 module.exports = registerHiflyExtraHandlers

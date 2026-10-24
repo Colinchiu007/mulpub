@@ -403,18 +403,18 @@ export default {
 .hifly-extra-panel { display: flex; flex-direction: column; gap: 10px; }
 .hifly-extra-header { display: flex; justify-content: space-between; align-items: baseline; }
 .hifly-extra-title { font-weight: 600; }
-.hifly-extra-credit { font-size: 12px; opacity: 0.75; }
+.hifly-extra-credit { font-size: var(--font-size-xs); opacity: 0.75; }
 .hifly-extra-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
-.hifly-extra-tab { font-size: 12px; padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.15); background: transparent; cursor: pointer; }
+.hifly-extra-tab { font-size: var(--font-size-xs); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.15); background: transparent; cursor: pointer; }
 .hifly-extra-tab-active { background: rgba(0,0,0,0.08); font-weight: 600; }
-.hifly-extra-charge { font-size: 12px; color: #b45309; }
+.hifly-extra-charge { font-size: var(--font-size-xs); color: #b45309; }
 .hifly-extra-fields { display: flex; flex-direction: column; gap: 6px; }
-.hifly-extra-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.hifly-extra-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--font-size-xs); }
 .hifly-extra-field-label { font-weight: 500; }
 .hifly-extra-required { color: #dc2626; font-style: normal; }
 .hifly-extra-template-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.hifly-extra-template { font-size: 12px; padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.15); background: transparent; cursor: pointer; }
+.hifly-extra-template { font-size: var(--font-size-xs); padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.15); background: transparent; cursor: pointer; }
 .hifly-extra-template-active { background: rgba(0,0,0,0.08); font-weight: 600; }
 .hifly-extra-actions { display: flex; align-items: center; gap: 10px; }
-.hifly-extra-result { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.hifly-extra-result { display: flex; align-items: center; gap: 10px; font-size: var(--font-size-xs); }
 </style>

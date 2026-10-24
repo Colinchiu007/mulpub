@@ -130,3 +130,32 @@ IPC 层做 `supportsAdapterMethod` 探测，未实现时回 `HIFLY_EXTRA_UNSUPPO
 - 6 个创作模式固定显示「将消耗积分」，**创建封面不显示**（它是免费的）。
 - 删除作品入口只出现在「普通视频创作」类模式上——翻译、唱歌、图片驱动的任务官方不支持删除。
 - 上游能力未就绪时面板整体显示「暂不可用」并隐藏表单，而不是给出一堆点了必然失败的按钮。
+
+## 八、CI 侧又抓到两个本地门禁漏掉的项（2026-10-24 19:15 补）
+
+PR #4387 首轮 CI 的 `QG Static` 判红。逐条在本地复现后定位到两个**真实**问题：
+
+### 8.1 `check-font-size-scale.js`：6 处 font-size 字面量
+
+组件 scoped style 里写了 6 处 `font-size: 12px`。判据要求用设计令牌，改为 `var(--font-size-xs)`。
+
+> 这条本地首轮没跑（只跑了 max-lines / debt / locale / eslint），是 CI 补上的。
+
+### 8.2 `check-ipc-sender-guard.js`：动态通道名被判「重复注册」
+
+原来用 `for (const [channel, method] of Object.entries(CHANNEL_METHODS))` 循环注册，
+写法是 `ipcMain.handle(channel, ...)`。静态判据只认**字面量通道名**，于是把它读成
+`<expr:channel>`，并与 `automation.js:35` 的同型表达式判为「重复注册且守卫状态不一致」。
+
+**修法**：改成工厂 `makeHandler(method, normalize)` + **11 条显式注册**（通道名字面量），
+公共逻辑收进工厂。判据意图正是「让每条通道的守卫看得见」，所以字面量是对的方向，
+不是把判据改宽。
+
+修后：`check-ipc-sender-guard` **PASS**、`check-font-size-scale` **OK**、IPC 测试 **9/9** 仍绿。
+
+### 教训
+
+**本地门禁集不等于 CI 的 `QG Static`。** `QG Static` 含 18 个脚本，我首轮只跑了 5 个。
+以后改 Electron IPC / Vue 组件的任务，提交前应把那 18 个脚本**整组**跑一遍
+（尤其 `check-ipc-sender-guard`、`check-font-size-scale`、`check-color-literals`、
+`check-vue-style-parse`），而不是按「我猜相关的」挑几个。
