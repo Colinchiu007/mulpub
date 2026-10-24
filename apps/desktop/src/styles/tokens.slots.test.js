@@ -196,3 +196,150 @@ describe('批次 2：既有浅色关键槽零改动（回归锁）', () => {
     }
   })
 })
+
+// ── 两档主题的语义色可读性（audit-51 / UX 审计阶段 4.1，2026-10-19）──────────────
+//
+// **为什么单开一块**：上面那条「暗色文字档 ≥4.5:1」只遍历 `textSlots`，而且只在**暗色块**上取数
+// （`dark[name]` vs `dark['--color-bg-card']`）。浅色块从来没有被同一把尺量过 ——
+// 于是「浅色档的 muted/danger/success/warning 落白底不可读」这件事在测试面上**完全不可表示**。
+// 实测（本块当场读数）：暗色 8 档全部 ≥5.13 通过，**浅色有 4 档不及格**（muted 2.67 /
+// danger 3.20 / success 1.81 / warning 1.57），而这四档在渲染端是当**文字色**用的
+// （`color: var(--color-warning)` 之类，git grep 实测 warning 13 处 / success 17 处 /
+// danger 28 处 / text-muted 21 处消费文件）—— 不是只当填充色，所以 4.5:1 这条线适用。
+//
+// **为什么不直接把颜色改深**：改 token 会改渲染像素，而本仓的视觉基线只能取自 CI 渲染
+// （AGENTS QM-4「基线必须与比对环境同源」+ `check-baseline-freshness.js` 要求每张受跟踪基线
+// 逐像素等于同一次 run 的 CI 渲染）。所以这一步先把**判据**立起来（零像素风险、当场可合），
+// 颜色修正在下一批与基线刷新同 PR 落地。台账因此是**有终点的**：达标即必须删项，删项即由 ≥4.5 兜住。
+const CONTRAST_FLOOR = 4.5
+const CONTRAST_EPS = 0.01
+
+/** 被量的是"文字档"：四个文字槽 + 三个语义状态色 + 主色（主色作链接/标题文字已实测命中过） */
+const CONTRAST_SLOTS = [
+  '--color-text-strong',
+  '--color-text-primary',
+  '--color-text-secondary',
+  '--color-text-muted',
+  '--color-primary',
+  '--color-danger',
+  '--color-success',
+  '--color-warning',
+]
+
+/**
+ * 欠账台账：键 = `<theme>:<slot>`，值 = **当场实测**的最低对比度（对 card / page 两底取更差那个）。
+ * 三条规矩（各对应一条判据，都实测有牙）：
+ *  - 变差 ⇒ `CONTRAST_DEBTENED`（实测低于登记）；
+ *  - 变好但没改这里 ⇒ `LEDGER_STALE_VALUE`（登记必须等于实测；把已修好的留在台账上，
+ *    等于给下一个会话留一张"还坏着"的假清单 —— 与本仓「自指度量」同型）；
+ *  - 达标 ⇒ 必须删项，不删即 `LEDGER_CLOSED_BUT_REGISTERED`。
+ * 台账只能缩小：新增一项必须带实测读数，且新增本身要让判据能分辨（见「未登记欠账」那条）。
+ */
+const CONTRAST_DEBT = {
+  'light:--color-text-muted': 2.65,
+  'light:--color-danger': 3.18,
+  'light:--color-success': 1.79,
+  'light:--color-warning': 1.56,
+}
+
+/**
+ * 被量的**底**：四档背景槽全部参与，取更差的那个。
+ * 只量卡片底会漏掉落在 page / inset 上的文字 —— 实测 `--color-bg-inset #faf6f8` 是**最差**的那一档
+ * （muted 在卡片底 2.84、在 inset 底 2.65），而审计条目 audit-51 引的正是 inset 那组数；
+ * 判据与审计对齐才算对得上账。新增背景档时必须登记在这里，不得静默少量。
+ */
+const CONTRAST_BACKGROUNDS = ['--color-bg-canvas', '--color-bg-card', '--color-bg-inset', '--color-bg-page']
+
+/**
+ * 最低对比度：文字档对四档背景逐一求，取最小值。
+ */
+function worstContrast (fg, themeVars, themeName) {
+  let worst = Infinity
+  let at = ''
+  for (const bgSlot of CONTRAST_BACKGROUNDS) {
+    const bg = themeVars[bgSlot]
+    expect(
+      /^#[0-9a-f]{6}$/i.test(String(bg)),
+      `${themeName} 块的背景槽 ${bgSlot} 不是 6 位 hex：${bg}`,
+    ).toBe(true)
+    const c = contrast(fg, bg)
+    if (c < worst) { worst = c; at = `${bgSlot}=${bg}` }
+  }
+  return { ratio: worst, at }
+}
+
+describe('两档主题语义色可读性（阶段 4.1 / audit-51）', () => {
+  /** 域由 tokens.css 的**实际取值**派生，不抄第二份清单 */
+  const domain = []
+  for (const [theme, vars] of [['light', light], ['dark', dark]]) {
+    for (const slot of CONTRAST_SLOTS) {
+      domain.push({ key: `${theme}:${slot}`, theme, slot, value: vars[slot] })
+    }
+  }
+
+  it('判据域不得塌方：每个槽在两档块里都必须有 6 位 hex 取值', () => {
+    // 改名 / 改成 color-mix() / 只在单档定义 —— 三种都会让这个槽从"被量"变成"没量"。
+    // 本断言把它们一律判红，而不是静默少测一项（AGENTS R3「读不动的目录必须抛错而不是跳过」同款）。
+    expect(domain).toHaveLength(CONTRAST_SLOTS.length * 2)
+    for (const d of domain) {
+      expect(/^#[0-9a-f]{6}$/i.test(String(d.value)), `${d.key} 取值不是 6 位 hex：${d.value}`).toBe(true)
+    }
+  })
+
+  it('台账键必须仍在判据域内（键漂移不许静默）', () => {
+    const keys = new Set(domain.map((d) => d.key))
+    const ghost = Object.keys(CONTRAST_DEBT).filter((k) => !keys.has(k))
+    expect(ghost, `台账里有已不在域内的键：${ghost.join(', ')}`).toEqual([])
+  })
+
+  it('两档 × 全部语义色的最低对比度：要么 ≥4.5，要么带实测读数登记', () => {
+    const rows = []
+    const unregistered = []
+    const deepened = []
+    const staleValue = []
+    const closedButRegistered = []
+
+    for (const d of domain) {
+      const vars = d.theme === 'light' ? light : dark
+      const { ratio: raw, at } = worstContrast(d.value, vars, d.theme)
+      const ratio = Number(raw.toFixed(2))
+      rows.push(`${d.key.padEnd(30)} ${d.value} ${ratio.toFixed(2)}${ratio < CONTRAST_FLOOR ? ' DEBT' : ''} (最差底 ${at})`)
+      const registered = Object.prototype.hasOwnProperty.call(CONTRAST_DEBT, d.key)
+      if (ratio >= CONTRAST_FLOOR) {
+        if (registered) closedButRegistered.push(`${d.key} 实测 ${ratio} 已达标，必须删掉台账项`)
+        continue
+      }
+      if (!registered) {
+        unregistered.push(`${d.key} 实测 ${ratio} < ${CONTRAST_FLOOR} 且未登记`)
+        continue
+      }
+      const booked = CONTRAST_DEBT[d.key]
+      if (ratio < booked - CONTRAST_EPS) deepened.push(`${d.key} 实测 ${ratio} 低于登记 ${booked}`)
+      else if (ratio > booked + CONTRAST_EPS) staleValue.push(`${d.key} 实测 ${ratio} 高于登记 ${booked} ⇒ 台账值要改成实测`)
+    }
+
+    // 每次跑都把整张矩阵打出来：覆盖面的数字必须能在这一行里重取，不许只留结论。
+    // eslint-disable-next-line no-console
+    console.log(`[tokens-contrast] domain=${domain.length} booked=${Object.keys(CONTRAST_DEBT).length}\n` + rows.join('\n'))
+    expect(
+      { unregistered, deepened, staleValue, closedButRegistered },
+      JSON.stringify({ unregistered, deepened, staleValue, closedButRegistered }, null, 1),
+    ).toEqual({ unregistered: [], deepened: [], staleValue: [], closedButRegistered: [] })
+  })
+
+  it('台账只能缩小：登记项的数量上界由当场读数钉住', () => {
+    // 这是一条**棘轮**：想把新的坏档登记进来让它不红，必须先抬起这个上界，
+    // 而上抬这一步在 diff 里是显眼的、且本文件的注释要求写明理由与终局。
+    expect(Object.keys(CONTRAST_DEBT).length).toBeLessThanOrEqual(4)
+  })
+
+  it('暗色档必须整体达标（防止"只修浅色"把暗色拖下水）', () => {
+    for (const slot of CONTRAST_SLOTS) {
+      const { ratio, at } = worstContrast(dark[slot], dark, 'dark')
+      expect(
+        Number(ratio.toFixed(2)),
+        `暗色 ${slot}=${dark[slot]} 的最低对比度不足（最差底 ${at}）`,
+      ).toBeGreaterThanOrEqual(CONTRAST_FLOOR)
+    }
+  })
+})
