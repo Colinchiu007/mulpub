@@ -82,6 +82,22 @@ async function fillTencentVideo (win, data, opts) {
   }
   if (log) log.info('RpaView', '[' + platform + '] desc filled, readback=' + descLen)
 
+  // cdp-real-typing（2026-10-24）：execCommand 合成的事件会让编辑器卡在合成态、
+  // 导致发布面板不弹出。改用 CDP Input.insertText（浏览器级真输入，等价手打字）。
+  try {
+    const focusCode = '(function(){var el=document.querySelector("div.input-editor")||document.querySelector("[contenteditable]");if(!el)return "NO_EDITOR";el.focus();var r=document.createRange();r.selectNodeContents(el);var s=window.getSelection();s.removeAllRanges();s.addRange(r);return "focused"})()'
+    const fok = await frame.executeJavaScript(focusCode)
+    if (fok === 'focused') {
+      const dbg = win && win.webContents && win.webContents.debugger
+      if (dbg) {
+        if (!dbg.isAttached()) { try { dbg.attach('1.3') } catch (_eA) {} }
+        await dbg.sendCommand('Input.insertText', { text: String(content) })
+        const n2 = await frame.executeJavaScript('(function(){var el=document.querySelector("div.input-editor")||document.querySelector("[contenteditable]");return el?String(el.textContent||"").length:-1})()')
+        if (log) log.info('RpaView', '[' + platform + '] desc real-typed len=' + n2)
+      }
+    }
+  } catch (_eT) { if (log) log.warn('RpaView', '[' + platform + '] cdp-real-typing failed: ' + String((_eT && _eT.message) || '').slice(0, 80)) }
+
   // 2) 填「短标题」= 第一个可见 input（真机 inp=22，其余是话题/位置等）
   let titleOk = true
   if (title) {
