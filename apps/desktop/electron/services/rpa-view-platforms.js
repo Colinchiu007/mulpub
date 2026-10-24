@@ -522,6 +522,10 @@ const platformsMixin = {
           // programmatic publish click（2026-10-23：视频号遮挡层会被 React 持续重建，坐标点击必被拦）。
           // 直接对按钮元素调用 click()，不经过命中测试，因此不受遮挡影响。
           if (platform === 'tencent_video') {
+            // wait-processing（2026-10-24 抓包）：页面在 post_clip_video 后轮询 post_clip_video_result 等转码，
+            // 过早点击「发表」会被内部状态忽略 ⇒ 固定等 20s 再点。
+            log.info('RpaView', '[tencent_video] wait-processing 20s before publish click')
+            await this._sleep(20000)
             log.info('RpaView', '[tencent_video] publish-click: begin')
             try {
               const pc = await win.webContents.executeJavaScript('(function(){var host=document.querySelector(".wujie_iframe");var roots=[document];if(host&&host.shadowRoot)roots.push(host.shadowRoot);var hit=null;for(var r=0;r<roots.length&&!hit;r++){var bs=[].slice.call(roots[r].querySelectorAll("button,[class*=btn],[role=button]"));for(var i=0;i<bs.length;i++){var t=(bs[i].innerText||"").replace(/\\s+/g,"");if(t==="发表"&&!bs[i].disabled){hit=bs[i];continue}else if(t.indexOf("发表")>=0&&!hit&&!bs[i].disabled&&t.length<=6){hit=bs[i]}}}if(!hit)return "not-found";var _di=!!hit.disabled;var _cls=String(hit.className||"").slice(0,40);var _ht=String(hit.outerHTML||"").replace(/\s+/g," ").slice(0,160);hit.click();return "clicked-wujie|disabled="+_di+"|cls="+_cls+"|html="+_ht})()', true)
