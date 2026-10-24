@@ -19,7 +19,9 @@ from sqlalchemy import Column, String, Integer, Text, Float, UniqueConstraint, I
 
 from database import Base
 
-# 计费单位（口径对齐 10-08 §4.1 的 unit 命名；单价单位是"分 / 1K unit"或"分 / unit"）
+# 计费单位（口径对齐 10-08 §4.1 的 unit 命名；单价单位是「**微元** / 1K unit」或「**微元** / unit」）
+# ⚠️ 单价列 `unit_price_micros` 的单位是**微元**（1e-6 元）—— 运营填「0.3 分/1K tokens」
+#   要写成 **3000 微元**；写成 0 会被回算当「缺价」（不是免费），写成 300 会放大 10000 倍。
 UNIT_1K_TOKENS_IN = "1k_tokens_in"
 UNIT_1K_TOKENS_OUT = "1k_tokens_out"
 UNIT_1K_TOKENS_CACHE_READ = "1k_tokens_cache_read"
@@ -52,6 +54,12 @@ BILLED_BY_USAGE = "billed_by_usage"   # B 类按量付费 —— 首选基准
 BILLED_BY_QUOTA = "billed_by_quota"   # A 类有总额度的套餐 —— 次选
 BILLED_BY_WINDOW = "billed_by_window"  # C 类窗口配额 —— 仅作参考，不入基准
 
+# 「1 积分值多少微元」的**单一真源**。
+# ⚠️ 1 积分 = 1 分 = ¥0.01 = **10000 微元**。
+# ⚠️ 这三个值（default / 读不到时的兜底 / 建默认行）必须同源 ——
+#    漂移一个就是积分换算差 10000 倍（曾因 default 无测试覆盖而漏网）。
+CREDIT_UNIT_MICROS = 10000
+
 # 定价基准来源优先级（10-11 §6）：B > A > C
 BILLING_BASELINE_PRIORITY = (BILLED_BY_USAGE, BILLED_BY_QUOTA)
 
@@ -66,7 +74,7 @@ class ModelPriceCard(Base):
 
     ⚠️ 两处与 §4.1 的刻意偏离（都是"更严谨"方向，不是简化）：
     ① §4.1 的 `unit_price NUMERIC(12,6)` 单位是**元**；本表用
-       `unit_price_cents INTEGER`（**分**）—— 成本计算全程整数分，避免浮点误差在
+       `unit_price_micros INTEGER`（**微元**，1e-6 元）—— 成本计算全程整数，避免浮点误差在
        累加中放大。读 §4.1 的值时 **×100**。
     ② §4.1 的 `unit` 命名是 `1k_tokens_in` / `per_image` / `per_second` /
        `per_char` / `per_second_audio`；本表用同一套字面量（见 `UNIT_*` 常量），
@@ -80,14 +88,19 @@ class ModelPriceCard(Base):
       `billed_by_*` 记录**采购形状**，两者独立。
 
     **「未知值记 UNKNOWN + fail-closed，不填暂定数字」**（10-11 §13 原则 3）：
-      缺价 ⇒ `cost_cents = 0` **且**必须产生告警（见 `credit_price_service`），
+      缺价 ⇒ `cost_micros = 0` **且**必须产生告警（见 `credit_price_service`），
       绝不允许"暂定一个数"混进成本统计。
     """
 
     __tablename__ = "model_price_cards"
     __table_args__ = (
+        # ⚠️ 唯一约束**必须含 unit**。
+        # 早期版本漏了 unit ⇒ 同一 provider 的 `1k_tokens_in` / `1k_tokens_out` 两张卡
+        # 在其余维度（provider/model/action/spec/tier/effective_from）上完全相同
+        # ⇒ 撞唯一约束 ⇒ **LLM 的输入/输出/缓存三张卡根本存不下**。
+        # 这也与 `load_effective_cards` 的 `by_unit` 分组口径一致（本来就按 unit 分组）。
         UniqueConstraint(
-            "provider_id", "model_id", "action_type", "spec", "quality_tier", "effective_from",
+            "provider_id", "model_id", "action_type", "unit", "spec", "quality_tier", "effective_from",
             name="uq_model_price_active",
         ),
         Index("idx_model_price_cards_lookup", "provider_id", "model_id", "action_type"),
@@ -100,7 +113,7 @@ class ModelPriceCard(Base):
     unit = Column(String, nullable=False)  # 见 UNIT_* 常量
     spec = Column(String, nullable=False, default="")  # '720p' / '1080p' / '4k'（LLM 留空）
     quality_tier = Column(String, nullable=False, default="std")  # std|pro|hd|fast（对应 10-08 §4.4 的质量档）
-    unit_price_cents = Column(Integer, nullable=False, default=0)  # **分** / unit（§4.1 的 unit_price × 100）
+    unit_price_micros = Column(Integer, nullable=False, default=0)  # **微元** / unit（1e-6 元）
     currency = Column(String, nullable=False, default="CNY")
     proc_discount = Column(Float, nullable=False, default=1.0)  # 采购折扣系数（可配）
     effective_from = Column(String, nullable=False)  # ISO8601
@@ -113,20 +126,20 @@ class ModelPriceCard(Base):
 
 
 class CreditPriceConfig(Base):
-    """积分单价配置 —— 全局单例，决定 1 积分值多少分。
+    """积分单价配置 —— 全局单例，决定 1 积分值多少**微元**。
 
     与 `model_price_cards.credit_multiplier` 的分工：
-      · 这里定**基准**（1 积分 = N 分，N 通常为 1）；
+      · 这里定**基准**（1 积分 = N 微元，N 通常为 10000，即 1 积分 = 1 分）；
       · 价格卡的 multiplier 定**该模型相对基准的倍率**（贵模型多扣积分）。
 
-    积分与成本的换算：`credit_cost = ceil(cost_cents / credit_unit_price_cents * multiplier)`。
+    积分与成本的换算：`credit_cost = ceil(cost_micros / credit_unit_price_micros * multiplier)`。
     向上取整是刻意的 —— 宁可少收 1 积分，不可多付 1 分成本。
     """
 
     __tablename__ = "credit_price_config"
 
     id = Column(Integer, primary_key=True, default=1)  # 单例
-    credit_unit_price_cents = Column(Integer, nullable=False, default=1)  # 1 积分 = 1 分
+    credit_unit_price_micros = Column(Integer, nullable=False, default=CREDIT_UNIT_MICROS)  # 1 积分 = 1 分 = 10000 微元
     target_margin_pct = Column(Float, nullable=False, default=72.90)  # 目标毛利率（仅提示用）
     grant_multiplier_default = Column(Float, nullable=False, default=1.0)
     effective_from = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())
@@ -174,7 +187,7 @@ class ModelUsageEvent(Base):
     tokens_reasoning = Column(Integer, nullable=False, default=0)
 
     price_id = Column(String, nullable=False, default="")  # 命中的价格卡（可复算）
-    cost_cents = Column(Integer, nullable=False, default=0)  # 服务端算的成本（分）
+    cost_micros = Column(Integer, nullable=False, default=0)  # 服务端算的成本（微元）
     credit_cost = Column(Integer, nullable=False, default=0)  # 服务端算的积分消耗
-    client_reported_cost_cents = Column(Integer)  # 客户端透传值，仅用于对拍
+    client_reported_cost_micros = Column(Integer)  # 客户端透传值，仅用于对拍
     created_at = Column(String, default=lambda: datetime.datetime.utcnow().isoformat())

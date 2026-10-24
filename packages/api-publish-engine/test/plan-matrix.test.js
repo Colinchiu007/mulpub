@@ -27,10 +27,41 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.deepStrictEqual(catalog.map((it) => it.rank), [0, 1, 2])
   })
 
-  await t.test('官方积分月度配额：30 / 1600 / 2200', () => {
+  await t.test('官方积分月度配额：30 / 1600 / 3330', () => {
     assert.strictEqual(getPlanEntitlement('free').quota.official_credit_monthly, 30)
     assert.strictEqual(getPlanEntitlement('standard').quota.official_credit_monthly, 1600)
-    assert.strictEqual(getPlanEntitlement('pro').quota.official_credit_monthly, 2200)
+    assert.strictEqual(getPlanEntitlement('pro').quota.official_credit_monthly, 3330)
+  })
+
+  // ⚠️ 这条是**防复发**断言，不是复述数值：把「成本占比守线」写死成不变量，
+  // 于是「涨价了但忘了重解赠送量」会当场红，而不是像 2200 那样静默让毛利虚高 9.5 个点。
+  // 口径来源：01-docs/DEEP-ANALYSIS-CREDIT-PRICING-2026-10-08.md §6.1b v1.2 定价表
+  //   —— 年付守线 ≤ 40%（年付按月等额发放 ⇒ 年付成本 = 12 × 月付成本）。
+  await t.test('成本占比守线：月付 ≤ 30% 且年付 ≤ 40%（改价必须重解赠送量）', () => {
+    const cases = [
+      { plan: 'standard', monthlyCents: 5900, yearlyCents: 49900, credit: 1600 },
+      { plan: 'pro', monthlyCents: 11900, yearlyCents: 99900, credit: 3330 },
+    ]
+    for (const c of cases) {
+      const granted = getPlanEntitlement(c.plan).quota.official_credit_monthly
+      assert.strictEqual(granted, c.credit, `${c.plan} 赠送量与定案不一致`)
+      // 1 积分 = 1 分 = ¥0.01 ⇒ 赠送 M 积分的月成本 = M × 0.01 元
+      const monthlyCostYuan = granted * 0.01
+      const monthlyRatio = monthlyCostYuan / (c.monthlyCents / 100)
+      const yearlyRatio = (monthlyCostYuan * 12) / (c.yearlyCents / 100)
+      assert.ok(monthlyRatio <= 0.30, `${c.plan} 月付成本占比 ${(monthlyRatio * 100).toFixed(1)}% 超过 30%`)
+      assert.ok(yearlyRatio <= 0.40, `${c.plan} 年付成本占比 ${(yearlyRatio * 100).toFixed(1)}% 超过 40%`)
+    }
+  })
+
+  // 赠送量是**唯一**的官方积分额度字段，且必须作为能力声明出现在 features 里，
+  // 否则后续 consumeFeature('official_credit') 会 403，额度形同虚设。
+  await t.test('official_credit 作为能力声明出现在 features（三档皆有额度）', () => {
+    for (const plan of PLAN_IDS) {
+      const ent = getPlanEntitlement(plan)
+      assert.ok(ent.features.includes('official_credit'), `${plan} 缺 official_credit 能力声明`)
+      assert.ok(ent.quota.official_credit_monthly > 0, `${plan} 声明了能力却无额度`)
+    }
   })
 
   await t.test('无限值约定 -1：pro 平台数 / standard AI 写稿（自有 Key）', () => {
@@ -38,6 +69,23 @@ test('plan-matrix 契约（spec §2）', async (t) => {
     assert.strictEqual(getPlanEntitlement('standard').quota.ai_write_monthly, -1)
     assert.strictEqual(getPlanEntitlement('free').limits.max_platforms, 5)
     assert.strictEqual(getPlanEntitlement('standard').limits.max_platforms, 15)
+  })
+
+  // ⚠️ 「-1 = 不限」的能力声明口径：判据必须是 `!== 0` 而不是 `> 0`。
+  // `officialCreditMonthly` / `videoMonthly` 都在 UNLIMITED_ALLOWED 里（运营可配 -1），
+  // 若用 `> 0`，「不限」会被判成「没有额度」⇒ 能力声明整条消失
+  // ⇒ 一次**合法的**运营配置静默关掉已付费的能力（consumeFeature 直接 403）。
+  // 与 maxCloudAccounts 的 `!== 0` 同一形态。
+  await t.test('-1（不限）仍声明对应能力；0（无额度）不声明', () => {
+    const unlimited = getPlanEntitlement('standard', { standard: { officialCreditMonthly: -1 } })
+    assert.ok(unlimited.features.includes('official_credit'), '不限额度不该抹掉 official_credit 能力声明')
+    assert.strictEqual(unlimited.quota.official_credit_monthly, -1)
+
+    const unlimitedVideo = getPlanEntitlement('standard', { standard: { videoMonthly: -1 } })
+    assert.ok(unlimitedVideo.features.includes('video_create'), '不限额度不该抹掉 video_create 能力声明')
+
+    const zeroed = getPlanEntitlement('standard', { standard: { officialCreditMonthly: 0 } })
+    assert.ok(!zeroed.features.includes('official_credit'), '额度为 0 时不该声明 official_credit')
   })
 
   await t.test('日发布数折算 cloud_publish_monthly = daily_publish × 30（双口径）', () => {

@@ -1,0 +1,252 @@
+{
+  "_meta": {
+    "schema": "model_price_cards.seed/v1",
+    "generated_at": "2026-10-24",
+    "unit_note": "unit_price_micros = **微元**（1e-6 元）/ unit。token 维度的 unit 是 1K tokens，单价语义是「微元 / 1K tokens」；per-unit 维度的 unit 是「微元 / 个」。",
+    "credit_note": "1 积分 = 1 分 = 10000 微元（CREDIT_UNIT_MICROS）。积分消耗 = ceil(成本微元 / 10000 × multiplier)。",
+    "card_shape": "model_id / spec / quality_tier 一律留空 —— 这不是省事，是**回算链路的硬约束**：`model_usage_daily` 只有 provider_id / category / action，没有 model、没有 spec、没有 duration。回算按 (provider_id, action_type) 定位卡，且 `load_effective_cards` 传空 model 时只匹配 model_id='' 的通用卡（宁可缺价告警，也不拿别的模型的价冒充）。",
+    "rule": "**已知**才入库；**待确认**只登记不入库 —— 缺价必须产生「缺价格」告警（10-11 §13 原则 3：UNKNOWN + fail-closed，不填暂定数字）。⚠️ 绝不插 unit_price_micros=0 的行：0 价卡会被静默命中，既不告警又当成免费。",
+    "priced": "可入库（有权威公开价 + 与 mulpub 实际在用的 provider 对得上）",
+    "pending": "待用户确认（不入库，附缺什么、为什么现在不能灌、查证入口）"
+  },
+
+  "priced": [
+    {
+      "id": "deepseek-llm-tokens-in",
+      "provider_id": "deepseek",
+      "model_id": "",
+      "action_type": "llm",
+      "unit": "1k_tokens_in",
+      "spec": "",
+      "quality_tier": "std",
+      "unit_price_micros": 3000,
+      "currency": "CNY",
+      "proc_discount": 1.0,
+      "credit_multiplier": 1.0,
+      "billed_by": "billed_by_usage",
+      "source": "vendor_doc",
+      "effective_from": "2026-10-24T00:00:00",
+      "effective_to": "",
+      "note": "DeepSeek V4.1-Flash 国内渠道**高峰价** ¥3 / 百万 tokens ⇒ 0.003 元 / 1K tokens = 3000 微元。⚠️ 峰谷定价：工作日 09:00-12:00 与 14:00-18:00 为高峰（此价），其余时段与周末为低谷 = 高峰的一半。⚠️ 官方英文文档按美元标价（PEAK cache-miss $0.3 / output $1.2），本卡取**国内渠道人民币价**（中证网 / 经济参考网 2026-08-17 调价后口径交叉验证）。⚠️ 2026-09-14 起 deepseek-v4-pro 全部路由到 V4.1 Flash 并按 Flash 价计费。"
+    },
+    {
+      "id": "deepseek-llm-tokens-out",
+      "provider_id": "deepseek",
+      "model_id": "",
+      "action_type": "llm",
+      "unit": "1k_tokens_out",
+      "spec": "",
+      "quality_tier": "std",
+      "unit_price_micros": 9000,
+      "currency": "CNY",
+      "proc_discount": 1.0,
+      "credit_multiplier": 1.0,
+      "billed_by": "billed_by_usage",
+      "source": "vendor_doc",
+      "effective_from": "2026-10-24T00:00:00",
+      "effective_to": "",
+      "note": "同上，输出 ¥9 / 百万 tokens = 0.009 元 / 1K tokens = 9000 微元（高峰价；低谷减半）。"
+    },
+    {
+      "id": "deepseek-llm-cache-read",
+      "provider_id": "deepseek",
+      "model_id": "",
+      "action_type": "llm",
+      "unit": "1k_tokens_cache_read",
+      "spec": "",
+      "quality_tier": "std",
+      "unit_price_micros": 100,
+      "currency": "CNY",
+      "proc_discount": 1.0,
+      "credit_multiplier": 1.0,
+      "billed_by": "billed_by_usage",
+      "source": "vendor_doc",
+      "effective_from": "2026-10-24T00:00:00",
+      "effective_to": "",
+      "note": "缓存命中 ¥0.1 / 百万 tokens = 0.0001 元 / 1K tokens = 100 微元（高峰价）。⚠️ 缓存命中价是 2026-08-17 调价里涨幅最高的一项（+400%）。"
+    },
+    {
+      "id": "doubao-llm-tokens-in",
+      "provider_id": "doubao-llm",
+      "model_id": "",
+      "action_type": "llm",
+      "unit": "1k_tokens_in",
+      "spec": "",
+      "quality_tier": "std",
+      "unit_price_micros": 800,
+      "currency": "CNY",
+      "proc_discount": 1.0,
+      "credit_multiplier": 1.0,
+      "billed_by": "billed_by_usage",
+      "source": "vendor_doc",
+      "effective_from": "2026-10-24T00:00:00",
+      "effective_to": "",
+      "note": "取火山引擎官方定价页「套餐外按量计费」的 **doubao-pro-32k** 推理输入 ¥0.0008 / 千 tokens = 800 微元 / 1K tokens。⚠️ 该价在官方页上与 mulpub 实际在用的模型名（doubao-pro-32k / doubao-lite-32k）**逐字对得上**。⚠️ 本卡按主力 pro-32k 记；lite-32k 更便宜（输入 300 / 输出 600 微元）、pro-128k 未在该页列出 ⇒ 若要按模型精确计价，需建带 model_id 的卡并让回算能取到 model（当前 usage 表无 model 字段）。"
+    },
+    {
+      "id": "doubao-llm-tokens-out",
+      "provider_id": "doubao-llm",
+      "model_id": "",
+      "action_type": "llm",
+      "unit": "1k_tokens_out",
+      "spec": "",
+      "quality_tier": "std",
+      "unit_price_micros": 2000,
+      "currency": "CNY",
+      "proc_discount": 1.0,
+      "credit_multiplier": 1.0,
+      "billed_by": "billed_by_usage",
+      "source": "vendor_doc",
+      "effective_from": "2026-10-24T00:00:00",
+      "effective_to": "",
+      "note": "doubao-pro-32k 推理输出 ¥0.002 / 千 tokens = 2000 微元 / 1K tokens。⚠️ 注意与豆包 **2.1 Pro**（¥6 / ¥30 每百万）不是同一代模型，价格差 7.5 倍；本卡对应的是 mulpub preset 里实际在用的 pro-32k。"
+    }
+  ],
+
+  "pending": [
+    {
+      "provider_id": "anthropic",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "当前公开单价（按 mulpub 实际使用的 claude-sonnet-4-20250514 / claude-3-5-haiku / claude-3-opus 分别取价）",
+      "why_not_now": "官方按**美元**计价且模型代际已变（现行为 Claude Sonnet 4.6 / Opus 5 系列），凭记忆填价会写进错误数字。表里有 currency 字段，可用 USD 原样存，但价格必须现查。",
+      "how_to_fill": "查 Anthropic 官方 pricing 页 → 按 model_id 分别建带 model_id 的卡（currency=USD），或在确认 mulpub 实际调用的是哪一档后建通用卡"
+    },
+    {
+      "provider_id": "openai",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "gpt-4o / gpt-4o-mini / gpt-4-turbo / o3-mini 的当前单价",
+      "why_not_now": "同上：美元计价 + 模型代际变动（现行为 GPT-5.x 系列），且 mulpub preset 里的 gpt-4o 已明显滞后。",
+      "how_to_fill": "查 OpenAI 官方 pricing 页 → currency=USD 建卡；同时建议同步更新 model_presets 里的模型名（那会让 preset 与价格卡两边同时对齐）"
+    },
+    {
+      "provider_id": "gemini",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "gemini-2.0-flash / 2.0-pro / 1.5-pro 的当前单价",
+      "why_not_now": "同上：美元计价 + 代际变动（现行为 Gemini 3.x）。",
+      "how_to_fill": "查 Google AI for Developers pricing → currency=USD 建卡"
+    },
+    {
+      "provider_id": "openrouter",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "无法建固定价：路由到的模型随请求变化",
+      "why_not_now": "OpenRouter 不对模型价加价（只在充值时收 5.5% 手续费），但**每个模型的单价都可能不同** ⇒ 一张 provider 通用卡无法表达。",
+      "how_to_fill": "若要计价，必须按 model_id 建卡（且 model 集合是动态的）⇒ 前提是回算能取到 model（当前 usage 表无 model 字段）"
+    },
+    {
+      "provider_id": "ollama",
+      "action_type": "llm",
+      "status": "待确认（成本实为 0）",
+      "missing": "无需价格 —— 本地自有算力，成本为 0",
+      "why_not_now": "⛔ **不能插 0 价卡**：0 价卡会被回算静默命中，既不产生「缺价格」告警、又被当成「免费」⇒ 与 10-11 §13「不填暂定数字 / 缺价必须告警」冲突。",
+      "how_to_fill": "需要价格卡支持「**已知零成本源**」这一档（与「未知」区分开）—— 属 Phase 2 的表结构扩展；在那之前，本地推理的用量行会一直报「缺价格」（噪音，但方向安全）"
+    },
+    {
+      "provider_id": "mimo-llm",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "mimo-v2.5 / mimo-v2.5-pro 的公开单价",
+      "why_not_now": "本轮未查到可交叉验证的公开挂牌价（小米 MiMo 定价页需逐项核对输入/输出/缓存三档）。",
+      "how_to_fill": "查小米 MiMo 官方定价页"
+    },
+    {
+      "provider_id": "sensenova-llm",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "SenseNova 的公开单价（该 preset 实际跑 deepseek-v4-flash）",
+      "why_not_now": "未查证；且其真实计费口径可能是自研模型价与透传模型价混合 ⇒ 一张通用卡无法表达。",
+      "how_to_fill": "查商汤 SenseNova 定价；若确为透传 deepseek-v4-flash，可直接复用 deepseek 那两张卡（需先确认计费是否加价）"
+    },
+    {
+      "provider_id": "agnes-llm",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "Agnes 系（llm / multimodal / video / image）全部单价与采购形态",
+      "why_not_now": "未查证其是自营聚合还是第三方转售；采购形态（按量 / 套餐 / 窗口配额）未知 ⇒ `billed_by` 无法判定，而 C 类窗口配额按 10-11 §6 **只能作参考、不入定价基准**。",
+      "how_to_fill": "先确认采购形态，再查价"
+    },
+    {
+      "provider_id": "opencode-go",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "编程套餐（coding plan）的总额度与实付",
+      "why_not_now": "A 类「有总额度的套餐」⇒ 按 10-11 §6 只作**次选基准**（实付 ÷ 总额度），且需先把套餐口径摊到每次调用上。",
+      "how_to_fill": "取该套餐的月费与含额度，算等效单价后建卡，billed_by=billed_by_quota"
+    },
+    {
+      "provider_id": "tianyiyun-coding-plan",
+      "action_type": "llm",
+      "status": "待确认",
+      "missing": "同上（编程套餐）",
+      "why_not_now": "同上。",
+      "how_to_fill": "同上"
+    },
+    {
+      "provider_id": "kling",
+      "action_type": "video",
+      "status": "待确认（10-08 已有挂牌价，但当前链路用不了）",
+      "missing": "价格本身不缺（10-08 §3.2：720P/5s ¥1.5、1080P/5s ¥2.5、4K/5s ¥15 等）",
+      "why_not_now": "⛔ **两个硬约束**：① 视频价强依赖 spec（720p/1080p/4k 差 5–10 倍），而 `model_usage_daily` **没有 spec 字段** ⇒ 建带 spec 的卡在当前回算下会「多张卡都命中、只取最新一条」⇒ **静默用错规格的价**；② `model_usage_daily` **没有 duration 字段** ⇒ `per_second` 维度拿不到秒数。",
+      "how_to_fill": "先让用量侧带上 spec 与 duration（事件级表 `model_usage_events` 是正解）⇒ 再按 spec 建 per_second 卡（10-08 的单次价 ÷ 秒数，如 720P/5s ¥1.5 ⇒ 300000 微元/秒）"
+    },
+    {
+      "provider_id": "minimax",
+      "action_type": "video",
+      "status": "待确认（同 kling）",
+      "missing": "10-08 §3.2 已有 Hailuo-02（512P/6s ¥0.6）、Hailuo-2.3 Fast（768P/6s ¥1.35）",
+      "why_not_now": "同 kling：spec 与 duration 不可达。",
+      "how_to_fill": "同上"
+    },
+    {
+      "provider_id": "seedance",
+      "action_type": "video",
+      "status": "待确认（同 kling）",
+      "missing": "10-08 §3.2 有 Seedance V1 Pro（1080P/5s ¥3.55）",
+      "why_not_now": "同 kling。⚠️ 另注：mulpub 的 seedance preset 不区分版本（只有 `seedance` 一个 model 名），而厂商已迭代到 Seedance 2.5 ⇒ 价随版本变，单价卡需能表达版本。",
+      "how_to_fill": "同上"
+    },
+    {
+      "provider_id": "doubao-image",
+      "action_type": "image",
+      "status": "待确认",
+      "missing": "Seedream 4.0 / 5.0 Pro 的分档价（10-08 §3.2 有 1K–2K ¥0.2、5.0 Pro ≤261万像素 ¥0.3）",
+      "why_not_now": "⛔ mulpub **没有 seedream / jimeng provider**（model_presets 里不存在）⇒ 本轮无处可挂；且图像价按分辨率分档（spec），与 kling 同理。",
+      "how_to_fill": "若产品要接豆包生图，先在 model_presets 加 provider，再按 spec 建 per_image 卡"
+    },
+    {
+      "provider_id": "minimax-tts",
+      "action_type": "tts",
+      "status": "待确认",
+      "missing": "10-08 §3.2 有 speech-2.8-turbo（60 秒 ¥0.026）、speech-2.8-hd（60 秒 ¥0.043）",
+      "why_not_now": "⚠️ ① 单价是 **0.043 分/秒** ⇒ 换算成「微元/秒」是 433.33（**非整数**）⇒ 整数列存不下 ⇒ 需把计价口径改成**每分钟**（¥0.026/分 = 26000 微元/分，整数 ✅）或引入更高精度；② 用量侧**没有音频时长/字符数**字段 ⇒ `per_second_audio` / `per_char` 拿不到用量。",
+      "how_to_fill": "① 加 per_minute / per_hour 时间单位（或改列精度）；② 用量侧补时长字段"
+    },
+    {
+      "provider_id": "doubao-stt",
+      "action_type": "asr",
+      "status": "待确认",
+      "missing": "10-08 §3.2 有 doubao-stt / whisper（1 小时音频 ¥2.7）",
+      "why_not_now": "同 TTS：① 单价 0.075 分/秒 ⇒ 换「微元/秒」= 750（整数 ✅，可行）；② 但用量侧**没有音频时长**字段 ⇒ 拿不到用量。",
+      "how_to_fill": "用量侧补音频时长；口径按 per_second 或 per_hour（¥2.7/小时 = 750000 微元/小时）"
+    },
+    {
+      "provider_id": "openai-tts / elevenlabs / google-tts / piper / mimo-tts",
+      "action_type": "tts",
+      "status": "待确认",
+      "missing": "各家 TTS 公开单价与计费维度（字符 / 秒 / 分钟）",
+      "why_not_now": "同 TTS 的两个约束（整数精度 + 缺时长字段）；且 piper 是本地 TTS（成本 0，同 ollama 的问题）。",
+      "how_to_fill": "先解决单位与用量字段，再逐家建卡"
+    },
+    {
+      "provider_id": "其余 video / image / audio provider",
+      "action_type": "mixed",
+      "status": "待确认",
+      "missing": "veo / runway / wan / hunyuan / cogvideo / ltx / higgsfield / heygen / grok-video / flux / dall-e / recraft / imagen / grok-image / pixabay / pexels / local-diffusion / comfyui / minimax-image / agnes-image / baidu-stt / google-stt / whisper / local-whisper / suno / musicgen / pixabay-music / freesound / music-library 等",
+      "why_not_now": "① 视频/图像缺 spec 与用量维度（同上）；② 免费素材与本地模型是「已知 0 成本」而非「未知」⇒ 需要「零成本源」这一档才能既不告警又不冒充免费；③ 其余均需逐家查证当前价。",
+      "how_to_fill": "按「先补用量维度与零成本标记，再逐家查价」的顺序推进"
+    }
+  ]
+}

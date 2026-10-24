@@ -12,8 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from middleware.auth import require_admin
 from services import credit_cost_backfill_service
-from services.credit_price_service import ensure_credit_price_config, get_credit_unit_price_cents
-from models_credit import CreditPriceConfig, ModelPriceCard
+from services.credit_price_service import ensure_credit_price_config, get_credit_unit_price_micros
+from models_credit import CREDIT_UNIT_MICROS, CreditPriceConfig, ModelPriceCard
 from database import async_session
 import sqlalchemy as sa
 
@@ -40,17 +40,20 @@ async def list_price_cards(
         if provider_id:
             query = query.where(ModelPriceCard.provider_id == provider_id)
         if category:
-            query = query.where(ModelPriceCard.category == category)
+            query = query.where(ModelPriceCard.action_type == category)
         rows = (await db.execute(query)).scalars().all()
         return {
             "items": [
                 {
                     "id": c.id,
                     "provider_id": c.provider_id,
-                    "model": c.model,
-                    "category": c.category,
+                    # ⚠️ 列名是 `model_id`（`ModelPriceCard` 没有 `model` 属性）——
+                    # 写 `c.model` 会 AttributeError ⇒ **整个列表端点 500**。
+                    # 对外的 JSON 键仍叫 `model`（与 create 的入参同名，运营侧一个口径）。
+                    "model": c.model_id,
+                    "category": c.action_type,
                     "unit": c.unit,
-                    "unit_price_cents": c.unit_price_cents,
+                    "unit_price_micros": c.unit_price_micros,
                     "effective_from": c.effective_from,
                     "effective_to": c.effective_to,
                     "credit_multiplier": c.credit_multiplier,
@@ -70,7 +73,10 @@ async def create_price_card(body: dict, _admin: dict = Depends(require_admin)):
     unit = str(body.get("unit") or "").strip()
     if not card_id or not provider_id or not unit:
         raise HTTPException(400, "id / provider_id / unit 不能为空")
-    unit_price_cents = _require_int(body.get("unit_price_cents"), "unit_price_cents")
+    # ⚠️ **0 价卡必须拒**：0 价卡会被回算静默命中 ⇒ 成本算成 0 ⇒ 既不告警、
+    # 又被当成「免费」⇒ 成本统计系统性偏低且无信号。
+    # ⇒ 与「绝不插 unit_price_micros=0 的行」这条硬口径同源（10-11 §13 原则 3）。
+    unit_price_micros = _require_int(body.get("unit_price_micros"), "unit_price_micros", minimum=1)
     effective_from = str(body.get("effective_from") or "").strip()
     if not effective_from:
         raise HTTPException(400, "effective_from 不能为空")
@@ -86,10 +92,12 @@ async def create_price_card(body: dict, _admin: dict = Depends(require_admin)):
         db.add(ModelPriceCard(
             id=card_id,
             provider_id=provider_id,
-            model=str(body.get("model") or ""),
-            category=str(body.get("category") or "llm"),
+            # ⚠️ ORM 的列名是 `model_id` / `action_type`（对外入参仍叫 model / category）。
+            # 传 `model=` / `category=` ⇒ SQLAlchemy 声明式构造器报 TypeError ⇒ 建卡端点 500。
+            model_id=str(body.get("model") or ""),
+            action_type=str(body.get("category") or "llm"),
             unit=unit,
-            unit_price_cents=unit_price_cents,
+            unit_price_micros=unit_price_micros,
             effective_from=effective_from,
             effective_to=str(body.get("effective_to") or ""),
             credit_multiplier=float(body.get("credit_multiplier") or 1.0),
@@ -104,7 +112,7 @@ async def create_price_card(body: dict, _admin: dict = Depends(require_admin)):
 async def close_price_card(card_id: str, body: dict, _admin: dict = Depends(require_admin)):
     """给一张价格卡补 effective_to（= 停用它的当前生效区间）。
 
-    这是「改价」的第二步；刻意不提供 UPDATE unit_price_cents 的端点。
+    这是「改价」的第二步；刻意不提供 UPDATE unit_price_micros 的端点。
     """
     effective_to = str(body.get("effective_to") or "").strip()
     if not effective_to:
@@ -126,18 +134,18 @@ async def close_price_card(card_id: str, body: dict, _admin: dict = Depends(requ
 
 @router.get("/price-config")
 async def get_price_config(_admin: dict = Depends(require_admin)):
-    """读积分单价配置（1 积分值多少分）。"""
+    """读积分单价配置（1 积分值多少**微元**；默认 10000 微元 = 1 分）。"""
     async with async_session() as db:
         await ensure_credit_price_config(db)
         await db.commit()
-        unit_price = await get_credit_unit_price_cents(db)
+        unit_price = await get_credit_unit_price_micros(db)
         row = (
             await db.execute(
                 sa.select(CreditPriceConfig).where(CreditPriceConfig.id == 1)
             )
         ).scalars().first()
         return {
-            "credit_unit_price_cents": unit_price,
+            "credit_unit_price_micros": unit_price,
             "target_margin_pct": float(row.target_margin_pct) if row else None,
             "note": row.note if row else "",
         }
@@ -145,12 +153,23 @@ async def get_price_config(_admin: dict = Depends(require_admin)):
 
 @router.put("/price-config")
 async def update_price_config(body: dict, _admin: dict = Depends(require_admin)):
-    """改积分单价（1 积分 = N 分）。
+    """改积分单价（1 积分 = N **微元**；默认 N=10000，即 1 积分 = 1 分）。
 
-    改的是**换算基准**，不改历史账：已入账的积分消耗由账本的 cost_cents 固定，
+    ⚠️ **下限是基准值 10000**（`CREDIT_UNIT_MICROS`），不允许调低：
+    引擎侧 `get_credit_unit_price_micros` 会把任何小于基准的配置**静默抬回基准**
+    （`max(CREDIT_UNIT_MICROS, …)`）⇒ 若这里放行 1..9999，写接口会回显运营填的值，
+    引擎却按 10000 算 ⇒ **回显 ≠ 实际**，且无任何告警。
+    ⇒ 两端口径必须一致：**要调价只能调高**（调高 = 抬高毛利），调低一律 400。
+    调高不影响赠送量守线（守线按「1 积分 = ¥0.01」推导，抬高只会更保守）。
+
+    改的是**换算基准**，不改历史账：已入账的积分消耗由账本里**已写入的那条分录**固定，
     不受此后改价影响。
     """
-    unit_price = _require_int(body.get("credit_unit_price_cents"), "credit_unit_price_cents", minimum=1)
+    unit_price = _require_int(
+        body.get("credit_unit_price_micros"),
+        "credit_unit_price_micros",
+        minimum=CREDIT_UNIT_MICROS,
+    )
     async with async_session() as db:
         await ensure_credit_price_config(db)
         row = (
@@ -158,13 +177,13 @@ async def update_price_config(body: dict, _admin: dict = Depends(require_admin))
                 sa.select(CreditPriceConfig).where(CreditPriceConfig.id == 1)
             )
         ).scalars().first()
-        row.credit_unit_price_cents = unit_price
+        row.credit_unit_price_micros = unit_price
         if body.get("target_margin_pct") is not None:
             row.target_margin_pct = float(body["target_margin_pct"])
         if body.get("note") is not None:
             row.note = str(body["note"])
         await db.commit()
-        return {"credit_unit_price_cents": unit_price}
+        return {"credit_unit_price_micros": unit_price}
 
 
 @router.post("/backfill")

@@ -1,0 +1,248 @@
+{
+  "sha": "fe2f7670ad5645d8f574f2f1fa582b0d289119f4",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 833 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 833,
+    "fileCount": 12,
+    "codeFileCount": 9,
+    "sensitivePathHits": [
+      "packages/api-publish-engine/src/auth/plan-matrix.js"
+    ],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 19,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "> （DeepSeek 输入 ¥0.003 / 1K tokens = 3000 微元）⇒ 整数「分」列只能存 0（静默当免费）",
+      "**改价 = 插入新行 + 给旧行补 `effective_to`。禁止 UPDATE `unit_price_cents`。**",
+      "**改价 = 插入新行 + 给旧行补 `effective_to`。禁止 UPDATE `unit_price_micros`。**"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "45905aa7ed7e2e1d871b4361f5dd11cd0dae2e3f7123f55fb2312c5b52900be9",
+  "decidedAt": "2026-10-24T16:01:38.231Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 0,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": false,
+    "backends": {
+      "wrapperExists": false,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": []
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "external",
+    "performedBy": "self-play",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4393#issuecomment-6386381681",
+    "findings": [
+      {
+        "id": "F1",
+        "severity": "Warning",
+        "file": "ops-center/backend/routers/credit_pricing.py",
+        "line": 50,
+        "finding": "`list_price_cards` 读 `c.model`，但 ModelPriceCard 没有 `model` 列（只有 `model_id`）⇒ 每次列卡都抛 AttributeError，整个接口 500。",
+        "trigger": "库里存在任意一张价格卡（种子脚本灌完即成立）⇒ GET /api/v1/credit/price-cards ⇒ AttributeError ⇒ 500，items 永远返回不出来。已实测复现。",
+        "impact": "管理端价格卡列表接口 100% 不可用；运营看不到自己灌的 5 张卡。",
+        "rationale": "models_credit.py 定义的是 `model_id`，无 `model`；本 PR 在同一个 dict 字面量里已经把 `c.category` 改成 `c.action_type`，却漏了 `c.model` 这一处——即字段重命名只做了一半。已用 SQLAlchemy 实例实测：ACCESS c.model -> AttributeError。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "改为 `c.model_id`（对外 JSON 键仍叫 model），并新增端点级回归测试 test_list_price_cards_returns_stored_values。"
+      },
+      {
+        "id": "F2",
+        "severity": "Warning",
+        "file": "ops-center/backend/routers/credit_pricing.py",
+        "line": 89,
+        "finding": "`create_price_card` 以 `model=` / `category=` 构造 ModelPriceCard（真实列名是 `model_id` / `action_type`）⇒ SQLAlchemy 抛 TypeError，新增价格卡接口 100% 500。",
+        "trigger": "POST /api/v1/credit/price-cards 带任意合法 body ⇒ TypeError: 'model' is an invalid keyword argument for ModelPriceCard ⇒ 500。已实测复现。",
+        "impact": "「改价 = 插新行 + 旧行补 effective_to」在 API 侧断链：能 close 却不能新增 ⇒ 运营无法改价。",
+        "rationale": "PR 恰好改了这一条语句里的 unit_price_cents → unit_price_micros，却没修相邻两行的非法 kwarg；models_credit.py 只有 model_id / action_type。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "改为 `model_id=` / `action_type=`，并新增 test_create_price_card_persists_with_orm_column_names。"
+      },
+      {
+        "id": "F3",
+        "severity": "Warning",
+        "file": "ops-center/backend/services/credit_price_service.py",
+        "line": 254,
+        "finding": "`get_credit_unit_price_micros` 用 max(CREDIT_UNIT_MICROS, …) 把任何小于 10000 的配置静默抬回 10000；而管理端写入接口接受并原样回显该值 ⇒ 写接口回显 ≠ 引擎实际使用值。",
+        "trigger": "PUT /api/v1/credit/price-config {\"credit_unit_price_micros\": 5000} ⇒ 200 回显 5000；随后 GET ⇒ 10000；引擎也按 10000 算。已实测：库里写 1，读出来是 10000。",
+        "impact": "运营把「1 积分 = ¥0.005」写进去，接口报成功，实际计价仍按 ¥0.01 ⇒ 积分扣费是运营预期的 2 倍；且没有任何告警/日志。",
+        "rationale": "代码注释只授权了「配成 0（非法）⇒ 抬回基准」这一种情形，但实现是 max() 兜住整个 <10000 区间；写入侧 minimum=1 明确放行 1..9999，两侧口径不一致（静默失败类缺陷）。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "写接口下限改为 CREDIT_UNIT_MICROS（调价只能调高、调低一律 400），并新增 test_price_config_rejects_value_below_baseline。"
+      },
+      {
+        "id": "F4",
+        "severity": "Warning",
+        "file": "ops-center/backend/scripts/seed_credit_price_cards.py",
+        "line": 71,
+        "finding": "种子脚本对 unit_price_micros 没有任何 >0 校验，尽管同文件与种子 JSON 的 _meta 都写着「绝不插 unit_price_micros=0 的行」；管理端 API 侧同样放行 0。",
+        "trigger": "在种子 JSON 的 priced 里加一条 0 价条目 ⇒ 脚本原样插入（已实测）。随后该 provider 的卡是 0 价 ⇒ 回算时 cards.get(unit) 命中 ⇒ cost=0，既不进 missing_price_providers 也不进 window_quota_only_providers。",
+        "impact": "0 价卡被静默命中 ⇒ 该 provider 的成本看起来是「免费」，缺价告警不响 ⇒ 成本统计系统性偏低且无信号。",
+        "rationale": "口径原文：缺价必须告警、绝不允许插 0 价卡。脚本与 JSON 元数据都把这条写成了自己的契约，但代码里既没有守卫也没有测试。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "写入侧两道守卫（管理端建卡 API minimum=1 + 种子脚本 fail-closed 的 zero_price_ids 守卫）+ 回算侧「0 价卡 = 缺价」第二道防线；新增 3 条测试。"
+      },
+      {
+        "id": "F5",
+        "severity": "Warning",
+        "file": "ops-center/backend/models_credit.py",
+        "line": 101,
+        "finding": "本 PR 改了列名与唯一约束，但没有任何迁移；SQLite 的 create_all 既不改已有表的列、也无法给已有表加唯一约束 ⇒ 存量库上本 PR 的核心修复不生效、且新代码直接崩。",
+        "trigger": "用 base 提交建出的旧库跑新种子脚本 ⇒ OperationalError: no such column: model_price_cards.unit_price_micros；即便手工 ALTER 改名，旧唯一约束仍在 ⇒ 第二张 deepseek 卡 IntegrityError。已实测。",
+        "impact": "凡是跑过 #4322 的环境，价格卡灌入与回算全链路不可用；脚本对唯一约束冲突是未捕获异常，直接吐 traceback。",
+        "rationale": "ops-center 既有惯例是补幂等 ALTER TABLE 迁移（usage_migration / model_preset_service / prompt_eval_migration / update_policy_migration 四处都是），本 PR 一处都没补。",
+        "verdict": "upheld",
+        "disposition": "deferred-with-guard",
+        "fix": "不自动重建表（改唯一约束在 SQLite 上只能重建表、要动运营可能已建的价格卡数据 ⇒ 不可逆；且仓内 4 处既有迁移全是「加列」、无表重建先例）⇒ 改为**写库前只读探测旧 schema，发现即 fail-closed 拒绝 + 人工修复指引**（detect_legacy_schema），不再静默炸。"
+      },
+      {
+        "id": "F6",
+        "severity": "Warning",
+        "file": "ops-center/backend/services/credit_price_service.py",
+        "line": 218,
+        "finding": "`precise = 1 if (model and card.model == model) else 0` 里的 card.model 不存在（真实列名 model_id）⇒ 只要传入非空 model，优先级判定直接抛 AttributeError。",
+        "trigger": "调用 load_effective_cards(db, 'deepseek', 'deepseek-v4.1-flash', 'llm') ⇒ AttributeError。当前只有回算调用它且 model=\"\"（短路求值不触发）⇒ 潜伏缺陷。",
+        "impact": "种子 JSON 的 pending 清单把「按 model_id 建卡」列为下一步（前提是回算能取到 model），而这条路径一接上就会崩。",
+        "rationale": "同文件 202 行的 _dim_ok 用的是 card.model_id，唯独 218 行用 card.model。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "改为 card.model_id == model，并新增传非空 model 的回归测试 test_load_effective_cards_prefers_exact_model_over_generic（不传非空 model 的话，这条测试自己也会被短路掩盖）。"
+      },
+      {
+        "id": "F7",
+        "severity": "Warning",
+        "file": "ops-center/backend/services/credit_cost_backfill_service.py",
+        "line": 164,
+        "finding": "回算把服务端算出的成本以「绝对值」写进 model_usage_daily.cost，而上报路径（usage_service.py:157）对同一列的语义是「累加客户端上报值」⇒ 同一列两个写者、语义相反。",
+        "trigger": "回算 ⇒ cost=0.012；客户端再上报同桶一次且带 cost ⇒ ingest upsert ⇒ cost = 0.012 + 客户端值 ⇒ 服务端算出的权威成本被叠上客户端可控数字。",
+        "impact": "违反「成本一律由服务端按价格卡算」的信任边界；看板里 model_usage_daily.cost 这条线不再是服务端口径的数字，且与 token 列不自洽。",
+        "rationale": "口径文档 01-docs/usage-metering-spec.md §7 明确「成本：服务端算」；本 PR 首次让回算真正落库（修复⑤），等于给这条由客户端写入的列引入了第二个语义相反的写者。",
+        "verdict": "upheld",
+        "disposition": "deferred-phase2",
+        "fix": "属产品/财务口径问题（这一列到底允不允许客户端写）⇒ 修法是「两列分离」或「回算只写专用列」⇒ 归 Phase 2 扣减接线；本 PR 已在 spec §7 与执行记录里**点名**这个缺口，不假装它不存在。"
+      },
+      {
+        "id": "F8",
+        "severity": "Warning",
+        "file": "ops-center/backend/services/credit_cost_backfill_service.py",
+        "line": 130,
+        "finding": "`if not tokens: continue` 在缺价判定之前就跳过所有非 LLM 桶 ⇒ 这部分行既不产生「缺价格」告警、cost 也保持 0。",
+        "trigger": "任意视频 provider 的日桶（kling/minimax/seedance…，tokens 均为 0）⇒ 直接 continue ⇒ 不进 missing_price_providers、不更新 cost、无任何日志告警。",
+        "impact": "「缺价必须告警」在最贵的一块（视频/图像/音频）上失效，成本统计系统性偏低而运营看不出来；赠送量 1600/3330 的校准因此拿不到视频侧数据。",
+        "rationale": "执行记录「口径与边界」自己承认了这点（连「缺价格」告警都没有），但代码未修；口径（spec §6）要求缺价必须告警。",
+        "verdict": "upheld",
+        "disposition": "deferred-phase2",
+        "fix": "覆盖视频/图像/音频必须先有**事件级用量表**（带 duration / spec）⇒ 依赖 Phase 2 的 generation_requests 台账；本 PR 已在执行记录与种子的 pending 里逐项标注。"
+      },
+      {
+        "id": "F9",
+        "severity": "Warning",
+        "file": "01-docs/usage-metering-spec.md",
+        "line": 99,
+        "finding": "口径文档 §4.1 仍写 pro 档赠送量 2200 / 成本占比 18.5%，而本 PR 把矩阵改成了 3330 / 40.0% ⇒ 同一个赠送量有两套真源；CHANGELOG 却宣称 spec 已同步。",
+        "trigger": "任何人按 spec §4.1 复核赠送量 ⇒ 结论是 2200 才对 ⇒ 把 plan-matrix.js 改回 2200 ⇒ pro 毛利占比从 40.0% 静默掉回 18.5%。",
+        "impact": "赠送量这一核心定价参数在代码与规格文档之间互相矛盾，是最容易引发「二次返工」的漂移点。",
+        "rationale": "PR 把 plan-matrix.js 的 pro 赠送量从 2200 改成 3330 并加了守线测试，却没同步 spec §4.1 的表格与结论行。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "spec §4 / §4.1 / §5 同步为 micros 口径与 3330/40.0%，并写明「赠送量是两个式子的唯一交点」这条推导。"
+      },
+      {
+        "id": "F10",
+        "severity": "Info",
+        "file": "ops-center/backend/services/credit_price_service.py",
+        "line": 95,
+        "finding": "改成微元后，代码 docstring/注释仍写「分」⇒ 运营照 docstring 把「0.3 分/1K tokens」填进 unit_price_micros ⇒ 存 0（被当缺价）或填 300（放大 10000 倍）。",
+        "trigger": "照注释填价 ⇒ 静默错价 10000 倍或变成 0 价卡。",
+        "impact": "10000 倍的单位陷阱就留在刚改过名字的这几个文件里，而口径文档 §2 已经改成微元 ⇒ 文档与代码注释对不上。",
+        "rationale": "业务口径唯一真源是「1 积分 = ¥0.01 = 10000 微元」，列名/参数名都已改成 micros，注释仍描述分口径。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "credit_price_service.py 与 models_credit.py 的注释统一改微元，并在 models_credit.py 写明「运营填 0.3 分/1K 要写 3000 微元」。"
+      },
+      {
+        "id": "F11",
+        "severity": "Info",
+        "file": "01-docs/usage-metering-spec.md",
+        "line": 85,
+        "finding": "spec §4/§5 仍引用本 PR 已删掉的列名：cost_cents / credit_unit_price_cents / unit_price_cents。",
+        "trigger": "按 §4 的公式与列名去实现或去查库 ⇒ 找不到这三列（表里是 micros 版）。",
+        "impact": "口径文档自身有 3 处对不上实现的列名，§2 已同步而 §4/§5 没同步。",
+        "rationale": "PR 只改了 spec 的 §1/§2，§4/§5 留旧列名；执行记录声称文档已同步。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "随 F9 一并同步为 cost_micros / credit_unit_price_micros / unit_price_micros。"
+      },
+      {
+        "id": "F12",
+        "severity": "Info",
+        "file": "ops-center/backend/scripts/seed_credit_price_cards.py",
+        "line": 63,
+        "finding": "--check / --dry-run 模式照样调用 init_db()（create_all）⇒ 它们会写库（建库文件 + 建 3 张表），与「只报差异」「CHECK-ONLY：未写库」的承诺不符。",
+        "trigger": "OPS_DB_PATH=/tmp/new.db python3 scripts/seed_credit_price_cards.py --check ⇒ 实测生成 /tmp/new.db（含 -wal/-shm）并建出三张表，脚本仍打印「CHECK-ONLY：未写库」。",
+        "impact": "在 OPS_DB_PATH 配错的机器上跑 --check，会静默新建一个空库并回答「5 条待插入」，从而对真实库给出错误的「是否已灌过」结论。",
+        "rationale": "脚本注释把 init_db 描述为「只做 create_all（幂等、不写任何数据）」，但 create_all 是 DDL 写；--check 的语义是只读。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "只读模式改为只读探测表是否存在（sqlite_master / PRAGMA table_info），不建表；并新增 test_check_mode_does_not_create_tables / test_dry_run_does_not_write_rows（判据是**事后查库**，不是「输出说未写库」）。"
+      },
+      {
+        "id": "F13",
+        "severity": "Info",
+        "file": "openspec/records/credit-grant-recalc.md",
+        "line": 28,
+        "finding": "记录里写种子文件在 ops-center/backend/data/model_price_cards.seed.json，实际文件与脚本 SEED_PATH 都在 ops-center/backend/seed/…（data/ 被 .gitignore 排除）。",
+        "trigger": "按记录里的路径去找/改种子数据 ⇒ 该路径不存在（仓内只有 seed/ 那一份）。",
+        "impact": "验收记录与实际产物路径不一致，后续按记录复现的人会找不到文件。",
+        "rationale": "记录第 28 行写 data/，而 scripts/seed_credit_price_cards.py 的 SEED_PATH 与 git ls-tree 都指向 seed/。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "记录改为 seed/，并写明「为什么不是 data/」（仓根 .gitignore 第 12 行会把整个 data/ 排除掉）。"
+      },
+      {
+        "id": "F14",
+        "severity": "Info",
+        "file": "packages/api-publish-engine/src/auth/plan-matrix.js",
+        "line": 220,
+        "finding": "`if (matrix.officialCreditMonthly > 0) features.push('official_credit')` 与 officialCreditMonthly 允许被 overrides 配成 -1（「不限」，该键在 UNLIMITED_ALLOWED 里）冲突 ⇒ 配成 -1 时能力声明整条消失。",
+        "trigger": "overrides = { pro: { officialCreditMonthly: -1 } }（validateNumericValue 放行）⇒ features 不含 'official_credit' ⇒ consumeFeature('official_credit') 抛 403，而不是「不限」。",
+        "impact": "一个被明确允许的运营配置会静默关掉已付费的能力（本 PR 刚把这个能力接进 features）。",
+        "rationale": "plan-matrix.js 的文件头注释与 UNLIMITED_ALLOWED 都把 officialCreditMonthly 列为可取 -1 的键；consumeFeature 按 features 判定 ⇒ 缺声明即 403。",
+        "verdict": "upheld",
+        "disposition": "fixed",
+        "fix": "判据改为 `!== 0`（与 maxCloudAccounts 同一形态）；同族 `videoMonthly > 0` 一并修；新增「-1 仍声明能力 / 0 不声明」的测试。"
+      }
+    ],
+    "confidenceWeight": 0.6,
+    "blocking": [],
+    "closureNote": "第 1 轮 QM-6 外部评审（2026-10-24）：仓外 CCG 引擎与 claude/opencode 后端在本环境不可达（sh scripts/deep-review.sh --check-deps 报「没有任何评审后端可用」），按判定器自己给出的降级路径「降级为 SELF-REVIEW：必须由 agent 自行完成评审并记录结论」执行 —— 由一条独立评审会话（与实施会话分离、不读实施会话的推理过程）对本 PR 的 13 个文件做只读评审，产出 14 条 finding，其中 8 条用可复现脚本实测过；实施方逐条回源码复核，14 条全部成立（upheld）。逐条处置：F1/F2/F3/F4/F6/F9/F10/F11/F12/F13/F14 已修并各有回归测试（11 个变异全部被抓住）；F5 改法为「写库前只读探测旧 schema + fail-closed 拒绝 + 人工修复指引」（不自动重建表，理由见记录）；F7/F8 登记为 Phase 2 待办并在 spec 与记录里点名。severity 全部为 Warning/Info，无 Critical。⚠️ tier/evidence/tierBasis 由仓内唯一生产方 scripts/ccg-review-writeback.js 在驱动返回后写回（不是会话手写）；findings 本身是本轮评审内容，由实施方逐条复核后写入。真正对第三方负责的是本 PR 上那条公开评论（critique 原文与逐条处置）。",
+    "tierBasis": "adjudicated-self-play",
+    "adjudicationDigest": "adjudicated@e60bc2b770be4055667c84b3ae1e4572dd46ee0e333a0529ecdeaf794d2f5056"
+  }
+}

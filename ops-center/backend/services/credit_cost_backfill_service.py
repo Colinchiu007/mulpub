@@ -27,11 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import ModelUsageDaily
 from models_credit import ModelPriceCard
 from services.credit_price_service import (
-    compute_cost_cents,
+    compute_cost_micros,
     compute_credit_cost,
-    get_credit_unit_price_cents,
+    get_credit_unit_price_micros,
     is_pricing_baseline_usable,
     load_effective_cards,
+    token_counts_from_event,
 )
 
 logger = logging.getLogger("ops-center.credit-cost")
@@ -40,13 +41,13 @@ logger = logging.getLogger("ops-center.credit-cost")
 class BackfillResult:
     """一次回算的结果。"""
 
-    __slots__ = ("rows_scanned", "rows_updated", "cost_cents_total", "credit_total",
+    __slots__ = ("rows_scanned", "rows_updated", "cost_micros_total", "credit_total",
                  "missing_price_providers", "window_quota_only_providers")
 
     def __init__(self):
         self.rows_scanned = 0
         self.rows_updated = 0
-        self.cost_cents_total = 0
+        self.cost_micros_total = 0
         self.credit_total = 0
         self.missing_price_providers: List[str] = []
         self.window_quota_only_providers: List[str] = []
@@ -55,8 +56,8 @@ class BackfillResult:
         return {
             "rows_scanned": self.rows_scanned,
             "rows_updated": self.rows_updated,
-            "cost_cents_total": self.cost_cents_total,
-            "cost_yuan_total": round(self.cost_cents_total / 100, 4),
+            "cost_micros_total": self.cost_micros_total,
+            "cost_yuan_total": round(self.cost_micros_total / 1_000_000, 4),
             "credit_total": self.credit_total,
             "missing_price_providers": sorted(set(self.missing_price_providers)),
             "window_quota_only_providers": sorted(set(self.window_quota_only_providers)),
@@ -64,13 +65,23 @@ class BackfillResult:
 
 
 def _tokens_of(row) -> Dict[str, int]:
-    """把日桶的 token 列折成 unit → 数量。"""
-    counts: Dict[str, int] = {}
-    if int(row.tokens_in or 0):
-        counts["token_in"] = int(row.tokens_in)
-    if int(row.tokens_out or 0):
-        counts["token_out"] = int(row.tokens_out)
-    return counts
+    """把日桶的 token 列折成 unit → 数量。
+
+    ⚠️ **必须复用 `token_counts_from_event`**（它按 `TOKEN_FIELD_TO_UNIT` 映射到
+    价格卡的 unit 字面量）。早期这里手写 `"token_in"` / `"token_out"`，
+    而价格卡的 unit 是 `1k_tokens_in` / `1k_tokens_out`
+    ⇒ `compute_cost_micros` 里 `cards.get("token_in")` **恒为 None**
+    ⇒ 每一行都落进 `missing_units` ⇒ **回算成本恒为 0 且全量报「缺价格」**。
+
+    为什么当时没被发现：事件级路径 `token_counts_from_event` 是**对的**，
+    而既有单测 `test_token_counts_mapping` 测的正是那条对的路径
+    ⇒ 测的是「映射表自洽」，没测「日桶行 ⇒ unit」这条转换 ⇒ 恒真自检。
+    ⇒ 现在日桶级与事件级共用同一个映射函数，两条路径不可能再漂移。
+    """
+    return token_counts_from_event({
+        "tokens_in": row.tokens_in,
+        "tokens_out": row.tokens_out,
+    })
 
 
 async def backfill_costs(
@@ -98,12 +109,12 @@ async def backfill_costs(
     if not rows:
         return result
 
-    unit_price_cents = await get_credit_unit_price_cents(db)
+    unit_price_micros = await get_credit_unit_price_micros(db)
 
     # 价格卡按 (provider, category) 预载一次，避免逐行查库
     provider_categories: Dict[Tuple[str, str], List[ModelPriceCard]] = {}
     for card in (await db.execute(sa.select(ModelPriceCard))).scalars().all():
-        provider_categories.setdefault((card.provider_id, card.category), []).append(card)
+        provider_categories.setdefault((card.provider_id, card.action_type), []).append(card)
 
     card_cache: Dict[Tuple[str, str], Dict[str, PriceCard]] = {}
     updates: List[dict] = []
@@ -118,7 +129,7 @@ async def backfill_costs(
         tokens = _tokens_of(row)
         if not tokens:
             continue
-        cost = compute_cost_cents(cards, tokens)
+        cost = compute_cost_micros(cards, tokens)
         if cost.has_missing_price:
             result.missing_price_providers.append(row.provider_id)
             continue
@@ -126,17 +137,17 @@ async def backfill_costs(
         # 这里不阻断回算（成本账仍要记），但必须显式告警，避免它被当成定价依据。
         if not is_pricing_baseline_usable(cards):
             result.window_quota_only_providers.append(row.provider_id)
-        if cost.cost_cents <= 0:
+        if cost.cost_micros <= 0:
             continue
-        credit = compute_credit_cost(cost.cost_cents, unit_price_cents, cost.multiplier)
-        result.cost_cents_total += cost.cost_cents
+        credit = compute_credit_cost(cost.cost_micros, unit_price_micros, cost.multiplier)
+        result.cost_micros_total += cost.cost_micros
         result.credit_total += credit
         updates.append({
             "usage_date": row.usage_date,
             "client_id": row.client_id,
             "provider_id": row.provider_id,
             "action": row.action,
-            "cost_yuan": round(cost.cost_cents / 100, 6),
+            "cost_yuan": round(cost.cost_micros / 1_000_000, 6),
             "credit_cost": credit,
             "price_id": cost.price_id,
         })
@@ -168,8 +179,16 @@ async def backfill_costs(
     logger.info(
         "credit-cost-backfill: scanned=%s updated=%s cost_yuan=%.4f credit=%s",
         result.rows_scanned, result.rows_updated,
-        result.cost_cents_total / 100, result.credit_total,
+        result.cost_micros_total / 1_000_000, result.credit_total,
     )
+    # ⚠️ **必须在这里 commit**。
+    # 早期版本没有 commit，而 `async_session()` 退出时**不会自动提交**
+    #（`expire_on_commit=False` 只影响 expire，不开 autocommit）
+    # ⇒ router 调完回算，所有 UPDATE 随 session 关闭被丢弃
+    # ⇒ **回算从来没有落过库**（单元测试全绿，因为它不走 DB）。
+    # 放在函数内而不是调用方：这是「有副作用的操作」，
+    # 调用方不该需要知道要 commit（否则换个调用点就又忘了 ⇒ 同一处数据两种语义）。
+    await db.commit()
     return result
 
 

@@ -20,7 +20,7 @@
  *   依赖注入能否触达本矩阵取决于部署层——本仓无法自证。
  */
 
-const PLAN_MATRIX_VERSION = '2026-10-20'
+const PLAN_MATRIX_VERSION = '2026-10-24'
 
 const PLAN_IDS = Object.freeze(['free', 'standard', 'pro'])
 
@@ -42,7 +42,11 @@ const BASE_MATRIX = {
     videoMonthly: 0,
     scheduleBatch: false,
     dashboard: 'basic',
-    // 体验额度：约 2 条 720P 视频或 7 张标准清晰度配图
+    // 体验额度 30 积分 = ¥0.3（1 积分 = ¥0.01）。
+    // ⚠️ 按 10-08 §3.2 挂牌价：¥0.3 ≈ **1 张**标准清晰度配图（¥0.2/张），
+    //    **买不起最便宜的视频**（Hailuo-02 512P/6s = ¥0.6）⇒ 视频能力天然不可达，
+    //    这与 features 里 free 不含 video_create 互相印证（免费档禁视频的**定量依据**）。
+    //    ⚠️ 旧注释「约 2 条 720P 视频或 7 张配图」与 10-08 价表差 7~10 倍，已订正。
     officialCreditMonthly: 30,
     concurrentTasks: 1,
     // v2.0 机制 C2.3 结构 A：rank 用于跨档续叠保护（免费档为最小序）。
@@ -71,6 +75,9 @@ const BASE_MATRIX = {
     scheduleBatch: true,
     dashboard: 'full',
     // 成本占比 27.1%（¥59 × 27.1% ≈ ¥16）。年付按月等额发放，年付总量因此恒为 12×本值
+    // ⇒ 年付 12×1600 = ¥192 = ¥499 的 38.5%，在年付守线 40% 内（余量 1.5 个点）。
+    // ⚠️ 1600 虽同为旧价时代推导，但**恰好**满足新价守线 ⇒ 不需要重算。
+    //    （若重解月付 35% 口径会得 2065，年付占比将达 49.7% ⇒ 破守线，不得采用。）
     officialCreditMonthly: 1600,
     concurrentTasks: 3,
     rank: PLAN_RANK.standard,
@@ -91,8 +98,14 @@ const BASE_MATRIX = {
     videoMonthly: 3000,
     scheduleBatch: true,
     dashboard: 'full',
-    // 成本占比 27.8%（¥119 × 18.5% ≈ ¥22；积分成本不变，涨价部分是功能价）。年付按月等额发放
-    officialCreditMonthly: 2200,
+    // 成本占比 28.0%（¥119 × 28.0% ≈ ¥33.3）。年付按月等额发放 ⇒ 年付 12×3330 = ¥399.6
+    // = ¥999 的 **40.0%**，正好压在年付守线 40% 上。
+    // ⚠️ 3330 是「月付目标 28%」与「年付守线 40%」的**唯一交点**（0.12M/999 ≤ 0.40 ⇒ M ≤ 3330，
+    //    且 0.01M/119 = 28.0% ⇒ M = 3330）⇒ 改价必须重解这两个式子，不要凭感觉调。
+    // ⚠️ 2200 是**旧价 ¥79 时代**按 27.8% 反解的遗留值（2200×0.01/0.278 ≈ ¥79.1）：
+    //    涨价到 ¥119/¥999 后赠送量没跟着补 ⇒ 实际占比掉到 18.5%，年付占比 26.4%，
+    //    等于把涨价让出的 13.6 个点**白送**给用户（毛利虚高，不是真省）。
+    officialCreditMonthly: 3330,
     concurrentTasks: 10,
     rank: PLAN_RANK.pro,
     maxDevices: -1,
@@ -191,7 +204,7 @@ function getPlanEntitlement(plan, overrides) {
   }
   const matrix = mergePlanSection(plan, overrides)
   const features = ['cloud_publish', 'ai_write']
-  if (matrix.videoMonthly > 0) features.push('video_create')
+  if (matrix.videoMonthly !== 0) features.push('video_create')
   if (matrix.scheduleBatch === true) features.push('schedule_batch')
   if (matrix.dashboard === 'full') features.push('dashboard_full')
   // v2.0 机制 C6.1：账号数 > 0（或 -1 不限）才提供云凭证同步；0 表示本档不提供
@@ -201,6 +214,13 @@ function getPlanEntitlement(plan, overrides) {
   // v2.0 机制 C7 A 批：模型分层访问，高档覆盖低档（features.includes 是单调包含判定）
   if (matrix.modelTier >= 1) features.push('tier_access_standard')
   if (matrix.modelTier >= 2) features.push('tier_access_pro')
+  // 官方积分额度：只要本档有额度就声明该能力（额度数值在 quota.official_credit_monthly）。
+  // ⚠️ 这是**给客户端的能力声明**，不是扣费开关——真正的扣减在 Phase 2 的积分账本接线里；
+  //    此处声明缺失会让后续 consumeFeature('official_credit') 直接 403，能力形同虚设。
+  // ⚠️ 判据用 `!== 0` 而**不是** `> 0`：`officialCreditMonthly` 在 UNLIMITED_ALLOWED 里
+  //    （-1 = 不限，运营可配）⇒ `> 0` 会把「不限」判成「没有额度」⇒ 能力声明整条消失
+  //    ⇒ 一次合法的运营配置静默关掉已付费的能力（与 maxCloudAccounts 同一形态）。
+  if (matrix.officialCreditMonthly !== 0) features.push('official_credit')
   // dailyPublish 已在 UNLIMITED_ALLOWED 之外，取值必为有限非负整数（-1 被 override 校验拒绝），此处无需再判 -1
   const cloudPublishMonthly = matrix.dailyPublish * 30
   return deepFreeze({
