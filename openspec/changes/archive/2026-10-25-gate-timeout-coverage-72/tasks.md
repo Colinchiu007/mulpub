@@ -43,4 +43,4 @@
 
 - [x] 建 openspec change（四件套：proposal / design / tasks / specs）
 - [x] 多轨独立审查（量化 / 门禁 / 契约安全 / 流程 CI / 对抗性红队），结论逐条回源码与实跑复验
-- [x] 合并后归档至 `openspec/changes/archive/2026-10-24-gate-timeout-coverage-72/`
+- [x] 合并后归档至 `openspec/changes/archive/2026-10-25-gate-timeout-coverage-72/`

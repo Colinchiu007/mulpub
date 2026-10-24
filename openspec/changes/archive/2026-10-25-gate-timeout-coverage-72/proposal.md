@@ -36,5 +36,5 @@
 - **残留**：`openspec/` 里有 3 处坏指针（`records/schedule-heartbeat-lock.md:61,70` +
   `changes/schedule-heartbeat-lock/tasks.md:100`）—— 那是**在途 change 的任务清单与历史执行记录**，
   不构成代码路径坏指针，**本 change 不改**（改它会污染在途 change 的历史），已登记，等该 change 自己收口时订正。
-- **归档**：本 change 合并后归档至 `openspec/changes/archive/2026-10-24-gate-timeout-coverage-72/`
+- **归档**：本 change 合并后归档至 `openspec/changes/archive/2026-10-25-gate-timeout-coverage-72/`
   （specs 侧不落同名目录，与近期几笔先例一致）。
