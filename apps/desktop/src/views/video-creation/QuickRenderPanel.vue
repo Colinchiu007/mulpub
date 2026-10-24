@@ -471,7 +471,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .quick-hint {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   margin: 6px 0 0;
   line-height: 1.5;
 }
