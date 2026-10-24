@@ -215,7 +215,16 @@ class RpaViewManager {
         // 只能开隐藏窗口实时抓（见 services/toutiao-csrf-grab.js）。
         let _csrfTok = ''
         if (platform === 'toutiao' && signerAccountId) {
-          try { _csrfTok = await require('./toutiao-csrf-grab').grabToutiaoCsrf(signerAccountId, { log: log, timeoutMs: 25000 }) } catch (_eC) {}
+          // grab-hard-timeout（2026-10-24）：grab 内部 await dbg.sendCommand('Network.enable') 无超时会永久挂起，
+          // 实测导致 publishViaApi 永不返回（'publish done'/'returned failure' 两条日志均为 0 命中）。
+          try {
+            log.info('RpaView', 'grabToutiaoCsrf: begin')
+            _csrfTok = await Promise.race([
+              require('./toutiao-csrf-grab').grabToutiaoCsrf(signerAccountId, { log: log, timeoutMs: 20000 }),
+              new Promise(function (res) { setTimeout(function () { res('') }, 30000) })
+            ])
+            log.info('RpaView', 'grabToutiaoCsrf: done len=' + String(_csrfTok || '').length)
+          } catch (_eC) { log.warn('RpaView', 'grabToutiaoCsrf: threw ' + String((_eC && _eC.message) || '').slice(0, 60)) }
         }
         // pkg-console-mirror（2026-10-24）：api-publish-engine 的 logger 用 console.log 写 stdout，
         // 而应用日志只收自家 logger ⇒ 包内诊断（get_token / csrf probe 等）永远不可见。
