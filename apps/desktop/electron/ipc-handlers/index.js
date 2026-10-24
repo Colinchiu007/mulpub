@@ -60,6 +60,11 @@ function registerAllHandlers(ipcMain, deps) {
   require('./avatar-catalog')(ipcMain, deps)
   // 数字人形象克隆（avatar-voice-clone：上传照片/视频 → 长期可复用的形象）
   require('./avatar-clone')(ipcMain, deps)
+  // 飞影 11 个扩展端点（hifly-full-api-ui）：积分/网感模板/封面模板/创建封面/删除作品
+  // + 6 个收费创作模式（声音驱动/网感模板/翻译/唱歌/图片驱动/音频创作）。
+  // 依赖缺失或上游 adapter 未实现时，handler 内部回 HIFLY_EXTRA_UNSUPPORTED（fail-closed），
+  // 不会把整条 IPC 注册链带崩。
+  require('./hifly-extra')(ipcMain, deps)
   require('./prompt-eval')(ipcMain, deps)
   require('./generation-feedback')(ipcMain, deps)
   // 影视工程（film-engineering）流水线

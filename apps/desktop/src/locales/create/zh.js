@@ -4,6 +4,7 @@
  */
 import avatarZh from './avatar/zh'
 import uiZh from './ui/zh'
+import hiflyExtraZh from './hifly-extra/zh'
 
 export default {
     // ── AI 讲解视频（animated-explainer）专属：画面模式 ──────────────────────
@@ -322,6 +323,7 @@ export default {
         ...uiZh,
         // 数字人（avatar-spokesperson）：唯一真源在 create/avatar/zh.js
         ...avatarZh,
+    ...hiflyExtraZh,
       },
       tpl: {
         navBack: "上一页",

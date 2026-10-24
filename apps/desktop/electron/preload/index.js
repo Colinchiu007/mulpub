@@ -36,6 +36,7 @@ const { createTtsVoiceCatalogApi } = require('./tts-voice-catalog')
 const { createTtsVoiceCloneApi } = require('./tts-voice-clone')
 const { createAvatarCatalogApi } = require('./avatar-catalog')
 const { createAvatarCloneApi } = require('./avatar-clone')
+const { createHiflyExtraApi } = require('./hifly-extra')
 const { createPromptEvalApi } = require('./prompt-eval')
 const { createPageManagerApi } = require('./page-manager')
 const { createVideoCloneApi } = require('./video-clone')
@@ -110,6 +111,7 @@ const fullApi = {
   ...createAvatarCatalogApi(ipcRenderer),
   // 数字人形象克隆（avatar-voice-clone：上传照片/视频 → 长期可复用形象）
   ...createAvatarCloneApi(ipcRenderer),
+  ...createHiflyExtraApi(ipcRenderer),
   ...createPromptEvalApi(ipcRenderer),
   ...createPageManagerApi(ipcRenderer),
   ...createVideoCloneApi(ipcRenderer),

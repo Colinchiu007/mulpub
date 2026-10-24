@@ -48,6 +48,7 @@ const SCAN_DOMAIN = [
   'avatar-clone.js',
   'cards.js',
   'cloud-publisher.js',
+  'hifly-extra.js',
   'hot-topics.js',
   'identity.js',
   'knowledge-library.js',
