@@ -243,6 +243,41 @@ test('A14 两路比较：不一致必须不 ok，vendor 缺席必须算一致而
   assert.equal(C.crossCheckUpheld(true, false).ok, false, '反方向同样不得静默取其一');
   assert.equal(C.crossCheckUpheld(false, 'unavailable').ok, true, 'CI 上没有 vendor 是常态，不得因此判探针偏离');
   assert.equal(C.crossCheckUpheld('unknown', false).ok, true, '结构档失明时不参与比较（更不能被比较结果反推成结论）');
+  // 跳过成因不得合并（2026-10-24 现场：本机装了 vendor 但一 require 就会跑别人的流水线，
+  // 若文案统一成 no-vendor，读的人会以为"这台机器没装引擎"，而实情是"装了且不敢动" —— 两种修法完全不同）
+  assert.match(C.crossCheckUpheld(false, 'unavailable', 'executes-on-require').note, /executes-on-require/,
+    '真实成因必须出现在文案里');
+  assert.doesNotMatch(C.crossCheckUpheld(false, 'unavailable', 'executes-on-require').note, /no-vendor/,
+    '把"装了但不敢 require"写成 no-vendor 是合并成因');
+  assert.match(C.crossCheckUpheld(false, 'unavailable', 'unreadable').note, /unreadable/);
+  assert.match(C.crossCheckUpheld(false, 'unavailable').note, /no-vendor/, '没给成因时才回落 no-vendor（向后兼容的老形状）');
+});
+
+test('A21 驱动可加载性判据：四种成因各有夹具，且"顶层裸执行 main()"必须判禁止 require', () => {
+  // 这条是 2026-10-24 事故的直接回归锁：探针当时把一份顶层 `process.exit(main())` 的驱动 require 了进来，
+  // 于是 `--json` 的 stdout 变成别人流水线的输出，而报错读起来像"探针输出坏了"。
+  const GUARDED = 'function main () { return 0; }\nmodule.exports = { blockingFromAdjudication };\nif (require.main === module) process.exit(main());\n';
+  const BARE = 'function main () { return 0; }\nmodule.exports = { blockingFromAdjudication };\nprocess.exit(main());\n';
+  const NO_EXPORTS = 'function main () { return 0; }\nif (require.main === module) process.exit(main());\n';
+  const BARE_NO_EXPORTS = 'function main () { return 0; }\nprocess.exit(main());\n';
+  assert.deepEqual(C.driverLoadability(GUARDED), { loadable: true, reason: 'ok' });
+  assert.deepEqual(C.driverLoadability(BARE), { loadable: false, reason: 'executes-on-require' },
+    '顶层裸执行 ⇒ 禁止加载。判错了就是"探针替别人跑一遍评审"');
+  assert.deepEqual(C.driverLoadability(NO_EXPORTS), { loadable: true, reason: 'no-exports' },
+    '可加载但没导出面 = 真失明，必须与"不敢加载"分开报');
+  assert.deepEqual(C.driverLoadability(BARE_NO_EXPORTS), { loadable: false, reason: 'executes-on-require' },
+    '两种毛病同时存在时，先报"不敢执行"——那才是会炸探针的那一条');
+  assert.equal(C.driverLoadability('').reason, 'unreadable');
+  assert.equal(C.driverLoadability(undefined).reason, 'unreadable');
+  // 函数体内用 process.exit 早退是合法的（两份真实 vendor 都有那一处），不得据此判"不可加载"
+  const EXIT_INSIDE_FN = 'function guard () { if (!x) process.exit(2); }\nmodule.exports = { y: 1 };\n';
+  assert.equal(C.driverLoadability(EXIT_INSIDE_FN).reason, 'ok',
+    '把合法早退判成禁止执行，会把唯一正常的形态整个排除掉（判据必须只盯"调用 main() 那一句"）');
+  // 跳过成因表由本模块唯一持有：探针不得再抄第二份（抄了就会漂移）
+  assert.deepEqual(Array.from(C.BEHAVIORAL_SKIP_REASONS).sort(), ['executes-on-require', 'unreadable'],
+    '按设计的跳过只有这两档；no-exports/require-failed 属真失明，必须留在表外才会 rc=1');
+  assert.equal(C.BEHAVIORAL_SKIP_REASONS.has('no-exports'), false,
+    '把 no-exports 放进跳过表 = 把"引擎没导出函数"读成"这台机器没装引擎"，那条 rc=1 就此失效');
 });
 
 test('A15 探针必须把行为档与交叉比较都接上（只有结构读法＝本刀只做了一半）', () => {
@@ -252,22 +287,46 @@ test('A15 探针必须把行为档与交叉比较都接上（只有结构读法�
   assert.match(src, /if\s*\(\s*!xcheck\.ok\s*\)\s*problems\.push\(/,
     '不一致必须写成「守卫紧跟 problems.push」——只打印不进 problems 的比较是装饰（判据只认这一种形状，'
     + '因为探针其余 problems 都是同一写法）');
+  // 2026-10-24 新增的那一半：require 之前必须先问"这份驱动能不能被安全加载"。
+  // 只断言"两个调用都在文件里"不够 —— 顺序反了（先 require 再判）与没判完全同形。
+  const at = (re) => { const i = src.search(re); assert.ok(i >= 0, '探针里找不到 ' + re + ' ⇒ 该接线被摘掉了'); return i; };
+  const gate = at(/driverLoadability\s*\(/);
+  const req = at(/require\(\s*driverFile\s*\)/);
+  assert.ok(gate < req, '可加载性判定必须**排在 require 之前**；写在后面就等于已经跑过别人的流水线才想起来拦');
+  at(/BEHAVIORAL_SKIP_REASONS\.has\(/);
+  assert.ok(src.search(/BEHAVIORAL_SKIP_REASONS\.has\(/) < src.search(/return problems\.length \? 1 : 0/),
+    '跳过成因表必须在"决定 rc"之前被读，否则真失明会被判成 0');
 });
 
-/* ---------------- A9-A12：真源码读数、结论生成与接线 ---------------- */test('A9 真源码档：三格都必须读得出（读不出=形状变了），并把当场读数打印出来', () => {
+/* ---------------- A9-A12：真源码读数、结论生成与接线 ---------------- */
+
+test('A9 真源码档：声明了就必须读得出、没声明就必须报"读不出"——不得把机器局部补丁钉成契约', () => {
+  const drv = vendorDriver();
   const caps = C.readCapabilities({
-    driverSrc: vendorDriver().src, writebackSrc: read('scripts/ccg-review-writeback.js'),
-    driverPath: vendorDriver().path, writebackPath: 'scripts/ccg-review-writeback.js',
+    driverSrc: drv.src, writebackSrc: read('scripts/ccg-review-writeback.js'),
+    driverPath: drv.path, writebackPath: 'scripts/ccg-review-writeback.js',
   });
-  console.log(`[qm6-exit-capabilities] 真源码读数 vendor=${vendorDriver().path || 'ABSENT'} `
+  console.log(`[qm6-exit-capabilities] 真源码读数 vendor=${drv.path || 'ABSENT'} `
     + `externalReview=${caps.externalReview} upheld=${caps.upheld} toolSignature=${caps.toolSignature} unknown=${caps.unknown}`);
   console.log(`[qm6-exit-capabilities] 结论 ${C.conclusionLine(caps)}`);
   assert.notEqual(caps.toolSignature, 'unknown', '仓内写回器读不出那条合取 ⇒ 它被改名或搬家了，本锁与 AGENTS 的结论都要同步');
-  if (vendorDriver().src) {
-    assert.notEqual(caps.externalReview, 'unknown', 'vendor 在位却读不出高危域出口 ⇒ 被声明物改名了');
-    assert.notEqual(caps.upheld, 'unknown', 'vendor 在位却读不出 upheld 出口 ⇒ blockingFromAdjudication 形状变了');
+  // vendor 侧两格一律写成**蕴含式**。原因是一条现场教训：本条原先写"vendor 文件在位 ⇒ 三格必须读得出"，
+  // 而 2026-10-24 11:48 另一个会话把本机那份**未提交的** vendor 补丁改写掉了（`externalReviewSatisfied`
+  // 整个名字没了），于是这条红的内容是"我的机器前提变了"，不是"判据量出了什么" ——
+  // 把机器局部状态当契约前提，等价于在别人机器上关掉这条锁（本仓「装饰性门禁」同型）。
+  if (/externalReviewSatisfied/.test(drv.src)) {
+    assert.notEqual(caps.externalReview, 'unknown', '驱动里出现了被声明物却读不出 ⇒ 是谓词的锚点坏了，不是引擎变了');
+  } else {
+    assert.equal(caps.externalReview, 'unknown',
+      '驱动里根本没有那个名字时必须报"读不出"。折叠成 false 就是把工具的失明读成"这条出口不存在"');
+    assert.match(C.conclusionLine(caps), /读不出/, '失明档的结论句必须自带"读不出"字样：' + C.conclusionLine(caps));
   }
-  // 刻意**不断言**今天那两格是 false：那是把一次观测钉成契约。
+  if (/function[ \t]+blockingFromAdjudication[ \t]*\(/.test(drv.src)) {
+    assert.notEqual(caps.upheld, 'unknown', 'blockingFromAdjudication 在位却读不出 ⇒ 切块判据与这一版形状不匹配');
+  } else {
+    assert.equal(caps.upheld, 'unknown', '同一个道理：函数不在，是读不出，不是"没有出口"');
+  }
+  // 刻意**不断言**这几格今天是 true 还是 false：那是把一次观测钉成契约，将来真加出口的 PR 会被自己的锁咬住。
 });
 
 test('A10 探针必须改用读数生成结论，且不得再出现被撤销回来的那句写死结论', () => {
@@ -289,9 +348,12 @@ test('A11 接线锁：新锁与探针都必须被 workflow 的**可执行正文*
 test('A12 导出面与追踪态：三个谓词与生成器都必须在模块导出上，且本体不被 .gitignore 吞掉', () => {
   // #4062 那次撤销的显形方式就是"导出面消失"。这里按名字逐个问，不接受"文件还在所以没事"。
   for (const name of ['externalReviewCapable', 'upheldExitCapable', 'toolSignatureCapable', 'upheldExitBehavioral',
-    'externalReviewReceiptLive', 'crossCheckUpheld', 'readCapabilities', 'conclusionLine']) {
+    'externalReviewReceiptLive', 'crossCheckUpheld', 'readCapabilities', 'conclusionLine', 'driverLoadability']) {
     assert.equal(typeof C[name], 'function', `导出面缺 ${name} ⇒ 消费方会静默退化，而本仓的锁看不见"没人调用"这件事`);
   }
+  // 成因表也属导出面：探针靠它决定"这次 unavailable 是按设计的跳过还是真失明"。
+  // 它一旦从导出面消失，探针会退回自己抄一份表 —— 两份表漂移的下一步就是把 no-exports 判成跳过。
+  assert.ok(C.BEHAVIORAL_SKIP_REASONS instanceof Set, '跳过成因表必须是模块导出的同一份，不接受探针侧的第二份');
   const rel = ['scripts/qm6-exit-capabilities.js', 'scripts/qm6-exit-capabilities.test.js', 'scripts/qm6-exit-capabilities.mutation.js'];
   const env = { ...process.env };
   // GIT_DIR 等会静默压过 cwd（钩子窗口里实测踩过），先清掉再问 git。

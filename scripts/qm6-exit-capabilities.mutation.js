@@ -30,8 +30,8 @@ const WF = '.github/workflows/quality-gate.yml';
 const MUT = 'scripts/qm6-exit-capabilities.mutation.js';
 
 const SUITES = [
-  { file: LOCKS, minTests: 20 },
-  { file: PROBET, minTests: 11 },
+  { file: LOCKS, minTests: 21 },
+  { file: PROBET, minTests: 12 },
 ];
 
 const M = [
@@ -161,7 +161,7 @@ const M = [
   {
     id: 'n18', file: PROBE,
     note: '摘掉"vendor 在位但行为档取不到数"这道守卫 ⇒ 两路全瞎时探针仍报"两路一致：不在位"，与真跑确认过的结论逐字同形',
-    from: "  if (caps.upheldBehavioral === 'unavailable') problems.push(",
+    from: "  if (caps.upheldBehavioral === 'unavailable' && !capabilities.BEHAVIORAL_SKIP_REASONS.has(caps.behavioralSkip)) problems.push(",
     to: '  if (false) problems.push(',
     expect: ['P11'],
   },
@@ -231,6 +231,48 @@ const M = [
     from: '\n    releaseLock();',
     to: '\n    // (不释放锁)',
     expect: ['A19'],
+  },
+  {
+    id: "n28", file: CAPS,
+    note: "摘掉「顶层裸执行 main() 就禁止 require」那一格 ⇒ 2026-10-24 现场复发：--json 的 stdout 变成别人的输出",
+    from: "  if (MAIN_INVOCATION.test(driverSrc) && !MAIN_GUARDED.test(driverSrc)) return { loadable: false, reason: 'executes-on-require' };",
+    to: "  // (摘掉这一格 ⇒ 未守卫的驱动也会被 require，探针变成别人流水线的宿主)",
+    expect: ["A21","P12"],
+  },
+  {
+    id: "n29", file: CAPS,
+    note: "判据退回「看见 process.exit 就禁」⇒ 函数体内的合法早退也被排除，唯一正常形态反被判成不可加载",
+    from: "const MAIN_INVOCATION = /\\bprocess\\.exit\\(\\s*main\\s*\\(\\s*\\)\\s*\\)/;",
+    to: "const MAIN_INVOCATION = /process\\.exit\\(/;",
+    expect: ["A21"],
+  },
+  {
+    id: "n30", file: CAPS,
+    note: "把 no-exports 混进「按设计的跳过」表 ⇒ 真失明被读成「这台机器没装引擎」，P11 那条 rc=1 就此失效",
+    from: "const BEHAVIORAL_SKIP_REASONS = new Set(['unreadable', 'executes-on-require']);",
+    to: "const BEHAVIORAL_SKIP_REASONS = new Set(['unreadable', 'executes-on-require', 'no-exports']);",
+    expect: ["A21","P11"],
+  },
+  {
+    id: "n31", file: CAPS,
+    note: "交叉文案丢掉真实成因 ⇒「装了但不敢跑」与「没装」同形（合并成因是本仓点名的同型）",
+    from: "  if (behavioral === 'unavailable') return { ok: true, note: 'behavioral=skipped(' + (skipReason || 'no-vendor') + ')' };",
+    to: "  if (behavioral === 'unavailable') return { ok: true, note: 'behavioral=skipped(no-vendor)' };",
+    expect: ["A14","P12"],
+  },
+  {
+    id: "n32", file: PROBE,
+    note: "探针侧把可加载性早退改成不生效 ⇒ require 先跑起来；A21 那种「判据在模块里但没人用」必须靠这条才不是纸面的",
+    from: "  if (!load.loadable) {",
+    to: "  if (false) {",
+    expect: ["P12"],
+  },
+  {
+    id: "n33", file: PROBE,
+    note: "摘掉「按成因表决定是否出声」这条接线 ⇒ no-exports 那一档的 rc=1 退化成静默 0，同时 A15 的接线锁红",
+    from: "  if (caps.upheldBehavioral === 'unavailable' && !capabilities.BEHAVIORAL_SKIP_REASONS.has(caps.behavioralSkip)) problems.push(",
+    to: "  if (caps.upheldBehavioral === 'unavailable' && false) problems.push(",
+    expect: ["A15","P11"],
   },
   {
     id: 'msanity', file: LOCKS,

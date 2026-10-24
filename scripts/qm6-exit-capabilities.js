@@ -71,6 +71,36 @@ function toolSignatureCapable (writebackSrc) {
 }
 
 /**
+ * 「这份驱动能不能被安全 require」—— 行为档的前提，必须先判它，再决定要不要执行。
+ *
+ * 动因是 2026-10-24 的现场：本机 vendor 驱动被另一个会话改写，末尾从
+ * `if (require.main === module) process.exit(main())` 变成裸 `process.exit(main())`，
+ * 于是本探针的那次 require **把别人的整条评审流水线跑了进来并 exit 掉本进程** ——
+ * `--json` 档的 stdout 变成「判定记录按 diff 内容寻址命中…」，调用方 `JSON.parse` 当场炸，
+ * 而报错读起来像"探针输出坏了"，不像"探针执行了不该执行的东西"。
+ *
+ * 四个成因不得合并（把「不该执行」与「执行了但拿不到函数」并成一句，
+ * 下一个会话就会把静默跳过读成"两路一致"）：
+ *   'ok'                  ⇒ 可以 require，且导出面在
+ *   'no-exports'          ⇒ 可以 require 但没有导出面 ⇒ 行为档取不到函数，属**真失明**（要出声、要 rc=1）
+ *   'executes-on-require' ⇒ 顶层无守卫地执行 main() ⇒ **禁止 require**（不代跑别人的流水线）
+ *   'unreadable'          ⇒ 传进来的不是可读源码
+ * 判据取"调用 main() 的那一句是否落在 require.main 守卫里"，不取"文件里出现过几处 process.exit"——
+ * 驱动在函数体内用 `process.exit(2)` 做缺依赖早退是合法的（两份现场样本都有那一处），
+ * 拿它当"不可加载"会把唯一正常的形态判成禁止执行。
+ */
+const MAIN_INVOCATION = /\bprocess\.exit\(\s*main\s*\(\s*\)\s*\)/;
+const MAIN_GUARDED = /\bif\s*\(\s*require\.main\s*===\s*module\s*\)\s*process\.exit\(\s*main\s*\(\s*\)\s*\)/;
+const BEHAVIORAL_SKIP_REASONS = new Set(['unreadable', 'executes-on-require']);
+
+function driverLoadability (driverSrc) {
+  if (typeof driverSrc !== 'string' || driverSrc.trim() === '') return { loadable: false, reason: 'unreadable' };
+  if (MAIN_INVOCATION.test(driverSrc) && !MAIN_GUARDED.test(driverSrc)) return { loadable: false, reason: 'executes-on-require' };
+  if (!/\bmodule\.exports\b/.test(driverSrc)) return { loadable: true, reason: 'no-exports' };
+  return { loadable: true, reason: 'ok' };
+}
+
+/**
  * ② 的行为交叉验证：直接**调** vendor 导出的 `blockingFromAdjudication`（本文件不执行它，由调用方注入）。
  * 两份合成裁决唯一差别是那条 upheld 有没有处置凭证：
  *   无凭证 ⇒ 必须计阻断（否则"随便填两格"就能收口）
@@ -169,8 +199,10 @@ function sliceBlock (src) {
  * 探针里那段依赖 vendor 是否存在，而这个函数只吃两个值 —— 四种组合都能喂夹具。
  * @returns {{ok:boolean, note:string}} 不一致即不 ok（调用方据此 rc=1），'unavailable' 单独一档、不算不一致
  */
-function crossCheckUpheld (structural, behavioral) {
-  if (behavioral === 'unavailable') return { ok: true, note: 'behavioral=skipped(no-vendor)' };
+function crossCheckUpheld (structural, behavioral, skipReason) {
+  // 跳过成因必须如实带出来：把 `executes-on-require` 报成 `no-vendor` 是合并成因，
+  // 读的人会以为"这台机器没装引擎"，而实情是"装了但一 require 就会把别人的流水线跑进本进程"。
+  if (behavioral === 'unavailable') return { ok: true, note: 'behavioral=skipped(' + (skipReason || 'no-vendor') + ')' };
   if (structural === 'unknown') return { ok: true, note: 'structural=unknown（不参与比较，也不得被比较结果改成结论）' };
   if (structural !== behavioral) {
     return { ok: false, note: `结构读法=${structural} 而真跑=${behavioral} ⇒ 两条路对同一条出口给出不同答案，读数不可信（结构谓词要重做）` };
@@ -225,4 +257,5 @@ module.exports = {
   upheldExitBehavioral, externalReviewReceiptLive, crossCheckUpheld,
   readCapabilities, conclusionLine, sliceFunctionBody, sliceBlock,
   mkAdj, RECEIPT_EXTERNAL, RECEIPT_RESOLUTION,
+  driverLoadability, BEHAVIORAL_SKIP_REASONS, MAIN_INVOCATION, MAIN_GUARDED,
 };

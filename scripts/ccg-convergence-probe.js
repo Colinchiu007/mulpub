@@ -135,10 +135,11 @@ function main (argv) {
       driverPath: vendor.driver, writebackPath: 'scripts/ccg-review-writeback.js',
     });
   } catch (e) { process.stderr.write('[ccg-probe] rc=2 工具署名出口取不到数：' + e.message + '\n'); return 2; }
-  const behavioral = behavioralUpheldExit(vendor.driver);
+  const behavioral = behavioralUpheldExit(vendor.driver, driverSrc);
   caps.upheldBehavioral = behavioral.upheld;
   caps.receiptLive = behavioral.receiptLive;
-  const xcheck = capabilities.crossCheckUpheld(caps.upheld, caps.upheldBehavioral);
+  caps.behavioralSkip = behavioral.skipReason || null;
+  const xcheck = capabilities.crossCheckUpheld(caps.upheld, caps.upheldBehavioral, caps.behavioralSkip);
   const missing = Object.keys(cfgDefaults).filter((k) => cfgDefaults[k] === null || cfgDefaults[k] === undefined);
   if (missing.length) {
     process.stderr.write('[ccg-probe] rc=2 从 vendor 源码读不出默认参数：' + missing.join(',')
@@ -195,9 +196,10 @@ function main (argv) {
   if (convergedIfHigh.status !== 'converged') problems.push('第 2 轮达阈值仍不收敛，scoreThreshold 语义变了');
   if (shape.currentRoundExpr !== 'cfg.maxRounds') problems.push('驱动不再把 currentRound 报成 cfg.maxRounds（本探针结论需重估）');
   if (!xcheck.ok) problems.push('upheld 出口两路不一致：' + xcheck.note);
-  if (caps.upheldBehavioral === 'unavailable') problems.push(
-    'vendor 在位但行为档取不到定论（require 失败 / blockingFromAdjudication 改名 / 正控不成立：'
-    + '凭证形状本机 vendor 不消费时，"带凭证仍阻断"什么也没测；receiptLive=' + caps.receiptLive + '）');
+  if (caps.upheldBehavioral === 'unavailable' && !capabilities.BEHAVIORAL_SKIP_REASONS.has(caps.behavioralSkip)) problems.push(
+    'vendor 在位但行为档取不到定论（require 失败 / blockingFromAdjudication 改名或缺导出 / 正控不成立：'
+    + '凭证形状本机 vendor 不消费时，"带凭证仍阻断"什么也没测；receiptLive=' + caps.receiptLive
+    + ' skip=' + caps.behavioralSkip + '）');
 
   // --json 档的 stdout **只能是 JSON**：任何一行结论/告警拼在后面都会让调用方 parse 失败，
   // 而失败信息（"Unexpected non-whitespace character"）读起来像"探针坏了"，不像"它多嘴了"
@@ -229,7 +231,9 @@ function main (argv) {
   process.stdout.write('[ccg-probe] ③ 单轮下 stall ⇒ stalled=' + stall1.stalled
     + (stall1.rounds ? '' : '（' + stall1.detail + '，所以 stall 出口在此层不可达）') + '\n');
   process.stdout.write('[ccg-probe] ④ 第 2 轮打到阈值 ' + needScore + ' 才 converged ⇒ status=' + convergedIfHigh.status + '\n');
-  process.stdout.write('[ccg-probe] ⑤ upheld 出口交叉验证：结构=' + caps.upheld + ' 行为=' + caps.upheldBehavioral + ' 正控(凭证是否被 vendor 消费)=' + caps.receiptLive + ' ⇒ ' + xcheck.note + '\n');
+  process.stdout.write('[ccg-probe] ⑤ upheld 出口交叉验证：结构=' + caps.upheld + ' 行为=' + caps.upheldBehavioral
+    + ' 正控(凭证是否被 vendor 消费)=' + caps.receiptLive
+    + ' 行为档跳过原因=' + (caps.behavioralSkip || 'none') + ' ⇒ ' + xcheck.note + '\n');
   if (problems.length) {
     process.stdout.write('[ccg-probe] 🔴 读数偏离预期：\n  - ' + problems.join('\n  - ')
       + '\n  ⇒ 出口可达性已变：#3724 tasks §8.5/§8.8 与本 change design 的结论必须重估，不得沿用。\n');
@@ -246,8 +250,22 @@ module.exports = { main, readDefaults, readVendorSources, readDriverTaskShape, l
  * 为什么必须有两档：结构读法（正则）测的是"那段代码长什么样"，而风险是"这条 PR 会不会被永久钉住" ——
  * 那是**行为**问题。两档不一致时不得静默取其一（本探针因此 rc=1）。
  * 拿不到函数（CI runner 上没有 vendor）返回 'unavailable'，**不得**当成 false。
+ *
+ * ⛔ require 之前必须先过 `driverLoadability`：2026-10-24 现场本机 vendor 驱动末尾是裸
+ * `process.exit(main())`，那次 require 把别人的整条评审流水线跑进本进程并 exit 掉探针，
+ * `--json` 的 stdout 于是变成「判定记录按 diff 内容寻址命中…」——一个"探针在测量引擎"的假象。
+ * 成因分类的唯一真源在 `qm6-exit-capabilities.js`，本文件不得抄第二份 reason 表。
  */
-function behavioralUpheldExit (driverFile) {
+function behavioralUpheldExit (driverFile, driverSrc) {
+  const load = capabilities.driverLoadability(driverSrc);
+  if (!load.loadable) {
+    process.stderr.write('[ccg-probe] behavioral=skipped(' + load.reason + ') —— 没有 require 该驱动'
+      + (load.reason === 'executes-on-require'
+        ? '：它顶层无守卫地调用 main()，require 等于在本进程里跑别人的评审流水线'
+        : '')
+      + '；结构读数不受影响，但这一格今天只有结构一路\n');
+    return { upheld: 'unavailable', receiptLive: 'unavailable', skipReason: load.reason };
+  }
   try {
     const mod = require(driverFile);
     const fn = mod && mod.blockingFromAdjudication;
@@ -255,10 +273,11 @@ function behavioralUpheldExit (driverFile) {
     // 没有正控，"带凭证仍阻断"可能只是"我写的键没人读" —— 两种情况在 false 这个读数上完全同形
     // （QM-6 第一轮评审 i2/i5 命中；本模块最初版就栽在这里）。
     const receiptLive = capabilities.externalReviewReceiptLive(fn);
-    return { upheld: capabilities.upheldExitBehavioral(fn, { receiptLive }), receiptLive: receiptLive };
+    return { upheld: capabilities.upheldExitBehavioral(fn, { receiptLive }), receiptLive: receiptLive,
+      skipReason: load.reason === 'ok' ? null : load.reason };
   } catch (e) {
     process.stderr.write('[ccg-probe] 行为档取不到（结构读数不受影响）：' + e.message + '\n');
-    return { upheld: 'unavailable', receiptLive: 'unavailable' };
+    return { upheld: 'unavailable', receiptLive: 'unavailable', skipReason: 'require-failed' };
   }
 }
 

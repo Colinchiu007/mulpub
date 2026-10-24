@@ -70,6 +70,21 @@ $ vendor ccg-deep-review.js 里 /function externalReviewSatisfied/ → true
      不扩闭环词表 —— 这四条都在 #4304 的 D1/拆闸范围里，顺序上必须在探测器之后。
    - 不把 #4062 那笔撤销"改回来"成一次 revert PR：那是重写已合并历史；本刀直接前滚（恢复 + 扩展 + 加检出）。
    - 不新增跨调用状态账（计数不得挂在内容寻址的记录名上 —— #4297 已实测，本刀结构性不引用记录名）。
+7. **第 4 条的落地方式在实施中被现场否证后改过两次**（`vm` → `require` → `require` 前置可加载性判据），
+   最终口径与理由写在 design §1.2 / §1.4：探针**不得**在 require 期执行一份顶层裸调 `main()` 的驱动，
+   且行为档那三条锁的前提必须是仓库内的东西（自建夹具），不得是本机那份未提交的 vendor 补丁。
+
+## 改动文件面（供决策层范围比对）
+
+- `scripts/qm6-exit-capabilities.js` —— 三条纯谓词 + 行为档 + 正控 + 交叉比较 + 结论生成 + `driverLoadability`（判据本体）
+- `scripts/qm6-exit-capabilities.test.js` —— 契约锁（住在第三个文件里的那一份）
+- `scripts/qm6-exit-capabilities.mutation.js` —— 变异反证驱动（含驱动自身的单实例锁与基线卫生）
+- `scripts/ccg-convergence-probe.js` —— 探针：接读数器、接双路交叉、接可加载性判据
+- `scripts/ccg-convergence-probe.test.js` —— 探针既有锁 + 自建 vendor 夹具的行为档/交叉/不执行三条锁
+- `.github/workflows/quality-gate.yml` —— `Gate 2b6` 点名新契约锁（高危面只有这一格）
+- `.gitignore` —— 三个新脚本的放行 negation
+- `openspec/changes/qm6-exit-capability-probe/**` —— 本 change 四件套
+- `openspec/changes/ccg-convergence-exit/tasks.md` —— 前滚恢复被撤销的那 31 行 + §10.7 现状补记
 
 ## 现场读数（2026-10-23，重取命令逐条附）
 
