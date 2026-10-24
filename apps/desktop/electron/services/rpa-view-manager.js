@@ -227,6 +227,15 @@ class RpaViewManager {
             log.info('RpaView', 'grabToutiaoCsrf: done len=' + String(_csrfTok || '').length)
           } catch (_eC) { log.warn('RpaView', 'grabToutiaoCsrf: threw ' + String((_eC && _eC.message) || '').slice(0, 60)) }
         }
+        const apiResult = await Promise.race([
+          publishViaApi(platform, taskData, cookie, {
+            onProgress: (pct, msg) => this._emitProgress(platform, msg, pct),
+            accountId: signerAccountId || undefined,
+            csrf: _csrfTok || undefined,
+            pagePost: platform === 'toutiao' ? function (p, b) { return require('./toutiao-page-publish').publishViaPage(signerAccountId, p, b, { log: log }) } : undefined,
+          }),
+          new Promise(function(_, rj) { const _t = setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout); if (_t && _t.unref) _t.unref() })
+        ]);
         // 统一结果日志：API 失败分支此前无日志（logging-coverage-audit）
         if (apiResult && apiResult.success) log.info('RpaView','publish done via API platform='+platform)
         else log.warn('RpaView','API publish returned failure platform='+platform+' error='+(apiResult&&apiResult.error))
