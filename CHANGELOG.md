@@ -945,6 +945,13 @@
 - `build:vue` rc=0；`electron-builder --dir` rc=0；asar 核验通道与方法在包内。
 - 静态门禁：unwired OK / locale keys PASS(2181) / locale CJK PASS / max-lines ✅ / brand PASS / doc-abs PASS。
 
+# [未发布] fix(本地库): viral_library 的迁移预检不再查询"本次迁移才创建的列"，新库建表自带 external_id/creator_id（ux-viral-external-id）
+
+- 打包态启动日志里的 `[ERROR] sqlite-wrapper all() error: no such column: external_id` 消失（2026-10-16 真实现场一条、2026-10-18 复现两次）。根因不是 SQL 写错，而是**顺序自反**：`findViralLibraryConflicts` 是迁移前的重复预检，查的 `external_id` 由它所在那次迁移的 `ALTER` 才加上，而新库建表 DDL 里没有这两列 ⇒ 每个新库首次启动都发一条结构上注定失败的查询；`catch (_) { return [] }` 的兜底位置在 `sqlite-wrapper` 的 `Statement.all()`，它先 `log.error` 再返回空 ⇒ "正常的未升级状态"被记成故障。（分支 `ux-viral-external-id`）
+- 预检改为**三档语义**：缺列（含表不存在）⇒ 直接返回空且一次都不发查询；列在位有真重复 ⇒ 照旧中止迁移并点名明细（不静默去重）；列在位但查询失败 ⇒ `console.warn('[creator-schema] …')` 出声。第 1 档与第 3 档不得共用静默出口。
+- 新库建表 DDL 与迁移改为**同源**：`store-schema.js` 的 viral_library 自带 `external_id` / `creator_id`（`ALTER` 仍保留给存量库）；探列实现收敛为 `viralLibraryColumns(db)` 一份，迁移与预检共用。
+- 新增回归锁 `creator-schema-upgrade.test.js`（8 条，真 `node:sqlite` 文件库 + `os.tmpdir()` 隔离）；三条旧夹具改为自洽输入（原来"没有该列的库报了重复"是现实里不可能的输入，断言本身一字未放宽）。逃逸根因记录：旧夹具对任意 SQL 的 `prepare().all()` 返回同一份预置数组，"列不存在 ⇒ 查询抛错"这类事实**无法表示**。
+- QM-1：`pnpm run build:dir` 打包 rc=0；`asar` 解包读产物确认同一份实现落进包里；以产物代码跑"新库首次启动"路径 `VERDICT=CLEAN`；打包实例存活 15 秒且 **stderr 为空**（三层判据第 ③ 层）。
 # [未发布] docs(openspec): 归档 shape-lock 规格 delta —— 那条 Requirement 不再自己打自己（archive-shape-lock-scenario）
 
 - **动因**：#4001 带进来的 `align-shape-lock-empty-ledger-scenario` 已合并但没归档，它的 MODIFIED delta 因此还没落进主规格——主干上那条 Requirement 至今**正文写「键数本身不设数字下限」、末个 Scenario 写「键数为 0 ⇒ MUST 红（规模下界）」**，两句互斥；而 `openspec validate quality-gate-execution-record --type spec --strict` 实测照判 `is valid`（它查结构必需段与场景覆盖，**不查条目内自洽**），所以这类矛盾能随归档一路进主干。
