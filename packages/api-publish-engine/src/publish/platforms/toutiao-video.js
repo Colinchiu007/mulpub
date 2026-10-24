@@ -406,9 +406,12 @@ class ToutiaoVideoChain {
         timeout: 30000,
       data: JSON.stringify(postData), maxBodyLength: Infinity,
       headers: this._mpHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
+        // 头名与长度取证（不打印值）
+        // （由下方 res 后日志对比验证是否真的带上）
       validateStatus: (s) => s >= 200 && s < 500,
     })
       if (this.logger) this.logger.log('toutiao PublishVideo status=' + (res && res.status) + ' body=' + String(JSON.stringify(res && res.data)).slice(0, 220))
+      if (this.logger) { try { var _hh = this._mpHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }); this.logger.log('toutiao PublishVideo headers=' + Object.keys(_hh).filter(function(k){return /csrf/i.test(k)}).map(function(k){return k+':len'+String(_hh[k]||'').length}).join(',')) } catch (_eH) {} }
     const p = parsePublishResponse(res.data)
     if (p.ok) {
       return { success: true, mode: 'api', platform: 'toutiao', publishId: p.itemId }
