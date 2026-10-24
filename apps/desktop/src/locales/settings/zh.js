@@ -15,10 +15,22 @@ export default {
     title: '设置',
     tabModel: '模型设置',
     tabGeneral: '通用设置',
+    tabAppearance: '外观设置',
     tabPublish: '发布设置',
     tabAccount: '账号设置',
     tabComingSoon: '敬请期待',
     placeholder: '该功能正在开发中，敬请期待',
+    appearance: {
+      themeGroup: '界面主题',
+      themeHint: '选择后立即生效，并记住到下次启动。',
+      optSystem: '跟随系统',
+      optLight: '浅色',
+      optDark: '暗色',
+      systemDesc: '不锁定主题，随操作系统的深浅色设置自动切换。',
+      fixedDesc: '锁定为{name}，系统深浅色变化不再影响界面。',
+      currentEffective: '当前界面：{name}',
+      darkNotice: '暗色配色仍在逐页核对中。若你在某个页面看到对比度过低或区域未适配，请通过反馈入口告诉我们。',
+    },
     publishFrequency: {
       title: '发布频率策略',
       // 档位摘要：拼装式文案（Gate 7 的渲染端 CJK 基线要求用户可见文案一律走 locale，

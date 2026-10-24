@@ -18,6 +18,7 @@ import './styles/premium-design-system.css'
 import App from './App.vue'
 import i18n from './i18n'
 import router from './router'
+import { applyKnownThemeBeforeMount } from './composables/useTheme'
 import { reportError } from './utils/report-error'
 import { getApi } from './api/electron-bridge'
 import { onRiskHold, onProgress } from './api/publisher'
@@ -62,6 +63,10 @@ app.use(elementPlusOnDemand)
 app.component('EmptyState', EmptyState)
 app.component('LoadingState', LoadingState)
 app.component('UiSkeleton', UiSkeleton)
+// 首帧落色必须在 mount 之前：主题真源是异步 IPC，等它回来再决定颜色，
+// 偏好暗色的用户每次冷启动都会先看到一帧浅色（FOUC 是用户可见缺陷，不是优化项）。
+// 这里只读同步可用的镜像，终值仍由 useTheme 的 init() 用真源校准。
+applyKnownThemeBeforeMount()
 app.mount('#app')
 
 // W1 §6.1 风控挂起通知消费端：主进程 publish:risk-hold → 渲染层统一通知通道。

@@ -516,6 +516,10 @@ shared-user-data.backups/
 #   「negation 必须各自存在」那条锁里，它按模式匹配 negation 清单，不依赖任何行位置。
 !scripts/qm6-tier-watermark.js
 !scripts/qm6-enforce-preview.js
+# 暗色主题入口的反证驱动本体（2026-10-21，change: ux-audit-theme-entry）。
+# 同 #4190 那条实测教训：第 106 行 scripts/*.js 会把新脚本静默吞掉，
+# 于是"反证驱动已入库"这句话变成一句没人核对的自述 —— 声明入库之前必须 git ls-files 读一次。
+!scripts/theme-entry-contract-mutate.js
 # CCG 深度审查的工作产物（提案/评审/裁决），不进主干；判定记录 .ccg/reviews/*.json 才是留痕
 .adversarial/
 # 构建产物（由 build:preload / build:paginator 生成，不进版本控制）
