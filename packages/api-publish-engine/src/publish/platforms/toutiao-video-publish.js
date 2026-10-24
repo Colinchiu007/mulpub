@@ -28,6 +28,9 @@
 
 /** 发稿端点（bundle 逐字） */
 const PUBLISH_PATH = '/xigua/api/upload/PublishVideo'
+// 2026-10-24 竞品溯源：蚁小二头条发稿用的是 v4 提交端点（视频/封面上传后带 VideoInfo 提交），
+// 我方原 PublishVideo 路径在文件头已注明是「按同名端点套出来的」无证据推断。
+const PUBLISH_PATH_V4 = '/ugc/publish/video/v4/commit/'
 /** 两个只读前置闸门（bundle 实证存在，比 DOM 探测可靠） */
 const PUBLISH_AUTH_PATH = '/xigua/api/upload/GetPublishAuth'
 const REVIEW_LATENCY_PATH = '/xigua/api/upload/GetPublishPageReviewLatency'
@@ -121,7 +124,8 @@ function buildToutiaoPublishBody (taskData, o = {}) {
     VideoInfo: {
       Vid: o.vid || td.vid || '',
       VName: String((td.video && td.video.name) || ''),
-      ThumbUri: o.thumbUri || '',
+      ThumbUri: o.thumbUri || o.posterUri || '', // 竞品：自定义封面 Uri 为空时回落到视频自动海报 PosterUri
+      ThumbUriFrom: 'custom',
       ThumbUrl: o.thumbUrl || '',
       Duration: Number(o.duration || (td.video && td.video.duration) || 0),
       VideoWidth: width,
@@ -132,9 +136,9 @@ function buildToutiaoPublishBody (taskData, o = {}) {
     aspectRatio,
     PublishType: publishType,
     From: 'mp',
-    EnterFrom: 5,
+    EnterFrom: 54, // 竞品原文
     IsNew: !o.itemId,
-    CreateSource: 2,
+    CreateSource: 1, // 竞品原文
     Praise: false,
     HashtagIds: hashtagIds.filter(Boolean),
     HideInfo: { HideType: Number((td.hide_info && td.hide_info.hide_type) || 0) },

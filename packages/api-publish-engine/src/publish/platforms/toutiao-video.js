@@ -112,7 +112,7 @@ const AUTH_KEY_PATH = '/xigua/api/upload/getAuthKey/'
 
 // 职责三块（防再撞 500 行闸）：publish=纯契约无IO / probes=只读探测 / 本文件=链编排
 const {
-  PUBLISH_PATH, PUBLISH_AUTH_PATH, REVIEW_LATENCY_PATH, POSTER_LIST_PATH,
+  PUBLISH_PATH, PUBLISH_PATH_V4, PUBLISH_AUTH_PATH, REVIEW_LATENCY_PATH, POSTER_LIST_PATH,
   PUBLISH_TYPE, VIDEO_TYPE, ASPECT_RATIO,
   truncateByCodePoint, buildToutiaoPublishBody, parsePublishResponse,
   parsePosterListResponse, pickPosterUri,
@@ -406,7 +406,7 @@ class ToutiaoVideoChain {
       // page-publish（2026-10-24）：优先在页面内执行，由 secsdk 为该请求签名
       if (this.pagePost) { try { const pr = await this.pagePost(PUBLISH_PATH, JSON.stringify(postData)); if (pr) { let d = pr.body; try { d = JSON.parse(pr.body) } catch (_eP) {} ; res = { status: pr.status, data: d } } } catch (_ePp) { if (this.logger) this.logger.log('toutiao page-publish threw: ' + String((_ePp && _ePp.message) || '').slice(0, 60)) } }
       if (!res) res = await this.mp.request({
-      method: 'post', url: PUBLISH_PATH,
+      method: 'post', url: PUBLISH_PATH_V4, // 2026-10-24 竞品实证端点
         timeout: 30000,
       data: JSON.stringify(postData), maxBodyLength: Infinity,
       headers: this._mpHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
