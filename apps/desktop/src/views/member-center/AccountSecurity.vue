@@ -39,6 +39,18 @@
       <div v-else class="member-center-empty">
         <p class="member-center-empty-hint">{{ t('memberCenter.sessionsEmptyHint') }}</p>
       </div>
+      <!-- P0-5：错误本地化展示（修复前模板不渲染 error ⇒ 点击后静默无反馈） -->
+      <p v-if="memberErrorKey" class="member-center-error" role="alert">{{ t(memberErrorKey) }}</p>
+      <!-- revoked 数量语义：0 ≠ 失败，要有明确反馈 -->
+      <p
+        v-if="revokeResult"
+        class="member-center-revoke-result"
+        :class="'is-' + revokeResult.tone"
+        :data-testid="'revoke-result'"
+        role="status"
+      >
+        {{ revokeResult.text }}
+      </p>
     </section>
   </div>
 </template>
@@ -48,7 +60,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useIdentity } from '@/composables/useIdentity'
 import { useMemberStore } from '@/stores/member'
-import { avatarInitialOf, statusLabelOf, formatTimestamp } from './labels'
+import { avatarInitialOf, statusLabelOf, formatTimestamp, resolveMemberErrorKey } from './labels'
 
 const { t } = useI18n()
 const memberStore = useMemberStore()
@@ -56,8 +68,12 @@ const { status, user, displayName, loading, switchAccount, signOut } = useIdenti
 
 const pending = ref(null)
 const revoking = ref(false)
+const revokeResult = ref(null)
 const avatarInitial = computed(() => avatarInitialOf(displayName.value))
 const statusLabel = computed(() => statusLabelOf(t, status.value))
+
+// 未知码/空值兜底为通用失败文案，绝不透裸码。
+const memberErrorKey = computed(() => (memberStore.error ? resolveMemberErrorKey(memberStore.error) : ''))
 
 async function handleSwitch() {
   pending.value = 'switch'
@@ -79,8 +95,14 @@ async function handleSignOut() {
 
 async function handleRevoke() {
   revoking.value = true
+  revokeResult.value = null
   try {
-    await memberStore.revokeOtherSessions()
+    const revoked = await memberStore.revokeOtherSessions()
+    // 三分支：>0 成功带数量 / =0 无其他设备（info，不是失败）/ false 失败（error 区展示）
+    if (revoked === false) return
+    revokeResult.value = revoked > 0
+      ? { tone: 'success', text: t('memberCenter.revokeSuccess', { count: revoked }) }
+      : { tone: 'info', text: t('memberCenter.revokeNone') }
   } finally {
     revoking.value = false
   }

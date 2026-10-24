@@ -19,20 +19,25 @@
       <div v-else class="member-center-empty">
         <p class="member-center-empty-hint">{{ t('memberCenter.messagesEmptyHint') }}</p>
       </div>
-      <p v-if="memberStore.error" class="member-center-error" role="alert">{{ memberStore.error }}</p>
+      <!-- P0-5：错误码经 resolveMemberErrorKey 本地化后展示。
+           裸码（MEMBER_REQUEST_FAILED 等）直接渲染是修复前的形态。 -->
+      <p v-if="memberErrorKey" class="member-center-error" role="alert">{{ t(memberErrorKey) }}</p>
     </section>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMemberStore } from '@/stores/member'
-import { formatTimestamp } from './labels'
+import { formatTimestamp, resolveMemberErrorKey } from './labels'
 
 const { t } = useI18n()
 const memberStore = useMemberStore()
 const marking = ref(false)
+
+// 未知码/空值在 resolveMemberErrorKey 内兜底为通用失败文案。
+const memberErrorKey = computed(() => (memberStore.error ? resolveMemberErrorKey(memberStore.error) : ''))
 
 async function handleMarkRead() {
   marking.value = true

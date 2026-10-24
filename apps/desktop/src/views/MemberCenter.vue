@@ -16,11 +16,14 @@
         >
           {{ loading ? t('memberCenter.signingIn') : t('memberCenter.login') }}
         </button>
+        <!-- P0-6 / v4 E1：升级入口统一为「路由跳订阅 tab」。
+             UpgradeModal 已退役（死胡同 + 假陈述文案）；判定改用服务端
+             entitlement.limits.plan_rank，**不再读本地 licenseStore**。 -->
         <button
           v-if="showUpgradeCta"
           class="cohere-btn-primary"
           data-testid="member-center-upgrade"
-          @click="showUpgrade = true"
+          @click="goToSubscription"
         >
           {{ t('memberCenter.upgradePro') }}
         </button>
@@ -68,109 +71,34 @@
         </button>
       </nav>
 
+      <!--
+        右侧唯一内容区（2026-10-24 瘦身）：
+        价目目录与激活码兑换已迁入「订阅与方案」子视图（P0-1）——
+        壳层不再持有任何方案/购买/兑换内容，七个 tab 不再重复渲染。
+      -->
       <div class="member-center-main" :data-testid="`member-center-${activeKey}`">
-        <!--
-          价目目录（2026-10-07）：数据来自服务端 GET /api/v1/plans，随权益同步一并取，
-          经 `identity:state-changed` 推送到 `identityStore.plans`。
-          `plan-matrix.js` 是定价唯一真源——此前的金额是营销文档里手写的。
-
-          三态刻意区分，**不做硬编码兜底**：
-            plans === null            → 取价失败或未取到（显示「暂不可用」，不显示空目录）
-            plans.length === 0        → 服务端确实没有配置套餐
-            有数据                    → 显示真实价格
-          购买入口仍保持关闭（见 UpgradeModal 的 paymentChannelUnavailable）。
-        -->
-        <section
-          class="member-center-plans"
-          data-testid="member-center-plans"
-          :aria-busy="plansLoading"
-        >
-          <h3 class="member-center-plans-title">{{ t('memberCenter.plansTitle') }}</h3>
-          <p v-if="plans === null" class="member-center-plans-unavailable" data-testid="plans-unavailable">
-            {{ t('memberCenter.plansUnavailable') }}
-          </p>
-          <p v-else-if="plans.length === 0" class="member-center-plans-unavailable" data-testid="plans-empty">
-            {{ t('memberCenter.plansEmpty') }}
-          </p>
-          <ul v-else class="member-center-plans-list">
-            <li
-              v-for="plan in plans"
-              :key="plan.id"
-              class="member-center-plan"
-              :class="{ 'is-current': plan.id === currentPlanId }"
-              :data-testid="`plan-${plan.id}`"
-            >
-              <span class="member-center-plan-label">
-                {{ plan.id === currentPlanId ? t('memberCenter.planCurrentSuffix', { label: plan.label }) : plan.label }}
-              </span>
-              <span class="member-center-plan-price" :data-testid="`plan-${plan.id}-price`">
-                <template v-if="plan.priceMonthlyCents === 0">{{ t('memberCenter.planFree') }}</template>
-                <template v-else>
-                  {{ formatPrice(plan.priceMonthlyCents, plan.currency) }} / {{ t('memberCenter.perMonth') }}
-                  <span class="member-center-plan-yearly">
-                    · {{ formatPrice(plan.priceYearlyCents, plan.currency) }} / {{ t('memberCenter.perYear') }}
-                  </span>
-                </template>
-              </span>
-            </li>
-          </ul>
-        </section>
-        <section class="member-center-redeem" data-testid="member-center-redeem">
-          <h3 class="member-center-plans-title">{{ t('memberCenter.redeemTitle') }}</h3>
-          <p class="member-center-redeem-hint">{{ t('memberCenter.redeemHint') }}</p>
-          <div class="member-center-redeem-row">
-            <input
-              v-model="redeemCode"
-              class="member-center-redeem-input"
-              data-testid="redeem-code-input"
-              :placeholder="t('memberCenter.redeemPlaceholder')"
-              :disabled="redeeming"
-              autocomplete="off"
-              spellcheck="false"
-              @keyup.enter="submitRedeem"
-            >
-            <button
-              class="member-center-redeem-submit"
-              data-testid="redeem-code-submit"
-              :disabled="!canSubmitRedeem"
-              @click="submitRedeem"
-            >
-              {{ redeeming ? t('memberCenter.redeeming') : t('memberCenter.redeemAction') }}
-            </button>
-          </div>
-          <p
-            v-if="redeemResult"
-            class="member-center-redeem-result"
-            :class="'is-' + redeemResult.tone"
-            :data-testid="'redeem-result-' + redeemResult.tone"
-          >
-            {{ redeemResult.text }}
-          </p>
-        </section>
-        <div v-if="errorMessage" class="member-center-error-box">
-          <p class="member-center-error" role="alert">{{ errorMessage }}</p>
+        <div v-if="errorMessage" class="member-center-error-box" role="alert">
+          <p class="member-center-error">{{ errorMessage }}</p>
           <IdentityDiagnostics />
         </div>
         <component :is="activeView" @navigate="onChildNavigate" />
       </div>
     </div>
-
-    <UpgradeModal v-if="showUpgrade" @close="showUpgrade = false" />
   </div>
 </template>
 
 <script setup>
 import { Medal } from '@element-plus/icons-vue'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { useIdentity } from '@/composables/useIdentity'
 import { useIdentityStore } from '@/stores/identity'
-import { useLicenseStore } from '@/stores/license'
 import { useMemberStore } from '@/stores/member'
 import { resolveIdentityErrorMessageKey } from '@/utils/identity-error-messages'
 import IdentityDiagnostics from '@/components/IdentityDiagnostics.vue'
-import UpgradeModal from '@/components/UpgradeModal.vue'
 import { MEMBER_VIEWS } from './member-center/views'
+import { PLAN_RANK_MAX } from './member-center/constants'
 
 // 七栏信息架构（§4 A 布局）。导航结构由壳层自身持有（不随子视图 mock 变化），
 // MEMBER_VIEWS 仅提供 key->组件 的注册表，测试可安全替换后者。
@@ -186,12 +114,58 @@ const MEMBER_SECTIONS = [
 
 const { t } = useI18n()
 const identityStore = useIdentityStore()
-const licenseStore = useLicenseStore()
 const memberStore = useMemberStore()
+const router = useRouter()
+const route = useRoute()
 const { status, user, loading, error, signIn, switchAccount, signOut } = useIdentity()
 
-const showUpgrade = ref(false)
 const activeKey = ref('overview')
+
+// ── 登录态门控（供 watch / 模板共用；定义必须早于下方 immediate watch）──
+const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
+
+// ── P1-5 / P1-6：member store 生命周期与角标预取 ──────────────────
+// 进入页面即预取未读数（角标准确）；失败静默——消息 tab 激活时会重新
+// load 并在那里展示错误。不在这里弹错：那会让「只想看账号」的用户
+// 被一条与当前视图无关的错误打扰。
+//
+// 用 watch 而非只 onMounted：App.vue 的 identityStore.load() 是异步的，
+// 挂载时 store 可能还没加载完（user 仍为 null）。只在 onMounted 预取一次
+// 会漏掉「挂载后才拿到身份」这一窗。首帧拿到身份才取，之后不重复取。
+let notificationsPrefetched = false
+watch(
+  () => hasSessionIdentity.value,
+  (ready) => {
+    if (ready && !notificationsPrefetched) {
+      notificationsPrefetched = true
+      void memberStore.loadNotifications()
+    }
+  },
+  { immediate: true },
+)
+
+onMounted(() => {
+  // 从 URL query 读初始分区（深链浅实现：只读一次，不双向同步）
+  const section = route.query.section
+  if (typeof section === 'string' && MEMBER_SECTIONS.some((s) => s.key === section)) {
+    activeKey.value = section
+  }
+})
+
+// 登出 / 身份服务禁用 / 切换账号（sub 变化）→ 复位 member store。
+// 不复位的后果：切号后新账号看到上个账号的会话设备与通知。
+watch(
+  () => [user.value?.sub, status.value],
+  ([sub, nextStatus], [prevSub]) => {
+    if (sub !== prevSub || nextStatus === 'signed_out' || nextStatus === 'disabled') {
+      memberStore.$reset()
+    }
+  },
+)
+
+// ── 导航 ─────────────────────────────────────────────────────────
+const activeSection = computed(() => MEMBER_SECTIONS.find((s) => s.key === activeKey.value) || MEMBER_SECTIONS[0])
+const activeView = computed(() => MEMBER_VIEWS[activeSection.value.name])
 
 // 子视图（订单页空态）的导航请求。`redeem` 不是独立分区——激活码卡片常驻在订阅页上方，
 // 所以切到订阅分区即可，用户落眼就是激活码输入框。
@@ -199,111 +173,33 @@ function onChildNavigate (key) {
   activeKey.value = key === 'redeem' ? 'subscription' : key
 }
 
-const hasSessionIdentity = computed(() => Boolean(user.value?.sub) && !['disabled', 'signed_out', 'expired'].includes(status.value))
-const entitlement = computed(() => identityStore.entitlement)
-// 价目目录（2026-10-07）：来自服务端 /api/v1/plans，null = 未取到/取价失败。
-// **不提供硬编码兜底**——取不到就显示「暂不可用」，绝不拿记忆里的金额冒充。
-const plans = computed(() => identityStore.plans)
-const plansLoading = computed(() => status.value === 'signing_in' || status.value === 'refreshing')
-const currentPlanId = computed(() => (entitlement.value && entitlement.value.plan) || 'free')
-
-// 服务端价格单位是**分**（整数，无浮点误差），这里才做除法。
-// 仅用于展示，不参与任何计算或比较。
-function formatPrice(cents, currency) {
-  if (!Number.isInteger(cents)) return '—'
-  const symbol = currency === 'CNY' ? '¥' : currency + ' '
-  return symbol + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)
+function activate(key) {
+  activeKey.value = key
+  if (key === 'messages') memberStore.loadNotifications()
+  else if (key === 'account') memberStore.loadSessions()
 }
 
-// --- 激活码核销 -----------------------------------------------------------
-// 本地 license:activate 已在正式构建禁用（任意非空串都能换永久 Pro），兑换码
-// 改由服务端 POST /api/v1/redeem 核销，按 durationDays 授予会员。
-const redeemCode = ref('')
-const redeeming = ref(false)
-// tone: success / info / error。info 专门给「同码重放」——它不是失败，
-// 但也不是新开通，文案必须说清楚，避免用户以为又赚了一次时长。
-const redeemResult = ref(null)
-
-const canSubmitRedeem = computed(
-  () => redeemCode.value.trim().length > 0 && !redeeming.value,
-)
-
-// 服务端错误码 → i18n key。message 放的是 error.code（见 ipc-handlers/identity.js 的 safeError）
-const REDEEM_ERROR_KEYS = {
-  REDEEM_CODE_FORMAT: 'redeemErrFormat',
-  REDEEM_CODE_NOT_FOUND: 'redeemErrNotFound',
-  REDEEM_CODE_USED: 'redeemErrUsed',
-  REDEEM_CODE_DISABLED: 'redeemErrDisabled',
-  REDEEM_CODE_EXPIRED: 'redeemErrExpired',
-  BUSINESS_USER_REQUIRED: 'redeemErrSignedOut',
-  ENTITLEMENT_SESSION_MISMATCH: 'redeemErrSignedOut',
+// 升级入口：路由跳订阅 tab（P0-6）。
+// 订阅页有真实价目（服务端 plans）+ 可购买卡片 + 兑换码，是「能做事的地方」。
+function goToSubscription () {
+  router.push('/member-center?section=subscription')
 }
 
-function formatPeriodEnd(iso) {
-  if (typeof iso !== 'string' || !iso) return ''
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString()
+async function handleSignIn() {
+  await signIn()
 }
 
-// 成功文案不能留空洞占位：plan/end 缺失时退成一句不含变量的兜底，
-// 否则会出现「已开通 ，有效期至 」这种明显坏掉的用户可见文案。
-function redeemDetail(plan, end) {
-  const parts = []
-  if (plan) parts.push(plan)
-  if (end) parts.push(end)
-  return parts.join(' · ')
-}
-
-async function submitRedeem() {
-  if (!canSubmitRedeem.value) return
-  redeeming.value = true
-  redeemResult.value = null
-  try {
-    const res = await memberStore.redeemCode(redeemCode.value.trim())
-    if (!res) {
-      // store 走 setError 分支：错误码已被规范化进 memberStore.error
-      // （见 stores/member.js 的 setError），这里据此选文案。
-      const key = REDEEM_ERROR_KEYS[memberStore.error] || 'redeemErrNetwork'
-      redeemResult.value = { tone: 'error', text: t('memberCenter.' + key) }
-      return
-    }
-    const end = formatPeriodEnd(res.periodEnd)
-    const detail = redeemDetail(res.plan, end)
-    if (!res.idempotent) {
-      redeemResult.value = {
-        tone: 'success',
-        text: detail
-          ? t('memberCenter.redeemSuccess', { plan: res.plan, end: detail })
-          : t('memberCenter.redeemSuccessGeneric'),
-      }
-    } else if (res.hasActiveSubscription) {
-      redeemResult.value = {
-        tone: 'info',
-        text: end
-          ? t('memberCenter.redeemAlreadyUsed', { plan: res.plan, end })
-          : t('memberCenter.redeemReplayExpired', { plan: res.plan || '' }),
-      }
-    } else {
-      // 服务端返回 200 但 subscription 为 null：这个码此前已兑换过，且那份
-      // 订阅已经到期。重放不会再加时长——这里必须明说，不能报「兑换成功」。
-      redeemResult.value = { tone: 'info', text: t('memberCenter.redeemReplayExpired', { plan: res.plan || '' }) }
-    }
-    redeemCode.value = ''
-    await identityStore.load()
-  } catch (error) {
-    redeemResult.value = { tone: 'error', text: t('memberCenter.redeemErrNetwork') }
-  } finally {
-    redeeming.value = false
-  }
-}
-// A2 单一真源：登录且有服务端权益快照时，升级 CTA 以 entitlement.plan 为准，不再读本地 licenseStore。
+// ── 升级 CTA 判定（v4 E1：服务端 plan_rank 契约）──────────────────
+// plan_rank 来自 entitlement.limits（服务端 PLAN_RANK 下发，#4051）。
+// **不读本地 licenseStore**——本地授权与服务端权益是两套真源，
+// A2 早已定论同源展示 entitlement。rank 缺失/未加载 → 不猜、不显示。
 const showUpgradeCta = computed(() => {
   if (!hasSessionIdentity.value) return false
-  if (entitlement.value) return entitlement.value.plan !== 'pro'
-  return !licenseStore.isPro
+  const rank = identityStore.entitlement?.limits?.plan_rank
+  if (!Number.isInteger(rank)) return false
+  return rank < PLAN_RANK_MAX
 })
-const activeSection = computed(() => MEMBER_SECTIONS.find((s) => s.key === activeKey.value) || MEMBER_SECTIONS[0])
-const activeView = computed(() => MEMBER_VIEWS[activeSection.value.name])
+
 const errorMessage = computed(() => {
   const entry = error.value
   if (!entry?.code) return ''
@@ -313,19 +209,4 @@ const errorMessage = computed(() => {
   const secondary = t(resolveIdentityErrorMessageKey(cleanupCode))
   return secondary === primary ? primary : `${primary} ${secondary}`
 })
-
-function activate(key) {
-  activeKey.value = key
-  if (key === 'messages') memberStore.loadNotifications()
-  else if (key === 'account') memberStore.loadSessions()
-}
-
-async function handleSignIn() {
-  await signIn()
-}
-
-// 账号操作透传给子视图（AccountSecurity）复用，壳层保留引用避免重复实现。
-defineExpose({ status, user, identityStore, licenseStore, memberStore, switchAccount, signOut })
-// identityStore 引用便于子视图共享同一 pinia 单例的调试。
-void identityStore
 </script>

@@ -7,13 +7,8 @@ vi.mock('vue-i18n', () => ({
   useI18n: () => ({ t: (key) => key }),
 }))
 
-const UpgradeModalStub = {
-  name: 'UpgradeModal',
-  props: { },
-  emits: ['close'],
-  template: '<div data-testid="upgrade-modal-stub"><slot /></div>',
-}
-
+// P0-6：UpgradeModal 已退役。测试不得再 stub 它——
+// 壳层模板不渲染 <UpgradeModal> 是硬约束（见下方结构锁）。
 const MemberViewsStub = new Proxy({}, {
   get: (_target, prop) => ({
     name: String(prop),
@@ -21,6 +16,13 @@ const MemberViewsStub = new Proxy({}, {
   }),
 })
 vi.mock('./member-center/views', () => ({ MEMBER_VIEWS: MemberViewsStub }))
+
+const routerPush = vi.fn()
+const routeQuery = {}
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: routerPush }),
+  useRoute: () => ({ query: routeQuery }),
+}))
 
 async function mountMemberCenter(identityState = {}) {
   const pinia = createPinia()
@@ -42,6 +44,7 @@ async function mountMemberCenter(identityState = {}) {
   const memberStore = useMemberStore()
   memberStore.loadNotifications = vi.fn(async () => {})
   memberStore.loadSessions = vi.fn(async () => {})
+  memberStore.$reset = vi.fn()
   window.electronAPI = {
     getVersion: vi.fn().mockResolvedValue({ code: 0, data: '0.1.0' }),
   }
@@ -52,13 +55,12 @@ async function mountMemberCenter(identityState = {}) {
     wrapper: mount(Component, {
       global: {
         plugins: [pinia],
-        stubs: { UpgradeModal: UpgradeModalStub },
       },
     }),
   }
 }
 
-function setAuthenticatedIdentity(identityStore) {
+function setAuthenticatedIdentity(identityStore, overrides = {}) {
   identityStore.status = 'authenticated'
   identityStore.user = { sub: 'sub-1', name: '用户甲', username: 'user-a', picture: '' }
   identityStore.entitlement = {
@@ -67,6 +69,8 @@ function setAuthenticatedIdentity(identityStore) {
     source: 'online',
     expiresAt: 1893456000,
     quota: { credits: 100, used: 20 },
+    limits: { plan_rank: 2 },
+    ...overrides,
   }
 }
 
@@ -131,48 +135,109 @@ describe('MemberCenter', () => {
     expect(wrapper.find('[data-testid="member-center-login"]').exists()).toBe(false)
   })
 
-  it('概览保留升级入口并可打开 UpgradeModal', async () => {
+  // P0-6 / MISS-3：原「CTA 打开 UpgradeModal」用例已随 modal 退役改写。
+  // 新语义：CTA 存在且**不渲染任何 modal**，点击后路由跳 Subscription tab。
+  it('升级 CTA 存在、不渲染 UpgradeModal、点击跳 Subscription tab', async () => {
     const { wrapper } = await mountMemberCenter()
     identityStore = (await import('@/stores/identity')).useIdentityStore()
     identityStore.status = 'authenticated'
     identityStore.user = { sub: 'sub-1', name: '用户甲', username: '', picture: '' }
-    identityStore.entitlement = null
+    // rank=0（free）→ 显示 CTA；entitlement.limits 已就绪（#4051 透传）
+    identityStore.entitlement = { plan: 'free', features: [], source: 'online', limits: { plan_rank: 0 } }
     const { useLicenseStore } = await import('@/stores/license')
     useLicenseStore().info = { type: 'free', isPro: false, isTrial: false, features: [], daysRemaining: 0 }
     await wrapper.vm.$nextTick()
     await wrapper.get('[data-testid="member-center-upgrade"]').trigger('click')
-    expect(wrapper.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(true)
+    // 硬约束：任何 modal 都不得出现
+    expect(wrapper.find('[data-testid="upgrade-modal-stub"]').exists()).toBe(false)
+    expect(wrapper.find('.upgrade-overlay').exists()).toBe(false)
+    // 跳转目标：会员中心订阅 tab
+    expect(routerPush).toHaveBeenCalledWith('/member-center?section=subscription')
   })
 
-  // A2 单一真源回归：登录且有服务端权益快照时，升级 CTA 以 entitlement.plan 为准，不再读本地 licenseStore
-  it('pro entitlement 隐藏升级入口（即使本地 licenseStore 为 free）', async () => {
+  // P0-6 结构锁：壳层模板不得渲染 <UpgradeModal>
+  it('结构锁：壳层不渲染 UpgradeModal（P0-6）', async () => {
     const { wrapper } = await mountMemberCenter()
     identityStore = (await import('@/stores/identity')).useIdentityStore()
-    setAuthenticatedIdentity(identityStore) // entitlement.plan = 'pro'，本地 licenseStore 仍为 free
+    setAuthenticatedIdentity(identityStore)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent({ name: 'UpgradeModal' }).exists()).toBe(false)
+  })
+
+  // P0-1 结构锁：价目/兑换区已迁出壳层，七个 tab 都不再出现
+  it('结构锁：壳层不渲染价目区与兑换区（P0-1）', async () => {
+    const { wrapper } = await mountMemberCenter()
+    identityStore = (await import('@/stores/identity')).useIdentityStore()
+    setAuthenticatedIdentity(identityStore)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="member-center-plans"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="member-center-redeem"]').exists()).toBe(false)
+    expect(wrapper.find('.member-center-plans').exists()).toBe(false)
+    expect(wrapper.find('.member-center-redeem').exists()).toBe(false)
+  })
+
+  // A2 单一真源回归 + v4 E1：CTA 判定以 entitlement.limits.plan_rank 为准，
+  // **不再读本地 licenseStore**（那是另一套真源）。
+  it('plan_rank=2（pro）隐藏升级 CTA（即使本地 licenseStore 为 free）', async () => {
+    const { wrapper } = await mountMemberCenter()
+    identityStore = (await import('@/stores/identity')).useIdentityStore()
+    setAuthenticatedIdentity(identityStore, { plan: 'pro', limits: { plan_rank: 2 } })
+    const { useLicenseStore } = await import('@/stores/license')
+    useLicenseStore().info = { type: 'free', isPro: false, isTrial: false, features: [], daysRemaining: 0 }
     await wrapper.vm.$nextTick()
     expect(wrapper.find('[data-testid="member-center-upgrade"]').exists()).toBe(false)
   })
 
-  it('trial entitlement 保留升级入口', async () => {
+  it('plan_rank=1（standard）显示升级 CTA（MISS-6：跨模块口径一致）', async () => {
     const { wrapper } = await mountMemberCenter()
     identityStore = (await import('@/stores/identity')).useIdentityStore()
-    identityStore.status = 'authenticated'
-    identityStore.user = { sub: 'sub-1', name: '用户甲', username: '', picture: '' }
-    identityStore.entitlement = { plan: 'trial', features: [], source: 'online', expiresAt: 1893456000, quota: null }
+    setAuthenticatedIdentity(identityStore, { plan: 'standard', limits: { plan_rank: 1 } })
     await wrapper.vm.$nextTick()
     expect(wrapper.find('[data-testid="member-center-upgrade"]').exists()).toBe(true)
   })
 
-  it('entitlement 缺失时升级入口回退本地 licenseStore（pro 用户不显示）', async () => {
+  // v4 E1：rank 缺失/entitlement 未加载 → **不猜**，不显示 CTA
+  it('entitlement 未加载（plan_rank 缺失）时不显示升级 CTA', async () => {
+    const { wrapper } = await mountMemberCenter()
+    identityStore = (await import('@/stores/identity')).useIdentityStore()
+    identityStore.status = 'authenticated'
+    identityStore.user = { sub: 'sub-1', name: '用户甲', username: '', picture: '' }
+    identityStore.entitlement = { plan: 'free', features: [], source: 'online' } // 无 limits
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="member-center-upgrade"]').exists()).toBe(false)
+  })
+
+  it('entitlement 为 null 时不显示升级 CTA（不再回退本地 licenseStore）', async () => {
     const { wrapper } = await mountMemberCenter()
     identityStore = (await import('@/stores/identity')).useIdentityStore()
     identityStore.status = 'authenticated'
     identityStore.user = { sub: 'sub-1', name: '用户甲', username: '', picture: '' }
     identityStore.entitlement = null
     const { useLicenseStore } = await import('@/stores/license')
+    // 本地 license 是 pro 也不显示——两套真源，CTA 只认服务端 rank
     useLicenseStore().info = { type: 'pro', isPro: true, isTrial: false, features: [], daysRemaining: 0 }
     await wrapper.vm.$nextTick()
     expect(wrapper.find('[data-testid="member-center-upgrade"]').exists()).toBe(false)
+  })
+
+  // P1-6：进入页面即预取未读数（角标准确），失败静默（消息 tab 会重试并展示）
+  it('已登录进入页面即预取通知（未读角标）', async () => {
+    const { wrapper, memberStore } = await mountMemberCenter()
+    identityStore = (await import('@/stores/identity')).useIdentityStore()
+    setAuthenticatedIdentity(identityStore)
+    await wrapper.vm.$nextTick()
+    expect(memberStore.loadNotifications).toHaveBeenCalled()
+  })
+
+  // P1-5：切换账号（user.sub 变化）→ member store 复位，不残留上个账号数据
+  it('切换账号（sub 变化）时 member store 复位', async () => {
+    const { wrapper, memberStore } = await mountMemberCenter()
+    identityStore = (await import('@/stores/identity')).useIdentityStore()
+    setAuthenticatedIdentity(identityStore)
+    await wrapper.vm.$nextTick()
+    identityStore.user = { sub: 'sub-2', name: '用户乙', username: 'user-b', picture: '' }
+    await wrapper.vm.$nextTick()
+    expect(memberStore.$reset).toHaveBeenCalled()
   })
 
   it('错误态挂载诊断入口，且默认收起（与 ProfileMenu 同一组件）', async () => {

@@ -17,6 +17,8 @@ export default {
     redeemAlreadyUsed: '该激活码此前已兑换，当前订阅有效至 {end}',
     redeemReplayExpired: '该激活码此前已兑换，对应订阅已到期，重放不会再次增加时长',
     redeemErrFormat: '激活码格式不正确，应形如 ABCD-EFGH-JKMN',
+    // 本地前置校验（与服务端同型，P1-8）：格式不符时不发请求
+    redeemErrFormatLocal: '激活码格式不正确，应形如 ABCD-EFGH-JKMN（不包含字母 I、L、O 与数字 0、1）',
     redeemErrNotFound: '激活码不存在，请核对后重试',
     redeemErrUsed: '该激活码已被他人使用',
     redeemErrDisabled: '该激活码已停用，请联系发放方',
@@ -26,6 +28,35 @@ export default {
     plansTitle: '会员套餐',
     plansUnavailable: '价格暂时无法获取，请稍后重试',
     plansEmpty: '暂无可购买的套餐',
+    // ——— 价目卡可购买化 + 档位标签（member-center-revamp 2026-10-24） ———
+    planStandard: '标准版',
+    planUnknown: '方案加载中',
+    planBuyCta: '购买',
+    planBuyCurrent: '当前方案',
+    quotaUnlimited: '不限',
+    // ——— 到期宽限期（v4：#4051 graceUntil/previousPlan） ———
+    graceTitle: '已到期 · 宽限期中',
+    graceHint: '{plan} 已到期，{date} 前仍可查看历史与收尾排队任务；新建发布按免费版额度',
+    // ——— member store 错误本地化（P0-5 / §8 MAJOR-1） ———
+    memberPermissionRequired: '当前账号权限不足，请重新登录后重试',
+    memberRequestFailed: '加载失败，请稍后重试',
+    revokeSuccess: '已退出 {count} 个设备',
+    revokeNone: '没有其他需要退出的设备',
+    // ——— feature / quota 本地化（P0-4：键与服务端逐字符同形） ———
+    feature: {
+        cloud_publish: '云端发布',
+        ai_write: 'AI 写作',
+        video_create: '视频生成',
+        schedule_batch: '定时与批量发布',
+        dashboard_full: '完整数据看板',
+    },
+    // quota 键形为 ${feature}_monthly（plan-matrix 派生段）
+    quota: {
+        cloud_publish_monthly: '每月发布额度',
+        ai_write_monthly: '每月 AI 写作额度',
+        video_create_monthly: '每月视频生成额度',
+        official_credit_monthly: '每月官方积分',
+    },
     // ——— 微信 Native 扫码支付（wechat-native-payment） ———
     payNow: '立即购买',
     payNowDisabledHint: '支付通道暂未开放',
@@ -98,11 +129,9 @@ export default {
     licenseUnlimited: '永久有效',
     upgradePro: '升级 Pro',
     upgradeHint: '解锁全平台发布、批量发布、定时发布、AI 写作等能力',
-    // 2026-10-07 disable-simulated-payment-in-prod：正式包无真实支付通道，
-    // 取代此前那个点下去必然被主进程拒收的「模拟支付成功（开发模式）」按钮。
-    paymentChannelUnavailable: '在线支付已开通，请前往会员中心购买。',
-    activationCodeMigrated: '激活码已迁移至账号核销，请登录后在会员中心使用',
-    trialUnavailable: '试用暂未开放，登录后可在会员中心了解会员权益',
+    // 2026-10-24 member-center-revamp：paymentChannelUnavailable /
+    // activationCodeMigrated / trialUnavailable 三键随 UpgradeModal 退役删除
+    // ——「筹备中」语境已消失（支付通道真实开通），留着就是假陈述死键。
     entitlementCardTitle: '会员权益',
     entitlementEmpty: '暂无权益数据',
     entitlementEmptyHint: '登录且身份服务可用时，这里会展示你的会员方案与权益清单。',

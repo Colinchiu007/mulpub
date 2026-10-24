@@ -77,4 +77,65 @@ describe('member store', () => {
     await expect(store.loadSessions()).resolves.toBe(false)
     expect(store.notifications).toEqual([])
   })
+
+  // ── §8 MAJOR-1：safeInvoke 捕获抛错（preload 权限错误等）─────────
+  describe('safeInvoke（错误不逃逸）', () => {
+    it('preload 同步 throw LicensePermissionError → MEMBER_PERMISSION_REQUIRED 且不抛', async () => {
+      const err = new Error('许可证权限不足，无法调用 identityNotifications')
+      err.name = 'LicensePermissionError'
+      window.electronAPI = {
+        identityNotifications: vi.fn().mockRejectedValue(err),
+      }
+      const store = await loadStore()
+      await expect(store.loadNotifications()).resolves.toBe(false)
+      expect(store.error).toBe('MEMBER_PERMISSION_REQUIRED')
+    })
+
+    it('通用 Error → MEMBER_REQUEST_FAILED 且不抛', async () => {
+      window.electronAPI = {
+        identityNotifications: vi.fn().mockRejectedValue(new Error('boom')),
+      }
+      const store = await loadStore()
+      await expect(store.loadNotifications()).resolves.toBe(false)
+      expect(store.error).toBe('MEMBER_REQUEST_FAILED')
+    })
+
+    it('redeemCode 遇权限错误 → MEMBER_PERMISSION_REQUIRED（壳层据此选文案）', async () => {
+      const err = new Error('permission')
+      err.name = 'LicensePermissionError'
+      window.electronAPI = {
+        identityRedeemCode: vi.fn().mockRejectedValue(err),
+      }
+      const store = await loadStore()
+      await expect(store.redeemCode('ABCD-EFGH-JKMN')).resolves.toBe(false)
+      expect(store.error).toBe('MEMBER_PERMISSION_REQUIRED')
+    })
+
+    it('markNotificationsRead 遇抛错 → 不逃逸', async () => {
+      window.electronAPI = {
+        identityNotificationsMarkRead: vi.fn().mockRejectedValue(new Error('boom')),
+      }
+      const store = await loadStore()
+      await expect(store.markNotificationsRead()).resolves.toBe(false)
+      expect(store.error).toBe('MEMBER_REQUEST_FAILED')
+    })
+
+    it('revokeOtherSessions 遇抛错 → 不逃逸', async () => {
+      window.electronAPI = {
+        identitySessionsRevokeOthers: vi.fn().mockRejectedValue(new Error('boom')),
+      }
+      const store = await loadStore()
+      await expect(store.revokeOtherSessions()).resolves.toBe(false)
+      expect(store.error).toBe('MEMBER_REQUEST_FAILED')
+    })
+
+    it('loadSessions 遇抛错 → 不逃逸', async () => {
+      window.electronAPI = {
+        identitySessions: vi.fn().mockRejectedValue(new Error('boom')),
+      }
+      const store = await loadStore()
+      await expect(store.loadSessions()).resolves.toBe(false)
+      expect(store.error).toBe('MEMBER_REQUEST_FAILED')
+    })
+  })
 })
