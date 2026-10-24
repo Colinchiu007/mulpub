@@ -12,20 +12,6 @@
 - **反证 T1–T10 逐条 CAUGHT**，还原后逐字节相同：串行 / `race` 代替 `allSettled` / 不剥 ANSI / 锚要求行首空白 / timeout 与 failed 并档 / provenance 的 max 抬高 / workflow 退回内联 bash / 摘掉逐片 `elapsed=` 打印 / 摘掉时间戳剥离 / 零样本判成通过。
 - **遗留（如实登记）**：① 并行争用倍数只有第一次 CI 真跑才知道 ⇒ 上线后必须跑 `node scripts/electron-ci-shard-audit.js` 按现场重定数；② `realSpawn` 的输出缓冲 32MB 上限会截断**计数用**的副本（不改判定，只可能让 `completed=` 偏小），已注释标明；③ `runStep` 的等待块形如 `while{…break}` 实为单次等待，属可读性异味，未在本片收敛；④ issue #2458 档 4（`CI Failure Handler` 把 `exit 124` 且无摘要行归类为 `ci-timeout-budget`）仍未做。
 
-# [未发布] fix(离线): 主进程补上「进入离线」方向的推送通道，断网横幅不再只靠浏览器事件（ux-audit-offline-live 第二半）
-
-- **问题**：断网（拔网线 / 关 WiFi）时，横幅只能等 Chromium 网络栈派发 `offline` 事件才出现；主进程其实**已经**知道自己离线了，却什么都不告诉渲染层。
-- **根因**：`apps/desktop/electron/services/offline-manager.js::onNetworkChange` 只有恢复分支——`if (wasOffline && !isOffline) { … notifyFrontend() }`，**没有 else**。而 `startMonitoring` 的两侧监听是对称注册的（`net.on("online")` / `net.on("offline")`），所以状态机两侧都在跑，只有通知这一侧缺。这是「方向性静默」：不报错、不崩，只是永远不会有人知道。
-- **修复**：新增 `!wasOffline && isOffline` 分支 → 写日志 + 向渲染层推 `offline:lost`，载荷 `{isOffline:true, cachedCount}`；`cachedCount` 直接取主进程缓存队列真源。恢复侧一字未动。判据是**状态迁移**而不是事件计数：已在离线态时重复的 offline 事件不重发。
-- **接线四段**：`preload/system.js` 暴露 `onOfflineLost` → `preload/access-control.js` 登记 → `preload.test.js` 两处计数 141→142 / 339→340 → `src/api/publisher.js` 走 `bridgeOn("OfflineLost")` → `useOfflineStatus` 订阅并**随后复核**（载荷字段缺席时由复核补回真值，不得当成 0）。`dispose()` 改为按 `[通道名, 取消函数]` 成对解绑，失败文案点名是哪条通道。
-- **明确不做**：不给 `license-access-control.js` 的 `PUBLIC_CHANNELS` 加 `offline:lost`。该表管的是**请求型**通道（`ipcMain.handle`），而推送型通道 `offline:restored` 从来不在表内——加进去是一条永不命中的死条目。核对方式是先查表语义与既有同类通道，不是想当然。
-- **顺带修掉一条装饰用例**：`tests/offline-manager.test.js` 里那条名字写着 `onNetworkChange sends offline:restored event` 的用例**从来没断言过 send**（只查 `isOffline()`），且文件顶部 `var mockSend = vi.fn()` 全文件零引用。根因之一在宿主夹具：`test-setup.js` 的 `webContents.send` 是空函数而不是 `vi.fn`，所以「有没有发」在这个夹具里结构性不可表示。本轮改为按实例把 `send` 换成探针再断言。
-- **回归保护**：主进程侧 4 条（断网必须推 / 重复不重发 / 恢复仍推（正控）/ 两个监听都注册（正控））+ 渲染层侧 4 条（立即置离线并采纳队列深度 / dispose 成对解绑 / 宿主不支持订阅时不抛且浏览器事件仍生效 / 载荷缺 `cachedCount` 由复核补回）。红侧取证：订阅门改 `if (false && …)` 后 `3 failed | 13 passed`；两条正控在该变异下仍绿，证明夹具能观测到 send。
-- **验证**：定向四文件（含 `electron/preload.test.js`）`425 passed / 0 failed`，无 `Errors` 行；QM-1 打包与全域复跑读数见 `openspec/records/ux-audit-offline-live.md` §七。
-- **第三轮 QM-6 抓到并修掉的不对称（i1，Critical）**：新鲜度守卫 `readEpoch` 只在**断网**那条边上生效 —— `offline:lost` 的回调末尾调 `reconcile()`（其内部 `const epoch = ++readEpoch` 就是「作废在途」这个动作本身），而 `offline:restored` 只赋值、不作废。后果：一次更早发出的 `offlineStatus()`（例如浏览器 `offline` 事件触发的那次）可以在**恢复推送之后**才落地，把横幅从「已恢复」改回「离线」，而两次读各自的日志都完全正常 —— 这是「谁最后到达谁说话」，不是「谁最新发起谁说话」。修法＝对称化（恢复回调末尾同样调 `reconcile()`），**不新增第二份 epoch 写法**。先写红用例（把那次复核做成慢响应、在 restored 之后释放）⇒ `1 failed | 16 passed`，红的正是新加那条；修复后 `useOfflineStatus.live.test.js` + `tests/offline-manager.test.js` **44 passed / 0 failed**。
-- **本轮评审自身的读数（不美化）**：不带 `CCG_ARL_DIR` 时驱动 rc=2 的含义是「一条都没跑」（引擎不在仓内，真源在 `~/.qoder-cn/skills/adversarial-review-loop/scripts`）；带上之后轮 1 调 claude 回来的是**输出被截断**（括号计数配平 12/12 但结尾不是 `}`），同样 rc=2。两种 rc=2 形状相同、含义不同，都**不得**被读成「评审过了没问题」。可复现的下一步是分批 + 收窄提问（只挑 Critical / Warning），不是重跑同样的输入 —— 见执行记录 §八。
-
-
 # [未发布] fix(ui): 去掉窗口顶部那行系统菜单 File/Edit/View/Window（remove-native-menu-bar）
 
 - **问题**：主窗口顶部一直挂着一行系统菜单 `[File] [Edit] [View] [Window]`。它不是本产品的功能入口（左侧导航栏才是），却白占一整行窗口高度，还把「汤姆鱼」品牌栏和内容区整体往下挤。用户截图指认要去掉这一行。
