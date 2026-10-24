@@ -1114,3 +1114,55 @@ button.click()  →  clicked@1006,729   （按钮存在、可点）
 1. 查头条封面上传的真实控件形态：给封面框加 `dragover/drop` 监听 + `DataTransfer` 注入文件（自绘组件通常走 drop）
 2. 或走 CDP `Input.dispatchDragEvent`（dragEnter/dragOver/drop + `files`）
 3. 封面成功后再点「发布」，**并去作品列表核实**
+
+## 8.33 今日头条：竞品真实发稿形状（v4/commit + PosterUri 兜底封面）2026-10-24 16:10
+
+### 竞品 bundle 原文（蚁小二）
+
+```js
+VideoInfo: {
+  Vid: T.Result.Results[0].Vid,
+  VName: title,
+  ThumbUri: S.Result.Results[0].Uri || T.Result.Results[0].PosterUri,   // ← 关键
+  ThumbUriFrom: "custom",
+  Duration: T.Result.Results[0].VideoMeta.Duration,
+  VideoWidth:  OriginWidth  || 1920,
+  VideoHeight: OriginHeight || 1080
+},
+EnterFrom: 54,
+CreateSource: 1,
+HideInfo: { HideType: visibility_type ?? 0 },
+ClaimOrigin: isOriginal === "1",
+CoverTitles: [], TemplateName: "", FilterName: "", ActivityTag: ...
+```
+
+### 两个决定性结论
+
+1. **封面不是"必须上传"**：`ThumbUri` 在自定义封面（`S.Result`）缺失时**回落到视频自动海报 `PosterUri`**。这就是竞品脚本里搜不到任何"封面"处理的原因。
+2. **端点不是我方在用的 `PublishVideo`**：这个 `VideoInfo{...}` 形状对应逆向文档里的 `POST /ugc/publish/video/v4/commit/`。我方 `toutiao-video-publish.js` 文件头早已注明 `PublishVideo` 是「从竞品语料按同名端点套出来的」无证据推断（且语料里那个 PublishVideo 属微视）。
+
+### 我方现状与差距
+
+| 项 | 我方 | 竞品 |
+| --- | --- | --- |
+| 发稿端点 | `/xigua/api/upload/PublishVideo` | `/ugc/publish/video/v4/commit/` |
+| 封面 | DOM 轨必须上传（自绘上传器无法程序化注入） | `PosterUri` 兜底，不需要 |
+| 请求体字段 | 已有 `VideoInfo{Vid,VName,ThumbUri,ThumbUrl,Duration,VideoWidth,VideoHeight}`、`EnterFrom:5`、`CreateSource:2` | `EnterFrom:54`、`CreateSource:1`、`ThumbUriFrom:"custom"` |
+| 封面上传链 | 已有 `toutiao-video-cover.js` 五步链（返回 result_uri） | 可选（有自定义封面才用） |
+
+### 为什么本轮没有落库
+
+改端点会让 3 个既有测试变红（它们把 `POST /xigua/api/upload/PublishVideo` 写死在断言里）。按纪律不保留红：本轮已 `git revert`，代码回到 `a0a36d0cd`，**测试 511/511 绿**。
+
+### 下一步（成对改，一次到位）
+
+1. `PUBLISH_PATH` → `/ugc/publish/video/v4/commit/`
+2. 请求体：`EnterFrom:54`、`CreateSource:1`、`ThumbUriFrom:"custom"`、`ThumbUri = thumbUri || posterUri`
+3. 同步改 3 个断言旧端点的测试（`toutiao-video-chain.test.js` 的 Step6 publish 三条）
+4. 真机验证：`post_create`/`commit` 返回 200 且作品列表出现新作品
+
+### 附：本轮已证伪的路线（别再走）
+
+- DOM 轨：封面是硬门槛，上传器为自绘组件（无 image input、无 iframe、无 shadowRoot），JS click / 真实鼠标 / DataTransfer / CDP 拖拽 / 文件选择器拦截 **五种方式全部无效**；点「发布」页面抛 `TypeError: Cannot read properties of undefined (reading 'network')`
+- 竖版 vs 横版：两种都带 `*封面` 红星（竖版用 1080×1920 测试、横版用 ffmpeg 生成的 1920×1080 测试，结论一致）
+- API 轨三条路：Node 直发 / 页面内 fetch / 页面内 XHR 全部 403（secsdk 逐请求签名）
