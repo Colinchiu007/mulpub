@@ -2,7 +2,7 @@
 /**
  * 热门选题渠道解析器 — 每渠道一个 parse 函数
  *
- * 统一输出条目结构：{ channel, rank, topic, hotValue, url, rawCategory }
+ * 统一输出条目结构：{ channel, kind, rank, topic, hotValue, url, rawCategory }（kind 由产出层写，见 hot-topics/item-model.js）
  * 所有解析器只做纯数据提取，不做网络请求（fetch 由 service 层统一处理）。
  *
  * v2 变更（方案A/D）：
@@ -11,19 +11,11 @@
  *   - 新增垂类专属解析器：parseSinaFinance（新浪财经滚动）、parseIthomeRSS（IT之家 RSS）
  */
 
-/** HTML 实体解码（百度/tophub HTML 渠道用） */
 const { safeHttpUrl } = require('@multi-publish/shared-utils/src/safe-http-url')
+const { KIND_TOPIC } = require('./item-model.js')
+const { decodeHtmlEntities, stripTags, stripTagsJoined, extractLinks } = require('./html-utils.js')
+const { parseGyreadIndex, parseGyreadEdition } = require('./channels-gyread.js')
 
-function decodeHtmlEntities(text) {
-  return String(text || '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .trim()
-}
 
 /** 安全 URL：判据收敛到共享单一实现（PRD-HREF-SCHEME-GUARD），本处只做名字适配 */
 const sanitizeUrl = safeHttpUrl
@@ -33,6 +25,7 @@ function parseZhihu(json) {
   const list = (json && json.data) || []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'zhihu',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: String((item.question && item.question.title) || (item.target && item.target.title) || item.title || '').trim(),
     hotValue: Number((item.detail_text || '').replace(/[^0-9]/g, '')) || null,
@@ -49,6 +42,7 @@ function parseToutiao(json) {
   const list = (json && json.data) || []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'toutiao',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: String(item.Title || '').trim(),
     hotValue: Number(item.HotValue) || null,
@@ -70,6 +64,7 @@ function parseTencent(json) {
   const filtered = list.filter(item => item.articletype !== '560')
   return filtered.slice(0, 50).map((item, i) => ({
     channel: 'tencent',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: decodeHtmlEntities(item.title || item.name || ''),
     hotValue: Number(item.hotEvent || item.hotScore || 0) || null,
@@ -84,6 +79,7 @@ function parseBilibili(json) {
   const list = (json && json.data && Array.isArray(json.data.list)) ? json.data.list : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'bilibili',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: String(item.title || '').trim(),
     hotValue: Number(item.stat && item.stat.view) || null,
@@ -120,6 +116,7 @@ function parseDouyin(json) {
       if (!topic || items.some(x => x.topic === topic)) continue
       items.push({
         channel: 'douyin',
+        kind: KIND_TOPIC,
         rank: Number(w.position) || items.length + 1,
         topic,
         hotValue: Number(w.hot_value) || null,
@@ -140,6 +137,7 @@ function parseXiaohongshu(json) {
   const list = (json && json.data && Array.isArray(json.data.items)) ? json.data.items : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'xiaohongshu',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: String(item.title || '').trim(),
     hotValue: parseCnNumber(item.score),
@@ -158,6 +156,7 @@ function parseIfeng(json) {
   const list = (json && json.data && Array.isArray(json.data.list)) ? json.data.list : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'ifeng',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: decodeHtmlEntities(item.title || ''),
     hotValue: Number(item.commentsCount) || null,
@@ -211,6 +210,7 @@ function parseIfengInline(html) {
   const list = (all && all.hotRankData && Array.isArray(all.hotRankData.data)) ? all.hotRankData.data : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'ifeng',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: decodeHtmlEntities(item.title || ''),
     hotValue: null,
@@ -236,6 +236,7 @@ function parseBaidu(json) {
   const ranked = content.filter(item => !item.isTop)
   return ranked.slice(0, 50).map((item, i) => ({
     channel: 'baidu',
+    kind: KIND_TOPIC,
     rank: Number(item.index) || i + 1,
     topic: decodeHtmlEntities(item.word || item.query || ''),
     hotValue: Number(item.hotScore) || null,
@@ -253,6 +254,7 @@ function parseWeibo(json) {
     : (json && Array.isArray(json.data)) ? json.data : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'weibo',
+    kind: KIND_TOPIC,
     // rank 用数组序 i+1（与其他解析器一致）：实测 band_list 中 realpos 偶发稀疏（null），
     // 若回退 i+1 会与后续条目的 realpos 撞号产生重复 id；数组序恒唯一
     rank: i + 1,
@@ -278,6 +280,7 @@ function parseTophub(html) {
       : parseInt(hotText.replace(/[^0-9]/g, ''), 10) || null
     if (topic) items.push({
       channel: 'tophub',
+      kind: KIND_TOPIC,
       rank: items.length + 1,
       topic,
       hotValue,
@@ -295,6 +298,7 @@ function parseSinaFinance(json) {
   const list = (json && json.result && Array.isArray(json.result.data)) ? json.result.data : []
   return list.slice(0, 50).map((item, i) => ({
     channel: 'sina_finance',
+    kind: KIND_TOPIC,
     rank: i + 1,
     topic: decodeHtmlEntities(item.title || ''),
     hotValue: null,
@@ -321,6 +325,7 @@ function parseIthomeRSS(xml) {
     const lm = b.match(/<link>([\s\S]*?)<\/link>/)
     items.push({
       channel: 'ithome_tech',
+      kind: KIND_TOPIC,
       rank: items.length + 1,
       topic: title,
       hotValue: null,
@@ -331,132 +336,6 @@ function parseIthomeRSS(xml) {
   return items
 }
 
-/**
- * gyread.com（AI 情报日报）索引解析 —— `https://gyread.com/news/search-index.json`。
- *
- * 该站是**每日编辑精选的日报**而非热度榜单：无 `hotValue`（一律 `null`，这也是它
- * MUST NOT 进 `CHANNEL_CONFIGS` 的原因）、榜单序是编辑意志、全量 1421 条远超单轮
- * 候选上限 ⇒ 调用方**必须**传 `date` 或 `days` 过滤。
- *
- * ⚠️ 合规：用途是「检索/引用」（用户点回原文），**不得**用作训练语料。
- * 站点 robots.txt 在 `User-agent: *` 组禁 `/news/`，Allow 只给具名检索 UA；
- * 故当前**默认不启用**（见 `hot-topics-service.js` 的 `GYREAD_SOURCE` 说明）。
- *
- * @param {object|null} json `{generated, pages, count, items[]}`，item 含 u/d/c/t/s/g
- * @param {{date?: string, days?: number}} [filter] date=单日；days=最近 N 个日期
- * @returns {Array<{channel:string, rank:number, topic:string, hotValue:null, url:string|null, rawCategory:string|null, rawDate:string}>}
- */
-function parseGyreadIndex (json, filter = {}) {
-  const items = (json && Array.isArray(json.items)) ? json.items : []
-  /** 去重后的日期集合，倒序（最新在前）——`days` 过滤据此取窗口 */
-  const dates = []
-  for (const it of items) {
-    const d = typeof it.d === 'string' ? it.d : ''
-    if (d && !dates.includes(d)) dates.push(d)
-  }
-  const sortedDates = dates.sort().reverse()
-  /** @type {Set<string>|null} */
-  let allowed = null
-  if (typeof filter.date === 'string' && filter.date) {
-    allowed = new Set([filter.date])
-  } else if (Number.isFinite(filter.days) && filter.days > 0) {
-    allowed = new Set(sortedDates.slice(0, Math.floor(filter.days)))
-  }
-  const out = []
-  for (const it of items) {
-    const topic = String((it && it.t) || '').trim()
-    const d = typeof it.d === 'string' ? it.d : ''
-    const rel = String((it && it.u) || '').trim()
-    // 无标题或无日报页地址 → 丢弃：前者无选题，后者无从溯源也无从做原文链接增强
-    if (!topic || !rel) continue
-    if (allowed && !allowed.has(d)) continue
-    out.push({
-      channel: 'gyread',
-      // rank 在过滤后重新连续编号：跨日期名次断层会让 UI 序号与 scorer 名次兜底失真
-      rank: out.length + 1,
-      topic,
-      hotValue: null,
-      url: sanitizeUrl('https://gyread.com/news/' + rel.replace(/^\/+/, '')),
-      rawCategory: (typeof it.c === 'string' && it.c.trim()) ? it.c.trim() : null,
-      rawDate: d || null,
-    })
-  }
-  return out
-}
-
-/** 剥掉 HTML 标签并解码实体，只留纯文本（行内 span 是强调标记，直接拼接不留空格） */
-function stripTags (html) {
-  return decodeHtmlEntities(String(html || '').replace(/<[^>]*>/g, '')).trim()
-}
-
-/**
- * 抽取「由多个 `<span>` 组成的字段」并归一成 `A · B`。
- * `item-meta` 三 span 间无空白，`stripTags` 会得 `A·B`，而旧版 `dateline` 是 `A · B`
- * —— 同一语义两种口径，故逐 span 取文本再拼。
- * 不能让 `stripTags` 也加空格：标题 `<span>摩根大通</span>封禁…` 是行内强调，
- * 加空格会变成「摩根大通 封禁…」—— 是错的。
- */
-function stripTagsJoined (html) {
-  const parts = String(html || '').split(/<span[^>]*>|<\/span>/i)
-  return parts
-    .map(p => decodeHtmlEntities(p.replace(/<[^>]*>/g, '')).trim())
-    .filter(Boolean)
-    .join(' ')
-    .trim()
-}
-
-/** 抽取一段 HTML 里全部 `<a href="...">` 的安全 URL（过滤 javascript: 等非 http(s) 协议） */
-function extractLinks (html) {
-  const urls = []
-  const re = /<a\s[^>]*href\s*=\s*["']([^"']+)["']/gi
-  let m
-  while ((m = re.exec(html))) {
-    const safe = sanitizeUrl(m[1])
-    if (safe && !urls.includes(safe)) urls.push(safe)
-  }
-  return urls
-}
-
-/**
- * gyread 单期日报 HTML 解析 —— 抽取每条选题的标题、来源标注与**原文链接**。
- *
- * 存在理由：`search-index.json` 的 `u` 指向**日报页本身**而非新闻原文，
- * 而「溯源跳板」（用户点回一手报道）正是 gyread 的核心价值。
- *
- * **两代版式的字段顺序不同**，这是主要陷阱：旧版 `dateline` 在 `item-title` **之前**，
- * 新版 `item-meta` 在**之后**。若以 `item-title` 作块锚点，旧版第一条会越界拿到
- * **下一条**的 dateline（串条，本轮实测复现）。故块边界取条目容器 `<div class="item">`
- * （两版都有、与字段顺序无关），容器内再「新版 item-meta 优先、旧版 dateline 兜底」。
- *
- * fail-open 是硬合同：缺失/畸形只让该条少带链接，**不得抛错** —— 否则一次版式变动
- * 就会让整个补拉渠道记失败，把高质量 AI 选题全部丢掉。
- *
- * @param {string|null} html 单期日报 HTML
- * @returns {Array<{channel:string, topic:string, sourceText:string, sourceUrls:string[]}>}
- */
-function parseGyreadEdition (html) {
-  const text = String(html || '')
-  if (!text) return []
-  // 块边界用**条目容器** `<div class="item">`：两版都有、且与字段顺序无关。
-  // 容器内再分别取标题/来源/出处，因此不存在「旧版 dateline 在标题之前」的串条问题。
-  const chunks = text.split(/<div class="item">/).slice(1)
-  const out = []
-  for (const chunk of chunks) {
-    const titleMatch = chunk.match(/<div class="item-title">([\s\S]*?)<\/div>/)
-    if (!titleMatch) continue // 无标题不是有效选题块（voice / curiosity 等块自然跳过）
-    const topic = stripTags(titleMatch[1])
-    if (!topic) continue
-    // 来源标注：新版 item-meta 优先，旧版 dateline 兜底
-    const meta = chunk.match(/<div class="item-meta">([\s\S]*?)<\/div>/)
-    const dateline = chunk.match(/<div class="dateline">([\s\S]*?)<\/div>/)
-    const sourceText = meta ? stripTagsJoined(meta[1]) : (dateline ? stripTags(dateline[1]) : '')
-    // 出处链接：取本块内第一个 src-line（新版多链接 → 数组）
-    const src = chunk.match(/<div class="src-line">([\s\S]*?)<\/div>/)
-    const sourceUrls = src ? extractLinks(src[1]) : []
-    out.push({ channel: 'gyread', topic, sourceText, sourceUrls })
-  }
-  return out
-}
 
 /** 渠道解析器注册表（补拉渠道经 source.parser 键复用；fallback 亦可各自声明 parser） */
 const CHANNEL_PARSERS = {

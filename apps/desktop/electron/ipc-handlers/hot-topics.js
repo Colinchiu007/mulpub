@@ -11,6 +11,7 @@
  * @param {import('electron').IpcMain} ipcMain
  * @param {{ hotTopicsService: { fetchTopics: Function, getCache: Function }, store?: object, identityService?: object, log?: object }} deps
  */
+const { normalizeKind, pickContentFields, KIND_TOPIC } = require('../services/hot-topics/item-model.js')
 function registerHandlers(ipcMain, deps) {
   const { hotTopicsService, store, identityService, log } = deps
   const logger = log || { info: () => {}, warn: () => {}, error: () => {}, notify: () => {} }
@@ -53,6 +54,8 @@ function registerHandlers(ipcMain, deps) {
       hotValue: Number.isFinite(Number(raw.hotValue)) ? Number(raw.hotValue) : null,
       url: typeof raw.url === 'string' ? raw.url.slice(0, 2048) : null,
       fetchedAt: Number.isFinite(Number(raw.fetchedAt)) ? Number(raw.fetchedAt) : null,
+      kind: normalizeKind(raw.kind) || KIND_TOPIC, // 收藏为用户存量：无 kind 读作 topic，与旧缓存同一口径
+      ...pickContentFields(raw),
     }
   }
 

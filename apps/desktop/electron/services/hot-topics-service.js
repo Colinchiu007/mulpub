@@ -22,6 +22,7 @@
  */
 
 const { classifyTopicMulti, CATEGORY_KEYS } = require('./hot-topics/classifier')
+const { pickContentFields, filterViableEntries, withLegacyKind } = require('./hot-topics/item-model.js')
 const { CHANNEL_PARSERS } = require('./hot-topics/channels')
 const { scoreTopics, markTrend } = require('./hot-topics/scorer')
 const { ChannelThrottle, ChannelBreaker, quotaKeyOf } = require('./hot-topics/throttle')
@@ -249,7 +250,7 @@ class HotTopicsService {
         const raw = this.settingsStore.getSetting(CACHE_KEY)
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
         if (parsed && Array.isArray(parsed.topics) && typeof parsed.fetchedAt === 'number') {
-          this.memCache = { topics: parsed.topics, fetchedAt: parsed.fetchedAt, channelStats: parsed.channelStats || {} }
+          this.memCache = { topics: (parsed.topics || []).map(withLegacyKind), fetchedAt: parsed.fetchedAt, channelStats: parsed.channelStats || {} }
           return this.memCache
         }
       } catch (e) {
@@ -352,12 +353,14 @@ class HotTopicsService {
         const parser = CHANNEL_PARSERS[at.parser || config.parser || config.id]
         if (!parser) throw new Error('no parser for ' + (at.parser || config.parser || config.id))
         const rawItems = parser(text.startsWith('{') || text.startsWith('[') ? JSON.parse(text) : text)
-        const items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
+        const items0 = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
           const multi = classifyTopicMulti(x.rawCategory, x.channel, x.topic)
           return {
             id: x.channel + ':' + x.rank,
             topic: x.topic,
             channel: x.channel,
+            kind: x.kind,
+            ...pickContentFields(x),
             category: multi.category,
             categories: multi.categories,
             rank: x.rank,
@@ -366,6 +369,7 @@ class HotTopicsService {
             fetchedAt,
           }
         })
+        const items = filterViableEntries(items0, { channel: config.id, log: this.log }).kept
         // 合同①：空列表不是成功
         if (!items.length) throw new Error('empty list (endpoint returned 0 items; treated as failure)')
         this.breaker.recordSuccess(quotaKey)
@@ -438,7 +442,7 @@ class HotTopicsService {
       if (source.onlyCategory) {
         rawItems = rawItems.filter(x => classifyTopicMulti(x.rawCategory, x.channel, x.topic).category === source.onlyCategory)
       }
-      let items = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
+      const items0 = rawItems.slice(0, MAX_PER_CHANNEL).map(x => {
         const multi = classifyTopicMulti(x.rawCategory, x.channel, x.topic)
         const categories = multi.category === 'general'
           ? [source.boostCategory]
@@ -447,6 +451,8 @@ class HotTopicsService {
           id: source.channel + ':' + source.board + ':' + x.rank,
           topic: x.topic,
           channel: source.channel,
+          kind: x.kind,
+          ...pickContentFields(x),
           category: categories[0] || source.boostCategory,
           categories: categories.length ? categories : [source.boostCategory],
           rank: x.rank,
@@ -455,6 +461,7 @@ class HotTopicsService {
           fetchedAt,
         }
       })
+      const items = filterViableEntries(items0, { channel: source.channel, log: this.log }).kept
       this.breaker.recordSuccess(quotaKey)
       return { channel: source.id, items, skipped: false, boost: true }
     } catch (e) {
