@@ -95,21 +95,29 @@ CI 变更（改了 `.github/workflows/quality-gate.yml`）⇒ **不走 docs-only
 | 文档-only 判定 | `node scripts/classify-docs-only.js --base=origin/main --head=HEAD` | `docs-only=false`（混合 PR） |
 | 行尾与编码 | `git ls-files --eol` / U+FFFD 扫描 | 全 `w/lf`、U+FFFD **0** |
 | 改动面（单提交） | `git diff --stat origin/main..HEAD` | 8 文件 **+77 / −14** |
-| 改动面（PR 总 diff） | `git diff --stat origin/main` | **13 文件 / 约 +400 行** ⇒ 按 `scripts/ccg-review-decider.js` 的 `dualLineThreshold: 200` ⇒ 判 **dual**（见下节） |
+| 改动面（PR 总 diff） | `git diff --stat origin/main` | **12 文件 / 约 +340 行 / −14 行** ⇒ 按 `scripts/ccg-review-decider.js` 的 `dualLineThreshold: 200` ⇒ 判 **dual**（见下节） |
 
 ## CCG 双审查（dual）的执行与边界声明
 
-- **判定**：`scripts/ccg-review-decider.js` 的 `dualLineThreshold = 200`；本 PR 总 diff 约 +400 行 ⇒ **判 dual**，
-  触发条件是「变更行数超阈值」而非敏感路径命中（本次不碰 auth / 数据库 / 加密）。
-- **执行方式（本沙箱的真实边界，如实标注）**：本仓 CCG 评审链依赖 **Windows + PowerShell + 已配置后端**，
-  沙箱内**不可执行** ⇒ 未能跑通原生 `ccg-review.ps1` 双后端链。
-  ⇒ 以**多轨独立审查**替代：producer / verifier 分离、每轨关注轴不同、结论**逐条回源码与实跑复验后**才落盘。
+- **判定口径（按 PR 总 diff）**：PR 总 diff = `git diff --stat origin/main` ⇒ **12 文件 / 约 +340 行 / −14 行**；
+  `scripts/ccg-review-decider.js` 的 `dualLineThreshold = 200` ⇒ 按此口径**应判 dual**
+  （触发条件是「变更行数超阈值」，本次不碰 auth / 数据库 / 加密）。
+- **本地实跑读数（如实记录）**：`node scripts/ccg-review-decider.js --base origin/main` ⇒
+  该脚本判的是**暂存区** diff（`--base` 只用于命名回退）⇒ 暂存区空时它只看到 27 行 / 6 个源文件 ⇒ 判 **SINGLE**；
+  同时它探测后端 CLI（claude / opencode）**均不可用** ⇒ 输出
+  「降级为 SELF-REVIEW：必须由 agent 自行完成评审并记录结论」。
+  ⚠️ 这个 SINGLE 读数**采的是空的暂存区，不是 PR 场景的判定** ⇒ **不据此声称「无需双审查」**。
+  ⚠️ 该脚本会往 `.ccg/reviews/` 落一份判定存档 ⇒ 本次判定存档**不纳入提交**（它基于上述失真读数）。
+- **CI 侧是否阻断**：**不阻断**。`quality-gate.yml` 的 Gate 2c4 只跑 `scripts/ccg-review-decider.test.js`
+  （判据自身的回归锁），**不调用 decider 对本 PR 做模式判定** ⇒ 无论 SINGLE / DUAL 都不改变 PR 的红绿。
+- **实际执行（按 SELF-REVIEW 路径）**：以**多轨独立审查**替代单一后端 —— producer / verifier 分离、
+  每轨关注轴不同、结论**逐条回源码与实跑复验后**才落盘。
   五轨：① 量化（CI 预算重采样与判据复算）② 门禁（各门禁判据与接线）③ 契约与安全（字段集 parity / 注入面）
   ④ 流程与 CI 治理（required checks / 合并取数）⑤ 对抗性红队（寻找「我以为修好了」的那一格）。
   本轮三条**独立复现并确认**了我自己引入的缺陷：provenance `note` 撞 parity 锁、`git add -A` 带入编码变异探针、
   坏指针计数与明细不一致（汇总写 8、明细列 10）⇒ 三个坑都是「独立审查 + 实跑复验」抓出来的，不是自审发现的。
-- **未闭合项**：原生 CCG 双后端评审**在本沙箱未执行**，需在具备 Windows + PowerShell + 后端的环境补跑；
-  本条**不声称已闭合**。
+- **未闭合项**：原生 CCG 双后端评审**在本沙箱未执行**（无 Windows + PowerShell + 已配置后端 CLI），
+  本条**不声称已闭合**，需在具备该环境处补跑。
 
 ## 待办 / 未纳入
 
