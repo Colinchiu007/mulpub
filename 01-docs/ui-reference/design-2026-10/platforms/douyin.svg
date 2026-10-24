@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 平台品牌图标 · 24×24 · 抖音故障三色
+     手工绘制的示意标，非官方矢量：Simple Icons v16 与 Iconify 全部 238 个集合（含 IconPark、
+     thesvg、arcticons）均无抖音图标，实测 slug douyin/toutiao 一律 not_found。
+     造型取八分音符骨架（符头 + 符干 + 右上折角符尾），并按抖音品牌特征叠青/红重影：
+     纯单色音符与 TikTok 的音符在同排卡片里区分度不足（两者都会读作"音乐"），
+     青 #25F4EE 偏左下、红 #FE2C55 偏右上、黑主体居中，是抖音标的本质识别元素。
+     色值沿用本仓既有资产中的抖音双色。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#FE2C55"><g fill="#25F4EE" transform="translate(-1.2 1.2)"><path d="M4 16.5a4 4 0 1 0 8 0a4 4 0 1 0-8 0Z"/><path d="M11.2 3h2.4v13.5h-2.4Z"/><path d="M11.2 3h7v5.6h-2.4V5.4h-4.6Z"/></g><g fill="#FE2C55" transform="translate(1.2 -1.2)"><path d="M4 16.5a4 4 0 1 0 8 0a4 4 0 1 0-8 0Z"/><path d="M11.2 3h2.4v13.5h-2.4Z"/><path d="M11.2 3h7v5.6h-2.4V5.4h-4.6Z"/></g><g fill="#000000"><path d="M4 16.5a4 4 0 1 0 8 0a4 4 0 1 0-8 0Z"/><path d="M11.2 3h2.4v13.5h-2.4Z"/><path d="M11.2 3h7v5.6h-2.4V5.4h-4.6Z"/></g></svg>

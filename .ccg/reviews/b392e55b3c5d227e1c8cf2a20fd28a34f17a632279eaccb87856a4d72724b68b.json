@@ -1,0 +1,153 @@
+{
+  "sha": "c66c31555271d6d4a0dd94100f343fa131d5617e",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 33,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 6,
+    "docSensitiveContentSample": [
+      "| 状态表达 | ● 投递中 / ✓ 已完成 / ! 失败 / ○ 待发 / △ 需授权 |",
+      "| 警告 | `#B4750E` | △ 需授权 |",
+      "| 失败 | ! | 15px `#F7E9EA` 底 + `#A8232B` 字 | 授权失效 |"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "b392e55b3c5d227e1c8cf2a20fd28a34f17a632279eaccb87856a4d72724b68b",
+  "decidedAt": "2026-10-23T19:54:00.687Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [],
+    "externallyReviewed": [],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": ".ccg/reviews/b392e55b3c5...json references sha 'c66c315552...' (previous commit) not proposal head 'f7dda473...'; stats claim changedLines:0/fileCount:33 with layer:'diff' — contradicts 3649-line proposal.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "审计链指错提交：记录里的 sha 指向父提交 c66c3155，而本次 head 是 f7dda473，任何事后审计都会追到错误的提交；同时 stats 写 changedLines:0 而提案有 3649 行改动，等于一条自相矛盾的审计记录，应当重新生成或删除该文件。",
+        "defense": "两处事实都被读了错。① 判定记录由 pre-commit 在**新提交尚不存在时**生成，仓内既有实现明确把记录写在父 sha 上（.git/hooks/pre-commit 注释原文：「pre-commit 时新 commit 尚未生成，判定记录写在父 sha 上——这是预期行为」），且记录是**内容寻址**——文件名即 stagedDiffHash（b392e55b…），与本提交内容唯一对应，不是按提交寻址。② stats.changedLines 在 diff 层统计的是**代码行**：scripts/ccg-review-decider.js:540 `const changedLines = isProposal ? (staged.stats ? staged.stats.changedLines : 0) : codeFiles.reduce(...)`；本次是 docs-only 差异（codeFileCount=0），文档行按设计不计入 mode 判定。评审把 proposal 层口径套到 diff 层记录上，读错了字段语义。",
+        "verdict": "dismissed",
+        "rationale": "两条事实均可用仓内既实现逐字复核：(1) 父 sha + 内容寻址是 pre-commit 与 decider 的明文设计（钩子注释 + stagedDiffHash 文件名），审计链不因记录写在父 sha 而断裂；(2) ccg-review-decider.js:540 明确 diff 层 changedLines 只计代码行，docs-only 差异为 0 属实，fileCount=33 与 33 个改动文件一致。残留的合理关切只有「『变更 0 行』这句文案对文档改动有歧义」，其正确出口是改 decider 的 reason 文案（明确写『代码行』），属 scripts/ 变更，需另开 PR，不在本 PR 范围。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "Review JSON sets deepReview.required:true + status:pending + findings:null, creating a false audit trail for a 3649-line change; self-referencing without verification.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "记录声明「必须深度审查」却挂着 status=pending + findings=null，等于把一条空的强制审计条目提交进仓；下游判据读到 required:true/pending 会得出「评审没做」的结论，而实际上评审状态被永久挂在半途。",
+        "defense": "这是 pre-commit 的**初值**而不是结论：ccg-review-decider.js 的 buildDeepReviewInit 给新记录写 tier=unknown/findings=null，等真实评审回填。本次已用真实外部后端跑完双家族对抗（claude 出 8 条意见、opencode 出方案），并按仓内既有收口流程逐条裁决后回写。",
+        "verdict": "upheld",
+        "rationale": "指控成立且已闭环：提交那一刻确实存在 required:true/status:pending/findings:null 的组合，若不回写会一直挂着。处置方式是仓内既有出口——填 .adversarial/ccg-deep-<sha>/adjudication.json 的逐条 prosecution/defense/verdict/rationale，再由驱动 finalizeAdjudication 回写 status=self_play_resolved + findings=逐条裁决，再由 scripts/ccg-review-writeback.js 补 tier=external 与可核 evidence。回写后记录不再有 pending+null-findings 组合，不是为本 PR 新开的旁路。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "01-docs/ui-reference/design-2026-10/index.html is 3002 lines of monolithic inline HTML/CSS with embedded base64 data URI logo and inline hero variables; no external stylesheet or component split.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "单文件 3002 行，CSS 与全部渐变变量内联，品牌 Logo 用 base64 内联，diff 不可读；没有样式/组件拆分，后续任何一处改动都要在巨文件里定位，Hero 渐变与令牌也无法被单独复用。",
+        "defense": "这是交付形态的刻意选择：设计稿的硬需求是「双击可开、整目录拷贝不丢、相对路径不失效」，外链 CSS/SVG 会让「只拷一个 HTML」这种最常见用法直接白屏；且该文件是**构建产物**——可编辑源与渲染脚本在设计工作副本，改样式不发生在这个文件里。",
+        "verdict": "dismissed",
+        "rationale": "「可维护性」诉求的正解是让产物有明确来源与改动流程，而不是拆分产物本身。已在规格 §9.1 写明三件事：index.html 是构建产物、源与脚本不在本仓、改样式的正确顺序（改源→重渲染→覆盖产物→产物与 screenshots 同一次提交）。评审担心的「没有拆分 ⇒ 无法维护」由此不成立；base64 logo 仅 13KB，换来零外部依赖，收益更大。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": ".gitignore un-ignores only *.png (!.../*.png) but proposal adds *.svg platform icons; .gitignore comment says 'UI 参考截图' which doesn't cover icon assets.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": ".gitignore 注释与实际放行的资产不一致：本次同时引入了平台图标 SVG，注释只提「UI 参考截图」，读规则的人会以为 SVG 不在放行范围内。",
+        "defense": "规则本身是对的——被忽略的是全局 `*.png`，SVG 从来不在忽略范围内，不需要额外放行；缺的只是注释措辞没有覆盖图标资产这一类。",
+        "verdict": "upheld",
+        "rationale": "属实且已修：.gitignore 注释改为「UI 设计定稿资源（…design-2026-10）：与 mp-live-20260724 同性质（UI 参考截图 + 其配套平台图标 SVG），设计稿需离线可读故放行」，明确覆盖 PNG 截图与 SVG 图标两类资产；忽略规则本身未动（SVG 本就不在 *.png 范围内）。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "UI-DESIGN-FINAL-2026-10-24.md references reproduction scripts scripts/shoot.js and scripts/measure.js (lines in §9) that are not present in diff or repo.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "规格文档给出读者可照抄的命令，但仓里没有这两个脚本，读者照做必然失败；这类「看起来能跑的命令」正是本仓最反感的静默失效。",
+        "defense": "脚本确实存在于设计工作副本，只是规格没有写清「不在本仓」，读者会默认在仓根执行。",
+        "verdict": "upheld",
+        "rationale": "属实且已修：规格 §9 拆成三段——§9.1 写明 index.html 是构建产物、可编辑源与渲染脚本不在本仓、改样式的正确顺序与「产物与截图同次提交」纪律；§9.2 的命令加上「在设计工作副本执行；本仓不含这些脚本」的前提，并把路径从 scripts/shoot.js 改为工作副本根的 shoot.js；§9.3 记录本轮自检与外部双家族评审的处置位置。失效命令引用已清除。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "Doc §1/§6 states '深色模式 未设计' yet title claims '定稿规格'; deep mode tokens are only described as '按同一套令牌反相' without actual variable mappings.",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "标题承诺「定稿」，实际缺一整块主题；「按同一套令牌反相」只给方向不给值，实现者仍要自己猜每个色值，名不副实。",
+        "defense": "文档 §1 与 §6 已明确写了深色模式「未设计」，不存在隐瞒；缺的只是把「反相」落成具体数值与范围界定。",
+        "verdict": "upheld",
+        "rationale": "属实且已修两处：① 标题改为「桌面端 UI 重设计 —— 浅色版定稿规格」，并在文首加范围声明（深色主题待后续迭代）；② 新增 §3.5「深色模式反相对照表」，逐令牌给出建议值（canvas/paper/ink 四档/chrome 三档/chrome-ink/chrome-dim），并写明平台色与 Hero 渐变不变、语义状态色不变、以及两项仍需实测的未决项（玻璃渐变饱和度、霜化层 saturate 档位）。「未设计」的部分因此有了可直接照做的映射。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      }
+    ],
+    "note": "自扮演裁决：4 条指控成立或需外部复核",
+    "at": "2026-10-23T20:46:29.976Z"
+  }
+}
