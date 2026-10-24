@@ -34,14 +34,14 @@
       "id": "GHSA-27r3-jxmh-p828",
       "module": "body-parser",
       "severity": "high",
-      "patched": ">=2.4.0",
+      "patched": ">=1.20.9, >=2.4.0",
       "targetVersion": "2.4.0",
       "roots": [
         ".",
         "packages__ai-writer-api"
       ],
       "decision": "upgrade-tracked",
-      "note": "2026-10-23 新公告（GHSA-27r3-jxmh-p828 = CVE-2026-111181，CWE-248）：body-parser 在 **Content-Encoding 压缩请求体**场景下，读完 body 后把解压流留在「已管道接上、但没有 error 监听」的状态 —— 一个合法压缩帧 + 尾随字节即可让解码器在结束后报错，并被重新抛出为 uncaught exception，**整个进程终止**。公告原文明确：**无需认证、无需匹配路由**（解析发生在路由之前）。本仓实测：packages/ai-writer-api 的 src/server.js:35 用 express.json()（默认 inflate:true ⇒ 会建解压流），src/server.js:112 app.listen(port) **未传 host** ⇒ Node 默认绑全部网卡（默认端口 3487），而鉴权中间件挂在 app.use('/api/ai') 之后（server.js:40）⇒ body 解析发生在鉴权之前 ⇒ 该形态在本仓是**未认证可触发的进程级 DoS**。修复版已发布：2.x→2.4.0、1.x→1.20.9；本仓 lockfile 同时解析出 body-parser@1.20.5（<1.20.9）与 2.3.0（∈[2.0.0,2.4.0)）**两条线都命中**，扫描器汇总报出的是 >=2.4.0。动作 = 把 body-parser 两条线都升到各自修复版以上（1.x→>=1.20.9、2.x→>=2.4.0）并刷新 lockfile；不需要压缩请求体时可用公告给的 work-around express.json({ inflate: false }) 临时缓解。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
+      "note": "2026-10-23 新公告（GHSA-27r3-jxmh-p828 = CVE-2026-111181，CWE-248）：body-parser 在 **Content-Encoding 压缩请求体**场景下，读完 body 后把解压流留在「已管道接上、但没有 error 监听」的状态 —— 一个合法压缩帧 + 尾随字节即可让解码器在结束后报错，并被重新抛出为 uncaught exception，**整个进程终止**。公告原文明确：**无需认证、无需匹配路由**（解析发生在路由之前）。本仓实测：packages/ai-writer-api 的 src/server.js:35 用 express.json()（默认 inflate:true ⇒ 会建解压流），src/server.js:112 app.listen(port) **未传 host** ⇒ Node 默认绑全部网卡（默认端口 3487），而鉴权中间件挂在 app.use('/api/ai') 之后（server.js:40）⇒ body 解析发生在鉴权之前 ⇒ 该形态在本仓是**未认证可触发的进程级 DoS**。修复版已发布：2.x→2.4.0、1.x→1.20.9；本仓 lockfile 同时解析出 body-parser@1.20.5（<1.20.9）与 2.3.0（∈[2.0.0,2.4.0)）**两条线都命中**，扫描器汇总报出的是两段的并集 **>=1.20.9, >=2.4.0**（2026-10-24 起 pnpm 域解析器把同一 GHSA 的多个修复族**合并**而不是只留最后读到的那一个，此前该字段取决于 npm 响应里各族的先后顺序、会在两段之间来回跳 ⇒ 与下面的 targetVersion 配对时随机判红）动作 = 把 body-parser 两条线都升到各自修复版以上（1.x→>=1.20.9、2.x→>=2.4.0）并刷新 lockfile；不需要压缩请求体时可用公告给的 work-around express.json({ inflate: false }) 临时缓解。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
     },
     {
       "source": "npm",
@@ -51,6 +51,7 @@
       "patched": ">=4.3.2",
       "targetVersion": "4.3.2",
       "roots": [
+        ".",
         "apps__desktop",
         "packages__api-publish-engine",
         "packages__shared-utils"
@@ -103,25 +104,13 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-3jxr-9vmj-r5cp",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=1.1.16",
-      "targetVersion": "1.1.16",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 为 minimatch/glob 传递依赖，仅影响构建期文件匹配；升级 PR 提到 >=1.1.18。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-4mjr-xmp4-gh2g",
       "module": "qs",
       "severity": "moderate",
       "patched": ">=6.16.0",
       "targetVersion": "6.16.0",
       "roots": [
+        ".",
         "packages__ai-writer-api"
       ],
       "decision": "upgrade-tracked",
@@ -135,6 +124,7 @@
       "patched": ">=4.3.1",
       "targetVersion": "4.3.1",
       "roots": [
+        ".",
         "apps__desktop",
         "packages__api-publish-engine",
         "packages__shared-utils"
@@ -155,19 +145,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "lockfile 实测解析到 source-map-js@1.2.1，差一个补丁版本。纯构建期传递依赖：来源为 vue-i18n / @vue/compiler-core（经 packages__ui 的 storybook 链），本仓 manifest 零声明、代码零引用，不进生产运行时产物。动作=刷新 lockfile 收敛到 >=1.2.2。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-6j4f-fj2g-mc7p",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=5.0.10",
-      "targetVersion": "5.0.10",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.19。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.10，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
     },
     {
       "source": "npm",
@@ -254,19 +231,6 @@
     },
     {
       "source": "npm",
-      "id": "GHSA-mh99-v99m-4gvg",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=5.0.8",
-      "targetVersion": "5.0.8",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 第二条公告，与 GHSA-3jxr 同一升级动作覆盖。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.8，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
-    },
-    {
-      "source": "npm",
       "id": "GHSA-mrhx-c7xc-m3w5",
       "module": "zod",
       "severity": "high",
@@ -278,32 +242,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "2026-10-23 新公告（GHSA-mrhx-c7xc-m3w5 = CVE-2023-54404，CWE-770 资源未限流）：zod 在校验**超大受限集合**时（如 z.array().max(N) 遇到外部可控的超大数组）会耗尽内存，影响面仅可用性（机密性/完整性均不受影响），CVSS v4 = AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H，EPSS 0.35%（27 百分位）。本仓 zod@4.3.6 由 packages/remotion-composer 的依赖链**精确锁定**（zod-to-json-schema@3.25.2、@remotion/media@4.0.484 等以 zod: 4.3.6 精确引入），该包 package.json 不直接声明 zod。本仓 zod 校验对象是内部生成的渲染参数与配置，不接受外部直接投递超大集合 ⇒ 触发面窄；但修复版本 zod>=4.6.6 已发布，刷新 lockfile 需连带回归 remotion-composer 的渲染/构建链，单独排期。动作 = pnpm 升级 zod 至 >=4.6.6 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-q2hr-2g5m-vwhr",
-      "module": "brace-expansion",
-      "severity": "moderate",
-      "patched": ">=5.0.12",
-      "targetVersion": "5.0.12",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.21。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.12，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-qhr7-859c-m2p7",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=5.0.11",
-      "targetVersion": "5.0.11",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 为传递依赖（glob/minimatch 链），本仓无直接引用；随宿主包升级收敛到 >=1.1.20。此处登记以区分「新增债务」与「上游公告更新」。 2026-10-23：上游公告 patched 区间已改写为 >=5.0.11，targetVersion 同步更新（原值低于下界，账永远闭不了）。"
     },
     {
       "source": "npm",
@@ -319,19 +257,6 @@
       ],
       "decision": "upgrade-tracked",
       "note": "postcss 第二条公告，与 GHSA-fxqj 同一升级动作覆盖（取更高修复版本）。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-rgw5-rvv9-x895",
-      "module": "brace-expansion",
-      "severity": "high",
-      "patched": ">=1.1.18",
-      "targetVersion": "1.1.18",
-      "roots": [
-        "apps__desktop"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "brace-expansion 第三条公告，与 GHSA-3jxr 同一升级动作覆盖（取更高修复版本）。"
     },
     {
       "source": "npm",
@@ -380,6 +305,7 @@
       "patched": ">=6.15.4",
       "targetVersion": "6.15.4",
       "roots": [
+        ".",
         "packages__ai-writer-api"
       ],
       "decision": "upgrade-tracked",
@@ -395,7 +321,11 @@
         "ops-center/backend"
       ],
       "decision": "no-fix-available",
-      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。"
+      "note": "ecdsa 由 python-jose[cryptography] 传递引入，确实在签名校验路径上被调用（ops-center/backend/services/logto_verifier.py 以 algorithms=[\"RS256\",\"ES256\"] 调 jose_jwt.decode）。但 PYSEC-2026-1325 是 Minerva 计时侧信道，影响面限定在私钥运算（SigningKey.sign_digest），本仓不持私钥、不签发 JWT，只做验签；上游明确「side channel out of scope，no planned fix」，无可用修复版本。真正的收敛动作是把 python-jose 换成 PyJWT/cryptography 直接验签（另行立项），而不是等 ecdsa 升版。",
+      "aliases": [
+        "CVE-2024-23342",
+        "GHSA-wj6h-64fc-37mp"
+      ]
     },
     {
       "source": "pip",
@@ -407,7 +337,11 @@
         "ops-center/backend"
       ],
       "decision": "not-exploitable",
-      "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。"
+      "note": "**本 ID 与上一轮挂账的 CVE-2026-85394 是同一条公告**（pip-audit 实测 aliases=GHSA-3qf3-8w2g-rqmx,CVE-2026-85394，本机 python-jose 3.5.0、fix_versions 为空），只是 PySEC 记录改用自己的 id 并把 CVE 收进 aliases；故按原证据续判，不重开结论。公告要点：python-jose 未正确校验 HMAC 初始化中的非对称密钥，接受缺 PEM armor / SSH 前缀的 DER 公钥，攻击者持有服务公钥时可伪造通过校验的 HS256 令牌——**成立前提是「算法未被显式限定」**（原文：when algorithms are not explicitly restricted）。本仓三条约束本轮逐条复核仍成立：① middleware/auth.py:37 `algorithms=[settings.jwt_algorithm]`；② services/logto_verifier.py:95 `algorithms=[\"RS256\", \"ES256\"]`；③ config.py:52 `jwt_algorithm: Literal[\"HS256\"] = \"HS256\"`（类型锁死，无法配成非对称算法），另有 tests/test_security_config.py:43 `test_rejects_unsupported_jwt_algorithm` 回归拦截。⇒ 在本仓当前调用形态下不可利用，判 not-exploitable（不写 no-fix-available：那等于谎称上游已放弃）。复核条件：任一 jwt 验签点去掉 algorithms 参数，或 jwt_algorithm 的 Literal 放宽为多算法。上游出修复版后应改判 upgrade-tracked。",
+      "aliases": [
+        "CVE-2026-85394",
+        "GHSA-3qf3-8w2g-rqmx"
+      ]
     }
   ]
 }

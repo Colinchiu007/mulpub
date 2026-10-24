@@ -40,6 +40,57 @@ test('npm audit JSON 解析：按 GHSA 去重并汇总 workspace 根', () => {
   assert.equal(rows.find((r) => r.module === 'no-ghsa').id, 'npm-99', '缺 GHSA 号时退回 npm advisory id');
 });
 
+test('同一 GHSA 的多个修复族：patched 必须**合并**（不是覆盖），且与族的先后顺序无关', () => {
+  // 动因（2026-10-24 实测）：npm/pnpm 对一个 GHSA 的多条易感区间（不同版本线各有修复版）
+  // 返回**多条** advisory，共享同一个 github_advisory_id。pnpm 域解析器原先是**覆盖**，
+  // ⇒ 记录下来的下界取决于响应里各族的先后顺序 ⇒ 非确定 ⇒ 与人工 targetVersion 配对时随机判红。
+  // 实测现场：GHSA-3jxr-9vmj-r5cp 的 patched 在 '>=1.1.16' 与 '>=5.0.7' 之间来回跳，
+  // 而人写的 targetVersion 是 1.1.16 ⇒ 刷成 '>=5.0.7' 时当场 DECISION_CONTRADICTS_PATCHED。
+  const family = (patched, version, path) => ({
+    github_advisory_id: 'GHSA-multi', module_name: 'brace-expansion', severity: 'high',
+    patched_versions: patched, findings: [{ version, paths: [path] }],
+  });
+  const forward = D.parseNpmAudit({ advisories: {
+    1: family('>=1.1.16', '1.1.15', 'apps__desktop>minimatch>brace-expansion'),
+    2: family('>=5.0.7', '5.0.6', '.>camofox>minimatch>brace-expansion'),
+  } });
+  const backward = D.parseNpmAudit({ advisories: {
+    1: family('>=5.0.7', '5.0.6', '.>camofox>minimatch>brace-expansion'),
+    2: family('>=1.1.16', '1.1.15', 'apps__desktop>minimatch>brace-expansion'),
+  } });
+  assert.equal(forward.length, 1, '同一 GHSA 的多个族必须收成一条');
+  assert.equal(forward[0].patched, '>=1.1.16, >=5.0.7', '两个族的修复下界必须合并成多段');
+  assert.equal(
+    backward[0].patched, forward[0].patched,
+    '族的先后顺序**不得**改变 patched 的取值（这正是"覆盖"语义留下的那个洞）',
+  );
+  // 数值排序（不是字典序）：>=10.2.0 必须排在 >=5.0.7 后面，否则基线 diff 会随顺序抖动。
+  const big = D.parseNpmAudit({ advisories: {
+    1: family('>=5.0.7', '5.0.6', 'a>minimatch>brace-expansion'),
+    2: family('>=10.2.0', '10.1.0', 'b>minimatch>brace-expansion'),
+  } });
+  assert.equal(big[0].patched, '>=5.0.7, >=10.2.0', '多段必须按版本号数值升序（字典序会把 >=10.2.0 排到前面）');
+  // 重复的族（同一 GHSA 同一修复版被报两次）必须去重，不能拼成 '>=1.1.16, >=1.1.16'。
+  const dup = D.parseNpmAudit({ advisories: {
+    1: family('>=1.1.16', '1.1.15', 'a>minimatch>brace-expansion'),
+    2: family('>=1.1.16', '1.1.15', 'b>minimatch>brace-expansion'),
+  } });
+  assert.equal(dup[0].patched, '>=1.1.16', '同一修复版重复出现必须去重');
+});
+
+test('合并口径：任一族没有修复版本 ⇒ 合并结果也是空（保守：整本账无解）', () => {
+  // 一条线无解 ⇒ 整本账无解 ⇒ 保守侧（no-fix-available）才是诚实答案；
+  // 写成 '>=1.2.3' 会让人以为"升上去就闭账"，而那条线永远闭不上。
+  const family = (patched) => ({
+    github_advisory_id: 'GHSA-nofix', module_name: 'x', severity: 'high',
+    patched_versions: patched, findings: [{ version: '1.0.0', paths: ['a>x'] }],
+  });
+  assert.equal(D.parseNpmAudit({ advisories: { 1: family('<0.0.0'), 2: family('>=1.2.3') } })[0].patched, '');
+  assert.equal(D.parseNpmAudit({ advisories: { 1: family('>=1.2.3'), 2: family('<0.0.0') } })[0].patched, '');
+  // 族内本身无修复版本（单族）仍归一成空串（既有语义不变）。
+  assert.equal(D.parseNpmAudit({ advisories: { 1: family('<0.0.0') } })[0].patched, '');
+});
+
 test('pip-audit JSON 解析：同一公告命中多个包时合并包名', () => {
   const rows = D.parsePipAudit({
     dependencies: [
