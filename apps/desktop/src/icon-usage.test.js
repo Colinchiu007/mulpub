@@ -27,7 +27,8 @@ const FILES = [
   'views/Collection.vue',
   'views/ModelProviders.vue',
   'views/CreateView.vue',
-  'components/UpgradeModal.vue',
+  // 2026-10-24 member-center-revamp：components/UpgradeModal.vue 随 P0-6 退役，
+  // 登记行同步移除（留着会让 readFileSync ENOENT 整套件红）。
   'components/AiWriterPanel.vue',
   'components/PersonalKnowledgePanel.vue',
   'components/EmptyState.vue',

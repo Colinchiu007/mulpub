@@ -1,0 +1,59 @@
+{
+  "sha": "b642881cff2ff867b0eb591fe13e0a3bd17c6c43",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 2035 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 2035,
+    "fileCount": 22,
+    "codeFileCount": 20,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 4,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "**渲染层铁律**：档位判定永远以 `entitlement.limits.plan_rank` 为准；禁止硬编码档位名单、禁止读本地 `licenseStore`（本地授权与服务端权益是两套真源，A2 早已定论同源展示 entitlement）。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "8a2216757fc4fa1decb76087abaef8ed380d0161a712aab2fe7d92f250bee202",
+  "decidedAt": "2026-10-24T14:10:44.963Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

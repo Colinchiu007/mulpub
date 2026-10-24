@@ -26,8 +26,8 @@ const RENDERS_NATIVE = /^(UiButton|RouterLink|router-link|el-[a-z-]+|component)$
 const LEDGER = [
   { key: "/components/PersonalFormDialog.vue|div|emit('close')",
     reason: "遮罩层的\"点击空白处关闭\"，不是操作控件：给它 role=\"button\" 会把整个对话框子树呈现为 presentational（对话框内的输入与按钮全部从 a11y 树消失）。键盘等价物是 Esc 关闭 + 焦点陷阱（浮层互斥合同已覆盖挂起/恢复）。" },
-  { key: "/components/UpgradeModal.vue|div|emit('close')",
-    reason: "遮罩层的\"点击空白处关闭\"，不是操作控件：给它 role=\"button\" 会把整个对话框子树呈现为 presentational（对话框内的输入与按钮全部从 a11y 树消失）。键盘等价物是 Esc 关闭 + 焦点陷阱（浮层互斥合同已覆盖挂起/恢复）。" },
+  // 2026-10-24 member-center-revamp：原 UpgradeModal.vue 登记项随组件退役移除
+  // （P0-6：死胡同 + 假陈述文案；删文件不留登记，否则扫描域对不上）。
   { key: "/components/ViralFormDialog.vue|div|emit('close')",
     reason: "遮罩层的\"点击空白处关闭\"，不是操作控件：给它 role=\"button\" 会把整个对话框子树呈现为 presentational（对话框内的输入与按钮全部从 a11y 树消失）。键盘等价物是 Esc 关闭 + 焦点陷阱（浮层互斥合同已覆盖挂起/恢复）。" },
   { key: "/views/AutomationView.vue|div|closeDialog",

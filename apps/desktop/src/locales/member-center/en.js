@@ -17,6 +17,8 @@ export default {
     redeemAlreadyUsed: 'This code was already redeemed. Your current subscription runs until {end}.',
     redeemReplayExpired: 'This code was already redeemed and its subscription has expired; replaying it does not extend your membership.',
     redeemErrFormat: 'Invalid code format. It should look like ABCD-EFGH-JKMN.',
+    // Local pre-validation (same shape as server, P1-8): reject before sending a request.
+    redeemErrFormatLocal: 'Invalid code format. It should look like ABCD-EFGH-JKMN (letters I, L, O and digits 0, 1 are not used).',
     redeemErrNotFound: 'No such activation code. Please check and try again.',
     redeemErrUsed: 'This activation code has already been used by someone else.',
     redeemErrDisabled: 'This activation code has been disabled. Please contact the issuer.',
@@ -26,6 +28,35 @@ export default {
     plansTitle: 'Membership plans',
     plansUnavailable: 'Pricing is temporarily unavailable, please try again later',
     plansEmpty: 'No plans available for purchase',
+    // ——— Buyable plan cards + tier labels (member-center-revamp 2026-10-24) ———
+    planStandard: 'Standard',
+    planUnknown: 'Loading plan…',
+    planBuyCta: 'Buy',
+    planBuyCurrent: 'Current plan',
+    quotaUnlimited: 'Unlimited',
+    // ——— Expiry grace period (v4: #4051 graceUntil/previousPlan) ———
+    graceTitle: 'Expired · Grace period',
+    graceHint: '{plan} has expired. History and queued tasks keep working until {date}; new publishes follow Free quotas.',
+    // ——— member store error localization (P0-5 / §8 MAJOR-1) ———
+    memberPermissionRequired: 'Insufficient account permission. Please sign in again and retry.',
+    memberRequestFailed: 'Failed to load. Please try again later.',
+    revokeSuccess: 'Signed out {count} device(s).',
+    revokeNone: 'No other devices to sign out.',
+    // ——— feature / quota localization (P0-4: keys match server verbatim) ———
+    feature: {
+        cloud_publish: 'Cloud publishing',
+        ai_write: 'AI writing',
+        video_create: 'Video creation',
+        schedule_batch: 'Scheduled & batch publishing',
+        dashboard_full: 'Full analytics dashboard',
+    },
+    // quota keys are ${feature}_monthly (plan-matrix derivation)
+    quota: {
+        cloud_publish_monthly: 'Monthly publishes',
+        ai_write_monthly: 'Monthly AI writes',
+        video_create_monthly: 'Monthly videos',
+        official_credit_monthly: 'Monthly official credits',
+    },
     // ——— WeChat Native QR payment (wechat-native-payment) ———
     payNow: 'Buy now',
     payNowDisabledHint: 'Payment is unavailable',
@@ -98,11 +129,10 @@ export default {
     licenseUnlimited: 'Lifetime',
     upgradePro: 'Upgrade to Pro',
     upgradeHint: 'Unlock all-platform publishing, batch scheduling, AI writing and more',
-    // 2026-10-07 disable-simulated-payment-in-prod：正式包无真实支付通道，
-    // 取代此前那个点下去必然被主进程拒收的「模拟支付成功（开发模式）」按钮。
-    paymentChannelUnavailable: 'Online payment is available. Please visit the Member Center.',
-    activationCodeMigrated: 'Activation codes have moved to account redemption. Sign in and use them in the membership center',
-    trialUnavailable: 'Trials are not available yet. Sign in to learn about membership benefits',
+    // 2026-10-24 member-center-revamp：paymentChannelUnavailable /
+    // activationCodeMigrated / trialUnavailable removed with the UpgradeModal
+    // retirement (P0-6) — the "coming soon" context is gone now that payment
+    // is live; keeping them would be false-statement dead keys.
     entitlementCardTitle: 'Membership',
     entitlementEmpty: 'No membership data',
     entitlementEmptyHint: 'Your plan and feature list will appear here after signing in.',
