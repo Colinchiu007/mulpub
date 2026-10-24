@@ -18,6 +18,16 @@ try {
   storageConfig = configureUserDataPath({ app })
   // stdio-log-bridge（2026-10-24）：packages/* 的 logger 只写 stdout，而应用日志只收自家 logger
   // ⇒ 包内诊断（CSRF、上传、发稿步骤）在开发与生产中都不可见。此处接管 stdout/stderr 并透传。
+  // 包内诊断落盘（2026-10-24）：packages/* 的 logger 只写 stdout，应用日志不收 stdout。
+  // 不拦 stdout（会插进 Electron 核心输出路径、启动期可能直接崩），改为把包 logger 的文件镜像
+  // 指向应用日志目录，诊断与 app-*.log 并排落盘。
+  try {
+    const _pathMod = require('path')
+    const _fsMod = require('fs')
+    const _logsDir = _pathMod.join(storageConfig.path || app.getPath('userData'), 'logs')
+    _fsMod.mkdirSync(_logsDir, { recursive: true })
+    if (!process.env.MP_PKG_LOG) process.env.MP_PKG_LOG = _pathMod.join(_logsDir, 'pkg-engine.log')
+  } catch (_ePkgLog) {}
   // 2026-10-24 回退：stdio 接管导致主进程启动后异常退出（CDP ready 后 ~10s 进程消失），
   // 恢复为不安装；包内诊断改由 MP_PKG_LOG 文件镜像承担（见 api-publish-engine/src/logger.js）。
   // try { require('./services/stdio-log-bridge').install() } catch (_eBridge) {}
