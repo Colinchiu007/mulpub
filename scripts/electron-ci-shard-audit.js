@@ -26,6 +26,14 @@ const STEP = require(path.join(__dirname, 'electron-ci-desktop-step.js'));
 const FIELDS = ['runs', 'shards', 'minShardMin', 'p50ShardMin', 'maxShardMin',
   'budgetFloorSec', 'stepBudgetSec', 'safetyMultiplier', 'collectedAt', 'source'];
 
+/**
+ * 默认 3 次、退避 1500ms×k。依据是 2026-10-22 现场：一次采集连吃 4 次 SELF_FAULT，
+ * 第 5 次才成功 —— 所以 3 是"够用且不可能无限"的下界，**不是量出来的分布**；
+ * 真要调它得按本仓对 *_PROVENANCE 的口径先攒样本，不得凭手感放宽。
+ */
+const GH_RETRY_ATTEMPTS_DEFAULT = 3
+const GH_RETRY_BASE_MS_DEFAULT = 1500
+
 /** Actions 作业日志每行前缀是 `2026-10-21T07:52:30.4123456Z ` —— 不剥掉它任何 `^` 锚点都恒不命中。 */
 function stripLogNoise (text) {
   return String(text == null ? '' : text)
@@ -90,23 +98,120 @@ function format (s) {
     + '\n[shard-audit] 全部(分钟)=' + (s.samples || []).map((m) => (Number.isFinite(m) ? m.toFixed(1) : 'n/a')).join(',');
 }
 
-function ghJson (args) {
-  const r = cp.spawnSync('gh', args, { encoding: 'utf8', maxBuffer: 1 << 27 });
-  if (r.error) throw new Error('GH_SPAWN_FAILED ' + r.error.message);
-  if (r.status !== 0) throw new Error('GH_FAILED ' + args.slice(0, 3).join(' ') + ' :: ' + String(r.stderr).slice(0, 200));
-  return JSON.parse(r.stdout);
+/**
+ * 只有**传输层抖动**可以重试。这份清单的来源是 2026-10-22 本机现场读数（不是设想）：
+ * 4 次 SELF_FAULT 分别落在 `run list` 与 `jobs/<id>/logs`，签名是 wsarecv 强断、
+ * blob 主机 EOF、HTTP 502、ETIMEDOUT。
+ *
+ * ⛔ 反方向同样重要：`HTTP 404` / `ENOENT`（gh 不在 PATH）/ `unknown flag` /
+ * `GH011` / JSON 解析失败 都**永远不会**因为重试而变好。把它们也重试一遍，
+ * 等于把一个稳定的判据故障洗成"多跑三次终于绿了"——那是藏红，不是鲁棒。
+ * 注意 `GH_SPAWN_FAILED spawnSync gh` 这个前缀同时出现在 ENOENT（不可重试）
+ * 与 ETIMEDOUT（可重试）上，所以只能按**码**判，不能按前缀判。
+ */
+const TRANSIENT_PATTERNS = [
+  /wsarecv/i, /forcibly closed/i, /\bEOF\b/, /\bECONNRESET\b/i, /\bECONNREFUSED\b/i,
+  /\bETIMEDOUT\b/, /\btimed out\b/i, /\bENOTFOUND\b/i, /\bEAI_AGAIN\b/i,
+  /HTTP 5\d\d/, /\bServer Error\b/i, /proxyconnect/i,
+]
+
+/**
+ * @param {string|Error|null|undefined} failure gh 的报错文本或 Error
+ * @returns {boolean} true = 可以重试；false = 一次就该抛
+ */
+function isTransientGhFailure (failure) {
+  const msg = String(failure && failure.message != null ? failure.message : failure == null ? "" : failure)
+  return TRANSIENT_PATTERNS.some((re) => re.test(msg))
 }
 
-function ghText (args) {
-  const r = cp.spawnSync('gh', args, { encoding: 'utf8', maxBuffer: 1 << 27 });
-  if (r.error) throw new Error('GH_SPAWN_FAILED ' + r.error.message);
-  if (r.status !== 0) throw new Error('GH_FAILED ' + args.slice(0, 3).join(' ') + ' :: ' + String(r.stderr).slice(0, 200));
-  return r.stdout;
+/**
+ * 重试预算。**有界**，且只作用于传输层抖动。**可被 env 覆盖以便排障，
+ * 但非法值必须回落默认并出声**（与频控 / 队列 / QM1 同口径）—— attempts 设成 0
+ * 等于关掉重试还谎称"按配置走了"，设成 NaN 会让循环整条失效。
+ */
+function resolvePositiveInt (raw, dflt, name, notice) {
+  if (raw === undefined || raw === null || raw === '') return dflt
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 1) {
+    notice('[shard-audit] ' + name + '=' + raw + ' 非法 ⇒ 回落 ' + dflt +
+      '（0 等于关掉重试，NaN 会让循环整条失效）')
+    return dflt
+  }
+  return Math.trunc(n)
 }
+
+/** 同步睡一下（collect 是同步的；改成异步会把整条采集链变成 Promise 并牵动所有调用方）。 */
+function sleepSync (ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+  } catch (e) {
+    const until = Date.now() + ms
+    while (Date.now() < until) { /* 兜底忙等：只在 Atomics 不可用的宿主上发生 */ }
+  }
+}
+
+/** 一次真正的 gh 调用：非零即抛，文案保住 args 前三段 + stderr（归因全靠它）。 */
+function runGhOnce (spawnImpl, args) {
+  const r = spawnImpl('gh', args)
+  if (r && r.error) throw new Error('GH_SPAWN_FAILED ' + r.error.message)
+  if (!r || r.status !== 0) {
+    throw new Error('GH_FAILED ' + args.slice(0, 3).join(' ') + ' :: ' + String(r && r.stderr).slice(0, 200))
+  }
+  return r
+}
+
+/**
+ * 只在瞬时档重试；每次重试**出声**，耗尽后把试过的次数写进文案
+ * （"试了三次仍坏"与"一次就坏"是两种归因，修法不同）。
+ * 判据类失败（404 / 未知旗标 / GH011 / 解析失败）走 isTransientGhFailure=false 那条，**一次就抛**。
+ */
+function withTransientRetry (spawnImpl, args, ctx) {
+  let last
+  for (let k = 1; k <= ctx.attempts; k++) {
+    try {
+      return runGhOnce(spawnImpl, args)
+    } catch (e) {
+      last = e
+      if (!isTransientGhFailure(e)) throw e
+      if (k < ctx.attempts) {
+        ctx.notice('[shard-audit] gh 重试 attempt=' + (k + 1) + '/' + ctx.attempts +
+          ' 因=' + String(e.message).slice(0, 120))
+        ctx.sleepImpl(ctx.baseMs * k)
+      }
+    }
+  }
+  throw new Error(last.message + ' attempts=' + ctx.attempts)
+}
+
+/**
+ * 默认取数面。做成工厂是为了让"重试到底落在不在 collect 真走的那条路上"这件事**可测**：
+ * 只导出一个没人调用的工具函数，就等于给一条不会执行的路径写锁（本仓记过的同型）。
+ */
+function makeGhApi (ctx) {
+  const call = (args) => withTransientRetry(ctx.spawnImpl, args, {
+    attempts: ctx.attempts, baseMs: ctx.baseMs, sleepImpl: ctx.sleepImpl, notice: ctx.notice,
+  })
+  return {
+    ghJson: (args) => JSON.parse(call(args).stdout),
+    ghText: (args) => call(args).stdout,
+  }
+}
+
 
 /** 采集：优先新形状逐片 elapsed，取不到退回老基线；两档都标在 source 里，不得装作同一档。 */
 function collect (opts) {
-  const api = opts.api || { ghJson: ghJson, ghText: ghText };
+  // notice 默认落 stderr：重试过几次必须当场看得见，否则下一次调预算的人只能猜。
+  const notice = opts.notice || ((line) => process.stderr.write(line + '\r\n'))
+  const api = opts.api || makeGhApi({
+    spawnImpl: opts.spawnImpl ||
+      ((cmd, args) => cp.spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 1 << 27 })),
+    sleepImpl: opts.sleepImpl || sleepSync,
+    notice,
+    attempts: resolvePositiveInt(opts.attempts != null ? opts.attempts : process.env.MP_AUDIT_GH_ATTEMPTS,
+      GH_RETRY_ATTEMPTS_DEFAULT, 'MP_AUDIT_GH_ATTEMPTS', notice),
+    baseMs: resolvePositiveInt(opts.baseMs != null ? opts.baseMs : process.env.MP_AUDIT_GH_BACKOFF_MS,
+      GH_RETRY_BASE_MS_DEFAULT, 'MP_AUDIT_GH_BACKOFF_MS', notice),
+  })
   const wanted = opts.runs || 10;
   const samples = [];
   let sourceKind = 'none';
@@ -190,6 +295,6 @@ function main (argv, opts) {
   return 0;
 }
 
-module.exports = { FIELDS, STEP, parseShardElapsed, stripLogNoise, summarize, format, collect, main, parseArgs };
+module.exports = { FIELDS, STEP, parseShardElapsed, stripLogNoise, summarize, format, collect, main, parseArgs, isTransientGhFailure, TRANSIENT_PATTERNS, withTransientRetry, makeGhApi, resolvePositiveInt, GH_RETRY_ATTEMPTS_DEFAULT, GH_RETRY_BASE_MS_DEFAULT };
 
 if (require.main === module) { process.exitCode = main(); }

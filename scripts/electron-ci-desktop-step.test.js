@@ -270,3 +270,47 @@ test('接线：electron-ci 的那一步必须调用本脚本，且不得再自�
   assert.equal(mod.SHARD_TIMEOUT_MS, mod.STEP_BUDGET_MS,
     '共享预算下允许单片跑满整步；这一格必须显式相等，否则上一条「不倒挂」的断言是空话');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-22（任务 #94 第二件）：审计入口第一次跑通，产出**本步真实形状**的第一批读数
+// （同 runner 两片并行，10 趟 / 8 片 / max 23.6min）。它必须进 provenance，
+// 但**不得**取代旧读数成为定预算的依据 —— 8 片 < 样本量下限 10，把它扶正当场就该红。
+// 所以这里要的不是"多写一段注释"，而是让 append 进来的读数**被门禁读**。
+// 三条各自独立成 test：一个 it 里放两条理由 ⇒ 首条失败即中止，第二格证据被藏住（本仓老坑）。
+// 原始现场（逐字抄自审计输出，不是手填）：
+//   [shard-audit] runs=10 shards=8 minShardMin=19.4 p50ShardMin=22.1 maxShardMin=23.6
+//     budgetFloorSec=2122 stepBudgetSec=2700 safetyMultiplier=1.5
+//     source=new-shape(per-shard elapsed / 1 runner) verdict=OK
+//   [shard-audit] 全部(分钟)=22.9,20.2,23.6,20.6,22.1,19.4,23.3,20.8
+test('provenance 是一册 append-only 读数账，顶部的数必须能在册子里对上号', () => {
+  const p = mod.STEP_BUDGET_PROVENANCE
+  assert.ok(Array.isArray(p.readings), 'readings 必须是数组（单值写回会抹掉历史测量的出处）')
+  assert.ok(p.readings.length >= 2, '至少要有"每片独占 runner"与"同 runner 两片并行"两档形状：' + p.readings.length)
+  const KEYS = ['collectedAt', 'runnerShape', 'runs', 'shards', 'maxShardMin', 'p50ShardMin', 'source']
+  for (const r of p.readings) {
+    for (const k of KEYS) {
+      assert.ok(r[k] != null && r[k] !== '', '某条读数缺字段 ' + k + '：' + JSON.stringify(r).slice(0, 120))
+    }
+    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(r.collectedAt), '每条读数都要带采集日期（活数没时间戳就没人知道它多旧）')
+    assert.ok(r.shards >= 1 && r.runs >= 1, 'shards/runs 必须是正整数，不得用"很多"这种词')
+  }
+  const hit = p.readings.find((r) => r.maxShardMin === p.maxObservedShardMin && r.shards === p.shards && r.runs === p.runs)
+  assert.ok(hit, '顶部的 max/shards/runs 在册子里找不到对应条目 ⇒ 两份事实已经分叉')
+});
+
+test('新形状读数参与判据：预算 ≥ max(全部读数) × 倍数，而不只是 ≥ 顶部那一档', () => {
+  const p = mod.STEP_BUDGET_PROVENANCE
+  const maxAll = Math.max(...p.readings.map((r) => r.maxShardMin))
+  assert.ok(mod.STEP_BUDGET_MS >= maxAll * 60000 * p.safetyMultiplier,
+    '有一档形状的 max×倍数 已超过预算 ⇒ 该抬预算或加片数；把这条断言改宽就是把预算墙读成用例坏')
+  assert.ok(mod.STEP_BUDGET_MS > maxAll * 60000, '预算必须大于**任何一档**观测最大值本身')
+});
+
+test('样本量不够的新读数不得被悄悄扶正：它超过顶部档时必须显式换值并重测', () => {
+  const p = mod.STEP_BUDGET_PROVENANCE
+  const newer = p.readings.filter((r) => r.collectedAt > p.collectedAt)
+  assert.ok(newer.length >= 1, '册子里应当已有比顶部档更新的一次测量（本条同时挡住"册子被清空后仍然绿"）')
+  assert.ok(newer.every((r) => r.shards < p.shards),
+    '新读数样本量已 ≥ 当前扶正档 ⇒ 必须显式把它换成扶正读数并重跑分布，不许让它跟着册子漂移')
+});
+

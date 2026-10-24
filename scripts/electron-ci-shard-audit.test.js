@@ -156,3 +156,131 @@ test('接线：审计的回归锁必须点名在 changes job，且本体必须�
   const bangCommentLines = gi.split(/\r?\n/).filter((l) => /^! /.test(l));
   assert.deepEqual(bangCommentLines, [], '.gitignore 里 `!` 是 negation 不是注释，`! ` 开头的行是坏模式');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-22（任务 #94）：重测入口对瞬时网络故障零重试 ⇒ 实测 5 次才成功 1 次。
+// 一条 `gh` 调用连吃 4 次 SELF_FAULT（rc=2），断点在 `run list` 与 `jobs/<id>/logs`
+// 之间飘移，签名全是传输层强断。先加分类器，再把重试落在 collect 真正走的那条路上
+// （只导出一个没人调用的工具函数 = 装饰性锁）。
+//
+// ⛔ 反向要求同样硬：把「判据不成立」也重试一遍 = 藏红。404 / 未知旗标 / GH011 /
+// JSON 解析失败 都是**永远不会因为重试而变好**的失败，必须一次就抛。
+test('瞬时故障分类 · 连接被强断 / EOF 判瞬时（签名取自本机 2026-10-22 现场读数，不是编的）', () => {
+  const { isTransientGhFailure } = audit;
+  assert.equal(isTransientGhFailure(
+    'GH_FAILED run list --workflow=electron-ci.yml :: Get https://api.github.com/repos/o/r/actions/workflows/electron-ci.yml: read tcp 192.168.6.204:58314->198.18.0.241:443: wsarecv: An existing connection was forcibly closed by the remote host.'),
+    true, 'wsarecv 强断是本轮真实打挂采集的那一条');
+  assert.equal(isTransientGhFailure(
+    'GH_FAILED api repos/o/r/actions/jobs/119169154201/logs --allow-escape-sequences :: Get https://productionresultssa1.blob.core.windows.net/x: unexpected EOF'),
+    true, 'blob 主机 EOF 也是传输层');
+});
+
+test('瞬时故障分类 · 服务端 5xx 与超时判瞬时', () => {
+  const { isTransientGhFailure } = audit;
+  assert.equal(isTransientGhFailure('gh: Server Error (HTTP 502)'), true);
+  assert.equal(isTransientGhFailure('GH_SPAWN_FAILED spawnSync gh ETIMEDOUT'), true);
+});
+
+test('瞬时故障分类 · 判据类失败一律不得判瞬时（重试它们就是把红藏起来）', () => {
+  const { isTransientGhFailure } = audit;
+  const permanent = [
+    'GH_FAILED api repos/o/r/actions/runs/1/jobs :: gh: Not Found (HTTP 404)',
+    'GH_SPAWN_FAILED spawnSync gh ENOENT',
+    'unknown flag: --repo',
+    'GH011: Repository rule violations found for refs/heads/main',
+    'Unexpected token < in JSON at position 0',
+    'no checks reported on the branch',
+  ];
+  for (const msg of permanent) {
+    assert.equal(isTransientGhFailure(msg), false,
+      '把永远不会变的失败读成瞬时 ⇒ 反复重试同一个错误: ' + msg);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 上面三把锁只证明分类器存在。分类器不被 collect 调用 = 装饰性门禁（本仓记过的同型），
+// 所以这三条一律**注入 gh 的 spawn 后端**、经真实 `collect()` 路径驱动，
+// 不断言"源码里出现过 withTransientRetry 这个单词"。
+test('重试落在 collect 真走的路上：瞬时故障抖两次后第三次成功 ⇒ 仍采到逐片样本并出声每次重试', () => {
+  const calls = []
+  const notices = []
+  // 与真 spawnSync 同形的结果对象（Node 实测：超时 error.code=ETIMEDOUT + status=null + signal；
+  // 这里模拟的是"进程起来了但 gh 自己因 TLS 强断非零退出"，stderr 带现场签名）
+  const transient = (n) => ({ status: 1, stdout: '', error: undefined,
+    stderr: 'Get https://api.github.com/x: read tcp 1.2.3.4:1->198.18.0.241:443: wsarecv: An existing connection was forcibly closed by the remote host. (第 ' + n + ' 次)' })
+  const okRunList = () => ({ status: 0, stderr: '', error: undefined, stdout: JSON.stringify([{ databaseId: 1, status: 'completed' }]) })
+  const okJobs = () => ({ status: 0, stderr: '', error: undefined, stdout: JSON.stringify({ jobs: [{ name: 'electron-tests', id: 7 }] }) })
+  const okLogs = () => ({ status: 0, stderr: '', error: undefined,
+    stdout: '[electron-ci-step] shard=--shard=1/2 verdict=ok elapsed=1320000ms completed=1 summary=1 共享预算=2700000ms\n' })
+
+  function spawnImpl (cmd, args) {
+    calls.push(args.join(' '))
+    if (calls.length <= 2) return transient(calls.length)
+    if (args[0] === 'run') return okRunList()
+    // 顺序要紧：作业日志端点 `.../actions/jobs/<id>/logs` 里也含 `/jobs`，
+    // 先判 /jobs 会把 logs 那一次派发成 jobs ⇒ 采到 0 片，红的看着像实现没做。
+    if (args[1].indexOf('/logs') > 0) return okLogs() // 端点路径在 args[1]；args[2] 是 --allow-escape-sequences
+    if (args[0] === 'api') return okJobs() // 索引要紧：gh api 的 args[0] 才是 'api'，args[1] 是端点路径
+    return okLogs()
+  }
+
+  const s = audit.collect({
+    runs: 1,
+    spawnImpl,
+    sleepImpl: () => {},          // 测试里不真等；退避时长由下一条锁单独管
+    notice: (line) => notices.push(line),
+  })
+  assert.equal(s.shards, 1, '抖两次之后应当采到那一片')
+  assert.equal(s.samples[0], 22, '1320000ms = 22 分钟')
+  assert.ok(notices.some((n) => /attempt=2/.test(n)), '每次重试必须出声（不打印attempt就无法区分"慢"与"坏"）：' + JSON.stringify(notices))
+  assert.equal(calls.length, 5, '前 2 次瞬时失败 + run list / jobs / logs 各一次 = 5 次调用')
+});
+
+test('判据类失败只试一次：HTTP 404 不得被重试洗成"多跑几次就绿了"', () => {
+  let calls = 0
+  const spawnImpl = () => {
+    calls++
+    return { status: 1, stdout: '', error: undefined, stderr: 'gh: Not Found (HTTP 404)' }
+  }
+  assert.throws(() => audit.collect({ runs: 1, spawnImpl, sleepImpl: () => {}, notice: () => {} }),
+    (e) => /GH_FAILED/.test(e.message), '不可重试的失败必须原样抛，而不是静默换一档')
+  assert.equal(calls, 1, '404 重试 ' + calls + ' 次 ⇒ 把一个稳定的判据故障洗成概率事件')
+});
+
+test('重试必须有界：一直抖也要停下来抛，且把试了几次写进文案', () => {
+  let calls = 0
+  const spawnImpl = () => {
+    calls++
+    return { status: 1, stdout: '', error: undefined, stderr: 'unexpected EOF' }
+  }
+  assert.throws(() => audit.collect({ runs: 1, spawnImpl, sleepImpl: () => {}, notice: () => {} }),
+    (e) => /attempts=\d+/.test(e.message) && /EOF/.test(e.message),
+    '耗尽重试后必须既抛又带上试过的次数（"试了但还是坏"与"一次就坏"是两种归因）')
+  assert.equal(calls, audit.GH_RETRY_ATTEMPTS_DEFAULT, '调用次数必须等于登记的预算，不得无限重试')
+});
+
+// 这两条覆盖"已经实现但还没被前面几条跑到"的分支：env/参数覆盖与非法值回落。
+// 它们写完就是绿的（行为已在 RED 压力下实现），所以**必须靠变异证明有牙**
+// （M6 放行 timeout=0 那类形态：把 resolvePositiveInt 的 `n < 1` 改成 `n < 0` 必须红）。
+test('重试预算可被覆盖以便排障，但非法值必须回落默认并出声（0 等于关掉重试）', () => {
+  const notices = []
+  const { resolvePositiveInt, GH_RETRY_ATTEMPTS_DEFAULT, GH_RETRY_BASE_MS_DEFAULT } = audit
+  assert.equal(resolvePositiveInt(undefined, GH_RETRY_ATTEMPTS_DEFAULT, 'X', () => {}), GH_RETRY_ATTEMPTS_DEFAULT)
+  assert.equal(resolvePositiveInt('7', GH_RETRY_ATTEMPTS_DEFAULT, 'X', (m) => notices.push(m)), 7, '合法覆盖必须生效，否则 env 是摆设')
+  assert.equal(resolvePositiveInt('0', GH_RETRY_ATTEMPTS_DEFAULT, 'X', (m) => notices.push(m)), GH_RETRY_ATTEMPTS_DEFAULT,
+    '0 = 一次都不试，读起来却像"按配置跑了"')
+  assert.equal(resolvePositiveInt('abc', GH_RETRY_BASE_MS_DEFAULT, 'X', (m) => notices.push(m)), GH_RETRY_BASE_MS_DEFAULT,
+    'NaN 会让 for 循环整条失效 ⇒ 永不重试也永不报错')
+  assert.equal(resolvePositiveInt('-2', GH_RETRY_ATTEMPTS_DEFAULT, 'X', (m) => notices.push(m)), GH_RETRY_ATTEMPTS_DEFAULT)
+  assert.ok(notices.length >= 3, '三档非法各要一条告警，实测 ' + notices.length + ' 条 ⇒ 静默回落就是把配置失效藏起来')
+  assert.ok(notices.every((m) => /非法/.test(m)), '告警文案要写明"非法"和回落值：' + JSON.stringify(notices))
+});
+
+test('attempts 是接进 collect 的活参数，不是只存在于常量里（collect 必须按它自己收到的值试）', () => {
+  let calls = 0
+  const spawnImpl = () => { calls++; return { status: 1, stdout: '', error: undefined, stderr: 'wsarecv: forcibly closed' } }
+  assert.throws(() => audit.collect({ runs: 1, attempts: 2, spawnImpl, sleepImpl: () => {}, notice: () => {} }),
+    /attempts=2/)
+  assert.equal(calls, 2, 'collect 收到 attempts=2 却试了 ' + calls + ' 次 ⇒ 参数没接进重试环，env 覆盖是假的')
+});
+
