@@ -37,6 +37,10 @@ const http = require('http')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+// ⚠ 必须**显式 require**：某些 Node 构建会把内置模块暴露成全局（实测本机 `globalThis.zlib` 存在）
+//   ⇒ 漏掉这一行时本机跑绿、CI 的 Node 构建上没有 ⇒ ReferenceError: zlib is not defined。
+//   依赖「恰好存在的全局」= 依赖某台机器的构建细节。
+const zlib = require('zlib')
 const { execFile, execFileSync } = require('child_process')
 const { promisify } = require('util')
 

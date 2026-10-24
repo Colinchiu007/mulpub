@@ -54,6 +54,38 @@ date: 2026-10-24
    ```
 4. **新增单测的 7 条断言本地全过**（手工跑等价断言）：签名 / IHDR 宽高 / 位深 / 颜色类型 / IEND 收尾 / `hexToRgb` 两例。
 
+### 1-A 首版被 CI 打回：**本机跑绿，是因为那个 Node 构建把 `zlib` 暴露成了全局**
+
+首版提交后 CI 报 `ReferenceError: zlib is not defined`（`encodePng` 第 240 行）——
+而**本机跑同一段代码是绿的**。根因不是断言写错，是**求值环境不同**：
+
+```
+$ node -e "console.log(typeof globalThis.zlib)"
+object          ← 本机：内置模块被暴露成全局
+```
+
+⇒ 漏写 `const zlib = require('zlib')` 时，本机那个全局**恰好**兜住了 ⇒ 绿；
+CI 的 Node 构建上没有这个全局 ⇒ ReferenceError。
+
+⇒ 两处修正：
+1. 桩里补**显式** `require('zlib')`（不依赖任何构建细节）；
+2. 补一条**在干净沙箱里求值**的本地检查（`vm.runInNewContext` 起一个没有 `zlib` 全局的上下文），
+   并对「剥掉 require」做**变异验证** ⇒ 本地就能复现 CI 的那条 ReferenceError。
+
+```
+$ node verify_zlib_require.js <桩> --strip-require
+✗ 干净沙箱里求值失败：ReferenceError: zlib is not defined      ← 变异必须红
+$ node verify_zlib_require.js <桩>
+✓ 干净沙箱里求值通过：encodePng 产出 4602 字节，IHDR 64x32     ← 修复后必须绿
+```
+
+**教训**：「本机跑是绿的」有三种掩码形态，这里踩到的是第三种 ——
+**① 依赖了某台机器/某个构建里恰好存在的全局**；② Node 版本不同；
+③ **代码路径压根没被执行到**（本机那次「7 条断言全过」就属于这一类之外的另一种：
+本机有 ffmpeg，`renderCard` 走的是 ffmpeg 路径，**兜底编码器从未被真正执行**）。
+⇒ 验证必须**在接近消费方的求值环境里**做（干净沙箱 / 无该全局），
+并对验证手段本身做**变异验证**（把修复拿掉 ⇒ 验证必须红）。
+
 ## 二、遗留（不假装已闭合）
 
 - **主干红要靠这个 PR 自己解开**：`scripts/check-main-red.js` 的退出码 2 语义明写
@@ -98,3 +130,22 @@ date: 2026-10-24
    查法：把那个用例的 skip 去掉跑一遍，看下游哪条断言先红。
 3. 条件 skip 会把「这台机器上没验证过」伪装成「这台机器上没问题」；
    要么让被测路径在**任何环境**下都成立（本 PR 的兜底编码器），要么把缺口显式记成可见项。
+
+### lesson: 「本机跑是绿的」可能是被**构建细节**掩罩的（fix-main-electron-tests-red）
+
+**现场**：新增的 PNG 兜底编码器用 `zlib.deflateSync`，本机跑全绿，CI 上
+`ReferenceError: zlib is not defined`。本机 `globalThis.zlib` 是 `object` ——
+**这个 Node 构建把内置模块暴露成了全局**，恰好兜住了漏写的 `require`。
+
+**根因**：「本机绿」只证明「本机的求值环境里不缺那个符号」，不证明「消费方的求值环境里不缺」。
+CI 与本机的 Node **构建不同** ⇒ 全局集合不同。
+
+**可复用的 N 条**：
+
+1. 任何内置模块**一律显式 require**；「它在本机是全局」不是不 require 的理由。
+2. 验证要在**接近消费方的求值环境**里做：干净沙箱（`vm.runInNewContext`）、无该全局、
+   对齐 Node 版本。本例用干净沙箱复现了 CI 的那条 ReferenceError。
+3. **对验证手段本身做变异验证**：把修复拿掉，验证必须红。本例剥掉 require 后验证立刻红
+   ⇒ 证明这条检查有牙齿，而不是「恰好绿」。
+4. 附带一条：**本机有 ffmpeg ⇒ 兜底路径从未被真正执行过** ⇒ 「本机跑过一遍」不等于
+   「所有分支都被执行过」。兜底路径要有**每台机器都跑**的专测。
