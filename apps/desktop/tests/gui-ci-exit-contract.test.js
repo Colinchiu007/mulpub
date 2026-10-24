@@ -721,8 +721,15 @@ describe('GUI/CI 工作流门禁契约', () => {
     expect(runtimeInstall).not.toContain('ffmpeg-ffprobe-static');
 
     const checksumPolicy = checksumSteps[0].run;
-    expect(checksumPolicy).toContain('electron-v43.7.7-win32-x64.zip');
+    // 版本号**不许写死**：electron 一升级，写死的 artifact 名就会与实际安装的版本脱节
+    // ⇒ 校验的仍是「**即将安装的那个 electron** 的 checksum pin 在随包 manifest 里」，
+    //   但版本从**已装包**推导 ⇒ 下次升级不必再改这条（也不必改本断言）。
+    expect(checksumPolicy).toContain("require('./node_modules/electron/package.json')");
     expect(checksumPolicy).toContain("require('./node_modules/electron/checksums.json')");
+    expect(checksumPolicy).toContain("'electron-v' + version + '-win32-x64.zip'");
+    expect(checksumPolicy).toContain('Electron checksum pin missing for ');
+    // 反断言：任何写死的版本号都判红（防止有人把推导改回硬编码）
+    expect(checksumPolicy).not.toMatch(/electron-v\d+\.\d+\.\d+-win32-x64\.zip/);
 
     expect(electronSteps[0].run).toContain(
       'unset electron_use_remote_checksums npm_config_electron_use_remote_checksums',

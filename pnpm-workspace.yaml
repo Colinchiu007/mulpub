@@ -85,7 +85,8 @@ overrides:
 # 刻意不把两个包的 peer 区间收成 >=43.7.7：那是它们对外的兼容契约（收窄等于宣布放弃更老的 electron 消费方），
 # override 只改本仓解析结果，不改对外声明。带 ^ 与同段三条一致（有上界，见下方整表棘轮），
 # 43.x 内不再跨 major；43-x-y 线的最新是 43.7.7（44.x 已发布但属 major 抬升，另议）。
-  electron: '^43.7.7'
+  electron: '^43.8.1'
+  zod: '^4.6.6'
 # brace-expansion：6 条 high 公告（GHSA-3jxr-9vmj-r5cp / GHSA-mh99-v99m-4gvg /
 #   GHSA-rgw5-rvv9-x895 / GHSA-q2hr-2g5m-vwhr / GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p），
 #   修复下界 1.x 线 >=1.1.21、4.x/5.x 线 >=5.0.12；2.x 线**无一条覆盖**。
