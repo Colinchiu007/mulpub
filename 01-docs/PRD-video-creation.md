@@ -1888,6 +1888,35 @@ SettingsDialog 关闭（App.vue @close）
 9. **启动门禁**：`missing`/`unusable` 时 `canStartPipeline=false`，`pipelineBlockedReason` 依次给 `blockedReason.bgmLost` / `bgmUnusable`；`handleStartPipeline` 在有历史路径时先 `await` 一次核验；`unknown` 永不阻断。compose 的 `bgmSkipped` 降级语义保留为最后防线。
 10. **验收增补**：面板测试断言分组归属与三种状态渲染；壳测试断言 missing 阻断+清除恢复、adopt 后自动选中、unknown 不阻断、声音摘要含 BGM；服务层 `inspectPath` 判定矩阵 8 例、IPC 2 例、preload/权限 1 例、composable 6 例；locale zh/en 成对且无新增硬编码中文。完整合同见 `01-docs/PRD-S2V-BGM-VOICE-SECTION-LEGACY-REPAIR-2026-10-17.md`。
 
+### 3.1.42 快速渲染接入 Agnes Video 2.5 Flash 全能力（模式 / 素材 / 参数 / 真实进度）（2026-10-23）
+
+**需求来源**：`agnes-multimodal` 适配器**已完整实现 Agnes Video 2.5 Flash 协议**（text / keyframe / reference 三模式、首尾帧、参考图 ≤5、参考音频 ≤3、seconds、aspect_ratio、seed），但产品上**一个都不可见**——快速渲染页只有「文案生成 / 图片轮播」两个 tab，AI 视频路径只传 `prompt`，其余能力全部在链路上被丢弃。同时暴露两个当下就在冒烟的缺陷：**「输出平台」下拉在 AI 视频路径上完全失效**（选了 YouTube 横屏也出竖屏），**AI 视频进度条不反映真实进度**。
+
+**根因**：
+
+1. **参数在三层被丢弃**：① `story2video-stages.js` 的 `generateSceneVideo` 提交时只传 `{ prompt, model, width, height, numFrames, frameRate }`，`mode` / `images` / `audios` / `first_frame` / `last_frame` / `seconds` / `aspect_ratio` / `seed` 全部不传；② IPC `render:start-ai-video` 契约只有 `{ prompt }`，宽高/时长在主进程**硬编码**（720×1280 / 8s / 30fps）；③ 渲染层无对应 UI 入口。
+2. **「输出平台」失效**：该下拉只在 gallery 模式被消费（传给本地 Remotion），AI 视频路径压根没传画幅，成片恒为 9:16。
+3. **进度条失真（两层原因）**：① 主进程只在提交前推一次进度，轮询期间无回调；② **载荷形状不匹配**——preload 的 `onRenderProgress` 把 IPC 载荷**原样**传给回调（`(_e, p) => callback(p)`），主进程发的是 `{ percent, stage }` **对象**，而渲染层按 `(pct, stg)` 两个位置参数解构 ⇒ `pct` 拿到的是整个对象。
+
+**合同**：
+
+1. **模式集合**：快速渲染的 AI 视频模式扩为 3 个 + 本地 1 个：
+   - `文生视频`（`mode=text`）：不带任何素材；
+   - `首尾帧`（`mode=keyframe`）：首帧 / 尾帧**至少一个**；
+   - `参考素材`（`mode=reference`）：参考图 / 参考音频**至少一类**；
+   - `图片轮播`：本地 Remotion 路径，不调 AI 视频模型（语义不变）。
+2. **能力由模型属性决定**：能力描述单一真源 `electron/services/adapters/agnes-video-models.js`（按模型 ID 给出尺寸档位 / 素材上限 / 是否支持参考视频 / 合法画幅）。**未知模型 ⇒ 保守回落（只支持文生视频）**。判据落在**模型的能力属性**上而非「providerId 名单」——名单判据对新增对象默认不成立。
+3. **参数区**：输出平台（6 个）→ 画幅映射（6 个合法 `aspect_ratio`）；时长 4–12 秒；随机种子（**0 是合法值**，不得被当作空值丢弃）；分辨率档位（单档位时控件禁用并显示该档位）。
+4. **素材上限（客户端预校验，不发无谓请求）**：参考图 ≤5、参考音频 ≤3；单文件体积：参考图 ≤5MB、参考音频 ≤10MB（Base64 膨胀约 33%，为单请求 50MB 上限留余量）。
+5. **模式 ↔ 媒体契约**（渲染层与主进程**共用同一判据** `packages/shared-utils/src/agnes-video-request.js`）：text 禁媒体 / keyframe 至少一首尾帧且禁参考素材 / reference 至少一类素材且禁首尾帧。违规返回**领域码**（如 `keyframe-requires-frame`），渲染层据此取本地化文案，**不把英文码原样透给用户**。
+6. **真实进度**：进度经既有 `render:progress` 通道由**主进程 push**（提交 2% / 排队中 / 生成中 / 下载 90% / 完成 100%）。**百分比如实透传服务端 `progress`，不伪造连续增长**（服务端只有 10 / 100 两档）；「排队中 / 生成中」按服务端**原始状态**区分（归一化后两者都是 `processing`）。进度来源是主进程 push 而非前端轮询——切到其它 tab 视为离开创作页、须停前端轮询（既有 spec `s2v-start-foreground-tracking`）。
+7. **取消语义**：`renderCancel` 只取消**本地 Remotion 渲染**（图片轮播路径）；上游未公开任务取消端点 ⇒ AI 视频的【取消】只停本地等待，并**如实提示**「远端任务可能仍在生成」。
+8. **模块归属**：`generateSceneVideo` 及其依赖抽到 `electron/services/scene-video-generator.js`（`story2video-stages.js` 在「点名还账」清单里、target=4081 容差 0，加行即打红主干 ⇒ 抽出还债，净减 173 行；`CreateView.vue` 同理净减 109 行）。
+9. **i18n**：新增文案全部走 `create.story2video.ui.quick*`（zh/en 成对）；渲染端**零新增硬编码中文**（CJK 门禁按 file+content 增量比对基线，新文件里的中文即视为新增硬编码）。
+10. **验收边界**：真实 AI 视频生成依赖已配置的视频供应商与真实第三方服务，属外部验收；本地单测覆盖 IPC 契约、参数校验、能力描述、进度载荷形状与渲染层行为。
+
+**未做（明确边界）**：参考视频（Flash 服务端硬拒 `videos is not supported`，需非 Flash 模型 + 公网素材托管，另立 change）；`n > 1`（服务端仅支持 1）；`width/height/fps/num_frames` 直传（非 Flash 2.5 会 400）；`negative_prompt`（2.5 Flash 拒收该字段）。
+
 ### 3.1.26 视频任务编辑页场景多素材选择与再次合成（2026-08-14；2026-08-20 布局与交互修订）
 
 **需求**：「视频创作-历史记录 → 视频任务编辑页」每个场景固定展示 4 个视觉卡：**图1 / 图2（备选图）/ 视频1 / 视频2（两个视频显示位）**；底层仍只有 3 个持久化素材身份 `image1 | image2 | video`。新增按钮【生成新图】【生成 AI 视频】（生成更多素材供选择）与【再次合成视频】（用当前选定素材 + 已有 TTS 旁白/字幕/背景音乐重新合成成片）；流水线完成后即可从视频任务编辑页继续生成、预览、选择素材并重新合成。其余既有功能（分段编辑、替换旁白、重试、重新合成、导出等）保持不变。

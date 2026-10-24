@@ -198,8 +198,10 @@ export function onAccountStatusChanged(callback) { return bridgeOn("AccountStatu
 
 // ─── 渲染 API ────────────────────────────
 export async function renderStart(data) { return invoke("renderStart", data) }
-// 快速渲染 text 模式：调用 AI 视频生成模型（主进程提交+轮询+下载），返回本地视频路径
+// 快速渲染 AI 视频：调用 AI 视频生成模型（主进程提交+轮询+下载），返回本地视频路径
 export async function renderStartAiVideo(data) { return invoke("renderStartAiVideo", data) }
+// 快速渲染 AI 视频：查询当前视频 provider 的能力描述（模式集合 / 素材上限 / 分辨率档位 / 画幅）
+export async function renderAiVideoCapabilities() { return invoke("renderAiVideoCapabilities") }
 export async function renderCancel () {
   return invokeWithFallback("renderCancel", {})
 }

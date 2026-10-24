@@ -142,27 +142,16 @@ describe("CreateView (deep)", () => {
     w.vm.view = 'quick';
     await nextTick();
     const tabs = w.findAll(".mode-tab");
-    expect(tabs.length).toBe(2);
+    expect(tabs.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("canQuickRender changes with quickText", async () => {
+  // 快速渲染的「可提交判定 / AI 写稿 / 素材与参数」已下沉到 QuickRenderPanel.vue
+  // （openspec change: agnes-video-flash-quick-render）——CreateView 只负责编排与路由。
+  it("renders QuickRenderPanel in the quick view", async () => {
     const w = await mountCreate();
     w.vm.view = 'quick';
     await nextTick();
-    expect(w.vm.canQuickRender).toBe(false);
-    w.vm.quickText = "hello";
-    await nextTick();
-    expect(w.vm.canQuickRender).toBe(true);
-  });
-
-  it("aiWrite generates content", async () => {
-    const w = await mountCreate();
-    w.vm.view = 'quick';
-    await nextTick();
-    w.vm.aiWrite();
-    await new Promise(r => setTimeout(r, 1100));
-    await nextTick();
-    expect(w.vm.quickText.length).toBeGreaterThan(0);
+    expect(w.findComponent({ name: "QuickRenderPanel" }).exists()).toBe(true);
   });
 });
 

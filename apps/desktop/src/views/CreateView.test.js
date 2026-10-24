@@ -228,59 +228,6 @@ describe("CreateView", () => {
     expect(w.text()).toContain("上传图片");
   });
 
-  it("canQuickRender is false with empty quickText", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    await nextTick();
-    expect(w.vm.canQuickRender).toBe(false);
-  });
-
-  it("canQuickRender is true with non-empty quickText", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    w.vm.quickText = "hello world";
-    await nextTick();
-    expect(w.vm.canQuickRender).toBe(true);
-  });
-
-  it("canQuickRender is false when quickRendering", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    w.vm.quickText = "test";
-    w.vm.quickRendering = true;
-    expect(w.vm.canQuickRender).toBe(false);
-  });
-
-  it("canQuickRender is false when gallery mode with no images", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    w.vm.quickMode = "gallery";
-    expect(w.vm.canQuickRender).toBe(false);
-  });
-
-  it("canQuickRender is true when gallery has images", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    w.vm.quickMode = "gallery";
-    w.vm.quickImages = [{ path: "/img.png", preview: "blob:1" }];
-    expect(w.vm.canQuickRender).toBe(true);
-  });
-
   it("gets renderStatus on mount", async () => {
     const mocks = await import("@/api/publisher");
     mount(CreateView, {
@@ -1565,93 +1512,25 @@ describe("CreateView - quick render", () => {
     window.electronAPI = {};
   });
 
-  it("startQuickRender text 模式调用 renderStartAiVideo 生成 AI 视频", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.renderStartAiVideo.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/ai-video.mp4" } });
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    w.vm.quickText = "scene1\nscene2\nscene3";
-    await w.vm.startQuickRender();
-    await nextTick();
-    expect(mocks.renderStartAiVideo).toHaveBeenCalled();
-    const arg = mocks.renderStartAiVideo.mock.calls[0][0];
-    expect(arg.prompt).toBe("scene1。scene2。scene3");
-    expect(w.vm.quickResult.outputPath).toBe("/tmp/ai-video.mp4");
-    expect(w.vm.quickRendering).toBe(false);
-  });
-
-  it("startQuickRender gallery 模式调用 renderStart 渲染图片轮播", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.renderStart.mockResolvedValue({ code: 0, data: { outputPath: "/tmp/gallery.mp4" } });
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    w.vm.quickMode = "gallery";
-    w.vm.quickImages = [{ preview: "blob:1" }, { preview: "blob:2" }];
-    await w.vm.startQuickRender();
-    await nextTick();
-    expect(mocks.renderStartAiVideo).not.toHaveBeenCalled();
-    expect(mocks.renderStart).toHaveBeenCalled();
-    const arg = mocks.renderStart.mock.calls[0][0];
-    expect(arg.props.cuts.length).toBe(2);
-    expect(arg.props.cuts[0].type).toBe("anime_scene");
-  });
-
-  it("startQuickRender text 模式失败时展示错误并复位", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.renderStartAiVideo.mockResolvedValue({ code: 1, message: "render failed" });
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    w.vm.quickText = "test";
-    await w.vm.startQuickRender();
-    await nextTick();
-    expect(w.vm.quickError).toBe("render failed");
-    expect(w.vm.quickRendering).toBe(false);
-  });
-
-  it("cancelQuickRender calls renderCancel", async () => {
-    const mocks = await import("@/api/publisher");
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.quickRendering = true;
-    await w.vm.cancelQuickRender();
-    expect(mocks.renderCancel).toHaveBeenCalled();
-    expect(w.vm.quickRendering).toBe(false);
-  });
-
-  it("aiWrite generates content", async () => {
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.view = "quick";
-    await nextTick();
-    w.vm.aiWrite();
-    await new Promise(r => setTimeout(r, 1100));
-    await nextTick();
-    expect(w.vm.quickText.length).toBeGreaterThan(0);
-  });
-
-  it("viewQuickResult navigates to result page", async () => {
+  it("viewQuickResult 接收子组件回传的成片路径并跳转结果页", async () => {
     const push = vi.fn();
     router.push = push;
     const w = mount(CreateView, {
       global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
     });
     await nextTick();
-    w.vm.quickResult = { outputPath: "/tmp/video.mp4" };
-    w.vm.viewQuickResult();
+    w.vm.viewQuickResult("/tmp/video.mp4");
     expect(push).toHaveBeenCalledWith({ path: "/create/result", query: { path: "/tmp/video.mp4" } });
+  });
+
+  it("快速渲染视图渲染 QuickRenderPanel 子组件（能力与参数下沉到子组件）", async () => {
+    const w = mount(CreateView, {
+      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
+    });
+    await nextTick();
+    w.vm.view = "quick";
+    await nextTick();
+    expect(w.findComponent({ name: "QuickRenderPanel" }).exists()).toBe(true);
   });
 
   // ── 带文案进入（rewrite-to-video-entry 2026-09-13）：_loadDraftForRewrite 预填 + 灰显 ──
@@ -1757,58 +1636,6 @@ describe("CreateView - quick render", () => {
     w.unmount();
   });
 
-  it("renderStartAiVideo 拒绝时展示异常并复位渲染状态", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.renderStartAiVideo.mockRejectedValueOnce(new Error("渲染 IPC 缺失"));
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.quickText = "测试文案";
-
-    await expect(w.vm.startQuickRender()).resolves.toBeUndefined();
-
-    expect(w.vm.quickError).toBe("渲染异常: 渲染 IPC 缺失");
-    expect(w.vm.quickRendering).toBe(false);
-    expect(w.vm.quickResult).toBeNull();
-  });
-
-  it("renderStartAiVideo 返回异常格式时展示默认错误并复位", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.renderStartAiVideo.mockResolvedValueOnce({});
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.quickText = "测试文案";
-
-    await w.vm.startQuickRender();
-
-    expect(w.vm.quickError).toBe("渲染失败");
-    expect(w.vm.quickRendering).toBe(false);
-  });
-
-  it("图库渲染只提交图片预览并按五秒生成镜头", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.renderStart.mockResolvedValueOnce({ code: 0, data: { taskId: "r1" } });
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await nextTick();
-    w.vm.quickMode = "gallery";
-    w.vm.quickImages = [
-      { name: "a.png", preview: "data:image/png;base64,a" },
-      { name: "b.png", preview: "data:image/png;base64,b" },
-    ];
-
-    await w.vm.startQuickRender();
-
-    const cuts = mocks.renderStart.mock.calls.at(-1)[0].props.cuts;
-    expect(cuts).toEqual([
-      { id: "scene-0", type: "anime_scene", images: ["data:image/png;base64,a"], animation: "ken-burns", in_seconds: 0, out_seconds: 4.5 },
-      { id: "scene-1", type: "anime_scene", images: ["data:image/png;base64,b"], animation: "ken-burns", in_seconds: 5, out_seconds: 9.5 },
-    ]);
-  });
 });
 
 describe("CreateView - callbacks", () => {
@@ -1816,26 +1643,6 @@ describe("CreateView - callbacks", () => {
     vi.clearAllMocks();
     setActivePinia(createPinia());
     window.electronAPI = {};
-  });
-
-  it("onRenderComplete sets quickResult", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.onRenderComplete.mockImplementation(cb => { cb({ outputPath: "/tmp/test.mp4" }); return vi.fn(); });
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await new Promise(r => setTimeout(r, 0));
-    expect(w.vm.quickResult).toEqual({ outputPath: "/tmp/test.mp4" });
-  });
-
-  it("onRenderError sets quickError", async () => {
-    const mocks = await import("@/api/publisher");
-    mocks.onRenderError.mockImplementation(cb => { cb({ message: "render failed" }); return vi.fn(); });
-    const w = mount(CreateView, {
-      global: { plugins: [router, i18n], components: { UiButton, UiSelect, CreateViewHistory, PipelineSelector, StageProgress } }
-    });
-    await new Promise(r => setTimeout(r, 0));
-    expect(w.vm.quickError).toBe("render failed");
   });
 
   it("onRenderInstallProgress updates installLog", async () => {

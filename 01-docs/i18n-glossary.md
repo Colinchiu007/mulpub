@@ -107,6 +107,15 @@
 | 流水线：{pipeline} | Pipeline: {pipeline} | hotTopics.genVideoPipelineLabel |
 | 收起左侧菜单 | Collapse sidebar | tabBar.collapseSidebar |
 | 展开左侧菜单 | Expand sidebar | tabBar.expandSidebar |
+| 文生视频 | Text to video | quickRender.mode.text |
+| 首尾帧 | Keyframes | quickRender.mode.keyframe |
+| 参考素材 | References | quickRender.mode.reference |
+| 参考图 | Reference images | quickRender.referenceImages |
+| 参考音频 | Reference audio | quickRender.referenceAudio |
+| 视频提示词 | Video prompt | quickRender.prompt |
+| 首帧 | First frame | quickRender.firstFrame |
+| 尾帧 | Last frame | quickRender.lastFrame |
+| 随机种子 | Random seed | quickRender.seed |
 
 > **「侧边栏 / Sidebar」暂不登记为表行**：本次按钮文案使用「左侧菜单」措辞（与既有「左侧菜单」「主导航」一致），
 > 而 `glossary.test.js` 要求术语在 zh/en locale 字符串值中的出现状态一致；当前 en 侧因

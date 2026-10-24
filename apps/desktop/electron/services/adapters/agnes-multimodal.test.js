@@ -157,6 +157,74 @@ describe('AgnesMultimodalAdapter — Agnes-AI 多模态（中国站）', () => {
       expect(fetchMock.calls[0].opts.headers.Authorization).toBe('Bearer sk-abc')
     })
 
+    it('能力描述驱动的本地预校验：不受支持的 size/画幅/时长在本地拒收（不发无谓请求）', async () => {
+      const fetchMock = createFetchMock([])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+
+      // Flash 固定 720P ⇒ 传 1080P 必被服务端 400，本地先拒
+      await expect(adapter.generateVideo({ prompt: 'p', size: '1080P' })).rejects.toThrow(/size must be one of/)
+      // 非白名单画幅
+      await expect(adapter.generateVideo({ prompt: 'p', aspect_ratio: 'auto' })).rejects.toThrow(/aspect_ratio must be one of/)
+      // 时长越界（不静默夹取）
+      await expect(adapter.generateVideo({ prompt: 'p', seconds: 20 })).rejects.toThrow(/seconds must be between 4 and 12/)
+
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+
+    it('Flash 拒收参考视频（服务端会以 videos is not supported 拒绝，本地先拦）', async () => {
+      const fetchMock = createFetchMock([])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      await expect(adapter.generateVideo({
+        prompt: 'p',
+        mode: 'reference',
+        videos: [{ url: 'https://example.com/in.mp4' }],
+      })).rejects.toThrow(/videos is not supported/)
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+
+    it('非 Flash 模型：size 放行 1080P，参考视频可提交', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ video_id: 'vid-2' })])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      await adapter.generateVideo({
+        prompt: 'p',
+        model: 'agnes-video-2.5',
+        size: '1080P',
+        mode: 'reference',
+        videos: [{ url: 'https://example.com/in.mp4', start_seconds: 0, require_audio: false }],
+      })
+      const body = JSON.parse(fetchMock.calls[0].opts.body)
+      expect(body.size).toBe('1080P')
+      expect(body.videos).toEqual([{ url: 'https://example.com/in.mp4', start_seconds: 0, require_audio: false }])
+    })
+
+    it('参考图/参考音频上限随模型能力变化（Flash 5 张 / 标准 8 张）', async () => {
+      const fetchMock = createFetchMock([])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      const six = Array.from({ length: 6 }, (_, i) => `https://x/${i}.png`)
+      const nine = Array.from({ length: 9 }, (_, i) => `https://x/${i}.png`)
+
+      // Flash 上限 5 ⇒ 6 张即拒
+      await expect(adapter.generateVideo({ prompt: 'p', mode: 'reference', images: six }))
+        .rejects.toThrow(/images length must not exceed 5/)
+      // 标准 2.5 上限 8 ⇒ 6 张合法，9 张才拒
+      await expect(adapter.generateVideo({ prompt: 'p', model: 'agnes-video-2.5', mode: 'reference', images: nine }))
+        .rejects.toThrow(/images length must not exceed 8/)
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+
+    it('未知模型按最严能力处理（fail-closed）', async () => {
+      const fetchMock = createFetchMock([])
+      global.fetch = fetchMock
+      const adapter = new AgnesMultimodalAdapter({ id: 'agnes-multimodal', apiKey: 'sk-test' })
+      await expect(adapter.generateVideo({ prompt: 'p', model: 'mystery-model', size: '2K' }))
+        .rejects.toThrow(/size must be one of/)
+      expect(fetchMock.calls).toHaveLength(0)
+    })
+
     it('显式 model/aspect_ratio/seconds 优先；taskId 兼容 id/task_id 命名', async () => {
       const fetchMock = createFetchMock([createFetchResponse({ id: 'task-9' })])
       global.fetch = fetchMock
@@ -254,7 +322,9 @@ describe('AgnesMultimodalAdapter — Agnes-AI 多模态（中国站）', () => {
       const submit = await adapter.generateVideo({ prompt: 'p', model: 'agnes-video-2.5-flash' })
       const status = await adapter.getVideoStatus({ videoId: submit.taskId, taskId: submit.taskId })
 
-      expect(status).toEqual({ status: 'completed', videoUrl: 'https://cdn.example.com/out.mp4', progress: 100 })
+      // providerStatus 是**加性**字段：保留服务端原始状态（queued / in_progress / completed / failed），
+      // 供渲染层区分「排队中 / 生成中」（归一化后的 status 两者都是 processing，区分不出来）。
+      expect(status).toEqual({ status: 'completed', videoUrl: 'https://cdn.example.com/out.mp4', progress: 100, providerStatus: 'completed' })
       const queryUrl = fetchMock.calls[1].url
       expect(queryUrl).toContain('https://api.agnes-ai.cn/agnesapi?')
       expect(queryUrl).toContain('video_id=vid-q')

@@ -33,6 +33,7 @@ const { ProviderError, ERROR_CODES, fromHttpStatus } = require('./_base/provider
 const { AgnesLlmAdapter } = require('./agnes-llm')
 const { AgnesImageAdapter } = require('./agnes-image')
 const { fetchWithTimeout } = require('./_base/fetch-utils')
+const { buildAgnesVideoRequest, pickAspectRatio, pickSeconds } = require('./agnes-video-request')
 
 const DEFAULT_BASE_URL = 'https://api.agnes-ai.cn/v1'
 const DEFAULT_TIMEOUT = 120000
@@ -42,6 +43,9 @@ const DEFAULT_IMAGE_MODEL = 'agnes-image-2.5-flash'
 const DEFAULT_VIDEO_MODEL = 'agnes-video-2.5-flash'
 
 // 静态预定义 Agnes-AI 多模态模型列表
+// 注意：这里列的是**产品暴露面**（模型设置页能选到的模型），与 agnes-video-models.js 的
+// 「API 能力真相」是两层。后者已包含非 Flash 的 agnes-video-2.5，但把它接进本列表与
+// 模型种子是 agnes-video-nonflash-reference-video change 的职责（届时两处同步）。
 const AGNES_MULTIMODAL_MODELS = [
   { id: 'agnes-3.0-flash', name: 'Agnes 3.0 Flash', description: '文字推理（OpenAI 兼容 chat/completions，512K 上下文）' },
   { id: 'agnes-image-2.5-flash', name: 'Agnes Image 2.5 Flash', description: '图片生成（/images/generations，1K-4K 档位）' },
@@ -57,43 +61,6 @@ const VIDEO_ASPECT_RATIOS = [
   { ratio: '3:4', value: 3 / 4 },
   { ratio: '9:16', value: 9 / 16 },
 ]
-
-/**
- * 从像素宽高推导最接近的支持画幅（对数距离最近），无有效宽高时默认 16:9
- * @param {number|string} [width]
- * @param {number|string} [height]
- * @returns {string}
- */
-function pickAspectRatio(width, height) {
-  const w = Number(width)
-  const h = Number(height)
-  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return '16:9'
-  const target = Math.log(w / h)
-  let best = VIDEO_ASPECT_RATIOS[1] // 16:9
-  let bestDiff = Infinity
-  for (const item of VIDEO_ASPECT_RATIOS) {
-    const diff = Math.abs(Math.log(item.value) - target)
-    if (diff < bestDiff) {
-      bestDiff = diff
-      best = item
-    }
-  }
-  return best.ratio
-}
-
-/**
- * 从帧数/帧率推导视频时长秒数（v2.5 Flash 要求字符串 "4"–"12"，默认 "5"）
- * @param {number|string} [numFrames]
- * @param {number|string} [frameRate]
- * @returns {string}
- */
-function pickSeconds(numFrames, frameRate) {
-  const frames = Number(numFrames)
-  const rate = Number(frameRate)
-  if (!Number.isFinite(frames) || !Number.isFinite(rate) || frames <= 0 || rate <= 0) return '5'
-  const seconds = Math.round(frames / rate)
-  return String(Math.min(12, Math.max(4, seconds)))
-}
 
 class AgnesMultimodalAdapter extends BaseAdapter {
   /**
@@ -215,20 +182,26 @@ class AgnesMultimodalAdapter extends BaseAdapter {
   /**
    * 提交视频生成任务（OpenAI Videos 兼容）
    *
-   * Flash 专属校验（HTTP 400）：size 固定 "720P"；reference 模式 images ≤ 5、
-   * audios ≤ 3、不支持 videos；seconds 为字符串 "4"–"12"。
+   * 能力边界（2026-10-23 起）由 `agnes-video-models.js` 的**能力描述**驱动，不再在本文件
+   * 里散落模型判定 —— 尺寸档位、参考图/音频/视频上限、是否支持参考视频，全部读 `spec`：
+   *   - Flash：size 固定 "720P"；images ≤ 5、audios ≤ 3；**不支持 videos**（服务端 400 `videos is not supported`）
+   *   - 标准 2.5：size 支持 "720P"/"1080P"/"1K"/"2K"；images ≤ 8、audios ≤ 3、videos ≤ 1
+   * 客户端预校验的目的是**不浪费一次必然 400 的请求**，判据与服务端规则同源。
    *
    * @param {object} params
    * @param {string} params.prompt - 生成提示词（必填）
    * @param {string} [params.model='agnes-video-2.5-flash'] - 模型 ID
    * @param {string} [params.mode] - 生成模式 text/keyframe/reference；缺省时按媒体参数推导
    * @param {string} [params.image] - 图生视频首帧图 URL（推导为 keyframe 模式）
-   * @param {string[]} [params.images] - reference 模式参考图片 URL 列表（≤5）
-   * @param {string[]} [params.audios] - reference 模式参考音频 URL 列表（≤3）
+   * @param {string[]} [params.images] - reference 模式参考图片 URL 列表
+   * @param {string[]} [params.audios] - reference 模式参考音频 URL 列表
+   * @param {Array} [params.videos] - reference 模式参考视频对象列表（仅标准 2.5 支持）
    * @param {string} [params.first_frame] / [params.last_frame] - keyframe 首尾帧 URL
    * @param {number} [params.width] / [params.height] - 像素尺寸，用于推导最近 aspect_ratio
    * @param {number} [params.numFrames] / [params.frameRate] - 用于推导 seconds（4–12）
    * @param {string} [params.aspect_ratio] - 显式画幅（16:9 等），优先于宽高推导
+   * @param {string} [params.size] - 显式分辨率档位；不被模型支持时本地拒收
+   * @param {number|string} [params.seconds] - 显式时长（4–12）
    * @param {number} [params.seed] - 随机种子
    * @returns {Promise<{taskId: string, model: string}>}
    */
@@ -238,55 +211,13 @@ class AgnesMultimodalAdapter extends BaseAdapter {
     }
 
     const model = params.model || DEFAULT_VIDEO_MODEL
-    const hasImages = Array.isArray(params.images) && params.images.length > 0
-    const hasAudios = Array.isArray(params.audios) && params.audios.length > 0
-    let mode = params.mode
-    if (!mode) {
-      if (params.image || params.first_frame || params.last_frame) mode = 'keyframe'
-      else if (hasImages || hasAudios) mode = 'reference'
-      else mode = 'text'
+    // 请求体构造与本地预校验抽在 agnes-video-request.js（纯函数，便于独立测试；
+    // 适配器只留「发请求 + 重试」的职责，避免自身撞 500 行门禁）。
+    const built = buildAgnesVideoRequest({ params, model })
+    if (built.error) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, built.error, { providerId: this.id })
     }
-
-    const body = {
-      model,
-      prompt: params.prompt,
-      mode,
-      // Flash 专属：size 固定 "720P"，其他值返回 HTTP 400（size must be 720P）
-      size: '720P',
-      aspect_ratio: params.aspect_ratio || params.aspectRatio || pickAspectRatio(params.width, params.height),
-      // 显式 seconds 优先（官方要求字符串 "4"–"12"，调用方传数字时归一化为字符串）；否则由 numFrames/frameRate 推导
-      seconds: String(params.seconds || pickSeconds(params.numFrames ?? params.num_frames, params.frameRate ?? params.frame_rate)),
-      // seed=0 是合法随机种子，必须用 != null 判空而非 ||（避免 0 被静默丢弃）
-      seed: params.seed != null ? params.seed : undefined,
-    }
-    if (mode === 'keyframe') {
-      body.first_frame = params.first_frame || params.image || undefined
-      body.last_frame = params.last_frame || undefined
-      if (!body.first_frame && !body.last_frame) {
-        throw new ProviderError(
-          ERROR_CODES.INVALID_CONFIG,
-          'keyframe mode requires first_frame or last_frame',
-          { providerId: this.id }
-        )
-      }
-    } else if (mode === 'reference') {
-      // Flash 专属上限（服务端超限返回 HTTP 400），客户端预校验避免浪费一次请求
-      if (hasImages && params.images.length > 5) {
-        throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'images length must not exceed 5', { providerId: this.id })
-      }
-      if (hasAudios && params.audios.length > 3) {
-        throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'audios length must not exceed 3', { providerId: this.id })
-      }
-      body.images = hasImages ? params.images : (params.image ? [params.image] : undefined)
-      body.audios = hasAudios ? params.audios : undefined
-      if (!body.images && !body.audios) {
-        throw new ProviderError(
-          ERROR_CODES.INVALID_CONFIG,
-          'reference mode requires images or audios',
-          { providerId: this.id }
-        )
-      }
-    }
+    const body = built.body
 
     // 真实运行经验（agnes-video-v2.0，2026-08-11 W7）：Agnes 提交偶发 503 队列满载 /
     // 429 限流，均为瞬时条件。有界重试 + 递增退避；非重试错误（401/403/402/400）立即抛出。
@@ -343,7 +274,13 @@ class AgnesMultimodalAdapter extends BaseAdapter {
   /**
    * 查询视频任务状态
    *
-   * @param {string|object} taskIdOrParams - 任务 ID 字符串，或 callAdapter 统一参数对象 { videoId, taskId }
+   * model_name 必须与提交时的模型一致（keyframe / reference 模式必需）。
+   * 取值优先级：① 适配器实例内记录的「任务 ID → 提交时模型」映射
+   *             ② 调用方随 params 传入的 model
+   *             ③ 默认模型（agnes-video-2.5-flash）
+   * ①的映射是**进程内**的（上限 200 条，适配器重启即失效）⇒ 跨重启续查必须靠 ②。
+   *
+   * @param {string|object} taskIdOrParams - 任务 ID 字符串，或 callAdapter 统一参数对象 { videoId, taskId, model }
    * @returns {Promise<{status: string, videoUrl: string, progress: number}>}
    */
   async getVideoStatus(taskIdOrParams) {
@@ -359,7 +296,10 @@ class AgnesMultimodalAdapter extends BaseAdapter {
     // （/agnesapi 位于域名根，base_url 之外，必须用绝对 URL）；
     // 不带 model_name 的查询仅适用于 mode: "text" 任务。
     const apiRoot = this.credentials.baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
-    const modelName = this._videoTaskModels.get(String(rawTaskId)) || DEFAULT_VIDEO_MODEL
+    const callerModel = (taskIdOrParams && typeof taskIdOrParams === 'object' && typeof taskIdOrParams.model === 'string')
+      ? taskIdOrParams.model.trim()
+      : ''
+    const modelName = this._videoTaskModels.get(String(rawTaskId)) || callerModel || DEFAULT_VIDEO_MODEL
     let data = null
     let lastError = null
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -396,7 +336,10 @@ class AgnesMultimodalAdapter extends BaseAdapter {
       ? parsedProgress
       : (status === 'completed' ? 100 : 0)
 
-    return { status, videoUrl, progress }
+    // providerStatus：保留服务端**原始状态**（queued / in_progress / completed / failed）。
+    // 上面的 status 是归一化后的（queued 与 in_progress 都映射成 processing），
+    // 渲染层要区分「排队中 / 生成中」需要原始值。
+    return { status, videoUrl, progress, providerStatus: data.status }
   }
 
   /** 返回静态预定义 Agnes-AI 多模态模型列表（副本） */

@@ -53,6 +53,7 @@ const PUBLISH_METHODS = [
   'publishWechat', 'publishBatch', 'listAccounts',
   'renderStart', 'renderCancel', 'renderGetStatus', 'renderInstallDeps',
   'renderStartAiVideo',
+  'renderAiVideoCapabilities',
   'onRenderProgress', 'onRenderComplete', 'onRenderError', 'onRenderInstallProgress',
   'onPipelineUpdate',
   'renderListCompositions', 'renderGetComposition', 'renderValidateProps',
@@ -197,10 +198,12 @@ describe('preload 子模块工厂函数', () => {
 
 // === 总方法数验证（防止漏迁移或重复）===
 describe('preload 子模块方法数', () => {
-  it('publish 模块应导出 131 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed；2026-10-10 发布频率策略 v2 +getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased；2026-10-15 「再次发布」+historyGetRepublishSnapshot；2026-10-17 历史 BGM 路径核验 +story2videoBgmLibraryStatus）', () => {
+  it('publish 模块应导出 132 个键（W1 §5 enforcement：+onRiskSuspended/listSuspendedRisk/resumeRisk/isSuspendedRisk；2026-10-06 定时派发失败信号 +onSchedulerDispatchFailed；2026-10-10 发布频率策略 v2 +getPublishFrequencyPolicy/setPublishFrequencyPolicy/emergencyReleasePublishWait/getPublishEmergencyStatus/onPublishEmergencyReleased；2026-10-15 「再次发布」+historyGetRepublishSnapshot；2026-10-17 历史 BGM 路径核验 +story2videoBgmLibraryStatus；2026-10-23 快速渲染视频能力查询 +renderAiVideoCapabilities）', () => {
     const { createPublishApi } = require('./preload/publish')
     const r = createPublishApi(ipcRenderer)
-    expect(Object.keys(r).length).toBe(131)
+    expect(Object.keys(r).length).toBe(132)
+    // 新增方法必须真实存在于聚合入口，防止「改了数字但方法没接上」
+    expect(Object.keys(r)).toContain('renderAiVideoCapabilities')
   })
 
   it('account 模块应导出 52 个方法（51 + accountGetProxy，2026-10-15 账号页列表零解密——代理状态改为打开弹窗时经 account:get-proxy 按需读取；50 + probeXiaohongshuDraftChain，2026-10-08 小红书 API 草稿链受控调试通道；49 + accountCredentialNames，2026-10-07 小红书 AT 凭据诊断；52 - 3 个 scheduled_tasks 死桥接，2026-10-02 死路径清理）', () => {
@@ -235,8 +238,10 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(r).length).toBe(142)
   })
 
-  it('合并后 api 总键数应为 340（2026-10-22：+onOfflineLost；339 = 2026-10-20 338 + aiRewriteCancel）', () => {
-    expect(Object.keys(api).length).toBe(340)
+  // 两处各自把总键数从 339 推到 340：#4202 加 onOfflineLost（离线横幅），
+  // 本 PR 加 renderAiVideoCapabilities（视频能力查询）⇒ 合并后为 341。
+  it('合并后 api 总键数应为 341（2026-10-24：= 339 + onOfflineLost(#4202) + renderAiVideoCapabilities；339 = 2026-10-20 338 + aiRewriteCancel）', () => {
+    expect(Object.keys(api).length).toBe(341)
     // 新键必须真实存在于聚合入口，防止「改了数字但方法没接上」
     expect(Object.keys(api)).toContain('identityRedeemCode')
     expect(Object.keys(api)).toContain('historyGetRepublishSnapshot')
@@ -244,15 +249,17 @@ describe('preload 子模块方法数', () => {
     expect(Object.keys(api)).toContain('story2videoBgmLibraryStatus')
     expect(Object.keys(api)).toContain('aiGenerateGenVideoTitle')
     expect(Object.keys(api)).toContain('aiRewriteCancel')
+    expect(Object.keys(api)).toContain('renderAiVideoCapabilities')
   })
 
   it('PUBLISH_METHODS 常量包含编排 API', () => {
-    expect(PUBLISH_METHODS.length).toBe(88)
+    expect(PUBLISH_METHODS.length).toBe(89)
     expect(PUBLISH_METHODS).toEqual(expect.arrayContaining([
       'pipelineStartOrchestrated',
       'pipelineExecuteStage',
       'pipelineAdvanceToNextCheckpoint',
       'pipelineGetRunContext',
+      'renderAiVideoCapabilities',
     ]))
   })
 

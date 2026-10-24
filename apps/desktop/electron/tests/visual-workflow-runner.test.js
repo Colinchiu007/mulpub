@@ -41,15 +41,15 @@ describe('视觉工作流执行器', () => {
 
     expect(selectors).toEqual(expect.arrayContaining([
       'waitFor:.view-tab:nth-child(2).active',
-      'click:.mode-tab:nth-child(1)',
-      'waitFor:.mode-tab:nth-child(1).active',
+      'click:[data-testid="quick-mode-text"]',
+      'waitFor:[data-testid="quick-mode-text"].active',
     ]))
     expect(selectors.indexOf('waitFor:.view-tab:nth-child(2).active'))
-      .toBeLessThan(selectors.indexOf('waitFor:textarea[placeholder="输入视频文案，每行一个场景..."]'))
-    expect(selectors.indexOf('waitFor:.mode-tab:nth-child(1).active'))
-      .toBeLessThan(selectors.indexOf('waitFor:textarea[placeholder="输入视频文案，每行一个场景..."]'))
-    expect(selectors.indexOf('click:.mode-tab:nth-child(1)'))
-      .toBeLessThan(selectors.indexOf('waitFor:.mode-tab:nth-child(1).active'))
+      .toBeLessThan(selectors.indexOf('waitFor:[data-testid="quick-ai-prompt"]'))
+    expect(selectors.indexOf('waitFor:[data-testid="quick-mode-text"].active'))
+      .toBeLessThan(selectors.indexOf('waitFor:[data-testid="quick-ai-prompt"]'))
+    expect(selectors.indexOf('click:[data-testid="quick-mode-text"]'))
+      .toBeLessThan(selectors.indexOf('waitFor:[data-testid="quick-mode-text"].active'))
   })
 
   it('账号工作流使用当前筛选器和命令按钮的稳定选择器', () => {
