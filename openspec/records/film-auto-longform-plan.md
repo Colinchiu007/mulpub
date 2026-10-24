@@ -245,15 +245,23 @@ docs-only，无代码改动。保留门禁本地实跑结果：
 已由 Colinchiu007 于 2026-10-23T20:17:34Z squash 合并（merge SHA `ff1d09cfb`），远端分支已删。
 ⇒ 本 PR 的 Gate 2b11 已随之转绿（quality-gate 的 QG Changes / Gate Result 现均 ✅）。
 
-## 7b. 当前唯一未绿项：依赖漏洞审计基线（**仓库级运维债，不是本 PR 的问题**）
+## 7b. 仓库级运维债：依赖漏洞审计基线（**曾阻塞本 PR 的唯一红项，不是本 PR 的问题**）
+
+> 观测时点：2026-10-24。本 PR 的 CI **除「依赖漏洞审计门禁」外全绿**
+> （quality-gate 的 QG Changes ✅ / Gate Result ✅、Electron CI ✅、Doc Sync ✅、GUI Tests ✅、债务熔断 ✅、Build ✅；
+> docs-only ⇒ 其余重测试 job 为 skipped）。
 
 | 读数 | 结果 |
 |---|---|
-| 本 PR 的 CI | 除「依赖漏洞审计门禁」外**全绿**（quality-gate / Electron CI / Doc Sync / GUI Tests / 债务熔断 / Build ✅） |
 | 失败步骤 | `❌ NEW_ADVISORY: npm/GHSA-mrhx-c7xc-m3w5`（zod high，路径 `.\|packages__remotion-composer`） |
-| 扩展后 | 同一波共 **3 条**新公告：zod / body-parser `GHSA-27r3-jxmh-p828` / electron `GHSA-jr5w-w6x2-84p9` |
+| 第一波（3 条） | zod / body-parser `GHSA-27r3-jxmh-p828` / electron `GHSA-jr5w-w6x2-84p9` |
+| 第二波（7 条，同日更晚） | fast-uri ×4（`GHSA-333x-w4r6-6crp` / `GHSA-4qv8-2p9j-2685` / `GHSA-f72v-6w45-q472` / `GHSA-w74x-v6f9-j3xg`）/ undici ×3（`GHSA-wjr9-j795-jxcr` / `GHSA-xhq7-xmqj-769h` / `GHSA-xjj6-f33q-929c`） |
 | 本 PR 与之的关系 | **零文件重叠**（本 PR 只动 `01-docs/` 与 `openspec/records/` 的两个 markdown） |
-| 在修的 PR | `#4354`（分支 `dep-audit-zod-baseline`）已**登记全部 3 条**、自身零失败；`#4345` 也登记了 3 条 |
+| 登记路径 | 第一波由 `#4354`（分支 `dep-audit-zod-baseline`）登记，**已于 2026-10-24T00:50:21Z 合并**（merge SHA `d94f83a7b`）；第二波由 `#4356`（分支 `dep-audit-baseline-refresh-2026-10-24`）登记，走同型机械口径（`decision: upgrade-tracked` + `targetVersion` = 公告修复下界） |
+
+**归因结论**：本 PR 的红是**主干基线落后于上游 advisory 库**造成的，
+解除路径是「把公告登记进主干基线」——那是**另一个 PR 的事**，与本 PR 的内容无关，
+故**不在本 PR 里混改**（同 §7 的处置纪律）。
 
 **机制层根因（值得单独立项）**：`scripts/dep-audit-baseline.json` 是**手工维护**的挂账清单，
 `node scripts/check-dep-audit.js --update` 是**手工命令**，CI（`.github/workflows/dep-audit.yml`）**只跑检查不跑刷新**。
