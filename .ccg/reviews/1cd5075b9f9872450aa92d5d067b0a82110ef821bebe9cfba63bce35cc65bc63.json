@@ -1,0 +1,64 @@
+{
+  "sha": "888ab56510d40853a18a1bc3d13b8fda4fe02b01",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 0 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 0,
+    "fileCount": 15,
+    "codeFileCount": 0,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 2,
+    "docSensitiveContentSample": [
+      "| 4 | **交付前最终形态**：高危面是否命中 / 「成片↔文案同源」是否可达 / 分支谱系分水岭 / 本轮记录是否属实 | claude 2.1.303（**隔离只读副本**：本分支 HEAD 的 `git archive` 快照，工具白名单只给 Read/Grep/Glob） | 四问**全部成立**：① 46 个改动文件对 8 条高危前缀**零命中**，新增配置档案模块是业务配置解析、不涉鉴权/凭证；② 「成片↔文案同源」**不可达**（runId 身份守卫三处 + 成片路径清空两处 + `isGenVideoResultReady`）；③ 配置档案模块在且被调用；④ 本轮记录段落无虚构证据、无夸大。**并抓到本刀自己的两个过期行号**（见下） | PR #4114 评论 [#issuecomment-6368372014](https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6368372014)（正文 sha256 `ab3c8acb77efa5ca5b8b0f45575a07dd3a547e50efa36bc194002c865060958b`，`gh api` 取回正文即可重算核对） |",
+      "> 已订正为 `:288` / `:376`（以 `Select-String` 实读为准），并把该订正写进公开评论。"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "        \"finding\": \"本 PR 的差集是否触及高危域（鉴权 / 凭证 / 加密 / 数据迁移 / 判据本体）。\",",
+      "        \"defense\": \"该差集是 merge(main) 带入的**主干提交**，不是本 PR 的代码改动；本 PR 自身改动的 19 个非评审产物文件（apps/desktop/** 15 + 文档 4）与该差集**零交集**。第 4 次独立外部复核（claude 2.1.303，在隔离只读副本里逐条核对 8 条高危前缀）给出的结论同样是**零命中**；本 PR 新增的 features/collection/collection-video-config-profile.js 是业务配置解析（选哪份流水线配置模板 + 套用快照），不涉及认证 / 凭证 / 密钥。\",",
+      "        \"evidenceDigestScope\": \"sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "1cd5075b9f9872450aa92d5d067b0a82110ef821bebe9cfba63bce35cc65bc63",
+  "decidedAt": "2026-10-23T15:59:25.665Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

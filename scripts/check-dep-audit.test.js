@@ -440,7 +440,15 @@ test('判定 4 必须接进 evaluate，而不是只导出一个没人调用的�
 test('入库基线自洽：每条 upgrade-tracked 都带可闭合的 targetVersion（防迁移后再次腐化）', () => {
   const b = JSON.parse(fs.readFileSync(path.join(__dirname, 'dep-audit-baseline.json'), 'utf8'))
   const ut = b.advisories.filter((e) => e.decision === 'upgrade-tracked')
-  assert.ok(ut.length >= 20, 'upgrade-tracked 不得是空遍历：' + ut.length)
+  // 地板是**反空转护栏**（至少要有几条 upgrade-tracked，让下面的 checkTargetEscapes 真的被遍历到），
+  // **不是「基线规模目标」**。
+  // 为什么从 20 改成 5（2026-10-24）：这行原本写死 `>= 20`，而那个 20 是 **#2904 引入本用例时
+  // 基线的快照规模**（当时基线 25 条、upgrade-tracked 24 条）。⇒ 基线**会随公告被真的解掉而缩小**
+  // （2026-10-24：24 → 17，upgrade-tracked 15 条）⇒ 把地板写成当时的快照值，等于
+  // **「把债真的清掉」这个正确动作反而判红**（本片正是去解 7 条公告、把 7 条已失效的挂账清掉的）。
+  // ⇒ 地板改成一个小而稳定的下界：只要还有条目在被遍历，这组断言就不是空转。
+  const MIN_UPGRADE_TRACKED = 5
+  assert.ok(ut.length >= MIN_UPGRADE_TRACKED, 'upgrade-tracked 不得是空遍历：' + ut.length)
   const bad = ut.map((e) => D.checkTargetEscapes(e)).filter(Boolean)
   assert.deepEqual(bad, [], '存在闭不了环的挂账：\n' + bad.join('\n'))
   assert.ok(b.advisories.some((e) => e.decision === 'no-fix-available'), '至少要有一条"确无修复版本"的对照，否则上面的边界没被测到')

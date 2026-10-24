@@ -1,5 +1,5 @@
 {
-  "total": 157,
+  "total": 164,
   "routes": [
     {
       "path": "/api/auth/change-password",
@@ -374,6 +374,97 @@
       "path": "/api/v1/content-templates/{template_id}",
       "methods": [
         "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/credit/backfill",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/credit/price-cards",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/credit/price-cards",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/credit/price-cards/{card_id}/close",
+      "methods": [
+        "POST"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/credit/price-config",
+      "methods": [
+        "GET"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/credit/price-config",
+      "methods": [
+        "PUT"
+      ],
+      "auth": [
+        "require_admin"
+      ],
+      "auth_kinds": [
+        "session+role"
+      ],
+      "other_deps": []
+    },
+    {
+      "path": "/api/v1/credit/summary",
+      "methods": [
+        "GET"
       ],
       "auth": [
         "require_admin"

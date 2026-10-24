@@ -248,7 +248,47 @@ describe('title-card-renderer 实际渲染', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
     }
+
   }, FFMPEG_RENDER_TIMEOUT_MS)
+
+  // ⛔ 这条**刻意不放在 itWithFfmpeg 守卫里**。
+  //
+  // 为什么要一条环境无关的锁（2026-10-24 主干红实测）：
+  //   `itWithFfmpeg = ffmpeg ? it : it.skip` 意味着「环境里没有 ffmpeg ⇒ 整组渲染断言
+  //   全部跳过」⇒ CI 绿，但那些断言**从未执行过**。#4359 合并时就是这么绿的
+  //   （ffmpeg-ffprobe-static 的 postinstall 当时没把二进制下下来 ⇒ 找不到 ffmpeg ⇒ skip），
+  //   后来缓存命中、二进制到位 ⇒ 用例真跑 ⇒ 暴露出一个一直存在的挂死缺陷。
+  //   ⇒ 「绿色的渲染断言」不能证明渲染路径是通的；必须有一条**不依赖 ffmpeg 存在**的锁。
+  //
+  // 这条怎么做到环境无关：用 **node 自己冒充 ffmpeg**（node 拿到 -nostdin 会立刻报错退出），
+  // 于是「ffmpeg 调用必须禁用 stdin」+「失败必须带出 argv 与 stderr」这两条契约
+  // 在**任何**机器上都能被断言到。
+  it('ffmpeg 调用必须禁用 stdin，且失败信息带得出 argv 与 stderr（防挂死后无从诊断）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'title-card-argv-'))
+    const out = path.join(dir, 'card.png')
+    try {
+      let message = ''
+      try {
+        await renderTitleCard({
+          title: '任意标题',
+          subtitle: '任意副标题',
+          width: 640,
+          height: 360,
+          outputPath: out,
+          // 注入 node 自身：它不认 -nostdin，会立刻失败 ⇒ 我们拿到的是「失败现场」而不是渲染产物
+          ffmpegPath: process.execPath,
+        })
+      } catch (e) {
+        message = String((e && e.message) || e)
+      }
+      expect(message).toContain('-nostdin')
+      expect(message).toContain('| argv:')
+      expect(message).toContain('| stderr:')
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
 
   it('主题表覆盖既有 imageStyle 取值域（流水线 style 传进来不能落空）', () => {
     for (const key of ['cinematic', 'realistic', 'cartoon', 'anime', 'cyberpunk', 'watercolor', 'minimalist']) {

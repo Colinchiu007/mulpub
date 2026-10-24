@@ -1,0 +1,97 @@
+{
+  "sha": "8f0bcadc29d9120a68591d9fc1f4ab743ea843f6",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 10 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 10,
+    "fileCount": 1,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "98337cb23c1e41420fa9f435272e10c32817a81fe95c9b3b479f62823ee4352e",
+  "decidedAt": "2026-10-21T06:04:39.696Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "domains": [
+          "auth",
+          "datamigration"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-7b1d9e72\\adjudication.json",
+    "note": "裁决尚未填写：7/7 条未定（i1, i2, i3, i4, i5, i6, i7）",
+    "at": "2026-10-21T06:06:27.964Z",
+    "statsAudit": {
+      "scope": "code-files-only（apps/desktop/**）vs all-including-docs（全部变更文件）",
+      "codeFileCount": 15,
+      "codeTotalLines": 2306,
+      "allFileCount": 43,
+      "allTotalLines": 6272,
+      "recompute": [
+        "git diff --numstat origin/main...HEAD -- apps/desktop | awk '{s+=$1+$2} END {print s}'",
+        "git diff --numstat origin/main...HEAD | awk '{s+=$1+$2} END {print s}'"
+      ],
+      "authoredBy": "agent（自填口径字段；引擎写回的 stats 与 findings 保持原样未改）"
+    },
+    "findingsAuthoredBy": "external-model（critic=claude / proposer=opencode）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）"
+  }
+}

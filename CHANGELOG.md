@@ -1,3 +1,9 @@
+# docs(film): 订正长篇化台账记录里的版本号口径（当前 v1.3，#4379 之后）
+
+- docs(视频创作): 补一条**后续订正**到 `openspec/records/film-auto-longform-doc-fixes.md` —— 该记录写于 v1.2 当时（「头部版本号 v1.0 ⇒ v1.2」是**当时真实发生的动作**，保留不改），而其后 `#4379`（长篇化 M0′ 落地）又改了同一份 PRD 的 §3.1 与 §5.1 ⇒ 头部版本号**随之升到 v1.3**。
+- ⇒ 读法写进记录：其中凡出现「v1.2」指的是**本 PR 落库当时**的版本，**当前版本以文件头为准（v1.3）**。
+- ⚠️ 为什么追加而不直接改那两行：执行记录是**审计载体**，要如实保留当时发生的动作；直接把 v1.2 改成 v1.3 反而会让读者误以为「本 PR 当时就定成了 v1.3」。
+
 # fix(film): 长篇化 M0′ 落地 —— 台词装不下用户所选档位时改为规划失败并给出两个出口（film-auto-longform-m0prime）
 
 - fix(视频创作): 修一个**今天就在让用户拿到念不完台词的成片**的存量缺陷：自动模式下「台词需时 > 用户所选单镜秒数」此前**完全静默**（70 字 + 5 秒档：推算 8.75 秒，逐镜警告为空、plan 级无 W9），而 100 字那档 W9 明说「不得截断」**却不阻断**，照样出 5 秒的片 ⇒ 警告与执行脱节。现改为 **fail-closed**：容量不足即规划失败（`AUTO_DIALOGUE_OVERFLOW`），并给出**两个可执行出口**（改大单镜秒数 / 把这段台词拆成两句）。
@@ -720,6 +726,51 @@
 - **QM-6 第三轮的两条 upheld 已当场修**：① 连换两次**不同**后端时 `commitRequest` 被换成「上一次的回写值」，审计锚从「提交时请求的是谁」漂成「上一次评审请求的是谁」（既有锁只盖了同值重跑那一格）——修成 `before.commitRequest || before` 且 `rewrittenAt` 锚在第一次改写，spec 同步补一条 Scenario；② `applyReviewRequestToRecord` 只校验 `critic` 不校验 `proposer`，缺半边时 `undefined` 被 `JSON.stringify` 静默丢键 ⇒ 记录看着像写过了、对账却只读到半个真源。
 - **本轮两条 dismissed 都给了可核对出处，并如实登记一条没抓到的反证**：「从非根 cwd 起脚本必败」不成立（入口 `:55` 已按脚本自身位置 `cd ROOT`）；「欠账按 inner sha 归属会记到父提交名下」不成立（判据按变更集路径扫 `.ccg/reviews/*.json`，从不读 `rec.sha`）。新补的 i2 一致性锁在「入口分支门禁改恒真」这版变异下指名变红，在「改 shell 侧覆盖判据」那版下**没有**变红 —— 它的强度只覆盖前者，写成两条都 CAUGHT 就是假证据。
 - **落地形态**：未新增 `*.test.js`（两段锁追加进已接线文件）⇒ 不动 `quality-gate.yml`、不动"谁来守门"；`scripts/` 工具脚本自身 ⇒ 混合 PR，不走 docs-only 通道。隔离入口 `start-mp-task.ps1` 被 `mp-worktree-health.ps1 -RequireClean` 拒绝（他人在飞改动），故在共享根就地编辑、用 plumbing 从 `origin/main` 构建单笔提交，`CHANGELOG.md` / `AGENTS.md` 两个热点写面**取 origin/main 的 blob 再插行**（本地工作副本滞后 4 笔，就地编辑会反向撤销上游那几行）。**本行的到达方式**：功能 PR #3988 是混合 PR，每 rebase 一次要重跑约 50 分钟全量 CI，而主干 CHANGELOG 顶插约每 20 分钟多一笔，两者相乘使合并窗口追不上（现场三次 CONFLICTING、一次 `gh pr merge` 被 GitHub 以 merge conflicts 拒），故该行经用户裁决从 #3988 的净差量拆出、由这一笔 docs-only PR 落——Gate 2c3 的 `check-changelog-growth.js` 是「只可增长」棘轮、不要求每个 PR 自带条目，实测拆出后 `base 576 条 → head 576 条` 仍 PASS。全过程记 `openspec/records/qm6-review-request-writeback.md`，规格增量记 `openspec/changes/qm6-review-backend-config/`（第 10 节 + 新 Requirement，`openspec validate --strict` rc=0）。
+# [未发布] fix(collection): 视频创作改为就地执行 + 进度浮层；二次改写不再带旧文案（fix-collection-rewrite-publish-flow）
+
+- 采集页「去发布 → 视频创作」**不再跳视频创作页**：点「视频创作」后发布操作浮层消失，改为**就地弹出**
+  视频创作流水线的**执行进度状态浮层**（`UiModal variant=progress` + `StageProgress`，与视频创作页/热门选题
+  一键成片同款）。复用既有阶段跟踪 / 启动参数 / run 跟踪层 / 发布出口，**不写第二份实现**。
+- 二次 AI 改写后带进视频创作 / 图文发布的**不再是第一次改写的文案**：
+  `genreDraftId`（已存草稿 id）此前在改写结果变化时**从不被作废** ⇒ `goPublishAfterRewrite` 见到它非空就
+  跳过重存，于是视频创作拿到的是第一次改写时存的那份草稿（改写页 `RewriteView` 早有 `invalidateSavedDraft()`
+  这道防护，采集页漏了同一条）。现补上「改写结果一变 ⇒ 已存草稿立即作废」的不变量，并把判据抽到
+  `composables/useRewriteResultInvalidation.js`（**程序赋值**与**用户手改**两条路径各有独立行为级用例，
+  含「快速二次编辑交错」边界 ⇒ 归因链不假挂）。
+- 改写引擎信封的正文**不是字符串**时判失败（不写正文、不挂归因链、不报「改写完成」）——
+  IPC 是外部输入边界，非字符串真值会让归因链错挂。
+- **与主干的「配置档案」功能并存（2026-10-21 合并 main 时补）**：主干的 `publish-config-picker`
+  让「去发布」弹窗可以选**配置档案**，采集页原先是**跳转**创作页、由创作页读 `?configProfile=` 套用。
+  本刀把入口改成**就地启动流水线**后，弹窗里选中的配置必须由采集页**自己兑现**——否则就是主干在
+  热门选题页修过的同一个坑：**选了等于没选**。现：采集页读配置库 → 复用主干的纯判据
+  `resolveConfigProfileTarget` → 用档案快照（`s2vConfig`/`s2vOutputConfig`，与启动参数消费口径同构）
+  启动流水线；**套不上时视频照常出**，但浮层里有**可见提示**（不存在 / 跨流水线 / 配置库载入失败 /
+  快照形态不适用，四个分支各有专属提示，**复用**主干 `create.story2video.configProfile.*` 的既有文案，
+  不另写一份同义句）。判据与失败分支见 PRD §3 F4。
+- locale：`collection/{zh,en}.js` 新增 `collection.videoCreate.*` 命名空间；并按既有「装配文件 import 子模块」
+  范式把 `quickCollect` 块拆到 `locales/collection/quick-collect/`（**键路径不变**）——
+  逐文件行数门禁（500 行硬限）对 locale 同样生效，`collection/{zh,en}.js` 当时已 498 行。
+- **与 #4111（`collect-rewrite-wordcount`）的关系（如实登记）**：本刀最初也独立定位到「采集页把字数区间传成
+  `targetWordCount`、而桌面改写引擎只认 `wordCountRange`」这一根因，但合并 main 时发现 #4111 **已先行落地
+  且更完整**（它还改了引擎侧 `min=0` 的指令形态，治好了「0 到 6000 字之间」被模型读成「写摘要」），
+  于是本 PR **撤回**自己重复的字数区间实现，**只保留 #4111 未覆盖的部分**（草稿失效 / 视频创作就地执行 /
+  非字符串信封守卫 / locale 拆分 / 文档与记忆沉淀）。
+- 回归锁：新增 **61 例**（作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 +
+  StageProgress 契约锁 4 + 依赖契约锁 6 + 层叠顺序契约锁 3）；变异反证 5/5 CAUGHT；
+  采集页相关全集 **24 文件 / 336 用例全绿**；QM-4 像素 `collection` 1/1（100%）；
+  `vite build` rc=0；QM-6 外部双家族深审（claude + opencode）多轮实跑，2 条 Critical 采纳并实现，
+  高危面（datamigration）另有**独立外部模型复核**并公开原文于 PR #4114 评论。
+- **视频创作页的流水线卡片边框回到正常色（本 PR 自身引入又自身修掉的跨页影响）**：进度浮层原先从**桶文件**
+  `@/views/video-creation` 取 `StageProgress`，桶文件连带把 `pipeline-selector.css` 提前注入采集页的模块图
+  ⇒ 全局层叠顺序翻转 ⇒ `create-view.css` 的分类色 `border-left` 压过 `.has-bg` 的半透明白边
+  ⇒ **视频创作页每张流水线卡片边框变色**（视觉基线门禁判红，实测 590903 px / 28.496%）。
+  修法：浮层改为**直连** `@/views/video-creation/StageProgress.vue`（层叠顺序复原），
+  并新增层叠顺序契约锁（**4 例**：采集页模块图不得触及 `pipeline-selector.css`／
+  `features/collection/**` 不得从桶文件取组件（**按解析后的真实文件**判定，别名与相对路径都命中、
+  **递归**扫子目录）／`create-view.css` 必须早于 `pipeline-selector.css`／
+  **探测器对写法敏感**的合成用例（证明断言不是恒真））。
+- 详见 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md` 与
+  `openspec/records/fix-collection-rewrite-publish-flow.md`。
 
 # [未发布] fix(ci): 时钟位移引信巡检补上「先重建构建产物」，并把「跑桌面测试的 job 必须先备好产物」做成按 job 的跨 workflow 装配锁（electron-ci-preload-build）
 
@@ -945,6 +996,13 @@
 - `build:vue` rc=0；`electron-builder --dir` rc=0；asar 核验通道与方法在包内。
 - 静态门禁：unwired OK / locale keys PASS(2181) / locale CJK PASS / max-lines ✅ / brand PASS / doc-abs PASS。
 
+# [未发布] fix(本地库): viral_library 的迁移预检不再查询"本次迁移才创建的列"，新库建表自带 external_id/creator_id（ux-viral-external-id）
+
+- 打包态启动日志里的 `[ERROR] sqlite-wrapper all() error: no such column: external_id` 消失（2026-10-16 真实现场一条、2026-10-18 复现两次）。根因不是 SQL 写错，而是**顺序自反**：`findViralLibraryConflicts` 是迁移前的重复预检，查的 `external_id` 由它所在那次迁移的 `ALTER` 才加上，而新库建表 DDL 里没有这两列 ⇒ 每个新库首次启动都发一条结构上注定失败的查询；`catch (_) { return [] }` 的兜底位置在 `sqlite-wrapper` 的 `Statement.all()`，它先 `log.error` 再返回空 ⇒ "正常的未升级状态"被记成故障。（分支 `ux-viral-external-id`）
+- 预检改为**三档语义**：缺列（含表不存在）⇒ 直接返回空且一次都不发查询；列在位有真重复 ⇒ 照旧中止迁移并点名明细（不静默去重）；列在位但查询失败 ⇒ `console.warn('[creator-schema] …')` 出声。第 1 档与第 3 档不得共用静默出口。
+- 新库建表 DDL 与迁移改为**同源**：`store-schema.js` 的 viral_library 自带 `external_id` / `creator_id`（`ALTER` 仍保留给存量库）；探列实现收敛为 `viralLibraryColumns(db)` 一份，迁移与预检共用。
+- 新增回归锁 `creator-schema-upgrade.test.js`（8 条，真 `node:sqlite` 文件库 + `os.tmpdir()` 隔离）；三条旧夹具改为自洽输入（原来"没有该列的库报了重复"是现实里不可能的输入，断言本身一字未放宽）。逃逸根因记录：旧夹具对任意 SQL 的 `prepare().all()` 返回同一份预置数组，"列不存在 ⇒ 查询抛错"这类事实**无法表示**。
+- QM-1：`pnpm run build:dir` 打包 rc=0；`asar` 解包读产物确认同一份实现落进包里；以产物代码跑"新库首次启动"路径 `VERDICT=CLEAN`；打包实例存活 15 秒且 **stderr 为空**（三层判据第 ③ 层）。
 # [未发布] docs(openspec): 归档 shape-lock 规格 delta —— 那条 Requirement 不再自己打自己（archive-shape-lock-scenario）
 
 - **动因**：#4001 带进来的 `align-shape-lock-empty-ledger-scenario` 已合并但没归档，它的 MODIFIED delta 因此还没落进主规格——主干上那条 Requirement 至今**正文写「键数本身不设数字下限」、末个 Scenario 写「键数为 0 ⇒ MUST 红（规模下界）」**，两句互斥；而 `openspec validate quality-gate-execution-record --type spec --strict` 实测照判 `is valid`（它查结构必需段与场景覆盖，**不查条目内自洽**），所以这类矛盾能随归档一路进主干。

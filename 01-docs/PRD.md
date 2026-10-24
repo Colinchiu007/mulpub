@@ -20672,3 +20672,83 @@ DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底
 - 新增 `AutomationView.notify-registration.test.js` 4 条：顺序锁 + 窗口期内失败/恢复各一条行为锁 + 空载荷负控。反证按被禁形态原样重造 ⇒ 4 条指名变红，还原后逐字节相同。
 - 方法学收获（写进 PRD 验收锚点）：顺序断言第一版把期望写成了**被禁形态** `['list','register']`，它在修复前后都红 —— 是"红之后去读实际读数"才发现错的是期望而不是代码。这类断言首次变红时必须先判"代码错还是期望错"，否则顺手把期望改对就会把缺陷钉成契约。
 - 文档：`01-docs/PRD.md` 新增《自动化页后台通知的注册时机合同》（顺序 / 为什么不补发 / 分档 / 空载荷 / 显示项与提示文字 / 验收锚点）；执行记录 `openspec/records/ux-audit-automation-notify-first.md`。既有 `AutomationView.test.js` 同跑通过。
+
+## 本地库 schema 与迁移的顺序合同（2026-10-20，ux-viral-external-id）
+
+> 适用于 `apps/desktop/electron/services/store-schema.js`（新库建表真源）与
+> `apps/desktop/electron/services/creator-schema.js`（存量库列迁移真源）及其调用方 `store/base-store.js`。
+
+### 一、数据校验：列的"存在性"只能有一个来源，且不得由消费方猜
+
+| 项 | 口径 |
+|---|---|
+| 建表真源 | `store-schema.js` 的 `CREATE TABLE IF NOT EXISTS viral_library` **必须自带** `external_id TEXT DEFAULT ''` 与 `creator_id TEXT DEFAULT ''`。新库建完即含被查询的列，任何消费方（含迁移自己的预检）都不必再猜"这列在不在" |
+| 存量库补列 | 由 `migrateCreatorLinkageSchema` 的 `ALTER TABLE ... ADD COLUMN` 负责，**逐列先查 `PRAGMA table_info`**，已存在即跳过（`CREATE TABLE IF NOT EXISTS` 不会给已存在的表补列，所以这条不能省） |
+| 探列实现 | 唯一实现是 `creator-schema.js` 的 `viralLibraryColumns(db)`；迁移与冲突预检 MUST 共用它，禁止各写一份 PRAGMA 读法（两份"列在不在"的判断一旦分叉，就会出现"迁移认为有、预检认为没有"这类不可归因状态） |
+| 索引 | `(platform, external_id)` 唯一索引 MUST 带 `WHERE external_id <> ''`（partial）。存量行该列是空串，普通 UNIQUE 在建索引瞬间就会因重复键抛错 ⇒ schema 初始化失败 ⇒ **应用起不来** |
+
+### 二、流程：迁移前预检的资格判定
+
+`findViralLibraryConflicts(db)`（迁移前的重复分组预检）按三档返回，三档语义互不相同、不得合并成一句话：
+
+1. **列不存在**（含表还不存在，`PRAGMA table_info` 返回空集）⇒ 直接返回 `[]`，**且不得发出那条查询**。
+   理由：该列正是本次迁移要加的，查询它属于"结构上注定失败"；而 `sqlite-wrapper` 的兜底位置在
+   `Statement.all()` 里——它先 `log.error(...)` 再返回空数组。所以"用 catch 吞掉"并不能让这次失败无声，
+   它会在运行日志里留下一条 `[ERROR] sqlite-wrapper all() error: no such column: external_id`，
+   把"正常的未升级状态"记成故障（2026-10-16 真实现场一条，2026-10-18 打包态复现两次）。
+2. **列存在、查询成功** ⇒ 返回真实分组清单；非空时 `migrateCreatorLinkageSchema` **中止迁移并抛错点名明细**，
+   不得静默去重（擅自删行即数据损失，保留哪条由人决定）。
+3. **列存在、查询失败**（磁盘 I/O、库损坏等真故障）⇒ `console.warn('[creator-schema] viral_library 冲突预检查询失败：…')`
+   出声并返回 `[]`。这一档 MUST NOT 与第 1 档共用静默出口——"没拿到证据"和"没有证据可拿"是两件事。
+
+### 三、显示项与提示文字
+
+- 中止迁移的抛错文案：`viral_library 存在 N 组重复 (platform, external_id)：<platform>:<external_id>x<条数>[…]。为避免误删数据，迁移已中止；请人工清理后重试。`（最多列 5 组）
+- 出声日志前缀固定为 `[creator-schema]`，**禁止**记录 Cookie 值/凭证类内容；这里只记 SQL 失败原因字符串。
+- 该库的建表与迁移都不面向用户界面：用户侧唯一可见后果是"账号页/知识库能否打开"，因此日志留痕就是排障的唯一现场来源，静默等于失明。
+
+### 四、验收锚点
+
+1. `creator-schema-upgrade.test.js`：**必须用真实 sqlite 文件库**（`node:sqlite` + `os.tmpdir()` 唯一路径），
+   覆盖 ①旧库（无该列）被新代码打开时预检不抛错、②一次迁移后两列与 partial 索引齐备、
+   ③列在位且有真重复时预检照样查出且迁移中止、④表不存在时返回空、⑤真故障必须 warn、
+   ⑥缺列时那条查询一次都没被发出。
+2. `store-schema` 的 viral_library 建表体含 `external_id`/`creator_id` 由源码级锁守住，并按**产物 DDL** 建库再跑预检
+   （判据不能只读字符串——"读得到字样"与"建出来的表真的有这列"是两件事）。
+3. 打包产物面（QM-1）：`asar` 解包后读 `electron/services/store-schema.js` 与 `creator-schema.js`，
+   确认落进包里的就是同一份实现；并以产物代码跑一次"新库首次启动"路径。
+4. ⛔ **夹具纪律（本案的逃逸根因）**：`creator-schema.test.js` 的 `makeDb()` 对任意 SQL 的
+   `prepare().all()` 都返回同一份预置数组 ⇒ "列不存在 ⇒ 查询抛错"这一整类事实在该夹具里**无法表示**，
+   于是本地全绿而打包启动每次报 ERROR。给"恢复/迁移/探测"写测试时，被探测的存储必须**预置成真实形态**
+   （缺列的真库、有重复的真行），不得让夹具对所有输入同答。
+## 历史列表行视图缓存合同（2026-10-20，ux-audit-history-list-perf / 审计 2.2②）
+
+### 一、显示项与数据口径
+
+- 每行渲染需要的四个派生值 —— 实际封面缩略图 `thumb`、平台图标 `icon`、平台名 `platformLabel`、失败原因文本 `errorText` —— 由**单一实现** `buildRowView(record)` 产出，模板一律走 `rowView(record).<字段>`，**禁止**在 `v-for` 体内再写 `thumbnailUrl(record)` / `platformIcon(record.platform)` / `platformName(record.platform)` / `recordErrorText(record)`。
+- 改造前每行付 35 次模板函数调用（缩略图 2 次、图标 3 次、平台名 3 次、错误文本 3 次、指标 7 次…），筛选扫描态最多上千行进 DOM ⇒ 一次重渲染上万次调用。
+- **`metricValue` 不入缓存**：它只是千分位格式化，成本可忽略，而它的入参是任意数字 ⇒ 键域无上界，缓存会在长会话里无界增长（与 toast 去重集合同一类缺陷）。
+
+### 二、缓存形状（这是本节真正的判据）
+
+| 约束 | 为什么 |
+|---|---|
+| 缓存必须是 `computed`，依赖 `filteredRecords` | `platformName` / `platformIcon` 读 `platformStore`，而平台标签与图标**异步加载**（先用默认值、store 到货后再变）。跨渲染的常驻 `Map` 会把默认标签**永久钉住** —— 用户看到的就是"平台名一直是错的"，而单测与构建全绿 |
+| 兜底路径与建表路径共用 `buildRowView` | Map 未命中时按记录现算；**不得**返回空对象 —— 那会把"缓存未命中"变成"行内容消失" |
+| 键用记录对象本身（一次渲染内稳定） | 不用 `record.id`：id 缺失/重复时按 id 建 Map 会让两行互相覆盖，症状是"某一行凭空变空"且没有任何报错 |
+
+### 三、验收锚点
+
+- `PublishHistory.row-view.test.js` 4 条：① 缓存必须是 `computed` 且遍历 `filteredRecords`，并禁止旁边再出现常驻 `...Cache = new Map()`；② 兜底与建表同源、四个字段齐备；③ 模板内零裸调用 + 正向对偶（`rowView(record).<字段>` 至少 6 处，防"删掉需求"与"删掉被禁物"同形）；④ `metricValue` 不得进缓存（判据必须**限定在函数体内**，不加右边界会一路吞到文件后面任意一处 `metricValue`，把"没有"读成"有"）。
+- 反证两个被禁形态各自指名变红：模板回退成裸调用 ⇒ 红在③；缓存旁加常驻 Map ⇒ 红在①。`RESTORE byteEqual=true`。
+- 渲染等价性由既有 `PublishHistory.test.js`（该视图全量渲染用例）在**一字未改**的前提下继续全绿证明 —— 性能改造最忌"顺手改了显示"，那条套件就是这行的护栏。
+- 同批否证掉的一条审计建议：2.2①「`filteredRecords` 改读防抖值」实测与该视图既有的 84 条契约（筛选结果须与输入即时一致）正面冲突，已**退回人工裁决**，不在本批实施；2.2③「加 renderLimit」实测已由服务端分页 + `load-more-history`「加载更多」承担，照字面再补 slice 会少显示行。
+
+===CL-TOP===
+# [未发布] perf(历史列表): 每行 35 次模板函数调用收敛为一次渲染一份行视图缓存（ux-audit-history-list-perf / 审计 2.2②）
+
+- `PublishHistory.vue` 的列表行原先每行调用 `thumbnailUrl`×2、`platformIcon`×3、`platformName`×3、`recordErrorText`×3、`metricValue`×7；筛选扫描态最多上千行进 DOM ⇒ 一次重渲染上万次调用（`thumbnailUrl` 每次还跑 4 候选 + 3 正则 + 最多 5 次 `safeHttpUrl`）。
+- 新增 `buildRowView(record)` 单一实现 + `rowViews` **computed** 缓存 + `rowView(record)` 访问器，模板全部改走 `rowView(record).<字段>`；`metricValue` 明确**不入缓存**（键域无上界，缓存会在长会话里无界增长）。
+- 缓存刻意做成"一次渲染一份"而不是跨渲染常驻：平台名/图标来自**异步加载**的 platform store，常驻 Map 会把默认标签永久钉住 —— 那是把性能修复换成一处静默显示缺陷。
+- 新增 `PublishHistory.row-view.test.js` 4 条（形状 + 同源 + 模板零裸调用与正向对偶 + metricValue 不入缓存），反证两个被禁形态各自指名变红、还原逐字节相同。既有 `PublishHistory.test.js` 一字未改仍全绿 ⇒ 渲染结果未变。
+- 同批否证两条审计建议：2.2①「谓词改读防抖值」与该视图 84 条既有契约（筛选即时一致）冲突 ⇒ 退回人工裁决不硬改；2.2③「加 renderLimit」实测已由分页 + 既有「加载更多」承担。

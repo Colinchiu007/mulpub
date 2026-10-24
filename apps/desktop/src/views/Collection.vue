@@ -508,6 +508,32 @@
       @publish-video="onPublishVideo"
     />
 
+    <!-- 视频创作执行进度浮层（fix-collection-rewrite-publish-flow，2026-10-20）：
+         「去发布 → 视频创作」后就地弹出，不再跳转视频创作页。 -->
+    <CollectionVideoProgressModal
+      :visible="videoModalOpen"
+      :title="$t('collection.videoCreate.title')"
+      :pipeline-label="videoPipelineLabel"
+      :stages="videoStages"
+      :progress-percent="videoProgressPercent"
+      :elapsed-ms="videoElapsedMs"
+      :error-text="videoErrorText"
+      :result-ready="videoResultReady"
+      :terminal="videoTerminal"
+      :can-retry="videoCanRetry"
+      :can-cancel="videoCanCancel"
+      :busy="videoBusy"
+      :text-truncated="videoTextTruncated"
+      :text-truncated-length="videoTextTruncatedLength"
+      :text-limit="videoTextLimit"
+      :config-warning="videoConfigProfileWarning"
+      @close="handleVideoClose()"
+      @view="viewVideoInHistory()"
+      @publish="publishVideoResult()"
+      @retry="retryVideoCreation()"
+      @cancel="cancelVideoCreation()"
+    />
+
     <!-- ASR 依赖安装引导弹窗（-6 语音转写引擎不可用时触发） -->
     <el-dialog
       v-model="asrInstallVisible"
@@ -590,7 +616,6 @@ import { isVerificationContent } from '@/utils/collected-content-guard'
 import { useWordCountValidation } from '@/composables/useWordCountValidation'
 import { addViralToLibrary } from '@/api/knowledge-library'
 import PublishDestinationModal from '@/components/PublishDestinationModal.vue'
-import { buildCreateHandoffQuery } from '@/features/publish-destination/publish-destination-config'
 import WordCountRangeInput from '@/components/WordCountRangeInput.vue'
 import RewriteStrategyPicker from '@/components/RewriteStrategyPicker.vue'
 import { useCopyLibrary, collectFromKey, ORIGIN_COLLECT, ORIGIN_REWRITE, compareByCreatedAtDesc } from '@/composables/useCopyLibrary'
@@ -608,6 +633,16 @@ import CreatorMonitor from '@/features/collection/CreatorMonitor.vue'
 import { usePlatformStore } from '@/stores/platforms'
 import { useAccountStore } from '@/stores/accounts'
 import { useCollectionBatchPublish } from '@/composables/useCollectionBatchPublish'
+// 改写结果变化时的「已存草稿 / 归因链」作废契约（fix-collection-rewrite-publish-flow，2026-10-20）：
+// 判据与实现抽在 composables/useRewriteResultInvalidation.js（程序赋值与用户手改两条路径
+// 各有独立行为级用例），本页只提供两个作废动作。
+import { useRewriteResultInvalidation } from '@/composables/useRewriteResultInvalidation'
+// 视频创作就地编排（fix-collection-rewrite-publish-flow，2026-10-20）：
+// 「去发布 → 视频创作」不再跳视频创作页，改为就地启动流水线并弹出执行进度浮层。
+// 编排状态机在 composables/useCollectionVideoCreation.js（复用热门选题一键成片的
+// 阶段跟踪 / 启动参数 / run 跟踪层，不复制第二份实现）。
+import { useCollectionVideoCreation } from '@/composables/useCollectionVideoCreation'
+import CollectionVideoProgressModal from '@/features/collection/CollectionVideoProgressModal.vue'
 import {
   contentCategoriesRef, loadContentCategories, watchContentCategories, categoryLabel,
 } from '@/composables/useContentCategories'
@@ -991,7 +1026,57 @@ async function rewriteViaEngine (content) {
   return null
 }
 const showPublishModal = ref(false)
-let genreDraftId = null
+/** 已存草稿 id（改写结果变化时由 useRewriteResultInvalidation 置空）。
+ *  用 ref 而非裸 let：这是**跨异步边界**的状态（存草稿是异步的，内容变化是同步的），
+ *  裸 let 让「读到它」与「写它」之间没有可追踪的时序（QM-6 深审 i5 的建议，已采纳）。 */
+const genreDraftId = ref(null)
+
+/**
+ * 改写结果变化 ⇒ 已存草稿 / 归因链作废（fix-collection-rewrite-publish-flow，2026-10-20）。
+ *
+ * 事故：采集页「一键改写」后再点一次「AI 改写」，然后「去发布 → 视频创作」，
+ * 带进去的却是**第一次**改写的文案。根因不是取错了字段，而是 `genreDraftId`
+ * （已存草稿 id）在第二次改写后**没有被作废**：`goPublishAfterRewrite` 见到它非空
+ * 就跳过重存，于是视频创作拿到的是第一次改写时存的那份草稿。
+ *
+ * 这里让「内容一变，旧草稿 id 即刻作废」成为不变量（改写页 RewriteView 的
+ * `invalidateSavedDraft` 是同一口径）。
+ */
+const { markProgrammaticAssignment } = useRewriteResultInvalidation({
+  rewriteResult,
+  invalidateDraftId: () => { genreDraftId.value = null },
+  invalidateLineageId: () => { collectRewriteLineageId = null },
+})
+
+/**
+ * 改写成功后的统一落地（四个调用点共用一条路径，避免各写一遍必然漂移）。
+ *
+ * @param {object} result rewriteViaEngine 的成功返回
+ * @param {object} source 采集条目（用于同步文案库）
+ * @returns {boolean} 是否真的落地（false = 信封非法，已报错且未写正文）
+ */
+function applyRewriteResult (result, source) {
+  // IPC 边界防御（QM-6 深审 i3）：引擎信封的 `result_content` 正常恒为字符串，但**外部输入不保证**。
+  // 非字符串真值若直接进 rewriteResult：① textarea 的 v-model 拿到非字符串；
+  // ② 与「程序赋值」标记的字符串口径分叉 ⇒ watcher 误判成「用户手改」⇒ 归因链被误清（假归因的另一种形态）。
+  // 处置：非字符串一律**判失败**（不写正文、不挂归因链、不报成功），如实报错。
+  const content = result && result.result_content
+  if (typeof content !== 'string' || !content) {
+    const formatted = formatUserError(
+      { code: -99, message: 'malformed rewrite payload' },
+      { fallback: resolveNotifyText('collection.rewriteFailed').text }
+    )
+    rewriteError.value = { code: -99, message: formatted.message }
+    notifyError('collection.rewriteFailed', { message: rewriteError.value.message })
+    return false
+  }
+  // 先标记「程序赋值」再赋值：作废逻辑靠这个标记区分程序赋值与用户手改
+  markProgrammaticAssignment(content)
+  rewriteResult.value = content
+  recordRewriteToLibrary(content, source)
+  notifySuccess('collection.rewriteSuccess')
+  return true
+}
 
 // ─── 批量采集 / 知乎收藏批量已迁入 features/collection/BatchCollectPanel.vue（collection-ui-refinement）───
 // 本文件保留：结果落地链路（onBatchCollected → normalize/unshift/save）、批量发布 composable 与
@@ -1042,6 +1127,20 @@ const batch = useCollectionBatchPublish({
   },
 })
 const batchPlatformScope = ref('')
+
+// ── 视频创作就地编排（fix-collection-rewrite-publish-flow，2026-10-20）──
+// 「去发布 → 视频创作」不再跳视频创作页，改为就地启动流水线并弹出执行进度浮层。
+// 编排状态机在 composables/useCollectionVideoCreation.js（复用热门选题一键成片的
+// 阶段跟踪 / 启动参数 / run 跟踪层，不复制第二份实现）。
+// 解构成顶层 ref：模板里 vue 会自动解包顶层 ref，写 `videoStages` 即可。
+const {
+  videoModalOpen, videoBusy, videoStages, videoErrorText, videoPipelineLabel,
+  videoProgressPercent, videoElapsedMs, videoTerminal, videoCanRetry,
+  videoCanCancel, videoResultReady, videoTextTruncated, videoTextTruncatedLength,
+  videoTextLimit, startVideoCreation, cancelVideoCreation, retryVideoCreation,
+  handleVideoClose, resetVideoState, viewVideoInHistory, publishVideoResult,
+  videoConfigProfileWarning,
+} = useCollectionVideoCreation()
 const batchPlatformOptions = computed(() => batch.usablePlatforms('imageText'))
 const batchVideoPlatformOptions = computed(() => batch.usablePlatforms('video'))
 const batchVideoPlatformScope = ref('')
@@ -1194,6 +1293,9 @@ onUnmounted(() => {
   // videoCollectStage —— 轻则无意义地跑完，重则踩到已销毁的响应式链。
   stopVideoStageProgression()
   if (categoriesUnsubscribe) { categoriesUnsubscribe(); categoriesUnsubscribe = null }
+  // 视频创作流水线的跟踪层（推送订阅 + 3s 轮询 + 1s tick）必须随页面一起释放：
+  // 否则离开采集页后计时器仍在跑，继续往已卸载组件的响应式链上写。
+  resetVideoState()
 })
 
 // ===== 分享文本链接解析（2026-09-19；2026-09-29 六平台扩展 + CJK 排除字符类）=====
@@ -1784,9 +1886,7 @@ async function collectAndRewrite () {
           try {
             const rewrite = await rewriteViaEngine(videoRes.content || videoRes.transcript || '')
             if (rewrite && rewrite.result_content) {
-              rewriteResult.value = rewrite.result_content
-              recordRewriteToLibrary(rewrite.result_content, videoItem)
-              notifySuccess('collection.rewriteSuccess')
+              applyRewriteResult(rewrite, videoItem)
             } else if (!(rewrite && rewrite.__cancelled)) {
               // 取消（__cancelled）已由漏斗提示代价，这里不得再当失败弹错
               // 后端业务错误（resolve 返回）同样必须过 formatUserError：稳定 errorCode → locale 友好文案，
@@ -1838,9 +1938,7 @@ async function collectAndRewrite () {
       try {
         const rewrite = await rewriteViaEngine(stealthItem.content || stealthItem.description || '')
         if (rewrite && rewrite.result_content) {
-          rewriteResult.value = rewrite.result_content
-          recordRewriteToLibrary(rewrite.result_content, stealthItem)
-          notifySuccess('collection.rewriteSuccess')
+          applyRewriteResult(rewrite, stealthItem)
         } else if (!(rewrite && rewrite.__cancelled)) {
           const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
           const formatted = formatUserError(errorSource, { fallback: resolveNotifyText('collection.rewriteFailed').text })
@@ -1900,9 +1998,7 @@ async function collectAndRewrite () {
     try {
       const rewrite = await rewriteViaEngine(res.content || res.description || '')
       if (rewrite && rewrite.result_content) {
-        rewriteResult.value = rewrite.result_content
-        recordRewriteToLibrary(rewrite.result_content, item)
-        notifySuccess('collection.rewriteSuccess')
+        applyRewriteResult(rewrite, item)
       } else if (!(rewrite && rewrite.__cancelled)) {
         // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
         const errorSource = rewrite && rewrite.__error ? rewrite.__error : (rewrite || {})
@@ -1948,9 +2044,7 @@ async function rewriteCollected () {
   try {
     const result = await rewriteViaEngine(collectedResult.value.content || collectedResult.value.description || '')
     if (result && result.result_content) {
-      rewriteResult.value = result.result_content
-      recordRewriteToLibrary(result.result_content, collectedResult.value)
-      notifySuccess('collection.rewriteSuccess')
+      applyRewriteResult(result, collectedResult.value)
     } else if (!(result && result.__cancelled)) {
       // 同上：业务错误 resolve 分支也必须走 formatUserError（i18n + 友好度强制机制）
       const errorSource = result && result.__error ? result.__error : (result || {})
@@ -2012,38 +2106,63 @@ async function saveDraftAfterRewrite () {
   attachRewriteLineage(draft, collectRewriteLineageId)
   const draftId = await persistDraft(draft)
   if (draftId) {
-    genreDraftId = draftId
+    genreDraftId.value = draftId
     notifySuccess('collection.draftCreated')
   }
 }
 
 async function goPublishAfterRewrite () {
   if (!rewriteResult.value) return
-  if (!genreDraftId) {
+  // 已存草稿可能已过期（内容变了）——`genreDraftId` 由 useRewriteResultInvalidation 在
+  // 内容变化时作废，这里以「内容」为准重存，而不是信任一个可能过期的 id。
+  if (!genreDraftId.value) {
     await saveDraftAfterRewrite()
   }
-  if (genreDraftId) {
+  if (genreDraftId.value) {
     showPublishModal.value = true
   }
 }
 
 function onPublishArticle () {
   showPublishModal.value = false
-  if (genreDraftId) {
-    router.push('/publish?draft=' + genreDraftId)
+  if (genreDraftId.value) {
+    router.push('/publish?draft=' + genreDraftId.value)
   }
 }
 
+/**
+ * 「去发布 → 视频创作」（fix-collection-rewrite-publish-flow，2026-10-20）。
+ *
+ * 用户反馈的期望交互：点「视频创作」后
+ *  ① 发布操作浮层（发布图文 / 视频创作）**消失**；
+ *  ② **不跳转**任何页面；
+ *  ③ 弹出**视频创作流水线的执行进度状态浮层**（与视频创作页、热门选题一键成片同款）。
+ *
+ * 这里同时修掉了第二个缺陷（带入旧文案）：旧实现跳 `/create?draft=<genreDraftId>`，
+ * 而 `genreDraftId` 指向的是**上一次**改写时存的草稿 ⇒ 二次改写后带进去的还是第一次
+ * 的文案。新实现直接把**当前这次改写结果**（`rewriteResult.value`）交给流水线，
+ * 不再经过「旧草稿」这一层，天然取到最新文案。
+ *
+ * `detail.configProfileId`（主干 publish-config-picker 带来的「配置档案」选择）也
+ * 在这里**兑现**：本入口不再跳创作页，用户在弹窗里选中的配置必须由采集页自己套用，
+ * 否则就是主干在热门选题页修过的同一个坑——**选了等于没选**。
+ * 套不上时不阻断生成（视频照常出），但会在进度浮层里留一条可见提示。
+ */
 function onPublishVideo (pipelineId, detail) {
+  // ① 发布浮层消失
   showPublishModal.value = false
-  if (!genreDraftId) return
-  router.push({
-    path: '/create',
-    query: buildCreateHandoffQuery({
-      draftId: genreDraftId,
-      pipelineId: pipelineId || 'story2video-compose',
-      configProfileId: detail?.configProfileId,
-    }),
+  const text = String(rewriteResult.value || '').trim()
+  if (!text) {
+    // 没有可用的改写文案：如实告知，不静默失败（文案为空时流水线必然启动失败）
+    notifyWarning('collection.videoCreate.noContent')
+    return
+  }
+  // ② ③ 就地启动流水线 + 执行进度浮层（不跳页）
+  void startVideoCreation({
+    text,
+    pipelineName: pipelineId || 'story2video-compose',
+    title: String((collectedResult.value && collectedResult.value.title) || ''),
+    configProfileId: String((detail && detail.configProfileId) || ''),
   })
 }
 

@@ -1,5 +1,5 @@
 {
-  "//": "依赖漏洞审计挂账清单（audit-batch-4）。升级/新增依赖后请跑：node scripts/check-dep-audit.js --update 并补齐 decision/note。",
+  "//": "依赖漏洞审计挂账清单（audit-batch-4）。新条目由机器预填「已登记、待升级」+ 修复下界 + 到期日；请确认承诺版本兜得住（兜不住就改 decision 并写清理由）。跑 node scripts/check-dep-audit.js --update 刷新。",
   "reviewBy": "2026-12-31",
   "advisories": [
     {
@@ -29,21 +29,7 @@
       "decision": "upgrade-tracked",
       "note": "npm-opscenter 域首条登记。该域审计 ops-center/frontend/package-lock.json（npm，非 pnpm），实测解析到 @vue/server-renderer@3.5.41、vue@3.5.41，差一个补丁版本。ops-center/frontend/package.json 声明 vue ^3.5.0，caret 已覆盖 >=3.5.42，仅 lockfile 未刷新。动作=在该目录 npm install 刷新 lockfile。与 npm 域那条（3.5.35）判据同形但版本与载体都不同，故必须分域各登记一条——两域基线键不共用。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-27r3-jxmh-p828",
-      "module": "body-parser",
-      "severity": "high",
-      "patched": ">=1.20.9, >=2.4.0",
-      "targetVersion": "2.4.0",
-      "roots": [
-        ".",
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 新公告（GHSA-27r3-jxmh-p828 = CVE-2026-111181，CWE-248）：body-parser 在 **Content-Encoding 压缩请求体**场景下，读完 body 后把解压流留在「已管道接上、但没有 error 监听」的状态 —— 一个合法压缩帧 + 尾随字节即可让解码器在结束后报错，并被重新抛出为 uncaught exception，**整个进程终止**。公告原文明确：**无需认证、无需匹配路由**（解析发生在路由之前）。本仓实测：packages/ai-writer-api 的 src/server.js:35 用 express.json()（默认 inflate:true ⇒ 会建解压流），src/server.js:112 app.listen(port) **未传 host** ⇒ Node 默认绑全部网卡（默认端口 3487），而鉴权中间件挂在 app.use('/api/ai') 之后（server.js:40）⇒ body 解析发生在鉴权之前 ⇒ 该形态在本仓是**未认证可触发的进程级 DoS**。修复版已发布：2.x→2.4.0、1.x→1.20.9；本仓 lockfile 同时解析出 body-parser@1.20.5（<1.20.9）与 2.3.0（∈[2.0.0,2.4.0)）**两条线都命中**，扫描器汇总报出的是两段的并集 **>=1.20.9, >=2.4.0**（2026-10-24 起 pnpm 域解析器把同一 GHSA 的多个修复族**合并**而不是只留最后读到的那一个，此前该字段取决于 npm 响应里各族的先后顺序、会在两段之间来回跳 ⇒ 与下面的 targetVersion 配对时随机判红）动作 = 把 body-parser 两条线都升到各自修复版以上（1.x→>=1.20.9、2.x→>=2.4.0）并刷新 lockfile；不需要压缩请求体时可用公告给的 work-around express.json({ inflate: false }) 临时缓解。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
+        {
       "source": "npm",
       "id": "GHSA-2883-xcg3-v3hh",
       "module": "js-yaml",
@@ -102,21 +88,7 @@
       "decision": "upgrade-tracked",
       "note": "jszip 由 apps/desktop 的文档导入链引入；升级 PR 提到 >=3.8.0。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-4mjr-xmp4-gh2g",
-      "module": "qs",
-      "severity": "moderate",
-      "patched": ">=6.16.0",
-      "targetVersion": "6.16.0",
-      "roots": [
-        ".",
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "qs 为 packages/ai-writer-api 的 express 传递依赖；升级 PR 提到 >=6.16.0。"
-    },
-    {
+        {
       "source": "npm",
       "id": "GHSA-5p4m-2wfm-xmqj",
       "module": "js-yaml",
@@ -201,49 +173,7 @@
       "decision": "upgrade-tracked",
       "note": "lockfile 实测解析到 @vue/server-renderer@3.5.35。本仓三处 manifest 声明 vue ^3.5.0（apps/desktop、ops-center/frontend、packages/ui），caret 区间已覆盖 >=3.5.42，仅 lockfile 未刷新；且它作为 vue 的 peer 引入，本仓不直接声明该包。动作=刷新 lockfile（pnpm update vue），无需改 manifest。注意与本仓 SSR 用法解耦：server-renderer 只在 storybook/SSR 构建链出现，不影响 Electron 渲染进程运行时。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-jqcg-44mw-7w3h",
-      "module": "proxy-addr",
-      "severity": "critical",
-      "patched": ">=2.0.8",
-      "targetVersion": "2.0.8",
-      "roots": [
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "critical 级，但 lockfile 实测解析到 proxy-addr@2.0.7，仅差一个补丁版本。来源链单一：ai-writer-api 直接依赖 express@4.22.2（manifest ^4.18.0），proxy-addr 由 express 传递引入，本仓零直接引用（git grep sprintf/proxy-addr 无命中）。动作=刷新 lockfile 收敛 express 的传递依赖到 >=2.0.8，无需改 manifest；无法在本 PR 内完成是因为该 PR 不带依赖变更，单独开刀。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-jr5w-w6x2-84p9",
-      "module": "electron",
-      "severity": "high",
-      "patched": ">=43.8.1",
-      "targetVersion": "43.8.1",
-      "roots": [
-        ".",
-        "packages__rpa-engine",
-        "packages__shared-utils"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 新公告（GHSA-jr5w-w6x2-84p9 = CVE-2026-115570，CWE-299）：一组 eMudhra 中间证书已被攻陷，浏览器与 TLS 客户端陆续封禁；本次 Electron 更新把同一封禁加进 Chromium networking 与 Node.js 的 tls/https/fetch。未修复版本上，**持有经这些中间证书签发之证书、且能劫持网络流量的攻击者可冒充 TLS 服务端**。公告明确：**无应用侧规避手段，只能升级到修复版**。本仓实测：lockfile 解析到 electron@43.7.7，落在受影响区间 >=43.0.0-alpha.1,<43.8.1；修复版 43.8.1 已发布。roots 是 pnpm audit --prod 口径下的**直接依赖方**：根 package.json 的 dependencies 里 electron ^43.7.7（apps/desktop 的 electron 是 devDependency，被 --prod 排除）、packages/rpa-engine（peer >=33.0.0，optional）、packages/shared-utils（peer >=20.0.0，optional）。影响面：桌面端会对外发 TLS 连接（模型服务商 / 发布平台 API）⇒ **不是纯可用性问题**，属中间 CA 信任链被冒充。动作 = 把 electron 升到 >=43.8.1 并刷新 lockfile；因 electron 是桌面运行时二进制，升级需连带回归打包与启动链，单独排期。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级。"
-    },
-    {
-      "source": "npm",
-      "id": "GHSA-mrhx-c7xc-m3w5",
-      "module": "zod",
-      "severity": "high",
-      "patched": ">=4.6.6",
-      "targetVersion": "4.6.6",
-      "roots": [
-        ".",
-        "packages__remotion-composer"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "2026-10-23 新公告（GHSA-mrhx-c7xc-m3w5 = CVE-2023-54404，CWE-770 资源未限流）：zod 在校验**超大受限集合**时（如 z.array().max(N) 遇到外部可控的超大数组）会耗尽内存，影响面仅可用性（机密性/完整性均不受影响），CVSS v4 = AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H，EPSS 0.35%（27 百分位）。本仓 zod@4.3.6 由 packages/remotion-composer 的依赖链**精确锁定**（zod-to-json-schema@3.25.2、@remotion/media@4.0.484 等以 zod: 4.3.6 精确引入），该包 package.json 不直接声明 zod。本仓 zod 校验对象是内部生成的渲染参数与配置，不接受外部直接投递超大集合 ⇒ 触发面窄；但修复版本 zod>=4.6.6 已发布，刷新 lockfile 需连带回归 remotion-composer 的渲染/构建链，单独排期。动作 = pnpm 升级 zod 至 >=4.6.6 并刷新 lockfile。复核日随基线顶层 reviewBy（2026-12-31）到期前必须完成升级，或改判 accepted-risk / not-exploitable 并给出复核依据。"
-    },
-    {
+                {
       "source": "npm",
       "id": "GHSA-r28c-9q8g-f849",
       "module": "postcss",
@@ -271,20 +201,7 @@
       "decision": "upgrade-tracked",
       "note": "lockfile 实测解析到 postcss-selector-parser@7.1.4，差两个补丁版本。纯构建期传递依赖：本仓 manifest 零声明，来源为 eslint-plugin-vue（desktop devDeps）、css-loader / @remotion/bundler（remotion-composer 链），不进入运行时产物。动作=刷新 lockfile 收敛到 >=7.1.6。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-v422-hmwv-36x6",
-      "module": "body-parser",
-      "severity": "low",
-      "patched": ">=1.20.6",
-      "targetVersion": "1.20.6",
-      "roots": [
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "body-parser 为 ai-writer-api 的 express 传递依赖，低风险；升级 PR 提到 >=1.20.6。"
-    },
-    {
+        {
       "source": "npm",
       "id": "GHSA-w5vr-8v7q-w6rv",
       "module": "baseline-browser-mapping",
@@ -297,21 +214,7 @@
       "decision": "upgrade-tracked",
       "note": "baseline-browser-mapping 与 browserslist 同族构建期数据包；升级 PR 提到 >=2.11.0。"
     },
-    {
-      "source": "npm",
-      "id": "GHSA-x5fp-wj9c-mxmx",
-      "module": "qs",
-      "severity": "moderate",
-      "patched": ">=6.15.4",
-      "targetVersion": "6.15.4",
-      "roots": [
-        ".",
-        "packages__ai-writer-api"
-      ],
-      "decision": "upgrade-tracked",
-      "note": "qs 第二条公告，与 GHSA-4mjr 同一升级动作覆盖（取更高修复版本）。"
-    },
-    {
+        {
       "source": "pip",
       "id": "PYSEC-2026-1325",
       "module": "ecdsa",

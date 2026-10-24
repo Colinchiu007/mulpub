@@ -9,7 +9,8 @@ overrides:
   fast-uri: ^3.1.9
   ip-address: ^10.7.4
   axios: ^1.20.0
-  electron: ^43.7.7
+  electron: ^43.8.1
+  zod: ^4.6.6
   minimatch@3>brace-expansion: ^1.1.21
   minimatch@10>brace-expansion: ^5.0.12
 
@@ -19,7 +20,7 @@ importers:
     dependencies:
       '@askjo/camofox-browser':
         specifier: 1.18.1
-        version: 1.18.1(openapi-types@12.1.3)(zod@4.3.6)
+        version: 1.18.1(openapi-types@12.1.3)(zod@4.6.7)
       '@jridgewell/trace-mapping':
         specifier: ^0.3.25
         version: 0.3.31
@@ -30,8 +31,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0
       electron:
-        specifier: ^43.7.7
-        version: 43.7.7
+        specifier: ^43.8.1
+        version: 43.8.3
       remotion:
         specifier: 4.0.484
         version: 4.0.484(react-dom@19.3.0(react@19.3.0))(react@18.3.1)
@@ -188,8 +189,8 @@ importers:
         specifier: ^10.1.0
         version: 10.1.0
       electron:
-        specifier: ^43.7.7
-        version: 43.7.7
+        specifier: ^43.8.1
+        version: 43.8.3
       electron-builder:
         specifier: ^25.1.8
         version: 25.1.8(electron-builder-squirrel-windows@25.1.8)
@@ -267,8 +268,8 @@ importers:
         specifier: file:../ai-writer
         version: link:../ai-writer
       express:
-        specifier: ^4.18.0
-        version: 4.22.2
+        specifier: ^4.22.3
+        version: 4.22.3
     devDependencies:
       supertest:
         specifier: ^6.3.0
@@ -358,8 +359,8 @@ importers:
   packages/rpa-engine:
     dependencies:
       electron:
-        specifier: ^43.7.7
-        version: 43.7.7
+        specifier: ^43.8.1
+        version: 43.8.3
     devDependencies:
       vitest:
         specifier: ^4.1.9
@@ -368,8 +369,8 @@ importers:
   packages/shared-utils:
     dependencies:
       electron:
-        specifier: ^43.7.7
-        version: 43.7.7
+        specifier: ^43.8.1
+        version: 43.8.3
       js-yaml:
         specifier: ^4.2.0
         version: 4.3.0
@@ -1702,7 +1703,7 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
-      zod: ^3.25 || ^4.0
+      zod: ^4.6.6
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
@@ -3163,12 +3164,12 @@ packages:
   bmp-js@0.1.0:
     resolution: {integrity: sha512-vHdS19CnY3hwiNdkaqk93DvjVLfbEcI8mys4UjuWrlX1haDmroo8o4xCzh4wD6DGV6HxRCyauwhHRqMTfERtjw==}
 
-  body-parser@1.20.5:
-    resolution: {integrity: sha512-3grm+/2tUOvu2cjJkvsIxrv/wVpfXQW4PsQHYm7yk4vfpu7Ekl6nEsYBoJUL6qDwZUx8wUhQ8tR2qz+ad9c9OA==}
+  body-parser@1.20.9:
+    resolution: {integrity: sha512-FISIQxV5u91Y9gvuFq3q/tA/qTqLJn3AhRcEvyozyhJTh5OBFFtv827AdHU7Rbyct4r+Ba1/99oFa1Y3yuFsdw==}
     engines: {node: '>= 0.8', npm: 1.2.8000 || >= 1.4.16}
 
-  body-parser@2.3.0:
-    resolution: {integrity: sha512-2cGmJupaNgg+QUwVLAucDuWuoMZ6EX9iHDRswZ5lsNYEmwPaRknMPCLZz07yTzVq/83p4o/wzbDZbBrTvGGTIw==}
+  body-parser@2.4.0:
+    resolution: {integrity: sha512-Ifk1KcLrxaGt1occQagQNFNNOqRt1LFuehEnHHzB8Z6cRgIxRU1TBaiIsUiCdA+gy5PL7Y1IX31DNKkRmxtXjQ==}
     engines: {node: '>=18'}
 
   boolbase@1.0.0:
@@ -3901,8 +3902,8 @@ packages:
   electron-updater@6.8.9:
     resolution: {integrity: sha512-ZhVxM9iGONUpZGI1FxdMRgJjUFXi7AYGVa5PwKlO1tV1/4zDxQmfKpXOHVztKrd6L9rLcFjERvi1Mf2vxyTkig==}
 
-  electron@43.7.7:
-    resolution: {integrity: sha512-y0pg+KhWLAkW2Ts2njkFFNFl3KtB1FmbUp9Te9i+R2Og2v1fcI/I6MADJ7jvnzB5UKdt+U+0EUoCnVL79xMPMA==}
+  electron@43.8.3:
+    resolution: {integrity: sha512-KgvSm3bHXz96hSXzqxyRjLeli80rIdszbDQFKlRSfckmGazTPCH/CxUN31Dp9c5rFKTQSNf9gPJRWl1yWNB3pA==}
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
@@ -4180,8 +4181,8 @@ packages:
     peerDependencies:
       express: '>= 4.11'
 
-  express@4.22.2:
-    resolution: {integrity: sha512-IuL+Elrou2ZvCFHs18/CIzy2Nzvo25nZ1/D2eIZlz7c+QUayAcYoiM2BthCjs+EBHVpjYjcuLDAiCWgeIX3X1Q==}
+  express@4.22.3:
+    resolution: {integrity: sha512-Bdcs4+3qlpVlx2NRn6fgX2Ue2/gGRaPeawebgclM0ERSCqDpA+owF1fdPwjJUTAJWMTuAaxjDf+hzb0/4eKvvw==}
     engines: {node: '>= 0.10.0'}
 
   express@5.3.0:
@@ -6009,10 +6010,6 @@ packages:
   proto-list@1.2.4:
     resolution: {integrity: sha512-vtK/94akxsTMhe0/cbfpR+syPuszcuwhqVjJq26CuNDgFGj682oRBXOP5MJpv2r7JtE8MsiepGIqvvOTBwn2vA==}
 
-  proxy-addr@2.0.7:
-    resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
-    engines: {node: '>= 0.10'}
-
   proxy-addr@2.0.8:
     resolution: {integrity: sha512-5nnx0yGyVUcY6t9RnWcARWtwT9F1D8O9rt08htPvnd49W1IgZtmLkhu9WfMzQj1cFxjHIO6connUNVW5k7AVyQ==}
     engines: {node: '>= 0.10'}
@@ -7430,10 +7427,10 @@ packages:
   zod-to-json-schema@3.25.2:
     resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
     peerDependencies:
-      zod: ^3.25.28 || ^4
+      zod: ^4.6.6
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
 
@@ -7480,7 +7477,7 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
-  '@askjo/camofox-browser@1.18.1(openapi-types@12.1.3)(zod@4.3.6)':
+  '@askjo/camofox-browser@1.18.1(openapi-types@12.1.3)(zod@4.6.7)':
     dependencies:
       better-sqlite3: 13.0.1
       camoufox-js: 0.11.5(playwright-core@1.61.1)
@@ -7489,7 +7486,7 @@ snapshots:
       prom-client: 15.1.3
       swagger-jsdoc: 6.3.0(openapi-types@12.1.3)
     optionalDependencies:
-      '@modelcontextprotocol/sdk': 1.32.1(zod@4.3.6)
+      '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.7)
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - openapi-types
@@ -8530,7 +8527,7 @@ snapshots:
     dependencies:
       mediabunny: 1.47.0
 
-  '@modelcontextprotocol/sdk@1.32.1(zod@4.3.6)':
+  '@modelcontextprotocol/sdk@1.32.1(zod@4.6.7)':
     dependencies:
       '@hono/node-server': 2.1.5(hono@4.13.13)
       ajv: 8.20.0
@@ -8547,8 +8544,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.0
       raw-body: 3.0.0
-      zod: 4.3.6
-      zod-to-json-schema: 3.25.2(zod@4.3.6)
+      zod: 4.6.7
+      zod-to-json-schema: 3.25.2(zod@4.6.7)
     transitivePeerDependencies:
       - supports-color
     optional: true
@@ -8758,7 +8755,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       remotion: 4.0.484(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      zod: 4.3.6
+      zod: 4.6.7
 
   '@remotion/paths@4.0.484': {}
 
@@ -8857,7 +8854,7 @@ snapshots:
       react-dom: 18.3.1(react@18.3.1)
       remotion: 4.0.484(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       semver: 7.5.3
-      zod: 4.3.6
+      zod: 4.6.7
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -10283,7 +10280,7 @@ snapshots:
 
   bmp-js@0.1.0: {}
 
-  body-parser@1.20.5:
+  body-parser@1.20.9:
     dependencies:
       bytes: 3.1.2
       content-type: 1.0.5
@@ -10293,14 +10290,14 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.4.24
       on-finished: 2.4.1
-      qs: 6.15.3
+      qs: 6.16.1
       raw-body: 2.5.3
       type-is: 1.6.18
       unpipe: 1.0.0
     transitivePeerDependencies:
       - supports-color
 
-  body-parser@2.3.0:
+  body-parser@2.4.0:
     dependencies:
       bytes: 3.1.2
       content-type: 2.1.0
@@ -10308,7 +10305,7 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.7.3
       on-finished: 2.4.1
-      qs: 6.15.3
+      qs: 6.16.1
       raw-body: 3.0.2
       type-is: 2.1.0
     transitivePeerDependencies:
@@ -11175,7 +11172,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron@43.7.7:
+  electron@43.8.3:
     dependencies:
       '@electron-internal/extract-zip': 1.0.4
       '@electron/get': 5.0.0
@@ -11553,11 +11550,11 @@ snapshots:
       - supports-color
     optional: true
 
-  express@4.22.2:
+  express@4.22.3:
     dependencies:
       accepts: 1.3.8
       array-flatten: 1.1.1
-      body-parser: 1.20.5
+      body-parser: 1.20.9
       content-disposition: 0.5.4
       content-type: 1.0.5
       cookie: 0.7.2
@@ -11575,8 +11572,8 @@ snapshots:
       on-finished: 2.4.1
       parseurl: 1.3.3
       path-to-regexp: 0.1.13
-      proxy-addr: 2.0.7
-      qs: 6.15.3
+      proxy-addr: 2.0.8
+      qs: 6.16.1
       range-parser: 1.2.1
       safe-buffer: 5.2.1
       send: 0.19.2
@@ -11592,7 +11589,7 @@ snapshots:
   express@5.3.0:
     dependencies:
       accepts: 2.0.0
-      body-parser: 2.3.0
+      body-parser: 2.4.0
       content-disposition: 2.0.1
       content-type: 2.1.0
       cookie: 0.7.2
@@ -11783,7 +11780,7 @@ snapshots:
       '@paralleldrive/cuid2': 2.3.1
       dezalgo: 1.0.4
       once: 1.4.0
-      qs: 6.15.3
+      qs: 6.16.1
 
   forwarded@0.2.0: {}
 
@@ -12851,7 +12848,7 @@ snapshots:
 
   mutation-server-protocol@0.4.1:
     dependencies:
-      zod: 4.3.6
+      zod: 4.6.7
 
   mutation-testing-elements@3.7.3: {}
 
@@ -13426,11 +13423,6 @@ snapshots:
       signal-exit: 3.0.7
 
   proto-list@1.2.4: {}
-
-  proxy-addr@2.0.7:
-    dependencies:
-      forwarded: 0.2.0
-      ipaddr.js: 1.9.1
 
   proxy-addr@2.0.8:
     dependencies:
@@ -14938,9 +14930,9 @@ snapshots:
 
   zlibjs@0.3.1: {}
 
-  zod-to-json-schema@3.25.2(zod@4.3.6):
+  zod-to-json-schema@3.25.2(zod@4.6.7):
     dependencies:
-      zod: 4.3.6
+      zod: 4.6.7
     optional: true
 
-  zod@4.3.6: {}
+  zod@4.6.7: {}

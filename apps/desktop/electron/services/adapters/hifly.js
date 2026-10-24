@@ -461,5 +461,9 @@ class HiFlyAdapter extends BaseAdapter {
 
 // 形象/声音克隆方法在 hifly-clone.js（max-lines 拆分，与 heygen-clone 同型）
 Object.assign(HiFlyAdapter.prototype, require('./hifly-clone').cloneMethods)
+// 辅助与作品管理端点（积分/模板/封面/删除作品）在 hifly-extra.js
+Object.assign(HiFlyAdapter.prototype, require('./hifly-extra').extraMethods)
+// 6 个收费创作模式（声音驱动/网感模板/翻译/唱歌/图片驱动/音频）在 hifly-create-modes.js
+Object.assign(HiFlyAdapter.prototype, require('./hifly-create-modes').createModeMethods)
 
 module.exports = { HiFlyAdapter, HIFLY_MODELS }
