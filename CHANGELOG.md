@@ -451,6 +451,18 @@
 - feat(登录): 头条号进入登录期观测面：会话级记监测域内的失败请求与 HTTP≥400（字节自家 CDN 的 504 此前完全无痕），CDP 记**慢请求耗时**、**图形验证码组件加载完成**（用户看到的灰显遮罩结束的时刻）与监测域请求失败；未登记平台的过滤面**一字不变**，观测层**永不读响应体**。
 - refactor(登录): 按仓内行数门禁拆出三个模块（`auth-login-slot.js` 槽位规则 / `login-network-monitor.js` 观测口径 / `auth-view-saved-account.js`「打开已保存账号」纯平移，特征测试先钉住当前行为）；监测域匹配改为按平台编译正则并缓存（O(1) 查表）。
 - docs(登录): 新增 `01-docs/PRD-LOGIN-SLOT-REUSE-2026-10-21.md`（数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 不做什么 / 取舍）与 `01-docs/TROUBLESHOOT-TOUTIAO-LOGIN-SLOW-2026-10-21.md`（用户侧排障手册）。
+# [未发布] feat(ui): 设置页「快捷键」面板接线 `hotkeys:list`（ux-audit-hotkeys-settings）
+
+- **问题**：应用注册了 10 组全局快捷键，`hotkeys:list` IPC + preload `hotkeysList()` 也都在，但**渲染端零消费方**（实测 `git grep -na hotkeysList origin/main` 只命中 preload 自身与其测试）⇒ 键盘通道在 1.5 刚修通，却没有任何地方告诉用户它存在。这是「装饰性链路」在 UI 层的又一次复发：四端就绪，缺的只是把数据端给用户的那个显示面。
+- **根因**：不是"缺一块 UI"，是链路两端各修各的。同一条缺陷还有文档侧证据 —— `hotkeys.js` 文件头注释只列 6 条且含一条**已不存在的** `Ctrl+Alt+M 分屏监控`，连功能自己的说明书都落后于实现（本批一并更正）。
+- **落地**：`src/utils/hotkey-labels.js`（映射层唯一实现）+ `src/components/HotkeysSettings.vue`（五态面板）+ `SettingsDialog.vue` 第七个 Tab + locales `settings/{zh,en}.js` 成对新增。
+- **三条不显然的判断**：① **映射键取 accelerator 而非 route** —— `/publish` 被 `Alt+P` 与 `Alt+N` 共用、`/accounts` 被 `Alt+A` 与 `CmdOrCtrl+Comma` 共用，以 route 为键会把两条不同动作合并成一个名字；② **动作名不得取主进程的中文 `label`**（它服务 `:59` 的注册日志；直接渲染会让 en 用户看到未翻译文本），未登记时回显**语言中立的原始标识**并标 `data-mapped="false"`，不编一个看着像真名的词；③ **图标名不能凭名字写** —— `@element-plus/icons-vue` 293 个导出里**没有** `Keyboard`，写了拿到 `undefined`、模板与单测都不出声，只在界面上表现为空图标位（本批先枚举导出名才定下 `Key`）。
+- **状态必须五态**：`loading / ready / empty / error / unavailable` 互不相同。把"IPC 失败"和"宿主没有桥"渲染成空列表，等于告诉用户"这个应用没有快捷键"，与本单元要修的缺陷同形。
+- **测试与反证**：新增 36 条用例（含**跨包对齐锁**：读主进程源码逐项要求"已注册 ⇒ 已登记"，双向、起点与终点锚各自先断言存在 + 规模下界 + 成员断言）；`scripts/hotkey-labels-contract-mutate.js` 12 道变异**全部 CAUGHT**（`[SUMMARY] 共 12 条：CAUGHT=12 其余=0`，标题域 45 条，无 `RESTORE_MISMATCH`）。
+- **两条 MISSED 都修在锁上（不放宽判据）**：① mac 修饰键排序的三条用例输入**本来就等于**苹果惯例顺序 ⇒ 摘掉 `.sort()` 照样绿，补 `Alt+Shift+CmdOrCtrl+P ⇒ ⌘ ⌥ ⇧ P` 后才有牙；② 终点锚变异第一版打在 `slice(start, X)` 表达式上零条红 ⇒ 有牙的是前面那句 `expect(end >= 0)`，改打锚点赋值本身后 CAUGHT。**教训**：顺序/归一化类断言必须喂"非规范序"输入；锚点类守卫的变异要打在断言自身上。
+- **既有断言的归因**：第七个 Tab 让 `SettingsDialog.test.js` 两条**按索引**的既有断言变红。处置是改成按文案定位并把 `Coming Soon` 收窄到最后一个 Tab —— 按索引会把"顺序变了"表达成"某个 Tab 名字不对"，掩盖真实原因；这是更精确而非更宽。
+- **QM-1**：本批改了 `electron/services/hotkeys.js`（仅注释）⇒ 按规则实跑 `pnpm run build:dir` 成功，打包产物以隔离 `--user-data-dir` 启动，8 秒内存活且 stderr 为空。
+- **未闭合（如实登记）**：① 视觉基线 `settings-general`（浅/暗）必须由同一次 CI 渲染刷新，本批**不**自称"视觉无回归"；② 界面显示的是"应该有的"快捷键而非"注册成功的" —— `globalShortcut.register` 的失败只写主进程日志，`getShortcuts()` 不回传结果，需主进程配合另批处理；③ 反证驱动尚未接进 CI。
 
 # [未发布] feat(ci): electron-ci 桌面全量收回单一实现 —— 同一步两片并行 + 共享预算 2700s + 剥 ANSI/时间戳的现场计数
 

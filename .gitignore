@@ -533,3 +533,6 @@ apps/desktop/electron/monitor-preload.bundle.js
 apps/desktop/electron/services/generated/card-paginator.iife.js
 apps/desktop/electron/services/stealth/stealth-preload-enhanced.bundle.js
 !scripts/offline-live-contract-mutate.js
+
+# UX 审计 1.6：快捷键显示面反证驱动（scripts/*.js 的默认忽略会把它静默排除在 git 之外 ⇒ CI 永远不跑）
+!scripts/hotkey-labels-contract-mutate.js
