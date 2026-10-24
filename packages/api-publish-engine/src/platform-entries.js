@@ -18,7 +18,11 @@ const imagePublishUrls = {
   kuaishou: "https://cp.kuaishou.com/article/publish/video?tabType=2",
   xiaohongshu: "https://creator.xiaohongshu.com/publish/publish?from=menu",
   zhihu: "https://zhuanlan.zhihu.com/write",
-  weibo: "https://weibo.com/upload/channel",
+  // 2026-10-20（fix-publish-failures）：图文入口**不是**视频频道。
+  // `weibo.com/upload/channel`（见上方 videoPublishUrls.weibo）是视频上传页，该页没有
+  // `.publisher_text textarea` / `.W_input` / `textarea[node-type="textEl"]`（PLATFORM_PUBLISH_SELECTORS.weibo
+  // 只登记了这三条正文候选），走它必然报「content editor not found」。图文走首页发布框。
+  weibo: "https://weibo.com/",
   // 2026-09-30 补：头条「图文」= 文章编辑器（graphic/publish）。
   // 此前该键缺失 ⇒ getPublishUrl('toutiao','image') 返回 null ⇒ RPA 回退到
   // config.publish_url 的根地址 https://mp.toutiao.com/（首页），

@@ -460,24 +460,33 @@ export function usePublishFlow(options) {
       // （AI 生图优先，本地标题卡兜底——cover:generate-ai 已内建回退）。生成失败不阻断发布
       // （无图平台照常发，图片平台会在引擎层如实报错）；成功则附加进表单（用户可见，透明）。
       //
-      // 触发条件必须**完备**——四项同时成立才生成：
-      //   ① 非视频发布；② 选中平台命中 AUTO_COVER_PLATFORMS；
-      //   ③ 无图片（image_files / images 都空）；
-      //   ④ **无任何封面**（cover_path / cover_file / cover_url 都空）。
-      // ④ 是本次补的：此前漏了它，导致「用户已选封面但没选图片」时仍会多生成一张，
-      // 既浪费一次生图调用，又让「用户选的封面」与「系统生成的封面」在同一次发布里并存。
+      // 2026-10-20（fix-publish-failures）修正一处**把整批发布打挂的漏判**：
+      //   「用户已选封面、但没选图片」时，旧实现只打一条 coverAlreadySet 就什么都不做（2026-10-12
+      //   为省一次生图调用把该分支改成空操作）。但**封面通道 ≠ 配图通道**：
+      //     · cover_path / cover_file → 给「封面必填」的平台（公众号）
+      //     · image_files / images    → 给「至少要一张图」的平台（小红书/快手/抖音/头条）
+      //   小红书图文发布页（target=image）在**图片上传完成之前不渲染标题框与正文编辑器**，
+      //   于是「有封面无配图」会让三个 title 候选 + 三个 editor 候选全部超时，draft-only 门禁
+      //   随后 fail-closed 中止——真机日志见 app-run.log 2026-10-20T05:29。
+      //   现在改为**复用**：有本地封面就把它同时落进配图通道（封面本身就是一张合格的首图），
+      //   既不多生成一张（保住 2026-10-12 的初衷），也不再让图文平台空着配图出发。
+      //   只有仅有远程 cover_url（file input 无法消费 URL）或完全没有封面时才真正去生成。
       const isTextImagePublish = !isVideoMode && selectedPlatforms.value.some(p => AUTO_COVER_PLATFORMS.includes(p))
       const hasImages = (Array.isArray(article.image_files) && article.image_files.length > 0)
         || (Array.isArray(article.images) && article.images.length > 0)
-      const hasCover = Boolean(
-        String(article.cover_path || '').trim()
-        || article.cover_file
-        || String(article.cover_url || '').trim(),
-      )
-      if (isTextImagePublish && article.title.trim()) {
-        if (hasCover) {
-          if (!hasImages) addProgress(progressText('publishPage.publishFlow.coverAlreadySet'), 'info')
-        } else if (!hasImages) {
+      if (isTextImagePublish && article.title.trim() && !hasImages) {
+        const localCoverPath = String(article.cover_path || '').trim()
+        const coverAsImage = localCoverPath
+          ? normalizePublishFile({
+            path: localCoverPath,
+            name: (article.cover_file && article.cover_file.name) || '',
+          })
+          : null
+        if (coverAsImage) {
+          article.image_files = [coverAsImage]
+          article.images = [coverAsImage.path]
+          addProgress(progressText('publishPage.publishFlow.coverReusedAsImage'), 'info')
+        } else {
           try {
             addProgress(progressText('publishPage.publishFlow.generatingCover'), 'info')
             const coverRes = await generateAiCover({ prompt: article.title, ratio: '3:4' })
