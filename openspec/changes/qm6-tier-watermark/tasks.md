@@ -156,20 +156,26 @@
 - [x] 5.1a 实现轴真跑六轮并逐条处置完毕（轮 1–6 = §D16–§D21）：轮 5 的 7 条与轮 6 的 8 条
       全部填 `dismissed` 给出现场判据，重跑入口走复用档（`♻ 跳过模型调用`），引擎打出
       `✅ 自扮演裁决未发现阻断项`，记录 status=self_play_resolved、blocking=0、findings=7。
-- [ ] 5.1b **拿不到工具签名的 `tier=external`**——写回器打的是
-      `reason=backend-mismatch spoke=closed-status|findings-present|nonempty-findings
-      detail=performedBy="self-play" 期望 "claude"`：五格合取**只欠第三格**，而第三格在自扮演收口下
+- [x] 5.1b **轮 7 拿到了工具签名的 `tier=external`**（2026-10-24，走本 PR 自己的第二条出口）：
+      前五轮的读数确实是 `reason=backend-mismatch spoke=closed-status|findings-present|nonempty-findings
+      detail=performedBy="self-play" 期望 "claude"` —— 五格合取只欠第三格，而第三格在自扮演收口下
       结构上不可能成立（引擎 `finalizeAdjudication` 无条件写 `performedBy:"self-play"`）。
-      本 PR 变更集命中 `.github/workflows/` ⇒ enforce 按"凭空收口"拦 ⇒ **自动合并判据第 4 条无法满足**，
-      属已登记的 `qm6-closure-writeback` tasks 11.5。三个修法候选见 §D20，均需人工过目，本刀不实现。
-- [ ] 5.1 实现轴 QM-6 外部评审与逐条处置（原条目，保留指向）。**本 PR 命中的高危面前缀是 `.github/workflows/`，不是 `scripts/check-`**
-      （本刀没改任何判据本体，接线改的是 workflow）；须 `tier=external`，由 `ccg-review-writeback.js` 写、不得手写。
-      轮 1–6 已真跑，逐条处置见 design §D16–§D21，六轮汇总在 §D21 末
+      用户 2026-10-24 裁决「授权我在本片里直接放宽合取③」后落成 §D22 那条窄出口，本轮现场读数：
+      `已写回 tier=external basis=adjudicated-self-play evidence=…#issuecomment-6378271670
+      spoke=closed-status|findings-present|nonempty-findings|adjudication-conditions|delivery-changed`
+      （五格全亮，含 ④ delivery-changed；`blocking=0`、`confidenceWeight=0.6`、findings=6）
+- [x] 5.1 实现轴 QM-6 外部评审与逐条处置：**本 PR 命中的高危面前缀是 `.github/workflows/`，不是 `scripts/check-`**
+      （本刀没改任何判据本体，接线改的是 workflow）；`tier=external` 由 `ccg-review-writeback.js` 写、
+      不手写。轮 1–6 逐条处置见 design §D16–§D21，轮 7（head `b4cf66e4`，交付 8 条 / 待裁决 6 条，
+      Critical 3 / Warning 3，最低维分 4）见 §D24 与公开评论 `4308#issuecomment-6378271670`
 - [x] 5.2 `openspec/records/qm6-tier-watermark.md` 已落（QM-5 五步含③、变异表 10 条、QM-6 两轴处置、
       CHANGELOG 条目与 learnings 两条 lesson；「远程同步」状态列只写「由门禁推导」）
-- [ ] 5.3 `check-pr-exec-record.js --mode=enforce --no-remote` 已跑：**rc=1**，红因逐字贴在 §D20
-      （`tier 整段缺席 … 高危面上按"凭空收口"拦`）。这一条不是"待修的实现缺陷"，是 5.1b 那格的下游后果；
-      在 11.5 被裁决之前它无法机械转绿，**不得**用手写 tier 或删 tier 来消掉（后者只是退回 unknown 被放过）
+- [x] 5.3 `check-pr-exec-record.js --base=origin/main --mode=enforce --no-remote`：**rc=0**
+      （退出码由 `spawnSync` 直取，不是管道末段的 rc）。同一次跑打印
+      `TIER-COVERAGE dual-closed total=1 external=1 [external(直签)=0 external(自扮演+公开复核)=1]
+      unrecognized(值不认识)=0` —— 这是那条分档第一次在全仓读数里从 0 变成 1。
+      此前那次 rc=1 的红因（`tier 整段缺席 … 高危面上按"凭空收口"拦`）逐字贴在 §D20，
+      它是 5.1b 那格的下游后果；消掉它的正解是那条窄出口，**不是**手写 tier 也不是删 tier 退回 unknown
 - [ ] 5.4 PR + `check-main-red.js --pr` 取 verdict + 合并产物取证（三条产物判据，不看 rc）
 - [ ] 5.5 回读本次合并触发的 main push（按「(merge SHA, workflow)」格判）
 - [ ] 5.6 `check-branch-merged.js` rc=0 后才删分支；worktree 走 `safe-worktree-remove.ps1 -WhatIf` 再实跑
@@ -201,4 +207,8 @@
       （"分档撒谎"的检查自己也会误报——它上线时就先错了一次：拿 `sum.external` 而不是
       `sum.by.external` 比，恒真地喊 defect，被 §1.1.14 当场抓回）
 - [x] 6.6 AGENTS.md QM-6 段落补记这条出口（含"放宽必须可见"与"这不是签名"两句）
-- [ ] 6.7 自用一遍：本 PR 把 critique + 逐条处置贴成公开评论，用 `--evidence=<URL>` 让工具写自己的章
+- [x] 6.7 **自用一遍已完成**：本轮 critique 原文 + 逐条处置贴成公开评论
+      `4308#issuecomment-6378271670`，再跑 `sh scripts/deep-review.sh --evidence <该 URL>` ⇒
+      工具自己写 `tier=external basis=adjudicated-self-play`（五格全亮、`blocking=0`、
+      `confidenceWeight=0.6`），全程没有手写 tier。读数与逐条处置见 §D24；
+      发布前把 critique 原文按「本机绝对路径 / 用户名」扫过一遍（命中 0），才贴出去

@@ -52,10 +52,105 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "self_play_resolved",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "externallyReviewed": [
+      {
+        "id": "i5",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4308#issuecomment-6378271670"
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Critical",
+        "finding": "合取③ 的第二条出口（adjudicated-self-play）允许 `performedBy=\"self-play\"` + 一条公开 URL 写入 `tier=external`。但 URL 只做形态验证（正则匹配 `#issuecomment-<id>`），不验证评论内容是否包含逐条处置（`findings` 与 `rationale`）。任意填写方可构造合法 URL + 自算 `adjudicationDigest`，绕过 \"外部复核\" 要求。设计 §D22 承认 \"任何填写方都能一条命令自算\"，却未提供第三方可核的真实约束。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "任何能把这条记录写进文件的人，都能同时自算 adjudicationDigest 并编一条形态合法的 issuecomment URL，于是 tier=external 可以在一次公开复核根本没发生的情况下写出来；判据只做形状 + 就地重算，抓不到「形状对但事情没发生」。",
+        "defense": "规格从未把它当签名：design §D22 与 AGENTS 的 QM-6 段落都逐字写着「这不是签名」「能被第三方核的是那条评论本身」。这条出口加的是**第二道窄门**而不是放宽原门——合取④⑤ 一字未动且对新档同样适用；判据侧另外做了两件可检的事：adjudicationDigest 把 URL 绑进 findings 哈希（matchesAdjudicationDigest 失配即降 external-unverified），分档强制可见（external(直签) + external(自扮演+公开复核) 必须等于 external，水位侧不等式破了自己喊 WATERMARK-DEFECT）。攻击者要得手必须**公开**伪造一条人人都能点开的评论，而不是绕过某个检测。",
+        "verdict": "dismissed",
+        "rationale": "该发现复述的是设计已声明并拒绝冒充的边界，不是与规格的偏差。可复取判据：`node scripts/qm6-tier-watermark.js` 的 `external-自扮演复核=` 子读数（本轮实跑前为 0，用了就显出来）；`grep -n \"这不是签名\" AGENTS.md openspec/changes/qm6-tier-watermark/design.md` 两处均在。"
+      },
+      {
+        "id": "i2",
+        "severity": "Critical",
+        "finding": "`.gitignore` 新增注释引用第 106 / 261 行（\"刻意不写行号：本仓这份文件很长、行号会漂\"），但同一段落仍写入 \"第 106 行\" 与 \"第 261 行\"。设计 §D8 明确警告：\"锚串若在文件里出现两次，`indexOf` 会命中注释那一处，导致 M-E4 假通过\"。行号在文件重排时立即失效，注释自我矛盾。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "若同一段注释既声明「刻意不写行号」又写出具体行号，按锚串定位的锁会命中注释里那一处，反证会在注释上通过而真代码没被改动。",
+        "defense": "本刀新增侧一个行号都没写：`git diff HEAD^ HEAD -- .gitignore` 的 `^+` 行对「第 [0-9]+ 行」命中 **0**。指控里的两个数字来源各不相同——「第 106 行」在该文件出现 23 次，全部属上游已合并的既有行（同一 hunk 的上下文行）；「第 261 行」在该文件出现 **0 次**，本仓不存在这个字面量。本刀那段注释给的落点是按模式匹配的锁（`scripts/qm6-tier-watermark.test.js` 的「negation 必须各自存在」），它不读任何行位置。",
+        "verdict": "dismissed",
+        "rationale": "两条实测：`git diff HEAD^ HEAD -- .gitignore | grep \"^+\" | grep -cE \"第 [0-9]+ 行\"` = 0；`grep -cF \"第 261 行\" .gitignore` = 0。同型错在本 PR 第 4 轮 i2 已被否证过一次（把 hunk 上下文读成本刀新增），这轮还多了一层虚构字面量。"
+      },
+      {
+        "id": "i3",
+        "severity": "Critical",
+        "finding": "预览工具 (`qm6-enforce-preview.js`) 对 30 条在飞 PR 的实测成本：中位 74.7s、最大 140.8s，整轮约 37 分钟（设计 §D15-②）。但 `.github/workflows/quality-gate.yml` 将其接入 `changes` job，该 job 触发条件为 \"路径过滤的变化\"（设计 §D12 承认 \"罕见触发\"）。高成本 + 低频触发 = 几乎不会被实际运行，而 \"零条在飞时退 0\" 的行为（`prs=0 (none-open)`）与 \"取不到列表时退 2\" 的差异（设计 §D9）在真实 CI 中无法被验证。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "假想 enforce 扫描单条中位 74.7s、整轮约 37 分钟；若真接进 CI 等于把 30 分钟预算重新立起来，而低频触发路径上的「prs=0 退 0」与「取不到列表退 2」两档在真实 CI 里无从验证。",
+        "defense": "前提为假：本刀**没有**把 preview 本体接进 CI。workflow 的新增侧只有两行 `node --test`（水位与预览各自的回归锁）。接线本体是 tasks 2.12 那条**未勾欠账**，且它自带两条前置（先读 `blockingGateInputs`，否则会把测量步写成阻断步、连带拉长触发面）。成本读数来自 design §D15-②，是本地实测记录，不是新的 CI 事实。",
+        "verdict": "dismissed",
+        "rationale": "现场判据：`grep -rn \"qm6-enforce-preview\\.js\" .github/workflows/ | grep -v test.js | wc -l` = 0；`grep -n \"2.12 把 preview 接进\" openspec/changes/qm6-tier-watermark/tasks.md` 那一行仍是 `- [ ]`。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "`AGENTS.md` 新增的 26 行文本把合取③ 的放宽规则与直签档混写（\"两条出口都必须过④，否则一份手写好的 self-play 记录就能绕开...\"）。但 `AGENTS.md` 本质上是文档，不具备执行力；真正执行写入的是 `scripts/ccg-review-writeback.js`。文档与实现之间缺乏机械同步机制（无测试断言 AGENTS.md 内容与代码一致），文档漂移后操作人员可能依赖过时规则。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "AGENTS.md 新增段落写着放宽规则与两条出口的边界，但文档没有执行力：真正决定能不能写 tier=external 的是 `scripts/ccg-review-writeback.js`。若实现改了取值（例如 tierBasis 改名）而文档没改，读文档的人会按过时规则行动，没有任何测试会发现这件事。",
+        "defense": "这条说的是全仓既有惯例的缺口，不是本刀引入的洞。本刀的实现侧行为全部有测试钉住：`ccg-review-writeback.test.js` 把六个拒写原因各钉一条并指名文案；`check-pr-exec-record.test.js` 钉「未知 tierBasis ⇒ unrecognized」与「绑定失配 ⇒ external-unverified」；`qm6-tier-watermark.test.js` §1.1.14 钉分档求和。「把 AGENTS 的文字变成被判定面」是把文档纳入机器判定域，属 #4261「守门面单一真源」那一族的独立一刀，本刀不夹带。",
+        "verdict": "dismissed",
+        "rationale": "如实登记为**未做**而非已闭合：AGENTS 与本实现的取值同步目前无判据，缺口写进 `openspec/records/qm6-tier-watermark.md` 的「遗留」。判据落点可点名复取：`node --test scripts/ccg-review-writeback.test.js`（29 条）、`node --test scripts/check-pr-exec-record.test.js`（142 条）。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "实现轴轮 1–6 的评审结果显示：每轮都有 Critical（轮 1: 3 条，轮 2: 3 条，轮 3: 4 条，轮 4: 2 条，轮 5: 4 条，轮 6: 4 条），最低维度分最低为 2（轮 5）。但记录状态始终为 `self_play_resolved` + `blocking=0`，写回器拒写原因始终为 `backend-mismatch`（`performedBy=\"self-play\"` 期望 `\"claude\"`）。这意味着：即使六轮真跑全部通过，**高危面（`.github/workflows/` 前缀）的自动合并仍无法获得 `tier=external` 工具签名**（因为合取③ 第三格永远缺失）。方案交付了机制，却未解决其声称要解决的 \"高危面缺机械出口\" 问题。",
+        "highRiskDomains": [
+          "crypto"
+        ],
+        "externalReview": {
+          "performedBy": "claude",
+          "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4308#issuecomment-6378271670",
+          "reviewedAt": "2026-10-24T01:37:35.035Z"
+        },
+        "prosecution": "前六轮每轮都有 Critical（3/3/4/2/4/4），最低维分 2，记录状态恒 self_play_resolved 而写回器恒打 reason=backend-mismatch —— 引擎在自扮演收口时无条件把 performedBy 写成 self-play，于是合取③ 在结构上永不可能满足：「高危面缺机械出口」没有因为交付一把水位计而改变。",
+        "defense": "该描述对本刀**最终 diff** 已不成立。本 PR 实现轴第 7 轮是带着第二条出口提交的：performedBy=self-play 时，只要 `reviewBackends.critic` 等于清单 critic、`confidenceWeight < 1`、`blocking` 为空、逐条 verdict+rationale 齐备，并由入口透传一条公开可核评论 URL，工具即写 `tier=external` + `tierBasis=adjudicated-self-play`；④⑤ 对新档同样适用，分档在 `TIER-COVERAGE` 与水位行强制可见。指控所依据的六轮读数属本 PR 历史（design §D16–§D21），而那六轮跑在这条出口存在**之前**。",
+        "verdict": "dismissed",
+        "rationale": "三条可复取判据：(1) 本轮交付确实来自 critic=claude —— 入口日志原文「[轮 1/3] 调用 critic=claude 评审… 评审完成：8 条问题」；(2) 出口实现与用例点名可跑 —— `node --test scripts/ccg-review-writeback.test.js`（六个拒写原因各一条）；(3) 本 PR 就是第一个用户 —— 下面 evidenceRef 指向的公开评论承载本轮 critique 原文与逐条处置。「高危面不得自扮演豁免」这条纪律没有被放宽：它要的是**外部后端的真实交付 + 公开可核出处**，二者本轮实际具备。"
+      },
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "finding": "设计 §D23 记录了 \"夹具闭包锁（SCRIPT_CLOSURE）\" 的结构性缺陷，并提到主干 `40e1fb1ba(#4093)` 已修复同一断链（由 `#4347` 先落地）。但本刀在 `qm6-enforce-preview.js` 中仍使用 `mergedTreeEvidence`（由 `debt-recheck-live.js` 提供），而 `deep-review-entry-rc.test.js` 的 `SCRIPT_CLOSURE` 是手抄清单。若主干再次更新 `check-pr-exec-record.js` 的依赖（如新增 `lib/exec-record-audit.js` 懒 require），预览测试将再次红，而本刀的锁（§1.1.13）只检查 \"文件在盘且受跟踪\"，不检查 \"清单完整性\"。",
+        "highRiskDomains": [],
+        "externalReview": null,
+        "prosecution": "本刀承认 SCRIPT_CLOSURE 是手抄清单，而自己的锁只检查「CI 点名的测试其同名实现是否受跟踪」，不检查清单完整性；主干若再给判据加一条依赖边，同一批真跑锁会在子进程里第二次崩。",
+        "defense": "清单完整性**已有机械锁**，只是不在本刀差量里：主干 `ff1d09cfb(#4347)` 落地的 ⑫「SCRIPT_CLOSURE 覆盖被复制脚本的全部本地 require」会扫被复制脚本的本地 require，按 Node 解析规则还原（认 `../`、`.js`、`index.js`），并把「仓内找不到该文件」单列。本刀 rebase 时该文件**整取主干 blob**，只重放自己的 ④ 加宽（两个被拒原因各测一格），刻意不并存第二把同用途锁。",
+        "verdict": "dismissed",
+        "rationale": "现场判据：最终 head 上 `node --test scripts/deep-review-entry-rc.test.js` 读数 tests=12 pass=12 fail=0，其中 ⑫ 在位（`grep -n \"⑫ SCRIPT_CLOSURE\" scripts/deep-review-entry-rc.test.js`）。真实残余如实记两条，不得写成\"已全部覆盖\"：⑫ 在「整表命中 0 条」时照样通过，本刀撤回的那版 `hits > 0` 防的正是这一格、**未合入**；动态/模板串 require 两版都扫不到。"
+      }
+    ],
+    "blocking": [],
+    "note": "自扮演裁决：全部指控不成立",
+    "at": "2026-10-24T01:39:12.155Z",
+    "tier": "external",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4308#issuecomment-6378271670",
+    "tierBasis": "adjudicated-self-play",
+    "adjudicationDigest": "adjudicated@cf5fd61164cd7f04f5e7bbef7e1d60baad48981cb1cd9fc755dbddebc430dc00"
   }
 }

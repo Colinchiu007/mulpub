@@ -482,3 +482,37 @@ i7（缓存未交付）留在 §D14-4 与记录遗留。
 `no-adjudication-evidence`）。两把守卫防的格子不同，差异如实记在这里而不是"已被覆盖"：
 主干那把在**整表命中 0 条**时照样通过（`missing` 为空即断言成立），我那半的 `hits > 0`
 防的正是"扫描正则退化 ⇒ 一条也没扫到"。这一格**未合入**，登记为未做。
+
+## D24 实现轴轮 7 的处置 + **第二条出口第一次真实自用**（critic=claude 真跑，head=b4cf66e4，交付 8 条 / 待裁决 6 条：Critical 3 / Warning 3；最低维分 4）
+
+这一轮是本 PR 的**验收轮**：前六轮全部 exit 到 `reason=backend-mismatch`，本轮要回答的是
+§D22 那条出口在真实链路上到底能不能让工具自己写出 `tier=external`。现场读数（入口原文）：
+
+```
+♻ 复用存档 critique（8 条）+ 已填完的裁决 —— 跳过模型调用
+✅ 自扮演裁决未发现阻断项
+[ccg-review-writeback] 已写回 tier=external basis=adjudicated-self-play
+  evidence=https://github.com/Colinchiu007/mulpub/pull/4308#issuecomment-6378271670
+  spoke=closed-status|findings-present|nonempty-findings|adjudication-conditions|delivery-changed
+```
+
+**五格全亮**，包括 ④ `delivery-changed`——这条是刻意留的：出口只能把「第三格」换成「六件前置」，
+**不得**顺手把「本次驱动刚产出」这一格一起免掉。逐条处置（全文与 critique 原文在公开评论里）：
+
+| 条 | 级别 | 裁决 | 判据（可复跑，不写结论） |
+|---|---|---|---|
+| i1 | Critical | dismissed | 它复述的是设计**已声明并拒绝冒充**的边界（`grep -n "这不是签名" AGENTS.md` 命中本 PR 新写那句）；可检性由两件事承担：`adjudicationDigest` 绑 findings+URL（失配降 `external-unverified`）、分档可见（水位 `external-自扮演复核=` 从 0 起算，用了就显出来） |
+| i2 | Critical | dismissed | `git diff HEAD^ HEAD -- .gitignore \| grep "^+" \| grep -cE "第 [0-9]+ 行"` = **0**；`grep -cF "第 261 行" .gitignore` = **0**（该字面量本仓不存在）。"第 106 行" 23 处全是同一 hunk 的上游上下文行——与本 PR 轮 4 的 i2 同型 |
+| i3 | Critical | dismissed | `grep -rn "qm6-enforce-preview\.js" .github/workflows/ \| grep -v test.js \| wc -l` = **0** ⇒ 它指控的"已接入 CI 因而烧预算"这个前提不存在；接线本体是 tasks 2.12 的**未勾欠账**，且带两条前置 |
+| i4 | Warning | dismissed（登记为未做） | 实现侧行为由三个测试文件指名钉住（29 / 142 / §1.1.14）；「给 AGENTS 文字加机械同步」是把文档纳入机器判定域，属 #4261 那一族独立一刀，本刀不夹带 |
+| i5 | Warning（高危域 crypto） | dismissed + **externalReview 三格齐填** | 它描述的是轮 1–6 的历史（那六轮跑在出口存在之前）。本轮交付确实来自 critic=claude（入口日志原文），故按模板填 `performedBy=claude` / `evidenceRef=<本轮公开评论>` / `reviewedAt`——高危面不得自扮演豁免这条纪律**没有被放宽**，它要的是外部后端的真实交付 + 公开可核出处，二者本轮实际具备 |
+| i6 | Warning | dismissed | 清单完整性锁在主干 `ff1d09cfb(#4347)` 的 ⑫ 里（认 `../`/`.js`/`index.js`，"仓内找不到该文件"单列）；本刀整取该 blob、不并存第二把同用途锁。残余如实记：⑫ 在"整表命中 0 条"时照样通过，本刀撤回那版的 `hits > 0` 防的正是这一格，**未合入** |
+
+**一处必须点名的运行现实**：本轮第一次调用 critic 时 `输出解析失败且内容很短（3582 字符）`，
+引擎按"模型中断"重试一次才拿到 8 条。这不是缺陷（重试档存在且生效），但它再次证明
+**按交付条数判死活**（本仓既有纪律）是对的——若按"调用返回了"判，这一轮会被记成零交付。
+
+**六条全部 dismissed 而 blocking=0**，且这个 0 不是自扮演的施舍：`blocking` 由引擎在裁决表填齐、
+高危域三格齐备之后自己写；写回器只读它、不改它。判据最终读数：
+`check-pr-exec-record.js --base=origin/main --mode=enforce --no-remote` **rc=0**，同一次跑打印
+`TIER-COVERAGE dual-closed total=1 external=1 [external(直签)=0 external(自扮演+公开复核)=1]`。
