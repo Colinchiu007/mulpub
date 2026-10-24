@@ -158,6 +158,10 @@ export default {
       expand: 'Expand publish progress',
       close: 'Close',
       closeDisabledHint: 'Publishing — minimize to background first',
+      // Stage 1.8 (ux-audit-progress-watchdog): state only what the renderer actually observed
+      // (how long since the last event); never claim the task died — that needs main-process proof.
+      staleBadge: (ctx) => 'No update for ' + ctx.named('minutes') + ' min',
+      staleCloseHint: 'No updates for a while — click to collapse this panel (the task may still be running)',
       hintRunning: 'Publishing in background — keep the app open',
       firstHideToast: 'Publishing will continue in the background. Please keep the app running.',
       pillRunning: (ctx) => 'Publishing ' + ctx.named('done') + '/' + ctx.named('total'),

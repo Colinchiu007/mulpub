@@ -17,6 +17,18 @@
             <el-icon class="ppp__spin"><Loading /></el-icon>
             {{ t('publishPage.publishProgressPanel.sessionRunning') }}
           </span>
+          <!-- 无更新看门狗（阶段 1.8）：任务卡住不再发事件时如实说「已 N 分钟无更新」，
+               并解禁关闭 —— 措辞只陈述观测事实（多久没动静），不断言任务已死（那是猜）。
+               role=status + aria-live 让屏读用户与视觉用户同时得知状态跃迁（WCAG 4.1.3）。 -->
+          <span
+            v-if="staleness.stale"
+            class="ppp__badge ppp__badge--stale"
+            data-testid="publish-progress-stale"
+            role="status"
+            aria-live="polite"
+          >
+            {{ t('publishPage.publishProgressPanel.staleBadge', { minutes: staleness.minutes }) }}
+          </span>
         </span>
         <span class="ppp__actions">
           <button
@@ -33,10 +45,8 @@
             type="button"
             class="ppp__icon-btn"
             data-testid="publish-progress-close"
-            :disabled="store.hasRunning"
-            :title="store.hasRunning
-              ? t('publishPage.publishProgressPanel.closeDisabledHint')
-              : t('publishPage.publishProgressPanel.close')"
+            :disabled="closeBlocked"
+            :title="closeTitle"
             :aria-label="t('publishPage.publishProgressPanel.close')"
             @click="handleClose"
           >
@@ -97,7 +107,10 @@
           ? t('publishPage.publishProgressPanel.pillRunning', { done: store.aggregate.done, total: store.aggregate.total })
           : t('publishPage.publishProgressPanel.pillDone', { done: store.aggregate.done, total: store.aggregate.total }) }}<template v-if="store.aggregate.failed > 0">{{ t('publishPage.publishProgressPanel.pillFailedPart', { count: store.aggregate.failed }) }}</template>
       </span>
-      <span v-if="store.hasRunning" class="ppp__pill-hint">{{ t('publishPage.publishProgressPanel.hintRunning') }}</span>
+      <!-- 陈旧态下胶囊的提示改成「已 N 分钟无更新」（阶段 1.8）：继续宣称「进行中请勿关闭」
+           会把一个未经证实的判断说给用户听；转圈保留，因为任务确实可能仍在后台跑。 -->
+      <span v-if="staleness.stale" class="ppp__pill-hint">{{ t('publishPage.publishProgressPanel.staleBadge', { minutes: staleness.minutes }) }}</span>
+      <span v-else-if="store.hasRunning" class="ppp__pill-hint">{{ t('publishPage.publishProgressPanel.hintRunning') }}</span>
     </button>
   </Teleport>
 </template>
@@ -123,6 +136,7 @@ import {
 } from '@element-plus/icons-vue'
 import { usePublishProgressStore } from '@/stores/publishProgress'
 import { usePublishProgressAutoCollapse } from '@/composables/usePublishProgressAutoCollapse'
+import { usePublishProgressStaleness } from '@/composables/usePublishProgressStaleness'
 import PublishProgressFooter from './PublishProgressFooter.vue'
 import PublishProgressSession from './PublishProgressSession.vue'
 
@@ -130,6 +144,21 @@ const { t } = useI18n()
 const store = usePublishProgressStore()
 
 store.init()
+
+// 无更新看门狗（阶段 1.8）：判据本体在 utils/publish-progress-staleness.js（阈值单点），
+// 计时器由本组件持有（与自动收敛同源），store 保持纯状态。
+const { staleness } = usePublishProgressStaleness({
+  hasRunning: computed(() => store.hasRunning),
+  sessions: () => store.sessions,
+})
+
+const closeBlocked = computed(() => store.hasRunning && !staleness.value.stale)
+
+const closeTitle = computed(() => {
+  if (closeBlocked.value) return t('publishPage.publishProgressPanel.closeDisabledHint')
+  if (staleness.value.stale) return t('publishPage.publishProgressPanel.staleCloseHint')
+  return t('publishPage.publishProgressPanel.close')
+})
 
 const progressWidth = computed(() => {
   const { done, total } = store.aggregate
@@ -153,7 +182,14 @@ function handleMinimize() {
 
 function handleClose() {
   store.clearFinished()
-  if (store.sessions.length === 0) store.panelVisible = false
+  if (store.sessions.length === 0) {
+    store.panelVisible = false
+    return
+  }
+  // 还有运行中的会话：非陈旧态下 × 是禁用按钮（走不到这里）；陈旧态下语义是「收起」而不是
+  // 「丢弃」——任务可能仍在后台跑，直接把会话从 store 摘掉会让它后来到达的成功/失败事件
+  // 变成看不见的孤儿（证据丢失）。收进胶囊保留一条回程，面板也确实消失了（不是死按钮）。
+  if (staleness.value.stale) store.minimizePanel()
 }
 
 async function handleRetry(session) {
@@ -252,6 +288,14 @@ const { cancelAutoCollapse } = usePublishProgressAutoCollapse({
 .ppp__badge--running {
   color: var(--color-primary);
   background: var(--color-primary-light, rgba(80, 72, 229, 0.1));
+}
+
+/* 陈旧徽标（阶段 1.8）：复用既有语义 token，不新增色槽。
+   对比按实测而非目测——浅档 #1e1b4b on #fef3c7 = 14.36:1，暗档 #f5f5f7 on #33240c = 13.79:1，
+   两档都远高于 AA 的 4.5:1（暗色覆盖由 tokens.css 的 --color-warning-soft 同名槽负责）。 */
+.ppp__badge--stale {
+  color: var(--color-text-strong);
+  background: var(--color-warning-soft);
 }
 
 .ppp__actions {

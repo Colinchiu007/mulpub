@@ -142,6 +142,11 @@ scripts/*.js
 # 被忽略的症状与上面几族完全同形 —— 本地全绿、CI 上 Cannot find module（#3011 / Gate 2c3 /
 # precommit-spawn-budget / same-type-risk-locks / 引导按钮名同族，第 6 次）。
 !scripts/check-mask-coverage.js
+# 阶段 1.8「无更新看门狗」的变异反证驱动本体：第 106 行 scripts/*.js 会把它静默忽略，
+# 而执行记录与 PRD 都按路径点名它要求「14 条变异逐条实测变红」—— 漏这条 negation 的症状
+# 与同族一致：本地跑得过、仓库里没有这份驱动，下一个会话无法重取反证（#3011 / Gate 2c3 /
+# precommit-spawn-budget / same-type-risk-locks / mask-coverage 同族）。
+!scripts/publish-staleness-contract-mutate.js
 # 引导文案按钮名同步锁本体：第 106 行 scripts/*.js 会把它静默忽略，而 quality-gate.yml
 # 的 changes job 按路径点名它 —— 漏这条 negation 的症状是本地全绿、CI 上 Cannot find
 # module（#3011 / Gate 2c3 / precommit-spawn-budget / same-type-risk-locks 同族，第 5 次）。

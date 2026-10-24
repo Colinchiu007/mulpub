@@ -155,6 +155,10 @@ export default {
       expand: '展开发布进度',
       close: '关闭',
       closeDisabledHint: '发布进行中，可先最小化到后台',
+      // 阶段 1.8（ux-audit-progress-watchdog）：只陈述观测事实（多久没动静），
+      // 不断言任务已失败/已停止 —— 那需要主进程证据，渲染层没有。
+      staleBadge: (ctx) => '已 ' + ctx.named('minutes') + ' 分钟无更新',
+      staleCloseHint: '长时间没有收到更新，点击可收起面板（任务可能仍在后台进行）',
       hintRunning: '发布后台进行中，请勿关闭应用',
       firstHideToast: '发布将在后台继续进行，请勿关闭应用软件',
       pillRunning: (ctx) => '发布中 ' + ctx.named('done') + '/' + ctx.named('total'),

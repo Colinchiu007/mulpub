@@ -22,6 +22,7 @@ import {
 } from '@/api/publisher'
 // 会话收养/合并纯逻辑（2026-10 publish-progress-dup-upload：主文件超行数门禁后外置）
 import { findAdoptableSessions, mergeSessionInto } from './publishProgressSessionMerge'
+import { PUBLISH_TERMINAL_PHASES } from '@/utils/publish-phases'
 
 /** 会话列表上限：超出裁剪最旧已完成会话；全 running 不裁剪（宁多勿丢） */
 export const MAX_SESSIONS = 5
@@ -34,7 +35,7 @@ export const FIRST_HIDE_TOAST_STORAGE_KEY = 'mp-publish-first-hide-toast-shown'
 // 枚举是唯一真源：TERMINAL_PHASES 从本集合派生（评审 FE2：禁并列维护两份）。
 const PHASE_ENUM = new Set(['start', 'progress', 'success', 'failed', 'retry', 'blocked', 'released', 'cancelled', 'captcha'])
 // 派生而非并列：新增相位只需改 PHASE_ENUM 一处（测试锁 emitter/store 双侧一致）
-const TERMINAL_PHASES = new Set(Array.from(PHASE_ENUM).filter((p) => ['success', 'failed', 'cancelled'].includes(p)))
+const TERMINAL_PHASES = new Set(Array.from(PHASE_ENUM).filter((p) => PUBLISH_TERMINAL_PHASES.has(p)))
 const STAGE_KEY_ENUM = new Set([
   'prepare', 'upload', 'fill', 'submit', 'verify', 'waiting', 'released', 'done', 'failed', 'detail',
 ])
