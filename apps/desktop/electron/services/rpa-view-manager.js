@@ -213,6 +213,7 @@ class RpaViewManager {
         }
         // 头条 CSRF 令牌（2026-10-24 抓包）：由 secsdk 运行时生成，cookie/本地存储都没有，
         // 只能开隐藏窗口实时抓（见 services/toutiao-csrf-grab.js）。
+        log.info('RpaView', 'API-DIAG account: platform=' + platform + ' articleKeys=' + Object.keys(article || {}).join(',') + ' signerAccountId=' + String(signerAccountId) + ' authKeys=' + Object.keys(authData || {}).join(','))
         let _csrfTok = ''
         if (platform === 'toutiao' && signerAccountId) {
           // grab-hard-timeout（2026-10-24）：grab 内部 await dbg.sendCommand('Network.enable') 无超时会永久挂起，
