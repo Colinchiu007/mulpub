@@ -268,6 +268,61 @@ function ghsaFromUrl (url) {
   return m ? m[0].toUpperCase() : null;
 }
 
+/**
+ * 比较两个「修复下界」段（形如 `>=1.1.16`）：按版本号**数值**升序，解析不出时降级为字符串比较。
+ * 为什么要数值排序而不是字典序：`>=10.2.0` 在字典序里排在 `>=5.0.7` 前面 ⇒ 基线 diff 会随顺序抖动。
+ */
+function cmpPatchedBound (a, b) {
+  const num = (s) => {
+    const m = />=\s*(\d+)\.(\d+)\.(\d+)/.exec(String(s || ''));
+    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  };
+  const na = num(a); const nb = num(b);
+  if (na && nb) {
+    for (let i = 0; i < 3; i += 1) {
+      if (na[i] !== nb[i]) return na[i] - nb[i];
+    }
+    return 0;
+  }
+  return String(a).localeCompare(String(b));
+}
+
+/**
+ * 合并「同一 GHSA 的多个修复族」的修复下界。
+ *
+ * 为什么必须合并（2026-10-24 实测，判据侧的真缺陷）：
+ * npm/pnpm 对**一个 GHSA 的多条易感区间**（不同版本线各有自己的修复版）会返回**多条** advisory，
+ * 它们共享同一个 `github_advisory_id`。`parseNpmAuditV2`（npm v2 域）用「去重后 join」合并它们，
+ * 而本函数（pnpm 域）原先是**覆盖** —— 只留最后读到的那一个
+ * ⇒ 记录下来的下界取决于 **npm 响应里这些族的先后顺序** ⇒ 该字段**非确定**：
+ * 同一份锁、同一批公告，两次 `--update` 可能写出不同的 `patched`。
+ *
+ * 危害不是「值不好看」，而是**它会与人工写的 `targetVersion` 配对**：
+ * `checkTargetEscapes` 判「目标版本低于修复下界 ⇒ 这笔账永远闭不了」。
+ * 于是一次纯粹的响应顺序抖动，就能让**人已经判过的账**当场判红 ——
+ * 实测现场：`GHSA-3jxr-9vmj-r5cp`（brace-expansion）的 `patched` 在 `>=1.1.16` 与 `>=5.0.7`
+ * 之间来回跳，而人写的 `targetVersion` 是 `1.1.16` ⇒ 刷成 `>=5.0.7` 时立刻
+ * `DECISION_CONTRADICTS_PATCHED`。机器人自己刷出来的那份基线就是这个形态。
+ *
+ * 合并口径（逐条写死，避免"看起来合了"）：
+ *   · **任一族没有修复版本（空）⇒ 合并结果也是空**（= 没有修复版本）：
+ *     有一条线无解 ⇒ 整本账无解 ⇒ 保守侧（`no-fix-available`）才是诚实答案；
+ *   · 否则取所有族的下界**去重**，再按**版本号升序**排列。
+ *     排序是让输出与响应顺序无关的那一步（`checkTargetEscapes` 逐段比较，与顺序无关；
+ *     但顺序稳定才能让基线 diff 不抖动）。
+ */
+function mergePatchedBounds (prev, next) {
+  // prev 为 undefined/null ⇒ 这是该 GHSA 的第一个族，直接取它。
+  if (prev === undefined || prev === null) return String(next || '');
+  const segs = (s) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const a = segs(prev);
+  const b = segs(next);
+  // 一族无解 ⇒ 整本无解（保守：宁可让人改判 no-fix-available，也不让"看起来有修复版"蒙混过关）。
+  if (!a.length || !b.length) return '';
+  const all = [...new Set(a.concat(b))].sort(cmpPatchedBound);
+  return all.join(', ');
+}
+
 /** pnpm/npm audit JSON → 归一化条目。按 GHSA id 去重（同一公告可能命中多个 workspace）。 */
 function parseNpmAudit (report) {
   const advisories = (report && report.advisories) || {};
@@ -284,7 +339,9 @@ function parseNpmAudit (report) {
       id,
       module: raw.module_name || 'unknown',
       severity: raw.severity || 'unknown',
-      patched,
+      // 同一 GHSA 的多个修复族要**合并**（见 mergePatchedBounds）：覆盖会让这个字段取决于
+      // npm 响应里各族的先后顺序 ⇒ 非确定 ⇒ 与人工 targetVersion 配对时随机判红。
+      patched: mergePatchedBounds(prev ? prev.patched : undefined, patched),
       roots: prev ? [...new Set(prev.roots.concat(roots))].sort() : roots,
     };
     out.set(id, entry);
@@ -1109,6 +1166,8 @@ module.exports = {
   patchedFromRange,
   runCheck,
   parseNpmAudit,
+  mergePatchedBounds,
+  cmpPatchedBound,
   parsePipAudit,
   parseNpmAuditV2,
   patchedFromRange,
