@@ -23,11 +23,15 @@
 
 | 口径 unit | 含义 | 桌面端字段 | 计价单位 |
 |---|---|---|---|
-| `token_in` | 输入 / prompt token | `tokens_in` | 分 / 1K |
-| `token_out` | 输出 / completion token | `tokens_out` | 分 / 1K |
-| `token_cache_read` | 缓存命中读取 | `tokens_cache_read` | 分 / 1K |
-| `token_cache_write` | 缓存写入 | `tokens_cache_write` | 分 / 1K |
-| `token_reasoning` | 推理 token | `tokens_reasoning` | 分 / 1K |
+| `1k_tokens_in` | 输入 / prompt token | `tokens_in` | 微元 / 1K |
+| `1k_tokens_out` | 输出 / completion token | `tokens_out` | 微元 / 1K |
+| `1k_tokens_cache_read` | 缓存命中读取 | `tokens_cache_read` | 微元 / 1K |
+| `1k_tokens_cache_write` | 缓存写入 | `tokens_cache_write` | 微元 / 1K |
+| `1k_tokens_reasoning` | 推理 token | `tokens_reasoning` | 微元 / 1K |
+
+⚠️ **unit 字面量必须与 `models_credit.UNIT_*` 逐字一致**（`1k_tokens_in` …，不是 `token_in`）。
+本节早期版本写的是 `token_in`，与实现不一致 ⇒ 回算时 `cards.get("token_in")` 恒为 `None`
+⇒ **成本恒为 0 且全量报「缺价格」**。判据：任何 unit 名都要对着 `UNIT_*` 常量抄，不靠记忆。
 
 **采集侧兼容读**：`model-provider-manager.js` 目前读 `usage.prompt_tokens ?? usage.input_tokens`
 与 `usage.completion_tokens ?? usage.output_tokens`——**读取保持兼容**（供应商两种叫法并存），
@@ -39,15 +43,22 @@
 ## 2. 成本口径
 
 ```
-cost_cents = Σ( token_count / 1000 × unit_price_cents )
+cost_micros = Σ( token_count / 1000 × unit_price_micros )
 ```
 
-- **单位一律用整数分**。禁止用 Float 元做成本计算（浮点误差会随累加放大）。
+- **单位一律用整数微元（1e-6 元）**。禁止用 Float 元做成本计算（浮点误差会随累加放大）。
   `model_usage_daily.cost` 保留 Float（元）仅为兼容既有看板，**它不再是成本的权威源**；
-  权威源是 `model_usage_events.cost_cents`（Integer）。
-- **单价口径是「分 / 1K unit」**，与既有 `cost_per_1k_tokens` 一致，便于运营对照。
+  权威源是 `model_usage_events.cost_micros`（Integer）。
+- **单价口径是「微元 / 1K unit」**。
+  ⚠️ **为什么不是「分」**：LLM 的每千 token 单价天然是**亚分**
+  （DeepSeek V4.1-Flash 国内高峰价 ¥3 / 百万 tokens ⇒ **0.3 分 / 1K**），
+  整数「分」存不下 ⇒ 只能存 0（**静默当免费**、恒 0 成本）或 1（**放大 3.3 倍**）。
+  ⇒ 最小单位取微元；**换算基准「1 积分 = 1 分 = 10000 微元」是单一真源常量**
+  （`models_credit.CREDIT_UNIT_MICROS`），改一处即全局生效。
+  ⚠️ 这与 10-08 定案（`unit_price NUMERIC(12,6)` 单位为元）**方向一致、粒度更细**：
+  定案是历史依据，不回改。
 - **服务端算成本**。客户端只报 token，不报成本。客户端的 cost 保留为
-  `client_reported_cost_cents` 仅用于**对拍**（偏差 > 5% 告警），不参与计费。
+  `client_reported_cost_micros` 仅用于**对拍**（偏差 > 5% 告警），不参与计费。
   依据：`model-provider-manager.js:371` 注释已定调「不做本地估算避免伪数据」。
 
 ### 2.1 延迟直方图不得用于成本

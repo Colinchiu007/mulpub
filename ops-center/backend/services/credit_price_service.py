@@ -2,14 +2,14 @@
 
 **信任边界（本模块是这条边界的执行点）**：
 成本**一律由服务端按价格卡算**。桌面端上报的 cost 字段只作为对拍样本存进
-`model_usage_events.client_reported_cost_cents`，不参与任何计费决策。
+`model_usage_events.client_reported_cost_micros`，不参与任何计费决策。
 理由：客户端算钱 = 客户端说了算。`model-provider-manager.js:371` 的注释已经
 定过调（「单价换算属 ModelPriceCard 后续立项，这里不做本地估算避免伪数据」），
 本模块就是那个「后续立项」的落点。
 
 **换算口径**：
-    cost_cents   = Σ(token_count / 1000 × unit_price_cents)      （分）
-    credit_cost  = ceil(cost_cents / credit_unit_price_cents × multiplier)
+    cost_micros  = Σ(token_count / 1000 × unit_price_micros)     （微元）
+    credit_cost  = ceil(cost_micros / credit_unit_price_micros × multiplier)
 
 向上取整是刻意的：宁可少收 1 积分，不可多付 1 分成本。
 
@@ -26,6 +26,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models_credit import (
+    CREDIT_UNIT_MICROS,
     BILLING_BASELINE_PRIORITY,
     BILLED_BY_QUOTA,
     BILLED_BY_WINDOW,
@@ -55,10 +56,10 @@ TOKEN_FIELD_TO_UNIT = {
 class CostResult:
     """一次调用的成本计算结果。"""
 
-    __slots__ = ("cost_cents", "price_ids", "missing_units", "multiplier")
+    __slots__ = ("cost_micros", "price_ids", "missing_units", "multiplier")
 
-    def __init__(self, cost_cents: int, price_ids: List[str], missing_units: List[str], multiplier: float):
-        self.cost_cents = cost_cents
+    def __init__(self, cost_micros: int, price_ids: List[str], missing_units: List[str], multiplier: float):
+        self.cost_micros = cost_micros
         self.price_ids = price_ids
         self.missing_units = missing_units
         self.multiplier = multiplier
@@ -76,18 +77,18 @@ class CostResult:
 class PriceCard:
     """生效中的价格卡（内存表示）。"""
 
-    __slots__ = ("id", "unit", "unit_price_cents", "multiplier", "billed_by")
+    __slots__ = ("id", "unit", "unit_price_micros", "multiplier", "billed_by")
 
-    def __init__(self, card_id: str, unit: str, unit_price_cents: int, multiplier: float,
+    def __init__(self, card_id: str, unit: str, unit_price_micros: int, multiplier: float,
                  billed_by: str = "billed_by_usage"):
         self.id = card_id
         self.unit = unit
-        self.unit_price_cents = int(unit_price_cents)
+        self.unit_price_micros = int(unit_price_micros)
         self.multiplier = float(multiplier)
         self.billed_by = billed_by
 
 
-def compute_cost_cents(
+def compute_cost_micros(
     cards: Dict[str, PriceCard],
     token_counts: Dict[str, int],
 ) -> CostResult:
@@ -99,7 +100,7 @@ def compute_cost_cents(
     :param cards: unit → PriceCard
     :param token_counts: unit → 数量
     """
-    cost_cents = 0
+    cost_micros = 0
     price_ids: List[str] = []
     missing: List[str] = []
     multiplier = 1.0
@@ -117,25 +118,25 @@ def compute_cost_cents(
         #    的单价是「分 / 个」⇒ **不除**。
         #    早期版本对所有 unit 一律 /1000 ⇒ 非 token 维度会算错 1000 倍。
         if unit in TOKEN_UNITS:
-            cost_cents += int(count * card.unit_price_cents / 1000)
+            cost_micros += int(count * card.unit_price_micros / 1000)
         else:
-            cost_cents += count * card.unit_price_cents
+            cost_micros += count * card.unit_price_micros
         price_ids.append(card.id)
         # 倍率取命中的最大者（多个 unit 时以最贵那个为准，避免低估）
         multiplier = max(multiplier, card.multiplier)
-    return CostResult(cost_cents, price_ids, missing, multiplier)
+    return CostResult(cost_micros, price_ids, missing, multiplier)
 
 
-def compute_credit_cost(cost_cents: int, credit_unit_price_cents: int, multiplier: float = 1.0) -> int:
+def compute_credit_cost(cost_micros: int, credit_unit_price_micros: int, multiplier: float = 1.0) -> int:
     """纯函数：成本（分）→ 积分消耗。向上取整。
 
-    :param credit_unit_price_cents: 1 积分值多少分（默认 1，即 1 积分 = 1 分）
+    :param credit_unit_price_micros: 1 积分值多少微元（默认 10000，即 1 积分 = 1 分）
     :param multiplier: 价格卡的积分倍率（贵模型多扣积分）
     """
-    if cost_cents <= 0:
+    if cost_micros <= 0:
         return 0
-    unit_price = max(1, int(credit_unit_price_cents))
-    return int(math.ceil(cost_cents * float(multiplier) / unit_price))
+    unit_price = max(1, int(credit_unit_price_micros))
+    return int(math.ceil(cost_micros * float(multiplier) / unit_price))
 
 
 def is_pricing_baseline_usable(cards: Dict[str, PriceCard]) -> bool:
@@ -218,7 +219,7 @@ async def load_effective_cards(
         current = by_unit.get(card.unit)
         if current is None:
             by_unit[card.unit] = (precise, card.effective_from, PriceCard(
-                card.id, card.unit, card.unit_price_cents, card.credit_multiplier or 1.0,
+                card.id, card.unit, card.unit_price_micros, card.credit_multiplier or 1.0,
                 card.billed_by or "billed_by_usage",
             ))
             continue
@@ -229,20 +230,28 @@ async def load_effective_cards(
         )
         if better:
             by_unit[card.unit] = (precise, card.effective_from, PriceCard(
-                card.id, card.unit, card.unit_price_cents, card.credit_multiplier or 1.0,
+                card.id, card.unit, card.unit_price_micros, card.credit_multiplier or 1.0,
                 card.billed_by or "billed_by_usage",
             ))
     return {unit: card for unit, (_, _from, card) in by_unit.items()}
 
 
-async def get_credit_unit_price_cents(db: AsyncSession) -> int:
-    """读积分单价（1 积分值多少分）。缺配置时返回默认 1。"""
+async def get_credit_unit_price_micros(db: AsyncSession) -> int:
+    """读积分单价（1 积分值多少**微元**）。
+
+    ⚠️ 缺配置行时**必须返回 `CREDIT_UNIT_MICROS`（10000）**，不能返回 1。
+    早期版本这里返回 1（旧「分」口径的遗留），而 `ensure_credit_price_config` 建的是 10000
+    ⇒ 两条路不一致 ⇒ **在还没有配置行的库上（新建库 / 回算先于种子），
+    积分消耗被放大 10000 倍**（实测：成本 12000 微元 ⇒ 记 12000 积分而不是 2）。
+    ⚠️ 单测抓不到（不走 DB）⇒ 由端到端回算测试守护。
+    """
     row = (
         await db.execute(sa.select(CreditPriceConfig).where(CreditPriceConfig.id == 1))
     ).scalars().first()
     if row is None:
-        return 1
-    return max(1, int(row.credit_unit_price_cents or 1))
+        return CREDIT_UNIT_MICROS
+    # 运营若把值配成 0（非法）⇒ 抬回基准，而不是抬成 1（那会差 10000 倍）
+    return max(CREDIT_UNIT_MICROS, int(row.credit_unit_price_micros or CREDIT_UNIT_MICROS))
 
 
 async def ensure_credit_price_config(db: AsyncSession) -> None:
@@ -254,7 +263,7 @@ async def ensure_credit_price_config(db: AsyncSession) -> None:
         return
     db.add(CreditPriceConfig(
         id=1,
-        credit_unit_price_cents=1,
+        credit_unit_price_micros=CREDIT_UNIT_MICROS,
         target_margin_pct=72.90,
         grant_multiplier_default=1.0,
         effective_from=_now_iso(),
