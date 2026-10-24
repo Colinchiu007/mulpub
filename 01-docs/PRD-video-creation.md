@@ -4542,3 +4542,119 @@ node scripts/sync-openmontage-schemas.js --refresh   # 从上游拉取并刷新�
    若上游引入跨文件引用，需扩展（本片未做）。
 5. **上游漂移需人工 review**：`--refresh` 只会刷新文件与 sha256 ⇒ **新增/删除的关键字必须人工判断**
    （脚本会在漂移时提示「必须跑关键字覆盖自检」）。
+
+
+## 16. 前生产三阶段的产物契约（research / proposal / script，explainer-artifact-contract-preprod，2026-10-24）
+
+### 16.1 目标与范围
+
+把「AI 讲解视频」的**前生产三阶段**从「LLM 出散文」升级为「产出**上游 OpenMontage artifact**」：
+
+| 阶段 | 改前 | 改后 |
+|---|---|---|
+| research | 一段大纲文本 | `research_brief`（上游 schema 逐字校验 + 计数型硬指标自检） |
+| proposal | 一段分镜方案文本 | `proposal_packet`（≥3 概念选项 + 逐项成本 + **approval 闸门**） |
+| script | 一段旁白文案 | `script`（分节 + 表演契约 + 增强提示 + 叙事弧） |
+
+**本片范围**：三阶段的产物契约 + 机械自检 + 审批闸门的**写入权**（`approval.status` 强制 `pending`）。
+**不在本片**：审批门 UI（P3）、EP 编排（P4）、参考视频的 5 个分析工具（见 §16.8）。
+
+### 16.2 上游依据（权威事实）
+
+- 契约来源：仓内 `packages/python-backend/src/multi_publish/video_creation/pipeline/definitions/animated-explainer.yaml`
+  （= 上游 OpenMontage 的 `pipeline_defs/animated-explainer.yaml`；实测两份**仅 2 行差异**，都在 publish 阶段：
+  仓内把 `human_approval_default` 设为 `false`、`tools_available` 去掉 `export_bundle` ⇒ 其余 7 阶段与上游一致）
+- schema 来源：上游 `schemas/artifacts/{research_brief,proposal_packet,script}.schema.json`（P1 已逐字搬入本仓）
+- 「怎么做」来源：上游 `skills/pipelines/explainer/{research,proposal,script}-director.md`
+
+⚠ **仓内那份 YAML 此前是装饰品**（桌面 `pipeline-engine.js` 从不读 YAML）⇒ 本片是**第一次让桌面侧真的按它产出东西**。
+
+### 16.3 数据合同（三阶段的必填字段与自检口径）
+
+| artifact | required（节选） | 计数型 success_criteria（机械判） |
+|---|---|---|
+| `research_brief` | version / topic / research_date / **landscape**（object）/ **data_points[]**（`claim`+`source_url`+`credibility`）/ **audience_insights**（object）/ **angles_discovered[]**（`name`+`hook`+`type`+`why_now`）/ **sources[]**（`url`+`title`） | ≥3 data_points、≥3 angles、≥5 sources（每条须有 url） |
+| `proposal_packet` | version / **concept_options[]**（`id`+`title`+`hook`+`narrative_structure`+`visual_approach`+`target_platform`+`target_duration_seconds`+`why_this_works`）/ **selected_concept**（object：`concept_id`+`rationale`）/ **production_plan**（`pipeline`+`playbook`+`stages[]`+`delivery_promise`+**`renderer_family`**+**`render_runtime`**+**`composition_mode`**）/ **cost_estimate**（`total_estimated_usd`+`line_items[]`+`budget_verdict`）/ **approval**（`status`） | ≥3 concept_options、`selected_concept.concept_id` 有效引用、≥1 条 line_items |
+| `script` | version / title / **total_duration_seconds** / **sections[]**（`id`+`text`+`start_seconds`+`end_seconds`）/ voice_performance | 总时长与目标偏差 ≤ ±10% |
+
+⚠ **不可机械判的项**（上游 `review_focus` 里的「数据点具体有出处」「角度真正不同」「概念差异不是换词」等）
+**不写成自动断言** ⇒ 它们是**人工审批要点**（P3 的 G1 门展示给人看），**不假装能自动判**。
+
+### 16.4 功能逻辑：归一化 → 校验 → 自检（顺序恒定）
+
+```
+① LLM 出 JSON（结构化提示词，不再要散文）
+② 解析（parseJsonArtifact：容忍 markdown 围栏 / 说明文字 / 对象包装）
+③ 归一化（buildResearchBrief / buildProposalPacket / buildScript）
+④ schema 校验（P1 的校验器，逐字段路径报错）
+⑤ 计数型自检（checkResearchBriefCriteria / checkProposalCriteria / checkScriptCriteria）
+   ⇒ ④ 或 ⑤ 不过 ⇒ **fail-closed**（返回错误，**不产出半成品**）
+```
+
+⚠ **归一化必须「schema 驱动」**：按 schema 递归补齐**必填**字段的缺省（`fillRequired`），
+而不是手写每个字段的缺省值。
+⚠ **本次实测教训**：手写缺省 = 凭想象猜字段（把 `landscape` 当字符串、`data_points[].value` 当合法字段、
+`selected_concept` 当字符串 ⇒ 产物一律不合法）⇒ 改为「**schema 说缺什么就补什么**」。
+
+⚠ **归一化不得让计数自检变绿**：`fillRequired` 会按 schema 的 `minItems` 补齐数组元素
+（实测 `concept_options` 的 `minItems=3` ⇒ LLM 只给 1 个概念也会被补成 3 个 ⇒ 计数自检假绿）
+⇒ 因此**原始计数快照**写进 `metadata.source_counts`，计数自检**按原始计数判定** ⇒ 补齐救不了。
+
+⚠ **`approval.status` 强制 `pending`**：审批只能由 P3 的 G1 门（人点批准）写入 ⇒
+LLM **无权**自己把 status 写成 `approved`（否则「未审批就花钱」的闸门形同虚设）。
+⚠ **`render_runtime` 是 required**（enum：`remotion` / `hyperframes` / `ffmpeg`）⇒ 归一化缺省补 `remotion`，
+并在 `metadata.render_runtime_source` 标注这是**缺省**（`default`）而非 LLM 给的（`llm`）⇒
+⚠ 但**上游的 HARD RULE 是「必须同时呈现两个 runtime 让用户选，不得静默默认」** ⇒
+**真正的 runtime 选择在 P3 的 G1 门完成**（两个都呈现，remotion 预选，**经用户显式确认才写入**）。
+
+### 16.5 交互逻辑 / 显示项 / 提示文字（本片的变化）
+
+⚠ **本片零 UI 变化**（无新增控件、无新增 i18n 键）⇒ 唯一面向人的输出是**阶段失败信息**：
+
+| 场景 | 提示形态 |
+|---|---|
+| LLM 没给 JSON | `research 失败：模型未返回可解析的 JSON（research_brief 必须是对象）` |
+| schema 不合法 | `research 未通过：schema 校验失败 N 处：<path> <keyword>（<message>）；…` |
+| 计数不达标 | `research 未通过：success_criteria 未达标：INSUFFICIENT_SOURCES（sources 至少 5 条，实际 2 条）` |
+| 上游依赖缺失 | `animated-explainer proposal 需要 context.research`（保持既有文案） |
+
+⚠ **错误信息必须带字段路径**：上游 success_criteria 是「Schema-valid」这种整体说法 ⇒ 没有 path 就无法定位到
+「哪个字段的哪条约束」⇒ 阶段失败时只能看到「产物不合法」而无法修。
+⚠ **计数自检的 code 必须可读**（`INSUFFICIENT_SOURCES` / `SELECTED_CONCEPT_NOT_FOUND` / `DURATION_OUT_OF_TOLERANCE`）
+⇒ 它们同时是 P3 审批门展示给用户的要点。
+
+### 16.6 流程（一次 explainer 运行的前三步）
+
+```
+用户输入主题/文案
+  → research：LLM 出 research_brief（JSON）→ 归一化 → schema 校验 → 计数自检 → 不过则 fail-closed
+  → proposal：LLM 出 proposal_packet（≥3 概念）→ 归一化 → 校验 → 自检 → **approval.status = pending**
+       ⚠ 本片到此为止：**不写** approval（要等 P3 的 G1 门由人批准）
+  → script：LLM 出 script → 归一化 → 校验 → 时长自检
+  → （P2b）scenes：吃 script.sections[].text（**已做输入适配**：同时兼容旧的字符串形态）
+```
+
+⚠ **scenes 阶段的输入适配**（契约变更的连带改动）：`context.script` 从字符串变成对象 ⇒
+scenes 阶段改为读 `script.sections[].text` 拼成文本，**并保留对旧字符串形态的兼容**
+（断点续跑的旧 run 上下文里仍是字符串）。
+
+### 16.7 口径偏离（必须登记，不能默默做）
+
+| 项 | 上游 | Mulpub | 处置 |
+|---|---|---|---|
+| research 的检索 | 「Web search, web fetch」（真检索） | **桌面端无通用 web search**（实测 adapters 全 60 个零 search 类） | `sources` 标注 `metadata.retrieval = 'model_knowledge'`（**非实时检索**）；⚠ **不得让 LLM 编 URL**（schema 能过、语义是假的，比没有更坏） |
+| 成本金额 | `cost_estimate` 逐项真实金额 | **本仓无单价表**（BYOK 场景 cost 恒 NULL） | 金额缺省 `0` + `line_items[].notes` 写「单价未知」+ `budget_verdict` 由自检给；⚠ 「真实单价表」随积分成本核算 PR 落地 |
+
+### 16.8 已知限制与未闭合
+
+1. **参考视频的 5 个分析工具不可达**：`video_analyzer` / `transcript_fetcher` / `video_downloader` /
+   `scene_detect` / `frame_sampler` 在本仓**没有活路由**（Python `video_creation/analysis/` 有
+   `frame_sampler.py` / `scene_detect.py` / `face_tracker.py`，但**桌面端不读 YAML、Python 侧无 IPC 通道**）
+   ⇒ 本片只做**产物契约与阶段分支**（`context.video_analysis_brief` 存在 ⇒ research 走「差异化」分支，
+   并把参考上下文写进 `metadata.reference_context`）⇒ **工具可达性另开一刀**。
+2. **`approval` 只会是 `pending`**：真正的批准在 P3 的 G1 门。
+3. **`render_runtime` 的缺省是 `remotion`**：与上游「不得静默默认」的要求**靠 P3 的门来满足**
+   （两个 runtime 都呈现、remotion 预选、经用户确认才写入）。
+4. **`landscape` / `audience_insights` 是 object 不是 string**：上游的 research_brief 本身就是结构化产物
+   ⇒ 本片按 schema 实现，不做「文本版简化」。
+5. **不可机械判的项仍靠人**：本片不试图自动判「概念是否真正不同」。

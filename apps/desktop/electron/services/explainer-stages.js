@@ -16,6 +16,15 @@
 'use strict'
 
 const { emitStageStart, emitStageComplete } = require('./stage-progress')
+// ⚠ callDefaultLlm / getDefaultLlmConfig 的**唯一实现**在 explainer/llm-call.js
+// （scenes 阶段与前生产三阶段共用 ⇒ 两份真源会漂移）
+const { getDefaultLlmConfig, callDefaultLlm } = require('./explainer/llm-call')
+const preprodPrompts = require('./explainer/explainer-preprod-stages')
+const {
+  createResearchExecutor,
+  createProposalExecutor,
+  createScriptExecutor,
+} = preprodPrompts
 
 const EXPLAINER_STAGE_TYPES = {
   RESEARCH: 'explainer_research',
@@ -37,17 +46,6 @@ function getAiGenerator (pipelineEngine) {
       : null)
 }
 
-function getDefaultLlmConfig (aiGenerator) {
-  const manager = aiGenerator && aiGenerator._modelProviderManager
-  const provider = manager && typeof manager.getDefault === 'function'
-    ? manager.getDefault('llm')
-    : null
-  if (!provider || typeof provider.id !== 'string' || !provider.id.trim()) return null
-  const model = Array.isArray(provider.models)
-    ? provider.models.find(item => typeof item === 'string' && item.trim())
-    : null
-  return model ? { providerId: provider.id.trim(), model: model.trim() } : null
-}
 
 function getDefaultProviderConfig (aiGenerator, type) {
   const manager = aiGenerator && aiGenerator._modelProviderManager
@@ -66,67 +64,9 @@ function getDefaultProviderConfig (aiGenerator, type) {
   return model ? { providerId: provider.id.trim(), model: model.trim() } : null
 }
 
-async function callDefaultLlm (aiGenerator, systemPrompt, userContent, maxTokens, options = {}) {
-  if (!aiGenerator || typeof aiGenerator.generateWithDefault !== 'function') {
-    throw new Error('默认 LLM 不可用，请先完成模型设置')
-  }
-  if (!getDefaultLlmConfig(aiGenerator)) {
-    throw new Error('未找到需要的相关模型，请在设置中添加模型')
-  }
-  // 有界重试（2026-08-11 E2E 复盘）：LLM 偶发返回空内容/瞬时错误会让
-  // research/proposal/script/scenes 整线失败。默认最多 2 次额外重试，
-  // 仅对空内容与可判定为瞬时的错误重试；配置/模型缺失等直接抛出。
-  const maxAttempts = Math.max(1, Math.min(Number(options.retries) || 2, 4))
-  let lastError = null
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const result = await aiGenerator.generateWithDefault('llm', {
-        temperature: 0.7,
-        max_tokens: Number.isFinite(maxTokens) ? maxTokens : 1600,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userContent },
-        ],
-      })
-      const content = result && typeof result.content === 'string' ? result.content.trim() : ''
-      if (content) return content
-      lastError = new Error('默认 LLM 返回空内容')
-    } catch (error) {
-      lastError = error
-      const message = error && error.message ? String(error.message) : String(error)
-      // 配置/能力类错误不是瞬时问题，直接抛出不重试
-      if (/未找到|不可用|没有配置|No configured|No adapter|not configured|配置|requires/i.test(message)) throw error
-    }
-    if (attempt < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 500 * attempt))
-    }
-  }
-  throw lastError
-}
 
-function buildResearchPrompt (topic, options = {}) {
-  const scope = typeof options.scope === 'string' && options.scope.trim()
-    ? '\n内容范围：' + options.scope.trim()
-    : ''
-  return {
-    system: '你是资深视频策划。根据用户给的主题，输出一份结构化的讲解视频大纲：3-6 个要点，每点一行，格式「序号. 要点标题：一句话说明」。只输出大纲本身，不要任何其他文字或 markdown。',
-    user: '主题：' + String(topic || '').trim() + scope,
-  }
-}
 
-function buildProposalPrompt (outline, options = {}) {
-  return {
-    system: '你根据大纲为讲解视频设计分镜方案。输出分镜列表，每行一个分镜，格式「分镜N：画面内容提示 | 对应讲解要点」。只输出方案本身，不要多余文字。',
-    user: '大纲：\n' + String(outline || '').trim(),
-  }
-}
 
-function buildScriptPrompt (plan, options = {}) {
-  return {
-    system: '你根据分镜方案撰写逐段旁白文案，每段对应一个分镜，段落之间用空行分隔。语言口语化、逻辑连贯、适合配音。不要输出序号以外的多余标记。',
-    user: '分镜方案：\n' + String(plan || '').trim(),
-  }
-}
 
 function buildScenesPrompt (script, options = {}) {
   return {
@@ -230,93 +170,21 @@ function registerExplainerStages (pipelineEngine) {
   const registered = []
   const log = pipelineEngine.log
 
-  // ----------------------------------------------------------
-  // RESEARCH - 主题 → 结构化解说大纲
-  // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     EXPLAINER_STAGE_TYPES.RESEARCH,
-    async ({ stage, params, onProgress }) => {
-      const aiGenerator = getAiGenerator(pipelineEngine)
-      if (!aiGenerator) {
-        return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
-      }
-      const topic = typeof params.text === 'string' ? params.text.trim() : ''
-      if (!topic) {
-        return { success: false, error: 'animated-explainer research 需要非空主题（params.text）' }
-      }
-      const { system, user } = buildResearchPrompt(topic, stage.options || {})
-      try {
-        emitStageStart(onProgress, { messageKey: 'stageProgress.explainerResearch' })
-        const outline = await callDefaultLlm(aiGenerator, system, user)
-        emitStageComplete(onProgress, {
-          messageKey: 'stageProgress.explainerResearchComplete',
-          summaryKey: 'stageProgress.explainerResearchSummary',
-        })
-        return { success: true, output: outline }
-      } catch (error) {
-        return { success: false, error: 'research 失败：' + (error && error.message ? error.message : String(error)) }
-      }
-    },
+    createResearchExecutor(pipelineEngine),
   )
   registered.push(EXPLAINER_STAGE_TYPES.RESEARCH)
 
-  // ----------------------------------------------------------
-  // PROPOSAL - 大纲 → 分镜方案
-  // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     EXPLAINER_STAGE_TYPES.PROPOSAL,
-    async ({ stage, context, onProgress }) => {
-      const aiGenerator = getAiGenerator(pipelineEngine)
-      if (!aiGenerator) {
-        return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
-      }
-      const outline = typeof context.research === 'string' ? context.research.trim() : ''
-      if (!outline) {
-        return { success: false, error: 'animated-explainer proposal 需要 context.research' }
-      }
-      const { system, user } = buildProposalPrompt(outline, stage.options || {})
-      try {
-        emitStageStart(onProgress, { messageKey: 'stageProgress.explainerProposal' })
-        const plan = await callDefaultLlm(aiGenerator, system, user)
-        emitStageComplete(onProgress, {
-          messageKey: 'stageProgress.explainerProposalComplete',
-          summaryKey: 'stageProgress.explainerProposalSummary',
-        })
-        return { success: true, output: plan }
-      } catch (error) {
-        return { success: false, error: 'proposal 失败：' + (error && error.message ? error.message : String(error)) }
-      }
-    },
+    createProposalExecutor(pipelineEngine),
   )
   registered.push(EXPLAINER_STAGE_TYPES.PROPOSAL)
 
-  // ----------------------------------------------------------
-  // SCRIPT - 分镜方案 → 逐段旁白文案
-  // ----------------------------------------------------------
   pipelineEngine.registerStageExecutor(
     EXPLAINER_STAGE_TYPES.SCRIPT,
-    async ({ stage, context, onProgress }) => {
-      const aiGenerator = getAiGenerator(pipelineEngine)
-      if (!aiGenerator) {
-        return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
-      }
-      const plan = typeof context.proposal === 'string' ? context.proposal.trim() : ''
-      if (!plan) {
-        return { success: false, error: 'animated-explainer script 需要 context.proposal' }
-      }
-      const { system, user } = buildScriptPrompt(plan, stage.options || {})
-      try {
-        emitStageStart(onProgress, { messageKey: 'stageProgress.explainerScript' })
-        const script = await callDefaultLlm(aiGenerator, system, user)
-        emitStageComplete(onProgress, {
-          messageKey: 'stageProgress.explainerScriptComplete',
-          summaryKey: 'stageProgress.explainerScriptSummary',
-        })
-        return { success: true, output: script }
-      } catch (error) {
-        return { success: false, error: 'script 失败：' + (error && error.message ? error.message : String(error)) }
-      }
-    },
+    createScriptExecutor(pipelineEngine),
   )
   registered.push(EXPLAINER_STAGE_TYPES.SCRIPT)
 
@@ -330,9 +198,17 @@ function registerExplainerStages (pipelineEngine) {
       if (!aiGenerator) {
         return { success: false, error: '默认 LLM 不可用，请先完成模型设置' }
       }
-      const script = typeof context.script === 'string' ? context.script.trim() : ''
+      // ⚠ **契约变更后的输入适配**（P2a）：script 阶段现在产出**上游 script artifact 对象**
+      // （{title, total_duration_seconds, sections[]}）⇒ scenes 阶段要能吃对象；
+      // 同时**保留对旧字符串形态的兼容**（断点续跑的旧 run 上下文里仍是字符串）。
+      const rawScript = context.script
+      const script = typeof rawScript === 'string'
+        ? rawScript.trim()
+        : (rawScript && Array.isArray(rawScript.sections)
+            ? rawScript.sections.map(section => String(section.text || '')).filter(Boolean).join('\n')
+            : '')
       if (!script) {
-        return { success: false, error: 'animated-explainer scenes 需要 context.script' }
+        return { success: false, error: 'animated-explainer scenes 需要 context.script（对象或字符串形态）' }
       }
       const { system, user } = buildScenesPrompt(script, stage.options || {})
       try {
@@ -463,9 +339,11 @@ function registerExplainerStages (pipelineEngine) {
 
 module.exports = {
   EXPLAINER_STAGE_TYPES,
-  buildResearchPrompt,
-  buildProposalPrompt,
-  buildScriptPrompt,
+  // 三个前生产阶段的提示词已抽到 explainer/explainer-preprod-stages.js（explainer-stages.js
+  // 在「点名还账」名单里、零容差 ⇒ 只能抽模块不能堆）⇒ 此处**转发**以保持公共 API 不破。
+  buildResearchPrompt: preprodPrompts.buildResearchPrompt,
+  buildProposalPrompt: preprodPrompts.buildProposalPrompt,
+  buildScriptPrompt: preprodPrompts.buildScriptPrompt,
   buildScenesPrompt,
   parseScenesJson,
   normalizeScenes,
