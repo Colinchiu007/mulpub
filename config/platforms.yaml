@@ -161,7 +161,7 @@ platforms:
     # 2026-10-18（toutiao-video-api）：视频 API 轨已实现（publish/platforms/toutiao-video.js，
     # 五步链实网抓包取证），故 has_api false→true；publishMode 仍 dom-only（PublishVideo 形状待真机验证）。
     has_api: true
-    publishMode: dom-only   # 2026-10-24：API 轨被 secsdk 逐请求签名阻断（Node/XHR/fetch 三路实测 403），改走 DOM 轨
+    publishMode: api-then-dom   # 2026-10-24：按竞品改用 v4/commit 端点验证中（DOM 轨封面仍为硬门槛）
     enabled: true
   youtube:
     has_api: true
