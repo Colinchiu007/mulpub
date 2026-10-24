@@ -132,7 +132,7 @@ const PIPELINES = [
       },
       {
         name: 'compose',
-        type: 'compose',
+        type: 'explainer_compose',
         description: '视频合成',
         checkpointRequired: false,
         inputFrom: 'assets',
@@ -150,7 +150,7 @@ const PIPELINES = [
       },
       {
         name: 'publish',
-        type: 'publish',
+        type: 'explainer_publish',
         description: '发布（可选）',
         checkpointRequired: false,
         inputFrom: 'compose',

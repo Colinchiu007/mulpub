@@ -453,4 +453,11 @@ module.exports = {
   checkProposalCriteria,
   checkScriptCriteria,
   validateArtifact,
+  // ⚠ 下面 5 个是**生产五阶段模块的复用入口**（explainer-prod-artifacts / -edit-decisions /
+  // -prod-review 都从这里取），**不重复实现** —— 重复实现 ⇒ 两份真源必然漂移。
+  fillRequired,
+  asText,
+  asArray,
+  asObject,
+  asNumber,
 }

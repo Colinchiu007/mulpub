@@ -2,9 +2,9 @@
 const {
   registerExplainerStages,
   EXPLAINER_STAGE_TYPES,
-  parseScenesJson,
-  normalizeScenes,
+  parseScenesArray,
 } = require('./explainer-stages')
+const { buildScenePlan } = require('./explainer/explainer-prod-artifacts')
 
 function makeStageExecutor() {
   const executors = new Map()
@@ -163,10 +163,10 @@ function makeAiSequence(contents) {
   }
 }
 describe('animated-explainer 阶段执行器', () => {
-  it('注册全部 6 个自定义阶段类型', () => {
+  it('注册全部 8 个自定义阶段类型（P2b 新增 compose / publish 专属 type）', () => {
     const { reg, get } = makePipeline(makeAi('x'))
     expect(reg.success).toBe(true)
-    expect(reg.registered).toHaveLength(6)
+    expect(reg.registered).toHaveLength(8)
     for (const type of Object.values(EXPLAINER_STAGE_TYPES)) {
       expect(get(type)).toBeTypeOf('function')
     }
@@ -269,28 +269,32 @@ describe('scenes 阶段与 JSON 解析', () => {
   ])
 
   it('解析带 markdown 围栏的 LLM 输出', () => {
-    expect(parseScenesJson('```json\n' + scenesJson + '\n```')).toHaveLength(2)
-    expect(parseScenesJson('说明文字。' + scenesJson + '结束。')).toHaveLength(2)
-    expect(parseScenesJson('没有数组')).toBeNull()
+    expect(parseScenesArray('```json\n' + scenesJson + '\n```')).toHaveLength(2)
+    expect(parseScenesArray('说明文字。' + scenesJson + '结束。')).toHaveLength(2)
+    expect(parseScenesArray('没有数组')).toBeNull()
   })
 
-  it('normalizeScenes 过滤无效项并限制数量与默认时长', () => {
-    const normalized = normalizeScenes([
-      { prompt: 'p1', text: 't1' },
-      { prompt: '', text: 'bad prompt' },
-      { text: 'no prompt' },
-      { prompt: 'p3', text: 't3', duration: 99 },
-    ])
-    expect(normalized).toHaveLength(2)
-    expect(normalized[0].duration).toBe(6)
-    expect(normalized[1].duration).toBe(99)
-    const many = normalizeScenes(
-      Array.from({ length: 40 }, (_, i) => ({ prompt: 'p' + i, text: 't' + i })),
-    )
-    expect(many).toHaveLength(30)
+  it('buildScenePlan 过滤无效项并限制数量与默认时长', () => {
+    // ⚠ P2b 契约变更：旧的 normalizeScenes 已被 buildScenePlan 取代
+    //   （**同一意图**：过滤无效项 / 限数量 / 默认时长），测试随之迁移而非删除。
+    const plan = buildScenePlan({
+      scenes: [
+        { type: 'broll', description: '主体一', duration: 6 },
+        { type: 'broll', description: '', duration: 6 },
+        { duration: 6 },
+        { type: 'diagram', description: '主体三', duration: 99 },
+      ],
+    }, { targetDurationSeconds: 0 })
+    expect(plan.scenes).toHaveLength(4)
+    // 无描述的场景仍保留（描述缺失由「未指定」承担），但缺 type 的回落 generated
+    expect(plan.scenes[0].type).toBe('broll')
+    expect(plan.scenes[2].type).toBe('generated')
+    expect(plan.scenes[3].end_seconds).toBeGreaterThan(0)
   })
 
-  it('scenes 阶段输出规范化场景数组', async () => {
+  it('scenes 阶段输出上游 scene_plan artifact', async () => {
+    // ⚠ P2b 契约变更：产物从「场景数组」变成 **scene_plan 对象**
+    //   （旧的 prompt/text 字段由 description + script_section_id 关联承载）
     const ai = makeAi('```json\n' + scenesJson + '\n```')
     const { get } = makePipeline(ai)
     const result = await get(EXPLAINER_STAGE_TYPES.SCENES)({
@@ -299,8 +303,10 @@ describe('scenes 阶段与 JSON 解析', () => {
       context: { script: '旁白文案。' },
     })
     expect(result.success).toBe(true)
-    expect(result.output).toHaveLength(2)
-    expect(result.output[0]).toMatchObject({ prompt: '海边日出，暖色调', text: '清晨，太阳从海平面升起。', duration: 6 })
+    expect(result.output.version).toBe('1.0')
+    expect(result.output.scenes).toHaveLength(2)
+    expect(result.output.scenes[0].description).toBe('海边日出，暖色调')
+    expect(result.output.scenes[0].end_seconds).toBeGreaterThan(0)
   })
 
   it('scenes 阶段完成时上报场景计数摘要', async () => {
@@ -327,9 +333,8 @@ describe('scenes 阶段与 JSON 解析', () => {
       context: { script: '第一段旁白。\n\n第二段旁白。' },
     })
     expect(result.success).toBe(true)
-    expect(result.output.length).toBeGreaterThanOrEqual(1)
-    expect(result.output[0]).toMatchObject({ text: '第一段旁白。' })
-    expect(result.output[0].prompt).toContain('第一段旁白')
+    expect(result.output.scenes.length).toBeGreaterThanOrEqual(1)
+    expect(result.output.scenes[0].description).toContain('第一段旁白')
   })
 
   it('scenes 阶段 JSON 与兜底都失败时报可行动错误（含原始片段）', async () => {
@@ -349,22 +354,41 @@ describe('generate_assets 适配与 editing', () => {
   it('generate_assets 通过适配 context 复用 story2video 执行器', async () => {
     const inner = vi.fn(async () => ({ success: true, output: { scenes: [{ text: 'x' }] } }))
     const { get } = makePipeline(makeAi('x'), inner)
-    const scenes = [{ prompt: 'p1', text: 't1', duration: 6 }]
+    // ⚠ P2b：输入换成 scene_plan（双形态适配的新形态那一支）
+    const scenePlan = buildScenePlan({
+      scenes: [{ id: 'scene-1', type: 'broll', description: '主体', duration: 6, shot_language: { shot_size: 'medium' } }],
+    }, {})
     const result = await get(EXPLAINER_STAGE_TYPES.GENERATE_ASSETS)({
       runId: 'run_1',
       stage: { options: { concurrency: 2 } },
       params: {},
-      context: { scenes },
+      context: { scene_plan: scenePlan, script: { sections: [{ id: 's1', text: '旁白', start_seconds: 0, end_seconds: 6 }] } },
       onProgress: vi.fn(),
     })
     expect(result.success).toBe(true)
     expect(inner).toHaveBeenCalledWith(expect.objectContaining({
       stage: expect.objectContaining({ name: 'assets', type: 'story2video_generate_assets' }),
       context: expect.objectContaining({
+        optimize: [expect.objectContaining({ prompt: expect.stringContaining('镜头：medium') })],
+      }),
+      onProgress: expect.any(Function),
+    }))
+  })
+
+  it('generate_assets 兼容旧形态（断点续跑的旧 run 上下文里仍是场景数组）', async () => {
+    // ⚠ **双形态适配**的旧形态那一支：P2b 之前 scenes 阶段输出的是 [{prompt,text,duration}] 数组
+    const inner = vi.fn(async () => ({ success: true, output: { scenes: [{ text: 'x' }] } }))
+    const { get } = makePipeline(makeAi('x'), inner)
+    const scenes = [{ prompt: 'p1', text: 't1', duration: 6 }]
+    const result = await get(EXPLAINER_STAGE_TYPES.GENERATE_ASSETS)({
+      runId: 'run_1', stage: { options: {} }, params: {}, context: { scenes }, onProgress: vi.fn(),
+    })
+    expect(result.success).toBe(true)
+    expect(inner).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({
         optimize: [{ optimized_prompt: 'p1', prompt: 'p1' }],
         split: scenes,
       }),
-      onProgress: expect.any(Function),
     }))
   })
 
@@ -408,14 +432,33 @@ describe('generate_assets 适配与 editing', () => {
     expect(noPrompt.error).toContain('缺少画面提示词')
   })
 
-  it('editing 校验资源清单并透传', async () => {
-    const manifest = { scenes: [{ text: 't', imagePath: 'a.jpg' }] }
+  it('editing 产出上游 edit_decisions artifact', async () => {
+    // ⚠ P2b 契约变更：editing 从「校验资源清单并透传」变成「产出 edit_decisions」
+    const scenePlan = buildScenePlan({
+      scenes: [
+        { id: 'scene-1', type: 'broll', description: '主体', duration: 6, shot_language: { shot_size: 'medium' } },
+        { id: 'scene-2', type: 'diagram', description: '流程', duration: 8, shot_language: { shot_size: 'wide' } },
+      ],
+    }, {})
+    const manifest = {
+      version: '1.0',
+      assets: [
+        { id: 'asset-scene-1-image', type: 'image', path: '/a1.png', source_tool: 'sd', scene_id: 'scene-1' },
+        { id: 'asset-scene-1-narration', type: 'narration', path: '/a1.mp3', source_tool: 'tts', scene_id: 'scene-1', duration_seconds: 6 },
+        { id: 'asset-scene-2-image', type: 'image', path: '/a2.png', source_tool: 'sd', scene_id: 'scene-2' },
+        { id: 'asset-scene-2-narration', type: 'narration', path: '/a2.mp3', source_tool: 'tts', scene_id: 'scene-2', duration_seconds: 8 },
+      ],
+      total_cost_usd: 0,
+      metadata: { issues: [] },
+    }
     const { get } = makePipeline(makeAi('x'))
     const ok = await get(EXPLAINER_STAGE_TYPES.EDITING)({
-      stage: {}, params: {}, context: { assets: manifest },
+      stage: {}, params: {}, context: { scene_plan: scenePlan, assets: manifest },
     })
     expect(ok.success).toBe(true)
-    expect(ok.output).toBe(manifest)
+    expect(ok.output.version).toBe('1.0')
+    expect(ok.output.cuts).toHaveLength(2)
+    expect(ok.output.render_runtime).toBe('remotion')
     const bad = await get(EXPLAINER_STAGE_TYPES.EDITING)({
       stage: {}, params: {}, context: {},
     })
@@ -475,8 +518,9 @@ describe('LLM 调用容错（2026-08-11 E2E 复盘）', () => {
       context: { script: '旁白文案。' },
     })
     expect(result.success).toBe(true)
-    expect(result.output).toHaveLength(1)
-    expect(result.output[0].prompt).toBe('修复后的画面')
+    // ⚠ P2b 契约变更：产物是 **scene_plan 对象**；旧格式的 prompt 被映射成 description
+    expect(result.output.scenes).toHaveLength(1)
+    expect(result.output.scenes[0].description).toBe('修复后的画面')
     expect(ai.calls.length).toBeGreaterThanOrEqual(2)
   })
 
@@ -488,7 +532,8 @@ describe('LLM 调用容错（2026-08-11 E2E 复盘）', () => {
       context: { script: '第一段旁白。\n\n第二段旁白。' },
     })
     expect(result.success).toBe(true)
-    expect(result.output.length).toBeGreaterThanOrEqual(1)
+    expect(result.output.scenes.length).toBeGreaterThanOrEqual(1)
+    expect(result.output.scenes[0].description).toContain('第一段旁白')
   })
 })
 })

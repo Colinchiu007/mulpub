@@ -1,50 +1,230 @@
 {
-  "_comment": "animated-explainer（AI 讲解视频）离线复跑用的文案基准。四个键分别对应流水线四个 LLM 阶段（research / proposal / script / scenes）的预期输出。本地 Provider Hub 按 system prompt 精确路由到对应键，因此这里的文案即最终成片旁白。",
+  "_comment": "animated-explainer（AI 讲解视频）离线复跑用的文案基准。四个键分别对应流水线四个 LLM 阶段（research / proposal / script / scenes）的**原始输出**（不是最终 artifact —— 归一化由 explainer-artifacts.js 负责）。本地 Provider Hub 按 system prompt 精确路由到对应键，因此这里的文案即最终成片旁白。⚠ 2026-10-24（P2b）：前三个键从散文字符串改为 JSON（散文会被归一化成空 artifact ⇒ 计数自检必红）；scenes 增加结构化镜头语言字段（type / description / shot_language / script_section_id），prompt 与 text 保留（旧形态匹配与旁白仍要用）。",
   "topic": "拖延症不是懒：拖延背后的情绪调节机制",
   "scope": "面向没有心理学背景的普通观众，5-8 分钟可看完",
-  "research": "1. 拖延的真相：不是懒，而是逃避负面情绪\n2. 情绪调节假说：任务带来的焦虑，比任务本身更令人难受\n3. 大脑机制：即时奖励的系统跑得比长期计划快\n4. 代价累积：每一次逃避的代价都被推到了明天\n5. 认知重评：改变对任务的解释，就能改变感受\n6. 行动处方：把任务缩小到两分钟以内就能启动",
-  "proposal": "分镜1：深夜未眠的场景，人与手机屏幕的冷光对峙 | 对应讲解要点：拖延的真相\n分镜2：\"懒\"的标签被摘下，底下露出\"情绪调节\" | 对应讲解要点：情绪调节假说\n分镜3：焦虑与任务被画成天平两端的砝码 | 对应讲解要点：大脑机制\n分镜4：滚雪球式的代价在时间线上越滚越大 | 对应讲解要点：代价累积\n分镜5：同一个任务换一种说法，感受随之改变 | 对应讲解要点：认知重评\n分镜6：厚重任务被切成两分钟就能做完的小方块 | 对应讲解要点：行动处方",
-  "script": "你有没有过这样的时刻：明知道截止日期就在明天，手上这件事却怎么也推不动？\n\n心理学把这件事叫拖延。但\"懒\"这个字，其实冤枉了它。\n\n真正让人逃开的，往往不是任务本身，而是任务带来的那份难受。\n\n任务越重要，我们的焦虑越强；而焦虑越强，逃开的冲动就越强。\n\n大脑里，负责\"现在就快乐\"的那部分跑得飞快，负责\"以后更值得\"的那部分却慢上半拍。\n\n于是每一次逃避都换来一点立刻的轻松，代价却被推到了明天。\n\n好消息是，改变感受的方法，比改变意志力省力得多。\n\n当你说\"我讨厌这份报告\"时，换成\"我在为这份报告焦虑\"，感受会立刻变轻。\n\n再把任务切到两分钟以内：打开文档，只写三行标题。\n\n拖延从来不是道德问题，而是情绪问题。能调节情绪，就能拿回主动权。",
+  "research": "{\"version\": \"1.0\", \"topic\": \"拖延症不是懒：拖延背后的情绪调节机制\", \"research_date\": \"2026-10-24\", \"landscape\": {\"existing_content\": [{\"title\": \"把拖延归因于懒散的主流科普\", \"source\": \"科普长文\", \"angle\": \"道德归因\", \"what_it_covers\": \"现象描述\", \"what_it_misses\": \"情绪机制\", \"engagement_signal\": \"高\"}, {\"title\": \"GTD 任务拆解方法论\", \"source\": \"效率工具书\", \"angle\": \"方法论\", \"what_it_covers\": \"任务管理\", \"what_it_misses\": \"情绪层面\", \"engagement_signal\": \"中\"}, {\"title\": \"番茄工作法科普\", \"source\": \"工具评测\", \"angle\": \"时间切片\", \"what_it_covers\": \"专注技巧\", \"what_it_misses\": \"回避行为\", \"engagement_signal\": \"中\"}], \"saturated_angles\": [\"时间管理\", \"自制力\", \"拖延是懒\"], \"underserved_gaps\": [\"情绪调节视角\", \"把自我批评换成自我共情\"]}, \"data_points\": [{\"claim\": \"拖延更接近情绪调节问题而非时间管理问题\", \"source_url\": \"https://example.com/emotion-1\", \"source_name\": \"情绪调节研究\", \"credibility\": \"primary_source\", \"surprise_factor\": \"counterintuitive\", \"usable_as\": \"开篇反常识钩子\"}, {\"claim\": \"任务带来的负面情绪是逃避行为的直接诱因\", \"source_url\": \"https://example.com/emotion-2\", \"source_name\": \"回避行为研究\", \"credibility\": \"primary_source\", \"surprise_factor\": \"notable\", \"usable_as\": \"机制解释\"}, {\"claim\": \"重要任务引发的焦虑强度与逃开冲动正相关\", \"source_url\": \"https://example.com/anxiety-3\", \"source_name\": \"焦虑与回避\", \"credibility\": \"secondary_source\", \"surprise_factor\": \"notable\", \"usable_as\": \"数据图示\"}, {\"claim\": \"把自我批评改写为自我共情能显著降低回避\", \"source_url\": \"https://example.com/self-4\", \"source_name\": \"自我共情干预\", \"credibility\": \"primary_source\", \"surprise_factor\": \"surprising\", \"usable_as\": \"可执行方法\"}], \"audience_insights\": {\"common_questions\": [\"为什么明知道该做却就是不想动？\", \"怎么才能真的开始？\", \"拖延是不是没救？\"], \"misconceptions\": [{\"myth\": \"拖延就是懒\", \"reality\": \"拖延是回避负面情绪的策略\", \"source\": \"https://example.com/myth-1\"}, {\"myth\": \"只要意志力强就能治\", \"reality\": \"先改变感受成本，意志力才用得上\", \"source\": \"https://example.com/myth-2\"}], \"knowledge_level\": \"入门\", \"pain_points\": [\"越拖越焦虑\", \"用自责打击自己\"]}, \"angles_discovered\": [{\"name\": \"情绪调节视角\", \"hook\": \"拖延不是懒，是逃开难受\", \"type\": \"contrarian\", \"why_now\": \"反常识切入点，主流科普都归因于自制力\", \"grounded_in\": [\"data_points[0]\"]}, {\"name\": \"自我共情替换\", \"hook\": \"把「我讨厌」换成「我在焦虑」\", \"type\": \"data_driven\", \"why_now\": \"可立刻执行的一步替换\", \"grounded_in\": [\"data_points[3]\"]}, {\"name\": \"两分钟启动法\", \"hook\": \"把任务切到两分钟以内\", \"type\": \"narrative\", \"why_now\": \"门槛极低，观众能马上试\", \"grounded_in\": [\"data_points[2]\"]}], \"sources\": [{\"url\": \"https://example.com/s1\", \"title\": \"情绪调节与任务回避研究\", \"used_for\": \"开篇论点\", \"reliability\": \"primary\"}, {\"url\": \"https://example.com/s2\", \"title\": \"焦虑强度与逃避行为\", \"used_for\": \"机制解释\", \"reliability\": \"primary\"}, {\"url\": \"https://example.com/s3\", \"title\": \"自我共情干预综述\", \"used_for\": \"方法段\", \"reliability\": \"secondary\"}, {\"url\": \"https://example.com/s4\", \"title\": \"任务启动门槛研究\", \"used_for\": \"两分钟启动法\", \"reliability\": \"primary\"}, {\"url\": \"https://example.com/s5\", \"title\": \"拖延的认知机制综述\", \"used_for\": \"收尾论点\", \"reliability\": \"secondary\"}], \"research_summary\": \"拖延是情绪调节问题而非时间管理问题；给出情绪替换与两分钟启动两步可执行方法。\"}",
+  "proposal": "{\"version\": \"1.0\", \"concept_options\": [{\"id\": \"c1\", \"title\": \"拖延不是懒\", \"hook\": \"拖延是逃开难受\", \"narrative_structure\": \"journey\", \"visual_approach\": \"情绪线 + 机制图解\", \"suggested_playbook\": \"clean-professional\", \"target_audience\": \"没有心理学背景的普通观众\", \"target_platform\": \"youtube\", \"target_duration_seconds\": 87, \"key_points\": [\"情绪调节视角\", \"焦虑回路\", \"自我共情\"], \"core_message\": \"拖延是情绪问题，能调节情绪就能拿回主动权\", \"cta\": \"现在就问自己：我在逃开什么感受？\", \"tone\": \"平实共情\", \"why_this_works\": \"反常识 + 可执行\"}, {\"id\": \"c2\", \"title\": \"大脑的两套时钟\", \"hook\": \"现在快乐跑得飞快\", \"narrative_structure\": \"problem_solution\", \"visual_approach\": \"示意图\", \"suggested_playbook\": \"clean-professional\", \"target_audience\": \"普通观众\", \"target_platform\": \"youtube\", \"target_duration_seconds\": 87, \"key_points\": [\"即时奖励\", \"延迟折扣\"], \"core_message\": \"理解机制才能改变行为\", \"tone\": \"科普\", \"why_this_works\": \"机制解释清晰\"}, {\"id\": \"c3\", \"title\": \"从自责到共情\", \"hook\": \"把「我讨厌」换成「我在焦虑」\", \"narrative_structure\": \"tutorial\", \"visual_approach\": \"对照演示\", \"suggested_playbook\": \"clean-professional\", \"target_audience\": \"普通观众\", \"target_platform\": \"youtube\", \"target_duration_seconds\": 87, \"key_points\": [\"自我批评\", \"自我共情\", \"两分钟启动\"], \"core_message\": \"改变感受比改变意志力省力\", \"tone\": \"温和\", \"why_this_works\": \"立刻可用的方法\"}], \"selected_concept\": {\"concept_id\": \"c1\", \"rationale\": \"反常识切入点最强，且与受众痛点最贴近\", \"modifications\": []}, \"production_plan\": {\"pipeline\": \"animated-explainer\", \"playbook\": \"clean-professional\", \"stages\": [{\"stage\": \"research\", \"tools\": [{\"tool_name\": \"web_search\", \"role\": \"摸清主流叙事与缺口\", \"available\": true, \"estimated_cost_usd\": 0.0, \"why_this_provider\": \"只做事实检索\"}], \"approach\": \"先摸清主流叙事与缺口\"}, {\"stage\": \"scenes\", \"tools\": [{\"tool_name\": \"llm\", \"role\": \"拆镜并写镜头语言\", \"available\": true, \"estimated_cost_usd\": 0.05, \"why_this_provider\": \"结构化产出可复现\"}, {\"tool_name\": \"image_gen\", \"role\": \"按镜头语言生成画面\", \"available\": true, \"estimated_cost_usd\": 0.2, \"why_this_provider\": \"本地桩免凭据\"}], \"approach\": \"按情绪线拆镜并生成画面\"}, {\"stage\": \"editing\", \"tools\": [{\"tool_name\": \"ffmpeg\", \"role\": \"按实际旁白时长对齐剪辑\", \"available\": true, \"estimated_cost_usd\": 0.0, \"why_this_provider\": \"本地合成\"}], \"approach\": \"按实际旁白时长对齐剪辑\"}], \"render_runtime\": \"remotion\", \"renderer_family\": \"explainer-data\", \"composition_mode\": \"templated\", \"art_direction\": \"纪实冷调，留白克制\"}, \"cost_estimate\": {\"total_estimated_usd\": 0.28, \"line_items\": [{\"tool\": \"llm\", \"operation\": \"script\", \"quantity\": 1, \"estimated_usd\": 0.05, \"notes\": \"脚本与分镜\"}, {\"tool\": \"image_gen\", \"operation\": \"scene\", \"quantity\": 10, \"estimated_usd\": 0.2, \"notes\": \"每镜一张\"}, {\"tool\": \"tts\", \"operation\": \"narration\", \"quantity\": 1, \"estimated_usd\": 0.03, \"notes\": \"旁白合成\"}], \"budget_cap_usd\": 1.0, \"budget_verdict\": \"within_budget\"}, \"approval\": {\"status\": \"pending\", \"user_notes\": \"待人工确认（G1 门）\"}}",
+  "script": "{\"version\": \"1.0\", \"title\": \"拖延症不是懒：拖延背后的情绪调节机制\", \"total_duration_seconds\": 87, \"voice_performance\": {\"performance_intent\": \"平实共情，语速中等，段间留呼吸\", \"pacing_profile\": \"conversational\", \"energy_curve\": \"前段设问 → 中段解释 → 末段给方法\", \"pause_policy\": \"每段末停 0.4 秒\", \"sample_section_id\": \"s1\"}, \"sections\": [{\"id\": \"s1\", \"label\": \"第1段\", \"text\": \"你有没有过这样的时刻：明知道截止日期就在明天，手上这件事却怎么也推不动？\", \"start_seconds\": 0, \"end_seconds\": 9}, {\"id\": \"s2\", \"label\": \"第2段\", \"text\": \"心理学把这件事叫拖延。但\\\"懒\\\"这个字，其实冤枉了它。\", \"start_seconds\": 9, \"end_seconds\": 17}, {\"id\": \"s3\", \"label\": \"第3段\", \"text\": \"真正让人逃开的，往往不是任务本身，而是任务带来的那份难受。\", \"start_seconds\": 17, \"end_seconds\": 25}, {\"id\": \"s4\", \"label\": \"第4段\", \"text\": \"任务越重要，我们的焦虑越强；而焦虑越强，逃开的冲动就越强。\", \"start_seconds\": 25, \"end_seconds\": 33}, {\"id\": \"s5\", \"label\": \"第5段\", \"text\": \"大脑里，负责\\\"现在就快乐\\\"的那部分跑得飞快，负责\\\"以后更值得\\\"的那部分却慢上半拍。\", \"start_seconds\": 33, \"end_seconds\": 42}, {\"id\": \"s6\", \"label\": \"第6段\", \"text\": \"于是每一次逃避都换来一点立刻的轻松，代价却被推到了明天。\", \"start_seconds\": 42, \"end_seconds\": 50}, {\"id\": \"s7\", \"label\": \"第7段\", \"text\": \"好消息是，改变感受的方法，比改变意志力省力得多。当你把\\\"我讨厌这份报告\\\"换成\\\"我在为这份报告焦虑\\\"，感受会立刻变轻。\", \"start_seconds\": 50, \"end_seconds\": 60}, {\"id\": \"s8\", \"label\": \"第8段\", \"text\": \"再把任务切到两分钟以内：打开文档，只写三行标题。拖延从来不是道德问题，而是情绪问题。能调节情绪，就能拿回主动权。\", \"start_seconds\": 60, \"end_seconds\": 71}, {\"id\": \"s9\", \"label\": \"第9段\", \"text\": \"再把任务切到两分钟以内：打开文档，只写三行标题。\", \"start_seconds\": 71, \"end_seconds\": 79}, {\"id\": \"s10\", \"label\": \"第10段\", \"text\": \"拖延从来不是道德问题，而是情绪问题。能调节情绪，就能拿回主动权。\", \"start_seconds\": 79, \"end_seconds\": 87}]}",
   "scenes": [
     {
+      "id": "scene-1",
+      "type": "broll",
+      "description": "深夜卧室，蓝白色屏幕光映在年轻人的脸上，手指停在手机屏幕上方，房间其余部分沉在黑暗里，纪实摄影风格，冷色调，浅景深",
       "prompt": "深夜卧室，蓝白色屏幕光映在年轻人的脸上，手指停在手机屏幕上方，房间其余部分沉在黑暗里，纪实摄影风格，冷色调，浅景深",
       "text": "你有没有过这样的时刻：明知道截止日期就在明天，手上这件事却怎么也推不动？",
-      "duration": 9
+      "duration": 9,
+      "script_section_id": "s1",
+      "shot_language": {
+        "shot_size": "close_up",
+        "camera_movement": "static",
+        "lens_mm": 85,
+        "lighting_key": "low_key",
+        "depth_of_field": "shallow",
+        "color_temperature": "cool"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
     },
     {
+      "id": "scene-2",
+      "type": "diagram",
+      "description": "一张写着\"懒\"字的白色标签被从灰色墙面上揭下，标签后面露出\"情绪调节\"四个字的另一张标签，极简平面设计，深色背景，柔和光晕",
       "prompt": "一张写着\"懒\"字的白色标签被从灰色墙面上揭下，标签后面露出\"情绪调节\"四个字的另一张标签，极简平面设计，深色背景，柔和光晕",
       "text": "心理学把这件事叫拖延。但\"懒\"这个字，其实冤枉了它。",
-      "duration": 8
+      "duration": 8,
+      "script_section_id": "s2",
+      "shot_language": {
+        "shot_size": "wide",
+        "camera_movement": "static",
+        "lens_mm": 35,
+        "lighting_key": "high_key",
+        "depth_of_field": "deep",
+        "color_temperature": "neutral"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
     },
     {
+      "id": "scene-3",
+      "type": "broll",
+      "description": "一个人坐在书桌前，面前摊着没做完的文件，左侧悬浮着一枚写有\"焦虑\"的金属砝码，右侧秤盘空着，象征性构图，暖灰色调",
       "prompt": "一个人坐在书桌前，面前摊着没做完的文件，左侧悬浮着一枚写有\"焦虑\"的金属砝码，右侧秤盘空着，象征性构图，暖灰色调",
       "text": "真正让人逃开的，往往不是任务本身，而是任务带来的那份难受。",
-      "duration": 8
+      "duration": 8,
+      "script_section_id": "s3",
+      "shot_language": {
+        "shot_size": "medium",
+        "camera_movement": "dolly_in",
+        "lens_mm": 50,
+        "lighting_key": "natural",
+        "depth_of_field": "medium",
+        "color_temperature": "warm"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
     },
     {
+      "id": "scene-4",
+      "type": "generated",
+      "description": "抽象的人脑侧面示意图，左侧发亮的\"即时奖励\"区域高速运转，右侧\"长期计划\"区域暗淡迟缓，数据可视化风格，蓝黑科技色调",
       "prompt": "抽象的人脑侧面示意图，左侧发亮的\"即时奖励\"区域高速运转，右侧\"长期计划\"区域暗淡迟缓，数据可视化风格，蓝黑科技色调",
       "text": "任务越重要，我们的焦虑越强；而焦虑越强，逃开的冲动就越强。",
-      "duration": 8
+      "duration": 8,
+      "script_section_id": "s4",
+      "shot_language": {
+        "shot_size": "medium_wide",
+        "camera_movement": "pan_left",
+        "lens_mm": 24,
+        "lighting_key": "overcast_soft",
+        "depth_of_field": "deep",
+        "color_temperature": "cool"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
     },
     {
+      "id": "scene-5",
+      "type": "broll",
+      "description": "一个滚雪球沿着向右延伸的时间线滚动，越滚越大，轨道尽头堆起高高的白色雪堆，暗色背景，橙色边缘高光",
       "prompt": "一个滚雪球沿着向右延伸的时间线滚动，越滚越大，轨道尽头堆起高高的白色雪堆，暗色背景，橙色边缘高光",
       "text": "大脑里，负责\"现在就快乐\"的那部分跑得飞快，负责\"以后更值得\"的那部分却慢上半拍。",
-      "duration": 9
+      "duration": 9,
+      "script_section_id": "s5",
+      "shot_language": {
+        "shot_size": "medium_close",
+        "camera_movement": "handheld",
+        "lens_mm": 50,
+        "lighting_key": "natural",
+        "depth_of_field": "shallow",
+        "color_temperature": "neutral"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
     },
     {
+      "id": "scene-6",
+      "type": "diagram",
+      "description": "同一张办公桌被分成左右两半，左半边的人表情紧绷，右侧的脸部轮廓放松，背景是整齐的文件夹与台灯，对称对比构图",
       "prompt": "同一张办公桌被分成左右两半，左半边的人表情紧绷，右侧的脸部轮廓放松，背景是整齐的文件夹与台灯，对称对比构图",
       "text": "于是每一次逃避都换来一点立刻的轻松，代价却被推到了明天。",
-      "duration": 8
+      "duration": 8,
+      "script_section_id": "s6",
+      "shot_language": {
+        "shot_size": "wide",
+        "camera_movement": "static",
+        "lens_mm": 14,
+        "lighting_key": "blue_hour",
+        "depth_of_field": "deep",
+        "color_temperature": "mixed"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
     },
     {
+      "id": "scene-7",
+      "type": "text_card",
+      "description": "一个人伸手把厚厚一摞文件拆成若干个小方块，方块整齐地排成一行，明亮整洁的桌面，俯视角度，浅色背景",
       "prompt": "一个人伸手把厚厚一摞文件拆成若干个小方块，方块整齐地排成一行，明亮整洁的桌面，俯视角度，浅色背景",
       "text": "好消息是，改变感受的方法，比改变意志力省力得多。当你把\"我讨厌这份报告\"换成\"我在为这份报告焦虑\"，感受会立刻变轻。",
-      "duration": 10
+      "duration": 10,
+      "script_section_id": "s7",
+      "shot_language": {
+        "shot_size": "medium",
+        "camera_movement": "static",
+        "lens_mm": 50,
+        "lighting_key": "tungsten_warm",
+        "depth_of_field": "medium",
+        "color_temperature": "warm"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
     },
     {
+      "id": "scene-8",
+      "type": "broll",
+      "description": "清晨阳光透过窗户，桌边一株绿植，一个人打开笔记本电脑，屏幕上只有三行标题的文档，温暖治愈的居家氛围",
       "prompt": "清晨阳光透过窗户，桌边一株绿植，一个人打开笔记本电脑，屏幕上只有三行标题的文档，温暖治愈的居家氛围",
       "text": "再把任务切到两分钟以内：打开文档，只写三行标题。拖延从来不是道德问题，而是情绪问题。能调节情绪，就能拿回主动权。",
-      "duration": 11
+      "duration": 11,
+      "script_section_id": "s8",
+      "shot_language": {
+        "shot_size": "close_up",
+        "camera_movement": "zoom_in",
+        "lens_mm": 85,
+        "lighting_key": "rim_lit",
+        "depth_of_field": "shallow",
+        "color_temperature": "cool"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
+    },
+    {
+      "id": "scene-9",
+      "type": "diagram",
+      "description": "桌面特写，一只手在笔记本电脑上敲下三行标题，屏幕光映在指尖，浅景深，暖色调，纪实摄影风格",
+      "prompt": "桌面特写，一只手在笔记本电脑上敲下三行标题，屏幕光映在指尖，浅景深，暖色调，纪实摄影风格",
+      "text": "再把任务切到两分钟以内：打开文档，只写三行标题。",
+      "duration": 8,
+      "script_section_id": "s9",
+      "shot_language": {
+        "shot_size": "medium",
+        "camera_movement": "static",
+        "lens_mm": 50,
+        "lighting_key": "natural",
+        "depth_of_field": "medium",
+        "color_temperature": "neutral"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
+    },
+    {
+      "id": "scene-10",
+      "type": "broll",
+      "description": "一个人合上笔记本电脑后靠回椅背，神情松弛，深夜房间的暖光，纪实摄影风格，浅景深",
+      "prompt": "一个人合上笔记本电脑后靠回椅背，神情松弛，深夜房间的暖光，纪实摄影风格，浅景深",
+      "text": "拖延从来不是道德问题，而是情绪问题。能调节情绪，就能拿回主动权。",
+      "duration": 8,
+      "script_section_id": "s10",
+      "shot_language": {
+        "shot_size": "medium_wide",
+        "camera_movement": "static",
+        "lens_mm": 35,
+        "lighting_key": "tungsten_warm",
+        "depth_of_field": "medium",
+        "color_temperature": "warm"
+      },
+      "texture_keywords": [
+        "clean",
+        "documentary"
+      ],
+      "shot_intent": "推进「拖延是情绪问题」这一论点"
     }
   ]
 }

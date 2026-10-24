@@ -11,20 +11,54 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 
-const { LocalProviderHub, loadCopy, resolveStageKey, findSceneByPrompt, wrapText, encodePng, hexToRgb } = require('./e2e/lib/local-provider-hub')
+const { LocalProviderHub, loadCopy, resolveStageKey, findSceneByPrompt, wrapText, encodePng, hexToRgb, STAGE_ROUTES } = require('./e2e/lib/local-provider-hub')
 
 const COPY_PATH = path.join(__dirname, 'e2e', 'fixtures', 'explainer-copy.json')
 
+/**
+ * ★ **机械守卫**：路由特征串必须真的出现在对应的提示词常量里。
+ *
+ * ⚠ 为什么需要它：2026-10-24 实测，P2a/P2b 改写了各阶段的 system prompt
+ *   ⇒ 桩的路由特征串**全部失效** ⇒ 四个阶段一起落到 default 'research'
+ *   ⇒ E2E 拿到全是 research 文案，**而且不报错**（静默失效）。
+ *   ⇒ 这个守卫让「提示词改了但没同步桩」当场红。
+ */
+describe('本地 Provider 桩：路由特征串与提示词常量同源（机械守卫）', () => {
+  const preprodSrc = fs.readFileSync(
+    path.join(__dirname, '../electron/services/explainer/explainer-preprod-stages.js'), 'utf8')
+  const prodSrc = fs.readFileSync(
+    path.join(__dirname, '../electron/services/explainer/explainer-prod-stages.js'), 'utf8')
+  const shotSrc = fs.readFileSync(
+    path.join(__dirname, '../electron/services/explainer/explainer-shot-language.js'), 'utf8')
+  const allSrc = preprodSrc + '\n' + prodSrc
+
+  it('桩的 STAGE_ROUTES 每一项都能在阶段提示词源码里找到（漏改即红）', () => {
+    for (const route of STAGE_ROUTES) {
+      expect(allSrc, '路由特征串「' + route.match + '」在任何阶段提示词里都找不到 ⇒ 路由会静默失效')
+        .toContain(route.match)
+    }
+  })
+
+  it('镜头语言标记与组装器同源（改了组装格式就要改桩）', () => {
+    // 桩的第三级匹配依赖「镜头：」标记 ⇒ 组装器必须产出它
+    expect(shotSrc).toContain("'镜头：'")
+  })
+})
+
 describe('本地 Provider 桩：阶段路由', () => {
   it('按 system prompt 判定 research / proposal / script / scenes 四阶段', () => {
-    // 这四段 system prompt 与 explainer-stages.js 的常量逐字对应（改了那边就要改这里）
-    expect(resolveStageKey([{ role: 'system', content: '根据用户给的主题，输出一份结构化的讲解视频大纲：3-6 个要点' }]))
+    // ⚠ 这些 system prompt 与 explainer/{explainer-preprod-stages,explainer-prod-stages}.js 的
+    //   提示词**逐字对应**（改了那边就要改这里）。
+    //   ⚠ 2026-10-24 实测踩坑：P2a/P2b 改写了各阶段 system prompt ⇒ 旧特征串全部失效
+    //   ⇒ 四个阶段一起落到 default 'research' ⇒ E2E 拿到全是 research 文案且**不报错**。
+    //   ⇒ 下面的「机械守卫」用例会在提示词再改时立刻红。
+    expect(resolveStageKey([{ role: 'system', content: '你是资深视频研究员。为讲解视频做结构化研究' }]))
       .toBe('research')
-    expect(resolveStageKey([{ role: 'system', content: '你根据大纲为讲解视频设计分镜方案。输出分镜列表' }]))
+    expect(resolveStageKey([{ role: 'system', content: '你是视频制片人。基于研究结果提出可批准的方案' }]))
       .toBe('proposal')
-    expect(resolveStageKey([{ role: 'system', content: '你根据分镜方案撰写逐段旁白文案，每段对应一个分镜' }]))
+    expect(resolveStageKey([{ role: 'system', content: '你是视频编剧。基于已批准的方案写逐段旁白脚本' }]))
       .toBe('script')
-    expect(resolveStageKey([{ role: 'system', content: '把旁白文案拆分为若干视频场景。输出严格的 JSON 数组' }]))
+    expect(resolveStageKey([{ role: 'system', content: '你是视频分镜师。把旁白文案拆分为若干视频场景' }]))
       .toBe('scenes')
   })
 
@@ -35,7 +69,7 @@ describe('本地 Provider 桩：阶段路由', () => {
 
   it('用户消息里出现「旁白文案」不得把 scenes 误判成 script（只认 system 消息）', () => {
     expect(resolveStageKey([
-      { role: 'system', content: '把旁白文案拆分为若干视频场景。输出严格的 JSON 数组' },
+      { role: 'system', content: '你是视频分镜师。把旁白文案拆分为若干视频场景' },
       { role: 'user', content: '旁白文案：\n第一段' },
     ])).toBe('scenes')
   })
@@ -70,6 +104,17 @@ describe('本地 Provider 桩：文案基准', () => {
     expect(findSceneByPrompt(copy, scene.prompt)).toBe(scene)
     expect(findSceneByPrompt(copy, scene.prompt + ' 追加内容')).toBeNull()
     expect(findSceneByPrompt(copy, '')).toBeNull()
+  })
+
+  it('★ 组装形态（含镜头语言标记）也能命中，但必须唯一命中才返回', () => {
+    // ⚠ P2b 起生图提示词是**代码组装**的（风格 + description + 六段镜头语言）⇒ 不再等于 prompt
+    const copy = loadCopy(COPY_PATH)
+    const scene = copy.scenes[0]
+    const assembled = 'cinematic，' + scene.description + '，镜头：medium，运镜：static'
+    expect(findSceneByPrompt(copy, assembled)).toBe(scene)
+    // ⚠ 多个场景都命中 ⇒ 判为串台 ⇒ 返回 null（宁可不要标题，也不要串台）
+    const ambiguous = 'cinematic，' + copy.scenes[0].description + ' 镜头：medium，' + copy.scenes[1].description
+    expect(findSceneByPrompt(copy, ambiguous)).toBeNull()
   })
 
   it('每个场景的旁白文本长度不超过 edge-tts 的 200 字截断上限', () => {
@@ -165,7 +210,9 @@ describe('本地 Provider 桩：协议兼容', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'local-explainer',
-        messages: [{ role: 'system', content: '把旁白文案拆分为若干视频场景。输出严格的 JSON 数组' }],
+        // ⚠ 这段 system prompt 必须与 `explainer-prod-stages.js` 的分镜提示词**同源**
+        //   （桩靠特征串路由；不同源 ⇒ 落到 default 'research' ⇒ 拿到的不是场景）
+        messages: [{ role: 'system', content: '你是视频分镜师。把旁白文案拆分为若干视频场景' }],
       }),
     })
     const data = await response.json()
