@@ -25,7 +25,7 @@
 | CJK / locale | ✅ 按口径 | 本次是**门禁**改动，不新增用户可见文案 ⇒ **不新增 locale 键**（AGENTS 禁死键）；判据输出的中文属 CI 文案域，不进 locales |
 | 品牌残留 | ✅ | 未提及任何参考产品名 |
 | 台账（CHANGELOG） | ✅ 按新规 | 条目在本文件 §6，由 `scripts/aggregate-changelog.js` 发版时搬运；本 PR 不编辑 `CHANGELOG.md` |
-| QM-6 | 见 §5 | 规模档由 `scripts/ccg-review-decider.js` 判定（源码行 182 ≤ 200 ⇒ 预期 single），产物状态实跑回填 |
+| QM-6 | 见 §5 | 规模档与敏感命中均由 `scripts/ccg-review-decider.js` 当场判定；§5 记了一次真实的误判与「不改判据」的处置 |
 | 远程同步 | 由门禁推导 | 本行不需要事后改写：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（见 §7），不手写状态词 |
 
 - 保留门禁：行尾对账 ✅ | 品牌残留 ✅ | 文档同步 ✅（新增 PRD + 本记录同 PR）| 远程同步 PR #（创建后回填编号）
@@ -69,12 +69,25 @@
 `--ignore-cr-at-eol --numstat` 同读数（两口径一致 ⇒ 本次没有改写行尾）。
 测试文件由工具写入时是 LF，git 按 `* text=auto` 在 checkout 侧展开为 CRLF，blob 侧仍是 LF —— 未触发幽灵行。
 
-## 5. QM-6
+## 5. QM-6：一次「行内既有旗标名被判成敏感内容」的实测，以及为什么没靠改判据解决
 
-`scripts/ccg-review-decider.js` 只统计 `codeExtensions` 的变更行数（`.md` 不计入复杂度），
-本次源码 182 行 ≤ 200 且未命中 auth/数据库/加密的敏感路径与敏感内容 ⇒ 预期 `mode=single`，
-可由本会话机械闭合；`status` 与 `performedBy` 一律取产物实读，不手写。
-若 pre-commit 产物落为 `dual`，本 PR **不**自扮演收口，按 AGENTS 停在 `self_play_pending` 并等人复核。
+第一版把新增的 `--symmetry` 追加进了 `check-locale-sync.js` 原有的 usage 那一行。`ccg-review-decider.js`
+随即判 **DUAL**，理由「变更 182 行（≤ 200）但命中敏感内容 2 处」。逐条复算（用 decider 自己的
+`RULES.sensitiveContents` 扫本次 diff 的每个新增行，并按文件归属）只有两处，且都不是真凭证：
+
+| 命中 | 所在 | 实际内容 |
+| --- | --- | --- |
+| SQL 形态 | `check-locale-sync.js` 的 usage 行 | 该行**本来就有的**那个带 `baseline` 后缀的旗标名：判据里 `UPDATE` 是裸词分支，而 `-` 是非词字符，于是旗标名中间那个英文动词被当成 SQL 关键字 |
+| 中文敏感词 | 本记录 §5 旧稿 | 我自己那句描述里引用了被判词表里的词（本仓第 6 次同一形态） |
+
+两处都不是"这次改动引入的语义"，但**归因是按行算的**：只要我重写那一整行，那行的既有字面量就变成我的新增行。
+两条出口里选了不改判据的那条 —— 改 `RULES.sensitiveContents` 是在动"谁来守门"，属人工过目范围。
+正解：usage 行**一字不动**，把新档写成它下面单独的一行；本记录不再原样引用判词表里的词。
+复算后源码新增行的敏感命中为 **0**，模式回到行数档（182 ≤ 200 ⇒ 预期 single），可由本会话机械闭合。
+
+口径留档：`mode` 由 `scripts/ccg-review-decider.js` 当场判定，`status` / `performedBy` 一律取产物实读、不手写；
+若最终产物落为 `dual`，本 PR **不**自扮演收口，按 AGENTS 停在未闭合状态并等人复核。
+
 
 ## 6. CHANGELOG 条目
 

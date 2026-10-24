@@ -572,7 +572,8 @@ if (require.main === module) {
   if (opts.pyCjk) { runPyCjkScan(opts); ran = true }
   if (opts.symmetry) { runSymmetryCheck(opts.localesDir); ran = true }
   if (!ran) {
-    console.error('用法：node .github/scripts/check-locale-sync.js --pair-base <ref> | --cjk [--update-baseline] | --keys | --py-cjk [--update-py-baseline] | --symmetry [--locales-dir <dir>]')
+    console.error('用法：node .github/scripts/check-locale-sync.js --pair-base <ref> | --cjk [--update-baseline] | --keys | --py-cjk [--update-py-baseline]')
+    console.error('  另可：--symmetry [--locales-dir <dir>]（逐对 zh/en 键集对称档）')
     process.exit(2)
   }
 }
