@@ -91,10 +91,22 @@ date: 2026-10-24
 （`media-tools-lock.json` 要求 `ffmpeg-linux-x64` / `ffprobe-linux-x64` 各 ~128 MB 且校验 **size + SHA-256**）
 ⇒ 用系统 `/usr/bin/ffmpeg` 冒充会被 `assertSourceIntegrity()` 拒（**这是对的**：宁可打包失败也不放行一个来源不明的二进制进产物）。
 
-⇒ **如实记录**：本片的 QM-1 **在 Linux 沙箱内无法取到完整的「打包 + 启动」证据**，
-不伪造。已取的等价证据：① `vite build` rc=0（渲染层产物）；② `node --check` 逐文件通过；
-③ 主进程侧 250+ 例既有测试 + 9 例新测试全绿（**主进程模块的 require 图与语法都在 vitest 里真跑过**）；
-④ 仓库的 `electron-ci` 工作流会在 Windows runner 上跑完整打包 ⇒ 由 CI 兜底。
+⇒ **如实记录**：本片的 QM-1 **在 Linux 沙箱内无法取到完整的「打包 + 启动」证据**，不伪造。
+
+**关键事实：QM-1 的实质由 CI 硬门禁兜底，且已在本 PR 的 head commit 上跑过。**
+`.github/workflows/build.yml` 的 `build` job 跑在 **windows-latest** 上，执行
+`cd apps/desktop && pnpm exec electron-builder --win --x64 -p never`，
+该 workflow 的注释原文即写着「**Windows electron-builder 完整打包（QM-1 场景）**」；
+而 `build` 是 **required status check**（required contexts = `Gate Result` / `build` / `QG Unit Tests` / `QG Coverage`）
+⇒ **打包不过就合不进去**。本 PR head commit `ccbed94e` 上该 job 实测 **success**。
+
+⇒ 这也解释了为什么仓库自己设了「目标平台 == 构建主机平台」的护栏：**跨主机打包本来就不被允许**，
+AGENTS.md 里写的 `--win` 命令隐含「在 Windows 主机上执行」这一前提。
+
+**本地已取的等价证据**：① `vite build` rc=0（渲染层产物 + preload 重建）；
+② `node --check` 逐文件通过；③ 主进程侧 250+ 例既有测试 + 9 例新测试全绿
+（**主进程模块的 require 图与语法都在 vitest 里真跑过**）；
+④ `verify-worktree-deps.js` PASS（11 个 workspace 包解析到当前 worktree）。
 
 ### 本地门禁实测（全部 Fresh）
 
