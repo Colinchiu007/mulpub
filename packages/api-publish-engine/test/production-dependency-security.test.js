@@ -144,7 +144,7 @@ test('每一个 axios 直接消费方的声明区间与实际解析版本都必�
 // 它与其他三条形态不同：undici / fast-uri / axios 是**传递依赖**，electron 是 workspace 根与
 // apps/desktop 的 devDependency，同时又是 rpa-engine / shared-utils 的 optional peer —— 后两条的
 // 区间（>=33.0.0 / >=20.0.0）本来就包含修复版，pnpm 会沿用旧解，只有 override 能同时按住这四条路径。
-// undici / fast-uri 的地板在 2026-10-24 抬过一次：GitHub Advisory Database 当日新增
+// undici / fast-uri 的地板在 2026-10-24 抬过一次（#4361）：GitHub Advisory Database 当日新增
 // undici 3 条（GHSA-xjj6-f33q-929c high / GHSA-4qv8-2p9j-2685 / GHSA-f72v-6w45-q472，修复下界 >=7.30.1）
 // 与 fast-uri 4 条（GHSA-w74x-v6f9-j3xg / GHSA-wjr9-j795-jxcr / GHSA-333x-w4r6-6crp / GHSA-xhq7-xmqj-769h，
 // 修复下界 >=3.1.9），使依赖漏洞审计门禁在 main 上以 7 条 NEW_ADVISORY 连红。
@@ -155,13 +155,16 @@ test('每一个 axios 直接消费方的声明区间与实际解析版本都必�
 // GHSA-qhr7-859c-m2p7 / GHSA-6j4f-fj2g-mc7p）的修复下界分两条线：1.x 线 >=1.1.21、4.x/5.x 线 >=5.0.12；
 // 2.x/3.x 无公告。两个槽位的消费方要求的**导出形状不同**（minimatch@3 把 require 结果当函数调、
 // minimatch@10 用 .expand）⇒ 必须各钉在自己 major 内，不能平铺。
+// zod：GHSA-mrhx-c7xc-m3w5（CVE-2023-54404）修复下界 4.6.6；
+// electron：GHSA-jr5w-w6x2-84p9（CVE-2026-115570）修复下界 43.8.1。
 const OVERRIDE_FLOORS = {
   undici: '7.30.1',
   'fast-uri': '3.1.9',
   axios: AXIOS_FLOOR,
-  electron: '43.5.0',
+  electron: '43.8.1',
   'minimatch@3>brace-expansion': '1.1.21',
   'minimatch@10>brace-expansion': '5.0.12',
+  zod: '4.6.6',
 }
 
 function readOverridesBlock(text, label) {
