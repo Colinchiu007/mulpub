@@ -43,6 +43,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 // 扫描域的实现只有一份：scripts/lib/git-domain.js（#3876 建立，本次收敛第二处消费者）。
 // 为什么共享而不是各留一份：两个门禁比的是同一份账，域口径一分叉，症状就是「本机红 / CI 绿」。
 // 六条语义（逐条有锁在 scripts/lib/git-domain.test.js）：不退回磁盘全量；不收窄成只看索引；
@@ -229,7 +230,102 @@ function writeBaseline(files, meta, p) {
  *                 缺省后退化为 scanned（仅包含超限文件，因此只能报出「不在扫描结果」类违规）。
  * @returns {{violations: string[], notices: string[], results: object}}
  */
-function evaluate(baseline, scanned, existing, testData) {
+/**
+ * 同 PR 重锚 targets（2026-10-23，change: maxlines-reanchor）。
+ *
+ * 背景：targets 是「点名还账」的零增长天花板，取值锚定设置那一刻的行数。
+ * 于是任何**合法功能增长**都会撞 TARGET_GREW，而当时的处置是「由下一个 PR 重新锚定」。
+ * 实测 2026-10-23：一次越线的功能改动（#4276）把 main 打红，全仓所有 PR 被判
+ * STOP_MAIN_RED 挡住，最后由无关会话开 #4329 才修好 —— 把「谁引入、谁负责」变成了
+ * 「谁碰上、谁背锅」。
+ *
+ * 现在的契约：**允许同一个 PR 在自己的 diff 里上调 targets，但只允许恰好锚定当前行数**。
+ * 三条判据把「合法增长」与「偷偷放宽」分开：
+ *   ① TARGET_BUMP_UNJUSTIFIED —— 上调了目标，但文件当前行数并未超过原目标（没有增长可解释这次上调）
+ *   ② TARGET_BUMP_HEADROOM  —— 新目标 ≠ 当前行数（高出来的部分就是白送的免涨额度）
+ *   ③ TARGET_REMOVED        —— 直接删掉某个目标（等于永久解除零增长约束）
+ * 三条都只在**本 PR 改了 targets** 时才会命中，无关 PR 不受影响。
+ */
+function targetAudit (targets, baseInfo, linesOf, violations, notices) {
+  // ⚠ 三档必须分清，合成夹具与真跑不能同形（2026-10-23 实测踩到）：
+  //   undefined = 调用方**没有要求**做这次审计（合成夹具：G.evaluate(base, scanned, existing) 只传 3–4 个参）
+  //              ⇒ 直接返回：不推 notice、不推 violation。
+  //              漏掉这一档 ⇒ fail-closed 那条 violation 会在 **CI 里**（GITHUB_ACTIONS=true）
+  //              落到每一条合成夹具用例上 ⇒ 整个测试文件在 CI 红、而本机全绿
+  //              （实测：not ok 1「新代码阻断：超限且未挂账 → NEW_OVER_LIMIT」，2 !== 1）。
+  //   null      = 调用方要求审计但**取不到 base**（真跑时读不到 base 提交）
+  //              ⇒ CI 内 fail-closed（推 violation），本机推 notice。
+  //   对象      = base 读到了 ⇒ 正常做三条判据。
+  if (baseInfo === undefined) return;
+  if (!baseInfo || !baseInfo.targets) {
+    // 取不到 base 就无法判断「上调是否有增长支撑」。CI 里必须 fail-closed ——
+    // 静默跳过等于给「偷偷放宽」开一条无人守门的通道；本地无 base 只提示。
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      violations.push('TARGET_BASE_UNAVAILABLE: 取不到 base 的 targets 基线，无法校验本次是否在放宽零增长约束（CI 内 fail-closed）');
+    } else {
+      notices.push('本地无 base 基线，已跳过 targets 放宽校验（CI 会强制校验）');
+    }
+    return;
+  }
+  const before = baseInfo.targets;
+  for (const rel of Object.keys(targets)) {
+    const now = linesOf(rel);
+    if (before[rel] === undefined) {
+      if (now !== undefined && targets[rel] !== now) {
+        violations.push('TARGET_BUMP_HEADROOM: ' + rel + ' 新增点名目标 ' + targets[rel]
+          + ' ≠ 当前 ' + now + ' 行 —— 新目标必须恰好锚定当前行数，不给免涨额度');
+      }
+      continue;
+    }
+    if (targets[rel] > before[rel]) {
+      if (!(now > before[rel])) {
+        violations.push('TARGET_BUMP_UNJUSTIFIED: ' + rel + ' 目标从 ' + before[rel] + ' 上调到 ' + targets[rel]
+          + '，但文件当前只有 ' + now + ' 行、并未超过原目标 —— 上调必须有实际增长支撑');
+      } else if (targets[rel] !== now) {
+        violations.push('TARGET_BUMP_HEADROOM: ' + rel + ' 目标 ' + targets[rel] + ' ≠ 当前 ' + now
+          + ' 行 —— 上调只允许恰好等于当前行数（超出的部分就是白送的免涨额度）');
+      }
+    }
+  }
+  for (const rel of Object.keys(before)) {
+    if (!hasKey(targets, rel)) {
+      violations.push('TARGET_REMOVED: ' + rel + ' 的点名目标被删除 —— 删目标等于永久解除零增长约束');
+    }
+  }
+}
+
+/**
+ * 从 base 提交读 targets 基线；取不到返回 null（由 targetAudit 决定 fail-closed）。
+ *
+ * ⚠ base 的取法**不能假定 `origin/main` 存在** —— 那是本仓 CI 的真实形态：
+ * `actions/checkout@v4` 默认 `fetch-depth: 1` 且不建 origin/main 的远程跟踪 ref，
+ * 于是 `git show origin/main:.github/scripts/max-lines-baseline.json` 在 runner 上
+ * 必然失败 ⇒ targetAudit 永远拿不到 base ⇒ fail-closed 规则**永远红**。
+ * 实测（2026-10-23，PR #4337）：主干上判 `TARGET_BASE_UNAVAILABLE`，
+ * 而同一份代码在本机 rc=0 —— 差的就是这一个 ref。
+ *
+ * 取法（与 quality-gate.yml 的 Gate 2c3「base 必须取 merge-base」同族，回落方向是「更严」）：
+ *   ① MP_BASE_REF（调用方显式给；CI 里由 workflow 算 merge-base 后传入）
+ *   ② origin/main（本地开发的常规形态）
+ *   ③ HEAD^1（CI 的 pull_request 事件检出的是 merge ref ⇒ 第一父即 base 分支头）
+ *   ④ HEAD^（push 事件：squash 合并 = 单提交 ⇒ 上一提交即 base）
+ * 四条都取不到 ⇒ 返回 null ⇒ fail-closed（不静默放行）。
+ *
+ * @returns {{targets: object, ref: string}|null}
+ */
+function readBaseTargets (rootDir, baseRef) {
+  const candidates = [baseRef, 'origin/main', 'HEAD^1', 'HEAD^'].filter(Boolean);
+  for (const ref of candidates) {
+    try {
+      const raw = execFileSync('git', ['-C', rootDir, 'show', ref + ':.github/scripts/max-lines-baseline.json'], { encoding: 'utf8' });
+      const json = JSON.parse(raw);
+      return { targets: json.targets || {}, ref };
+    } catch (e) { /* 该 ref 取不到 ⇒ 试下一个 */ }
+  }
+  return null;
+}
+
+function evaluate(baseline, scanned, existing, testData, baseInfo) {
   const limit = baseline && Number.isFinite(baseline.limit) ? baseline.limit : DEFAULT_LIMIT;
   const allowance = baseline && Number.isFinite(baseline.growthAllowance)
     ? baseline.growthAllowance : DEFAULT_GROWTH_ALLOWANCE;
@@ -243,6 +339,8 @@ function evaluate(baseline, scanned, existing, testData) {
   const all = existing && typeof existing === 'object' ? existing : scanned;
   const violations = [];
   const notices = [];
+  const linesOf = (rel) => (hasKey(all, rel) ? all[rel] : scanned[rel]);
+  targetAudit(targets, baseInfo, linesOf, violations, notices);
 
   for (const rel of Object.keys(scanned).sort()) {
     const lines = scanned[rel];
@@ -538,7 +636,11 @@ function main() {
     process.exit(0);
   }
 
-  const { violations, notices, results } = evaluate(base, scanned, all, { scanned: scannedTests, all: allTests });
+  // 只在用默认基线时读 base：--baseline 覆盖（测试夹具）无法假定 base 提交里有同名文件。
+  // --baseline 覆盖（测试夹具/--prune 等）时**没有 base 提交的概念** ⇒ 不做这次审计（undefined）；
+  // 其余路径要求审计：读不到 base 时传 null ⇒ targetAudit 在 CI 内 fail-closed。
+  const baseInfo = baselinePath ? undefined : (readBaseTargets(rootDir || ROOT, process.env.MP_BASE_REF || 'origin/main') || null);
+  const { violations, notices, results } = evaluate(base, scanned, all, { scanned: scannedTests, all: allTests }, baseInfo);
   if (isJson) {
     console.log(JSON.stringify({ results, scanned, scannedTests, violations, notices, domainSize: domain.size }, null, 2));
   } else {
@@ -559,7 +661,7 @@ if (require.main === module) main();
 
 module.exports = {
   scanFiles, scanAllLines, collectOverLimit, scanTestFiles, evaluate, readBaseline, writeBaseline, gitDomain,
-  computeUpdate, pruneBaseline,
+  computeUpdate, pruneBaseline, readBaseTargets,
   DEFAULT_LIMIT, DEFAULT_GROWTH_ALLOWANCE, DEFAULT_TEST_LIMIT, DEFAULT_TEST_GROWTH_ALLOWANCE,
   SCAN_DIRS, SOURCE_EXTS, EXCLUDE, isTargetable,
 };

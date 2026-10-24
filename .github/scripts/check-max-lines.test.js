@@ -82,7 +82,7 @@ test('回归②墓碑：并发 PR 把已还债的条目带回挂账时只提示�
   const base = { limit: 500, growthAllowance: 200, files: { [rel]: 598 }, pruned: { [rel]: 468 } };
   const res = G.evaluate(base, {}, { [rel]: 468 });
   assert.deepEqual(res.violations, [], '僵尸条目 + 墓碑 = 已知复活，不得阻断');
-  assert.equal(res.notices.length, 1);
+  assert.equal(res.notices.length, 1, JSON.stringify(res.notices));
   assert.match(res.notices[0], /^LEDGER_RESURRECTED: apps\/desktop\/src\/components\/LogsSettings\.vue/);
 });
 
@@ -620,3 +620,134 @@ test("system 档的 core.excludesFile 真能改域：夹具的 NOSYSTEM 是承�
     rmRf(root)
   }
 })
+
+test('targets 重锚：允许同 PR 上调，但只允许恰好锚定当前行数', async (t) => {
+  const mkBase = (targets) => ({ limit: 500, growthAllowance: 200, files: {}, targets });
+  await t.test('合法：文件确实从 100 涨到 113，目标同步 100 -> 113', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 113 }), { 'a.js': 113 }, { 'a.js': 113 }, null, { targets: { 'a.js': 100 } });
+    assert.deepEqual(r.violations, []);
+  });
+  await t.test('无增长支撑：文件只有 90 行却把目标从 100 上调到 120', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 120 }), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
+    assert.ok(r.violations.some((v) => v.startsWith('TARGET_BUMP_UNJUSTIFIED')), r.violations.join(';'));
+  });
+  await t.test('留额度：文件 113 行，目标却上调到 120', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 120 }), { 'a.js': 113 }, { 'a.js': 113 }, null, { targets: { 'a.js': 100 } });
+    assert.ok(r.violations.some((v) => v.startsWith('TARGET_BUMP_HEADROOM')), r.violations.join(';'));
+  });
+  await t.test('删目标等于永久解除零增长约束', () => {
+    const r = G.evaluate(mkBase({}), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
+    assert.ok(r.violations.some((v) => v.startsWith('TARGET_REMOVED')), r.violations.join(';'));
+  });
+  await t.test('无关 PR：targets 未变时不受影响', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 100 }), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
+    assert.deepEqual(r.violations, []);
+  });
+  await t.test('只降不升：为还债而下调目标永远允许', () => {
+    const r = G.evaluate(mkBase({ 'a.js': 90 }), {}, { 'a.js': 90 }, null, { targets: { 'a.js': 100 } });
+    assert.deepEqual(r.violations, []);
+  });
+});
+
+// base 的取法本身必须被锁住：2026-10-23 实测 PR #4337 在主干上被判
+// `TARGET_BASE_UNAVAILABLE`，而同一份代码在本机 rc=0 —— 差的就是这一个 ref。
+// 根因：CI 的 actions/checkout 默认 fetch-depth: 1，既没有 origin/main 的远程跟踪 ref、
+// 也没有父提交 ⇒ `git show origin/main:...` 必然失败 ⇒ fail-closed 规则恒红。
+// 本组用例把「取不到 base 就必须能被取到」与「四条候选全落空必须返回 null」两件事都钉住。
+test('targets 重锚审计的 base 取法：取不到 origin/main 时必须能回落到 HEAD^，四条全落空才返回 null', async (t) => {
+  const mkRepo = (prefix) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix + '-'));
+    const env = gitEnv(root);
+    gitRun(root, ['init', '-q'], env);
+    const writeBase = (targets) => {
+      fs.mkdirSync(path.join(root, '.github', 'scripts'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.github', 'scripts', 'max-lines-baseline.json'),
+        JSON.stringify({ limit: 500, growthAllowance: 200, files: {}, targets }));
+    };
+    writeBase({ 'a.js': 100 });
+    gitRun(root, ['add', '-A'], env);
+    gitRun(root, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'base'], env);
+    writeBase({ 'a.js': 120 });
+    gitRun(root, ['add', '-A'], env);
+    gitRun(root, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'bump'], env);
+    return { root, env };
+  };
+
+  await t.test('显式给的 base 优先', () => {
+    const { root, env } = mkRepo('maxlines-basepick');
+    try {
+      const r = G.readBaseTargets(root, 'HEAD^');
+      assert.ok(r, '必须取到 base');
+      assert.equal(r.ref, 'HEAD^');
+      assert.deepEqual(r.targets, { 'a.js': 100 }, '读到的是 base 那份基线，不是 HEAD 的');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  await t.test('给的 ref 取不到 ⇒ 回落到 HEAD^（CI 浅克隆/无 origin/main 的形态）', () => {
+    const { root } = mkRepo('maxlines-basefallback');
+    try {
+      const r = G.readBaseTargets(root, 'no-such-ref');
+      assert.ok(r, '必须回落到某个可取的 base，而不是返回 null 触发恒红');
+      // 断言**内容**（读到的必须是 base 那份基线），不断言落在哪个别名上：
+      // 非 merge 提交下 HEAD^1 与 HEAD^ 指向同一个提交（git 的别名），断言别名等于把实现细节钉死。
+      assert.ok(['HEAD^1', 'HEAD^'].includes(r.ref), '回落的 ref 应是 HEAD^1/HEAD^ 之一，实得 ' + r.ref);
+      assert.deepEqual(r.targets, { 'a.js': 100 });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  await t.test('四条候选全落空 ⇒ 返回 null（fail-closed，不得静默放行）', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'maxlines-basenone-'));
+    const env = gitEnv(root);
+    try {
+      gitRun(root, ['init', '-q'], env);
+      fs.mkdirSync(path.join(root, '.github', 'scripts'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.github', 'scripts', 'max-lines-baseline.json'), JSON.stringify({ targets: { 'a.js': 100 } }));
+      gitRun(root, ['add', '-A'], env);
+      gitRun(root, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'only'], env);
+      // 单提交仓：HEAD^1 / HEAD^ 都不存在，origin/main 也不存在 ⇒ 四条候选全落空
+      const r = G.readBaseTargets(root, null);
+      assert.equal(r, null, '取不到 base 必须返回 null，让 targetAudit 走 fail-closed');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+
+// ⚠ 2026-10-23 实测踩到并修掉的一个洞：base 审计的 fail-closed 那条 violation，
+// 曾经会落到**每一条合成夹具**上（CI 里 GITHUB_ACTIONS=true ⇒ 推 violation 而不是 notice）
+// ⇒ 整个测试文件在 CI 红、本机全绿（not ok 1「新代码阻断：超限且未挂账 → NEW_OVER_LIMIT」，2 !== 1）。
+// 三档语义必须分清：undefined = 调用方没要求审计 / null = 要求了但取不到 base / 对象 = base 读到了。
+test('base 审计的三档语义：夹具不污染、真跑取不到 base 才 fail-closed', async (t) => {
+  const OLD_ENV = process.env.GITHUB_ACTIONS;
+  process.env.GITHUB_ACTIONS = 'true'; // 模拟 CI：fail-closed 那条才会推 violation
+  try {
+    await t.test('合成夹具（不传 baseInfo）⇒ 无 violation、无 base 相关 notice', () => {
+      const base = { limit: 500, growthAllowance: 200, files: {} };
+      const r = G.evaluate(base, { 'packages/a/big.js': 640 });
+      assert.deepEqual(r.violations.map((v) => v.split(':')[0]), ['NEW_OVER_LIMIT'],
+        '只应有 NEW_OVER_LIMIT 一条，不得混进 base 审计的违规：' + JSON.stringify(r.violations));
+      assert.ok(!r.notices.some((n) => /base/.test(n)), '夹具不得收到 base 相关 notice：' + JSON.stringify(r.notices));
+    });
+
+    await t.test('显式要求审计但取不到 base（baseInfo=null）⇒ CI 内 fail-closed', () => {
+      const base = { limit: 500, growthAllowance: 200, files: {} };
+      const r = G.evaluate(base, { 'packages/a/big.js': 640 }, { 'packages/a/big.js': 640 }, null, null);
+      assert.ok(r.violations.some((v) => v.startsWith('TARGET_BASE_UNAVAILABLE')),
+        '取不到 base 必须 fail-closed：' + JSON.stringify(r.violations));
+    });
+
+    await t.test('base 读到了 ⇒ 正常做三条判据，不出 TARGET_BASE_UNAVAILABLE', () => {
+      // 读数方向：evaluate 收到的 baseline 是**本次改动后的**基线（targets=新值 800），
+      // baseInfo.targets 是**改动前**的 base（targets=旧值 700）⇒ 「上调」= 800 > 700。
+      // 而文件实际只有 640 行（并未超过旧目标 700）⇒ 落在 TARGET_BUMP_UNJUSTIFIED 那一格。
+      const base = { limit: 500, growthAllowance: 200, files: {}, targets: { 'packages/a/big.js': 800 } };
+      const r = G.evaluate(base, { 'packages/a/big.js': 640 }, { 'packages/a/big.js': 640 }, null, { targets: { 'packages/a/big.js': 700 } });
+      assert.ok(!r.violations.some((v) => v.startsWith('TARGET_BASE_UNAVAILABLE')),
+        'base 读到时不得报取不到 base：' + JSON.stringify(r.violations));
+      assert.ok(r.violations.some((v) => v.startsWith('TARGET_BUMP_UNJUSTIFIED')),
+        '无增长支撑的上调必须被抓：' + JSON.stringify(r.violations));
+    });
+  } finally {
+    if (OLD_ENV === undefined) delete process.env.GITHUB_ACTIONS;
+    else process.env.GITHUB_ACTIONS = OLD_ENV;
+  }
+});

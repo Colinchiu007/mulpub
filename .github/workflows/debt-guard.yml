@@ -48,6 +48,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 必须完整历史：targets 重锚审计要读**base**那份基线（merge-base / HEAD^1），
+          # 默认的 fetch-depth: 1 既没有 origin/main 的远程跟踪 ref、也没有父提交
+          # ⇒ 取不到 base ⇒ fail-closed 规则恒红（2026-10-23 实测 PR #4337）。
+          # 与 quality-gate.yml / doc-gate.yml 的 checkout 同口径。
+          fetch-depth: 0
 
       - name: 检查债务预算
         run: node scripts/check-debt-budget.js
@@ -58,8 +64,18 @@ jobs:
       # 还完债请用 `node .github/scripts/check-max-lines.js --prune <路径>` 单键清账（会同时在 pruned 立碑），
       # 不要跑整份 --update：那会顺手把别人的存量漂移登记成新基线。
       - name: 逐文件行数门禁（新代码阻断 / 存量挂账防腐）
+        env:
+          CL_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          node .github/scripts/check-max-lines.js
+          # base 必须取 **merge-base**，不能直接取 origin/main（2026-10-05 实测同族结论）：
+          # origin/main 会随 main 前进漂移，而这条棘轮问的是「本 PR 相对自己的起点有没有放宽约束」。
+          # pull_request 事件下 actions/checkout 检出的是 merge ref（HEAD = base ⊕ head 的合并提交）
+          # ⇒ merge-base(base.sha, HEAD) 即事件时刻的 base；push 事件下 CL_BASE 为空 ⇒ 回落 HEAD^
+          # （squash 合并 = 单提交，语义正确）。回落方向是「更严」而非「更松」。
+          BASE_REF="${CL_BASE:-HEAD^}"
+          MB="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
+          echo "[max-lines] base_ref=$BASE_REF merge_base=${MB:-<unresolved => fallback to base_ref>}"
+          MP_BASE_REF="${MB:-$BASE_REF}" node .github/scripts/check-max-lines.js
           node --test .github/scripts/check-max-lines.test.js
 
       - name: 死代码检测（软门禁，报告供人工审查）
