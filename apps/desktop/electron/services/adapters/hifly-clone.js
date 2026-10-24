@@ -27,6 +27,21 @@ const STATUS_MAP = Object.freeze({ 1: 'processing', 2: 'processing', 3: 'complet
  */
 const VOICE_CLONE_TYPE = 8
 
+/**
+ * MIME 子类型 → 扩展名 别名表。
+ *
+ * 为什么需要：飞影 `create_upload_url` 要的是**扩展名**（`file_extension`），
+ * 而 Blob.type 给的是 MIME，两者不总相等。直接拿子类型当扩展名会传出
+ * `mpeg` / `quicktime` 这类飞影未必认的值。
+ */
+const HIFLY_MIME_EXT_ALIASES = Object.freeze({
+  mpeg: 'mp3',
+  mp3: 'mp3',
+  quicktime: 'mov',
+  'x-msvideo': 'avi',
+  jpeg: 'jpg',
+})
+
 const cloneMethods = {
   /**
    * 获取素材上传地址（官方「上传文件」第一步）。
@@ -97,18 +112,110 @@ const cloneMethods = {
    *
    * @returns {Promise<{taskId: string}>}
    */
+  /**
+   * 从素材推后缀名。
+   *
+   * 优先级：显式 fileName > Blob 的 MIME 反查 > 调用方给的 type 兜底。
+   * 为什么需要后两级：avatar-clone-service 按 HeyGen 契约传 `{ image: Blob }`，
+   * Blob 没有文件名；而飞影的 create_upload_url **必须**要 `file_extension`。
+   *
+   * @param {Blob|Buffer|Uint8Array} blob
+   * @param {string} [fileNameHint]
+   * @param {'photo'|'digital_twin'|'audio'} [kind] 兜底类型
+   * @returns {string} 不带点的后缀名
+   */
+  _resolveFileExtension (blob, fileNameHint, kind) {
+    const fromName = typeof fileNameHint === 'string' ? fileNameHint.toLowerCase().match(/\.[a-z0-9]+$/) : null
+    if (fromName) return fromName[0].slice(1)
+
+    // Blob 带 MIME（service 会传 contentType）。
+    // MIME 子类型不总等于扩展名（audio/mpeg → mp3、video/quicktime → mov、
+    // image/jpeg → jpg），用别名表归一——飞影 create_upload_url 要的是扩展名。
+    const mime = blob && typeof blob.type === 'string' ? blob.type.toLowerCase() : ''
+    const fromMime = mime.match(/^(?:image|video|audio)\/([a-z0-9.+-]+)$/)
+    if (fromMime) {
+      const sub = fromMime[1]
+      const aliased = HIFLY_MIME_EXT_ALIASES[sub]
+      if (aliased) return aliased
+      if (/^[a-z0-9]+$/.test(sub)) return sub
+    }
+
+    // type 兜底：飞影官方明确支持的格式
+    if (kind === 'photo') return 'png'
+    if (kind === 'digital_twin') return 'mp4'
+    if (kind === 'audio') return 'mp3'
+    return ''
+  },
+
+  /**
+   * 把素材规整成飞影认的 `file_id`。
+   *
+   * 为什么需要它：飞影的克隆接口（create_by_image / create_by_video / voice/create）
+   * **只接受 `*_url` 或 `file_id`，不接受二进制**。而 avatar-clone-service 按
+   * HeyGen 契约传 Blob（`{ image|video: Blob }`）。两种契约的差异在这里消化，
+   * 上层（service / IPC / UI）就不需要长 provider 分支。
+   *
+   * 三步：create_upload_url 换上传地址 → PUT 传二进制 → 拿 file_id。
+   *
+   * @param {Blob|Buffer|Uint8Array} blob 素材二进制
+   * @param {string} [fileNameHint] 文件名提示，用于推后缀；缺省按 MIME/type 推
+   * @param {'photo'|'digital_twin'|'audio'} [kind] 兜底类型
+   * @returns {Promise<string>} file_id
+   */
+  async ensureFileId (blob, fileNameHint, kind) {
+    if (!blob) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, '素材为空')
+    }
+    const fileExtension = this._resolveFileExtension(blob, fileNameHint, kind)
+    if (!fileExtension) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, '无法推断素材后缀名（create_upload_url 需要 file_extension）')
+    }
+
+    // ① 换上传地址
+    const urlResp = await this._request('/tool/create_upload_url', {
+      method: 'POST',
+      body: JSON.stringify({ file_extension: fileExtension }),
+    })
+    const urlDecoded = await this._decode(urlResp)
+    if (!urlDecoded.ok) {
+      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, urlDecoded.message, { providerId: this.id })
+    }
+    const { upload_url: uploadUrl, file_id: fileId, content_type: contentType } = urlDecoded.data || {}
+    if (!uploadUrl || !fileId) {
+      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '飞影未返回 upload_url / file_id', { providerId: this.id })
+    }
+
+    // ② PUT 传二进制。预签名 URL 自带凭证，**不得**再发 Authorization
+    //    （官方文档明确：只设置 Content-Type）。
+    const buffer = Buffer.isBuffer(blob)
+      ? blob
+      : Buffer.from(blob instanceof Uint8Array ? blob : await blob.arrayBuffer())
+    const putResp = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType || 'application/octet-stream' },
+      body: buffer,
+    })
+    if (!putResp.ok) {
+      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, `素材上传失败 HTTP ${putResp.status}`, { providerId: this.id })
+    }
+
+    return String(fileId)
+  },
+
   async createAvatar (params) {
     const type = params && params.type
     const name = params && params.name ? String(params.name).trim() : ''
     const fileId = params && params.fileId ? String(params.fileId).trim() : ''
     const imageUrl = params && params.imageUrl ? String(params.imageUrl).trim() : ''
     const videoUrl = params && params.videoUrl ? String(params.videoUrl).trim() : ''
+    // 上层按 HeyGen 契约传的 Blob（image / video 二选一）
+    const blob = (params && (params.image || params.video)) || null
 
     if (type !== 'photo' && type !== 'digital_twin') {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, "params.type must be 'photo' or 'digital_twin'")
     }
-    if (!fileId && !imageUrl && !videoUrl) {
-      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'createAvatar requires fileId, imageUrl or videoUrl')
+    if (!fileId && !imageUrl && !videoUrl && !blob) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'createAvatar requires fileId, imageUrl, videoUrl or a media blob')
     }
 
     const isVideo = type === 'digital_twin'
@@ -117,7 +224,10 @@ const cloneMethods = {
     const body = {}
     // title 不传时飞影默认「未命名」；给了就传
     if (name) body.title = name
-    if (fileId) body.file_id = fileId
+    // 给了 Blob 就先换成 file_id（飞影不收二进制）
+    const resolvedFileId = fileId
+      || (blob ? await this.ensureFileId(blob, params && params.fileName, type) : '')
+    if (resolvedFileId) body.file_id = resolvedFileId
     if (isVideo && videoUrl) body[sourceKey] = videoUrl
     if (!isVideo && imageUrl) body[sourceKey] = imageUrl
 
@@ -201,19 +311,23 @@ const cloneMethods = {
     const fileId = params && params.fileId ? String(params.fileId).trim() : ''
     const audioUrl = params && params.audioUrl ? String(params.audioUrl).trim() : ''
     const language = params && params.language ? String(params.language).trim() : ''
+    // 上层可能按 HeyGen 契约直接传录音 Blob
+    const blob = (params && params.audio) || null
 
     if (!name) {
       throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'params.name is required')
     }
-    if (!fileId && !audioUrl) {
-      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'cloneVoice requires fileId or audioUrl')
+    if (!fileId && !audioUrl && !blob) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'cloneVoice requires fileId, audioUrl or an audio blob')
     }
 
     const body = {
       title: name,
       voice_type: VOICE_CLONE_TYPE,
     }
-    if (fileId) body.file_id = fileId
+    const resolvedFileId = fileId
+      || (blob ? await this.ensureFileId(blob, params && params.fileName, 'audio') : '')
+    if (resolvedFileId) body.file_id = resolvedFileId
     if (audioUrl) body.audio_url = audioUrl
     // languages 不填时飞影默认普通话；显式给了才传（避免把默认值写死成 zh）
     if (language) body.languages = language

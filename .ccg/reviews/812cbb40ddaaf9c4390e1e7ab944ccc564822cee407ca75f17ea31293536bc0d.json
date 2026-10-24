@@ -1,0 +1,60 @@
+{
+  "sha": "fb55036bba21af604a15f970b143634aa474a03d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 887 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 887,
+    "fileCount": 15,
+    "codeFileCount": 12,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 16,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "期间按用户授权清理了本会话已合并的 3 个 worktree（`mp-avatar-voice-clone` / `mp-digital-human-multiprovider` / `mp-voice-clone-multiprovider`），每个都走 `safe-worktree-remove.ps1 -WhatIf` 干跑确认 11 个链接全 self-contained、无进程占用、content gate 通过后才实跑，R7 三次均报 main 与基线一致。worktree 数 77 → 74。"
+    ],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "812cbb40ddaaf9c4390e1e7ab944ccc564822cee407ca75f17ea31293536bc0d",
+  "decidedAt": "2026-10-23T15:49:06.244Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：不触及判据本体、.github/workflows、凭证/登录态。\n改动集中在数字人面板 UI、飞影 adapter 字幕字段、文案 locale 化。\n\n自我审查已覆盖的关键点（逐条给结论）：\n1. 发现并修掉一个比需求本身更严重的缺陷：params.videoProvider 此前写死\n   'heygen'，用户切到飞影后启动仍发 heygen，主进程会拿 HeyGen adapter\n   解析飞影的 avatar id。改为取 avatarProviderId，保留 heygen 兜底\n   （provider 列表未就绪时不能发空串，主进程 resolveDigitalHumanProviderId\n   的兜底也是这一家，两边一致）。\n2. 字幕字段校验放 adapter（buildSubtitleFields 纯函数）：颜色 #rrggbb、\n   数值非负整数，非法即抛错并点名字段；主进程只透传不校验。\n3. 字幕开关关闭时不下发 subtitle 键（返回 undefined 而非 {show:false}），\n   让服务商用它自己的默认语义。\n4. 声音克隆复用 tts-voice-clone 的 IPC/service，不另起样本存储；\n   provider/model 由当前数字人服务商决定，不给用户选（避免跨服务商错配）。\n5. 渲染端不得新增中文字面量：AvatarSubtitlePanel 的「收起/展开」触发\n   CJK 门禁，已改走 locale（zh/en 成对 +18 键）。\n6. 跨用例异步探测污染：探测是 async，上条用例的落地可能覆盖本条结果；\n   已加 watch avatarProviderId 兜底 + 测试侧显式再探。\n\n回归证据：21 个相关测试文件 466/466 全绿；\nmax-lines / locale(keys+cjk) / no-brand-residue / doc-abs-paths / r3(18) /\nfont-size 全部通过。"
+  }
+}

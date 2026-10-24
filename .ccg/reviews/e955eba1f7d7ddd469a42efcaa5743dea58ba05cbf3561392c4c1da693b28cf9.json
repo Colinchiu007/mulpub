@@ -1,0 +1,58 @@
+{
+  "sha": "72a8885cc4a2b31fb90595f995dadaad4db72b29",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 49 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 49,
+    "fileCount": 5,
+    "codeFileCount": 4,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "e955eba1f7d7ddd469a42efcaa5743dea58ba05cbf3561392c4c1da693b28cf9",
+  "decidedAt": "2026-10-24T04:41:20.547Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：本 commit 只改 apps/desktop 下的 Vue 组件 + locale + 测试，\n不触及判据本体、.github/workflows、凭证/登录态。\n\n（注意：check-pr-exec-record 会把本 PR 与 origin/main 的整体差集算进去，\n  其中含他人已合入的 .github/workflows 与 scripts/check-* 改动，\n  因而判据要求 tier=external。那一档不是本 commit 的性质，\n  整PR 的收口以 #4341 主记录为准。）\n\n本 commit 内容：克隆面板补录音素材要求提示。\n动因：上一轮真实首跑发现飞影 voice/create 失败时 message 是空串，\n应用只能给通用失败文案；而最常见失败原因是素材不合格\n（首跑用 5 秒静音 WAV 得到 status:4 且无原因）。\n服务端不给原因，UI 就必须主动把约束说清楚。\n\n实现：AvatarVoiceClone.vue 在「选择本地录音文件」按钮上方加常驻提示行，\n文案走 locale 键 avatarCloneVoiceMaterialHint（zh/en 成对）。\n三个硬约束（格式/大小/时长）+ 「必须含人声」都点明，\n并明确写出「静音或纯音乐会导致克隆失败」。\n\n设计点：常驻而非折叠（看一次就够、不看就踩坑）；\n放按钮上方（阅读顺序，且不会被「已选录音」挤掉）；走 locale（CJK 门禁）。\n\n原计划补 PRD A.5.5 与 user-manual，但两者当时都不在本分支基线上\n（分别是 #4362 与 #4341 主记录的内容），已主动撤销误改的 user-manual，\n避免在错误基线上造矛盾文档。详见执行记录第六节。\n\n回归证据：12 个测试文件 267/267 全绿；\nlocale(keys 2280 + cjk 1115) / i18n.test.js 17/17 / max-lines / debt-budget /\ndep-audit(rc=0) / no-brand-residue / doc-abs-paths / r3(18) 全过。"
+  }
+}

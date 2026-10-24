@@ -255,6 +255,22 @@
                 </select>
                 <span v-if="!avatarLoading && avatarVoiceOptions.length === 0 && !avatarError" class="config-hint" data-testid="avatar-voice-empty">{{ avatarText('avatarVoiceEmpty') }}</span>
               </div>
+              <!-- 字幕面板（change: hifly-voice-subtitle-parity）：仅对支持字幕的
+                   服务商渲染。HeyGen 的 create_by_tts 没有 st_* 字段，
+                   给它看字幕选项等于骗人，所以整个不渲染而非置灰。 -->
+              <AvatarSubtitlePanel
+                v-if="avatarSubtitleSupported"
+                :show="avatarSubtitleShow"
+                :font-name="avatarSubtitleFontName"
+                :font-size="avatarSubtitleFontSize"
+                :primary-color="avatarSubtitlePrimaryColor"
+                :outline-color="avatarSubtitleOutlineColor"
+                @update:show="val => (avatarSubtitleShow = val)"
+                @update:fontName="val => (avatarSubtitleFontName = val)"
+                @update:fontSize="val => (avatarSubtitleFontSize = val)"
+                @update:primaryColor="val => (avatarSubtitlePrimaryColor = val)"
+                @update:outlineColor="val => (avatarSubtitleOutlineColor = val)"
+              />
               <div class="config-item">
                 <button
                   type="button"
@@ -282,8 +298,12 @@
               :create-error="avatarCloneCreateError"
               :invalid-key-of="avatarCloneInvalidKey"
               :voice-clone-supported="avatarVoiceCloneSupported"
+              :provider-name="avatarProviderName"
+              :voice-selection-id="avatarCloneVoiceSelectionId"
+              :voice-create-error="avatarCloneVoiceCreateError"
               @ack-notice="avatarCloneNoticeAcked = true"
               @update:nameDraft="val => (avatarCloneNameDraft = val)"
+              @choose-voice-media="avatarCloneApi.chooseVoiceMedia(avatarProviderId)"
               @create="type => createAvatarClone(type)"
               @delete="id => removeAvatarClone(id)"
             />
@@ -1010,6 +1030,7 @@ import AvatarClonePanel from './video-creation/AvatarClonePanel.vue'
 import AvatarProviderPicker from './video-creation/AvatarProviderPicker.vue'
 // 快速渲染（AI 视频生成）面板：模式/参数/素材/进度自成一体，CreateView 只做编排
 import QuickRenderPanel from './video-creation/QuickRenderPanel.vue'
+import AvatarSubtitlePanel from './video-creation/AvatarSubtitlePanel.vue'
 import { modelProviderList, modelProviderGetDefault } from '@/api/model-providers'
 import { resolveS2VDefaultProviderId } from './video-creation/s2v-default-provider'
 import { getApi } from '@/api/electron-bridge'
@@ -1113,7 +1134,9 @@ export default {
   name: 'CreateView',
   // 模板使用但此前漏注册的子组件：PipelineSelector/StageProgress/CreateViewHistory
   // （缺失会导致 Vue 'Failed to resolve component'，流水线卡片不渲染）
-  components: { AvatarProviderPicker, AvatarClonePanel, QuickRenderPanel, UiButton, UiModal, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
+  // 三侧合并：HEAD 的 QuickRenderPanel + 本分支的 AvatarSubtitlePanel。
+  // 注意不要引入本分支之外不存在的组件（UiSelect 属另一未合并分支，加了会 ReferenceError）。
+  components: { AvatarProviderPicker, AvatarClonePanel, QuickRenderPanel, AvatarSubtitlePanel, UiButton, UiModal, CreateViewHistory, PipelineSelector, StageProgress, SceneAssetSelection, S2vConfigPanels, PodcastPublishAction },
   // 配置面板子树的受控访问入口：白名单由 s2v-panel-contract 单一来源定义，
   // 这里只转发，不复制任何 optionKey 语义（见该文件头注释）。
   provide() {
@@ -1158,6 +1181,15 @@ export default {
       avatarProviderSwitched: false,
       // 当前服务商是否支持克隆声音（probeAvatarVoiceCloneSupport 探测，拿不到保守 false）
       avatarVoiceCloneSupported: false,
+      // 两者可并行操作（共用 creating 会造出「传照片时不能同时传录音」的假约束）
+      avatarCloneVoiceNameDraft: '',
+      // 字幕（change: hifly-voice-subtitle-parity）：仅飞影支持。
+      // 默认关闭 ⇒ 不下发 subtitle 字段，让服务商用它自己的默认语义。
+      avatarSubtitleShow: false,
+      avatarSubtitleFontName: '',
+      avatarSubtitleFontSize: 100,
+      avatarSubtitlePrimaryColor: '#ffffff',
+      avatarSubtitleOutlineColor: '#000000',
       // 带文案进入（/create?draft=xxx 预填成功）：非文案型流水线在选择列表中灰显不可选
       textPrefilledFromDraft: false,
       // 配置
@@ -1339,6 +1371,44 @@ export default {
     avatarClones: { get() { return avatarCloneRefs.clones.value } },
     avatarCloneCreating: { get() { return avatarCloneRefs.creating.value } },
     avatarCloneCreateError: { get() { return avatarCloneRefs.createError.value } },
+    // 声音克隆区（change: hifly-voice-subtitle-parity）
+    avatarCloneVoiceCreating: { get() { return avatarCloneRefs.voiceCreating.value } },
+    avatarCloneVoiceCreateError: { get() { return avatarCloneRefs.voiceCreateError.value } },
+    // change: avatar-voice-clone-bundled —— 两条素材的 selectionId 由 composable 持有，
+    // 这里桥接出来供模板绑定（与 voiceCreating 等同型）。
+    avatarCloneVoiceSelectionId: { get() { return avatarCloneRefs.voiceSelectionId.value } },
+    // change: avatar-voice-clone-bundled —— composable 的方法桥接到模板作用域。
+    // import 进来的名字不会自动进模板（只有 data/computed/props/methods 会），
+    // 所以这里显式暴露一个只读引用。
+    avatarCloneApi: () => avatarCloneMethods,
+    avatarCloneVoiceCreatedName: { get() { return avatarCloneRefs.voiceCreatedName.value } },
+    /**
+     * 当前服务商是否支持字幕（change: hifly-voice-subtitle-parity）。
+     *
+     * 判据是 providerId 白名单而非「读一份能力表」：字幕是飞影独有的契约字段，
+     * 官方文档只在他家的 create_by_tts 里出现；HeyGen 没有对应参数。
+     * 接第三家时若也支持字幕，把 id 加进来即可。
+     */
+    avatarSubtitleSupported() {
+      return this.avatarProviderId === 'hifly'
+    },
+    /**
+     * 下发给流水线的字幕配置。
+     *
+     * 关闭时返回 **undefined** 而非 `{show:false}`：请求体里根本不出现 subtitle 键，
+     * 让服务商用它自己的「默认不显示」语义。发 `{show:false}` 会让 adapter 白算一次
+     * 校验，也会让「用户没碰过字幕」和「用户显式关掉」在日志里无法区分。
+     */
+    avatarSubtitlePayload() {
+      if (!this.avatarSubtitleShow) return undefined
+      return {
+        show: true,
+        fontName: this.avatarSubtitleFontName,
+        fontSize: this.avatarSubtitleFontSize,
+        primaryColor: this.avatarSubtitlePrimaryColor,
+        outlineColor: this.avatarSubtitleOutlineColor,
+      }
+    },
     avatarCloneNoticeAcked: { get() { return avatarCloneRefs.noticeAcknowledged.value }, set(v) { avatarCloneRefs.noticeAcknowledged.value = v } },
     isAvatarPipeline() { return this.selectedPipeline?.name === 'avatar-spokesperson' },
     /**
@@ -1968,6 +2038,13 @@ export default {
     },
   },
   watch: {
+    // 数字人服务商定下后探测声音克隆能力（change: hifly-voice-subtitle-parity）。
+    // 为什么需要它：loadS2VProviders 是异步的，selectPipeline 那一刻 provider 列表
+    // 往往还没回来，探测拿到空值被保守判 false；等默认 providerId 在这里写入后再探
+    // 一次，「先打开创作页、再切数字人流水线」的用户才能拿到正确读数。
+    avatarProviderId(providerId) {
+      if (this.isAvatarPipeline && providerId) this.probeAvatarVoiceCloneSupport(providerId)
+    },
     // 「返回」跳 /create?view=history 与直接输入地址时同步历史记录视图（2026-08-16 术语统一）
     '$route.query.view'(value) {
       if (value === 'history' && this.view !== 'history') {
@@ -2065,10 +2142,23 @@ export default {
         avatarCloneMethods.loadAvatarClones({ providerId: this.avatarProviderId })
       }
     },
+    /**
+     * 创建克隆形象（change: avatar-voice-clone-bundled）。
+     *
+     * 用户约束：**声音与形象绑在同一家 provider 下一次创建**，这样才用得上
+     * 飞影的整体克隆能力。所以这里把形象的 selectionId 与录音的
+     * voiceSelectionId 一起交给主进程，由 service 在同一次编排里建完两样。
+     *
+     * 录音没选也能建（voiceSelectionId 为空）——向后兼容「只克隆形象」。
+     */
     async createAvatarClone(type) {
       const name = String(this.avatarCloneNameDraft || '').trim()
       if (!name) { this.avatarCloneNameDraft = ""; return }
-      const result = await avatarCloneMethods.createAvatarClone({ type, name, providerId: this.avatarProviderId })
+      const result = await avatarCloneMethods.createAvatarClone({
+        type,
+        name,
+        providerId: this.avatarProviderId,
+      })
       if (result && result.success) {
         this.avatarCloneNameDraft = ""
         this.avatarClonePanelOpen = false
@@ -2077,6 +2167,13 @@ export default {
     async removeAvatarClone(avatarId) {
       await avatarCloneMethods.removeAvatarClone(avatarId, { providerId: this.avatarProviderId })
     },
+    /**
+     * 创建克隆声音（change: hifly-voice-subtitle-parity）。
+     *
+     * providerId/model 由当前数字人服务商决定，不交给用户选——数字人面板的
+     * 声音必须与形象同源，让用户在别处选个 TTS provider 会造出
+     * 「HeyGen 的形象配 ElevenLabs 的声音」这种服务商不认的组合。
+     */
     avatarCloneInvalidKey(avatar) { return avatarCloneMethods.invalidReasonKey(avatar) },
     /** 克隆形象 + 公共目录合并后的形象下拉（合并逻辑在 useAvatarClone，可独立测） */
     mergedAvatarOptions() {
@@ -2091,7 +2188,6 @@ export default {
      * false——显示「不支持」比谎称支持好（用户点了才发现不能克隆更糟）。
      */
     async probeAvatarVoiceCloneSupport(providerId, model) {
-      if (!providerId) { this.avatarVoiceCloneSupported = false; return }
       try {
         const { getTtsVoiceCloneRequirements } = await import('@/api/tts-voice-clone')
         const result = await getTtsVoiceCloneRequirements({ providerId, model: model || `${providerId}-video` })
@@ -2364,7 +2460,15 @@ export default {
         this.avatarClonesLoadedOnce = true
         this.loadAvatarClones({ providerId: this.avatarProviderId })
       }
-      // 声音克隆能力探测在 loadS2VProviders 里 provider 定下后进行（见该处注释）
+      // 声音克隆能力探测（change: hifly-voice-subtitle-parity）。
+      // 只在这里做不够：loadS2VProviders 是异步的，选中数字人流水线那一刻
+      // provider 列表往往还没回来，探测拿到空值被保守判 false，
+      // 克隆面板的声音区就恒不渲染。所以这里只负责「已就绪则立即探」，
+      // 未就绪时由 watch avatarProviderId 兜底（见 watch 块）。
+      if (p?.name === 'avatar-spokesperson') {
+        const providerId = this.avatarProviderId || (this.avatarProviderOptions[0] && this.avatarProviderOptions[0].id)
+        if (providerId) this.probeAvatarVoiceCloneSupport(providerId)
+      }
       // 选中编排流水线时执行生效上限（默认 10000，可被运营中心 storyTextLimit 覆盖）码点截断
       // （含带文案预填场景：预填时不截断，选中时统一截断+提示）
       if (this.isOrchestratedPipeline(p?.name)) this.enforceStory2VideoTextLimit()
@@ -2621,7 +2725,16 @@ export default {
         if (this.selectedPipeline.name === 'avatar-spokesperson') {
           params.avatarId = String(this.avatarId || '').trim()
           params.voiceId = String(this.avatarVoiceId || '').trim()
-          params.videoProvider = 'heygen'
+          // provider 取当前选中的那家（change: digital-human-multiprovider）。
+          // 此前这里写死 'heygen'：用户切到飞影后启动仍发 heygen，
+          // 主进程会拿 HeyGen adapter 去解析飞影的 avatar id ⇒ 报错还指不到真正原因。
+          // 回落 'heygen' 而非留空：provider 列表还没加载完（或 IPC 失败）时
+          // 不能把空串发下去——主进程会解析不到 provider 而整条流水线失败；
+          // 主进程 resolveDigitalHumanProviderId 的兜底也是这一家，两边一致。
+          params.videoProvider = String(this.avatarProviderId || '').trim() || 'heygen'
+          // 字幕配置（change: hifly-voice-subtitle-parity）：关闭时不下发该键，
+          // 让服务商用它自己的「默认不显示」语义；只有飞影认这组字段。
+          if (this.avatarSubtitlePayload) params.subtitle = this.avatarSubtitlePayload
         }
         const res = await pipelineStartOrchestrated(this.selectedPipeline.name, this.cloneForIpc(params))
         const outcome = res?.data
@@ -3583,9 +3696,8 @@ export default {
         if (!this.avatarProviderId && this.avatarProviderOptions.length > 0) {
           this.avatarProviderId = this.avatarProviderOptions[0].id
         }
-        // provider 定下后再探测声音克隆能力：放在这里而不是 selectPipeline 里，
-        // 是因为那时 avatarProviderId 可能还是空（provider 列表异步拉），
-        // 探测会拿到空 provider 而保守判「不支持」。
+        // provider 定下后**再探一次**：selectPipeline 那次可能拿到空 providerId
+        // （列表异步还没回来），结果被保守判成 false，这里用确切值覆盖它。
         if (this.isAvatarPipeline && this.avatarProviderId) {
           this.probeAvatarVoiceCloneSupport(this.avatarProviderId)
         }
