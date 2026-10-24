@@ -27,6 +27,9 @@ const { CancelToken } = require('@multi-publish/api-publish-engine/src/base-adap
 const helpersMixin = require('./rpa-view-helpers')
 const sessionMixin = require('./rpa-view-session')
 const platformsMixin = require('./rpa-view-platforms')
+// 海外平台（YouTube/TikTok/X/IG/FB）专属发布链放独立目录：
+// rpa-view-platforms.js 在本仓「点名还账」清单内（零增长容差），往里加行会顶穿熔断门禁。
+const overseasMixin = require('./rpa-overseas')
 
 class RpaViewManager {
   // C 方案：池参数解析静态暴露（测试断言默认值/覆盖行为）
@@ -296,8 +299,9 @@ class RpaViewManager {
   }
 }
 
-// 把 3 个 mixin 方法注入 RpaViewManager.prototype
-Object.assign(RpaViewManager.prototype, helpersMixin, sessionMixin, platformsMixin)
+// 把 4 个 mixin 方法注入 RpaViewManager.prototype
+// ⚠️ overseasMixin 必须排在 platformsMixin **之后**：同名方法（如 _publish_youtube）由海外实现覆盖。
+Object.assign(RpaViewManager.prototype, helpersMixin, sessionMixin, platformsMixin, overseasMixin)
 
 module.exports = RpaViewManager
 module.exports.ProgressThrottle = ProgressThrottle

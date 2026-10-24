@@ -172,6 +172,13 @@ platforms:
     icon: 📺
     category: 海外
     content_category: VIDEO
+    # 2026-10-24（海外平台发布链）：此前本段**缺 publish_url**。
+    # YouTube 走专属链 `rpa-overseas/youtube.js`（`_publish_youtube`），
+    # 不经过 `_publish_generic`，但该实现仍以本字段为导航地址的单一真源
+    # （缺省才回落到代码内的 YOUTUBE_UPLOAD_URL 常量）。
+    # 取值：YouTube 官方上传入口（未登录会重定向到 accounts.google.com，
+    # 由实现侧的「未登录 ⇒ fail-closed」判据接住）。
+    publish_url: https://www.youtube.com/upload
     max_title: 100
     max_content: 5000
     enabled: true

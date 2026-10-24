@@ -27,9 +27,7 @@ const { FieldRetryState } = require('./rpa-field-retry')
 // 2026-09-29 拆分：publish-id 提取纯函数 → rpa-publish-id-extract.js（行数门禁，零行为变化）
 const {
   normalizePublishId,
-  collectPublishIds,
   extractPublishIdFromUrl,
-  extractPublishIdsFromResponseBody,
   extractPublishIdFromEvidence,
   sanitizeDiagnosticEndpoint,
   sanitizePublishResultUrl,
@@ -1252,84 +1250,6 @@ const rp = this._waitForResponse(win,['aweme/create_v2','aweme/create','aweme/po
     return { success:true, url:win.webContents.getURL()||'', platform:'wechat_mp' }
   },
 
-  // ========== P2-D: youtube — multi-step wizard ==========
-  async _publish_youtube(win, article) {
-    this._emitProgress('youtube','navigating to Studio...',5)
-    await this._navigateAndWait(win,'https://studio.youtube.com/',3000)
-
-    const curUrl = win.webContents.getURL()
-    if (curUrl.includes('signin')||curUrl.includes('login')||curUrl.includes('ServiceLogin'))
-      { log.warn('RpaView', '[youtube] not logged in url=' + curUrl); return { success:false, error:'youtube not logged in', platform:'youtube' } }
-
-    if (!article.video_path)
-      return { success:false, error:'youtube needs video file', platform:'youtube' }
-
-    // Click Create → Upload video
-    this._emitProgress('youtube','clicking Create...',10)
-    const created = await this._click(win,'#create-icon, ytcp-button#create-icon')
-    await this._sleep(2000)
-    if (created) {
-      await this._click(win,'tp-yt-paper-item:has-text("上传视频"), .ytcp-menu-item:has-text("上传视频")')
-      await this._sleep(2000)
-    }
-
-    // Upload file
-    this._emitProgress('youtube','uploading video...',25)
-    if (await this._waitForElement(win,'input[type="file"]',15000)) {
-      await this._setFileInput(win,article.video_path)
-    }
-
-    // Wait for upload to complete
-    this._emitProgress('youtube','waiting for upload...',35)
-    const uploaded = await this._waitForCondition(win, 'function(){let progress=document.querySelector(\'#progress-bar, [class*="progress"]\');let done=document.querySelector(\'#done-button, ytcp-button:has-text("下一步")\');return !progress||(done&&!done.disabled)}', 300000)
-    if (!uploaded) log.warn('RpaView','youtube: upload wait timeout')
-    this._emitProgress('youtube','upload complete',50)
-
-    // Fill title
-    if (article.title) {
-      this._emitProgress('youtube','filling title...',55)
-      if (await this._waitForElement(win,'#title-textarea, [class*="title"] input',10000)) {
-        try { await this._fillInput(win,'#title-textarea, [class*="title"] input',article.title) } catch (e) { log.warn('RpaView','[youtube] title fill: '+e.message) }
-      }
-    }
-
-    // Fill description
-    if (article.content) {
-      this._emitProgress('youtube','filling description...',65)
-      if (await this._waitForElement(win,'#description-textarea, [class*="description"] textarea',10000)) {
-        try { await this._fillInput(win,'#description-textarea, [class*="description"] textarea',article.content) } catch (e) { log.warn('RpaView','[youtube] desc fill: '+e.message) }
-      }
-    }
-
-    // Click Next (video elements)
-    this._emitProgress('youtube','next step (elements)...',75)
-    try {
-      await this._click(win,'ytcp-button:has-text("下一步"), #next-button')
-      await this._sleep(3000)
-    } catch(e) { log.warn('RpaView','youtube: next1: '+e.message) }
-
-    // Click Next (visibility/schedule)
-    try {
-      await this._click(win,'ytcp-button:has-text("下一步"), #next-button')
-      await this._sleep(3000)
-    } catch(e) { log.warn('RpaView','youtube: next2: '+e.message) }
-
-    // Set visibility to Public
-    try {
-      await this._click(win,'tp-yt-paper-radio-button[name="PUBLIC"], #public-radio-button')
-      await this._sleep(1000)
-    } catch(e) { log.warn('RpaView','youtube: visibility: '+e.message) }
-
-    // Click Publish
-    this._emitProgress('youtube','publishing...',90)
-    try {
-      await this._click(win,'ytcp-button:has-text("发布"), #done-button')
-      await this._sleep(5000)
-    } catch(e) { log.warn('RpaView','youtube: publish btn: '+e.message) }
-
-    this._emitProgress('youtube','done',100)
-    return { success:true, url:win.webContents.getURL()||'', platform:'youtube' }
-  },
 
   async _publish_xiaohongshu(win, article) {
     if (!article || (!article.title && !article.content && !article.video_path)) {
