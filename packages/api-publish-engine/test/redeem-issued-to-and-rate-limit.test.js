@@ -393,6 +393,82 @@ test('接线：运营签发端点确实把 issuedTo 转发给了服务层', asyn
   }
 })
 
+test('接线：三类花钱动作都留审计，且**业务字段在 details 里**（不是被静默丢弃的顶层字段）', async () => {
+  const seen = []
+  const service = {
+    repository: {},
+    planOverrides: null,
+    async redeem() { throw Object.assign(new Error('x'), { code: 'REDEEM_CODE_NOT_FOUND', status: 404 }) },
+    async createRedeemBatch(payload) {
+      seen.push(payload)
+      return { batch: 'b-audit', plan: payload.plan, durationDays: payload.durationDays, issuedTo: payload.issuedTo, requested: 1, generated: 1, codes: ['ABCD-EFGH-JKMN'] }
+    },
+    async grant({ userId, plan, durationDays }) {
+      return { plan, durationDays, order: { id: 'ord-audit', channel: 'admin_grant' } }
+    },
+    async disableRedeemCode({ code }) {
+      return { code, status: 'disabled', idempotent: false }
+    },
+  }
+  const server = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createIdentityRepository('u-6'),
+    entitlementProvider: { async getForUser() { return { plan: 'standard', features: [], quota: {}, limits: {} } } },
+    subscriptionService: service,
+  })
+  await server.start(0)
+  const port = server._server.address().port
+  try {
+    // ① 批量签发
+    const issued = await request(port, 'POST', '/api/v1/admin/member/redeem-codes', 'admin-token', {
+      plan: 'standard', durationDays: 90, count: 1, issuedTo: '渠道Z',
+    })
+    assert.strictEqual(issued.status, 200)
+    // ② 手动开通
+    const granted = await request(port, 'POST', '/api/v1/admin/member/grant', 'admin-token', {
+      userId: 'u-6', plan: 'pro', durationDays: 30,
+    })
+    assert.strictEqual(granted.status, 200)
+    // ③ 作废
+    const disabled = await request(port, 'POST', '/api/v1/admin/member/redeem-codes/disable', 'admin-token', {
+      code: 'ABCD-EFGH-JKMN',
+    })
+    assert.strictEqual(disabled.status, 200)
+
+    const entries = server._auditLog.list()
+    const byType = (t) => entries.find((e) => e.type === t)
+
+    // ⚠️ 本条断言锁的是一个**静默丢弃**形态：`AuditLog.log` 只认一组固定字段
+    // （id/ownerSubject/type/platform/title/status/error/publishId/details/createdAt），
+    // 直接把业务字段放在顶层会被**无声丢掉** ⇒ 审计里只剩「发生过」，看不到「发生了什么」。
+    // ⇒ 业务字段必须装在 `details` 里。
+    const issuedEntry = byType('redeem_code_batch_issued')
+    assert.ok(issuedEntry, '批量签发必须有审计记录')
+    assert.ok(issuedEntry.details, '审计的业务字段必须在 details 里')
+    assert.strictEqual(issuedEntry.details.issuedTo, '渠道Z')
+    assert.strictEqual(issuedEntry.details.batch, 'b-audit')
+    assert.strictEqual(issuedEntry.details.plan, 'standard')
+    assert.strictEqual(issuedEntry.details.durationDays, 90)
+    assert.strictEqual(issuedEntry.details.count, 1)
+    // 顶层不该有这些字段（若将来有人挪回顶层，这条会提醒它又会被丢弃）
+    assert.strictEqual(issuedEntry.issuedTo, undefined)
+    assert.strictEqual(issuedEntry.batch, undefined)
+
+    const grantEntry = byType('member_grant')
+    assert.ok(grantEntry, '手动开通必须有审计记录')
+    assert.strictEqual(grantEntry.details.userId, 'u-6')
+    assert.strictEqual(grantEntry.details.plan, 'pro')
+    assert.strictEqual(grantEntry.details.durationDays, 30)
+
+    const disabledEntry = byType('redeem_code_disabled')
+    assert.ok(disabledEntry, '作废必须有审计记录')
+    assert.strictEqual(disabledEntry.details.code, 'ABCD-EFGH-JKMN')
+  } finally {
+    await server.stop()
+  }
+})
+
 test('接线：20 个并发请求不能绕过限流（预占额度 ⇒ 只有阈值个能进）', async () => {
   const service = {
     repository: {},

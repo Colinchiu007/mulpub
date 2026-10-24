@@ -36,13 +36,19 @@ class PublishApiRedeemCodeAdminHelpers {
           });
           // 审计：手动开通是**直接发放权益**的花钱动作，必须留痕（谁、何时、给谁、什么档、几天）。
           // 范式同既有 redeem_code_reveal。
+          // ⚠️ 业务字段装在 details 里：`AuditLog.log` 只认固定字段表，
+          // 直接传 userId/plan/durationDays 会被静默丢弃。
           this._auditLog.log({
             ownerSubject: this._ownerSubject(req),
             type: "member_grant",
-            userId: grantBody.userId,
-            plan: grantBody.plan,
-            durationDays: grantBody.durationDays,
-            operator: grantBody.operator || null,
+            status: "success",
+            title: `开通 ${grantBody.plan} ${grantBody.durationDays} 天`,
+            details: {
+              userId: grantBody.userId,
+              plan: grantBody.plan,
+              durationDays: grantBody.durationDays,
+              operator: grantBody.operator || null,
+            },
           });
           this._json(res, 200, { success: true, ...grantResult });
           return true;
@@ -59,14 +65,19 @@ class PublishApiRedeemCodeAdminHelpers {
           });
           // 审计：批量签发 = 一次性制造 N 张可兑的资产，**等价于放出一笔等值的钱**。
           // 不留痕的话，泄漏后连「这批码是谁签的」都查不到。
+          // ⚠️ 业务字段装在 details 里（AuditLog.log 的固定字段表会静默丢弃其余字段）。
           this._auditLog.log({
             ownerSubject: this._ownerSubject(req),
             type: "redeem_code_batch_issued",
-            batch: batchResult.batch,
-            plan: batchResult.plan,
-            durationDays: batchResult.durationDays,
-            issuedTo: batchResult.issuedTo || null,
-            count: batchResult.generated,
+            status: "success",
+            title: `批量签发 ${batchResult.generated} 个 ${batchResult.plan} · ${batchResult.durationDays} 天`,
+            details: {
+              batch: batchResult.batch,
+              plan: batchResult.plan,
+              durationDays: batchResult.durationDays,
+              issuedTo: batchResult.issuedTo || null,
+              count: batchResult.generated,
+            },
           });
           this._json(res, 200, { success: true, ...batchResult });
           return true;
@@ -118,13 +129,22 @@ class PublishApiRedeemCodeAdminHelpers {
     });
     if (listResult.revealed) {
       // 「导出全部未兑换码」若无归属，泄漏就无从追查——显式 reveal 必须留痕。
+      //
+      // ⚠️ 业务字段必须装在 `details` 里：`AuditLog.log` 只认一组**固定字段**
+      // （id/ownerSubject/type/platform/title/status/error/publishId/details/createdAt），
+      // 直接传 count/plan/status/batch 会被**静默丢弃**——审计里只剩「发生过」，
+      // 看不到「导出了什么」⇒ 追查时等于没留痕。
       this._auditLog.log({
         ownerSubject: this._ownerSubject(req),
         type: "redeem_code_reveal",
-        count: listResult.codes.length,
-        plan: listQuery.plan || null,
-        status: listQuery.status || null,
-        batch: listQuery.batch || null,
+        status: "success",
+        title: `导出未兑换码 ${listResult.codes.length} 个`,
+        details: {
+          count: listResult.codes.length,
+          plan: listQuery.plan || null,
+          status: listQuery.status || null,
+          batch: listQuery.batch || null,
+        },
       });
     }
     this._json(res, 200, { success: true, ...listResult });
@@ -139,11 +159,16 @@ class PublishApiRedeemCodeAdminHelpers {
       code: disableBody && disableBody.code,
     });
     // 审计：作废 = 权益收回。必须能回答「谁在何时作废了哪个码」。
+    // ⚠️ 业务字段装在 details 里（AuditLog.log 的固定字段表会静默丢弃其余字段）。
     this._auditLog.log({
       ownerSubject: this._ownerSubject(req),
       type: "redeem_code_disabled",
-      code: disableBody && disableBody.code,
-      idempotent: disableResult.idempotent === true,
+      status: "success",
+      title: `作废兑换码 ${disableBody && disableBody.code}`,
+      details: {
+        code: disableBody && disableBody.code,
+        idempotent: disableResult.idempotent === true,
+      },
     });
     this._json(res, 200, { success: true, ...disableResult });
     return true;

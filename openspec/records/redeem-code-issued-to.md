@@ -122,7 +122,19 @@ branch: redeem-code-issued-to
 ⇒ 修法：IP 档额外要求**「最近 60 秒内失败 ≥ 10 次」**的速率条件。
 单 IP 快速探测 ⇒ 速率高 ⇒ 触发；共享出口慢速偶发 ⇒ 速率低 ⇒ 不触发。
 
-**③ 由 ① 引入的连带缺陷（自己写测试时抓到的）**
+**③ 审计的业务字段被 `AuditLog.log` 静默丢弃（契约审查报为 HIGH）**
+
+`AuditLog.log` 只认一组**固定字段**：`id / ownerSubject / type / platform / title / status /
+error / publishId / details / createdAt`。⇒ 直接把 `batch`/`plan`/`durationDays`/`issuedTo`/
+`count`/`userId`/`code` 放在**顶层**会被**无声丢掉** ⇒ 审计里只剩「发生过」，
+看不到「签了多少个、给了谁、每码几天」⇒ 追查时等于没留痕。
+
+⇒ 修法：业务字段全部装进 **`details`**（它是固定字段之一），另加 `title`（人可读摘要）
+与 `status: 'success'`。
+⇒ **既有的 `redeem_code_reveal` 有一模一样的缺陷**（count/plan/status/batch 被丢）⇒ 一并修。
+⇒ 补测试锁住这个约定：顶层**不得**出现这些字段（若有人挪回顶层，用例会红）。
+
+**④ 由 ① 引入的连带缺陷（自己写测试时抓到的）**
 
 预占额度只在「记失败 / 记成功」两条路径上释放。**非探测型**错误
 （已用 / 停用 / 过期 / 服务端 500）既不记失败、也不算成功 ⇒ 预占**永不释放**
