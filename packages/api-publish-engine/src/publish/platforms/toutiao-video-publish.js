@@ -28,8 +28,6 @@
 
 /** 发稿端点（bundle 逐字） */
 const PUBLISH_PATH = '/xigua/api/upload/PublishVideo'
-// 2026-10-24 竞品溯源（PRD 8.33）：蚁小二用 v4 提交端点 + VideoInfo 形状；PublishVideo 是历史无证据推断。
-const PUBLISH_PATH_V4 = '/ugc/publish/video/v4/commit/'
 /** 两个只读前置闸门（bundle 实证存在，比 DOM 探测可靠） */
 const PUBLISH_AUTH_PATH = '/xigua/api/upload/GetPublishAuth'
 const REVIEW_LATENCY_PATH = '/xigua/api/upload/GetPublishPageReviewLatency'
@@ -123,8 +121,7 @@ function buildToutiaoPublishBody (taskData, o = {}) {
     VideoInfo: {
       Vid: o.vid || td.vid || '',
       VName: String((td.video && td.video.name) || ''),
-      ThumbUri: o.thumbUri || o.posterUri || '', // 竞品：无自定义封面时回落视频自动海报 PosterUri
-      ThumbUriFrom: 'custom',
+      ThumbUri: o.thumbUri || '',
       ThumbUrl: o.thumbUrl || '',
       Duration: Number(o.duration || (td.video && td.video.duration) || 0),
       VideoWidth: width,
@@ -135,9 +132,9 @@ function buildToutiaoPublishBody (taskData, o = {}) {
     aspectRatio,
     PublishType: publishType,
     From: 'mp',
-    EnterFrom: 54, // 竞品原文
+    EnterFrom: 5,
     IsNew: !o.itemId,
-    CreateSource: 1, // 竞品原文
+    CreateSource: 2,
     Praise: false,
     HashtagIds: hashtagIds.filter(Boolean),
     HideInfo: { HideType: Number((td.hide_info && td.hide_info.hide_type) || 0) },
@@ -343,7 +340,6 @@ function pickPosterUri (posters) {
 
 module.exports = {
   PUBLISH_PATH,
-  PUBLISH_PATH_V4,
   PUBLISH_AUTH_PATH,
   REVIEW_LATENCY_PATH,
   POSTER_LIST_PATH,
