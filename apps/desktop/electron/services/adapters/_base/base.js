@@ -55,7 +55,11 @@ const KNOWN_METHODS = [
   // 形象/声音克隆（change: digital-human-multiprovider，飞影 HiFly 已实现全套）。
   // 与 heygen-clone mixin 的方法同名同参，便于两家互换；HeyGen 侧暂不登记是
   // 计划内的 fail-closed（无真实 Key 核字段），不是遗漏。
-  'createAvatar', 'getAvatarStatus', 'deleteAvatar', 'getVoiceCloneStatus',
+  // change: hifly-voice-edit —— editVoice：修改已克隆声音的语速/音量/语调
+  // （官方 POST /voice/edit，提交即完成、无 task）。同型原则：只有真的实现了
+  // 该端点的 adapter 才登记；未实现的保持不登记 ⇒ supports() false ⇒
+  // callAdapter 闸门 fail-closed，UI 不会给出点了必失败的入口。
+  'createAvatar', 'getAvatarStatus', 'deleteAvatar', 'getVoiceCloneStatus', 'editVoice',
 ]
 
 /**

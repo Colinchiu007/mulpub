@@ -242,6 +242,128 @@ describe('HiFlyAdapter — 飞影数字人', () => {
     })
   })
 
+  describe('修改声音参数（change: hifly-voice-edit，官方 POST /voice/edit）', () => {
+    // 官方契约：rate/volume/pitch 都是**字符串**，范围分别 0.5-2.0 / 0.1-2.0 / 0.1-2.0，默认 1.0。
+    // 用字符串而非数字是官方原文（示例 "1.2"），adapter 必须原样传，不得自行转数字。
+    it('三个参数以字符串透传到 /voice/edit', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 0, message: '' })])
+      global.fetch = fetchMock
+
+      await createAdapter().editVoice({ voice: 'v-abc', rate: '1.2', volume: '1.0', pitch: '0.9' })
+
+      expect(fetchMock.calls[0].url).toBe(`${BASE}/voice/edit`)
+      expect(fetchMock.calls[0].opts.method).toBe('POST')
+      expect(JSON.parse(fetchMock.calls[0].opts.body)).toEqual({
+        voice: 'v-abc', rate: '1.2', volume: '1.0', pitch: '0.9',
+      })
+    })
+
+    // 数据校验：三个字段都有界，越界必须在本地就拒，
+    // 不能等服务端返回 400（那会消耗一次请求且错误信息不可控）。
+    it('rate 越界（<0.5 或 >2.0）⇒ INVALID_CONFIG，不发请求', async () => {
+      const fetchMock = createFetchMock()
+      global.fetch = fetchMock
+      await expect(createAdapter().editVoice({ voice: 'v', rate: '0.4' })).rejects.toThrow(/rate/)
+      await expect(createAdapter().editVoice({ voice: 'v', rate: '2.1' })).rejects.toThrow(/rate/)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('volume / pitch 越界（<0.1 或 >2.0）⇒ INVALID_CONFIG，不发请求', async () => {
+      const fetchMock = createFetchMock()
+      global.fetch = fetchMock
+      await expect(createAdapter().editVoice({ voice: 'v', volume: '0.05' })).rejects.toThrow(/volume/)
+      await expect(createAdapter().editVoice({ voice: 'v', pitch: '2.5' })).rejects.toThrow(/pitch/)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    // 真实 Token 侧证：rate 传数字 1.2 会被服务端以「参数格式不正确」拒绝
+    // ⇒ 官方「字符串」要求是硬约束，不是文档笔误。
+    it('参数必须是字符串（数字会被拒，官方硬约束）', async () => {
+      const fetchMock = createFetchMock()
+      global.fetch = fetchMock
+      await expect(createAdapter().editVoice({ voice: 'v', rate: 1.2 })).rejects.toThrow(/rate/)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('缺 voice ⇒ INVALID_CONFIG，不发请求', async () => {
+      const fetchMock = createFetchMock()
+      global.fetch = fetchMock
+      await expect(createAdapter().editVoice({ rate: '1.0' })).rejects.toThrow(/voice/)
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('业务 code 非 0 ⇒ PROVIDER_ERROR 且带服务端 message', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ code: 40001, message: 'voice not found' })])
+      try {
+        await createAdapter().editVoice({ voice: 'v', rate: '1.0' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toContain('voice not found')
+      }
+    })
+
+    // ── 真实 Token 侧证的四类响应（2026-10-24，账号 premium，0 积分）────────
+    //   公共音色        → { code: 11, message: "声音编辑失败" }
+    //   不存在的 voice  → { code: 11, message: "Voice不正确" }
+    //   缺三个参数       → { code: 11, message: "参数格式不正确" }
+    //   rate 传数字 1.2  → { code: 11, message: "参数格式不正确" }
+    it('服务端 code:11「声音编辑失败」⇒ PROVIDER_ERROR 且原文透出', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ code: 11, message: '声音编辑失败' })])
+      try {
+        await createAdapter().editVoice({ voice: 'v', rate: '1.0' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toContain('声音编辑失败')
+      }
+    })
+
+    it('服务端 code:11「Voice不正确」⇒ PROVIDER_ERROR（id 不存在同形）', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ code: 11, message: 'Voice不正确' })])
+      try {
+        await createAdapter().editVoice({ voice: 'bad', rate: '1.0' })
+        expect.fail('Should throw')
+      } catch (e) {
+        expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
+        expect(e.message).toContain('Voice不正确')
+      }
+    })
+
+    // 这条锁「产品必须知道的事实」：公共音色不可编辑。
+    // 服务端对公共音色返回通用「声音编辑失败」，与其它失败无法区分，
+    // 所以应用不能在失败时猜原因，但 UI 上应只对克隆音色开放编辑入口。
+    it('公共音色服务端拒（code:11）⇒ 原文透出，不猜原因', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ code: 11, message: '声音编辑失败' })])
+      await expect(
+        createAdapter().editVoice({ voice: 'public-voice', rate: '1.0' }),
+      ).rejects.toThrow(/声音编辑失败/)
+    })
+
+    // edit 的响应只有 code/message/request_id，无 task 概念，提交即完成。
+    it('code===0 ⇒ 返回 { ok: true }', async () => {
+      global.fetch = createFetchMock([createFetchResponse({ code: 0, message: '', request_id: 'r1' })])
+      await expect(createAdapter().editVoice({ voice: 'v', rate: '1.0' })).resolves.toEqual({ ok: true })
+    })
+  })
+
+  describe('capabilities 登记（change: hifly-voice-edit）', () => {
+    // 未登记的方法即便子类实现了也永远不会被 callAdapter 调到
+    it('editVoice 已登记进 KNOWN_METHODS 且 supports() 为 true', () => {
+      expect(createAdapter().supports('editVoice')).toBe(true)
+      expect(createAdapter().capabilities()).toContain('editVoice')
+    })
+
+    // 反向锁：未实现该端点的 provider 不得泄漏能力，
+    // 否则 UI 会给出一个点了必失败的入口。
+    it('未实现 editVoice 的 adapter 不得泄漏该能力', () => {
+      const { HeyGenAdapter } = require('./heygen.js')
+      const heygen = new HeyGenAdapter({ id: 'heygen', apiKey: 'k' })
+      expect(heygen.supports('editVoice')).toBe(false)
+      expect(heygen.capabilities()).not.toContain('editVoice')
+    })
+  })
+
   describe('testConnection', () => {
     it('用 GET /avatar/list 验证认证，200 返回 true', async () => {
       const fetchMock = createFetchMock([createFetchResponse({ code: 0, data: { list: [] } })])

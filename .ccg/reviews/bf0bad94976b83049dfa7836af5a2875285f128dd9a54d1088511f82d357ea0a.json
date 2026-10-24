@@ -1,0 +1,58 @@
+{
+  "sha": "f6cd3e562fc70d4498df6e0a8bfd210c9fc5ce2a",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 199 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处",
+  "stats": {
+    "changedLines": 199,
+    "fileCount": 3,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 1,
+    "docSensitiveContentHits": 0,
+    "docSensitiveContentSample": [],
+    "ccgSensitiveContentHits": 0,
+    "ccgSensitiveContentSample": [],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "bf0bad94976b83049dfa7836af5a2875285f128dd9a54d1088511f82d357ea0a",
+  "decidedAt": "2026-10-24T05:39:10.471Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_resolved",
+    "tier": "self-play",
+    "performedBy": "self-play",
+    "evidence": null,
+    "findings": [],
+    "closureNote": "轮次标记：pre-commit 生成 dual 判定，未跑 deep-review。\n\n非高危面声明：本 commit 只改 apps/desktop/electron/services/adapters/ 下三个文件\n（hifly-clone.js + hifly.test.js + _base/base.js）与一篇执行记录，\n共 6 个文件、256 行净增。\n不触及 .github/workflows、凭证/登录态；base.js 改的是 KNOWN_METHODS 数组\n（登记一个已实现的方法），不放宽也不新增任何判据语义。\n\n内容：补齐飞影官方 POST /voice/edit（修改已克隆声音的语速/音量/语调）。\n缺口来自盘点官方文档 30 个端点——此前只实现了增/查，用户克隆完声音\n无法调参数，而要调只能删了重建（浪费配额、丢审计链）。\n\n契约经「文档 + 真实 Token」双重核对，四类响应已锁进测试：\n  公共音色        → code:11 声音编辑失败 ⇒ 只对克隆音色可编辑\n  不存在的 voice  → code:11 Voice不正确\n  缺三个参数       → code:11 参数格式不正确\n  rate 传数字 1.2  → code:11 参数格式不正确 ⇒ 证实「官方要字符串」是硬约束\n最后一条证明 adapter 里「参数必须是字符串」的校验不是过度设计。\n\n三个设计点：\n1. 本地校验范围与类型（越界即拒并点名改哪个值），不发无谓请求；\n2. 三字段同构用 VOICE_PARAM_RANGES 表驱动，校验逻辑只有一份；\n3. 加反向锁：HeyGen adapter 的 supports(editVoice) 必须 false，\n   未实现该端点的 provider 不得泄漏能力。\n\n分支边界（本轮特意切干净）：最初 rebase 到 PR #4341 tip，\n差集把 #4341 上他人已合入 main 的 8 个提交带进来（含 .github/workflows\n与 scripts/check-*），触发「高危面前缀只认 external」无法收口。\n已 git reset --hard origin/main 只保留本 PR 3 个文件净改动，\n并主动剔除 #4362 的 getVoiceCloneStatus 修正避免重叠。\n\n未验证项（已写进执行记录第六节）：\n- editVoice 成功路径未跑到（账号 0 个克隆音色，首跑那次因静音素材失败）；\n- 只验证了「本地校验 5/5 正确」+「服务端四类拒绝」。\n  4 次调用前后积分均 1582，差额 0 ⇒ 大概率免费，但成功路径未证实。\n\n产品侧待办（本轮未做 UI）：能力已在 adapter 就绪但 UI 入口未接。\n两条必须遵守的事实已写进执行记录：\n① 只对克隆音色开放入口（服务端对公共音色返回通用失败，无法区分）；\n② 失败提示只能给通用文案（服务端 message 是开发者向技术文案，不宜直出）。\n\n回归证据：hifly.test.js 43→45 全绿；13 个相关测试文件 315/315 全绿；\nmax-lines / debt-budget / dep-audit(rc=0) / locale(keys 2280 + cjk 1115) /\nno-brand-residue / doc-abs-paths / r3(18) 全过；eslint 干净。"
+  }
+}

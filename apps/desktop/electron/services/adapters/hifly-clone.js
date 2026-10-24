@@ -27,6 +27,24 @@ const STATUS_MAP = Object.freeze({ 1: 'processing', 2: 'processing', 3: 'complet
  */
 const VOICE_CLONE_TYPE = 8
 
+/**
+ * 声音可调参数及其取值范围（change: hifly-voice-edit，官方 POST /voice/edit）。
+ *
+ * 官方契约要点：
+ *  - 三个字段都是 **string** 类型（示例 "1.2"），不是 number；
+ *  - `rate` 语速 0.5~2.0，`volume` 音量 0.1~2.0，`pitch` 语调 0.1~2.0，默认均 1.0；
+ *  - `voice` 必填。
+ *
+ * 为什么在 adapter 本地校验而不是交给服务端：越界请求会消耗一次往返，
+ * 且服务端只回通用「参数格式不正确」，用户不知道该改哪个值；本地拦下能给即时、
+ * 可操作的反馈。
+ */
+const VOICE_PARAM_RANGES = Object.freeze({
+  rate: Object.freeze({ min: 0.5, max: 2.0, label: '语速' }),
+  volume: Object.freeze({ min: 0.1, max: 2.0, label: '音量' }),
+  pitch: Object.freeze({ min: 0.1, max: 2.0, label: '语调' }),
+})
+
 const cloneMethods = {
   /**
    * 获取素材上传地址（官方「上传文件」第一步）。
@@ -232,6 +250,59 @@ const cloneMethods = {
       throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, '飞影未返回 task_id', { providerId: this.id })
     }
     return { taskId: String(taskId) }
+  },
+
+  /**
+   * 修改已克隆声音的参数（POST /voice/edit）。
+   *
+   * change: hifly-voice-edit —— 补齐官方能力。此前只实现了增/查，
+   * 用户克隆完声音后无法调语速/音量/语调，而「克隆后可反复使用」的体验
+   * 恰恰依赖这三个参数（同一段录音，不同节目需要不同语速）。
+   *
+   * 官方约束：`voice` 必填；`rate`/`volume`/`pitch` 必填且为**字符串**，
+   * 范围分别 0.5~2.0 / 0.1~2.0 / 0.1~2.0，默认 1.0。
+   * 响应只有 code/message/request_id——**提交即完成，无 task 概念**。
+   *
+   * 真实 Token 侧证（2026-10-24）：`rate` 传数字 1.2 会被服务端以
+   * 「参数格式不正确」拒绝 ⇒ 「官方要字符串」是硬约束，不是文档笔误。
+   *
+   * @param {{voice: string, rate?: string, volume?: string, pitch?: string}} params
+   * @returns {Promise<{ok: true}>}
+   */
+  async editVoice (params) {
+    const voice = params && typeof params.voice === 'string' ? params.voice.trim() : ''
+    if (!voice) {
+      throw new ProviderError(ERROR_CODES.INVALID_CONFIG, 'params.voice is required')
+    }
+
+    const body = { voice }
+    for (const [key, range] of Object.entries(VOICE_PARAM_RANGES)) {
+      const value = params ? params[key] : undefined
+      if (value === undefined) continue
+      // 官方要字符串形态（示例 "1.2"）；数字一律拒，避免 1 / 1.0 / "1" 的歧义
+      if (typeof value !== 'string' || !value.trim()) {
+        throw new ProviderError(ERROR_CODES.INVALID_CONFIG, `${key} must be a non-empty string`)
+      }
+      const trimmed = value.trim()
+      const num = Number(trimmed)
+      if (!Number.isFinite(num) || num < range.min || num > range.max) {
+        throw new ProviderError(
+          ERROR_CODES.INVALID_CONFIG,
+          `${key} must be between ${range.min} and ${range.max} (got ${trimmed})`,
+        )
+      }
+      body[key] = trimmed
+    }
+
+    const resp = await this._request('/voice/edit', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    const decoded = await this._decode(resp)
+    if (!decoded.ok) {
+      throw new ProviderError(ERROR_CODES.PROVIDER_ERROR, decoded.message, { providerId: this.id })
+    }
+    return { ok: true }
   },
 
   /**
