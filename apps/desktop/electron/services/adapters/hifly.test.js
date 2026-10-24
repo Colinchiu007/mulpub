@@ -515,8 +515,12 @@ describe('HiFlyAdapter — 飞影数字人', () => {
         expect(fetchMock).not.toHaveBeenCalled()
       })
 
-      it('getVoiceCloneStatus 读 /voice/task', async () => {
-        const fetchMock = createFetchMock([createFetchResponse({ code: 0, status: 3, voice: 'voice_abc' })])
+      // change: hifly-clone-realrun —— 真实首跑核对的 /voice/task 契约：
+      // 响应字段是 voice（声音标识）+ demo_url（试听地址）+ status + code/message。
+      // 注意官方文档把 code/message 描述为「失败时」的字段，实测失败时它们可能是空的
+      // （服务端未按文档返回），所以失败原因只能兜底提示，不承诺具体文案。
+      it('getVoiceCloneStatus 读 /voice/task，completed 时返回 voiceId 与 demoUrl', async () => {
+        const fetchMock = createFetchMock([createFetchResponse({ code: 0, status: 3, voice: 'voice_abc', demo_url: 'https://cdn/demo.wav', voice_type: 8 })])
         global.fetch = fetchMock
 
         const result = await createAdapter().getVoiceCloneStatus('t-vc-1')
@@ -524,6 +528,32 @@ describe('HiFlyAdapter — 飞影数字人', () => {
         expect(fetchMock.calls[0].url).toBe(`${BASE}/voice/task?task_id=t-vc-1`)
         expect(result.status).toBe('completed')
         expect(result.voiceId).toBe('voice_abc')
+        expect(result.demoUrl).toBe('https://cdn/demo.wav')
+      })
+
+      it('failed 时把服务端 message 透出来（供 UI 提示）', async () => {
+        const fetchMock = createFetchMock([createFetchResponse({ code: 0, status: 4, voice: '', demo_url: '', message: '音频无人声' })])
+        global.fetch = fetchMock
+
+        const result = await createAdapter().getVoiceCloneStatus('t-vc-2')
+
+        expect(result.status).toBe("failed")
+        expect(result.message).toBe("音频无人声")
+      })
+
+      it('code 非 0 ⇒ 仍按业务错误抛（_decode 契约不因 task 查询放宽）', async () => {
+        global.fetch = createFetchMock([createFetchResponse({ code: 50000, status: 4, message: 'task not found' })])
+        await expect(createAdapter().getVoiceCloneStatus('nope')).rejects.toThrow(/task not found/)
+      })
+
+      it('failed 但 message 为空（服务端未按文档返回）⇒ message 空串，不编造', async () => {
+        const fetchMock = createFetchMock([createFetchResponse({ code: 0, status: 4, voice: '', demo_url: '', message: '' })])
+        global.fetch = fetchMock
+
+        const result = await createAdapter().getVoiceCloneStatus('t-vc-3')
+
+        expect(result.status).toBe("failed")
+        expect(result.message).toBe("")
       })
     })
   })

@@ -351,7 +351,15 @@ const cloneMethods = {
   /**
    * 查询声音克隆任务状态（GET /voice/task）。
    *
-   * @returns {Promise<{status: string, voiceId: string}>}
+   * change: hifly-clone-realrun —— 真实首跑核对的契约（此前只读了 voice）：
+   *   - `voice`：声音标识（完成后非空）
+   *   - `demo_url`：试听地址（完成后非空）
+   *   - `status`：1等待/2处理中/3完成/4失败
+   *   - `code` / `message`：官方文档描述为「失败时」的字段，
+   *     **但实测失败时它们可能是空的**（服务端未按文档返回）。
+   *     所以 `message` 原样透出，空就是不空——调用方不得拿它编造具体原因。
+   *
+   * @returns {Promise<{status: string, voiceId: string, demoUrl: string, message: string}>}
    */
   async getVoiceCloneStatus (taskId) {
     if (!taskId) {
@@ -370,6 +378,9 @@ const cloneMethods = {
     return {
       status: STATUS_MAP[raw] || 'processing',
       voiceId: String(data.voice || data.voice_id || '').trim(),
+      demoUrl: String(data.demo_url || data.demoUrl || '').trim(),
+      // 失败原因原样透出；空串表示服务端没给，调用方应走通用兜底文案
+      message: String(data.message || '').trim(),
     }
   },
 }
