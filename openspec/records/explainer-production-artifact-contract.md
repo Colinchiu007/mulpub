@@ -14,11 +14,22 @@ date: 2026-10-24
 | 修复 + 回归保护（QM-5 ④） | ✅ | ① 新增 `services/explainer/explainer-shot-language.js`（镜头语言枚举 + **确定性提示词组装** + `text_card` 强制判定）；② 新增 `explainer-prod-artifacts.js`（`scene_plan` / `asset_manifest` 构造与自检，**原始计数快照**）；③ 新增 `explainer-edit-decisions.js`（时间轴映射 / cuts / 字幕 / 音频层 / pacing / 旁白预算，**按实际 narration 时长校正但不得侵占下一镜**）；④ 新增 `explainer-prod-review.js`（`render_report` / `final_review` / `publish_log` + **runtime 漂移检测**）；⑤ 新增 `explainer-media-probe.js`（ffprobe / 抽帧+blackdetect / **volumedetect 响度**，阈值 −85 dB **实测标定**）；⑥ 新增 `explainer-prod-stages.js` + `explainer-review-stages.js`（五阶段执行器；`explainer_compose`/`explainer_publish` **内部先调内置执行器**再包装 artifact）；⑦ `explainer-stages.js` **353 → 98 行**（净减 255；抽模块，不抬基线）；⑧ `pipeline-engine.js` **2 增 2 删的纯字符串替换**（读数仍 2776 = target，差 0）；⑨ 新增 `explainer-prod-artifacts.test.js`（44 例）；⑩ 既有 `explainer-stages.test.js` **6 条**按「改输入不改意图 / 契约变更改断言意图」逐条处置 |
 | 防止再次发生（QM-5 ⑤） | ✅ | ① **原始计数快照**（`metadata.source_counts`）⇒ 任何补齐都救不了计数判据；② **缺项显式标注「未指定」**（上游 scene-director Step 4c：静默省略是最常见的失败模式）⇒ 六个维度**一律**如此；③ **运动名白名单取仓内合成层真源**（`buildImageEffectFilter` 的 switch 分支）+ 概念名映射记 `metadata.motion_aliases`；④ **静默阈值实测标定**（数字静音 −91 dB / 真人 −30 dB / 极静环境音 −79 dB ⇒ 阈值 −85 dB）并写进产物 `metadata`；⑤ **「未确认的锁定值」不判违规**：`render_runtime` 在 P3 的 G1 门之前只是**缺省** ⇒ 漂移记 info；若已获批准才记 error（否则成片永远出不来）；⑥ **E2E 桩的机械守卫**（见下）；⑦ **E2E 文案基准与契约同步**（见下）；⑧ **共享实现不复制**：`fillRequired`/`asText`/`asArray`/`asObject`/`asNumber` 从 `explainer-artifacts.js` **导出复用**（不重写） |
 | 行尾与 diff 对账 | ✅ | 见提交前两口径 numstat 实测（下详） |
-| **CI 首轮红（主干级 vs 本 PR 级）** | 待填 | 首次 push 后填写 |
+| **CI 首轮红（主干级 vs 本 PR 级）** | 本地已全绿，CI 待跑 | 本片尚未 push（等 P2a 合并后 rebase 到新 main 再推）⇒ 门禁清单为**本地实跑**证据：`check-no-hot-carrier-edit` PASS（命中热写面=0）/ `check-no-brand-residue` PASS（扫 12548 个 tracked 文件）/ `check-unwired-tests` PASS（域内 133 个测试文件全部接线）/ `check-debt-budget` PASS（circularDeps 0）/ `check-text-encoding-integrity` 「OK：无新增编码损坏」+ 改动文件逐个 grep U+FFFD 均为 0 / `npx eslint` 改动文件 rc=0。**vitest 真跑 102/102 全绿**（`explainer-prod-artifacts.test.js` 57 + `explainer-stages.test.js` 24 + `local-provider-hub.test.js` 21）；另跑纯 node smoke 42/42 + 5 个变异全部被抓住 |
+| **本地 vitest 抓到的三处实现缺陷** | ✅ 已修 | ① **「按实际旁白时长校正」我加了没依据的 0.5s 阈值** ⇒ 5.8s 的真实漂移被忽略 ⇒ 违背上游「Audio drift」要求（**总是**按实际时长对齐）⇒ 去掉阈值（只留 0.05s 浮点容差）。② **pacing 阈值只从 `ctx.options` 取** ⇒ 调用方漏传就静默用默认值（单一真源问题）⇒ 阈值落进 `edit_decisions.metadata.hold_bounds`，自检优先读 `ctx.options`、缺省读产物。③ **拆模块时漏 import**（`assembleShotPrompt` / `makeIssue` / `asArray`）+ **require 路径未改**（`./stage-progress` 应为 `../stage-progress`）⇒ 「可加载 ≠ 能用」⇒ eslint 与严格版静态检查（剥注释 + 识别 async function）各抓到一处，已全部修 |
 | 接线棘轮 | ✅ | 新增 `explainer-prod-artifacts.test.js` 落在 vitest include 的 `electron/services/**/*.test.js` 白名单内（**无需改 vitest.config.js**）；`scripts/check-unwired-tests.js` 实测 PASS |
 | QM-1 打包 / QM-4 视觉 | N/A / N/A | QM-1：改的是 `apps/desktop/electron/services/explainer-stages.js` 与 `pipeline-engine.js` 的**既有文件**（**运行时代码**）⇒ **不适用 N/A** ⇒ 由 CI 的 `build` job（windows-latest + `electron-builder --win --x64`，required check）兜底。QM-4：**零 UI 变化**（无新增控件/文案/i18n 键）⇒ 无视觉面 |
 | QM-6 CCG 双模型外部评审 | 未执行 | 本机未见可用的外部评审通道；**如实记为未执行，不以自审冒充通过** |
 | 远程同步 | 由门禁推导 | 本行**不需要事后改写**：合并后门禁按主干历史推导归属（`scripts/lib/merge-ledger.js`） |
+
+### ⚠ 本轮的一个真实事故：**`cp` 覆盖掉了已修好的文件**
+
+我在 `/workspace/tmp` 写模块、再 `cp` 到 worktree。⚠ 中途在 **worktree 里**修好了两处（require 路径、旧格式回落），
+随后一次 `cp /workspace/tmp/... .` 用**未修的旧版覆盖**了它们 ⇒ 「可加载 ≠ 能用」的缺陷静默回归。
+⇒ 纯 node smoke 抓不到（它只测逻辑，不测 require 路径）⇒ **vitest 真跑**当场报 `Cannot find module './stage-progress'`。
+⇒ 修法：① 修完**两处都改**（worktree + `/workspace/tmp`），并在静态检查里加**跨模块引用完整性**判据
+（剥注释后比对「用到的外来标识符」与「已 import 的」⇒ 函数名与常量都查 ⇒ 不再逐个漏）。
+⚠ 与已有教训同族：「**写完立刻 diff 看形状**」「**验证手段本身也要被质疑**」——
+纯 node smoke 骗了我，**vitest 才抓到真凶**。
 
 ### 顺带修掉的两个「静默失效」缺陷（P2a 引入、本片暴露）
 

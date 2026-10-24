@@ -427,7 +427,9 @@ describe('explain edit_decisions 构造与自检', () => {
     // scene-1 的旁白真实时长 5.8s，scene-2 从 6s 起 ⇒ 不该越界
     expect(decisions.cuts[0].out_seconds).toBeCloseTo(5.8, 2)
     expect(decisions.cuts[0].out_seconds).toBeLessThanOrEqual(6)
-    expect(decisions.metadata.timing_adjustments.length).toBe(1)
+    // ⚠ 「总是按实际旁白时长对齐」（不设偏差阈值）⇒ 三个场景**都**有漂移记录
+    expect(decisions.metadata.timing_adjustments).toHaveLength(3)
+    expect(decisions.metadata.timing_adjustments[0].actual_narration_seconds).toBeCloseTo(5.8, 2)
     expect(manifest.assets.length).toBeGreaterThan(0)
     expect(plan.scenes.length).toBe(3)
   })

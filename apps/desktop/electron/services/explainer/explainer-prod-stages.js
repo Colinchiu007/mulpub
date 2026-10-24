@@ -28,8 +28,8 @@
 
 'use strict'
 
-const { emitStageStart, emitStageComplete } = require('./stage-progress')
-const { getDefaultLlmConfig, callDefaultLlm } = require('./explainer/llm-call')
+const { emitStageStart, emitStageComplete } = require('../stage-progress')
+const { getDefaultLlmConfig, callDefaultLlm } = require('./llm-call')
 const {
   parseJsonArtifact,
   validateArtifact,
@@ -37,28 +37,32 @@ const {
   asArray,
   asObject,
   asNumber,
-} = require('./explainer/explainer-artifacts')
+} = require('./explainer-artifacts')
+const {
+  assembleShotPrompt,
+  makeIssue,
+} = require('./explainer-shot-language')
 const {
   buildScenePlan,
   checkScenePlanCriteria,
   buildAssetManifest,
   checkAssetManifestCriteria,
-} = require('./explainer/explainer-prod-artifacts')
+} = require('./explainer-prod-artifacts')
 const {
   buildEditDecisions,
   checkEditDecisionsCriteria,
-} = require('./explainer/explainer-edit-decisions')
+} = require('./explainer-edit-decisions')
 const {
   buildRenderReport,
   buildFinalReview,
   buildPublishLog,
   checkPublishLogCriteria,
-} = require('./explainer/explainer-prod-review')
+} = require('./explainer-prod-review')
 const {
   probeContainer,
   sampleFrames,
   measureLoudness,
-} = require('./explainer/explainer-media-probe')
+} = require('./explainer-media-probe')
 
 const MAX_SCENES = 30
 const DEFAULT_SCENE_DURATION = 6

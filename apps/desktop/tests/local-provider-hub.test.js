@@ -210,7 +210,9 @@ describe('本地 Provider 桩：协议兼容', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'local-explainer',
-        messages: [{ role: 'system', content: '把旁白文案拆分为若干视频场景。输出严格的 JSON 数组' }],
+        // ⚠ 这段 system prompt 必须与 `explainer-prod-stages.js` 的分镜提示词**同源**
+        //   （桩靠特征串路由；不同源 ⇒ 落到 default 'research' ⇒ 拿到的不是场景）
+        messages: [{ role: 'system', content: '你是视频分镜师。把旁白文案拆分为若干视频场景' }],
       }),
     })
     const data = await response.json()

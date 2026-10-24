@@ -91,10 +91,24 @@ function buildScenePlan (raw, ctx = {}) {
         '第 ' + (index + 1) + ' 镜的 type「' + typeRaw + '」不在允许枚举内，已回落 generated'))
     }
 
+    // ⚠ **旧格式降级**：P2b 之前 LLM 产的是 `{prompt, text, duration}`（散文提示词）。
+    //   若 LLM 没按新格式返回，产物会「schema 合法但内容空洞」（无描述、无镜头语言）。
+    //   ⇒ 把旧 `prompt` 映射成 `description`（保底可渲染），并**显式记 issue**，不静默接受。
+    let description = asText(obj.description)
+    if (!description) {
+      const legacyPrompt = asText(obj.prompt)
+      if (legacyPrompt) {
+        description = legacyPrompt
+        issues.push(makeIssue('SCENE_LEGACY_FORMAT',
+          '第 ' + (index + 1) + ' 镜是旧格式（有 prompt 无 description），已把 prompt 映射为 description；' +
+          '该镜没有结构化镜头语言，生图提示词的相关维度会标为「未指定」', 'warn'))
+      }
+    }
+
     const scene = {
       id: asText(obj.id) || ('scene-' + (index + 1)),
       type,
-      description: asText(obj.description),
+      description,
       start_seconds: Number(start.toFixed(3)),
       end_seconds: Number(end.toFixed(3)),
     }

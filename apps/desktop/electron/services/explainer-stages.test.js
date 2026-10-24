@@ -281,7 +281,7 @@ describe('scenes 阶段与 JSON 解析', () => {
       scenes: [
         { type: 'broll', description: '主体一', duration: 6 },
         { type: 'broll', description: '', duration: 6 },
-        { type: 'broll', duration: 6 },
+        { duration: 6 },
         { type: 'diagram', description: '主体三', duration: 99 },
       ],
     }, { targetDurationSeconds: 0 })
@@ -518,8 +518,9 @@ describe('LLM 调用容错（2026-08-11 E2E 复盘）', () => {
       context: { script: '旁白文案。' },
     })
     expect(result.success).toBe(true)
-    expect(result.output).toHaveLength(1)
-    expect(result.output[0].prompt).toBe('修复后的画面')
+    // ⚠ P2b 契约变更：产物是 **scene_plan 对象**；旧格式的 prompt 被映射成 description
+    expect(result.output.scenes).toHaveLength(1)
+    expect(result.output.scenes[0].description).toBe('修复后的画面')
     expect(ai.calls.length).toBeGreaterThanOrEqual(2)
   })
 
@@ -531,7 +532,8 @@ describe('LLM 调用容错（2026-08-11 E2E 复盘）', () => {
       context: { script: '第一段旁白。\n\n第二段旁白。' },
     })
     expect(result.success).toBe(true)
-    expect(result.output.length).toBeGreaterThanOrEqual(1)
+    expect(result.output.scenes.length).toBeGreaterThanOrEqual(1)
+    expect(result.output.scenes[0].description).toContain('第一段旁白')
   })
 })
 })

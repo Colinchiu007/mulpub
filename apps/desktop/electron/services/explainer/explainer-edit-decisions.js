@@ -134,7 +134,10 @@ function buildEditDecisions (raw, ctx = {}) {
 
     // ⚠ 上游 Pitfall「Audio drift」：按**实际** narration 时长校正，但不得侵占下一镜
     const actualDuration = narration ? asNumber(narration.duration_seconds, 0) : 0
-    if (actualDuration > 0 && Math.abs(actualDuration - (plannedOut - inSeconds)) > 0.5) {
+    // ⚠ 上游 Pitfall「Audio drift」：**总是**按实际 narration 时长对齐（不设「偏差大才校正」的阈值
+    //   —— 那种阈值会让「差 0.4 秒」的真实漂移悄悄留在画面上）。
+    //   0.05s 只是浮点容差（避免 5.8 vs 5.8000000001 触发无意义的 issue）。
+    if (actualDuration > 0 && Math.abs(actualDuration - (plannedOut - inSeconds)) > 0.05) {
       const corrected = inSeconds + actualDuration
       const bounded = nextStart === Infinity ? corrected : Math.min(corrected, nextStart)
       timingAdjustments.push({
@@ -232,6 +235,9 @@ function buildEditDecisions (raw, ctx = {}) {
       motion_aliases: motionAliases,
       timing_adjustments: timingAdjustments,
       renderer_family_source: asText(ctx.rendererFamily) ? 'proposal' : 'default',
+      // ⚠ **pacing 阈值落进产物** ⇒ 自检不依赖调用方是否记得传 options
+      //   （传了以 ctx.options 为准；没传就读这里 ⇒ 不会出现「静默用默认值」的假绿）
+      hold_bounds: { min_seconds: minHold, max_seconds: maxHold },
     },
   }
   return fillRequired(decisions, schema, schema)
@@ -247,8 +253,9 @@ function checkEditDecisionsCriteria (decisions, ctx = {}) {
   const obj = asObject(decisions)
   const cuts = asArray(obj.cuts)
   const options = asObject(ctx.options)
-  const minHold = asNumber(options.minHoldSeconds, DEFAULT_MIN_HOLD_SECONDS)
-  const maxHold = asNumber(options.maxHoldSeconds, DEFAULT_MAX_HOLD_SECONDS)
+  const bounds = asObject(asObject(decisions).metadata).hold_bounds
+  const minHold = asNumber(options.minHoldSeconds, asNumber(bounds.min_seconds, DEFAULT_MIN_HOLD_SECONDS))
+  const maxHold = asNumber(options.maxHoldSeconds, asNumber(bounds.max_seconds, DEFAULT_MAX_HOLD_SECONDS))
 
   if (cuts.length === 0) {
     issues.push(makeIssue('EMPTY_EDIT_DECISIONS', 'edit_decisions 没有任何 cut', 'error'))

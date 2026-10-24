@@ -31,6 +31,7 @@
 const {
   validateArtifact,
   asText,
+  asArray,
   asObject,
   asNumber,
 } = require('./explainer-artifacts')
