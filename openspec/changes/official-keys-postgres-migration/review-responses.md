@@ -60,10 +60,28 @@
 `'o' < 'p'` ⇒ 先执行）+ `007_official_key_envelopes.sql`。
 ⇒ **并作废我在 AGENTS.md 写错的那条纪律**（PR #4315），另开 PR 订正。
 
-### C5 · 生产跑的不是这个仓的 ops-center —— **接受**，D13
-`docs/ops-center-ecs-deployment.md:35` 明写 ECS 克隆自独立仓 `Colinchiu007/ops-center.git`。
-⇒ 新增 D13，落地模型改为「独立仓实施 + monorepo 镜像同步」，
-并把「同步机制 / 同步方向 / 台账是否同一个库」列为 **P1 阻断项**。
+### C5 · 生产跑的不是这个仓的 ops-center —— **接受问题存在，但结论判反了；二次订正**（D13）
+
+**评审采信了 `docs/ops-center-ecs-deployment.md:35`「ECS 克隆自独立仓」这句，但它已经过时。**
+
+二次取证（2026-10-25）推翻「部署源是独立仓」：
+
+| 证据 | 内容 |
+|---|---|
+| 独立仓 `README.md` 首行 | 「**归档说明（2026-08-10）**：已通过 git subtree 正式并入 Multi-Publish（PR #475）。此后开发/PR/CI 统一在 Multi-Publish 内进行；**本仓库冻结为只读归档**。已打 tag：`archived-into-multi-publish`」 |
+| `ops-center/deploy/deploy.sh:14-16` | 「**曾 clone `Colinchui007/ops-center`** —— 该仓库 2026-08-10 已并入 mulpub（git subtree）并归档，**从它 clone 会把 2026-08 的归档快照部署上线**。现统一从 mulpub 取 `ops-center/` 子目录」 |
+| `deploy.sh:17-25` | `REPO_URL=mulpub.git` + `sparse-checkout set ops-center` |
+| 独立仓 `pushed_at` | 2026-08-10，此后未动 |
+
+⇒ **落地对象一直是 monorepo，每次部署拉最新代码，不存在同步问题。**
+**⇒ 评审的结论「生产跑的不是这个仓的 ops-center」不成立**；**它唯一对的是「那句部署文档确实过时」**。
+
+**但 P1 阻断项本身不撤销，只是换了内容**：真正的难点不是「落地对象」，而是
+**`official_keys` / `model_usage_daily` 在 ops-center 的 SQLite，而目标在 api-publish-engine 的 Postgres**
+⇒ **跨服务、跨数据库迁移**（两个进程都要读同一张表）⇒ D13 已按此重写。
+
+**教训**：**评审引用的证据本身可能过时**。「评审说了」不等于「证据成立」——
+必须回到原始代码/文件复核（本例是 `deploy.sh` 与独立仓 README，而不是那份部署文档）。
 
 ### C6 · 密钥前置漏了 SHA-256 派生回退 —— **接受**，D17
 `key_service.py:41-48` `except (ValueError, Exception)` ⇒ 静默 sha256 派生并**改写** `settings.encryption_key`。
@@ -121,7 +139,7 @@
 
 | # | 前置 | 关联 |
 |---|---|---|
-| **P1** | **确认 ops-center 生产代码来源与同步机制**：monorepo ↔ 独立仓 单向还是双向？谁同步？两个库的迁移台账是不是同一个？ | D13 |
+| **P1** | ~~确认 ops-center 生产代码来源与同步机制~~ **→ 已澄清：monorepo 是唯一开发源，部署从 `mulpub.git` sparse-checkout，独立仓 2026-08-10 已冻结归档。**<br>**P1 改为**：确认**跨服务搬运通道**的形态（ops-center 导出 → api-publish-engine 落库 + 写台账），以及**密钥材料不过 git** 的通道设计 | D13 |
 | **P2** | 编号规则定死并**改正机制描述**（FK 顺序 ≠ 撞号） | D15 |
 | **P3** | 拆掉两个跨库读点（`pool_summary` / `test_provider_connection`） | D14 |
 | **P4** | 17 列类型逐列定死 + D10 第四层校验 | D18 |

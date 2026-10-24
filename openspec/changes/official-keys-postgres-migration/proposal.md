@@ -23,11 +23,18 @@
 | Postgres 侧**无该表** | `packages/api-publish-engine/src/auth/postgres-identity-repository.js` 的 `SCHEMA` 数组共 11 张表（`identity_users` / `identity_entitlement_snapshots` / `identity_subscriptions` / `identity_entitlement_usage` / `identity_webhook_events` / `identity_user_sessions` / `identity_orders` / `identity_redeem_codes` / `identity_notifications` / `cloud_accounts` / `cloud_account_tombstones`），**无 `official_keys`** |
 | 迁移目录同样没有 | `migrations/postgresql/` 只有 `002`–`006`，无 `official_keys` 建表语句 |
 
-**⚠️ 另有一处更根本的事实（2026-10-24 对抗评审 C5 补入）**：
-`docs/ops-center-ecs-deployment.md:35` 明写 ECS 上部署的 ops-center 克隆自**独立仓
-`Colinchiu007/ops-center.git`**，**本 monorepo 的 `ops-center/` 只是镜像**。
-⇒ 本 change 的落地对象是**独立仓**，monorepo 侧改动**不生效**（同步机制待确认，见 design.md D13）。
+**⚠️ 另有一处更根本的事实（2026-10-25 实测订正）**：
+`official_keys` 与 `model_usage_daily` 住在 **ops-center 进程的 SQLite**
+（`ops-center/backend/models.py:116` / `:217`；`ops-center.service` 只有 `OPS_DB_PATH`，**零 Postgres 配置**），
+而权益/订单/迁移台账在 **api-publish-engine 进程的 Postgres**；桌面端**分别连这两个服务**
+（`config/identity-public.json` 的 `businessApiUrl` 与 `opsCenterUrl`）。
+⇒ **这不是「同仓换库」，是「把两个进程都要用的表，从一个进程的库搬到另一个进程的库」**（design.md D13）。
 
+> **同步机制已澄清（此前两次都判反了）**：独立仓 `Colinchui007/ops-center` 已于 **2026-08-10 通过 git subtree
+> 并入 mulpub（PR #475）并冻结为只读归档**（tag `archived-into-multi-publish`）；
+> `deploy.sh:17-24` 现在从 `mulpub.git` **sparse-checkout `ops-center/`** 部署 ⇒ **落地对象一直是 monorepo，
+> 每次部署都是最新代码，不存在同步问题**。
+> ⚠️ 但 `docs/ops-center-ecs-deployment.md:35` 仍写着旧话（要求「必须确认两者同步机制」）⇒ **部署文档是真漂移**，本 change 一并订正。
 **⇒ 现在落那个信封迁移文件会在部署时炸**：
 `relation "official_keys" does not exist` ⇒ 迁移失败 ⇒
 `postgres-identity-repository.js` 的 `assertReady`（`allowPending:false`）硬失败 ⇒
@@ -81,7 +88,8 @@
 | **迁移** | 新增 `migrations/postgresql/00X_official_keys.sql`（编号见 tasks 1.1） |
 | **部署** | 主密钥 `OPS_ENCRYPTION_KEY` 位置不变；**Postgres 的访问控制清单需扩充**（见 D9） |
 | **客户端** | 零改动 |
-| **落地对象** | **独立仓 `Colinchiu007/ops-center`**（生产实际部署源，design.md D13）<br>monorepo 的 `ops-center/` 为镜像，同步机制待确认 |
+| **落地对象** | **monorepo 的 `ops-center/`**（唯一开发源；`deploy.sh` 从 `mulpub.git` sparse-checkout 部署，design.md D13） |
+| **跨库边界** | `official_keys` / `model_usage_daily` 从 **ops-center 的 SQLite** 迁到 **api-publish-engine 的 Postgres** ⇒ 需跨服务搬运通道 + ops-center 引入第二个库连接（D16 的 `database_pg.py`） |
 
 ---
 

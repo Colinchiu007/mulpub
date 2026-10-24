@@ -32,7 +32,9 @@
 - **nginx 片段**：`ops-center/deploy/nginx-ops.conf`（含 CSP/nosniff/no-referrer/X-Frame-Options 三层安全响应头，部署到 `/etc/nginx/conf.d/ops-center.conf`）。
 - **一键脚本**：`ops-center/deploy/deploy.sh`（`git pull` → `pip install` → seed DB → `npm run build` 前端 → 拷静态 → 更新 nginx → `systemctl restart ops-center` → `curl /health` 自检）。
 
-> ⚠️ **仓库来源需核实**：`deploy.sh` 从 `/root/ops-center`（克隆自独立仓 `github.com/Colinchiu007/ops-center.git`）拉取部署，而本 monorepo 的 `ops-center/` 目录是其镜像。把本仓的 ops-center 后端改动推上 ECS 前，**必须确认两者同步机制**（是否单向 mirror、还是 CI 分发），否则会出现"改了 monorepo、ECS 跑的还是独立仓旧码"。以 `main` 分支保护 + PR 合并为准绳，勿绕过。
+> ✅ **仓库来源（2026-10-25 订正）**：本段原写「`deploy.sh` 从 `/root/ops-center`（克隆自独立仓 `github.com/Colinchui007/ops-center.git`）拉取部署，而本 monorepo 的 `ops-center/` 目录是其镜像……**必须确认两者同步机制**」——**该表述已过时**。独立仓 `Colinchui007/ops-center` 已于 **2026-08-10 通过 git subtree 并入本仓**（`Multi-Publish/ops-center/`，PR #475），**随即冻结为只读归档**（其 `README.md` 首行「归档说明（2026-08-10）」，tag `archived-into-multi-publish`）。`ops-center/deploy/deploy.sh:14-24` 的注释明记了这次修正：「**曾 clone `Colinchui007/ops-center`** —— 该仓库 2026-08-10 已并入 mulpub（git subtree）并归档，**从它 clone 会把 2026-08 的归档快照部署上线**。现统一从 mulpub 取 `ops-center/` 子目录」，并以 `REPO_URL=https://github.com/Colinchui007/mulpub.git` + `sparse-checkout set ops-center` 落地。⇒ **现在没有同步问题：部署源就是本仓 `main`，每次部署都拉最新代码。** 仍以 `main` 分支保护 + PR 合并为准绳，勿绕过。
+>
+> ⚠️ **但有一个新的跨库边界要知道**：`official_keys` / `model_usage_daily` 目前在 **ops-center 进程的 SQLite**（`ops-center.service` 只有 `OPS_DB_PATH`，零 Postgres 配置），而会员/权益/订单/迁移台账在 **api-publish-engine 进程的 Postgres**；桌面端分别连这两个服务（`businessApiUrl` 与 `opsCenterUrl`）。**「把官方 Key 搬到 Postgres 供服务端代理用」因此是一次跨服务、跨数据库的迁移**，见 `openspec/changes/official-keys-postgres-migration/`。
 
 ---
 

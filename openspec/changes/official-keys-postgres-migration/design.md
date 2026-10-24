@@ -162,31 +162,80 @@
 
 ---
 
-## D13 · **落地对象是独立仓 `Colinchiu007/ops-center`，不是本 monorepo**（评审 C5）
+## D13 · 落地对象是 **monorepo**（唯一真源）；真正的难点是**跨服务跨库**（评审 C5 订正 + 二次订正）
 
-**取证**：`docs/ops-center-ecs-deployment.md:35` 明写「`deploy.sh` 从 `/root/ops-center`
-（克隆自独立仓 `github.com/Colinchiu007/ops-center.git`）拉取部署，而本 monorepo 的 `ops-center/`
-只是**镜像**」。
+> ⚠️ **本节经历过两次判反，两次都靠实测推翻**：
+> ① 初次结论「生产跑的是独立仓 `Colinchui007/ops-center`，monorepo 只是镜像」；
+> ② 评审 C5 采信了它，并引用 `docs/ops-center-ecs-deployment.md:35` 作证。
+> **两次都不对。** 下面是实测结论。
 
-**⇒ 本 change 原先全部任务都指向了错误的落地对象。** monorepo 里的改动**不生效**。
+### 同步机制：单向、一次性、此后不需要
 
-**修正后的落地模型**：
+| 证据 | 内容 |
+|---|---|
+| 独立仓 `README.md` 首行 | 「**归档说明（2026-08-10）**：本项目已通过 git subtree 正式并入 `Colinchui007/Multi-Publish`（`Multi-Publish/ops-center/`，PR #475）。此后开发/PR/CI 统一在 Multi-Publish 内进行；**本仓库冻结为只读归档**（完整历史保留可追溯）。已打 tag：`archived-into-multi-publish`」 |
+| `ops-center/deploy/deploy.sh:14-16` | 「**曾 clone `Colinchui007/ops-center`** —— 该仓库 2026-08-10 已并入 mulpub（git subtree）并归档，**从它 clone 会把 2026-08 的归档快照部署上线**。现统一从 mulpub 取 `ops-center/` 子目录」 |
+| `deploy.sh:17-25` | `REPO_URL=mulpub.git`；已存在则 `fetch --depth 1 origin main` + `checkout --force FETCH_HEAD`；否则 `clone --sparse` + `sparse-checkout set ops-center` |
+| 独立仓 `pushed_at` | **2026-08-10**（此后未动） |
 
-| 环节 | 动作 | 归属 |
+⇒ **同步方向 = 独立仓 → monorepo，一次性 git subtree 并入；此后独立仓冻结；monorepo 是唯一开发源；
+每次部署从 `mulpub` 的 `main` 稀疏检出 `ops-center/` ⇒ 部署的永远是最新代码。**
+**没有持续同步机制，因为不需要。**
+
+> ⚠️ **但 `docs/ops-center-ecs-deployment.md:35` 仍写着旧话**（「`deploy.sh` 从 `/root/ops-center`
+> （克隆自独立仓 `github.com/Colinchui007/ops-center.git`）拉取部署，而本 monorepo 的 `ops-center/` 目录是其镜像。
+> 把本仓的 ops-center 后端改动推上 ECS 前，**必须确认两者同步机制**」）⇒ **部署文档未跟上 `deploy.sh` 的修正，是真漂移**，
+> 本 change 一并订正。
+
+### 真正的难点：表要**跨进程、跨数据库**共享
+
+上面澄清了「落地对象」，但**本 change 的核心难度没有消失，只是换了形态**：
+
+| | 位置 | 库 |
 |---|---|---|
-| 实现 | 改 `ops-center` 的源码 | **独立仓 `Colinchiu007/ops-center`** |
-| 镜像 | 同步到 monorepo | monorepo `ops-center/`（**同步方向与机制必须先确认**） |
-| 部署 | ECS 上 `git pull` + 重启 | 独立仓 |
+| `official_keys` | `ops-center/backend/models.py:116` | **ops-center 的 SQLite** |
+| `model_usage_daily` | `ops-center/backend/models.py:217` | **ops-center 的 SQLite** |
+| `identity_entitlement_usage` / `identity_schema_migrations` / `identity_orders` | `packages/api-publish-engine/` | **api-publish-engine 的 Postgres** |
 
-**⇒ 动手前必须先回答（P1）**：
-1. monorepo 的 `ops-center/` 是**单向镜像**（独立仓 → monorepo）还是**双向**？
-2. 谁负责同步、什么节奏？**若不同步，monorepo 里的改动永远不生效。**
-3. 两边的**迁移台账**（`identity_schema_migrations`）是同一个 Postgres 库吗？
-   **若不是两个库 ⇒ 本 change 的迁移在两处都要落，且顺序必须对齐。**
+**ops-center 进程只有 SQLite**：`ops-center.service:11` 只有 `OPS_DB_PATH=/data/ops-center/config.db`；
+`config.py:47` 只有 `db_path`；`setup-service.sh:29-33` 写的 env 只有 `OPS_ENCRYPTION_KEY` / `OPS_JWT_SECRET` /
+`OPS_SECRET_KEY` / `OPS_CORS_ORIGINS` / `OPS_ADMIN_PASSWORD`；**`.env.example` 只有 `OPS_DB_PATH`**。
+⇒ **零 Postgres 配置，ops-center 不连 Postgres。**
 
-**没有这三条，本 change 的任何实现都是空转。**
+**桌面端分别连这两个服务**（`config/identity-public.json`）：
 
----
+| 配置 | 指向 | 拥有 |
+|---|---|---|
+| `businessApiUrl = https://auth.iart.work` | api-publish-engine | 会员/权益/订单/兑换码（**Postgres**） |
+| `opsCenterUrl = https://www.iart.work/api/ops` | ops-center | 模型目录/配置/密钥/用量看板（**SQLite**） |
+
+⇒ **这不是「同仓换库」，是「把两个进程都要用的表，从一个进程的库搬到另一个进程的库」。** 三个新问题：
+
+1. **谁执行搬运？** 迁移文件与台账（`identity_schema_migrations`）在 api-publish-engine，**数据在 ops-center 的 SQLite**
+   ⇒ 需要一条**跨服务通道**：ops-center 导出 → api-publish-engine 落库 + 写台账。
+   ⚠️ **密钥材料不得进 git**（迁移文件里只写 schema，数据走受控通道）——本仓既有迁移文件全是纯 schema，无先例可抄。
+2. **迁完 ops-center 怎么读？** 官方 Key 的**写**只有 ops-center 一处（`/api/v1/secrets/*`），
+   **读**有两处（ops-center 管理页 + api-publish-engine 的服务端代理选 Key）⇒ **两个进程都要能读**。
+3. **`model_usage_daily` 同样在 ops-center 的 SQLite**，而成本台账要供 api-publish-engine 的代理写
+   ⇒ **它也必须迁**（与信封 change 第 5 组的成本台账同源）。
+
+### 两条路（新的架构决策，需拍板）
+
+| | **路 A：ops-center 直连 Postgres（双库）** | 路 B：ops-center 经 HTTP 调 api-publish-engine 读写（单库） |
+|---|---|---|
+| 单真源 | ✅ Postgres | ✅ Postgres |
+| 原子性 | 天然（同库同事务） | 天然（写入经同一个 API） |
+| ops-center 改动 | 加第二个 engine + 两套 Base + **两个跨库读点拆两段** | 改用 HTTP client，**不引入第二个数据库** |
+| 与既有设计 | **与 D14③「不建 key-broker」一致，不推翻已有决策** | **推翻 D14③** |
+| 失效面 | Postgres 挂 ⇒ ops-center 密钥管理页也挂 | api-publish-engine 挂 ⇒ 同上 |
+
+**⇒ 推荐路 A（双库）**：① 与已定的 D14③ 一致，**不推翻已有决策**；② 官方 Key 的读是**低频管理面操作**；
+③ 双库让「Key 列表」这类只读操作有本地副本，api-publish-engine 挂时 ops-center 仍能看（配合 D6 的
+`source:"stale-archive"` 降级读）。
+
+**⇒ 代价**：ops-center 引入第二个数据库连接（**这正是 D16 已经写下的 `database_pg.py`**），
+且 `pool_summary` / `test_provider_connection` 两个跨库读点必须拆两段（**D14 已写**）。
+**⇒ D14 / D16 的技术设计方向成立，但「为什么需要双库」的理由必须从「表在另一个仓」改成「表要跨进程共享」。**
 
 ## D14 · D1 的「只搬一张表」被本 change 自己制造的跨库读点证伪（评审 C1/C2）
 
