@@ -78,42 +78,121 @@ test('listRedeemCodes 把 issued_to 映射成 issuedTo', async () => {
 
 // ── 二、限流器（温和档）单元行为 ─────────────────────────────────────────
 
-test('限流器：失败累计到阈值后放行门关闭', () => {
+test('限流器：失败累计到阈值后放行门关闭（按真实调用序列 acquire → recordFailure）', () => {
   const limiter = new RedeemFailureLimiter({ userWindowMs: 60000, userMaxFailures: 5, ipWindowMs: 600000, ipMaxFailures: 30 })
   try {
     for (let i = 0; i < 4; i++) {
-      assert.strictEqual(limiter.check('u1', '1.1.1.1').blocked, false)
+      assert.strictEqual(limiter.acquire('u1', '1.1.1.1').blocked, false)
       limiter.recordFailure('u1', '1.1.1.1')
     }
-    assert.strictEqual(limiter.check('u1', '1.1.1.1').blocked, false)
+    assert.strictEqual(limiter.acquire('u1', '1.1.1.1').blocked, false)
     limiter.recordFailure('u1', '1.1.1.1')
     // 第 6 次应当被拦
-    const gate = limiter.check('u1', '1.1.1.1')
+    const gate = limiter.acquire('u1', '1.1.1.1')
     assert.strictEqual(gate.blocked, true)
     assert.strictEqual(gate.scope, 'user')
     // 另一个用户不受影响
-    assert.strictEqual(limiter.check('u2', '1.1.1.1').blocked, false)
+    assert.strictEqual(limiter.acquire('u2', '1.1.1.1').blocked, false)
+  } finally { limiter.stop() }
+})
+
+test('限流器：并发请求无法绕过（预占额度 ⇒ 同一瞬间只有阈值个能进）', () => {
+  const limiter = new RedeemFailureLimiter({ userWindowMs: 60000, userMaxFailures: 5, ipWindowMs: 600000, ipMaxFailures: 30 })
+  try {
+    // 20 个「同时」到达的请求：acquire 是同步的（内部无 await）⇒ 等价于并发同时判定
+    const results = []
+    for (let i = 0; i < 20; i++) results.push(limiter.acquire('u1', '1.1.1.1'))
+    const allowed = results.filter((r) => !r.blocked).length
+    const blocked = results.filter((r) => r.blocked).length
+    assert.strictEqual(allowed, 5, '只有阈值（5）个请求能进，其余当场被拦')
+    assert.strictEqual(blocked, 15)
   } finally { limiter.stop() }
 })
 
 test('限流器：一次成功清零该用户的失败计数', () => {
   const limiter = new RedeemFailureLimiter({ userWindowMs: 60000, userMaxFailures: 2, ipWindowMs: 600000, ipMaxFailures: 30 })
   try {
-    limiter.recordFailure('u1', '1.1.1.1')
-    limiter.recordFailure('u1', '1.1.1.1')
-    assert.strictEqual(limiter.check('u1', '1.1.1.1').blocked, true)
+    limiter.acquire('u1', '1.1.1.1'); limiter.recordFailure('u1', '1.1.1.1')
+    limiter.acquire('u1', '1.1.1.1'); limiter.recordFailure('u1', '1.1.1.1')
+    assert.strictEqual(limiter.acquire('u1', '1.1.1.1').blocked, true)
     limiter.recordSuccess('u1')
-    assert.strictEqual(limiter.check('u1', '1.1.1.1').blocked, false)
+    assert.strictEqual(limiter.acquire('u1', '1.1.1.1').blocked, false)
   } finally { limiter.stop() }
 })
 
-test('限流器：IP 维度独立生效', () => {
-  const limiter = new RedeemFailureLimiter({ userWindowMs: 60000, userMaxFailures: 100, ipWindowMs: 600000, ipMaxFailures: 3 })
+test('限流器：IP 维度在「速率条件」满足时独立生效', () => {
+  const limiter = new RedeemFailureLimiter({
+    userWindowMs: 60000, userMaxFailures: 100,
+    ipWindowMs: 600000, ipMaxFailures: 3,
+    ipBurstWindowMs: 60000, ipBurstFailures: 3,
+  })
   try {
     for (let i = 0; i < 3; i++) limiter.recordFailure(`u${i}`, '9.9.9.9')
-    const gate = limiter.check('fresh-user', '9.9.9.9')
+    const gate = limiter.acquire('fresh-user', '9.9.9.9')
     assert.strictEqual(gate.blocked, true)
     assert.strictEqual(gate.scope, 'ip')
+  } finally { limiter.stop() }
+})
+
+test('限流器：共享出口下的慢速偶发失败**不**触发 IP 档（防误伤同出口所有正常用户）', () => {
+  // 可注入时钟：不靠真实等待就能构造「10 分钟内 30 次、最近 60 秒内只有 3 次」这一格。
+  let clock = Date.parse('2026-10-24T00:00:00Z')
+  const limiter = new RedeemFailureLimiter({
+    userWindowMs: 60000, userMaxFailures: 100,
+    ipWindowMs: 600000, ipMaxFailures: 30,
+    ipBurstWindowMs: 60000, ipBurstFailures: 10,
+    now: () => clock,
+  })
+  try {
+    // 30 个不同用户在同一出口 IP 上各失败 1 次（公司 NAT / 校园网的典型形态），
+    // 每次间隔 19 秒 ⇒ 总量 30 次落在 10 分钟窗口内（**总量条件已满足**），
+    // 但最近 60 秒内只有 3 次 ⇒ **速率条件不满足** ⇒ 不拦。
+    for (let i = 0; i < 30; i++) {
+      clock += 19 * 1000
+      limiter.acquire(`u${i}`, '9.9.9.9')
+      limiter.recordFailure(`u${i}`, '9.9.9.9')
+    }
+    const counts = limiter.counts(null, '9.9.9.9')
+    assert.strictEqual(counts.ipFailures, 30, '总量条件确实已满足（否则这个用例没测到东西）')
+    const gate = limiter.acquire('fresh-user', '9.9.9.9')
+    assert.strictEqual(gate.blocked, false, '慢速分散失败不应锁死整个出口')
+  } finally { limiter.stop() }
+})
+
+test('限流器：IP 档在速率条件也满足时触发（单 IP 快速探测）', () => {
+  let clock = Date.parse('2026-10-24T00:00:00Z')
+  const limiter = new RedeemFailureLimiter({
+    userWindowMs: 60000, userMaxFailures: 100,
+    ipWindowMs: 600000, ipMaxFailures: 30,
+    ipBurstWindowMs: 60000, ipBurstFailures: 10,
+    now: () => clock,
+  })
+  try {
+    // 30 次失败集中在 30 秒内 ⇒ 总量与速率都满足 ⇒ 触发
+    for (let i = 0; i < 30; i++) {
+      clock += 1000
+      limiter.acquire(`u${i}`, '8.8.8.8')
+      limiter.recordFailure(`u${i}`, '8.8.8.8')
+    }
+    const gate = limiter.acquire('fresh-user', '8.8.8.8')
+    assert.strictEqual(gate.blocked, true, '单 IP 快速探测应被 IP 档拦住')
+    assert.strictEqual(gate.scope, 'ip')
+  } finally { limiter.stop() }
+})
+
+test('限流器：窗口过期后计数归零（滑窗真的会滑）', () => {
+  let clock = Date.parse('2026-10-24T00:00:00Z')
+  const limiter = new RedeemFailureLimiter({
+    userWindowMs: 60000, userMaxFailures: 2,
+    ipWindowMs: 600000, ipMaxFailures: 30,
+    now: () => clock,
+  })
+  try {
+    limiter.acquire('u1', '7.7.7.7'); limiter.recordFailure('u1', '7.7.7.7')
+    limiter.acquire('u1', '7.7.7.7'); limiter.recordFailure('u1', '7.7.7.7')
+    assert.strictEqual(limiter.acquire('u1', '7.7.7.7').blocked, true)
+    clock += 61 * 1000
+    assert.strictEqual(limiter.acquire('u1', '7.7.7.7').blocked, false, '窗口过后应重新放行')
   } finally { limiter.stop() }
 })
 
@@ -197,6 +276,36 @@ test('接线：连续探测式失败超过阈值后，端点真的返回 429（�
     assert.strictEqual(blocked.body.error, 'REDEEM_RATE_LIMITED')
     // ⚠️ 不得透露剩余次数（否则限流器本身可被探测）
     assert.strictEqual(JSON.stringify(blocked.body).includes('remaining'), false)
+  } finally {
+    await server.stop()
+  }
+})
+
+test('接线：20 个并发请求不能绕过限流（预占额度 ⇒ 只有阈值个能进）', async () => {
+  const service = {
+    repository: {},
+    planOverrides: null,
+    async redeem() {
+      throw Object.assign(new Error('兑换码不存在'), { code: 'REDEEM_CODE_NOT_FOUND', status: 404 })
+    },
+  }
+  const server = new PublishApiServer({
+    dryRun: true,
+    logtoVerifier: createVerifier(),
+    businessIdentityRepository: createIdentityRepository('u-3'),
+    entitlementProvider: { async getForUser() { return { plan: 'standard', features: [], quota: {}, limits: {} } } },
+    subscriptionService: service,
+  })
+  await server.start(0)
+  const port = server._server.address().port
+  try {
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, () => request(port, 'POST', '/api/v1/redeem', 'member-write', { code: 'ABCD-EFGH-JKMN' }))
+    )
+    const allowed = responses.filter((r) => r.status === 404).length
+    const limited = responses.filter((r) => r.status === 429).length
+    assert.strictEqual(allowed, 5, `只有 5 个并发请求能进，实际 ${allowed}`)
+    assert.strictEqual(limited, 15, `其余 15 个应被限流，实际 ${limited}`)
   } finally {
     await server.stop()
   }

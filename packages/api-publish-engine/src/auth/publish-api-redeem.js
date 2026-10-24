@@ -64,7 +64,9 @@ class PublishApiRedeemHelpers {
     const ip = this._redeemClientIp(req)
     const limiter = this._redeemLimiter()
     // 限流门：先看历史失败次数。命中 ⇒ 429，且**不透露剩余次数**。
-    const gate = limiter.check(userId, ip)
+    // ⚠️ acquire 是**原子**的（内部无 await）：检查 + 预占额度一起完成。
+    // 若拆成「先 check 再占位」，并发请求会同时读到旧计数而全部通过 ⇒ 限流被绕过。
+    const gate = limiter.acquire(userId, ip)
     if (gate.blocked) {
       this._json(res, 429, { error: 'REDEEM_RATE_LIMITED', message: '尝试过于频繁，请稍后再试' })
       return true
@@ -75,8 +77,11 @@ class PublishApiRedeemHelpers {
       this._json(res, 200, { success: true, ...result })
     } catch (error) {
       // 只把「探测型」失败计入限流（格式错 / 不存在）；已用 / 停用 / 过期是正常业务。
+      // ⚠️ 但**非探测型也必须释放预占额度**：否则 pending 永久累积，
+      // 用户只是反复拿自己的旧码来试，也会被限流在门外。
       const { isProbeFailure } = require('./redeem-rate-limit')
       if (isProbeFailure(error)) limiter.recordFailure(userId, ip)
+      else limiter.releasePending(userId)
       this._commerceFailure(req, res, error)
     }
     return true
