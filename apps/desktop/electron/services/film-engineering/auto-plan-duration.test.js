@@ -101,11 +101,15 @@ describe('planAutoShots: 时长警告可见（i1）', () => {
       targetDurationSec: 10,
       templateShots: [{ prompt: 'T1' }],
     })
-    // ⚠️ 2026-10-24（M0′.2）：超长台词现在走 **fail-closed**（规划中止），
-    //   所以「逐镜警告可见」的正确断言是：**失败返回里仍带逐镜警告与镜号**，
-    //   而不是「plan 级多一条 W9」——后者已被容量判定抢先。
+    // ⚠️ 2026-10-24（M0′.2 复核修正）：超长台词现在走 **fail-closed**（规划中止），
+    //   但 **W9 仍然在失败返回的 warnings 里**（W9 的计算早于容量判定）⇒
+    //   原断言「plan 级聚合出 W9」依然成立，只是要改成对**失败返回**断言。
     expect(r.ok).toBe(false)
     expect(r.errorCode).toBe('AUTO_DIALOGUE_OVERFLOW')
+    const w9 = r.warnings.find((w) => w.code === 'W9')
+    expect(w9).toBeTruthy()
+    expect(w9.message).toContain('#')
+    // 逐镜明细也必须带出来（消费方唯一能看到「哪一镜念不完」的粒度）
     expect((r.shots[0].durationWarnings || []).length).toBeGreaterThan(0)
     expect(r.shots[0].durationWarnings.join('')).toMatch(/#|镜|需时|念不完/)
   })
@@ -221,19 +225,42 @@ describe('planAutoShots: 默认档位与模型能力同源（i3 第二轮）', (
     })
     expect(r.ok).toBe(false)
     expect(r.errorCode).toBe('AUTO_DIALOGUE_OVERFLOW')
+    // ⚠️ 「常量自证」不够（对常量断言常量恒真）⇒ 补一条**行为断言**：
+    //   缺省档位表下，48 字（6.0s）落在 8 秒档 ⇒ `durationSec` 必须是 DEFAULT_TIERS 里的值。
+    const r2 = planAutoShots({
+      script: '第一场\n他说：「' + '一二三四五六七八九十'.repeat(5) + '」',
+      characterRefs: [],
+      sceneRefs: [],
+      aspect: '16x9',
+      seconds: 10,
+      targetDurationSec: 10,
+      templateShots: [{ prompt: 'T1' }],
+    })
+    expect(r2.ok).toBe(true)
+    expect(DEFAULT_DURATION_TIERS).toContain(r2.shots[0].durationSec)
   })
 
   it('注入档位仍优先', () => {
     const r = planAutoShots({
-      // ⚠️ 2026-10-24（M0′.2）：台词缩到 80 字（10.0s）——
-      //   90 字（11.25s）在用户选的 5 秒档下装不下 ⇒ 会被容量判定拦下；
-      //   本用例的原意是「注入的档位表优先于缺省档位表」，与容量判定无关。
-      script: '第一场\n他说：「' + '一二三四五六七八九十'.repeat(8) + '」',
+      // ⚠️ 2026-10-24（M0′.2 复核修正）：80 字（10.0s）在**两张表**下都吸到 10 秒
+      //   ⇒ 断言已无鉴别力（恒真）。改用**能区分**的取值：48 字（6.0s）——
+      //   注入表 [5,10] ⇒ 吸到 10 秒；缺省表 [5,8,10,12] ⇒ 吸到 8 秒。
+      //   （50 字 = 6.25s ≤ 10.3s ⇒ 在新契约下 ok=true，不撞容量判定；
+      //     ⚠️ targetDurationSec 必须 ≥ 10（输入校验下限），故用 10 秒档而不是 8 秒档。）
+      script: '第一场\n他说：「' + '一二三四五六七八九十'.repeat(5) + '」',
       characterRefs: [], sceneRefs: [], aspect: '16x9', seconds: 10, targetDurationSec: 10,
       durationTiers: [5, 10],
       templateShots: [{ prompt: 'T1' }],
     })
     expect(r.ok).toBe(true)
     expect(r.shots[0].durationSec).toBe(10)
+    // 对照：同一段台词在**缺省**档位表下应吸到 8 秒 ⇒ 这才证明「注入优先」被观察到
+    const rDefault = planAutoShots({
+      script: '第一场\n他说：「' + '一二三四五六七八九十'.repeat(5) + '」',
+      characterRefs: [], sceneRefs: [], aspect: '16x9', seconds: 10, targetDurationSec: 10,
+      templateShots: [{ prompt: 'T1' }],
+    })
+    expect(rDefault.ok).toBe(true)
+    expect(rDefault.shots[0].durationSec).toBe(8)
   })
 })

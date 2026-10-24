@@ -32,7 +32,7 @@ const {
 const {
   sha256, buildShotFingerprint, buildPayloadHash, buildPlanId, buildRefsFingerprint,
 } = require('./auto-plan-fingerprint')
-const { resolveShotDurationMs, DEFAULT_TIERS: DEFAULT_DURATION_TIERS, DEFAULT_SNAP_TOLERANCE_SEC } = require('./shot-duration')
+const { resolveShotDurationMs, DEFAULT_TIERS: DEFAULT_DURATION_TIERS } = require('./shot-duration')
 const {
   MIN_SENTENCE_CHUNK_LENGTH,
   splitIntoChunks,

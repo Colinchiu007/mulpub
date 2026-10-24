@@ -177,3 +177,34 @@ describe('M0′.4：规划完备性 —— 少产镜数必须说清原因（R14�
     expect(r.warnings.find((x) => x.code === 'W10')).toBeFalsy()
   })
 })
+
+describe('M0′ 回归防护：拆句切碎引号时，容量判定不得失效（2026-10-24 独立复核发现）', () => {
+  it('引号内含句号的一段，拆句后每镜仍按台词推算并受容量判定', () => {
+    // ⚠️ 这是独立复核抓出的 CRITICAL：拆句按句末标点切开会**把成对引号切散**
+    //   （`「AAA。` / `BBB。」`）⇒ 引号不成对 ⇒ 严格匹配取不到台词
+    //   ⇒ 走 tier 兜底 ⇒ 既不推算时长、也不做容量判定 ⇒ **静默放行**。
+    //   实测（修复前）：同一段 100 字台词，写成 2 段（引号完整）⇒ 被拦；
+    //   写成 1 段（引号内含句号）⇒ 静默通过。
+    const r = planAutoShots({
+      script: 'INT. 雨夜\n\n「' + charsOf(50) + '。' + charsOf(50) + '。」',
+      characterRefs: [], sceneRefs: [], aspect: '16x9',
+      seconds: 5, targetDurationSec: 10,
+      templateShots: [{ prompt: 'T1' }],
+    })
+    expect(r.ok).toBe(false)
+    expect(r.errorCode).toBe('AUTO_DIALOGUE_OVERFLOW')
+  })
+
+  it('引号不成对时仍按台词推算时长（不得退化成 tier 兜底）', () => {
+    const r = planAutoShots({
+      script: 'INT. 雨夜\n\n「' + charsOf(50) + '。' + charsOf(50) + '。」',
+      characterRefs: [], sceneRefs: [], aspect: '16x9',
+      seconds: 5, targetDurationSec: 10,
+      templateShots: [{ prompt: 'T1' }],
+    })
+    for (const s of r.shots) {
+      expect(s.durationSource).toBe('formula')
+      expect(Number(s.durationRawSec)).toBeGreaterThan(5)
+    }
+  })
+})

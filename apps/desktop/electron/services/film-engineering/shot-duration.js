@@ -106,6 +106,22 @@ function extractDialogueText (text) {
       .join('\n')
     if (dialogue.trim()) return { dialogue, usedQuotes: true }
   }
+  /**
+   * **引号不成对时仍取台词**（2026-10-24，M0′ 复核发现）：
+   * 拆句会按句末标点切开一段，**成对引号因此被切散**（`「AAA。` / `BBB。」`）。
+   * 严格匹配要求引号成对 ⇒ 匹配不到 ⇒ `usedQuotes=false` ⇒ 自动模式（requireQuotedDialogue）
+   * 走 tier 兜底 ⇒ **既不推算台词时长、也不做容量判定** ⇒
+   * 「台词装不下用户所选档位」在「引号内含句号」这个最常见形态下**完全静默放行**
+   * （实测：同一段 100 字台词，写成 2 段（引号完整）⇒ 被拦；写成 1 段（内含句号）⇒ 静默通过）。
+   *
+   * 修法：**引号不成对时，取「开引号之后到文本末尾」/「文本开头到闭引号之前」的内容**，
+   * 并标记 `unbalanced`（供上层说明「本镜引号因拆句而不成对」）。
+   * ⚠️ 不改文本本身（只改**读取**口径）⇒ 对提示词与既有行为零影响。
+   */
+  const looseOpen = s.match(/[「『“"]([^」』”"]*)$/)
+  if (looseOpen && looseOpen[1].trim()) return { dialogue: looseOpen[1], usedQuotes: true, unbalanced: true }
+  const looseClose = s.match(/^([^「『“"]*)[」』”"]/)
+  if (looseClose && looseClose[1].trim()) return { dialogue: looseClose[1], usedQuotes: true, unbalanced: true }
   return { dialogue: s, usedQuotes: false }
 }
 
@@ -329,6 +345,7 @@ function resolveShotDurationMs (shot, ctx) {
   // 而那个镜根本没有台词可拆（v7 对抗评审第二轮 i4）。
   let line = ''
   let usedQuotes = false
+  let unbalanced = false
   if (typeof s.dialogue === 'string' && s.dialogue.trim()) {
     line = s.dialogue
     usedQuotes = true
@@ -340,12 +357,16 @@ function resolveShotDurationMs (shot, ctx) {
       const ex = extractDialogueText(s.text)
       line = ex.dialogue
       usedQuotes = ex.usedQuotes
+      unbalanced = ex.unbalanced === true
     }
   }
   const requireQuoted = c.requireQuotedDialogue === true
   const lineForTiming = requireQuoted && !usedQuotes ? '' : line
   if (requireQuoted && !usedQuotes && line.trim()) {
     warnings.push('本镜未检出引号台词：按动作描述处理，时长走档位兜底而不是按字/秒折算（若含台词请用「」标注）')
+  }
+  if (unbalanced) {
+    warnings.push('本镜引号不成对（拆句时把成对引号切开了）：已按引号内内容推算时长，台词可能不完整')
   }
   const est = estimateShotSeconds(lineForTiming, s.emotion, {
     tiers,

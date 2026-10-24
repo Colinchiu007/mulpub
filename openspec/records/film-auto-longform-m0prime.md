@@ -109,7 +109,7 @@ branch: feature/film-auto-longform-m0prime
 | # | 缺陷 | 现象 | 修法 |
 |---|---|---|---|
 | ① | **切分碎片让整段判为不可拆** | `expandBeatsToCount` 的可拆判据是「每块 ≥ 2 字」；而切块正则会把末尾的 `」` 切成独立一块（长度 1）⇒ 整段不可拆。实测：`「他站在雨里。他把信塞进信封。他转身离开。」` 目标 4 镜**只出 1 镜** —— 用户明明写了句号却拆不开 | `splitIntoChunks` 把碎片并回前一块（保序、不丢字） |
-| ② | **12 秒档的帧数映射错了** | 旧表 `d > 10 → 441`，而 441 是**适配器上限**（8n+1 且 ≤441），不是 12 秒的映射 ⇒ 441 帧 @24fps = **18.375 秒**（长 53%）。且 12 秒档**今天就会走到**（`DEFAULT_TIERS = [5,8,10,12]`，推算 10.3–12 秒时吸附到 12 秒）⇒ 提交 441 帧 ⇒ 成片超时 | 12 秒档 ⇒ **289 帧**（288 → 取 8n+1 ⇒ 12.0417 秒） |
+| ② | **12 秒档的帧数映射错了** | 旧表 `d > 10 → 441`，而 441 是**适配器上限**（8n+1 且 ≤441），不是 12 秒的映射 ⇒ 441 帧 @24fps = **18.375 秒**（长 53%）。⚠️ **当前生产链路上 441 帧还不可达**（`video-gen.js` 的 `FILM_DURATIONS = [5,8,10]` + 提交前硬校验，且出片用的是**全局** `shot.seconds`）⇒ 这条是**为 M0′.3（出片消费逐镜 `durationSec`）铺路的潜在正确性修复**：一旦出片改为消费逐镜推算值，推算层会吸附到 12 秒档 ⇒ 提交 441 帧 ⇒ 成片超时 53%。 | 12 秒档 ⇒ **289 帧**（288 → 取 8n+1 ⇒ 12.0417 秒） |
 
 ## 8. M0.6 落盘体积实测（结论：R13 的体积担忧被证伪）
 
@@ -128,11 +128,11 @@ branch: feature/film-auto-longform-m0prime
 | 项 | 结果 |
 |---|---|
 | 新增契约测试 | `auto-plan-dialogue-capacity.test.js` **15/15 绿** |
-| 相关既有测试回归 | `auto-plan.test.js` / `auto-plan-duration.test.js` / `shot-duration.test.js` / `video-gen.test.js` **159/159 绿** |
+| 相关既有测试回归 | `auto-plan.test.js` / `auto-plan-duration.test.js` / `shot-duration.test.js` / `video-gen.test.js` + 新增契约测试 **162/162 绿** |
 | film-engineering 全目录 | **617 个测试全过**（6 个文件级加载失败经查是**环境原因**：缺 `@multi-publish/story2video-engine/subtitle-rules` 的 workspace 链接，与本次改动零关系） |
 | **变异验证** | ① 容量判据退回旧行为（只看物理上限）⇒ **7 个测试红**；② 去掉碎片并回 ⇒ **1 个红**；③ 12 秒档改回 441 ⇒ **1 个红**；每次恢复后基线 **54/54 绿** ⇒ 三组断言**都有牙齿** |
 | 门禁 | `check-no-brand-residue` / `check-gate-record-debt` / `check-max-lines` / `check-pr-exec-record` / `check-doc-abs-paths --all` / `check-text-encoding-integrity` 全部 rc=0；U+FFFD = 0 |
-| **行数硬约束** | `auto-plan.js` 加完逻辑一度到 **632 行** ⇒ `check-max-lines` 判 `NEW_OVER_LIMIT` ⇒ **抽模块**（不抬基线）：新逻辑全部落 `auto-beat-splitter.js`（212 行），`auto-plan.js` 回到 **498 行**（门禁口径 `split('\n').length` ≤ 499） |
+| **行数硬约束** | `auto-plan.js` 加完逻辑一度到 **632 行** ⇒ `check-max-lines` 判 `NEW_OVER_LIMIT` ⇒ **抽模块**（不抬基线）：新逻辑全部落 `auto-beat-splitter.js`，`auto-plan.js` 回到 **498 行**（均按门禁口径 `split('\n').length`；`auto-beat-splitter.js` 为 213 行） |
 
 ⚠️ **既有测试的 4 处改动**（逐条说明，保留原意图）：
 1. 「长/短文案镜的推算时长不同」⇒ 单镜秒数 5 → **10**、目标 10 → **20**（80 字需 10.0s，落在 10s+0.3s 容差内；原意是「长/短不同」，与容量判定无关）。

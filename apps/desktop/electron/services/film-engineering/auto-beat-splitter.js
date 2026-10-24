@@ -17,9 +17,10 @@
 /** 切块后的最小可独立成块长度（与 auto-plan 的可拆判据同源） */
 const MIN_SENTENCE_CHUNK_LENGTH = 2
 
-/** 档位吸附容差（秒）——与 `shot-duration.js` 的 `DEFAULT_SNAP_TOLERANCE_SEC` 同值。
- *  ⚠️ 两处必须同容差，否则会出现「吸附当它合法、容量判定却拦下它」的自相矛盾。 */
-const DEFAULT_SNAP_TOLERANCE_SEC = 0.3
+/** 档位吸附容差（秒）——**从 `shot-duration.js` 导入**（不另写字面量）：
+ *  两处必须同容差，否则会出现「吸附当它合法、容量判定却拦下它」的自相矛盾；
+ *  而两处各写一个字面量就等于把这个「必须同源」变成一句空话（改一处不会同步另一处）。 */
+const { DEFAULT_SNAP_TOLERANCE_SEC } = require('./shot-duration')
 
 /**
  * 按句末标点切块（保留标点在前块）
@@ -67,13 +68,15 @@ function diagnoseUnsplitBeats (beats) {
     if (!text.trim()) continue
     const chunks = splitIntoChunks(text)
     if (chunks.length >= 2) continue
-    const raw = String(text).match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || []
-    const hasEndMark = raw.some((c) => /[。！？!?；;]$/.test(c))
+    // ⚠️ 成因判据用「**合并后**的块里是否仍存在长度不足的碎片」——
+    //   旧判据是「raw 分块里有任一块以句末标点结尾」，那在**任何普通单句段**上恒为真
+    //   （实测 `他说：今天真累。` 被判成「有碎片」，于是让用户去「补句号」——而段里本来就有句号）。
+    const shortChunks = chunks.filter((c) => c.length < MIN_SENTENCE_CHUNK_LENGTH)
     out.push({
       index: Number(b.index) || 0,
       chars: text.replace(/\s+/g, '').length,
-      reason: hasEndMark
-        ? '段内有句末标点，但切分后仍有不足 ' + MIN_SENTENCE_CHUNK_LENGTH + ' 字的碎片，无法按句拆开'
+      reason: shortChunks.length > 0
+        ? '切分后仍有不足 ' + MIN_SENTENCE_CHUNK_LENGTH + ' 字的碎片，无法按句拆开'
         : '段内没有句末标点，无法按句拆开',
     })
   }
@@ -106,7 +109,9 @@ function buildCapacityAdvice (input) {
   }
   outs.push('② 把这段台词拆成两句')
   return '本镜台词需时 ' + raw.toFixed(2) + 's，超过你选择的单镜 ' + capacity + ' 秒'
-    + '（含 ' + tol + 's 吸附容差）⇒ 在当前时长下念不完。两个出口：' + outs.join('；') + '。'
+    + '（含 ' + tol + 's 吸附容差）⇒ 在当前时长下念不完。'
+    + (outs.length > 1 ? '两个出口：' : '只剩一个出口：') + outs.join('；')
+    + (fits ? '。若改档后仍不足，请按 ② 继续拆台词' : '。') + '。'
 }
 
 /**
@@ -144,7 +149,9 @@ function evaluateCapacity (input) {
     errorCode: 'AUTO_DIALOGUE_OVERFLOW',
     message: '有 ' + overflow.length + ' 个分镜的台词在当前单镜时长（' + capacity + ' 秒）下念不完：'
       + detail + (overflow.length > 5 ? ' 等' : '')
-      + '。两个出口：' + outs.join('；') + '。规划已中止，未产生任何分镜。',
+      + '。' + (outs.length > 1 ? '两个出口：' : '只剩一个出口：') + outs.join('；')
+      + (fits ? '。若改档后仍不足，请按 ② 继续拆台词' : '')
+      + '。规划已中止，未写入计划、未产出任何视频。',
   }
 }
 
@@ -164,13 +171,18 @@ function buildShortCountWarning (input) {
   const shortBy = targetCount - shots.length
   if (!(shortBy > 0)) return null
   const blocked = diagnoseUnsplitBeats(o.beats)
+  // ⚠️ 两种成因要分开（复核发现旧兜底文案在「句数不够」时是错的）：
+  //   ① 有段拆不动（无句末标点 / 碎片）⇒ 出口是「补句号」；
+  //   ② 段都拆开了、可拆的句子总数仍不够 ⇒ 出口是「再写几句」（补句号没用）。
   const detail = blocked.length > 0
     ? blocked.slice(0, 5).map((b) => '第 ' + b.index + ' 段（' + b.chars + ' 字）' + b.reason).join('；')
-    : '剧本段落数少于目标镜数，且没有可按句拆开的段落'
-  const outs = ['① 在这些段里补句号（。！？；）以便按句拆成多镜', '② 把单镜秒数调大（镜数 = 目标时长 ÷ 单镜秒数）']
+    : '剧本可拆的句子总数少于目标镜数'
+  const outs = blocked.length > 0
+    ? ['① 在这些段里补句号（。！？；）以便按句拆成多镜', '② 把单镜秒数调大（镜数 = 目标时长 ÷ 单镜秒数）']
+    : ['① 再补几句台词（或把长句拆短）以便凑满镜数', '② 把单镜秒数调大（镜数 = 目标时长 ÷ 单镜秒数）']
   return {
     code: 'W10',
-    message: '实际只产出 ' + shots.length + ' 镜，比目标 ' + targetCount + ' 镜**少产 ' + shortBy + ' 镜**：' + detail
+    message: '实际只产出 ' + shots.length + ' 镜，比目标 ' + targetCount + ' 镜少产 ' + shortBy + ' 镜：' + detail
       + '。两个出口：' + outs.join('；') + '。',
   }
 }
