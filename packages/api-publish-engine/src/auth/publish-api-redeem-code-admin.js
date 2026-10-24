@@ -9,6 +9,26 @@
 // 新增路由若留在原地会触发 TARGET_GREW 门禁；且这段逻辑自成一块（运营兑换码），
 // 独立成文件后边界更清楚。
 
+/**
+ * 一批码的**指纹**（不落码本身）。
+ *
+ * 为什么需要：审计里若只记 batch 标签，运营可以用同一个标签签发两批 ⇒ 事后无法区分；
+ * 若把 500 个码原样写进审计，审计文件本身会变成新的泄漏面。
+ * ⇒ 记一个可复算的指纹（码排序后的 sha256 前 16 位）：
+ *   · 两次签发即便同标签，指纹也不同 ⇒ 可区分；
+ *   · 泄漏后拿到码清单可自行算指纹比对 ⇒ 可判断「泄漏的码是不是这一批」。
+ */
+function codeDigest(codes) {
+  try {
+    const crypto = require('crypto')
+    const list = Array.isArray(codes) ? codes.filter((c) => typeof c === 'string' && c).sort() : []
+    if (!list.length) return null
+    return crypto.createHash('sha256').update(list.join('\n')).digest('hex').slice(0, 16)
+  } catch (error) {
+    return null
+  }
+}
+
 class PublishApiRedeemCodeAdminHelpers {
   /**
    * /api/v1/admin/member/* 全部分支。返回 true 表示已处理（调用方应立即 return）。
@@ -26,7 +46,11 @@ class PublishApiRedeemCodeAdminHelpers {
       try {
         if (method === "POST" && url === "/api/v1/admin/member/grant") {
           var grantBody = await this._parseBody(req);
-          if (!grantBody || typeof grantBody.userId !== "string" || !grantBody.userId) { this._json(res, 400, { error: "USER_ID_REQUIRED" }); return true; }
+          if (!grantBody || typeof grantBody.userId !== "string" || !grantBody.userId) {
+            // 失败也要留痕：被拒绝的开通尝试是「有人在反复试」的信号。
+            this._auditAdminFailure(req, this._adminActionType(url, method), "USER_ID_REQUIRED", 400);
+            this._json(res, 400, { error: "USER_ID_REQUIRED" }); return true;
+          }
           var grantResult = await this._subscriptionService.grant({
             userId: grantBody.userId,
             plan: grantBody.plan,
@@ -44,6 +68,8 @@ class PublishApiRedeemCodeAdminHelpers {
             status: "success",
             title: `开通 ${grantBody.plan} ${grantBody.durationDays} 天`,
             details: {
+              // actor = **token subject**（权威）；operator 是请求体自称（可伪造，仅作备注）
+              actor: this._ownerSubject(req),
               userId: grantBody.userId,
               plan: grantBody.plan,
               durationDays: grantBody.durationDays,
@@ -55,6 +81,13 @@ class PublishApiRedeemCodeAdminHelpers {
         }
         if (method === "POST" && url === "/api/v1/admin/member/redeem-codes") {
           var batchBody = await this._parseBody(req);
+          // ⚠️ fail-closed：engine 只认 camelCase 的 issuedTo。若调用方发的是 snake 的
+          // issued_to，**静默忽略**会让「发放对象」看起来填了、其实没落库
+          // ⇒ 泄漏后无从追查是哪一批。宁可 400，也不让它悄悄消失。
+          if (batchBody && batchBody.issued_to !== undefined && batchBody.issuedTo === undefined) {
+            this._auditAdminFailure(req, this._adminActionType(url, method), "ISSUED_TO_KEY_INVALID", 400);
+            this._json(res, 400, { error: "ISSUED_TO_KEY_INVALID", message: "字段名必须是 issuedTo" }); return true;
+          }
           var batchResult = await this._subscriptionService.createRedeemBatch({
             plan: batchBody && batchBody.plan,
             durationDays: batchBody && batchBody.durationDays,
@@ -72,11 +105,14 @@ class PublishApiRedeemCodeAdminHelpers {
             status: "success",
             title: `批量签发 ${batchResult.generated} 个 ${batchResult.plan} · ${batchResult.durationDays} 天`,
             details: {
+              actor: this._ownerSubject(req),
               batch: batchResult.batch,
               plan: batchResult.plan,
               durationDays: batchResult.durationDays,
               issuedTo: batchResult.issuedTo || null,
               count: batchResult.generated,
+              // 批次指纹：同标签的两次签发可区分；泄漏清单可自行算指纹比对
+              codeDigest: codeDigest(batchResult.codes),
             },
           });
           this._json(res, 200, { success: true, ...batchResult });
@@ -87,6 +123,11 @@ class PublishApiRedeemCodeAdminHelpers {
         this._json(res, 404, { error: "ROUTE_NOT_FOUND" });
         return true;
       } catch (error) {
+        // ⚠️ 失败路径也要留痕：否则「操作没生效」在审计上与「什么都没发生」同形，
+        // 且 stats.failed 恒为 0 ⇒ 运营反复试错 / 被参数拒绝完全隐形。
+        // 只对**会改变状态**的运营动作留痕（读操作的失败不记，避免噪音）。
+        const actionType = this._adminActionType(url, method);
+        if (actionType) this._auditAdminFailure(req, actionType, error && error.code, error && error.status);
         if (this._handleAdminRedeemCodeError(req, res, error)) return true;
         this._commerceFailure(req, res, error); return true;
       }
@@ -140,10 +181,13 @@ class PublishApiRedeemCodeAdminHelpers {
         status: "success",
         title: `导出未兑换码 ${listResult.codes.length} 个`,
         details: {
+          actor: this._ownerSubject(req),
           count: listResult.codes.length,
           plan: listQuery.plan || null,
           status: listQuery.status || null,
           batch: listQuery.batch || null,
+          // 导出的是**仍可兑**的码 ⇒ 记指纹（不记码本身）：泄漏后可用清单比对
+          codeDigest: codeDigest(listResult.codes),
         },
       });
     }
@@ -166,6 +210,7 @@ class PublishApiRedeemCodeAdminHelpers {
       status: "success",
       title: `作废兑换码 ${disableBody && disableBody.code}`,
       details: {
+        actor: this._ownerSubject(req),
         code: disableBody && disableBody.code,
         idempotent: disableResult.idempotent === true,
       },
@@ -188,13 +233,65 @@ class PublishApiRedeemCodeAdminHelpers {
     return true;
   }
 
+  /**
+   * 这个 URL 对应的是哪个**会改变状态**的运营动作（读操作返回 null）。
+   * 失败审计用它来决定「记不记、记成哪一类」。
+   */
+  _adminActionType(url, method) {
+    if (method === "POST" && url === "/api/v1/admin/member/grant") return "member_grant";
+    if (method === "POST" && url === "/api/v1/admin/member/redeem-codes") return "redeem_code_batch_issued";
+    if (method === "POST" && url === "/api/v1/admin/member/redeem-codes/disable") return "redeem_code_disabled";
+    return null;
+  }
+
+  /**
+   * 失败审计：运营动作没生效时留一条 status=failed 的条目。
+   *
+   * ⚠️ 业务字段必须装在 details 里（AuditLog.log 只认固定字段表，其余静默丢弃）。
+   * ⚠️ 鉴权失败（401/403）**不**在这里记：未通过鉴权的请求还没进入运营动作域，
+   *    且未鉴权流量会把它灌成噪音（那是限流/访问日志该管的事）。
+   */
+  _auditAdminFailure(req, actionType, errorCode, httpStatus, extra) {
+    const code = typeof errorCode === "string" && /^[A-Z][A-Z0-9_]{2,63}$/.test(errorCode)
+      ? errorCode
+      : "COMMERCE_INTERNAL_ERROR";
+    const status = Number.isInteger(httpStatus) && httpStatus >= 400 && httpStatus <= 599 ? httpStatus : 500;
+    this._auditLog.log({
+      ownerSubject: this._ownerSubject(req),
+      type: actionType || "member_admin_action",
+      status: "failed",
+      title: `运营动作失败 ${code}`,
+      error: code,
+      details: Object.assign({
+        actor: this._ownerSubject(req),
+        action: actionType || null,
+        errorCode: code,
+        httpStatus: status,
+      }, extra || {}),
+    });
+  }
+
   _redeemBatchIncomplete(req, res, error) {
+    // ⚠️ 业务字段必须装在 `details` 里：`AuditLog.log` 只认一组**固定字段**
+    // （id/ownerSubject/type/platform/title/status/error/publishId/details/createdAt），
+    // 直接传 requested/generated/rounds 会被**静默丢弃** ⇒ 审计条目 details=null、
+    // status="unknown" ⇒ 与「什么都没发生」在数据上完全一样。
     this._auditLog.log({
       ownerSubject: this._ownerSubject(req),
       type: "redeem_code_batch_incomplete",
-      requested: error.requested,
-      generated: error.generated,
-      rounds: error.rounds,
+      status: "failed",
+      title: `批量签发未补足 ${error.generated}/${error.requested}`,
+      error: error.code || "REDEEM_BATCH_INCOMPLETE",
+      details: {
+        actor: this._ownerSubject(req),
+        requested: error.requested,
+        generated: error.generated,
+        rounds: error.rounds,
+        // ⚠️ batch 必须进审计（也在响应体里）：**已签发出去、仍可兑**的那些码
+        // 既不在审计的码列表里、也不知道属于哪一批 ⇒ 泄漏后无从定位。
+        batch: error.batch || null,
+        issuedTo: error.issuedTo || null,
+      },
     });
     this._json(res, 409, {
       error: "REDEEM_BATCH_INCOMPLETE",
@@ -202,6 +299,7 @@ class PublishApiRedeemCodeAdminHelpers {
       requested: error.requested,
       generated: error.generated,
       rounds: error.rounds,
+      batch: error.batch || null,
       codes: error.created,
     });
   }

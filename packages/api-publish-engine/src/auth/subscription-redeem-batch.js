@@ -113,6 +113,10 @@ class SubscriptionRedeemBatchOps {
       error.generated = created.length
       error.rounds = rounds
       error.created = created
+      // ⚠️ batch / issuedTo 必须挂在错误上：**已签发出去、仍可兑**的那些码
+      // 出了这个错误就没别的去处了（审计与响应体都靠这两个字段定位是哪一批）。
+      error.batch = batchId
+      error.issuedTo = normalizedIssuedTo
       throw error
     }
     return { batch: batchId, plan, durationDays, issuedTo: normalizedIssuedTo, requested: count, generated: created.length, codes: created }
