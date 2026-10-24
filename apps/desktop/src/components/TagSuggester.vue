@@ -139,7 +139,7 @@
           <!-- Fallback: single merged group (old structure) -->
           <template v-else-if="activeGroup">
             <div style="display:flex;flex-wrap:wrap;gap:4px">
-              <span v-for="tag in activeGroup.tags" :key="tag"
+              <span role="button" tabindex="0" @keydown.enter.prevent="$emit('apply-tag', tag)" @keydown.space.prevent="$emit('apply-tag', tag)" v-for="tag in activeGroup.tags" :key="tag"
                 class="cohere-tag suggested-tag"
                 :class="tag.startsWith('#') ? 'cohere-tag-success' : 'cohere-tag-info'"
                 data-testid="suggested-tag"

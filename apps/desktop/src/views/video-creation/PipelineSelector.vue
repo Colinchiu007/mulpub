@@ -37,6 +37,7 @@
         :title="isTextIneligible(pipeline) ? textIneligibleHint : null"
         @click="onCardActivate(pipeline)"
         @keydown.enter="onCardActivate(pipeline)"
+        @keydown.space.prevent="onCardActivate(pipeline)"
       >
         <!-- 内置静态背景层（装饰性，对辅助技术隐藏） -->
         <div v-if="hasBg(pipeline.name)" class="card-bg" aria-hidden="true" data-testid="pipeline-card-bg">

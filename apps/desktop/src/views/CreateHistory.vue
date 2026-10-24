@@ -19,6 +19,7 @@
         tabindex="0"
         @click="showRunningPipelines"
         @keydown.enter="showRunningPipelines"
+        @keydown.space.prevent="showRunningPipelines"
       >
         <span>
           有 {{ runningPipelineCount + failedOrCancelledPipelineCount }} 条流水线记录（
@@ -37,7 +38,7 @@
           </template>
         </EmptyState>
         <div v-else class="render-list">
-          <div v-for="(r, i) in renders" :key="i" class="render-card" tabindex="0" role="button" @keydown.enter="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
+          <div v-for="(r, i) in renders" :key="i" class="render-card" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
             <div class="render-info">
               <span class="render-icon"><el-icon><VideoCamera /></el-icon></span>
               <div class="render-meta">
@@ -68,7 +69,7 @@
           </template>
         </EmptyState>
         <div v-else class="pipeline-list">
-          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="p.status" tabindex="0" role="button" @keydown.enter="openPipeline(p)" @click="openPipeline(p)">
+          <div v-for="(p, i) in pipelines" :key="i" class="pipeline-card" :class="p.status" tabindex="0" role="button" @keydown.enter="openPipeline(p)" @keydown.space.prevent="openPipeline(p)" @click="openPipeline(p)">
             <div class="pipeline-info">
               <span class="pipeline-status-dot" :class="p.status"></span>
               <div class="pipeline-meta">
