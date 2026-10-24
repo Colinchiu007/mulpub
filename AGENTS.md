@@ -81,36 +81,53 @@ node scripts/classify-docs-only.js --base=origin/main --head=HEAD
 
 **为什么做这件事**：`.quality-gates.md` 与 ledger 是所有会话共用的追加型写面，而共享主工作区只有一份工作树、一份 index、一份 HEAD。机器判定其实不需要它们（记录文件源读自身 frontmatter，ledger 只服务旧载体）。实测代价：同一条回填 #3602 / #3606 标题逐字相同、相隔 20 分钟各落一遍；共享根 reflog 在 5 小时窗口内记录到同一 HEAD 上 29 次 git 写动作。规范见 `openspec/changes/freeze-legacy-gate-carrier/specs/`（归档后才落到 `openspec/specs/openspec-integration/spec.md` 的「分层分支策略」——**归档前那份基线规格仍写着旧口径**，以本节与判据为准）。
 
-### 迁移编号的唯一性纪律（2026-10-23 起）
+### 迁移编号的唯一性纪律（2026-10-23 起；2026-10-24 订正机制描述）
+
+> ⚠️ **2026-10-24 订正**：本节初版把机制写成「**撞号 ⇒ 启动期硬失败**」，**那是误诊**。
+> 实测（同前缀不同名共存探针）证明：台账锁的是**全文件名 + checksum**，
+> **同前缀不同名可以共存、不报错**。真正的硬失败是 **FK 建表顺序**。下方已按实测重写。
 
 **Postgres 迁移文件的编号是跨 change 共享的单调序列，不是每个 change 自己挑的。**
 
-- **迁移台账对「文件名 + checksum」双向锁定**：`packages/api-publish-engine/src/auth/postgres-migrations.js`
-  的 `MIGRATION_PATTERN = /^\d{3}_[A-Za-z0-9][A-Za-z0-9_-]*\.sql$/`；
-  同文件 `:61-62` 与 `:104-106` 对 checksum 不一致抛 `MIGRATION_CHECKSUM_MISMATCH`。
-  `postgres-identity-repository.js` 的 `assertReady` 用 `allowPending:false`
-  ⇒ **「迁移文件已入库但尚未执行」会让 identity 仓储在启动期硬失败**。
+- **迁移按「文件名字典序」执行**：`packages/api-publish-engine/src/auth/postgres-migrations.js:28`
+  `.sort((left, right) => left.name.localeCompare(right.name))`，
+  `:102` `for (const migration of migrations)` 按该序逐个执行。
 
-- ⛔ **落任何迁移文件之前，必须先查目标编号是否已被占用**：
+  ⇒ **真正的硬约束只有一条：被外键引用方的文件名字典序必须小于引用方。**
+  `official_keys` 的文件名若排在 `official_key_envelopes` 之后 ⇒ 建信封表时
+  `relation "official_keys" does not exist`（实测 42P01）⇒ 迁移失败 ⇒
+  `assertReady`（`allowPending:false`）硬失败 ⇒ `MEMBERSHIP_UNAVAILABLE` ⇒ **会员中心整体降级**。
+
+- **台账锁的是「文件名 + checksum」，不是数字前缀**：
+  `MIGRATION_PATTERN = /^\d{3}_[A-Za-z0-9][A-Za-z0-9_-]*\.sql$/`（同文件 `:6`）；
+  `:61-62` 与 `:104-106` 对 checksum 不一致抛 `MIGRATION_CHECKSUM_MISMATCH`。
+  ⇒ **同前缀不同名可以共存**（`006_official_keys.sql` + `006_payment_orders.sql` 实测三项全部 applied）；
+  **已应用文件改内容仍会撞 checksum**。
+
+- ⛔ **落任何迁移文件之前，必须先查目标编号，并确认它排在被引用方之后**：
 
   ```bash
   ls migrations/postgresql/
   ```
 
-  **编号只能往后排，不得凭 change 规格里写的编号直接建文件**——规格写下时该编号可能还没被别的线占上。
+  判据不止「号没被占」，还要看**字典序**：被 FK 引用方的文件名必须**小于**引用方。
 
 - ⛔ **加文件与执行必须同批部署**（`allowPending:false` 的直接推论）：把「迁移文件入库」与
   「执行迁移」拆成两个 PR，中间那一段每次启动都会硬失败。
 
-- **实测代价（2026-10-23）**：`compute-key-envelope-migration` 的 tasks 3.1 写的是
+- **实测代价（2026-10-23 / 2026-10-24 两轮）**：`compute-key-envelope-migration` 的 tasks 3.1 写的是
   `006_official_key_envelopes.sql`，而 `006_payment_orders.sql`（微信 Native 支付那条线）
-  已占用该号。照规格落文件 ⇒ 落库后该号的任何一次追加/改名都撞 checksum ⇒
-  启动期硬失败 ⇒ `publish-api-server.js` 打 `MEMBERSHIP_UNAVAILABLE` ⇒ **会员中心整体降级**。
-  该 change 因此改用 `007`，并把「落库前先查编号」写进它的 tasks 1.3。
+  已占用该号。**初版结论「撞号 ⇒ 硬失败」被实测否证**（同前缀共存不报错），
+  但**排序问题是真的**：`006_official_keys.sql` 与 `006_payment_orders.sql` 中
+  `'o'(official) < 'p'(payment)` ⇒ 前者先执行 ✅；`007_official_key_envelopes.sql` 排在其后 ✅。
+  最终分配：`006_official_keys.sql` + `007_official_key_envelopes.sql`。
+  **但 `006` 与 `007` 两个号此刻都已被别的线占着** ⇒ 真正的修法是**先在跨 change 层面分配号**，
+  而不是各自在规格里随手写一个。
 
-- **这是跨 change 的主干级协调问题，change 级评审看不到别的线将要占用的号**：
-  任何带 `006` / `007` 字样的迁移 change，在开 PR 前都要**重新** `ls migrations/postgresql/`，
-  **不得沿用规格写下时的编号**——规格与落库之间可能隔了几周、几十个 PR。
+- **这是跨 change 的主干级协调问题，change 级评审结构性地看不到它**：
+  迁移 change 在开 PR 前都要**重新** `ls migrations/postgresql/`，
+  **不得沿用规格写下时的编号**——规格与落库之间可能隔了几周、几十个 PR，
+  而期间别的线可能已经占掉了那个号，或改变了字典序关系。
 
 ### PR 自动合并（2026-10-05 起，branch: agent-automerge-rule）
 
