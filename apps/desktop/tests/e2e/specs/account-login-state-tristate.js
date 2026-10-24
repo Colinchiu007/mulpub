@@ -152,10 +152,15 @@ async function run(r) {
   await record(r, '渲染层零次 accountUpdate（登录态唯一写者=主进程）',
     writerStats.updateCalls === 0 && writerStats.batchCalls === 1, writerStats);
 
-  // 5. 未确认账号不被当作失效（无「登录」按钮）—— 用从未有结论的百家号验证，
+  // 5. 未确认账号不被当作失效 —— 用从未有结论的百家号验证，
   // 视频号此时是「已登录」，不再承担这一语义。
-  await record(r, '未确认账号不提供「登录」入口（不计入 checkedExpiredIds）',
-    (await r.page.locator('[data-testid="login-acc-fresh"]').count()) === 0);
+  // 2026-10-24（account-card-login-button）：「登录」按钮改为**常驻**（原先是
+  // 「仅失效账号显示」的条件式「去登录」），所以这里改判「按钮存在」+「徽章仍是未确认」：
+  // 「按钮出现」不再等于「被判为失效」，两者解耦是本次改动的核心 ——
+  // 失效判定只由徽章与「验证」负责，登录入口对所有账号一律可用。
+  await record(r, '未确认账号「登录」按钮常驻，但徽章仍是「未确认」（按钮出现 ≠ 判为失效）',
+    (await r.page.locator('[data-testid="login-acc-fresh"]').count()) === 1 &&
+    (await badgeText(r, 'acc-fresh')) === '未确认');
 
   // 6. D1 回归：退出账号页再进入，显示仍为固化值
   await r.resetToRoute('/accounts');

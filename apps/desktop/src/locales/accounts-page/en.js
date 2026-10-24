@@ -196,6 +196,18 @@ export default {
     reloginFailed: 'Re-login failed',
     verifyFailed: 'Verification failed',
     goLogin: 'Go to login',
+    // Relogin confirmation (2026-10-24, account-card-login-button):
+    // an account that already shows "Logged in" would have its stored credentials
+    // replaced, so the user decides explicitly. Empty checkedAt = never checked.
+    reloginConfirmTitle: 'Log in again',
+    reloginConfirmMessage: (ctx) => {
+      const at = ctx.named('checkedAt')
+      const when = at ? ' (last checked: ' + at + ')' : ''
+      return 'Account "' + ctx.named('name') + '" currently shows as "Logged in"' + when +
+        '. Logging in again opens the ' + ctx.named('platform') + ' login page and requires you to ' +
+        'complete the login flow again; on success it replaces this account\'s stored credentials. Continue?'
+    },
+    reloginConfirmAction: 'Continue',
     accountIncomplete: 'Account info is incomplete',
     creatorUnsupported: 'Creator center is not supported for this platform yet',
     cardCreatorTitle: 'Click to open the creator center',
@@ -306,7 +318,9 @@ export default {
       unknownDate: 'Unknown date',
       settings: 'Settings',
       verify: 'Verify',
-      goLogin: 'Log in',
+      // 「登录」常驻（2026-10-24）：原「去登录」是条件式按钮，已被本按钮取代。
+      login: 'Log in',
+      loginTitle: 'Log in again: opens the platform login page and replaces this account\'s stored credentials on success',
       delete: 'Delete',
       accountLoginStatus: (ctx) => 'Account login status: ' + ctx.named('status'),
       selectAccount: (ctx) => 'Select ' + ctx.named('name'),
