@@ -73,7 +73,7 @@ watch(batchVideoPlatformOptions, (list) => { …同形… }, { immediate: true }
 | 行尾对账 | ✅ | `git diff --numstat` 与 `--ignore-cr-at-eol --numstat` 两口径一致后再提交 |
 | 台账（CHANGELOG） | ✅ 按新规 | **不直接编辑 `CHANGELOG.md`**，变更说明写进本文件的 §7 由聚合器搬运（AGENTS `CHANGELOG.md` 条） |
 | QM-6 | 见 §8 | `sh scripts/deep-review.sh` 实跑：判定 **SINGLE**（变更 177 行 ≤ 200 且无敏感命中）；critic=claude 输出被截断（`DEEP_RC=2`），但截断前的 i1 是一条**真缺陷** ⇒ 已采纳并补锁，读数见 §8 |
-| 远程同步 | 见 §6 | PR 号与合并 SHA 在合并后由 `scripts/lib/merge-ledger.js` 推导，不手写状态词 |
+| 远程同步 | 由门禁推导 | 本行不需要事后改写：合并后由 `scripts/lib/merge-ledger.js` 按主干历史推导归属（见 §6），不手写状态词 |
 
 ## 5. 明确留给另批的（不静默吞掉）
 
