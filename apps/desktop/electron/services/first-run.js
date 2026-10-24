@@ -12,12 +12,53 @@ const log = require('./logger')
  
 let _mainWin = null
 
+function markerPath () {
+  return path.join(app.getPath('userData'), 'first-run-done')
+}
+
+const MARKER_BODY_PREFIX = 'done:'
+
+/**
+ * QM-6 第二轮 i2：读侧只看 `existsSync` 把「已损坏的地基」读成「已完成」。
+ *
+ * i10 的临时名 + rename 只保证**今后**产出的标记是全量的；对**已经存在**的坏文件
+ * （旧实现直写 `writeFileSync(最终名)` 在产线机器上被杀软占用/进程被杀留下的
+ * 0 字节或半写文件，或任何第三方写入）毫无办法 —— 那种文件照样 `existsSync` 为真，
+ * 于是向导对那批老用户永久消失、日志零痕迹，与本 PR 要修的自动收口**症状同形**。
+ * 开通自动落标记后新用户行为改变、老用户大量存量 profile 携带旧写法的标记，
+ * 这个迁移面必须被读侧接住。
+ *
+ * 三档而非布尔：`absent` / `done` / `corrupt` 必须可区分，
+ * 否则「repair」与「首次落标记」在写侧不可分辨（日志与返回值都要能点名）。
+ *
+ * @returns {{state: 'absent'|'done'|'corrupt', reason?: string}}
+ */
+function readMarker (p) {
+  let text
+  try {
+    if (!fs.existsSync(p)) return { state: 'absent' }
+    text = fs.readFileSync(p, 'utf8')
+  } catch (e) {
+    // 读不动（权限/IO）也归 corrupt：「读不出来」不是「已完成」，但同样不是反证 ——
+    // 判为 pending 让用户重看一次向导，代价远小于把永久跳过写进既成事实。
+    return { state: 'corrupt', reason: 'read failed: ' + (e && e.message ? e.message : String(e)) }
+  }
+  if (typeof text === 'string' && text.startsWith(MARKER_BODY_PREFIX)) return { state: 'done' }
+  return { state: 'corrupt', reason: text && text.length ? 'unrecognized body' : 'empty file' }
+}
+
 function isSetupDone () {
-  return fs.existsSync(path.join(app.getPath('userData'), 'first-run-done'))
+  const p = markerPath()
+  const m = readMarker(p)
+  if (m.state === 'corrupt') {
+    log.warn('firstRun', `Setup marker unreadable (${m.reason}) - treating setup as pending; the wizard will show again`)
+    return false
+  }
+  return m.state === 'done'
 }
 
 function reset () {
-  const p = path.join(app.getPath('userData'), 'first-run-done')
+  const p = markerPath()
   if (fs.existsSync(p)) fs.unlinkSync(p)
 }
 
@@ -37,11 +78,17 @@ async function runSetup (mainWin) {
   log.info('firstRun', 'Setup required: awaiting user completion')
 }
 
-/** 首启完成标记的唯一写者；重复调用幂等（已有内容原样保留，不追加时间戳） */
+/** 首启完成标记的唯一写者；已有**有效**内容时幂等（不追加时间戳），坏文件则原子重写 */
 function markDone () {
-  const p = path.join(app.getPath('userData'), 'first-run-done')
+  const p = markerPath()
   try {
-    if (fs.existsSync(p)) return { ok: true, reused: true }
+    const before = readMarker(p)
+    if (before.state === 'done') return { ok: true, reused: true }
+    if (before.state === 'corrupt') {
+      // 这一支是 i2 的落点：坏标记**不得**被当成"已完成所以幂等"——
+      // 那会让用户点「完成」也修不好自己的标记。判 corrupt 后照常原子重写。
+      log.warn('firstRun', `Setup marker invalid (${before.reason}) - rewriting it atomically instead of reusing`)
+    }
     // QM-6 i10：原实现直接 `writeFileSync(p, ...)` —— 进程在写中途被杀会留下半写或 0 字节的
     // 最终名文件，而 isSetupDone() 只看 existsSync ⇒ 损坏标记被读成「已完成」，向导从此永久
     // 消失且日志里零痕迹（与 1.4 要修的自动收口同形，只是换了成因）。改为临时名 + rename：
@@ -55,14 +102,14 @@ function markDone () {
       fs.renameSync(tmp, p)
     } catch (writeError) {
       try { fs.unlinkSync(tmp) } catch (_) { /* 残留 tmp 不影响判据：真源是最终名 */ }
-      if (fs.existsSync(p)) {
+      if (readMarker(p).state === 'done') {
         log.info('firstRun', 'Setup complete (concurrent writer)')
         return { ok: true, reused: true }
       }
       throw writeError
     }
     log.info('firstRun', 'Setup complete')
-    return { ok: true, reused: false }
+    return { ok: true, reused: false, repaired: before.state === 'corrupt' }
   } catch (e) {
     log.error('firstRun', 'Setup error:', e.message)
     return { ok: false, message: e.message }

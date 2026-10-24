@@ -198,3 +198,75 @@ describe('first-run:complete 通道的三处配对（缺一即"点了没反应�
     expect(acl, 'preload 导出名未进 access-control 清单 ⇒ sandbox 侧可能拿不到').toContain('firstRunComplete')
   })
 })
+
+/**
+ * QM-6 第二轮 i2：读侧只看 `fs.existsSync(最终名)` 对**已经存在**的坏标记完全免疫。
+ *
+ * i10 的临时名 + rename 只保证「今后」产出的标记是全量的；旧实现直写最终名在产线机器上
+ * （进程被杀 / 杀软占用）留下的 0 字节或半写文件，以及任何第三方写入，都被 `existsSync`
+ * 读成「已完成」⇒ 向导对那批老用户永久消失、日志零痕迹 —— 症状与本 PR 要修的自动收口同形，
+ * 只是换了成因。开通自动落标记后新用户行为改变、存量 profile 携带旧写法标记，
+ * 这个迁移面必须由读侧接住，而不是"下次写对了就好了"。
+ */
+describe('first-run 服务 —— 坏标记的读侧判据与修复（QM-6 二轮 i2）', () => {
+  let firstRun
+
+  beforeEach(async () => {
+    vi.resetModules()
+    __electronMock.app.getPath = () => TMP_USER_DATA
+    fs.rmSync(TMP_USER_DATA, { recursive: true, force: true })
+    fs.mkdirSync(TMP_USER_DATA, { recursive: true })
+    calls.info.length = 0; calls.warn.length = 0; calls.error.length = 0
+    firstRun = await import('./first-run.js')
+  })
+
+  afterEach(() => {
+    fs.rmSync(TMP_USER_DATA, { recursive: true, force: true })
+  })
+
+  const marker = () => path.join(TMP_USER_DATA, 'first-run-done')
+
+  it('0 字节标记（旧直写形态被中途打断的产物）不得读成已完成，且必须出声', () => {
+    fs.writeFileSync(marker(), '')
+    expect(firstRun.isSetupDone(), '空文件不是"已完成"的证据').toBe(false)
+    expect(calls.warn.map((a) => a.join(' ')).join('\n'), '坏标记必须留下可归因的日志').toMatch(/unreadable/)
+  })
+
+  it('内容不是 done: 前缀的标记一律判 pending（不靠"看起来像"猜）', () => {
+    for (const body of ['garbage', 'true', '{}', 'done', '\r\n']) {
+      fs.rmSync(marker(), { force: true })
+      fs.writeFileSync(marker(), body)
+      expect(firstRun.isSetupDone(), `内容=${JSON.stringify(body)} 时不得判已完成`).toBe(false)
+    }
+    fs.rmSync(marker(), { force: true })
+    fs.writeFileSync(marker(), 'done:2026-10-24T00:00:00.000Z')
+    expect(firstRun.isSetupDone(), '正控：合法内容必须判已完成（否则上面四条是恒真）').toBe(true)
+  })
+
+  it('runSetup 遇到坏标记必须广播 needed（而不是替用户把向导永久关掉）', async () => {
+    fs.writeFileSync(marker(), '')
+    const win = { sent: [], webContents: { send: (c, p) => { win.sent.push([c, p]) } } }
+    await firstRun.runSetup(win)
+    expect(win.sent.some(([c, p]) => c === 'first-run:status' && p && p.type === 'needed'),
+      `实际广播: ${JSON.stringify(win.sent)}`).toBe(true)
+  })
+
+  it('点「完成」必须能把坏标记原子重写，且如实报 repaired（不得复用"已有所以幂等"那一支）', () => {
+    fs.writeFileSync(marker(), '')
+    const r = firstRun.markDone()
+    expect(r.ok).toBe(true)
+    expect(r.reused, '坏标记不算"已有有效标记"，不得报 reused:true').toBe(false)
+    expect(r.repaired).toBe(true)
+    expect(firstRun.isSetupDone(), '重写后必须真的读得出已完成').toBe(true)
+    expect(fs.readFileSync(marker(), 'utf8')).toMatch(/^done:/)
+  })
+
+  it('有效标记仍在时保持幂等：不重写内容、reused:true、repaired 不为真', () => {
+    const body = 'done:2026-01-01T00:00:00.000Z'
+    fs.writeFileSync(marker(), body)
+    const r = firstRun.markDone()
+    expect(r).toMatchObject({ ok: true, reused: true })
+    expect(r.repaired, '幂等路径不得谎报修复').toBeFalsy()
+    expect(fs.readFileSync(marker(), 'utf8'), '已有内容必须原样保留').toBe(body)
+  })
+})

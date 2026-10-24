@@ -7,6 +7,13 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { maybeEnterFirstRun, __resetFirstRunGateForTest } from './useFirstRunGate'
+// 静态导入只为构造**真的** router：守卫挡下时 push resolve 的是宿主 new 出来的
+// NavigationFailure（带内部 Symbol），手搓对象造不出这个形态。
+// 判据用 `instanceof Error` 而不是官方谓词 `isNavigationFailure`：前者与"哪一份 vue-router
+// 实例"无关，后者要求内部 Symbol 属于它自己那份实例 —— 少一层可漂的前提。
+// （本文件第一版曾把一次红误归因为"两份实例"，实测真因是守卫方向写反：
+//  `beforeEach(() => true)` 是**放行**不是拦截。归因写错时先重跑最小对照，别急着成文。）
+import { createRouter, createMemoryHistory } from 'vue-router'
 
 function fakeRouter (path = '/home') {
   const push = vi.fn(async () => {})
@@ -159,5 +166,80 @@ describe('maybeEnterFirstRun', () => {
     expect(nonImportHits.length, 'App.vue 未接 useFirstRunGate ⇒ 首启向导仍不可达').toBeGreaterThan(0)
     // 接线还必须挂在挂载时机上，否则调用点在别的分支里 = 首启时不执行
     expect(src, 'App.vue 的判定必须在 onMounted 内（首启时机）').toMatch(/onMounted\s*\(/)
+  })
+})
+
+/**
+ * QM-6 第二轮 i1：vue-router 4 对「被守卫挡下」的导航是 **resolve 一个 NavigationFailure**，
+ * 不是 reject。只写 `try { await push } catch {}` 等于把闩的释放挂在一条走不到的通道上：
+ * 那种情况下 `await` 正常返回、`decided` 已置位且永不释放 ⇒ 全新用户本会话
+ * 静默永久跳过向导，且零日志 —— 与本文件头注释第 1 条的验收标准直接冲突。
+ *
+ * 前提（push 真的 resolve 而非 reject）由**真 vue-router 实例**自己断言，
+ * 不用手搓失败对象：`isNavigationFailure` 要求 `instanceof Error` 且带内部 Symbol，
+ * 手搓的形状一律判 false（实测：predicate 是 `error instanceof Error && NavigationFailureSymbol in error`）。
+ */
+describe('useFirstRunGate —— 导航被守卫挡下（resolve 形态）也必须放开闩并出声', () => {
+  beforeEach(() => {
+    __resetFirstRunGateForTest()
+  })
+
+  it('beforeEach 返回 false ⇒ 判 push-failed、闩放开、日志带宿主的 message', async () => {
+    const stub = {}
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: stub },
+        { path: '/first-run', component: stub },
+      ],
+    })
+    let allow = false
+    // 守卫的判据是"返回 false 才挡"，返回 true 是放行 —— 写成 `() => block`（block=true）
+    // 会把整条测试变成"导航成功"，于是这一格绿在错误的原因上（本文件第一版就这么错过一次）。
+    router.beforeEach(() => allow)
+    // 先落一个初始位置（真实应用里路由总有初始导航）。
+    await router.push('/').catch(() => {})
+
+    const warns = []
+    const check = async () => ({ code: 0, data: { setupDone: false } })
+
+    const r1 = await maybeEnterFirstRun({ router, check, warn: (m) => warns.push(String(m)) })
+
+    expect(r1, '被守卫挡下必须报 push-failed，不得谎报 navigated').toEqual({ action: 'skipped', reason: 'push-failed' })
+    // 前提自证：导航确实没发生（currentRoute 仍在 /），而 push 没有抛错 —— 这正是 resolve 形态
+    expect(router.currentRoute.value.path, '导航确实被挡在门外').toBe('/')
+    expect(warns.join('\n'), '必须出声且点明放开闩').toMatch(/latch released/)
+
+    // 闩真的放开了：放行后再判一次必须真的导航（否则"永久跳过"那一格没被证伪）
+    allow = true
+    const r2 = await maybeEnterFirstRun({ router, check, warn: (m) => warns.push(String(m)) })
+    expect(r2.action, '闩未放开时这一条会读到 already-decided').toBe('navigated')
+    expect(router.currentRoute.value.path).toBe('/first-run')
+  })
+
+  it('导航成功时 push resolve 的是 undefined ⇒ 判 navigated，不得误伤（实测语义）', async () => {
+    const warns = []
+    const router = { push: async () => undefined }
+    const r = await maybeEnterFirstRun({
+      router,
+      check: async () => ({ code: 0, data: { setupDone: false } }),
+      warn: (m) => warns.push(String(m)),
+    })
+    expect(r.action).toBe('navigated')
+    expect(warns, '成功路径不得留日志').toEqual([])
+  })
+
+  it('宿主给的 Error 没有可用 message 时，兜底按 type 出声（不得把认不出形态读成成功）', async () => {
+    const warns = []
+    const err = new Error('   ')
+    err.type = 4
+    const router = { push: async () => err }
+    const r = await maybeEnterFirstRun({
+      router,
+      check: async () => ({ code: 0, data: { setupDone: false } }),
+      warn: (m) => warns.push(String(m)),
+    })
+    expect(r).toEqual({ action: 'skipped', reason: 'push-failed' })
+    expect(warns.join('\n')).toContain('NavigationFailure type=4')
   })
 })

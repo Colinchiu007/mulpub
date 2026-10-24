@@ -198,6 +198,92 @@ NEW_OVER_LIMIT: apps/desktop/src/App.vue 500 行 >= 500，新代码不得引入�
 ⇒ 已开任务条目：**App.vue 必须在下一次被触碰时先抽一段出来**（优先
 「定时派发失败的全局提示」2026-10-09 那 20 行，它已是 App 级监听、天然可搬）。
 
+## 十、QM-6 第二轮：**真外部评审**（claude）与 i1/i2 的处置（2026-10-24）
+
+`sh scripts/deep-review.sh`（基线 `origin/main`，需 `CCG_ARL_DIR` 指引擎目录）：
+
+```
+提交判定: DUAL  (变更 1239 行 > 200 行阈值)
+[轮 1/1] 调用 critic=claude 评审...
+  评审完成：10 条问题，维度分 4 个（correctness/security/performance/maintainability），最低分 5
+收敛判定: status=self_play reason=selfPlay minScore=5
+⚡ 进入自扮演裁决 … 待裁决 3 条；其中高危域必须外部复核 1 条
+[ccg-review-writeback] 未写回 reason=not-closed detail=status="self_play_pending"
+```
+
+**这条评审的价值**：它抓到两条我自己两轮自审 + 一轮外部评审都没发现的**真缺陷**，
+且两条都落在"用户可见后果"上，不是风格问题。
+
+### i1（成立，已修）：闩的释放挂在错误的失效通道上
+
+vue-router 4 对「被守卫挡下」的导航是 **resolve 一个 NavigationFailure，不是 reject**。
+于是本文件 §4 里 QM-6 首轮 i2 那条修法（`catch` 里放开闩）**修的是一条走不到的路**：
+守卫挡下时 `await push` 正常返回、`decided` 永不释放 ⇒ 全新用户本会话静默永久跳过向导，
+**而且零日志**。首轮反证 F10 只注入「push reject」，对 resolve 形态完全免疫 ——
+`CAUGHT=15` 全部为真，也不能证伪这一格（**反证集覆盖的是我想到的通道，不是宿主真实的通道**）。
+
+处置：`if (failure instanceof Error)` 接住 resolve 形态 ⇒ 放开闩 + 出声 + 返回 `push-failed`。
+判别式刻意**不用**官方谓词 `isNavigationFailure`：它要求内部 Symbol 属于"它自己那份"实例，
+多一层可漂的前提；而 `instanceof Error` 是宿主内建，跨实例同一个。
+
+实测语义（本机 `node -e` 用**已安装**的 vue-router 直接跑）：
+
+| 构造 | `await push('/first-run')` 的 resolve 值 |
+| --- | --- |
+| 守卫 `return false` | `[object Error]`，`type=4`，`message="Navigation aborted from \"/\" to \"/first-run\" via a navigation guard."` |
+| 导航成功 | `undefined` |
+
+⇒ `describeFailure()` 直接取宿主的 `message`。**第一版我凭印象写了一张 `type→名字` 的映射表**
+（`{1:aborted, 2:cancelled, 4:duplicated, 8:guardRejected}`），真实枚举是
+`aborted=4 / cancelled=8 / duplicated=16`（读 `node_modules/vue-router/dist/devtools-*.mjs` 核实），
+**三个数全错** —— 抄表就是把日志钉在错数上，已删表改取 `message`。
+
+### i2（成立，已修）：读侧只看存在性，把「已损坏的地基」读成「已完成」
+
+`isSetupDone()` 原本只 `fs.existsSync(最终名)`。首轮 i10 的「临时名 + rename」只保证
+**今后**产出的标记是全量的；旧实现直写最终名在产线机器上留下的 0 字节/半写文件
+（以及任何第三方写入）依旧被读成"已完成" ⇒ 向导对那批**存量 profile** 永久消失、日志零痕迹，
+与本 PR 要修的自动收口**症状同形、成因不同**。开通自动落标记后新用户行为改变、老用户大面积携带
+旧写法标记，这个迁移面当时没有任何用例覆盖。
+
+处置：`readMarker()` 出三档 `absent | done | corrupt`（**三档而非布尔**：否则「repair」与
+「首次落标记」在写侧不可分辨），读侧只认 `done:` 前缀的内容；corrupt ⇒ 判 pending + `log.warn`
+点名原因；写侧 `markDone()` 遇 corrupt **原子重写**并如实报 `repaired:true`（不得走"文件在就幂等"
+那一支——那等于用户点「完成」也修不好自己的标记）。**不做**"读不到就当已完成"的宽松方向：
+「这一帧读不出来」不是「用户已经做完」的证据，重看一次向导的代价远小于把永久跳过写成既成事实。
+
+### i3（成立，本批不改，登记为欠账）：三处「接线锁」是源码 grep，证不了运行时被消费
+
+评审指出：`PUBLIC_CHANNELS` 配对锁、App.vue 接线锁、按钮形状锁都按**源码文本**匹配，
+只能证明"字面出现过"，不能证明"围栏真的查了这张表"——「注册了但没接线」与
+「注册了但没执行」在文本锁下不可区分（正是本仓反复记的「注册≠接线≠生效」族）。
+这条与本条链的 `highRiskDomains=["auth"]` 叠加 ⇒ 按矩阵只能由 `tier=external` 或人工收口。
+本批**不改**（要动的是 IPC 围栏的测试接缝，属另一刀），登记为遗留。
+
+### 反证：新增 F16 / F17 / F18，全 18 道 CAUGHT
+
+```
+[BASELINE] rc=0 failed=0 passed=298 collected=298 errors=0 blind=false
+[F16] CAUGHT :: 不看 resolve 值（把判别式换成永远认不出 failure 的写法）— 红 2（探针 1/1）；非预期红 1
+[F17] CAUGHT :: 读侧退回 existsSync —— 红 4（探针 3/3）；非预期红 1
+[F18] CAUGHT :: markDone 退回"文件在就幂等"              — 红 1（探针 1/1）
+[SUMMARY] 共 18 条：CAUGHT=18 其余=0
+```
+
+**F17 第一版是 MISSED，而且是"变异根本没打到被测的那一格"**：我把锚点写在
+`isSetupDone` 末尾的 `return m.state === 'done'`，但 corrupt 分支在它**之前**就 `return false`，
+改末行等于改一处已不被依赖的代码 ⇒ 红 0 条。这是本仓「同一故障面两道兜底互相掩盖」的第四次命中，
+正解同前：**让变异打到唯一的那道**（改 `readMarker` 的内容判据），不是加更多用例。
+另记一条自错：我一度把 F16 的红归因为"两份 vue-router 实例"，
+实测真因是**我自己把守卫写成 `beforeEach(() => true)`**（返回 true 是放行不是拦截）——
+归因写错时会连带把假机制写进注释，已在本文件与源码注释里同步改掉。
+
+### QM-6 状态：仍未闭合，且**不是**"再跑一轮评审"能闭合
+
+产物 `status=self_play_pending`（未写回）。验证层低分必落自扮演，而任何 `upheld` 都计 blocking ——
+i1/i2 我修了，它们依然是成立的指控。⇒ 本 PR 的收口需要人工（或 `tier=external` 的公开复核记录），
+**不得**为了变绿手写 `status`/把 findings 改判 `dismissed`。
+
 ## CHANGELOG 条目
 
 # [未发布] fix(首启): 首启向导接回启动判定 —— 主进程不再替用户写"已完成"，判定走拉取，假检测行撤下（ux-audit-first-run-launch）

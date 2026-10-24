@@ -181,7 +181,47 @@ const MUTATIONS = [
       'markDone 落盘后最终名内容完整且不留临时名 residue',
       'markDone 的 rename 失败且最终名不在场时必须原样进失败处理，不得留下半状态',
     ],
-  },]
+  },
+  {
+    id: 'F16',
+    label: '导航被守卫挡下时不看 resolve 值（QM-6 二轮 i1：vue-router 是 resolve failure 不是 reject）',
+    file: GATE,
+    pairs: [{
+      // 取被禁形态本身：把判别式换成"永远认不出 failure"的写法，等价于"只信 catch"
+      from: 'if (failure instanceof Error) {',
+      to: 'if (failure instanceof TypeError) {',
+    }],
+    expect: ['beforeEach 返回 false'],
+  },
+  {
+    id: 'F17',
+    label: '读侧退回 existsSync（QM-6 二轮 i2：0 字节/半写的存量标记会被读成已完成）',
+    file: FIRST_RUN,
+    // 锚点必须落在**真正承载判据的那一行**。第一版把 from 写成 isSetupDone 末尾的
+    // `return m.state === 'done'`，实测 MISSED（红 0 条）—— 因为 corrupt 分支在它之前
+    // 就 `return false`，改末行等于改一处已经不被依赖的代码（同一故障面上两道兜底
+    // 让彼此不可证伪，正解是让变异打到唯一的那道：readMarker 的内容判据）。
+    pairs: [{
+      from: "  if (typeof text === 'string' && text.startsWith(MARKER_BODY_PREFIX)) return { state: 'done' }",
+      to: "  return { state: 'done' }",
+    }],
+    expect: [
+      '0 字节标记（旧直写形态被中途打断的产物）不得读成已完成，且必须出声',
+      '内容不是 done: 前缀的标记一律判 pending（不靠"看起来像"猜）',
+      'runSetup 遇到坏标记必须广播 needed（而不是替用户把向导永久关掉）',
+    ],
+  },
+  {
+    id: 'F18',
+    label: 'markDone 退回"文件在就幂等"（坏标记被当已有有效值，用户点完成也修不好）',
+    file: FIRST_RUN,
+    pairs: [{
+      from: "    if (before.state === 'done') return { ok: true, reused: true }",
+      to: '    if (fs.existsSync(p)) return { ok: true, reused: true }',
+    }],
+    expect: ['点「完成」必须能把坏标记原子重写'],
+  },
+]
 
 // 命令名按平台选：`pnpm.cmd` 是 Windows 专有，Linux runner 上 spawn 失败 ⇒ 基线读成 blind，
 // 八道反证一条不跑却看起来像"环境问题"（任务 #23 要把这类驱动接进 CI）。

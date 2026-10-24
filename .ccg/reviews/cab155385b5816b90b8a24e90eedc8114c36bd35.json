@@ -1,0 +1,75 @@
+{
+  "sha": "cab155385b5816b90b8a24e90eedc8114c36bd35",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1239 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1239,
+    "fileCount": 27,
+    "codeFileCount": 18,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 9,
+    "docSensitiveContentHits": 9,
+    "docSensitiveContentSample": [
+      "3. **不做退避重试**。AGENTS 的\"Windows 原子文件替换重试\"授权的是*覆盖型*替换遇",
+      "   只加 handler 不加白名单，未授权用户点\"完成\"会被静默挡掉（本仓「注册≠接线≠生效」的同型坑）。",
+      "### Requirement: 新增 IPC 通道必须同批登记授权白名单"
+    ],
+    "ccgSensitiveContentHits": 4,
+    "ccgSensitiveContentSample": [
+      "      \"   只加 handler 不加白名单，未授权用户点\\\"完成\\\"会被静默挡掉（本仓「注册≠接线≠生效」的同型坑）。\",",
+      "      \"### Requirement: 新增 IPC 通道必须同批登记授权白名单\",",
+      "      \"主进程新增的任何渲染端可调用通道，MUST 在同一个变更集里出现在 `PUBLIC_CHANNELS`（或明确的授权档），\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-24T15:07:50.030Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-cab15538\\adjudication.json",
+    "note": "裁决尚未填写：3/3 条未定（i1, i2, i3）",
+    "at": "2026-10-24T15:22:33.503Z"
+  }
+}
