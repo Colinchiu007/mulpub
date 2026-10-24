@@ -1,0 +1,174 @@
+{
+  "sha": "4583f8814d4a3a2a80366e888ec9d0aab4995e6d",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 1097 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 1097,
+    "fileCount": 23,
+    "codeFileCount": 11,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 3,
+    "docSensitiveContentHits": 3,
+    "docSensitiveContentSample": [
+      "- **验证**：新增 `src/stores/publishProgress.stale.test.js` 9 条（首跑 **9 failed** 的先红证据）+ 面板 4 条；消费者并集 12 个测试文件 **298 passed / 0 failed、无 `Errors` 段**；反证 `scripts/stale-watchdog-contract-mutate.js` 8 道（S1 阈值 Infinity / S2 陈旧写进 phase / S3 摘 `clearInterval` / S4 摘单实例守卫 / S5 `>=`改`>` / S6 关闭按钮退回 / S7 `handleClose` 退回只清空 / S8 不传分钟数）末跑 `CAUGHT=8/8`、8/8 `RESTORE_OK`、基线 `collected=45 passed=45`。`check-locale-sync --pair-base` 与 `--cjk` 均 PASS（CJK 基线 1330 → 1124）；聚合 eslint 改动文件 rc=0。QM-1 本批**未触发**（只动 `apps/desktop/src/`，未触 `electron/` 与 `packages/rpa-engine/`）；像素回归交 `QG Visual` 判，不用 `--update-baseline` 消化。",
+      "- 不涉及主进程 / IPC 通道 / 授权白名单 ⇒ 不触发 QM-1 打包门槛（但改了 `src/` 仍跑视觉相关判定）。",
+      "| QM-4 视觉 | ⏳ 交 CI 判 | `/first-run` 类改动不同：本批动的是 `PublishProgressPanel` 的徽标 DOM（class 由静态变绑定）与任务行文案。非陈旧态下 class 集合与文本未变，但**这不是我本地能证的** —— 由 `QG Visual`（Gate 7，windows-latest + CI 的 Chromium）判，红则按\"基线只能取自同一次 CI 渲染\"口径处理，禁止 `--update-baseline` 消化 |"
+    ],
+    "ccgSensitiveContentHits": 3,
+    "ccgSensitiveContentSample": [
+      "      \"- **验证**：新增 `src/stores/publishProgress.stale.test.js` 9 条（首跑 **9 failed** 的先红证据）+ 面板 4 条；消费者并集 12 个测试文件 **298 passed / 0 failed、无 `Errors` 段**；反证 `scripts/stale-watchdog-contract-mutate.js` 8 道（S1 阈值 Infinity / S2 陈旧写进 phase / S3 摘 `clearInterval` / S4 摘单实例守卫 / S5 `>=`改`>` / S6 关闭按钮退回 / S7 `handleClose` 退回只清空 / S8 不传分钟数）末跑 `CAUGHT=8/8`、8/8 `RESTORE_OK`、基线 `collected=45 passed=45`。`check-locale-sync --pair-base` 与 `--cjk` 均 PASS（CJK 基线 1330 → 1124）；聚合 eslint 改动文件 rc=0。QM-1 本批**未触发**（只动 `apps/desktop/src/`，未触 `electron/` 与 `packages/rpa-engine/`）；像素回归交 `QG Visual` 判，不用 `--update-baseline` 消化。\",",
+      "      \"- 不涉及主进程 / IPC 通道 / 授权白名单 ⇒ 不触发 QM-1 打包门槛（但改了 `src/` 仍跑视觉相关判定）。\",",
+      "      \"| QM-4 视觉 | ⏳ 交 CI 判 | `/first-run` 类改动不同：本批动的是 `PublishProgressPanel` 的徽标 DOM（class 由静态变绑定）与任务行文案。非陈旧态下 class 集合与文本未变，但**这不是我本地能证的** —— 由 `QG Visual`（Gate 7，windows-latest + CI 的 Chromium）判，红则按\\\"基线只能取自同一次 CI 渲染\\\"口径处理，禁止 `--update-baseline` 消化 |\""
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-22T04:48:03.365Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_blocked",
+    "performedBy": "self-play",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "V12 用例（「面板是看门狗时钟的宿主」）断言 `setIntervalSpy.mock.calls.findIndex(c => c[1] === STALL_TICK_MS) >= 0`，但 `beginStallClock` 幂等（`if (timer !== null) return`），且 tracker 按 store 实例 WeakMap 缓存、mock store 又是模块级 `reactiveStore` —— 同一个 tracker 跨整个文件的用例共享。因此 V12 只有在「挂载瞬间 timer 是死的」时才可能绿，即文件里每一次先前的 mount 都必须已被拆毁。diff 中可见的五个前置 1.8 用例都只 `mountPanel()` 没有 unmount，文件级 afterEach 的 unmount 不在本 diff 里，唯一的 `wrapper.unmount()` 就在 V12 自身内部。若文件既有 teardown 并不拆 mount，则第一个 1.8 用例起的真实 15s interval（有非终态任务时永不自泊）会一直活着，V12 的 `beginStallClock` 成为 no-op、`findIndex` 返回 -1 → V12 直接红。QM-6 i8 给 store 测试补的 afterEach 卫生（逐 tracker `endStallClock` + 「活跃 tick 为 0」）没有同步补到面板测试文件，同样的泄漏类在面板侧仍无护栏。",
+        "highRiskDomains": [],
+        "prosecution": "V12 在全局 setInterval 调用历史上 findIndex，把「之前每次 mount 都被拆毁了」这条隐含前提交给文件级 afterEach；若 teardown 不 unmount，存活定时器会让 beginStallClock 幂等短路，V12 退化成假证明。",
+        "defense": "前提当场核过：该文件第 96/104 行确有两处 wrapper?.unmount()（属上游既有形态，非本批引入），实测 38 条全绿，「V12 直接红」的后果没有现场发生。",
+        "verdict": "upheld",
+        "rationale": "结论：风险方向判断正确，严重度在此批未落地。但把前提交进判据是零成本的，而\"靠测试编排顺序兜住\"正是本仓反复踩的那类隐性泄漏 ⇒ 采纳（加固而非修行为）。",
+        "remediation": "V12 现在在装 spy 后立刻取 callsAtStart，findIndex 只认本用例挂载之后新增的那一起表。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "`createStallTracker.begin()` 无条件 `setInterval(...)`，自泊只发生在 tick 回调内部 —— 面板在「零非终态任务」状态下挂载时，会存在一个活着的 15s 定时器直到第一个 tick 才停（最多 15s）。这直接违反 spec「无运行中任务 ⇒ tick MUST 已停止」与不变量 I6「有非终态任务才活着」，而面板 setup 是**无条件** `stall.beginStallClock()`：应用每次启动、面板每次重新挂载，即使没有任何发布活动也起一次定时器（每条路由/每次挂载白付一次 15s 唤醒）。V6 的「begin 后恰好 1 个 tick」用例全部是在「已有 live 任务」的前提下写的，「begin 且零 live 任务 ⇒ 0 个 tick」零覆盖。",
+        "highRiskDomains": [],
+        "prosecution": "begin() 无条件 setInterval，自泊只在 tick 内部 ⇒ 零非终态任务时挂载也要白起一次 15s 定时器，直接违反 spec「无运行中任务 ⇒ tick MUST 已停止」；而「begin 后恰好 1 个 tick」的用例全部在已有 live 任务的前提下写。",
+        "defense": "无反驳。这是我实现 i2 类判据时只测\"有活干\"那一侧、没测\"没活干\"那一侧的直接后果，且\"零 live 也建表\"是我自己写进 begin 的行为。",
+        "verdict": "upheld",
+        "rationale": "真缺陷且违反已写的 spec 条款 ⇒ 必须修，不能只补测试把错误行为钉成契约。",
+        "remediation": "begin() 起表前自检 hasLiveTask()（盖章仍在前面）；面板新增 watch(sessions.length) 用同一公共入口叫回；store 侧 + 面板侧各一条空态用例；反证 S13 把自检摘掉必须红。"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "finding": "`PHASE_ENUM` 里 `captcha`/`blocked`/`retry`/`released` 都是非终态，`eachLiveTask` 与 `taskStallMinutes` 一律把它们当 live 参与陈旧判定，锚点回落链 `lastEventAt ?? startedAt ?? createdAt` 对这些相位同样生效，而 store 在 `:104`/`:173` 入相位时已写过 `lastEventAt`。一个等待用户输入验证码的任务**按设计**不会产生进度事件，3 分钟一到就被标「（N 分钟无更新）」；若它是唯一 live 任务，`hasStalledRunning` 变 true，关闭按钮解禁并显示「任务已 N 分钟无更新，可关闭面板（不会取消任务）」——用户正在输验证码时看到「已无更新」。这与本批自己的口径 I1「没有新事件不是失败的证据」自相矛盾：对 captcha/blocked 这类相位，静默是**预期**而非证据缺失。全仓测试无一条覆盖这些相位。",
+        "highRiskDomains": [],
+        "prosecution": "captcha/blocked/retry/released 都是非终态 ⇒ 一律进陈旧判定；等用户输验证码的任务按设计就不产生进度事件，3 分钟一到被贴「无更新」，若它是唯一 live 任务还会解禁关闭 —— 与本层口径 I1（「没有新事件」不是证据）自相矛盾。",
+        "defense": "半驳：四个相位语义不同，不能一锅端。retry 有 backoff 计时、released 是\"已回滚可重试\"的行内提示（本身就有独立文案），把它们也豁免会削弱看门狗对该停滞的暴露；且 retry 之后必有新事件，静默期天然短。",
+        "verdict": "upheld",
+        "rationale": "采纳其核心（静默属预期的相位不该被判无更新），但豁免集按语义收窄到 blocked + captcha 两个，不扩到四个 —— 扩窄的判据与理由写进注释与 PRD I10，避免下一个会话\"顺手统一\"。",
+        "remediation": "新增 STALL_SILENT_BY_DESIGN = {blocked, captcha}：不算陈旧、仍算 live（因此继续禁着关闭按钮）。用例覆盖两相位 10 分钟空闲不判、且切回 progress 后必须能判；反证 S12。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "整个退出功能建立在 `:disabled=\"store.hasRunning && !stall.hasStalledRunning\"` 上：`hasRunning` 走 `session.status` 链、`hasStalledRunning` 走任务 `phase` 链。若某会话 `status === 'running'` 但该会话非终态任务数为 0（`live === 0`），则 `hasStalledRunning === false` ⇒ 按钮禁用、且 `handleClose` 的 `stall.hasStalledRunning` 也是 false ⇒ 点击不收起 —— 本批要消灭的「无出口」原样复活。PRD §8.1 自己证明了这个 store 正是这种「接线了但不执行」的高发区（watch 恒不触发、三条路径需要手动补 `_recomputeSessionStatus`）；i3 补的不变量用例只覆盖「success 事件驱动」这一条路径，从未构造「hasRunning 真 + live 0」的错位态；面板测试的 `hasRunning` 又是夹具写死的真值，两条真实派生链在面板绑定层从没被同时测过。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "关闭判据跨两条派生链（hasRunning 由 session.status / hasStalledRunning 由 phase），「status=running 而 live=0」的错位态下按钮可点而 handleClose 不收起 ⇒ 本批要消灭的\"无出口\"换入口复活；且面板测试的 hasRunning 是夹具写死的，两条真链从未同时被测。",
+        "defense": "无反驳：handleClose 读 sessions.length 与 :disabled 读两条链，同一条评审主张我自己在 §PRD 8.1 里写过这个 store 是\"接线了但不执行\"的高发区。",
+        "verdict": "upheld",
+        "rationale": "采纳其\"更稳的那一支\"（判据整条换成 phase 链），而不是只补一条错位用例 —— 补锁只证明我知道了，换链才让它不可能发生。",
+        "remediation": ":disabled 与 handleClose 都改用 stall.hasLiveTasks / stall.hasStalledRunning；新增 hasLiveTasks 到 publicApi（有消费者，不是死出口）。现场收获：既有测试「完成后可点」变红，其夹具只改 status 不改 phase —— 造的正是这条错位态；按真源语义补 phase，而不是把判据改回去。反证 S14。"
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "finding": "CHANGELOG 条目与执行记录 §3.1 写的是「现改为显式挂在必经出口 `_recomputeSessionStatus` 上，并对三条不经该出口的路径各补一次调用」；但 shipped 代码完全不是这个机制：`publishProgressStall.js` 的 tick 由**面板**持有（`beginStallClock`/`endStallClock` + `watch(() => store.hasRunning)`），store 只多一个 `export TERMINAL_PHASES`。同一批里 QM-6 i7 刚以「文档 vs 代码漂移」为由修正了三处文档，而 CHANGELOG（用户可见的合并产物）和 record 仍描述一个已被放弃的中间实现，下一轮 QM-6 双模型评审时这段「文档说 A、代码做 B」会被当成可接受口径放过。",
+        "highRiskDomains": [
+          "auth"
+        ],
+        "prosecution": "CHANGELOG 与记录 §3.1 仍写「显式挂在必经出口 _recomputeSessionStatus 上并对三条路径补调用」，而 shipped 代码是 WeakMap + 面板生命周期 —— 同一批刚以「文档 vs 代码漂移」为由修过三处（第一轮 i7），这次轮到 CHANGELOG 自己。",
+        "defense": "无反驳：那条是第一批实现时写下的实况，外置重构后我只改了 PRD §8.1，漏了 CHANGELOG 与记录 §3.1。",
+        "verdict": "upheld",
+        "rationale": "用户可见的合并产物描述一个已被放弃的中间实现，正是\"下一轮评审把口径差别当可接受\"的入口 ⇒ 采纳。",
+        "remediation": "两处改写为最终机制；grep -na _recomputeSessionStatus 全批文档复核，剩余两处分别是\"store 行为的事实描述\"（PRD:23）与无关历史条目（CHANGELOG:6042），不属漂移。"
+      }
+    ],
+    "blocking": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i3",
+        "severity": "Warning",
+        "reason": "self_play_upheld"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      },
+      {
+        "id": "i5",
+        "severity": "Warning",
+        "reason": "high_risk_requires_external",
+        "domains": [
+          "auth"
+        ]
+      }
+    ],
+    "note": "自扮演裁决：5 条指控成立或需外部复核",
+    "at": "2026-10-24T14:18:16.559Z"
+  }
+}

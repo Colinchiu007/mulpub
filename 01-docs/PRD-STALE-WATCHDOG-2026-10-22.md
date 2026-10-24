@@ -52,6 +52,10 @@
 | I8 | 对外那一面必须是 `reactive(publicApi)`，不得退回普通对象 | 模板里 `stall.hasStalledRunning` **只有**在 reactive 对象上才自动解包 ref。普通对象交出 `ComputedRef` 时模板拿到的是 ref 对象本身 ⇒ 恒为真值，徽标永远显示"无更新"、转圈永远不停，且不报错。反证 S10 钉住 |
 | I9 | 派生层落在 `src/stores/publishProgressStall.js`，宿主 store 只提供 `TERMINAL_PHASES` | 两条独立的理由：① `publishProgress.js` 本来 496 行，任何"往 store 里加一层"都会把它推过 `check-debt-budget.js` 的 ≥500 行熔断（本轮现场读数 `FILES_OVER_500: 96 > baseline 95`）；正解是搬出去（先例：同目录 `publishProgressSessionMerge.js`），**不是把基线调大**。② 这一层的唯一目的是让面板重新渲染，定时器归面板所属更正确。终态集合仍由 store 的 `PHASE_ENUM` 派生，模块 `import` 它，不抄第二份 |
 
+| I10 | `blocked` / `captcha` 这类**按设计就不会产生进度事件**的相位不参与陈旧判定，但仍是 live | QM-6 第二轮 i3。给等验证码的人贴「无更新」与本层口径 I1 冲突（那里的静默是预期，不是证据缺失）；而它们仍是「没跑完」，所以必须继续禁着关闭按钮 |
+| I11 | 关闭按钮的**两条判据必须同链**：`hasLiveTasks`（存在性）与 `hasStalledRunning`（是否全陈旧）都取任务 `phase` 链，`handleClose` 的可见性条件同样取 `!hasLiveTasks` | QM-6 第二轮 i4。混用 `session.status` 链时，「status=running 而任务全终态」这一错位会得到「按钮可点、点了不收起」——正是本批要消灭的形态换了个入口 |
+| I12 | `beginStallClock()` 在没有非终态任务时 MUST NOT 建定时器；新任务到达后由宿主用同一入口叫回 | QM-6 第二轮 i2。自泊只省掉"之后的唤醒"，省不掉"每次启动/每次挂载白起一次 15s 定时器"，而 spec 的「无运行中任务 ⇒ tick MUST 已停止」要求的是后者 |
+
 派生 API（`usePublishProgressStall(store)` 的返回面，按 **store 实例** WeakMap 缓存，唯一实现）：
 
 - `stalledTaskIds: string[]` —— 当前无更新的任务 id 列表（按会话登记顺序）；
@@ -67,9 +71,9 @@
 | 位置 | 条件 | 显示 | 不显示 |
 | --- | --- | --- | --- |
 | 头部徽标 | `hasRunning && !hasStalledRunning` | 转圈图标 + 「进行中」（`sessionRunning`），类 `ppp__badge--running`（主色） | — |
-| 头部徽标 | `hasRunning && hasStalledRunning` | **不转圈** + 「{N} 分钟无更新」（`stallBadge`），类 `ppp__badge--stalled`（`--color-text-muted` / `--color-bg-inset` 中性档） | 不改 `phase` 语义色；不用 `--color-danger-*` |
+| 头部徽标 | `hasStalledRunning`（文案取 `maxStallMinutes`，因此措辞是「最久 N 分钟」——见 §10 i6） | **不转圈** + 「{N} 分钟无更新」（`stallBadge`），类 `ppp__badge--stalled`（`--color-text-muted` / `--color-bg-inset` 中性档） | 不改 `phase` 语义色；不用 `--color-danger-*` |
 | 任务行状态列 | 该任务 `taskStallMinutes > 0` | 原状态词后追加「（{N} 分钟无更新）」（`stallSuffix`） | 未陈旧的行不追加；终态行不追加 |
-| 关闭按钮 `title` | `hasRunning && hasStalledRunning` | 「任务已 {N} 分钟无更新，可关闭面板（不会取消任务）」（`closeStalledHint`） | — |
+| 关闭按钮 `title` | `hasLiveTasks && hasStalledRunning` | 「任务已 {N} 分钟无更新，可关闭面板（不会取消任务）」（`closeStalledHint`） | — |
 | 关闭按钮 `title` | `hasRunning && !hasStalledRunning` | 既有「发布进行中，可先最小化到后台」（`closeDisabledHint`，语义未改） | — |
 | 底部警示条 / 胶囊提示 | 不变 | 本批未改（`hintRunning` 仍由 footer 承载） | — |
 
@@ -116,6 +120,11 @@
 这类键，输入只有 `sessions[].tasks[].lastEventAt`，面板看到的一切由真 tracker 算出来。
 被 mock 的 store 模块用 `vi.importActual` 把真 `TERMINAL_PHASES` 带出来 —— 终态口径若在夹具里
 另抄一份，集合漂移时面板测试会照样绿（AGENTS「契约夹具不得替对方剥壳」的同型）。
+
+7. **头部徽标只认两种状态**（QM-6 第二轮 i8 的裁决）：`hasStalledRunning` 为真才切中性档；
+   混合态（部分卡住 + 部分在动）头部继续转圈，卡住的那条由行级后缀单独说话。
+   刻意不做第三种「部分任务无更新」的头部文案：头部只回答「这批还有东西在动吗」，
+   引入第三态会让人误以为整批都停了。由面板用例钉住该语义。
 
 ## 7. 明确不做（写明，不静默吞掉）
 

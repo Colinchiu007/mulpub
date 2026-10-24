@@ -59,9 +59,13 @@ watch(() => 有没有非终态任务, (hasLive) => hasLive ? 起 : 停, { immedi
 `活跃 tick 数 = 0`。如果我只测"陈旧集合对不对"（computed 在被读时照样算得出来），
 这条装饰性接线就会带着"看起来已实现"的状态进主干。
 
-现改为显式挂在必经出口 `_recomputeSessionStatus` 上，并对三条**不经该出口**的路径
-（新建会话分支 / `dismissSession` / `clearFinished`）各补一次调用 ——
-"单一入口"在这里不成立，成立的是"单一判据 + 全部出口都调它"。
+中间实现曾改为「显式挂在必经出口 `_recomputeSessionStatus` 上，并对三条**不经该出口**的路径
+（新建会话分支 / `dismissSession` / `clearFinished`）各补一次调用」——
+**这句描述的是已被放弃的那一版**（QM-6 第二轮 i5 点名更正）。最终形态见 §3.4：
+派生层整体外置到 `publishProgressStall.js`，`usePublishProgressStall(store)` 用 WeakMap
+按 store 实例缓存 tracker，启停由**面板**这一宿主用公共入口 `beginStallClock` / `endStallClock`
+负责，tick 内部自泊，面板再 watch `hasRunning` 与 `sessions.length` 把它叫回来。
+"单一入口"在这里不成立，成立的是"**单一判据 + 由唯一的读者决定生命周期**"。
 
 ### 3.2 同名函数被写出两份，后者静默覆盖前者
 
@@ -134,7 +138,54 @@ watch(() => 有没有非终态任务, (hasLive) => hasLive ? 起 : 停, { immedi
 - **i1 是本批唯一 Critical，且是真缺陷**：`taskStallMinutes` 的多会话路径把「没找到」读成「不陈旧」。  现场修法是先补双会话用例再由反证 S11 证明该用例确实打这一格（退回 `return 0` 只有那条红）。
 - 引擎把 i1/i3/i5 标为高危域（`domains:["auth"]`）要求外部复核。该标签系启发式误判 ——   改动集全仓无 auth/凭证/登录态路径（见本次 `git diff --name-only`）。**但不因归因错误而免跑**：  判据问的是「这类面有没有被外部模型看过」，不是「标签打得对不对」；所以第二轮对外置后的最终 diff 跑真外部评审，  闭环状态以 `tier=external` 的证据收口（见 5.2）。
 
-### 5.2 第二轮（对外置重构后的最终 diff）
+### 5.2 第二轮（对外置重构后的最终 diff，真外部模型）
 
-（跑完后回填：后端真名、产物路径、条目与逐条处置、`deepReview.tier`/`evidence`、闭环状态。）
+- 后端：`critic=claude`（评审主力）+ `proposer=opencode`（跨家族校验），
+  经 `sh scripts/deep-review.sh --force` 实跑，判定基线 `origin/main`（2365 行），
+  产物 `.adversarial/ccg-deep-4583f881/`（`critique-v1.md` 8 条：5 Warning + 3 Info）。
+- **i1 Critical 之后没有再出现 Critical**，但第二轮抓到 4 条会改变行为的 Warning：
+
+| # | 严重度 | 裁决 | 落点 |
+| --- | --- | --- | --- |
+| i1 | Warning | 采纳（前提部分驳回） | V12 原先在**全局** `setInterval` 调用历史上 `findIndex`，把「之前每次 mount 都被拆毁了」这条隐含前提交给文件级 `afterEach`。实测本仓 `afterEach` 确有 `wrapper?.unmount()`（两处，属上游既有形态，不在本批合并），所以「V12 直接红」的后果没有现场发生；但前提交进判据是免费的 ⇒ 改为只认本用例挂载之后新增的那一起表（`callsAtStart` 切片）。 |
+| i2 | Warning | 采纳并修 | 真缺陷：`begin()` 无条件 `setInterval`，自泊只发生在 tick 内部 ⇒ 面板在「零非终态任务」时挂载也要白起一次 15s 定时器，直接违反 spec 的「无运行中任务 ⇒ tick MUST 已停止」。修法是起表前自检 `hasLiveTask()`，配套把面板 watch 从只读 `hasRunning` 扩到也读 `sessions.length`（数组级写入是 Vue 追得到的那一维）。新增两条用例（store 侧 + 面板侧空态不建表）与反证 S13。 |
+| i3 | Warning | 采纳并修 | `blocked` / `captcha` 按设计就不会产生进度事件，却与非终态相位一起被当陈旧候选：用户正在输验证码时被贴「N 分钟无更新」，且若它是唯一 live 任务还会解禁关闭 —— 与本层自己的口径 I1（「没有新事件」不是证据）冲突。改为显式豁免集合 `STALL_SILENT_BY_DESIGN`（不算陈旧、但仍算 live ⇒ 继续禁着关闭）。新增用例 + 反证 S12。 |
+| i4 | Warning | 采纳并修（选了更稳的那一支） | 评审指出关闭判据跨两条派生链，「`status=running` 而 `live=0`」时会得到「按钮可点、点了不收起」，即本批要消灭的形态换入口复活。采纳其**修法建议**：`:disabled` 与 `handleClose` 整条换成任务 `phase` 链（`hasLiveTasks` / `hasStalledRunning`）。附带一条现场收获：改完后既有测试「完成后可点」变红 —— 它的夹具只改 `status` 不改 `phase`，造的正是这条错位态；按真源语义（任务落终态才收口 status）补写 `phase`，而不是把判据改回去。新增反证 S14。 |
+| i5 | Warning | 采纳并修 | 文档漂移：CHANGELOG 与记录 §3.1 还写着第一版机制（挂 `_recomputeSessionStatus` 并补三条调用），而 shipped 代码是「WeakMap 按 store 实例 + 面板持有生命周期」。同处 i7 刚以「文档 vs 代码」为由修过三处 ⇒ 本轮把两处一并改写为最终机制，并 `grep -na _recomputeSessionStatus` 全批文档确认无残留。 |
+| i6 | Info | 采纳并修（改文案不改判据） | `maxStallMinutes` 用在头部与 `title` 上时，「任务已 N 分钟无更新」对非均匀陈旧集合是**过陈述**（3/5/40 分钟只显 40）。文案改为「最久 N 分钟无更新」/「longest …」，zh/en 成对；行级后缀是按任务自己的分钟数，不改。 |
+| i7 | Info | 采纳并修 | `eachLiveTask` 对每个任务调 `stallAnchor` 两遍（传参一次、求 idle 一次）⇒ 先算一次再传。合并三处全扫为单份 `taskId → minutes` computed 仍属另批（与第一轮 i6 同一裁决）。 |
+| i8 | Info | 落成裁决 | 混合态头部继续转圈 —— 写进 PRD §5.7 与 spec 的「部分任务仍在动」Scenario，由面板用例钉住（头部不含无更新字样 + 行级后缀在场）。 |
+
+- **引擎出口与闭环**：第二轮收敛判定仍是 `status=self_play`（critique 来自真外部模型 claude，
+  但**裁决**由本会话填写），其中 2 条被标高危域要求外部复核。高危域标签在此批系启发式误判
+  （改动集全仓无 auth/凭证/登录态路径），但判据问的是「这类面有没有被外部模型看过」，
+  不因归因错误而免跑 ⇒ 收口走 `tier=external` + 可核 evidence（本记录的产物路径 + PR #4222），
+  并在 `closureNote` 里如实写明「critique=外部模型、adjudication=本会话」这一层分工。
+
+### 5.3 结算现场读数与**未闭合**的结论（不改写）
+
+`node …/ccg-deep-review.js --sha 4583f8814…`（零模型调用，复用存档 critique 8 条 + 已填裁决）打印：
+
+```
+♻ 复用存档 critique（8 条）+ 已填完的裁决 —— 跳过模型调用
+🔴 自扮演裁决判定存在阻断项 5 条
+   - [Warning] i1 self_play_upheld / i2 … / i3 …
+   - [Warning] i4 high_risk_requires_external / i5 high_risk_requires_external
+```
+
+产物 `.ccg/reviews/4583f8814d….json` 里引擎自己写的是
+`mode=dual, deepReview.status=self_play_blocked, performedBy=self-play`。
+
+**结论：本 PR 不自动合并。** 三条理由，一条都不粉饰：
+
+1. 机制缺口（已知、另议）：「外部模型评审过 → 裁决成立 → 同一批里修完」在当前判据里没有合法闭合档
+   —— `upheld` 一律计阻断，`self_play_resolved` 只表达"自扮演判定已消化"，
+   而把 status 手改成闭环值正是 AGENTS 禁止的「手写 status 买绿」。
+2. `performedBy` 我只在本文与 PR 评论里如实补充（critique=claude 真实外部、adjudication=本会话），
+   **不改产物里的这个字段** —— 改它就是替门禁伪造执行者。
+3. 引擎标出的 2 条 `high_risk_requires_external` 我没有外部复核证据可挂（`tier=external` 的
+   可核 evidence 需要"该条争议被第二个模型独立看过"，本轮只有一次 critique + 一次自扮演裁决）。
+
+因此本轮产物全部入库（批判原文、两轮裁决、结算读数），PR 保持 open，
+连同其余在飞 dual PR 一起进「QM-6 闭合需人工」账（task #19）。
 

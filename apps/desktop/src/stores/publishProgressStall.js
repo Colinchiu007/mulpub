@@ -33,6 +33,15 @@ export const STALL_AFTER_MS = 3 * 60 * 1000
 /** 心跳周期：比阈值细一个量级，用户看到的分钟数不会一次跳 2 */
 export const STALL_TICK_MS = 15 * 1000
 const MINUTE_MS = 60 * 1000
+/**
+ * 「按设计就没有进度事件」的相位（QM-6 第二轮 i3）。
+ * - `blocked`：频控等待窗口，主进程本来就只会发一次，剩余时间在行内另有显示；
+ * - `captcha`：等用户人工输入验证码，静默时长完全由人决定。
+ * 把它们标成「N 分钟无更新」与本层自己的口径 I1 冲突 —— 那里说的静默是**预期**，
+ * 不是"证据缺失"。但它们仍是 live：既不让 `hasStalledRunning` 变真（用户此刻必须看着面板
+ * 去操作，不该被解禁关闭），也不参与自泊判定。
+ */
+const STALL_SILENT_BY_DESIGN = new Set(['blocked', 'captcha'])
 
 /**
  * @param {object} deps
@@ -68,26 +77,36 @@ export function createStallTracker ({ sessions, terminalPhases }) {
       for (const taskId of Object.keys(session.tasks)) {
         const task = session.tasks[taskId]
         if (isTerminal(task.phase)) continue
-        visit(taskId, stallAnchor(task, session), now - stallAnchor(task, session))
+        // 锚点只算一次（QM-6 第二轮 i7）：原先传参和求 idle 各调一遍 stallAnchor
+        const anchor = stallAnchor(task, session)
+        visit(taskId, anchor, now - anchor, !STALL_SILENT_BY_DESIGN.has(task.phase))
       }
     }
   }
 
   const stalledTaskIds = computed(() => {
     const out = []
-    eachLiveTask((taskId, anchor, idle) => {
-      if (idle >= STALL_AFTER_MS) out.push(taskId)
+    eachLiveTask((taskId, anchor, idle, stallable) => {
+      if (stallable && idle >= STALL_AFTER_MS) out.push(taskId)
     })
     return out
   })
 
   /** 存在非终态任务，且**全部**非终态任务都已无更新 ⇒ 才允许用户关掉面板 */
+  /** 存在任何非终态任务（含 blocked/captcha 这类"静默属预期"的）⇒ 面板还有东西要盯 */
+  const hasLiveTasks = computed(() => {
+    let live = 0
+    eachLiveTask(() => { live += 1 })
+    return live > 0
+  })
+
   const hasStalledRunning = computed(() => {
     let live = 0
     let stalled = 0
-    eachLiveTask((taskId, anchor, idle) => {
+    eachLiveTask((taskId, anchor, idle, stallable) => {
       live += 1
-      if (idle >= STALL_AFTER_MS) stalled += 1
+      // 按设计静默的相位永远不算陈旧 ⇒ 只要它还在，关闭按钮就不该解禁
+      if (stallable && idle >= STALL_AFTER_MS) stalled += 1
     })
     return live > 0 && stalled === live
   })
@@ -95,8 +114,8 @@ export function createStallTracker ({ sessions, terminalPhases }) {
   /** 无更新任务里最长的分钟数（供徽标文案与 title） */
   const maxStallMinutes = computed(() => {
     let worst = 0
-    eachLiveTask((taskId, anchor, idle) => {
-      if (idle >= STALL_AFTER_MS) worst = Math.max(worst, Math.floor(idle / MINUTE_MS))
+    eachLiveTask((taskId, anchor, idle, stallable) => {
+      if (stallable && idle >= STALL_AFTER_MS) worst = Math.max(worst, Math.floor(idle / MINUTE_MS))
     })
     return worst
   })
@@ -112,10 +131,12 @@ export function createStallTracker ({ sessions, terminalPhases }) {
   function taskStallMinutes (taskId) {
     if (!taskId) return 0
     const now = nowTs.value
+    // 说明：本函数被行内文案调用，行级同样不得给 blocked/captcha 贴「无更新」
     for (const session of sessions.value) {
       const task = session.tasks[taskId]
       if (!task) continue
       if (isTerminal(task.phase)) return 0
+      if (STALL_SILENT_BY_DESIGN.has(task.phase)) return 0
       const idle = now - stallAnchor(task, session)
       return idle >= STALL_AFTER_MS ? Math.floor(idle / MINUTE_MS) : 0
     }
@@ -137,9 +158,14 @@ export function createStallTracker ({ sessions, terminalPhases }) {
    */
   function begin () {
     if (timer !== null) return
+    // i2：原先无条件 setInterval，自泊只发生在 tick 内部 ⇒ 「没有发布活动也要白付一次
+    // 15s 唤醒」，且直接违反 spec「无运行中任务 ⇒ tick MUST 已停止」。
+    // 现在起表前先自检：没有非终态任务就一个定时器都不建。
+    // 后续新任务到达由面板的 watch(sessions.length / hasRunning) 再把表叫回来。
     // 起表时先补一次章：面板"卸载→再挂载"后，nowTs 停的是上一次 tick 的时刻，
     // 不补就会让首帧把「已经 4 分钟没动」读成 0 分钟（最长 15s 后自愈，但那是错的）。
     nowTs.value = Date.now()
+    if (!hasLiveTask()) return
     timer = setInterval(() => {
       // 同域推进：判据与锚点都来自 Date.now()
       nowTs.value = Date.now()
@@ -168,6 +194,7 @@ export function createStallTracker ({ sessions, terminalPhases }) {
    */
   const publicApi = reactive({
     stalledTaskIds,
+    hasLiveTasks,
     hasStalledRunning,
     maxStallMinutes,
     taskStallMinutes,

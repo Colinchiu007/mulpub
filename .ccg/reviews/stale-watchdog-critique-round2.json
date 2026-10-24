@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "issues": [
+    {
+      "id": "i1",
+      "severity": "Warning",
+      "dimension": "maintainability",
+      "finding": "V12 用例（「面板是看门狗时钟的宿主」）断言 `setIntervalSpy.mock.calls.findIndex(c => c[1] === STALL_TICK_MS) >= 0`，但 `beginStallClock` 幂等（`if (timer !== null) return`），且 tracker 按 store 实例 WeakMap 缓存、mock store 又是模块级 `reactiveStore` —— 同一个 tracker 跨整个文件的用例共享。因此 V12 只有在「挂载瞬间 timer 是死的」时才可能绿，即文件里每一次先前的 mount 都必须已被拆毁。diff 中可见的五个前置 1.8 用例都只 `mountPanel()` 没有 unmount，文件级 afterEach 的 unmount 不在本 diff 里，唯一的 `wrapper.unmount()` 就在 V12 自身内部。若文件既有 teardown 并不拆 mount，则第一个 1.8 用例起的真实 15s interval（有非终态任务时永不自泊）会一直活着，V12 的 `beginStallClock` 成为 no-op、`findIndex` 返回 -1 → V12 直接红。QM-6 i8 给 store 测试补的 afterEach 卫生（逐 tracker `endStallClock` + 「活跃 tick 为 0」）没有同步补到面板测试文件，同样的泄漏类在面板侧仍无护栏。",
+      "suggestion": "给面板测试的 describe 补 `afterEach`：unmount 当前 wrapper（触发 `onBeforeUnmount → endStallClock`）或显式调 `usePublishProgressStall(store).endStallClock()`；并加一条「用例结束时无活跃 STALL_TICK_MS interval」的卫生断言，把 V12 的成立前提（挂载即新起表）显式化，而不是靠文件既有 teardown 的隐含行为兜住。"
+    },
+    {
+      "id": "i2",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "finding": "`createStallTracker.begin()` 无条件 `setInterval(...)`，自泊只发生在 tick 回调内部 —— 面板在「零非终态任务」状态下挂载时，会存在一个活着的 15s 定时器直到第一个 tick 才停（最多 15s）。这直接违反 spec「无运行中任务 ⇒ tick MUST 已停止」与不变量 I6「有非终态任务才活着」，而面板 setup 是**无条件** `stall.beginStallClock()`：应用每次启动、面板每次重新挂载，即使没有任何发布活动也起一次定时器（每条路由/每次挂载白付一次 15s 唤醒）。V6 的「begin 后恰好 1 个 tick」用例全部是在「已有 live 任务」的前提下写的，「begin 且零 live 任务 ⇒ 0 个 tick」零覆盖。",
+      "suggestion": "在 `begin()` 里盖章之后加自检：`nowTs.value = Date.now(); if (!hasLiveTask()) return`，再 `setInterval`；并补一条 store 用例：空会话 begin ⇒ `liveTimers.size === 0`（立即，而非一个 tick 后）。"
+    },
+    {
+      "id": "i3",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "finding": "`PHASE_ENUM` 里 `captcha`/`blocked`/`retry`/`released` 都是非终态，`eachLiveTask` 与 `taskStallMinutes` 一律把它们当 live 参与陈旧判定，锚点回落链 `lastEventAt ?? startedAt ?? createdAt` 对这些相位同样生效，而 store 在 `:104`/`:173` 入相位时已写过 `lastEventAt`。一个等待用户输入验证码的任务**按设计**不会产生进度事件，3 分钟一到就被标「（N 分钟无更新）」；若它是唯一 live 任务，`hasStalledRunning` 变 true，关闭按钮解禁并显示「任务已 N 分钟无更新，可关闭面板（不会取消任务）」——用户正在输验证码时看到「已无更新」。这与本批自己的口径 I1「没有新事件不是失败的证据」自相矛盾：对 captcha/blocked 这类相位，静默是**预期**而非证据缺失。全仓测试无一条覆盖这些相位。",
+      "suggestion": "对相位做显式裁决：要么把 `captcha`/`blocked`（以及任何「等待人为/平台动作」的相位）从陈旧判定中排除（或给相位专属宽限期），要么在 PRD §7 与显示项表里把「这些相位也算无更新」写成刻意决策；无论选哪边，补一条测试：`captcha` 相位任务空闲 10 分钟不（或必须）进 `stalledTaskIds`/`hasStalledRunning`。"
+    },
+    {
+      "id": "i4",
+      "severity": "Warning",
+      "dimension": "correctness",
+      "finding": "整个退出功能建立在 `:disabled=\"store.hasRunning && !stall.hasStalledRunning\"` 上：`hasRunning` 走 `session.status` 链、`hasStalledRunning` 走任务 `phase` 链。若某会话 `status === 'running'` 但该会话非终态任务数为 0（`live === 0`），则 `hasStalledRunning === false` ⇒ 按钮禁用、且 `handleClose` 的 `stall.hasStalledRunning` 也是 false ⇒ 点击不收起 —— 本批要消灭的「无出口」原样复活。PRD §8.1 自己证明了这个 store 正是这种「接线了但不执行」的高发区（watch 恒不触发、三条路径需要手动补 `_recomputeSessionStatus`）；i3 补的不变量用例只覆盖「success 事件驱动」这一条路径，从未构造「hasRunning 真 + live 0」的错位态；面板测试的 `hasRunning` 又是夹具写死的真值，两条真实派生链在面板绑定层从没被同时测过。",
+      "suggestion": "补一条构造错位态的用例并断言护栏：绕过 `_recomputeSessionStatus`（或直接操纵 status）使某会话保持 `running` 而全部任务终态，断言 `hasRunning` 不能为真；更稳妥的修法是把关闭按钮判据改为完全由任务 phase 链派生（`hasLiveTask() && !hasStalledRunning`），使 status/phase 错位不可能造成死锁，并在 stale 测试里加一条 `hasRunning === true ⟹ 存在至少一个非终态任务` 的不变量断言。"
+    },
+    {
+      "id": "i5",
+      "severity": "Warning",
+      "dimension": "maintainability",
+      "finding": "CHANGELOG 条目与执行记录 §3.1 写的是「现改为显式挂在必经出口 `_recomputeSessionStatus` 上，并对三条不经该出口的路径各补一次调用」；但 shipped 代码完全不是这个机制：`publishProgressStall.js` 的 tick 由**面板**持有（`beginStallClock`/`endStallClock` + `watch(() => store.hasRunning)`），store 只多一个 `export TERMINAL_PHASES`。同一批里 QM-6 i7 刚以「文档 vs 代码漂移」为由修正了三处文档，而 CHANGELOG（用户可见的合并产物）和 record 仍描述一个已被放弃的中间实现，下一轮 QM-6 双模型评审时这段「文档说 A、代码做 B」会被当成可接受口径放过。",
+      "suggestion": "把 CHANGELOG 那条与 record §3.1 改写为最终机制（WeakMap 按 store 实例缓存 + 面板 begin/end/watch 启停），并 grep 本批全部文档确认没有其它仍描述 `_recomputeSessionStatus` 挂钩的残留。"
+    },
+    {
+      "id": "i6",
+      "severity": "Info",
+      "dimension": "correctness",
+      "finding": "头部徽标与 `closeStalledHint` 都渲染 `{ minutes: stall.maxStallMinutes }`。当任务分别陈旧 3 / 5 / 40 分钟时，徽标显示「40 分钟无更新」、关闭按钮 title 显示「任务已 40 分钟无更新」，暗示全部任务都已 40 分钟无更新，而最短的那个刚过阈值 —— 「任务已 N 分钟」的措辞对非均匀陈旧集合是过陈述。",
+      "suggestion": "title/hint 改用最小值或改文案（如「部分任务已 N 分钟无更新」/「最久 N 分钟无更新」），并在面板测试里断言确切措辞，避免把过陈述固化进契约。"
+    },
+    {
+      "id": "i7",
+      "severity": "Info",
+      "dimension": "performance",
+      "finding": "每次 15s tick 后：`stalledTaskIds`/`hasStalledRunning`/`maxStallMinutes` 三个 computed 各自跑一遍全量 `eachLiveTask`，每个任务行渲染时 `taskStallMinutes(taskId)` 又对 sessions 逐会话查一遍；且 `eachLiveTask` 对每个任务调用 `stallAnchor(task, session)` 两次（一次传 `anchor`、一次算 `idle`）。量级受 ≤5 会话与单批任务数约束，i6 的「合并成单次扫描 map」已裁决为另批，但 `stallAnchor` 双调用是零成本的修法。",
+      "suggestion": "`const anchor = stallAnchor(task, session)` 先算一次再传给 visit；待 i6 的 `taskId → minutes` 单扫 computed 落地时，`taskStallMinutes` 改为查表。"
+    },
+    {
+      "id": "i8",
+      "severity": "Info",
+      "dimension": "correctness",
+      "finding": "混合态（部分陈旧 + 部分在动）下 `hasStalledRunning === false`，头部徽标继续转圈显示「进行中」，而任务行同时挂着「（N 分钟无更新）」后缀 —— 用户第一眼扫的头部在「正好有任务卡住」的时刻给出了与行级事实相反的信号。i9 裁决了按钮禁用语义，但没有处理头部徽标这一误导性显示。",
+      "suggestion": "在显示项表里为混合态补一个徽标分支（如「N 分钟无更新」带混合指示，或「部分任务无更新」），或把「混合态头部保持进行中」写成刻意二态设计写进 PRD §4，并加一条面板用例钉住该语义。"
+    }
+  ],
+  "dimensionScores": {
+    "correctness": 6,
+    "security": 9,
+    "performance": 7,
+    "maintainability": 6
+  }
+}

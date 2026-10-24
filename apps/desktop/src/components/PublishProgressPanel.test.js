@@ -562,8 +562,12 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     let closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
     expect(closeBtn.hasAttribute('disabled')).toBe(true)
 
+    // 「完成」在真源里是**任务 phase 落终态 ⇒ _recomputeSessionStatus 把 status 收口**，
+    // 原先只改 status 造的正是 QM-6 第二轮 i4 说的那条错位态：
+    // 关闭判据整条换成 phase 链后，这种「任务还在跑但会话标成 done」必然判还在跑。
     store.hasRunning = false
     store.sessions[0].status = 'done'
+    store.sessions[0].tasks['t-1'].phase = 'success'
     await nextTick()
     closeBtn = body().querySelector('[data-testid="publish-progress-close"]')
     expect(closeBtn.hasAttribute('disabled')).toBe(false)
@@ -698,13 +702,19 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
   it('1.8 面板是看门狗时钟的宿主：挂载起一个 tick、卸载必须交还', async () => {
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
     const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    // i1：原先在全局调用历史上 findIndex，等于把「本用例之前所有 mount 都被拆毁了」这条
+    // 隐含前提交给文件级 afterEach —— 一旦有人删掉那句 unmount，存活定时器会让
+    // beginStallClock 幂等短路，V12 就退化成「挂载起表」的假证明。
+    // 现在把前提交进判据：只认本用例挂载之后新增的那一起表。
+    const callsAtStart = setIntervalSpy.mock.calls.length
     storeStateRaw.panelVisible = true
     storeStateRaw.hasRunning = true
-    storeStateRaw.sessions = []
+    // i2 之后「零非终态任务不建表」，所以前提必须是**有活干**（另有一条用例专门钉空态不建表）
+    storeStateRaw.sessions = [makeSession({ tasks: { 't-1': makeTask() }, taskOrder: ['t-1'] })]
     wrapper = mountPanel()
     await nextTick()
 
-    const tickIdx = setIntervalSpy.mock.calls.findIndex((c) => c[1] === STALL_TICK_MS)
+    const tickIdx = setIntervalSpy.mock.calls.findIndex((c, k) => k >= callsAtStart && c[1] === STALL_TICK_MS)
     expect(tickIdx, '面板挂载必须把墙钟起起来（否则分钟数永远停在挂载那一刻）').toBeGreaterThanOrEqual(0)
     // 句柄取**返回值**：mock.calls[i] 是入参数组，c[0] 是回调函数本身，
     // 拿它去比 clearInterval 的首参会永远不等（本条用例第一次就这么写错了）。
@@ -717,6 +727,44 @@ describe('PublishProgressPanel.vue — 全局进度面板（publish-progress-ux�
     expect(released, '卸载必须交还同一个句柄 —— 留在场上就是每条路由的白唤醒').toBe(true)
     setIntervalSpy.mockRestore()
     clearIntervalSpy.mockRestore()
+  })
+
+  it('1.8 空态挂载不得建看门狗定时器（QM-6 第二轮 i2 的面板侧）', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const atStart = setIntervalSpy.mock.calls.length
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = false
+    storeStateRaw.sessions = []
+    wrapper = mountPanel()
+    await nextTick()
+    const started = setIntervalSpy.mock.calls.slice(atStart).filter((c) => c[1] === STALL_TICK_MS)
+    expect(started, '没有任何非终态任务时，面板挂载一个定时器都不建').toHaveLength(0)
+    setIntervalSpy.mockRestore()
+  })
+
+  it('1.8 混合态：头部仍是「进行中」而卡住的那行挂无更新后缀（QM-6 第二轮 i8 的裁决）', async () => {
+    const fresh = Date.now()
+    storeStateRaw.panelVisible = true
+    storeStateRaw.hasRunning = true
+    storeStateRaw.sessions = [makeSession({
+      tasks: {
+        't-1': makeTask({ taskId: 't-1', lastEventAt: fresh - 6 * MIN }),
+        't-2': makeTask({ taskId: 't-2', lastEventAt: fresh }),
+      },
+      taskOrder: ['t-1', 't-2'],
+    })]
+    wrapper = mountPanel()
+    await nextTick()
+
+    // 头部的二态裁决（PRD §4）：只有「全部无更新」才把头部切成中性档 ——
+    // 部分卡住时头部继续转圈是刻意的（还有东西真的在动），卡住的那条由**行级后缀**说话。
+    const badge = body().querySelector('[data-testid="publish-progress-stall-badge"]')
+    expect(badge.textContent, '混合态头部不得显示无更新').not.toContain('分钟无更新')
+    expect(badge.classList.contains('ppp__badge--running')).toBe(true)
+    expect(badge.querySelector('.ppp__spin'), '转圈仍在 —— 确实还有任务在动').toBeTruthy()
+    const rows = body().querySelectorAll('[data-testid="publish-progress-task"]')
+    expect(rows[0].textContent).toContain('6 分钟无更新')
+    expect(rows[1].textContent).not.toContain('分钟无更新')
   })
 
   it('展开态无会话：显示空态文案', async () => {

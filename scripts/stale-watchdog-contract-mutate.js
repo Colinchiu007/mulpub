@@ -52,8 +52,8 @@ const MUTATIONS = [
     label: '把陈旧直接写进 phase（把"没有新事件"当失败证据 —— spec 的只读派生口径被推翻）',
     file: STALL,
     pairs: [{
-      from: '        visit(taskId, stallAnchor(task, session), now - stallAnchor(task, session))',
-      to: "        if (now - stallAnchor(task, session) >= STALL_AFTER_MS) task.phase = 'failed'\n        visit(taskId, stallAnchor(task, session), now - stallAnchor(task, session))",
+      from: '        visit(taskId, anchor, now - anchor, !STALL_SILENT_BY_DESIGN.has(task.phase))',
+      to: "        if (!STALL_SILENT_BY_DESIGN.has(task.phase) && now - anchor >= STALL_AFTER_MS) task.phase = 'failed'\n        visit(taskId, anchor, now - anchor, !STALL_SILENT_BY_DESIGN.has(task.phase))",
     }],
     expect: ['陈旧是附加展示态：phase 与 aggregate 一律不得被改写成失败'],
   },
@@ -75,7 +75,7 @@ const MUTATIONS = [
     id: 'S5',
     label: '判据从 >= 改成 >（差一毫秒那一侧的边界契约失守）',
     file: STALL,
-    pairs: [{ from: '      if (idle >= STALL_AFTER_MS) out.push(taskId)', to: '      if (idle > STALL_AFTER_MS) out.push(taskId)' }],
+    pairs: [{ from: '      if (stallable && idle >= STALL_AFTER_MS) out.push(taskId)', to: '      if (stallable && idle > STALL_AFTER_MS) out.push(taskId)' }],
     expect: ['无事件满 3 分钟 ⇒ 该任务进陈旧集合并给出分钟数'],
   },
   {
@@ -92,7 +92,7 @@ const MUTATIONS = [
     id: 'S7',
     label: '关闭按钮退回 :disabled="store.hasRunning"（本批的主症状回归）',
     file: PANEL,
-    pairs: [{ from: ':disabled="store.hasRunning && !stall.hasStalledRunning"', to: ':disabled="store.hasRunning"' }],
+    pairs: [{ from: ':disabled="stall.hasLiveTasks && !stall.hasStalledRunning"', to: ':disabled="store.hasRunning"' }],
     expect: ['1.8 部分陈旧仍禁用关闭；全部无更新才解禁'],
   },
   {
@@ -100,7 +100,7 @@ const MUTATIONS = [
     label: 'handleClose 退回只在 sessions 空时收起（按钮解禁了但点了没反应）',
     file: PANEL,
     pairs: [{
-      from: '  if (store.sessions.length === 0 || stall.hasStalledRunning) store.panelVisible = false',
+      from: '  if (!stall.hasLiveTasks || stall.hasStalledRunning) store.panelVisible = false',
       to: '  if (store.sessions.length === 0) store.panelVisible = false',
     }],
     expect: ['1.8 关闭 ≠ 取消：只隐藏可见性，不动 sessions、不碰取消/重试入口'],
@@ -124,7 +124,32 @@ const MUTATIONS = [
     ],
   },
   {
-    // QM-6 i1（Critical）的修法反证：把"这个会话没命中"重新写成"这个任务不陈旧"。
+    // QM-6 第二轮 i3：把「按设计静默」的相位放回陈旧判定 —— 用户正在输验证码 / 正在等频控窗口
+    // 时被标「无更新」，并与本层自己的口径 I1 冲突。
+    id: "S12",
+    label: "取消 blocked/captcha 的陈旧豁免（等人为动作的相位被贴成无更新，并误解禁关闭）",
+    file: STALL,
+    pairs: [{ from: "        visit(taskId, anchor, now - anchor, !STALL_SILENT_BY_DESIGN.has(task.phase))", to: "        visit(taskId, anchor, now - anchor, true)" }],
+    expect: ["blocked / captcha 相位空闲再久也不得判无更新，且因此不得解禁关闭（QM-6 i3）"],
+  },
+  {
+    // QM-6 第二轮 i2：退回"无条件建表"，spec 的「无运行中任务 ⇒ tick MUST 已停止」即失守。
+    id: "S13",
+    label: "begin 不再自检有无非终态任务（零活动时也建 15s 定时器）",
+    file: STALL,
+    pairs: [{ from: "    if (!hasLiveTask()) return\n    timer = setInterval", to: "    timer = setInterval" }],
+    expect: ["零非终态任务时 begin 不得建任何定时器（QM-6 第二轮 i2）"],
+  },
+  {
+    // QM-6 第二轮 i4：关闭判据退回两条派生链混用 —— 错位态把「无出口」原样复活。
+    id: "S14",
+    label: "handleClose 退回读 sessions.length（status 与 phase 错位时点了不收起）",
+    file: PANEL,
+    pairs: [{ from: "  if (!stall.hasLiveTasks || stall.hasStalledRunning) store.panelVisible = false", to: "  if (store.sessions.length === 0) store.panelVisible = false" }],
+    expect: ["1.8 关闭 ≠ 取消：只隐藏可见性，不动 sessions、不碰取消/重试入口"],
+  },
+  {
+    // QM-6 第一轮 i1（Critical）的修法反证：把"这个会话没命中"重新写成"这个任务不陈旧"。
     // 这条形态在单会话夹具下**永远绿**，所以它必须由多会话用例本身来红。
     id: 'S11',
     label: 'taskStallMinutes 在第一个会话 miss 时就 return 0（多会话的第 2+ 会话永远显示 0 分钟）',

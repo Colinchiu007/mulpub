@@ -43,7 +43,7 @@
             type="button"
             class="ppp__icon-btn"
             data-testid="publish-progress-close"
-            :disabled="store.hasRunning && !stall.hasStalledRunning"
+            :disabled="stall.hasLiveTasks && !stall.hasStalledRunning"
             :title="closeTitle"
             :aria-label="t('publishPage.publishProgressPanel.close')"
             @click="handleClose"
@@ -151,6 +151,9 @@ store.init()
 // 恰好看不到无更新，而那正是本条要救的情形。
 stall.beginStallClock()
 watch(() => store.hasRunning, (running) => { if (running) stall.beginStallClock() })
+// i2 的配套：begin() 现在「零 live 任务就不建表」，所以新会话/新任务登记时必须再叫一次。
+// sessions 是数组级写入（push / 整体赋值），这一维 Vue 追得到 —— 与「改会话对象内部字段」不同。
+watch(() => store.sessions.length, () => stall.beginStallClock())
 onBeforeUnmount(() => stall.endStallClock())
 
 const progressWidth = computed(() => {
@@ -168,10 +171,13 @@ const isSingleSession = computed(() => store.sessions.length === 1)
  *   "关掉这个面板不等于放弃这次发布"，否则没人敢点。
  */
 const closeTitle = computed(() => {
-  if (store.hasRunning && stall.hasStalledRunning) {
+  // i4：关闭按钮的判据整条换成任务 phase 链（hasLiveTasks / hasStalledRunning），
+  // 不再与 session.status 链混用 —— 两条派生链一旦错位（status=running 而 live=0），
+  // 原先会得到「按钮禁用 + 点了也不收起」，把本批要消灭的「无出口」原样复活。
+  if (stall.hasLiveTasks && stall.hasStalledRunning) {
     return t('publishPage.publishProgressPanel.closeStalledHint', { minutes: stall.maxStallMinutes })
   }
-  if (store.hasRunning) return t('publishPage.publishProgressPanel.closeDisabledHint')
+  if (stall.hasLiveTasks) return t('publishPage.publishProgressPanel.closeDisabledHint')
   return t('publishPage.publishProgressPanel.close')
 })
 
@@ -181,7 +187,10 @@ function handleClose() {
   // 而无更新的会话仍是 running、`clearFinished()` 只清 done 会话 ⇒ 清不掉 ⇒
   // 「按钮能点了，但点了没反应」——把本批要修的不可退出换了个位置重演一遍。
   // 所以这里只改**可见性**：不动 `sessions`（再展开仍是原状态）、不发任何取消 IPC。
-  if (store.sessions.length === 0 || stall.hasStalledRunning) store.panelVisible = false
+  // ⚠ 判据与 :disabled 必须同一条链（QM-6 第二轮 i4）：这里若仍读 `sessions.length`，
+  // 遇到「status=running 但任务全终态」的错位态就会得到「按钮可点、点了不收起」，
+  // 与本行原本要修的缺陷同形。改成 !hasLiveTasks 后，两个方向的错位都有出口。
+  if (!stall.hasLiveTasks || stall.hasStalledRunning) store.panelVisible = false
 }
 
 function handleMinimize() {
