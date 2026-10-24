@@ -20,6 +20,17 @@
  *   采集页根本没有流水线卡片，这条样式对它是纯负担；而它一旦提前注入，
  *   就会去改**别的页面**的层叠结果 —— 这类「A 页面的代码改 B 页面的像素」的事故，
  *   靠人读 diff 极难发现，只能机械锁死。
+ *
+ * **本判据与真实构建的已知差异（如实登记，第 5 轮外部复核点名后补）**：
+ * - 本文件的模块图走法把**动态 import 当即时求值**；真实 Vite dev 对路由是**懒求值**
+ *   （`component: () => import('…')`，路由被访问时才注入该路由的样式）。
+ *   ⇒ 第 1、2 条断言**不依赖**全局顺序（它们只看「采集页能不能触及某张样式表」/「有没有桶导入」），
+ *   结论可靠；第 3 条断言算的是**全局静态顺序**，与真实懒加载顺序**可能有差异** ——
+ *   它是**兜底**而不是精确模型（真实懒加载顺序在本仓由「路由访问顺序」决定，
+ *   本仓的 views 视觉套件固定按 collection → … → create-editor 的顺序访问）。
+ * - `pipeline-selector.css` **自身也带** `.pipeline-card.<category> { border-left: … }`（:70-76），
+ *   所以在该文件内部 `.has-bg`(:123) 永远晚于它、因而赢；翻转时是**另一份文件**
+ *   （`create-view.css`）里的同源规则最后命中才换人。两份规则同特异性 (0,2,0)、靠顺序决胜。
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
@@ -33,6 +44,7 @@ const COLLECTION_VIEW = join(SRC, 'views', 'Collection.vue')
 
 /** 桶文件（barrel）：它 re-export 了 PipelineSelector ⇒ 连带 pipeline-selector.css。 */
 const VIDEO_CREATION_BARREL = '@/views/video-creation'
+const BARREL_FILE = join(SRC, 'views', 'video-creation', 'index.js')
 
 /** 解析 import/export 的模块说明符（含动态 import 与 export ... from）。 */
 function collectSpecs (source) {
@@ -95,17 +107,24 @@ function walkModuleGraph (entry, visitCss) {
   return { css, files }
 }
 
-/** features/collection 下的非测试源文件。 */
+/** features/collection 下的非测试源文件（**递归**：子目录里的文件同样要扫，
+ *  否则「子目录里用相对路径从桶取组件」会漏 —— 第 5 轮外部复核点名过这个盲区）。 */
 function collectionFeatureSources () {
   const dir = join(SRC, 'features', 'collection')
   const out = []
-  for (const name of readdirSync(dir)) {
-    const file = join(dir, name)
-    if (!statSync(file).isFile()) continue
-    if (!/\.(js|vue)$/.test(name)) continue
-    if (/\.test\.js$/.test(name)) continue
-    out.push(file)
+  const walk = (current) => {
+    for (const name of readdirSync(current)) {
+      const file = join(current, name)
+      if (statSync(file).isDirectory()) {
+        walk(file)
+        continue
+      }
+      if (!/\.(js|vue)$/.test(name)) continue
+      if (/\.test\.js$/.test(name)) continue
+      out.push(file)
+    }
   }
+  walk(dir)
   return out
 }
 
@@ -122,12 +141,17 @@ describe('采集页模块图不得改变全局层叠顺序（视频创作页卡�
   })
 
   it('features/collection 下没有任何源文件从桶文件 @/views/video-creation 取组件', () => {
+    // 按**解析后的真实文件**判，而不是按字面量：`@/views/video-creation`（别名）与
+    // `../../views/video-creation`（相对路径）**指向同一个桶文件**，只认字面量会留下盲区
+    // （第 5 轮外部复核实测：仓内同时存在别名写法与相对路径写法两种）。
     const offenders = []
     for (const file of collectionFeatureSources()) {
       const source = readFileSync(file, 'utf8')
       for (const { spec } of collectSpecs(source)) {
-        if (spec === VIDEO_CREATION_BARREL) {
-          offenders.push(`${relative(SRC, file)} → ${spec}`)
+        const resolved = resolveSpec(file, spec)
+        const hitsBarrel = resolved ? resolve(resolved) === BARREL_FILE : spec === VIDEO_CREATION_BARREL
+        if (hitsBarrel) {
+          offenders.push(`${relative(SRC, file)} → ${spec}${resolved ? ` ⇒ ${relative(SRC, resolved)}` : ''}`)
         }
       }
     }
@@ -149,5 +173,29 @@ describe('采集页模块图不得改变全局层叠顺序（视频创作页卡�
       'pipeline-selector.css 抢在 create-view.css 之前注入 ⇒ 同特异性的分类色边框压过 ' +
       '.has-bg 白边 ⇒ 视频创作页卡片边框变色 ⇒ 视觉基线判红。'
     ).toBeLessThan(selector)
+  })
+
+  // 可证伪性：锁必须能「红」。若上面三条断言是恒真的，它们就只是装饰。
+  // 这里用**合成源码**（不改仓库任何文件）喂给同一个探测器，看它会不会点名。
+  it('探测器对桶导入写法敏感：别名写法与相对路径写法都要被点名（证明断言不是恒真）', () => {
+    const virtualFile = join(SRC, 'features', 'collection', '__probe__.vue')
+    const cases = [
+      { label: '别名写法', src: "import { StageProgress } from '@/views/video-creation'" },
+      { label: '相对路径写法', src: "import { StageProgress } from '../../views/video-creation'" },
+      { label: '带后缀的相对路径写法', src: "import { StageProgress } from '../../views/video-creation/index.js'" },
+    ]
+    for (const { label, src } of cases) {
+      const hits = collectSpecs(src)
+        .map(({ spec }) => resolveSpec(virtualFile, spec))
+        .filter(Boolean)
+        .filter(resolved => resolve(resolved) === BARREL_FILE)
+      expect(hits.length, `探测器没认出「${label}」的桶导入 ⇒ 断言恒真，这把锁是装饰`).toBeGreaterThan(0)
+    }
+    // 反向对照：直连具体模块**不得**被点名（否则探测器就是在乱咬）
+    const direct = collectSpecs("import StageProgress from '@/views/video-creation/StageProgress.vue'")
+      .map(({ spec }) => resolveSpec(virtualFile, spec))
+      .filter(Boolean)
+      .filter(resolved => resolve(resolved) === BARREL_FILE)
+    expect(direct, '探测器把直连具体模块误判成桶导入').toEqual([])
   })
 })

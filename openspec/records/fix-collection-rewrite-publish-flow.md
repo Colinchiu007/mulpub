@@ -18,7 +18,7 @@ branch: fix-collection-rewrite-publish-flow
 | 静态门禁 | PASS | 本轮（修复视觉门禁红点后）全部重跑，**rc 全 0**：`node .github/scripts/check-max-lines.js`（无新增超大文件；源码挂账 94/94、墓碑 6、点名还账 20；测试文件上限 1500：超限 13/挂账 12）｜`node .github/scripts/check-locale-sync.js --keys`（**2291** 个使用中 key 均存在于 zh/en）｜`--cjk`（基线 1330、当前 1115、**无新增硬编码中文**）｜`node scripts/check-unwired-tests.js`（域内 **132** 个测试文件，全部已接线或按欠账登记；本轮新增的层叠顺序契约锁已在内）｜`node scripts/check-pr-exec-record.js --base=origin/main --mode=enforce`（`TIER-COVERAGE dual-closed total=4 external=1`，OK）｜`node scripts/check-gate-record-debt.js --base-ref=origin/main --head-ref=HEAD`（两源未收口的「远程同步」行均已登记，清单无陈旧项，OK）｜`node scripts/check-doc-abs-paths.js --simulate-no-drives`（**复现 CI 无盘符那一档**：全量审计 5821 个受管文件，无新增本机绝对路径）｜`node scripts/check-no-brand-residue.js`（12497 个 tracked 文件无品牌残留） |
 | QM-1 打包 | **N/A（不适用，非「跑了通过」）** | 改动集 **零** `apps/desktop/electron/**`、**零** `packages/rpa-engine/**`（只动渲染层 `src/**` + locale + 文档）⇒ 按 AGENTS.md 字面规则「每次修改 `apps/desktop/electron/` 或 `packages/rpa-engine/` 下代码后必须打包」**不触发**。本行记录此格是为与「已验证」区分。**额外**（不属 QM-1，但为否证 QM-6 i2「无构建验证」而跑）：渲染层生产构建 `npx vite build` ⇒ **rc=0、built in 24.11s** |
 | QM-4 视觉 | PASS | `TEST_URL=http://127.0.0.1:5199 PIXEL_ONLY=collection node tests/visual-testing/scripts/run-pixel-tests.js` ⇒ **1/1 通过、0 失败、100%**（报告 `tests/visual-testing/reports/report-1792523798281.json`）。用**本 worktree 自起的独立 Vite**（5199，`--strictPort`，HTTP 200 实证），**不借用他人端口**（5174 已被他人占用）；**未刷新基线**。新增横幅与浮层均为**条件渲染**（截断态 / 流水线运行态），采集页默认态不渲染 ⇒ 像素不变，0.000% 差异本身即证据 |
-| QM-4 视觉（**CI 侧：视频创作页基线被本刀判红 → 已定位真因并修**） | **PASS（修复待 CI 复核）** | 本轮 run 40068534350 的 `QG Visual` 在 `create-editor.png` 报 `590903 px (28.496%)`（Gate 7b 基线新鲜度，**0 px** 容差；两轮甄别同数 ⇒ 稳定违规），`QG Changes / Unit Tests / Static / Coverage / Desktop Shards / Browser E2E / Autonomous / Business API Postgres` **全绿**。真因**在本刀**：新增浮层从**桶文件** `@/views/video-creation` 取 `StageProgress`，把 `pipeline-selector.css` 提前注入采集页的模块图 ⇒ **全局层叠顺序翻转** ⇒ 视频创作页流水线卡片边框从「半透明白」变成「分类色」。修法：直连 `@/views/video-creation/StageProgress.vue`（顺序复原为与主干一致）+ 新增层叠顺序契约锁（3 例）。取证与订正见下方第 2 条与「事件 4」 |
+| QM-4 视觉（**CI 侧：视频创作页基线被本刀判红 → 已定位真因并修**） | **PASS（CI 已复跑绿）** | 本轮 run 40068534350 的 `QG Visual` 在 `create-editor.png` 报 `590903 px (28.496%)`（Gate 7b 基线新鲜度，**0 px** 容差；两轮甄别同数 ⇒ 稳定违规），`QG Changes / Unit Tests / Static / Coverage / Desktop Shards / Browser E2E / Autonomous / Business API Postgres` **全绿**。真因**在本刀**：新增浮层从**桶文件** `@/views/video-creation` 取 `StageProgress`，把 `pipeline-selector.css` 提前注入采集页的模块图 ⇒ **全局层叠顺序翻转** ⇒ 视频创作页流水线卡片边框从「半透明白」变成「分类色」。修法：直连 `@/views/video-creation/StageProgress.vue`（顺序复原）+ 新增层叠顺序契约锁（4 例）。**本地同判据复验**：自起 Vite（5201）跑完整 views 套件后用门禁脚本判定，`create-editor.png` **漂移 0 px、不在违规清单里**（余下 8 张是本机与 CI runner 的环境差，且都不是本刀改的视图）。**CI 复跑**：修复提交 `4b8742d9a` 的 quality-gate（run 40081336712）**completed/success**，其中 `QG Visual` **success**、`Gate Result` **success** ⇒ 视觉门禁红点已消除。取证与订正见下方第 2 条与「事件 4」 |
 | QM-6 CCG 双模型外部评审 | PASS | **共跑 13 轮，全部是跨家族外部模型实跑**（合并 main 后又跑轮 12 / 轮 13：并发模型注释订正、StageProgress 契约锁、PRD 消费者清单）（critic=`claude` 2.1.303 / proposer=`opencode` 1.18.34，两家**不同厂商**；脚本裸名自检两条均过，跨家族校验「通过」）。累计交付 **50+ 条**评审意见，**逐条填 prosecution/defense/verdict/rationale**；其中 **3 条被采纳并已实现**（i3 改写信封类型守卫、i5 作废逻辑抽 composable + 两条路径各自用例、i7 并发模型写进文档），其余 dismissal 均附**可复算实测证据**；各轮收口 `self_play_resolved`、blocking 空（轮 12 的记录因被取代而按先例 hand-set `cleared`，见下方「合并 main 之后的深审轮次」）。**高危面另有三次独立外部复核**（外部模型 claude 自行读代码/脚本、原文**公开于 PR 评论**）：第一次针对键名迁移（datamigration，#4114#issuecomment-6302916932）、第二次针对审计可信度与厂商独立性（auth + datamigration，#4114#issuecomment-6303677171）、第三次针对**合并 main 之后**的代码与并发/配置档案链路（auth + datamigration，#4114#issuecomment-6310698615）、**第四次针对交付前最终形态**（高危面是否命中 /「成片↔文案同源」是否可达 / 分支谱系 / 本轮记录是否属实，#4114#issuecomment-6368372014）。**详细逐轮叙述见下方「QM-6 双家族外部评审（十一轮实跑；合并 main 之后另有轮 12 / 13）」与「本轮收尾 · ③」**。裁决原文在 `.adversarial/ccg-deep-*/{critique-v1.md,adjudication.json}`（`.gitignore:441` 忽略，不进版本库），引擎写回的裁决与 findings 在 `.ccg/reviews/*.json`（随本 PR 入库） |
 | 相关测试全集 | PASS | 本轮（层叠顺序修复后）复跑采集页相关全集：`vitest run src/features/collection src/composables/useCollectionVideoCreation.test.js src/composables/useCollectionVideoCreation.contract.test.js src/composables/useRewriteResultInvalidation.test.js src/views/Collection.rewrite-publish-flow.test.js` ⇒ **24 文件 / 336 用例全绿**（含本轮新增的层叠顺序契约锁 **3 例**）。合并 main 后复跑：`vitest run src/features/collection src/features/publish-destination src/composables src/views/Collection*.test.js src/components/PublishDestinationModal.test.js src/views/CreateView.config-profile-handoff.test.js` ⇒ **84 文件 / 1523 用例全绿**（本 PR 自有新增 **61 例**：作废 composable 6 + 编排 composable 19 + 组件 13 + 配置档案纯模块 10 + StageProgress 契约锁 4 + 依赖契约锁 6 + 层叠顺序契约锁 3）
 | 文档同步 | PASS | 新增 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md`（454 行：缺陷根因 / 数据校验 / 流程 / 功能逻辑 / 交互逻辑 / 显示项 / 提示文字 / 未闭合）；订正 `01-docs/PRD-REWRITE-WORD-COUNT-CONTROL-2026-09-12.md`（采集页口径已被取代的四处 + 校验表上限 + 变更记录）；`CHANGELOG.md` 顶部新增 36 行条目 |
@@ -332,8 +332,51 @@ git diff "$(git merge-base origin/main HEAD)..HEAD" --numstat -- apps/desktop \
    处置：改成直连 `@/views/video-creation/StageProgress.vue`（顺序复原），并加契约锁
    `collection-css-cascade-order.test.js`（3 例：采集页不得触及 `pipeline-selector.css`／
    `features/collection/**` 不得从桶文件取组件／`create-view.css` 必须早于 `pipeline-selector.css`）。
+   **本地同判据复验（2026-10-24，修复后）**：在本 worktree 自起 Vite（`127.0.0.1:5201`，独立端口）
+   跑**完整 views 套件**（`node tests/visual-testing/views/all-views.visual.test.js`，视图顺序含
+   `collection → … → create-editor`，与 CI 同一顺序），再用**门禁自己的脚本**判定：
+   `node scripts/check-baseline-freshness.js --renders=apps/desktop/tests/visual-testing/screenshots --partial`
+   ⇒ **`create-editor.png` 不在违规清单里（漂移 0 px）**；余下 8 张违规全是**本机与 CI runner 的环境差**
+   （accounts-list 12 px/0.001%、publish-history 88 px/0.004%、viral-analysis 844 px/0.041%、
+   create-history 3696 px/0.178%、create-result 6731 px/0.325%、publish-form 11640 px/0.561%、
+   cloud-publish 15354 px/0.74%），且**都不是本刀改的视图** ⇒ **CI 里唯一超标的那张已归零**。
    ⇒ 教训：**「我没改那个页面」不等于「与那个页面无关」** —— 全局样式表、注入顺序、共享模块图
    都在「我没改」的范围里；这类跨页影响**只能靠机械锁**，靠人读 diff 必然漏。
+   **两个数字的差异（外部复核点名，如实解释）**：旧结论里的 `582150 px / 28.07%` 来自
+   **更早的一轮 CI run**（本刀第 1 次红的那轮），`590903 px / 28.496%` 来自**修复前最后一轮**
+   run 40068534350；两者是**不同 run 的两次测量**，不是同一次测量的两个读数。
+   两处都原文保留，**不合并、不改写**。
+
+#### 第 5 轮外部双家族复核（2026-10-24，隔离只读副本）
+
+- **隔离方式**：`git archive HEAD` 解出的**只读快照**（无 `.git`），claude 侧工具白名单**只给
+  Read/Grep/Glob**；opencode 侧用**只读代理**（`tools: {write/edit/patch/bash: false}`），
+  两个副本互不干扰。
+- **critic = claude 2.1.303**：Q1–Q4 **全部成立**（修复有效 / 锁非空跑且可证伪 / 记录属实 /
+  无新缺陷）；并指出「直连是仓内既有范式（`FilmAutoPanel.vue` 等多处）」，因此不构成破例。
+- **proposer = opencode CLI**（非 Anthropic 家族模型）：**总判定「成立」**，逐条给出 file:line 证据。
+  **本轮该后端的三次具体失败（如实登记，不用「工具不可用」这种笼统说法）**：
+  ① 默认 provider `opencode-go` 报 `AI_APICallError: This API key has expired`（API key 过期）；
+  ② `krill-grok` 报 `account balance is negative, please recharge first`（余额为负）；
+  ③ 改用 `sensenova` 凭据（商汤）后可跑，但两次长任务都被 **`Error: rpm exhausted`**（限流）打断，
+  第一次在已独立确认「桶导入全仓清零 / 路由全部动态加载」之后、第二次在已独立确认
+  「浮层第 107 行直连 / 桶文件第 1 行 re-export / `PipelineSelector.vue` 第 67 行导入 css /
+  桶导入 grep 0 命中 / 两份样式表同特异性」之后；最终用 `--continue` 续上**它自己的会话**
+  （不再调工具）才拿到完整报告。
+- **本轮复核抓到的两处锁的盲区（都已修，锁从 3 例增到 4 例）**：
+  ① **只认 `@/views/video-creation` 别名写法**，相对路径写法（`../../views/video-creation`）会漏
+  ⇒ 改成**按解析后的真实文件**判定（别名与相对路径都命中）；
+  ② **只扫 `features/collection/` 的直接子文件**，子目录里的文件不扫 ⇒ 改成**递归扫描**。
+- **锁的可证伪性已用变异反证证明（不是推理）**：把浮层导入**改回**桶形态 ⇒ **4 条断言里 3 条判红**
+  （含「注入顺序 expected 31 to be less than 25」）；恢复后 4/4 全绿。
+- **外部复核点名的「需人工裁决」4 条，逐条处置**：① 「改后 CI 是否已复跑绿」→ **已复跑**
+  （run 40081336712 `QG Visual` success、`Gate Result` success）；② 「旧/新数字差异未解释」→ 见上，
+  是两个不同 run 的两次测量；③ 「断言 1 是否真能走到浮层」→ 能：`Collection.vue:645` 是
+  **静态 import**（`import CollectionVideoProgressModal from '@/features/collection/CollectionVideoProgressModal.vue'`），
+  模块图走得到；④ 「子目录盲区」→ 已改递归扫描。
+- **外部复核指出的「已知局限」已写进锁的头注释（如实登记，不假装精确）**：本锁的模块图走法把
+  **动态 import 当即时求值**，与 Vite dev 的**懒求值**有差异 ⇒ 第 1、2 条断言不依赖全局顺序、
+  结论可靠；第 3 条（全局顺序兜底）是**近似**而非精确模型。
 
 ### 本轮收尾（2026-10-23）：分支谱系订正与最终形态
 

@@ -730,8 +730,10 @@
   ⇒ 全局层叠顺序翻转 ⇒ `create-view.css` 的分类色 `border-left` 压过 `.has-bg` 的半透明白边
   ⇒ **视频创作页每张流水线卡片边框变色**（视觉基线门禁判红，实测 590903 px / 28.496%）。
   修法：浮层改为**直连** `@/views/video-creation/StageProgress.vue`（层叠顺序复原），
-  并新增层叠顺序契约锁（3 例：采集页模块图不得触及 `pipeline-selector.css`／
-  `features/collection/**` 不得从桶文件取组件／`create-view.css` 必须早于 `pipeline-selector.css`）。
+  并新增层叠顺序契约锁（**4 例**：采集页模块图不得触及 `pipeline-selector.css`／
+  `features/collection/**` 不得从桶文件取组件（**按解析后的真实文件**判定，别名与相对路径都命中、
+  **递归**扫子目录）／`create-view.css` 必须早于 `pipeline-selector.css`／
+  **探测器对写法敏感**的合成用例（证明断言不是恒真））。
 - 详见 `01-docs/PRD-COLLECTION-REWRITE-PUBLISH-FLOW-2026-10-20.md` 与
   `openspec/records/fix-collection-rewrite-publish-flow.md`。
 

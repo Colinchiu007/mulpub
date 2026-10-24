@@ -48,10 +48,92 @@
   },
   "deepReview": {
     "required": true,
-    "status": "pending",
-    "tier": "unknown",
-    "performedBy": null,
-    "evidence": null,
-    "findings": null
+    "status": "cleared",
+    "tier": "external",
+    "performedBy": "claude",
+    "evidence": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6383382719",
+    "reviewedAt": "2026-10-24T10:59:06Z",
+    "findings": [
+      {
+        "id": "i1",
+        "severity": "Warning",
+        "finding": "机械锁只认 `@/views/video-creation` 这一种别名写法，相对路径写法（如 `../../views/video-creation`）会漏检。",
+        "highRiskDomains": [],
+        "prosecution": "第 5 轮 proposer（opencode CLI）在隔离只读副本里 grep 后指出：契约锁第 2 条断言比较的是字面量 `spec === '@/views/video-creation'`，若有人用相对路径从同一个桶文件取组件，锁不会红。",
+        "defense": "复核方进一步自行统计：仓内 4 处相关导入全是 `@/` 别名形态（`features/collection/CollectionVideoProgressModal.vue:107`、`CollectionVideoProgressModal.contract.test.js:20`、`views/film-auto/FilmAutoPanel.vue:32`、`domain/pipeline-normalizer-cost-gate.test.js:9`），相对路径形态实际为零 ⇒ 当时的风险是理论性的。",
+        "verdict": "upheld",
+        "rationale": "成立并已修：锁改为**按解析后的真实文件**判定（`resolveSpec` 后与 `views/video-creation/index.js` 比对），别名与相对路径两种写法都会命中；同时补了「探测器对写法敏感」的合成用例（3 种桶写法必须被点名、直连写法必须不被误判），把锁从 3 例增到 4 例。可复算：`apps/desktop/src/features/collection/collection-css-cascade-order.test.js`。"
+      },
+      {
+        "id": "i2",
+        "severity": "Warning",
+        "finding": "机械锁只扫 `features/collection/` 的直接子文件，子目录里的源文件不扫。",
+        "highRiskDomains": [],
+        "prosecution": "第 5 轮 proposer 指出 `collectionFeatureSources()` 用 `readdirSync` + `statSync(file).isFile()` 过滤，子目录被跳过 ⇒ 子目录里若出现桶导入，锁不响。",
+        "defense": "采集页特性目录当前无子目录（复核方自行 `Read` 目录后确认「`features/collection/` 全是文件无子目录」），故当时无实际暴露面。",
+        "verdict": "upheld",
+        "rationale": "成立并已修：扫描改为**递归**（`walk` 递归子目录），不再依赖「当前没有子目录」这个会随时变的前提。可复算：同上测试文件第 99-120 行。"
+      },
+      {
+        "id": "i3",
+        "severity": "Info",
+        "finding": "锁算「注入顺序」的方式把动态 import 当即时求值，与 Vite dev 的懒求值有差异。",
+        "highRiskDomains": [],
+        "prosecution": "第 5 轮 proposer 指出：`walkModuleGraph` 用正则捕获 `import('…')` 并立即遍历，而真实 Vite 对路由是懒求值（`component: () => import('…')`，访问时才注入该路由样式）⇒ 第 3 条断言算的是静态全局顺序，可能偏离真实构建。",
+        "defense": "第 1、2 条断言**不依赖**全局顺序（只看「采集页模块图能否触及某张样式表」与「有没有桶导入」），结论可靠；第 3 条是**兜底**而非精确模型。",
+        "verdict": "upheld",
+        "rationale": "成立，作为**已知局限**如实登记：已写进锁的头注释（说明第 3 条是近似、第 1/2 条可靠），不假装精确、不删断言。复核方还独立确认了「路由全部动态加载」这一前提（`src/router/index.js` 全是 `() => import(…)`）。"
+      },
+      {
+        "id": "i4",
+        "severity": "Warning",
+        "finding": "「改成直连 ⇒ 注入顺序复原 ⇒ 卡片边框回到基线」这一步在复核时只是推断，尚未被 CI 复跑实证。",
+        "highRiskDomains": [],
+        "prosecution": "第 5 轮 proposer 明确指出：执行记录当时自述「修复待 CI 复核」，该因果链属**逻辑推断**而非 post-fix CI 绿的证据。",
+        "defense": "推断本身有两条独立支撑：① 复核方逐行核对了两份样式表的选择器与特异性（同为 (0,2,0)、靠顺序决胜）；② 本地已用**同一套判据**复验（自起 Vite 跑完整 views 套件 → 门禁脚本判定 → `create-editor.png` 漂移 0 px、不在违规清单里）。",
+        "verdict": "upheld",
+        "rationale": "成立并已补实证：修复提交 `4b8742d9a` 的 quality-gate（run 40081336712）**completed/success**，其中 `QG Visual` success、`Gate Result` success ⇒ 推断已被 CI 复跑证实；执行记录顶部的 QM-4 行已同步改写为「PASS（CI 已复跑绿）」并写入 run 号。"
+      },
+      {
+        "id": "i5",
+        "severity": "Info",
+        "finding": "执行记录里旧数字 `582150 px / 28.07%` 与新数字 `590903 px / 28.496%` 不同却未解释差异原因。",
+        "highRiskDomains": [],
+        "prosecution": "第 5 轮 proposer 指出两处数字并存、记录未说明为何不同，要求确认这不是记录错误。",
+        "defense": "两者来自**两个不同的 CI run**：旧数字是本刀第 1 次红的那一轮，新数字来自修复前最后一轮 run 40068534350 ⇒ 是两次独立测量，不是同一次测量的两个读数。",
+        "verdict": "dismissed",
+        "rationale": "差异不构成记录错误，已在执行记录「事件 4」中补写该解释并明确「两处原文保留、不合并、不改写」。驳回依据：两个 run 的时间与 id 都可在 CI 上回查。"
+      },
+      {
+        "id": "i6",
+        "severity": "Info",
+        "finding": "改用直连导入与仓内既有范式冲突（破例），可能带来后续维护风险。",
+        "highRiskDomains": [],
+        "prosecution": "第 5 轮 claude 的第一次摘要把「破例直连」列为需人工裁决点；proposer 则要求统计仓内范式。",
+        "defense": "复核方自行统计后结论相反：`from '@/views/video-creation'`（精确桶）全树 **0 处**，`from '@/views/video-creation/Xxx.vue'`（直连）**4 处** ⇒ 直连才是仓内既有范式，桶文件在 `apps/desktop/src` 内已无人引用；本刀改直连是**沿用**范式而非破例。",
+        "verdict": "dismissed",
+        "rationale": "不成立，驳回。可复算：`Grep \"from ['\\\"]@/views/video-creation['\\\"]\" in apps/desktop/src` → 0 命中；含子路径的同一模式 → 4 处且全部是直连（其中 2 处是本刀新增/本刀涉及的文件）。"
+      }
+    ],
+    "closureNote": "第 5 轮（QM-6，交付前最终形态）：6 条逐条裁决 —— i1 锁只认别名写法、成立并已修（改为按解析后真实文件判定 + 合成用例把锁从 3 例增到 4 例）；i2 锁不扫子目录、成立并已修（改递归扫描）；i3 锁的注入顺序模型与 Vite 懒求值有差异、成立，作为已知局限写进锁头注释；i4 「顺序复原 ⇒ 边框回基线」当时只是推断、成立并已补 CI 实证（run 40081336712 QG Visual / Gate Result 均 success）；i5 旧新数字差异、驳回（两个不同 CI run 的两次测量，已在记录里补写解释）；i6 直连是否破例、驳回（复核方自行统计：桶导入全树 0 处、直连 4 处，直连才是既有范式）。两个家族（critic=claude 2.1.303 / proposer=opencode CLI 非 Anthropic 家族模型）在**隔离只读副本**（git archive 快照 + 工具白名单只给 Read/Grep/Glob；opencode 侧用只读代理禁用 write/edit/patch/bash）里独立作答，结论一致：**成立**；复核原文逐字公开于 PR 评论 https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6383382719 （正文 sha256=e3a0b39deb9cc4998a8eb35e28d3089764db725975df2c8102d9c4791a5ed78b）。锁的可证伪性用**变异反证**证明而非推理：把浮层导入改回桶形态 ⇒ 4 条断言里 3 条判红（含「注入顺序 expected 31 to be less than 25」），恢复后 4/4 全绿。最终差量相对被评差量的差异**就是评审发现项的修复本身**（锁的加强 + 记录订正 + CI 实证），无未经评审的新功能面。",
+    "confidenceWeight": 0.6,
+    "findingsAuthoredBy": "external-model（critic=claude 2.1.303 / proposer=opencode CLI 非 Anthropic 家族模型）",
+    "closureAuthoredBy": "agent（按 check-pr-exec-record.js 合法出口②收口）",
+    "engineStatusBeforeClear": "pending",
+    "engineTierBeforeClear": "unknown",
+    "engineRequiresExternalReviewBeforeClear": [],
+    "clearedBy": "agent",
+    "clearedAt": "2026-10-24T11:03:47.681Z",
+    "clearedReason": "本记录的差集是本刀第 5 轮的 5 个文件（161 行、2 个源文件），不是高危域面（无鉴权/凭证/加密/数据迁移/判据本体改动）。外部双家族复核已完成并公开留痕：critic=claude 2.1.303 与 proposer=opencode CLI（非 Anthropic 家族模型）在隔离只读副本里独立核对，结论一致为「成立」，原文见 PR 评论 #issuecomment-6383382719（正文 sha256=e3a0b39deb9cc4998a8eb35e28d3089764db725975df2c8102d9c4791a5ed78b，可由 gh api 取回正文重算核对）。6 条发现项逐条裁决：3 条成立并已修/已登记（锁的别名盲区、子目录盲区、注入顺序模型的已知局限），1 条成立并已补 CI 实证（推断 ⇒ run 40081336712 QG Visual + Gate Result success），2 条驳回并各附可复算理由。引擎原值（status=pending、tier=unknown）保留在 engineStatusBeforeClear / engineTierBeforeClear；findings 为本轮外部模型的发现项与 agent 的逐条裁决，引擎写回的 stats 未改一字。",
+    "externallyReviewed": [
+      {
+        "id": "i1,i2,i3,i4,i5,i6",
+        "performedBy": "claude",
+        "evidenceRef": "https://github.com/Colinchiu007/mulpub/pull/4114#issuecomment-6383382719",
+        "reviewedAt": "2026-10-24T10:59:06Z",
+        "evidenceDigestSha256": "e3a0b39deb9cc4998a8eb35e28d3089764db725975df2c8102d9c4791a5ed78b",
+        "evidenceDigestScope": "sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)"
+      }
+    ]
   }
 }

@@ -1,0 +1,62 @@
+{
+  "sha": "4b8742d9a4ce3c99b4a863c3662efdab0e0ca97b",
+  "layer": "diff",
+  "mode": "single",
+  "reason": "变更 66 行（≤ 200）且无敏感命中 → 走 §12.6 常规专家分派",
+  "stats": {
+    "changedLines": 66,
+    "fileCount": 5,
+    "codeFileCount": 1,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 0,
+    "docSensitiveContentHits": 1,
+    "docSensitiveContentSample": [
+      "  ③ 改用 `sensenova` 凭据（商汤）后可跑，但两次长任务都被 **`Error: rpm exhausted`**（限流）打断，"
+    ],
+    "ccgSensitiveContentHits": 2,
+    "ccgSensitiveContentSample": [
+      "    \"clearedReason\": \"本记录的差集是本刀第 5 轮的 5 个文件（161 行、2 个源文件），不是高危域面（无鉴权/凭证/加密/数据迁移/判据本体改动）。外部双家族复核已完成并公开留痕：critic=claude 2.1.303 与 proposer=opencode CLI（非 Anthropic 家族模型）在隔离只读副本里独立核对，结论一致为「成立」，原文见 PR 评论 #issuecomment-6383382719（正文 sha256=e3a0b39deb9cc4998a8eb35e28d3089764db725975df2c8102d9c4791a5ed78b，可由 gh api 取回正文重算核对）。6 条发现项逐条裁决：3 条成立并已修/已登记（锁的别名盲区、子目录盲区、注入顺序模型的已知局限），1 条成立并已补 CI 实证（推断 ⇒ run 40081336712 QG Visual + Gate Result success），2 条驳回并各附可复算理由。引擎原值（status=pending、tier=unknown）保留在 engineStatusBeforeClear / engineTierBeforeClear；findings 为本轮外部模型的发现项与 agent 的逐条裁决，引擎写回的 stats 未改一字。\",",
+      "        \"evidenceDigestScope\": \"sha256(GitHub PR 评论正文 body；gh api 取回后重算即可核对)\""
+    ],
+    "lineReadGaps": []
+  },
+  "stagedDiffHash": "7545d52f71039e9e896932e015f9992f3271fd6e4c8ea097b6398de307d85d22",
+  "decidedAt": "2026-10-24T11:05:34.530Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "pending",
+    "tier": "unknown",
+    "performedBy": null,
+    "evidence": null,
+    "findings": null
+  }
+}

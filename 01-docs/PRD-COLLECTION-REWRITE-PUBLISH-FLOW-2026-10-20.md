@@ -310,9 +310,13 @@ if (!genreDraftId) { await saveDraftAfterRewrite() }   // ← 旧 id 非空 ⇒ 
   与 `pipeline-selector.css` 的 `.pipeline-card.has-bg { border-color: rgba(255,255,255,0.16) }`），
   **靠加载顺序决胜** ⇒ 顺序一翻转，视频创作页的流水线卡片边框就从「半透明白」变成「分类色」
   （用户可见的观感回归 + 视觉基线门禁判红）；
-- 机械锁：`apps/desktop/src/features/collection/collection-css-cascade-order.test.js`（3 例）
-  —— 采集页模块图不得触及 `pipeline-selector.css`；`features/collection/**` 不得从桶文件取组件；
-  `create-view.css` 必须早于 `pipeline-selector.css`。
+- 机械锁：`apps/desktop/src/features/collection/collection-css-cascade-order.test.js`（**4 例**）
+  —— 采集页模块图不得触及 `pipeline-selector.css`；`features/collection/**` 不得从桶文件取组件
+  （**按解析后的真实文件**判定，别名 `@/…` 与相对路径 `../../…` 都命中；**递归**扫子目录）；
+  `create-view.css` 必须早于 `pipeline-selector.css`；外加一条**探测器对写法敏感**的合成用例
+  （证明断言不是恒真：把导入改回桶形态必须红）。
+- **已知局限（如实登记）**：该锁的模块图走法把**动态 import 当即时求值**，与 Vite dev 的**懒求值**
+  有差异 ⇒ 前两条断言不依赖全局顺序、结论可靠；第三条（全局顺序兜底）是**近似**而非精确模型。
 
 **F2.4 文案裁切披露**
 
