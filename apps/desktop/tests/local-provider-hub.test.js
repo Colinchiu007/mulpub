@@ -112,8 +112,27 @@ describe('本地 Provider 桩：中文折行', () => {
 describe('本地 Provider 桩：协议兼容', () => {
   let hub
   let urls
+  // 媒体工具可用性：**整个 describe 级共享**。
+  //
+  // 为什么必须提到 describe 级（2026-10-24 修主干红）：出图桩要真调 ffmpeg，
+  // 而 Electron CI 的 runner **不装 ffmpeg**（.github/workflows/electron-ci.yml 里没有安装步骤）
+  // ⇒ `resolveFfmpegBinary()` 抛错 ⇒ 图片端点用例被 skip。
+  // 旧版把可用性判定放在**图片用例内部**，紧跟其后的「调用统计」用例却**没有同等守卫**，
+  // 于是在 CI 上：图片请求从未发生 ⇒ `stats.image` 恒为 0 ⇒
+  // `expect(stats.image).toBeGreaterThanOrEqual(1)` **恒假**
+  // ⇒ `tests/local-provider-hub.test.js` 在主干上稳定失败（实测 job 120730847971 / 120729315076）
+  // ⇒ Electron CI 红 ⇒ 挡住全仓所有 PR（required check）。
+  //
+  // 修法不是「把断言删掉」也不是「把断言放宽成恒真」，而是：
+  // ① 媒体可用性只判一次、两处共用；
+  // ② 把**不依赖媒体**的统计断言（统计面存在 + LLM 阶段计数）拆出来**始终执行**，
+  //    保证媒体不可用时这组仍有真断言在跑（不是整组跳过 ⇒ 不是恒绿）；
+  // ③ 只有「出图也被计数」这半句依赖媒体，媒体不可用时如实 skip。
+  let mediaAvailable = true
 
   beforeAll(async () => {
+    // resolveFfmpegBinary 找不到可执行 ffmpeg 时是**抛错**而非返回空 ⇒ 这里要兜住异常
+    try { resolveFfmpegBinary() } catch (_) { mediaAvailable = false }
     hub = new LocalProviderHub({
       copyPath: COPY_PATH,
       llmPort: 18787,
@@ -164,9 +183,6 @@ describe('本地 Provider 桩：协议兼容', () => {
   // 出图桩要真调 ffmpeg ⇒ 媒体工具不可用时跳过本例（协议形状另有不依赖媒体的断言覆盖：
   // 上面的 LLM 端点用例与连活探针用例）。
   it('图片端点返回 SD WebUI 兼容结构（images: [base64]）且尺寸符合请求', async (ctx) => {
-    // resolveFfmpegBinary 找不到可执行 ffmpeg 时是**抛错**而非返回空 ⇒ 这里要兜住异常
-    let mediaAvailable = true
-    try { resolveFfmpegBinary() } catch (_) { mediaAvailable = false }
     if (!mediaAvailable) return ctx.skip()
     const copy = loadCopy(COPY_PATH)
     const scene = copy.scenes[0]
@@ -190,9 +206,21 @@ describe('本地 Provider 桩：协议兼容', () => {
     expect(response.status).toBe(200)
   })
 
-  it('调用统计能证明四个 LLM 阶段与出图都真的发生过', () => {
+  // 统计面本身**不依赖媒体** ⇒ 这一半必须始终执行。
+  //
+  // 旧版把「统计面存在」与「出图计数」捆在同一条用例里，于是 CI（无 ffmpeg）上：
+  // 图片用例被 skip ⇒ 出图请求从未发生 ⇒ `stats.image` 恒为 0 ⇒ 整条断言恒假
+  // （详见本 describe 头部注释里的实测 job id）。
+  // 拆开后：**媒体不可用时这组仍有真断言在跑**（不是整组跳过 ⇒ 不是恒绿）。
+  it('调用统计面存在且 LLM 阶段计数正确（不依赖媒体工具）', () => {
     const stats = hub.stats()
+    expect(typeof stats.llm).toBe('number')
+    expect(typeof stats.image).toBe('number')
     expect(stats.llm).toBeGreaterThanOrEqual(2)
-    expect(stats.image).toBeGreaterThanOrEqual(1)
+  })
+
+  it('媒体工具可用时，出图也被计入调用统计', (ctx) => {
+    if (!mediaAvailable) return ctx.skip()
+    expect(hub.stats().image).toBeGreaterThanOrEqual(1)
   })
 })

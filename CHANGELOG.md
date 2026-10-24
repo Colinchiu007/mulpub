@@ -1,3 +1,12 @@
+# fix(tests): 本地 Provider 桩的媒体守卫错位让 Electron CI 恒红，挡住全仓 PR（local-provider-hub-media-guard）
+
+- fix(tests): 修一处**与改动无关却让所有 PR 变红**的恒假断言：`apps/desktop/tests/local-provider-hub.test.js` 里，出图端点用例在媒体工具不可用时按设计 `ctx.skip()`，但**紧邻其后的「调用统计」断言没有同等守卫** ⇒ 出图请求从未发生 ⇒ `stats.image` 恒为 `0` ⇒ `expect(stats.image).toBeGreaterThanOrEqual(1)` **每次都红**。
+- 现象：`Electron CI` 的 `electron-tests` 作业在两个不同主干提交上（`f35277c18` / `d94f83a7b`）失败信息逐字相同（`AssertionError: expected 0 to be greater than or equal to 1`）⇒ 稳定复现，非 flaky；该作业是 required check ⇒ 全仓 PR 一起被挡（含纯文档 PR）。
+- 根因：CI 是 Windows runner 且 `.github/workflows/electron-ci.yml` **不装 ffmpeg** ⇒ `resolveFfmpegBinary()` 抛错 ⇒ 媒体必然不可用（`findMediaTool` 在 Windows 侧列的两个常见安装目录均不存在，裸名回退也失败）。
+- 修法：媒体可用性判定从用例内提到 **describe 级**共用；把**不依赖媒体**的统计断言（统计面存在 + LLM 阶段计数）拆出来**始终执行**；只有「出图也被计数」这半句依赖媒体、不可用时如实 skip。**没有删断言、没有放宽成恒真、没有整组跳过**。
+- 验证：3 组对照实验本地真跑 —— 修复前 + CI 形态（媒体不可用）复现同一条失败信息（与 CI log 逐字一致）；修复后 + 媒体不可用转绿且统计面断言**仍真跑**；修复后 + 媒体可用 17/17 绿（图片端点用例真调 ffmpeg，395ms）。
+- 顺带修正一处**名实不符**：原用例名称「证明四个 LLM 阶段」而断言只有 `llm >= 2`，新名不再声称验证四个阶段。
+
 # [未发布] feat(视频创作): 参考视频 + 非 Flash 模型 + 生成成本可见；编辑页「生成 AI 视频」接入场景已选定的图
 
 - feat(视频创作): 暴露非 Flash 的 `agnes-video-2.5`（支持 720P/1080P/1K/2K、参考图 ≤8、**参考视频 ≤1**）。动因：Flash **服务端硬拒**参考视频（400 `videos is not supported`），而支持它的非 Flash 模型在产品上完全没露出来。能力与端点**解耦**——端点仍由用户在「模型设置」里配置（官方标注非 Flash 在国际站上线，本仓 base_url 是中国站，代码不替用户猜）。
