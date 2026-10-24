@@ -26,8 +26,12 @@ export default {
     configuredBadge: '已配置',
     customBadge: '自定义',
     presetBadge: '预设',
-    enabled: '已启用',
-    disabled: '已禁用',
+    // 配置状态三态（utils/provider-status.js）：未配置 ≠ 被禁用
+    // 旧的 enabled/disabled 两个徽标键已删——它们是 `enabled` 布尔位的直译，
+    // 「未配置」被说成「已禁用」。同义的第二套词汇留着必然漂移。
+    statusEnabled: '已启用',
+    statusDisabled: '已停用',
+    statusNotConfigured: '未配置',
     baseUrlLabel: 'Base URL',
     modelsLabel: '模型',
     capabilityLabel: '能力',
@@ -131,7 +135,10 @@ export default {
     deleted: '已删除',
     deleteFailed: '删除失败',
     enabledMsg: '已启用',
-    disabledMsg: '已禁用',
+    // 与状态徽标 statusDisabled 同词：「已停用」而不是「已禁用」——
+    // 「已禁用」是「用户手动禁用」的含义，而 enabled 位其实是配置派生位（同 statusDisabled 的理由）。
+    // 该 toast 属于尚未接线的开关路径，措辞先对齐，避免徽标说「已停用」而 toast 说「已禁用」。
+    disabledMsg: '已停用',
     operationFailed: '操作失败',
     configureFirst: '请先配置 API Key 后再设为默认',
     setDefaultSuccess: '已设为默认',
