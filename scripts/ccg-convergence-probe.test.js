@@ -43,6 +43,100 @@ function runProbe (env, args) {
 const found = probe.locateVendor();
 console.log('[ccg-probe-test] vendor ' + (found ? 'FOUND: ' + found.engine : 'ABSENT（CI/无引擎档：只断言 fail-closed 那一格）'));
 
+/**
+ * 自建 vendor 夹具 —— 让 P10-P12 在**任何机器**（含 CI runner）上都能跑。
+ *
+ * 为什么必须换成夹具：这三条原先只在"本机 vendor 带着一份未提交的本地补丁"时才成立，
+ * 而那份补丁在 2026-10-24 11:48 被另一个会话改写掉了（末尾的 `if (require.main === module)`
+ * 守卫和整张导出面一起没了）。后果是双重的：P1/P10 的 `--json` stdout 变成别人流水线打印的
+ * 「判定记录按 diff 内容寻址命中…」（`JSON.parse` 当场炸），而 P10/P11 在别的机器上整条早退。
+ * **把锁的成立前提建在机器局部状态上，等价于没有锁** —— 本仓「装饰性门禁」的第 N 种落点。
+ * 夹具只满足探针"现读自 vendor"的那几个形状锚点，所以这里量的是**探针的装配**；
+ * 真引擎的 ladder 语义仍由 P1/P3 在装了 vendor 的机器上覆盖（两档各有归属，不互相顶替）。
+ */
+const SYNTH_ENGINE = [
+  "'use strict';",
+  'function isStalled (rounds, cfg) {',
+  '  var n = (cfg && cfg.stallRounds) || 2;',
+  '  var delta = (cfg && cfg.stallScoreDelta) || 0.5;',
+  '  if (!rounds || rounds.length < n + 1) return { stalled: false, detail: "轮次不足" };',
+  '  void delta;',
+  '  return { stalled: true, detail: "stale" };',
+  '}',
+  'function convergenceDecision (task, cfg) {',
+  '  var maxRounds = (cfg && cfg.maxRounds) || 3;',
+  '  var threshold = (cfg && cfg.scoreThreshold) || 8;',
+  '  var rounds = task.rounds || [];',
+  '  var last = rounds.length ? rounds[rounds.length - 1].minScore : 0;',
+  '  if (last >= threshold) return { status: "converged", reason: "score", stop: true };',
+  '  if (isStalled(rounds, cfg).stalled) return { status: "stalled", reason: "stall", stop: true };',
+  '  if (task.currentRound >= maxRounds) return { status: "self_play", reason: "selfPlay", stop: true };',
+  '  return { reason: "continue", stop: false };',
+  '}',
+  'module.exports = { convergenceDecision: convergenceDecision, isStalled: isStalled };',
+].join('\n');
+
+/**
+ * @param {object} o 三个开关各自对应一种真实形状：
+ * @param {boolean} o.arm     upheld 那条 push 之前有没有解除臂（false = 今天 vendor 的真实形状）
+ * @param {boolean} o.exports 有没有导出面（false = 可安全 require 但拿不到函数 ⇒ 真失明，必须 rc=1）
+ * @param {boolean} o.guard   末尾是否写在 `require.main` 守卫里（false = require 即执行 main ⇒ 禁止 require）
+ */
+function synthDriver (o) {
+  const lines = [
+    "'use strict';",
+    'var fs = require("fs");',
+    'function externalReviewSatisfied (i, adj) {',
+    '  return !!(i.externalReview && i.externalReview.performedBy === adj.expectedExternalBackend',
+    '    && i.externalReview.evidenceRef && i.externalReview.reviewedAt);',
+    '}',
+    'function blockingFromAdjudication (adj) {',
+    '  var blocking = [];',
+    '  (adj.items || []).forEach(function (i) {',
+    '    if ((i.highRiskDomains || []).length && externalReviewSatisfied(i, adj)) { return; }',
+    "    if (i.verdict === 'upheld') {",
+  ];
+  if (o.arm) lines.push('      if (externalReviewSatisfied(i, adj)) { return; }');
+  lines.push("      blocking.push({ id: i.id, reason: 'self_play_upheld' });");
+  lines.push('    }');
+  lines.push('  });');
+  lines.push('  return blocking;');
+  lines.push('}');
+  lines.push('var tpl = { expectedExternalBackend: "claude" };');
+  lines.push('void tpl;');
+  // 下面三行是探针 readDefaults / readDriverTaskShape 的形状锚点，缺一条探针会 rc=2（失明）而不是我想要的档
+  lines.push('var cfg = { selfPlay: { enabled: true, confidenceWeight: 0.6 } };');
+  lines.push('void cfg;');
+  lines.push('const task = { currentRound: cfg.maxRounds, rounds: [{ round: 1, minScore: 3 }] };');
+  lines.push('void task;');
+  lines.push('function main () { try { fs.writeFileSync(process.env.SYNTH_MARKER, "executed"); } catch (e) {} return 0; }');
+  if (o.exports !== false) lines.push('module.exports = { blockingFromAdjudication: blockingFromAdjudication, externalReviewSatisfied: externalReviewSatisfied };');
+  lines.push(o.guard === false ? 'process.exit(main());' : 'if (require.main === module) process.exit(main());');
+  return lines.join('\n');
+}
+
+function makeSynthVendor () {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-synth-'));
+  const scripts = path.join(dir, 'scripts');
+  fs.mkdirSync(scripts, { recursive: true });
+  fs.writeFileSync(path.join(scripts, 'engine.js'), SYNTH_ENGINE, 'utf8');
+  return { dir, scripts, marker: path.join(dir, 'executed.marker') };
+}
+
+/** 用夹具跑一次探针；返回 rc / 解析后的 JSON（解析失败即原样带回 stdout 供断言文案）/ 是否执行了驱动 main。 */
+function runSynth (opts) {
+  const v = makeSynthVendor();
+  try {
+    fs.writeFileSync(path.join(v.scripts, 'ccg-deep-review.js'), synthDriver(opts), 'utf8');
+    const r = runProbe({ CCG_ARL_DIR: v.dir, SYNTH_MARKER: v.marker }, ['--json']);
+    let j = null;
+    try { j = JSON.parse(r.out); } catch (e) { /* 留给调用方的断言去点名"stdout 不是 JSON" */ }
+    return { rc: r.rc, j: j, out: r.out, err: r.err, executed: fs.existsSync(v.marker), dir: v.dir };
+  } finally {
+    fs.rmSync(v.dir, { recursive: true, force: true });
+  }
+}
+
 test('P1 契约：有引擎 ⇒ rc=0 且 ladder 读数符合；无引擎 ⇒ rc=2 且必须点名探针失明（两档都得有产物）', () => {
   const r = runProbe();
   if (!found) {
@@ -241,54 +335,80 @@ test('P9 isThirdPartyRequire 的反向夹具：收窄不等于放行 —— 真�
   assert.equal(isThirdPartyRequire(''), false, '空 id 由调用方的正则决定，这里不得凭空造一条违规');
 });
 
-test('P10 行为档必须真的被取到：本机有 vendor 时读数不得是 unavailable（否则两路交叉退化成一路）', () => {
+test('P10 行为档必须真的被取到：可安全 require 的驱动上读数不得是 unavailable，且加臂必须自动翻成在位', () => {
   // A15 只查"探针源码里这次调用在位"，查不出"调用在位但结果被常数覆盖"这一格 —— 只有真跑一次才看得见。
-  const r = runProbe();
-  if (!found) {
-    assert.strictEqual(r.rc, 2, 'runner 上没有 vendor ⇒ 探针必须按失明档退出，不得静默把缺席读成"两路一致"');
-    return;
-  }
-  const j = JSON.parse(r.out);
-  assert.ok('upheldBehavioral' in j.exitCapabilities, '读数里没有行为档这一格 ⇒ 交叉验证根本没有第二条路');
-  assert.notEqual(j.exitCapabilities.upheldBehavioral, 'unavailable',
-    '本机有 vendor 却报 unavailable ⇒ 行为路径根本没跑，此时"两路一致"只是在复述结构读法');
-  assert.strictEqual(j.exitCapabilities.receiptLive, true,
-    '正控读数必须为真：夹具那份凭证在 vendor 上确实被某个分支消费。为 false 时下面两句关于「带凭证仍阻断」的话什么也没测');
-  assert.equal(j.upheldCrossCheck.ok, j.exitCapabilities.upheld === j.exitCapabilities.upheldBehavioral,
+  const base = runSynth({ arm: false, exports: true, guard: true });
+  assert.equal(base.executed, false, '夹具的 main 不得被 require 执行');
+  assert.ok(base.j, '探针在自建夹具上必须产出 JSON，实际 stdout=' + base.out.slice(0, 200));
+  assert.equal(base.rc, 0, '无臂夹具的两路一致（都不在位）⇒ 应当 rc=0：' + JSON.stringify(base.j && base.j.problems));
+  assert.equal(base.j.exitCapabilities.upheldBehavioral, false,
+    '可 require 的驱动却报 unavailable ⇒ 行为路径根本没跑，此时"两路一致"只是在复述结构读法');
+  assert.equal(base.j.exitCapabilities.receiptLive, true,
+    '正控必须为真：夹具那份凭证确实被某个分支消费。为 false 时"带凭证仍阻断"这句话什么也没测');
+  assert.equal(base.j.exitCapabilities.behavioralSkip, null, '这一档没有跳过理由，跳过面必须是 null 而不是空串');
+  assert.equal(base.j.upheldCrossCheck.ok, base.j.exitCapabilities.upheld === base.j.exitCapabilities.upheldBehavioral,
     '交叉结论必须由同一份 JSON 里的两个读数推出，不得是独立写死的常量');
-  assert.match(j.upheldCrossCheck.note, /两路一致/, '一致时的文案必须点名"两路"，不得退化成一句单路读数');
+  assert.match(base.j.upheldCrossCheck.note, /两路一致/, '一致时的文案必须点名"两路"，不得退化成一句单路读数');
+  // 加臂版：结构读法与行为真跑**都必须**自动翻成在位。这条以前只有结构侧的夹具（A2），
+  // 行为侧要等真 vendor 补上臂才量得到 —— 那等于这一格永远没测。
+  const armed = runSynth({ arm: true, exports: true, guard: true });
+  assert.ok(armed.j, '加臂夹具必须产出 JSON：' + armed.out.slice(0, 200));
+  assert.equal(armed.j.exitCapabilities.upheld, true, '结构读法没跟上加臂 ⇒ A2 那对夹具是纸面的');
+  assert.equal(armed.j.exitCapabilities.upheldBehavioral, true, '真跑没跟上加臂 ⇒ 行为档在这一格是装饰');
+  assert.equal(armed.rc, 0, '两路都说在位 ⇒ rc=0（将来真加出口的 PR 不会被自己的锁咬住）：' + JSON.stringify(armed.j.problems));
+  console.log('[ccg-probe-test] P10 现场 vendor（只打印、不作断言前提）：'
+    + (found ? '本机装了 vendor，其驱动是否可安全 require 见 P12 的当场读数' : 'runner 上无 vendor'));
 });
 
-test('P11 vendor 在位但 blockingFromAdjudication 改名 ⇒ 行为档失明必须 rc=1 并点名，不得按"跳过"结案', () => {
+test('P11 驱动可安全 require 但拿不到函数（改名/缺导出面）⇒ 必须 rc=1 并点名，不得按"跳过"结案', () => {
   // 这一格测的是"结构读数与真跑读数一条都不剩"的组合：没有守卫时它长成"两路一致：不在位"，
   // 与"真跑确认过、确实没有出口"逐字同形 —— 那正是本刀立项要消灭的那类假话。
-  // vendor 缺席时无此路可走，缺席侧由 P1/P4 守（沿用 P3 的先例：机器侧断言在 found 分支内）。
-  if (!found) return;
-  const driverSrc = fs.readFileSync(probe.locateVendor().driver, 'utf8');
-  const doctored = driverSrc.replace('module.exports = { blockingFromAdjudication, ', 'module.exports = { ');
-  assert.notStrictEqual(doctored, driverSrc, '夹具必须真的摘掉那个导出名，否则下面三句量的不是这一格');
-  assert.ok(/blockingFromAdjudication/.test(doctored), '摘掉的必须只是导出名：函数本体还在，结构读数才不会被顺带改成 unknown');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccg-probe-nobehav-'));
+  // 原先这条绑在"本机 vendor 带着导出面"上（那份补丁今天已被别的会话改写掉），现改为自建夹具。
+  const noExp = runSynth({ arm: false, exports: false, guard: true });
+  assert.equal(noExp.executed, false, 'require 只执行模块体，不得跑到 main');
+  assert.ok(noExp.j, '夹具必须产出 JSON：' + noExp.out.slice(0, 200));
+  assert.equal(noExp.j.exitCapabilities.upheldBehavioral, 'unavailable', '这一条测的就是 unavailable 那条支路');
+  assert.equal(noExp.j.exitCapabilities.behavioralSkip, 'no-exports',
+    '可 require 但没导出面 = 真失明，不得与"vendor 缺席/不可执行"那类**按设计的跳过**共用一个理由');
+  assert.equal(noExp.rc, 1, '真失明必须 rc=1，不得仍是 0：' + JSON.stringify(noExp.j.problems));
+  assert.ok(noExp.j.problems.some((p) => /行为档/.test(p)), '偏离原因必须点名行为档，不得让人去猜哪一路瞎了：' + JSON.stringify(noExp.j.problems));
+  assert.equal(noExp.j.upheldCrossCheck.ok, true,
+    '行为档缺席本身不参与比较（不得由比较结果反推结论）；拦住它的是上一条 rc=1，两者不得混为一谈');
+  // A/B 对照：同一目录只把导出面装回去 ⇒ 必须回到 0，否则上一条红不能归因到"缺导出面"这一格
+  const withExp = runSynth({ arm: false, exports: true, guard: true });
+  assert.equal(withExp.rc, 0, 'A/B 对照：只装回导出面就必须回到 0，否则 P11 的红不能归因：' + withExp.err);
+});
+
+test('P12 ⛔ 驱动顶层裸执行 main() 时，探针一律不得 require 它（2026-10-24 现场的回归锁）', () => {
+  // 现场：本机 vendor 驱动末尾从 `if (require.main === module) process.exit(main())` 变成裸
+  // `process.exit(main())`，探针那次 require 把别人的整条评审流水线跑进本进程并 exit 掉探针 ——
+  // `--json` 的 stdout 于是变成「判定记录按 diff 内容寻址命中…」，`JSON.parse` 当场炸，
+  // 报错读起来像"探针输出坏了"，不像"探针执行了不该执行的东西"。
+  const unsafe = runSynth({ arm: false, exports: true, guard: false });
+  assert.equal(unsafe.executed, false,
+    '探针 require 了一份顶层就 process.exit(main()) 的驱动 —— 后果不是慢，是探针变成别人流水线的宿主');
+  assert.ok(unsafe.j, '被劫持时 stdout 不再是纯 JSON（这正是现场看到的形态）：' + unsafe.out.slice(0, 200));
+  assert.equal(unsafe.j.exitCapabilities.upheldBehavioral, 'unavailable');
+  assert.equal(unsafe.j.exitCapabilities.behavioralSkip, 'executes-on-require',
+    '跳过理由必须是"不可安全加载"，不得折叠成 no-vendor —— 那会把"装了但不敢跑"读成"这台机器没装"');
+  assert.match(unsafe.j.upheldCrossCheck.note, /executes-on-require/,
+    '交叉文案必须带出真实成因：' + unsafe.j.upheldCrossCheck.note);
+  assert.equal(unsafe.rc, 0, '这一格只有一路读数，属**如实出声**的跳过，不是读数矛盾 ⇒ rc 仍由 ladder 决定：' + JSON.stringify(unsafe.j.problems));
+  // 对照组一：同一夹具只把守卫加回来 ⇒ 行为档立刻取得到（证明上一条的 unavailable 是"没 require"造成的，不是夹具坏了）
+  const safe = runSynth({ arm: false, exports: true, guard: true });
+  assert.equal(safe.j.exitCapabilities.upheldBehavioral, false, '加回守卫后行为档必须落到定值，否则上一条的 rc=0 是白得的');
+  assert.equal(safe.executed, false, '有守卫时 require 也不得跑到 main');
+  // 对照组二（负控）：marker 机制本身必须可用 —— 直接按 CLI 跑那份未守卫驱动就该写下 marker。
+  // 缺这一条，"探针没执行它"与"marker 从来写不出来"两种情况在断言里完全同形（本仓「探针失明」同型）。
+  const v = makeSynthVendor();
   try {
-    const scripts = path.join(dir, 'scripts');
-    fs.mkdirSync(scripts, { recursive: true });
-    const vendorDir = path.dirname(probe.locateVendor().engine);
-    for (const f of fs.readdirSync(vendorDir)) {
-      const src = path.join(vendorDir, f);
-      if (fs.statSync(src).isFile()) fs.copyFileSync(src, path.join(scripts, f));
-    }
-    fs.writeFileSync(path.join(scripts, 'ccg-deep-review.js'), doctored, 'utf8');
-    const r = runProbe({ CCG_ARL_DIR: dir }, ['--json']);
-    assert.strictEqual(r.rc, 1, '行为档失明必须 rc=1，不得仍是 0：' + r.out + r.err);
-    const j = JSON.parse(r.out);
-    assert.strictEqual(j.exitCapabilities.upheldBehavioral, 'unavailable', '这一条测的就是 unavailable 那条支路');
-    assert.ok(j.problems.some((p) => /行为档/.test(p)), '偏离原因必须点名行为档，不得让人去猜哪一路瞎了：' + JSON.stringify(j.problems));
-    assert.strictEqual(j.upheldCrossCheck.ok, true,
-      '行为档缺席本身不参与比较（CI 没引擎不得判偏离）；拦住它的是上一条 rc=1，两者不得混为一谈');
-    fs.writeFileSync(path.join(scripts, 'ccg-deep-review.js'), driverSrc, 'utf8');
-    const clean = runProbe({ CCG_ARL_DIR: dir }, ['--json']);
-    assert.strictEqual(clean.rc, 0, 'A/B 对照：只换回导出名就必须回到 0，否则上一条红不能归因：' + clean.err + clean.out);
+    fs.writeFileSync(path.join(v.scripts, 'ccg-deep-review.js'), synthDriver({ arm: false, exports: true, guard: false }), 'utf8');
+    cp.spawnSync(process.execPath, [path.join(v.scripts, 'ccg-deep-review.js')], {
+      encoding: 'utf8', env: Object.assign({}, process.env, { SYNTH_MARKER: v.marker }),
+    });
+    assert.ok(fs.existsSync(v.marker), '负控失效：按 CLI 直接跑该驱动都没写 marker，说明这套夹具证明不了任何"没执行"');
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(v.dir, { recursive: true, force: true });
   }
 });
+
