@@ -576,6 +576,21 @@ const platformsMixin = {
                     log.info('RpaView', '[tencent_video] pointer-sequence: ' + _seq)
                   } catch (_eSq) { log.warn('RpaView', '[tencent_video] pointer-sequence failed: ' + String((_eSq && _eSq.message) || '').slice(0, 80)) }
                   await this._sleep(1500)
+                  // poll-direct（2026-10-24 抓包）：发布面板由平台**自动弹出**（视频处理完成后），
+                  // 不需要点「发表」。正确做法：轮询等「直接发表」可见（120×40）再点。
+                  try {
+                    let _dpv = ''
+                    for (let _i = 0; _i < 30; _i++) {
+                      const _p = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return "no-shadow";var bs=h.shadowRoot.querySelectorAll("button");for(var i=0;i<bs.length;i++){if((bs[i].innerText||"").replace(/\\s+/g,"")==="直接发表"){var r=bs[i].getBoundingClientRect();return Math.round(r.width)+"x"+Math.round(r.height)}}return "none"})()', true)
+                      if (_p && _p !== 'none' && !String(_p).startsWith('0x')) { _dpv = _p; break }
+                      await this._sleep(3000)
+                    }
+                    log.info('RpaView', '[tencent_video] poll-direct visible=' + (_dpv || 'never'))
+                    if (_dpv) {
+                      const _c = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");var bs=h.shadowRoot.querySelectorAll("button");for(var i=0;i<bs.length;i++){if((bs[i].innerText||"").replace(/\\s+/g,"")==="直接发表"){bs[i].click();return "clicked-direct"}}return "nf"})()', true)
+                      log.info('RpaView', '[tencent_video] poll-direct click=' + _c)
+                    }
+                  } catch (_ePd) { log.warn('RpaView', '[tencent_video] poll-direct failed: ' + String((_ePd && _ePd.message) || '').slice(0, 80)) }
                   // direct-publish（2026-10-24 实测成功）：真正发稿的是「直接发表」按钮，
                   // 「发表」只是打开确认面板。顺序：点发表 → 等 1.2s → 点直接发表。
                   try {
