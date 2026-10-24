@@ -524,11 +524,21 @@ class AssetGenerator {
     const ratio = opts?.aspect_ratio || '16:9'
     const { width, height } = resolveImageSize(ratio)
 
-    const providerResult = await this._tryProviderImage(prompt, outputDir, safeIndex, {
-      ...opts,
-      width,
-      height,
-    })
+    // 「动效标题卡」是**用户主动选择**的正常产出路径（不是降级兜底）：
+    // 显式走本地渲染、**不调 provider** ⇒ 不产生模型调用日志 ⇒ 不进入算力成本归集
+    // ⇒ 不消耗积分/额度（桌面端当前无积分扣减点，唯一可观测的是
+    // model-provider-manager._writeLog → usage-reporter → ops-center model_usage_daily.cost；
+    // 「不调 provider」就让这条链整条不发生，无需显式跳过任何记账调用）。
+    // 未带该开关时行为**一字不变**：provider 优先，失败才落到占位卡。
+    const localRender = opts?.local_render === 'title-card'
+
+    const providerResult = localRender
+      ? null
+      : await this._tryProviderImage(prompt, outputDir, safeIndex, {
+          ...opts,
+          width,
+          height,
+        })
     if (providerResult) return providerResult
     if (!this.ffmpeg) return { code: -1, message: 'ffmpeg not found' }
 
@@ -544,7 +554,8 @@ class AssetGenerator {
     //      每个流水线各写一份 ffmpeg 参数只会各错各的 ⇒ 收敛到独立模块。
     try {
       const card = await renderTitleCard({
-        title: prompt || '',
+        title: (localRender && opts.title) || prompt || '',
+        subtitle: localRender ? (opts.subtitle || '') : '',
         width,
         height,
         theme: opts?.style,
@@ -561,8 +572,10 @@ class AssetGenerator {
           size: card.size,
           // source 维持 'ffmpeg-placeholder' 字面量：发布侧、历史项目、结果页
           // 都按**这个字符串**判「占位图不得当成功封面」，改字面量会让那道防线失效。
-          source: 'ffmpeg-placeholder',
-          degraded: true,
+          // 标题卡模式是**用户主动选的正常产物**（非降级），用独立 source 且 degraded=false，
+          // 否则会被那道防线误判成「失败产物」而白白回退本地封面。
+          source: localRender ? 'title-card' : 'ffmpeg-placeholder',
+          degraded: !localRender,
         },
       }
     } catch (e) {

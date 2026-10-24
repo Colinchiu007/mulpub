@@ -2683,6 +2683,13 @@ function registerStory2VideoStages(pipelineEngine) {
       const imageProvider = useCurrentModels ? undefined : firstDefined(params.imageProvider, stage.options?.imageProvider);
       const imageModel = useCurrentModels ? undefined : firstDefined(params.imageModel, stage.options?.imageModel);
       const aspectRatio = resolveAspectRatio(params, stage) || '16:9';
+      // 「画面模式」：'ai'（默认，AI 生图）| 'title-card'（本地渲染动效标题卡）。
+      // title-card 模式**不调 provider** ⇒ 不产生模型调用日志 ⇒ 不进入算力成本归集
+      // ⇒ 不消耗积分/额度（桌面端当前没有积分扣减点，唯一可观测的成本归集入口是
+      // model-provider-manager._writeLog → usage-reporter → ops-center model_usage_daily.cost）。
+      const visualMode = firstDefined(params.visualMode, stage.options?.visualMode, 'ai') === 'title-card'
+        ? 'title-card'
+        : 'ai';
       const voiceId = firstDefined(params.voiceId, stage.options?.voiceId, 'default');
       const voiceProvider = useCurrentModels ? undefined : firstDefined(params.voiceProvider, stage.options?.voiceProvider);
       const voiceModel = useCurrentModels ? undefined : firstDefined(params.voiceModel, stage.options?.voiceModel);
@@ -2717,7 +2724,11 @@ function registerStory2VideoStages(pipelineEngine) {
       const hasAssetGenerator = Boolean((pipelineEngine && pipelineEngine._assetGenerator) || (serviceBus && serviceBus._assetGenerator))
       const currentImage = useCurrentModels ? resolveCurrentCapabilityConfig(pipelineEngine, 'image') : null
       const currentVoice = useCurrentModels ? resolveCurrentCapabilityConfig(pipelineEngine, 'tts') : null
-      const resolvedImageProvider = (useCurrentModels ? currentImage?.providerId : imageProvider) || (hasAssetGenerator ? resolveCapabilityProvider('image') : '')
+      // 标题卡模式必须把 provider **显式置空**：下面的回落分支在 hasAssetGenerator 为真时
+      // 总会解析出模型设置里的默认 image provider ⇒ 只「不设 imageProvider」是关不掉 AI 生图的。
+      const resolvedImageProvider = visualMode === 'title-card'
+        ? ''
+        : ((useCurrentModels ? currentImage?.providerId : imageProvider) || (hasAssetGenerator ? resolveCapabilityProvider('image') : ''))
       const resolvedImageModel = useCurrentModels ? (currentImage?.model || '') : imageModel
       const resolvedVoiceProvider = (useCurrentModels ? currentVoice?.providerId : voiceProvider) || (hasAssetGenerator ? resolveCapabilityProvider('tts') : '')
       const resolvedVoiceModel = useCurrentModels ? (currentVoice?.model || '') : voiceModel
@@ -3106,6 +3117,17 @@ function registerStory2VideoStages(pipelineEngine) {
                 onContentPolicyRewrite,
                 sceneContext,
                 ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
+                // 标题卡模式：标题取**旁白文案**（场景 text），副标题取画面提示词。
+                // 取法与本文件 :1065 的场景文本口径一致（字符串场景直接取，
+                // 对象场景取 text / content）—— 不用 sceneTextOf：它优先返回
+                // imagePromptSeed || prompt，explainer 的场景里那是**画面提示词**不是旁白。
+                ...(visualMode === 'title-card' ? {
+                  local_render: 'title-card',
+                  title: typeof sentences[index] === 'string'
+                    ? sentences[index]
+                    : ((sentences[index] && (sentences[index].text || sentences[index].content)) || ''),
+                  subtitle: promptText,
+                } : {}),
               }));
             } else {
               const retryResult = await runContentPolicyImageRetry({
