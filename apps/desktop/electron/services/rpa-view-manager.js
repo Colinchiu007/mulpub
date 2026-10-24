@@ -227,25 +227,6 @@ class RpaViewManager {
             log.info('RpaView', 'grabToutiaoCsrf: done len=' + String(_csrfTok || '').length)
           } catch (_eC) { log.warn('RpaView', 'grabToutiaoCsrf: threw ' + String((_eC && _eC.message) || '').slice(0, 60)) }
         }
-        // pkg-console-mirror（2026-10-24）：api-publish-engine 的 logger 用 console.log 写 stdout，
-        // 而应用日志只收自家 logger ⇒ 包内诊断（get_token / csrf probe 等）永远不可见。
-        // 发布期间把 console 镜像进应用日志，结束后原样恢复。
-        const _origConsoleLog = console.log
-        const _origConsoleWarn = console.warn
-        try {
-          console.log = function () { var a=[].slice.call(arguments).join(' '); try { log.info('PkgLog', a) } catch (_e1) {}; try { _origConsoleLog.apply(console, arguments) } catch (_e2) {} }
-          console.warn = function () { var a=[].slice.call(arguments).join(' '); try { log.warn('PkgLog', a) } catch (_e3) {}; try { _origConsoleWarn.apply(console, arguments) } catch (_e4) {} }
-        } catch (_eM) {}
-        const apiResult = await Promise.race([
-          publishViaApi(platform, taskData, cookie, {
-            onProgress: (pct, msg) => this._emitProgress(platform, msg, pct),
-            accountId: signerAccountId || undefined,
-            csrf: _csrfTok || undefined,
-            pagePost: platform === 'toutiao' ? function (p, b) { return require('./toutiao-page-publish').publishViaPage(signerAccountId, p, b, { log: log }) } : undefined,
-          }),
-          new Promise(function(_, rj) { const _t = setTimeout(function() { rj(new Error('API timeout (' + (timeout/1000) + 's)')) }, timeout); if (_t && _t.unref) _t.unref() })
-        ]);
-        try { console.log = _origConsoleLog; console.warn = _origConsoleWarn } catch (_eR) {}
         // 统一结果日志：API 失败分支此前无日志（logging-coverage-audit）
         if (apiResult && apiResult.success) log.info('RpaView','publish done via API platform='+platform)
         else log.warn('RpaView','API publish returned failure platform='+platform+' error='+(apiResult&&apiResult.error))
