@@ -1207,3 +1207,34 @@ CoverTitles: [], TemplateName: "", FilterName: "", ActivityTag: ...
 
 1. 若在 `/mp/agw/*` 族 ⇒ 直接 cookie 鉴权调用，**不需要**任何 csrf 处理
 2. 若仍在 `/xigua/*` 族 ⇒ 必须在页面上下文内由页面自身发起（我方已实现 `publishViaPage`，可复用）
+
+## 8.35 今日头条：抓到真实发稿请求（2026-10-24 17:55，存草稿按钮触发）
+
+### 实测请求（页面自身发出，200）
+
+```
+POST https://mp.toutiao.com/xigua/api/upload/PublishVideo?msToken=<长串>&a_bogus=<长串>
+x-csrf-token: o_ch1xm-QEcWSYe_bjneaA2u
+x-secsdk-csrf-token: 000100000001068708476750a6ad1dc706e1cb377a3229065110a3cd5e0932deefd5198dea6918e16d55983c4104
+content-type: application/json
+
+{"ItemId":"","Title":"tt-horizontal","VideoInfo":{"Vid":"v02d16g10004dbe7ma7og65pmru7hu5g","VName":"tt-horizontal.mp4","Duration":12,"VideoWidth":1920,"VideoHeight":1082},"ClaimOrigin":false,"SyncPlatform":{"HongGuo":false},"Praise":false,"PublishType":0,"From":"mp","EnterFrom":5,"IsNew":true,"VideoType":3,"ExternalLink":"","Label":[],"CompassVideo":{...},"Commodity":[],"CreateSource":2,"HideInfo":{"HideType":0},"CoverTitles":[],"AttrsValueMap":{},"etData":{},"TerminalType":"01","OsType":"09","SoftType":"chrome 150.0.7871.250","DevicePlatform":"pc"}
+```
+
+### 三个决定性结论
+
+1. **端点从来没走错**：就是我方在用的 `/xigua/api/upload/PublishVideo`。此前 403 的根因不是路径，而是**缺 `msToken` + `a_bogus` 两个签名参数**。
+2. **这两个参数由 secsdk 在 XHR 层注入**，只有页面自身发起的 XHR 才会带；Node 直发、页面内 `fetch`、新开隐藏窗口里的 XHR 都拿不到（隐藏窗口的 secsdk 未初始化到可用状态）。
+3. **`PublishType` 语义**：`0` = 存草稿（实测 200，**不需要封面**）；`1` = 发布。`From:"mp"`、`EnterFrom:5`、`CreateSource:2`、`VideoType:3`（横版）。
+
+### 对实现的要求（下一步）
+
+- 必须在**真实的西瓜发布页**（secsdk 已初始化、且已上传视频拿到 Vid）里发 XHR，不能用新开的隐藏窗口
+- 请求走相对路径 `/xigua/api/upload/PublishVideo`，让 secsdk 自动补 `msToken`/`a_bogus` 与两个 csrf 头
+- body 直接用页面自己的形状（`PublishType:1` 发布），`VideoInfo.Vid` 取当前上传返回的 Vid
+- 判据：HTTP 200 且响应体 code=0；随后去作品列表核实
+
+### 附件
+
+- 截图证据：`D:\Data\Temp\tt-draft2.png`（点存草稿后的页面状态）
+- 抓包脚本：`D:\Data\Temp\tt-capture-full.cjs`
