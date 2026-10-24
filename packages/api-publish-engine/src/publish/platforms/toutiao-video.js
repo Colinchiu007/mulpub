@@ -213,6 +213,18 @@ class ToutiaoVideoChain {
         if (tok) { this._csrf = tok; if (this.logger) this.logger.log('toutiao csrf bootstrapped from ' + p); return tok }
       } catch (eCsrf) { _attempts.push(p + '=ERR:' + String(eCsrf && eCsrf.message || '').slice(0,60)) }
     }
+    // csrf-html-fallback（2026-10-24）：令牌不在 cookie、HEAD 也不下发时，抓创作页 HTML 找。
+    try {
+      const page = await this.mp.request({
+        method: 'get', url: '/profile_v4/xigua/upload-video',
+        headers: { Cookie: this.cookie, 'User-Agent': this.userAgent },
+        validateStatus: (st) => st >= 200 && st < 500,
+      })
+      const html = String((page && page.data) || '')
+      const mm = html.match(/csrf[_-]?token["'\s:=]+([A-Za-z0-9%._-]{8,})/i)
+      if (mm && mm[1]) { this._csrf = decodeURIComponent(mm[1]); if (this.logger) this.logger.log('toutiao csrf from html'); return this._csrf }
+      _attempts.push('html:no-token len=' + html.length)
+    } catch (eH) { _attempts.push('html:ERR:' + String((eH && eH.message) || '').slice(0, 50)) }
     throw new Error('csrf-bootstrap-failed ' + (_attempts.length ? _attempts.join(' | ') : 'no-attempts'))
   }
 
@@ -397,6 +409,8 @@ class ToutiaoVideoChain {
   /** 全链编排 */
   async run (taskData, opts = {}) {
     this._assertPreconditions()
+    // 2026-10-24：getAuthKey 也需要 x-csrf-token，必须在任何写请求之前取到。
+    await this.ensureCsrf()
     const td = taskData || {}
     const videoPath = td.video && td.video.path
     if (!videoPath) throw new ToutiaoVideoError('toutiao-video: taskData.video.path required')
