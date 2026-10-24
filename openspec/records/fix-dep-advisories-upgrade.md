@@ -47,6 +47,7 @@ date: 2026-10-24
 | **`pnpm update` 会改写锁文件里的 importer specifier** | `pnpm update express --lockfile-only` 把锁里 `packages/ai-writer-api` 的 `express` specifier 写成 `^4.22.3`，而 manifest 仍是 `^4.18.0` ⇒ **`pnpm install --frozen-lockfile` 直接红**（`specifiers in the lockfile don't match specifiers in package.json`）⇒ 凡是 pnpm 改过的**直接依赖**，**manifest 必须同步抬地板**。本片踩到**两处**：`express`（`packages/ai-writer-api/package.json` → `^4.22.3`）与 `electron`（根 `package.json` + `apps/desktop/package.json` → `^43.8.1`）。判据：升完跑一次 `pnpm install --frozen-lockfile --lockfile-only`，**这一步比任何门禁都早暴露不一致**；且**地板取公告的修复下界**（electron 取 43.8.1 而不是实测的 43.8.3），与 #4361 的 undici/fast-uri 口径一致 |
 | **锁文件不能靠 merge 拼** | 本片 rebase 到含 #4361 的新 base 时，锁文件是两边各改各的 ⇒ 三路合并出来的锁文件**不一致**（同一个 `undici@7.30.1` 出现多份）⇒ pnpm 会**整份重写**（实测 diff 3800 行！）。正解：**取新 base 的锁文件原样**，再跑一次**定向** `pnpm update <包名> --lockfile-only` ⇒ diff 回到几十行。⇒ 依赖类改动的锁文件，**永远是「重算」而不是「合并」** |
 | **基线要按文本块删，不要用 JSON 重写** | `json.dump` 重写会把整份基线的缩进/字段顺序/转义都改掉 ⇒ 产生与本次改动无关的巨大 diff ⇒ 本片用一个按 id 定位整块删除的脚本（只删块、其余字节逐字保留）⇒ diff 形状 = N 个整块删除 |
+| **升 electron 会撞到 CI 里写死的版本** | electron 一升，`electron-tests` job 立刻红在 `Electron checksum pin missing for electron-v43.7.7-win32-x64.zip` ⇒ 根因是 `.github/workflows/electron-ci.yml` 的 checksum 校验步骤**把 artifact 名里的版本号写死了**（而这个步骤正是防供应链篡改的门 ⇒ 不能删，只能改）。**顺带发现**：`apps/desktop/tests/gui-ci-exit-contract.test.js` 的契约断言也**把这个版本号写死**（`expect(checksumPolicy).toContain('electron-v43.7.7-win32-x64.zip')`）⇒ **版本号住在三个地方**（package.json / lockfile / workflow+契约测试）。⇒ 本片的做法：让 workflow **从已装包推导版本**（`require('./node_modules/electron/package.json').version` ⇒ 拼 artifact 名），契约测试改为**锁推导形态 + 反断言「不许出现写死的版本号」** ⇒ 断言强度不降（校验的仍是「即将安装的那个 electron 的 pin 在随包 manifest 里」），且下次升级不用再改这两处。**判据**：凡是把版本号写进**契约断言**的，改动那个版本时必须同时找契约测试 —— 本片是 CI 抓出来的（本地门禁全绿，因为这条只在 CI 的 electron job 里跑） |
 
 ### 未闭合（不假装已闭合）
 
@@ -80,6 +81,9 @@ date: 2026-10-24
   ⇒ 真正压不住的只有 remotion 那两个，而 pnpm 的 override 是全局的（父级限定式写法既有棘轮解析不了）
   ⇒ 只能走全局 override。两条新 override 都带 `^` 上界，既有棘轮会当场拦住无上界写法。
 - electron 的下界抬到 43.8.1 并进了棘轮表 ⇒ 今后若有人把 override 降回去，当场红。
+- 顺带修掉 CI 里**写死 electron 版本**导致升级必红的一处：checksum 校验步骤改为
+  **从已装包推导版本**再拼 artifact 名，契约测试同步改为锁「推导形态」并加一条
+  **反断言**（不许出现写死的 `electron-v<版本>-win32-x64.zip`）⇒ 下次升级 electron 不用再改这两处。
 - 顺带修掉 express 4.22.2 → 4.22.3，body-parser 的 1.x 线随之从 1.20.5 升到 1.20.9。
 
 ## learnings
