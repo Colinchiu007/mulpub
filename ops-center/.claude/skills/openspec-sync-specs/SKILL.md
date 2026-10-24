@@ -229,6 +229,21 @@ Unlike programmatic merging, you merge rather than overwrite:
 - A MODIFIED block carries the whole requirement - body plus every scenario that survives the change. `openspec validate` and `openspec archive` both reject one that drops a scenario the main spec still has.
 - Keep anything the delta does not mention, in the main spec's existing order
 - Use your judgment to merge changes sensibly
+- **Deleting a scenario on purpose**: keep the scenario **in** the MODIFIED block and mark its
+  body with a `**REMOVED**: <reason>` line, then delete it from the main spec while applying the
+  change. The scenario must stay in the block - a dedicated `## REMOVED Scenarios` section would
+  leave it out, and `openspec validate` / `openspec archive` reject a block that drops a scenario
+  the main spec still has. The marker belongs to the scenario it sits under, so the declaration is
+  scoped to one requirement.
+  (This marker is **this repository's** convention for the gap the tool does not express; the
+  upstream contract is `openspec-integration` spec, "delta 删除意图的声明方式". This file is a
+  generated distribution copy - if an upstream upgrade overwrites it, re-apply the convention
+  from that spec rather than treating the file as the source of truth.)
+  ```markdown
+  #### Scenario: 某场景
+  **REMOVED**: 已被「另一场景」取代
+  - **WHEN** ...
+  ```
 
 **Output On Success**
 

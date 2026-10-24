@@ -10,7 +10,8 @@ name: 依赖漏洞基线自动刷新
 #
 # 机械分工（与 scripts/check-dep-audit.js 的既有判据一一对应，不另立规矩）：
 #   机器：`--update` 扫描三域（npm / npm-opscenter / pip）并把结果落进基线 ——
-#         新公告一律 `decision: "TODO"`；已不再命中的挂账被清掉；已有的 decision/note/targetVersion 原样保留。
+#         新公告由机器**预填**「已登记、待升级」+ 公告修复下界（承诺版本）+ 到期日（到期即红）；
+#         已不再命中的挂账被清掉；已有的 decision/note/targetVersion 原样保留。
 #   人：给每条新公告补 `decision` + `note`（选 upgrade-tracked 时还必须写 targetVersion）。
 #       不补 ⇒ `依赖漏洞审计` 门禁以 BASELINE_META_INVALID 判红 ⇒ 本 PR 合不掉。
 #

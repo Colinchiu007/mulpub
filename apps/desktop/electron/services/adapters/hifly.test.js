@@ -129,6 +129,64 @@ describe('HiFlyAdapter — 飞影数字人', () => {
         expect(e.code).toBe(ERROR_CODES.PROVIDER_ERROR)
       }
     })
+
+    // ── change: hifly-voice-subtitle-parity：字幕参数透传 ──────────────
+    // 飞影官方 create_by_tts 支持 9 个字幕字段；不传则默认不显示字幕。
+
+    it('subtitle 缺省 ⇒ 请求体不含任何 st_* 字段（保持官方「默认不显示」）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 0, task_id: 't' })])
+      global.fetch = fetchMock
+      await createAdapter().generateVideo({ character: 'a', voice: 'v', script: 's' })
+      const body = bodyOf(fetchMock.calls[0])
+      expect(Object.keys(body).filter((k) => k.startsWith('st_'))).toEqual([])
+    })
+
+    it('subtitle.show=true ⇒ st_show=1，其余字幕字段一并透传', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 0, task_id: 't' })])
+      global.fetch = fetchMock
+      await createAdapter().generateVideo({
+        character: 'a', voice: 'v', script: 's',
+        subtitle: {
+          show: true, fontName: '抖音美好体', fontSize: 120,
+          primaryColor: '#ff0000', outlineColor: '#000000',
+          width: 640, height: 120, posX: 80, posY: 960,
+        },
+      })
+      expect(bodyOf(fetchMock.calls[0])).toMatchObject({
+        st_show: 1,
+        st_font_name: '抖音美好体',
+        st_font_size: 120,
+        st_primary_color: '#ff0000',
+        st_outline_color: '#000000',
+        st_width: 640,
+        st_height: 120,
+        st_pos_x: 80,
+        st_pos_y: 960,
+      })
+    })
+
+    it('subtitle.show=false ⇒ st_show=0（显式关闭，不依赖官方默认）', async () => {
+      const fetchMock = createFetchMock([createFetchResponse({ code: 0, task_id: 't' })])
+      global.fetch = fetchMock
+      await createAdapter().generateVideo({ character: 'a', voice: 'v', script: 's', subtitle: { show: false } })
+      expect(bodyOf(fetchMock.calls[0]).st_show).toBe(0)
+    })
+
+    it('字幕字段做数据校验：颜色须为 #rrggbb、数值须为有限整数，非法则拒', async () => {
+      const fetchMock = createFetchMock()
+      global.fetch = fetchMock
+      await expect(createAdapter().generateVideo({
+        character: 'a', voice: 'v', script: 's', subtitle: { show: true, primaryColor: 'red' },
+      })).rejects.toThrow(/st_primary_color/)
+      await expect(createAdapter().generateVideo({
+        character: 'a', voice: 'v', script: 's', subtitle: { show: true, fontSize: 12.5 },
+      })).rejects.toThrow(/st_font_size/)
+      await expect(createAdapter().generateVideo({
+        character: 'a', voice: 'v', script: 's', subtitle: { show: true, width: -1 },
+      })).rejects.toThrow(/st_width/)
+      // 非法输入不得发起请求
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
   })
 
   describe('getVideoStatus — /video/task 端点', () => {
@@ -194,35 +252,52 @@ describe('HiFlyAdapter — 飞影数字人', () => {
     })
   })
 
-  describe('listAvatars / listVoices — 分页在 adapter 内消化', () => {
-    it('listAvatars 带 page/size/kind，翻完全部页后合并返回', async () => {
+  // 真实契约（Token 核对 2026-10-24）：响应是 { code, message, data: [...], request_id }，
+  // data 直接是数组，**没有 total 字段** ⇒ 翻页判据只能是「本页是否翻满」。
+  describe('listAvatars / listVoices — 真实契约（Token 核对）', () => {
+    it('listAvatars 取 kind=1（自己的），字段是 avatar/title/cover_url', async () => {
       const fetchMock = createFetchMock([
-        createFetchResponse({ code: 0, data: { list: [{ avatar_id: 'a1', name: '形象1' }], total: 2 } }),
-        createFetchResponse({ code: 0, data: { list: [{ avatar_id: 'a2', name: '形象2' }], total: 2 } }),
-        createFetchResponse({ code: 0, data: { list: [], total: 2 } }),
+        createFetchResponse({ code: 0, data: [{ avatar: 'Qr2xcAv_Y21', kind: 1, title: '我的形象', cover_url: 'https://cdn/x.png' }] }),
       ])
       global.fetch = fetchMock
 
       const list = await createAdapter().listAvatars()
 
-      expect(list.map((a) => a.id).sort()).toEqual(['a1', 'a2'])
-      // 至少翻了两页（第三页空列表终止）
-      expect(fetchMock.calls.length).toBeGreaterThanOrEqual(2)
-      expect(fetchMock.calls[0].url).toContain('page=1')
+      expect(list).toEqual([{ id: 'Qr2xcAv_Y21', name: '我的形象', previewUrl: 'https://cdn/x.png', gender: '' }])
       expect(fetchMock.calls[0].url).toContain('kind=1')
     })
 
-    it('data 直接为数组的形态也能解析（官方示例：字段是 avatar/title）', async () => {
-      global.fetch = createFetchMock([
-        createFetchResponse({ code: 0, data: [{ avatar: 'x1', title: 'X' }] }),
+    it('listVoices 取 kind=2（公共），字段是 voice/title/preview_url', async () => {
+      const fetchMock = createFetchMock([
+        createFetchResponse({ code: 0, data: [{ voice: 'BMB1UhRK-SPv', type: 10, title: '普通话', preview_url: 'https://cdn/a.wav' }] }),
       ])
-      const list = await createAdapter().listAvatars()
-      expect(list).toEqual([{ id: 'x1', name: 'X', previewUrl: '', gender: '' }])
+      global.fetch = fetchMock
+
+      const list = await createAdapter().listVoices()
+
+      expect(list).toEqual([{ id: 'BMB1UhRK-SPv', name: '普通话', language: '', gender: '' }])
+      expect(fetchMock.calls[0].url).toContain('kind=2')
+    })
+
+    it('本页翻满 ⇒ 继续翻页；没翻满即止', async () => {
+      const full = Array.from({ length: 100 }, (_, i) => ({ avatar: `a${i}` }))
+      global.fetch = createFetchMock([
+        createFetchResponse({ code: 0, data: full }),
+        createFetchResponse({ code: 0, data: [{ avatar: 'a100' }] }),
+      ])
+      let list = await createAdapter().listAvatars()
+      expect(list).toHaveLength(101)
+
+      // 没翻满（1 条 < 100）⇒ 只打一次请求
+      global.fetch = createFetchMock([createFetchResponse({ code: 0, data: [{ avatar: 'only-1' }] })])
+      list = await createAdapter().listAvatars()
+      expect(list.map((a) => a.id)).toEqual(['only-1'])
+      expect(global.fetch.mock.calls).toHaveLength(1)
     })
 
     it('缺 id 的条目丢弃（不产出空 character 让下游炸）', async () => {
       global.fetch = createFetchMock([
-        createFetchResponse({ code: 0, data: { list: [{ name: '无名' }, { avatar_id: 'ok' }] } }),
+        createFetchResponse({ code: 0, data: [{ title: '无名' }, { avatar: 'ok' }] }),
       ])
       const list = await createAdapter().listAvatars()
       expect(list.map((a) => a.id)).toEqual(['ok'])
@@ -305,6 +380,57 @@ describe('HiFlyAdapter — 飞影数字人', () => {
     })
 
     describe('形象克隆', () => {
+      // 飞影克隆接口只接受 *_url / file_id，**不接受二进制**。
+      // 而 avatar-clone-service 传的是 Blob（HeyGen 契约：{ image|video: Blob }）。
+      // 所以 adapter 必须自己把 Blob 换成 file_id —— 换血放在这里，
+      // service/IPC/UI 才不需要长 provider 分支。
+      it('传 Blob ⇒ 自动 create_upload_url + PUT 换 file_id，再带 file_id 克隆', async () => {
+        const fetchMock = createFetchMock([
+          // ① 换上传地址
+          createFetchResponse({ code: 0, upload_url: 'https://upload.hifly.cc/a.png?Expires=1', content_type: 'image/png', file_id: 'file_auto' }),
+          // ② PUT 上传
+          { ok: true, status: 200, headers: new Map(), async json() { return {} }, async text() { return '' } },
+          // ③ 创建克隆
+          createFetchResponse({ code: 0, task_id: 't-av-auto' }),
+        ])
+        global.fetch = fetchMock
+
+        const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })
+        const result = await createAdapter().createAvatar({ type: 'photo', name: '自动上传', image: blob })
+
+        expect(result.taskId).toBe('t-av-auto')
+        expect(fetchMock.calls).toHaveLength(3)
+        expect(fetchMock.calls[0].url).toBe(`${BASE}/tool/create_upload_url`)
+        expect(JSON.parse(fetchMock.calls[0].opts.body)).toEqual({ file_extension: 'png' })
+        expect(fetchMock.calls[1].url).toBe('https://upload.hifly.cc/a.png?Expires=1')
+        expect(fetchMock.calls[1].opts.method).toBe('PUT')
+        expect(fetchMock.calls[1].opts.headers['Content-Type']).toBe('image/png')
+        // 预签名 URL 自带凭证，不得再发 Authorization
+        expect(fetchMock.calls[1].opts.headers.Authorization).toBeUndefined()
+        expect(fetchMock.calls[2].url).toBe(`${BASE}/avatar/create_by_image`)
+        expect(JSON.parse(fetchMock.calls[2].opts.body)).toMatchObject({ title: '自动上传', file_id: 'file_auto' })
+      })
+
+      it('传 Blob 但换 file_id 失败 ⇒ 抛错且不调克隆接口（不留半截状态）', async () => {
+        const fetchMock = createFetchMock([createFetchResponse({ code: 50000, message: 'upload-url boom' })])
+        global.fetch = fetchMock
+        const blob = new Blob([new Uint8Array([1])], { type: 'image/png' })
+        await expect(createAdapter().createAvatar({ type: 'photo', name: 'x', image: blob })).rejects.toThrow(/upload-url boom/)
+        expect(fetchMock.calls).toHaveLength(1)
+      })
+
+      it('后缀从 Blob 的 MIME 反查（含别名：mpeg→mp3、quicktime→mov、jpeg→jpg）', async () => {
+        const a = createAdapter()
+        expect(a._resolveFileExtension({ type: 'audio/mpeg' }, undefined, 'audio')).toBe('mp3')
+        expect(a._resolveFileExtension({ type: 'video/quicktime' }, undefined, 'digital_twin')).toBe('mov')
+        expect(a._resolveFileExtension({ type: 'image/jpeg' }, undefined, 'photo')).toBe('jpg')
+        expect(a._resolveFileExtension({ type: 'image/png' }, undefined, 'photo')).toBe('png')
+        // 显式 fileName 优先于 MIME
+        expect(a._resolveFileExtension({ type: 'image/png' }, 'real.WEBP', 'photo')).toBe('webp')
+        // MIME 缺失时按 type 兜底
+        expect(a._resolveFileExtension({ type: '' }, undefined, 'digital_twin')).toBe('mp4')
+      })
+
       it('createAvatar(photo) → create_by_image，映射 type=photo 到 image_url/file_id', async () => {
         const fetchMock = createFetchMock([createFetchResponse({ code: 0, task_id: 't-av-1' })])
         global.fetch = fetchMock

@@ -126,16 +126,23 @@
       >
         <CircleCheck />{{ t('accountsPage.accountCardLabels.verify') }}
       </button>
+      <!-- 「登录」常驻（2026-10-24，account-card-login-button）：
+           原「去登录」按钮只在「本会话检测确认失效」时出现，于是「已失效但还没点过验证」
+           的账号、以及「已登录但实际已掉线」的账号，在用户主动点「验证」之前**没有任何**
+           自救入口 —— 而「点验证 → 弹确认 → 去登录」是三步，掉线用户往往等不到那一步。
+           常驻后与「验证」并排成「先查后修」的一对。
+           两者语义正交、不可互相替代：「验证」= 只读探测（只写 status/last_validated）；
+           「登录」= 用**干净会话**重建会话，登录成功后**覆盖**现有凭证。
+           已登录态点「登录」的行为分派见 utils/account-status.js 的 needsReloginConfirmation。 -->
       <button
-        v-if="checkedExpiredIds?.has?.(account.id)"
         :data-testid="`login-${account.id}`"
         data-e2e-scan="manual"
         type="button"
         class="login-button"
-        :title="t('accountsPage.accountCardLabels.goLogin')"
+        :title="t('accountsPage.accountCardLabels.loginTitle')"
         @click.stop="$emit('open-login', account)"
       >
-        <Monitor />{{ t('accountsPage.accountCardLabels.goLogin') }}
+        <Monitor />{{ t('accountsPage.accountCardLabels.login') }}
       </button>
       <button class="danger" :data-testid="`delete-${account.id}`" data-e2e-scan="manual" type="button" @click.stop="$emit('remove', account)">
         <Delete />{{ t('accountsPage.accountCardLabels.delete') }}
@@ -161,10 +168,9 @@ const props = defineProps({
   batchMode: { type: Boolean, default: false },
   verifying: { type: Boolean, default: false },
   creatorHint: { type: String, default: '' },
-  checkedExpiredIds: { type: Object, default: () => new Set() },
 })
 
-import { accountStatusKind } from '@/utils/account-status'
+import { accountStatusKind, lastLoginCheckAt } from '@/utils/account-status'
 
 const { t } = useI18n()
 
@@ -293,16 +299,11 @@ function statusClass (account) {
   return accountStatusKind(account)
 }
 
-const LAST_CHECK_KEYS = ['last_login_check_at', 'lastLoginCheckAt', 'login_checked_at', 'loginCheckedAt', 'last_checked_at', 'lastCheckedAt', 'checked_at', 'checkedAt', 'last_validated', 'lastValidated', 'validated_at', 'validatedAt']
 const CHECK_REASON_KEYS = ['login_check_error', 'loginCheckError', 'last_login_error', 'lastLoginError', 'status_reason', 'statusReason']
 
 function loginCheckLabel (account) {
-  for (const key of LAST_CHECK_KEYS) {
-    const value = account?.[key]
-    if (value === null || value === undefined || value === '') continue
-    const date = new Date(value)
-    if (!Number.isNaN(date.getTime())) return t('accountsPage.accountCardLabels.lastCheck', { date: date.toLocaleString('zh-CN') })
-  }
+  const date = lastLoginCheckAt(account)
+  if (date) return t('accountsPage.accountCardLabels.lastCheck', { date: date.toLocaleString('zh-CN') })
   for (const key of CHECK_REASON_KEYS) {
     const value = valueLabel(account?.[key])
     if (value) return t('accountsPage.accountCardLabels.checkAbnormal', { reason: value })

@@ -15,6 +15,8 @@ const path = require('node:path')
 
 const AVATAR_IMAGE_EXTENSIONS = Object.freeze(['.png', '.jpg', '.jpeg', '.webp'])
 const AVATAR_VIDEO_EXTENSIONS = Object.freeze(['.mp4', '.mov', '.webm'])
+// change: avatar-voice-clone-bundled —— 录音素材（飞影官方只支持这三种）
+const AVATAR_AUDIO_EXTENSIONS = Object.freeze(['.mp3', '.m4a', '.wav'])
 
 // 图片 mime 走 shared-utils 单一真源（R7 规则：业务文件不得自建 mime↔扩展名映射表）。
 // 该模块只登记图片格式，正好覆盖 photo 类型的全部扩展名；未知 ext 返回 null（宁可失败不猜）。
@@ -29,6 +31,17 @@ function videoContentType (ext) {
   if (ext === '.mp4') return 'video/mp4'
   if (ext === '.mov') return 'video/quicktime'
   if (ext === '.webm') return 'video/webm'
+  return 'application/octet-stream'
+}
+
+/**
+ * 音频 mime：同上，共享真源不覆盖音频，用分支。
+ * 这三个扩展名对应飞影官方「创建声音」的三种受支持格式。
+ */
+function audioContentType (ext) {
+  if (ext === '.mp3') return 'audio/mpeg'
+  if (ext === '.m4a') return 'audio/mp4'
+  if (ext === '.wav') return 'audio/wav'
   return 'application/octet-stream'
 }
 
@@ -47,13 +60,15 @@ function extensionOf (fileName) {
 }
 
 function allowedExtensionsFor (type) {
-  return type === 'photo' ? AVATAR_IMAGE_EXTENSIONS : AVATAR_VIDEO_EXTENSIONS
+  if (type === 'photo') return AVATAR_IMAGE_EXTENSIONS
+  if (type === 'audio') return AVATAR_AUDIO_EXTENSIONS
+  return AVATAR_VIDEO_EXTENSIONS
 }
 
 function contentTypeFor (type, ext) {
-  return type === 'photo'
-    ? (extToMime(ext) || 'application/octet-stream')
-    : videoContentType(ext)
+  if (type === 'photo') return extToMime(ext) || 'application/octet-stream'
+  if (type === 'audio') return audioContentType(ext)
+  return videoContentType(ext)
 }
 
 class AvatarCloneSelectionStore {
@@ -79,7 +94,10 @@ class AvatarCloneSelectionStore {
 
   /** 读取路径并生成 selectionId；返回 { ok, ... }，不抛异常 */
   async create (type, mediaPath) {
-    if (type !== 'photo' && type !== 'digital_twin') return { ok: false, message: 'AVATAR_CLONE_INVALID_ARGUMENTS' }
+    // change: avatar-voice-clone-bundled —— audio 也走同一条两段式链路
+    if (type !== 'photo' && type !== 'digital_twin' && type !== 'audio') {
+      return { ok: false, message: 'AVATAR_CLONE_INVALID_ARGUMENTS' }
+    }
     if (typeof mediaPath !== 'string' || !path.isAbsolute(mediaPath) || mediaPath.length > 4096) {
       return { ok: false, message: 'AVATAR_CLONE_INVALID_ARGUMENTS' }
     }
@@ -118,7 +136,7 @@ class AvatarCloneSelectionStore {
         selectionId,
         expiresAt,
         bytes: buffer.length,
-        mediaType: type === 'photo' ? 'image' : 'video',
+        mediaType: type === 'photo' ? 'image' : (type === 'audio' ? 'audio' : 'video'),
       },
     }
   }

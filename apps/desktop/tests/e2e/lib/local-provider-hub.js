@@ -37,6 +37,10 @@ const http = require('http')
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+// ⚠ 必须**显式 require**：某些 Node 构建会把内置模块暴露成全局（实测本机 `globalThis.zlib` 存在）
+//   ⇒ 漏掉这一行时本机跑绿、CI 的 Node 构建上没有 ⇒ ReferenceError: zlib is not defined。
+//   依赖「恰好存在的全局」= 依赖某台机器的构建细节。
+const zlib = require('zlib')
 const { execFile, execFileSync } = require('child_process')
 const { promisify } = require('util')
 
@@ -175,6 +179,80 @@ function drawText (options) {
  *
  * @returns {string} ffmpeg 可执行文件路径
  */
+// ── 无 ffmpeg 兜底：不依赖任何外部二进制的 PNG 编码（RGBA8）────────────────────
+// 动因（2026-10-24 实测，主干红）：出图原本**只**走 ffmpeg 渲染 ⇒ 没有 ffmpeg 的机器
+//   （实测：Windows CI runner）上出图路径**从未被走过**，出图用例只能 skip；
+//   而依赖它的统计断言是无条件的 ⇒ skip 静默变成后续失败 ⇒ electron-tests 分片红 ⇒
+//   主干红 ⇒ 全部 open PR 被挡。⇒ 兜底不是「为了让测试变绿」，是**让出图路径在每台机器上
+//   都有覆盖**；有 ffmpeg 时仍走 ffmpeg 渲染带文字的完整卡片。
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+let pngCrcTable = null
+function pngCrc32 (buf) {
+  if (!pngCrcTable) {
+    pngCrcTable = new Int32Array(256)
+    for (let n = 0; n < 256; n++) {
+      let c = n
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1)
+      pngCrcTable[n] = c
+    }
+  }
+  let c = -1
+  for (let i = 0; i < buf.length; i++) c = pngCrcTable[(c ^ buf[i]) & 0xff] ^ (c >>> 8)
+  return (c ^ -1) >>> 0
+}
+
+function pngChunk (type, data) {
+  const len = Buffer.alloc(4)
+  len.writeUInt32BE(data.length, 0)
+  const typeBuf = Buffer.from(type, 'ascii')
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(pngCrc32(Buffer.concat([typeBuf, data])), 0)
+  return Buffer.concat([len, typeBuf, data, crc])
+}
+
+/**
+ * 编码一张 RGBA8 PNG。pixelAt(x, y) 返回 [r, g, b]。
+ * 尺寸**精确**：宽高写进 IHDR ⇒ 消费方按请求尺寸读到的就是请求尺寸。
+ */
+function encodePng (width, height, pixelAt) {
+  const stride = width * 4
+  const raw = Buffer.alloc((stride + 1) * height)
+  for (let y = 0; y < height; y++) {
+    const rowOff = y * (stride + 1)
+    raw[rowOff] = 0 // filter type 0（None）
+    for (let x = 0; x < width; x++) {
+      const px = pixelAt(x, y)
+      const i = rowOff + 1 + x * 4
+      raw[i] = px[0] & 0xff
+      raw[i + 1] = px[1] & 0xff
+      raw[i + 2] = px[2] & 0xff
+      raw[i + 3] = 255
+    }
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8  // bit depth
+  ihdr[9] = 6  // color type: RGBA
+  ihdr[10] = 0 // compression
+  ihdr[11] = 0 // filter
+  ihdr[12] = 0 // interlace
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw, { level: 6 })),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/** 0xRRGGBB → [r, g, b] */
+function hexToRgb (hex) {
+  const s = String(hex || '0x000000').replace(/^0x/i, '')
+  const n = parseInt(s.length === 3 ? s.split('').map(c => c + c).join('') : s, 16)
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+}
+
 function resolveFfmpegBinary () {
   const candidates = []
   try {
@@ -276,7 +354,31 @@ async function renderCard (options) {
   filters.push("drawbox=x=" + barX + ':y=' + barY + ':w=' + Math.round(barWidth * ratio) + ':h=' + barHeight +
     ':color=' + palette.accent + ':t=fill')
 
-  const ffmpeg = resolveFfmpegBinary()
+  // ⚠ 没有 ffmpeg 时**不能抛**：出图路径在这些机器上从未被走过 ⇒ 出图用例只能 skip，
+  //   而依赖它的统计断言是无条件的 ⇒ skip 静默变成失败（实测：主干 electron-tests 分片红）。
+  //   ⇒ 走不依赖外部二进制的 PNG 兜底编码，尺寸精确、形状仍是渐变卡片。
+  let ffmpeg = null
+  try { ffmpeg = resolveFfmpegBinary() } catch (_) { ffmpeg = null }
+  if (!ffmpeg) {
+    const c0 = hexToRgb(palette.c0)
+    const c1 = hexToRgb(palette.c1)
+    const accent = hexToRgb(palette.accent)
+    const buffer = encodePng(width, height, (x, y) => {
+      const t = Math.min(1, Math.max(0, (x / width) * 0.6 + (y / height) * 0.4))
+      const base = [
+        Math.round(c0[0] + (c1[0] - c0[0]) * t),
+        Math.round(c0[1] + (c1[1] - c0[1]) * t),
+        Math.round(c0[2] + (c1[2] - c0[2]) * t),
+      ]
+      // 底部进度条：与 ffmpeg 路径同形（accent 的一条横带），让兜底图也不是纯渐变
+      const barTop = height - Math.round(height * 0.08)
+      if (y >= barTop && y < barTop + Math.max(4, Math.round(height * 0.012)) && x < Math.round(width * 0.16)) {
+        return accent
+      }
+      return base
+    })
+    return { buffer, width, height, degraded: true }
+  }
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mp-local-img-'))
   const outFile = path.join(outDir, 'card.png')
   const filterSource = 'gradients=s=' + width + 'x' + height +
@@ -291,7 +393,7 @@ async function renderCard (options) {
   try {
     await execFileAsync(ffmpeg, args, { timeout: 30000, maxBuffer: 4 * 1024 * 1024 })
     const buffer = fs.readFileSync(outFile)
-    return { buffer, width, height }
+    return { buffer, width, height, degraded: false }
   } finally {
     try { fs.rmSync(outDir, { recursive: true, force: true }) } catch (_) { /* 临时目录清理失败不阻断 */ }
   }
@@ -438,6 +540,8 @@ class LocalProviderHub {
 module.exports = {
   LocalProviderHub,
   resolveFfmpegBinary,
+  encodePng,
+  hexToRgb,
   SAFE_MARGIN_RATIO,
   loadCopy,
   resolveStageKey,

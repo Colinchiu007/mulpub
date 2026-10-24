@@ -96,7 +96,7 @@
             <div
               v-for="p in filteredProviders" :key="p.id"
               class="provider-card card-configured"
-              :class="{ 'card-disabled': !p.enabled }"
+              :class="cardStateClass(p)"
             >
               <div class="card-top">
                 <div class="card-header">
@@ -109,11 +109,11 @@
                     <span v-if="!p.is_preset" class="custom-badge" :title="t('modelProviders.customBadge')">{{ t('modelProviders.customBadge') }}</span>
                   </div>
                 </div>
-                <div class="provider-name">{{ p.name }}</div>
+                <button type="button" class="provider-name provider-name-btn" @click="openEdit(p)">{{ p.name }}</button>
                 <div class="provider-id">
                   <code>{{ p.id }}</code>
-                  <span class="status-label" :class="p.enabled ? 'enabled' : 'disabled'">
-                    {{ p.enabled ? t('modelProviders.enabled') : t('modelProviders.disabled') }}
+                  <span class="status-label" :class="statusClass(p)">
+                    {{ statusText(p) }}
                   </span>
                 </div>
               </div>
@@ -231,7 +231,7 @@
           <div
             v-for="p in filteredProviders" :key="p.id"
             class="provider-card"
-            :class="{ 'card-disabled': !p.enabled }"
+            :class="cardStateClass(p)"
           >
             <div class="card-top">
               <div class="card-header">
@@ -245,11 +245,11 @@
                   <span v-if="p.is_preset && !(isProviderConfigured(p))" class="preset-badge" :title="t('modelProviders.presetBadge')">{{ t('modelProviders.presetBadge') }}</span>
                 </div>
               </div>
-              <div class="provider-name">{{ p.name }}</div>
+              <button type="button" class="provider-name provider-name-btn" @click="openEdit(p)">{{ p.name }}</button>
               <div class="provider-id">
                 <code>{{ p.id }}</code>
-                <span class="status-label" :class="p.enabled ? 'enabled' : 'disabled'">
-                  {{ p.enabled ? t('modelProviders.enabled') : t('modelProviders.disabled') }}
+                <span class="status-label" :class="statusClass(p)">
+                  {{ statusText(p) }}
                 </span>
               </div>
             </div>
@@ -275,7 +275,7 @@
               <div v-if="p.category === 'multimodal' && p.capabilities && p.capabilities.length > 0" class="provider-field capability-defaults">
                 <span class="field-label">{{ t('modelProviders.capabilityDefaultLabel') }}</span>
                 <span class="field-value capability-default-toggles">
-                  <span
+                  <span role="button" tabindex="0" @keydown.enter.prevent="toggleCapabilityDefault(p, cap)" @keydown.space.prevent="toggleCapabilityDefault(p, cap)"
                     v-for="cap in p.capabilities" :key="'def-' + cap"
                     class="capability-default-chip"
                     :class="{ active: ((p.config && Array.isArray(p.config.capability_defaults) ? p.config.capability_defaults : []).includes(cap) || p.is_default) }"
@@ -519,6 +519,7 @@ import { Bell, Box, Connection, Cpu, Lightning, Loading, Microphone, Picture, Se
 import { useI18n } from 'vue-i18n'
 import { useModelProviderCrud } from '@/composables/useModelProviderCrud'
 import { presetManagedFields } from '@/utils/preset-managed-fields'
+import { PROVIDER_STATUS, providerStatus } from '@/utils/provider-status'
 
 const { t } = useI18n()
 
@@ -588,6 +589,31 @@ function formatModels (models) {
   if (!models || models.length === 0) return '-'
   if (models.length <= 3) return models.join(', ')
   return models.slice(0, 3).join(', ') + ' +' + (models.length - 3)
+}
+
+// ── 配置状态三态（未配置 / 已启用 / 已停用）──────────────────────────────
+// 此前直译数据库的 `enabled` 布尔位，于是「从没配过 Key」的卡片被贴上「已禁用」——
+// `enabled` 实为「有没有可用 API Key」的派生位。判据见 utils/provider-status.js。
+function statusText (p) {
+  const s = providerStatus(p)
+  if (s === PROVIDER_STATUS.ENABLED) return t('modelProviders.statusEnabled')
+  if (s === PROVIDER_STATUS.DISABLED) return t('modelProviders.statusDisabled')
+  return t('modelProviders.statusNotConfigured')
+}
+
+function statusClass (p) {
+  const s = providerStatus(p)
+  if (s === PROVIDER_STATUS.ENABLED) return 'enabled'
+  if (s === PROVIDER_STATUS.DISABLED) return 'disabled'
+  return 'not-configured'
+}
+
+// 卡片视觉态：「已停用」才降级成灰；「未配置」是待去配置的入口，不该长成被禁用的样子
+function cardStateClass (p) {
+  const s = providerStatus(p)
+  if (s === PROVIDER_STATUS.DISABLED) return 'card-disabled'
+  if (s === PROVIDER_STATUS.NOT_CONFIGURED) return 'card-not-configured'
+  return 'card-active'
 }
 
 // 当前生效默认模型（双默认语义 2026-08-27）：用户选择 > 运营预设 > 能力默认（多模态）> 首个模型
@@ -689,6 +715,10 @@ onMounted(() => {
   border-radius: 12px;
   overflow: hidden;
   transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+  cursor: pointer;
+  /* 覆盖层的定位基准；z-index:0 让它自成层叠上下文，覆盖层的 z-index 不会溢出到卡片外。 */
+  position: relative;
+  z-index: 0;
 }
 /* P1: card hover 微动效 */
 .provider-card:hover {
@@ -696,10 +726,13 @@ onMounted(() => {
   transform: translateY(-2px);
   border-color: var(--primary, #1a73e8);
 }
-/* P1: 禁用卡片视觉降级 */
+/* P1: 禁用卡片视觉降级 —— 只给「已停用」；「未配置」是要去点开配置的入口，不该长成被禁用的样子 */
 .provider-card.card-disabled {
   opacity: 0.6;
   filter: grayscale(0.5);
+}
+.provider-card.card-not-configured {
+  opacity: 0.88;
 }
 
 /* P1: 骨架屏外壳（骨块外观统一由 UiSkeleton + styles/skeleton.css 提供） */
@@ -763,6 +796,47 @@ onMounted(() => {
   margin-bottom: 4px;
 }
 
+/* 卡片可点：名称本身是真正的按钮（键盘可达、AT 可见），
+   整卡点击只是鼠标便利路径 —— 卡片本身不挂 role="button"，
+   否则 role=button 的后代会被 AT 当作 presentational，卡片内的操作按钮就消失了。 */
+.provider-name-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  /* Chromium 给 button 的 UA line-height 是 normal 而 body 是 1.5 ⇒ 不重置的话
+     名称行的行盒从 1.5× 缩到约 1.2×，标题在卡片里明显变矮。 */
+  line-height: inherit;
+  margin: 0 0 4px;
+}
+.provider-name-btn:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 整卡可点 = 名称按钮的 ::after 覆盖层（stretched button）。
+   卡片根不挂 @click/role：button 是 leaf 角色，给含真按钮的容器加 role 会把卡片内
+   的操作按钮从 a11y 树上抹掉（PR #4041 同型教训）；挂 @click 又会撞键盘可达性合同
+   （clickable-roles.contract.test.js 要求这类元素补 role+tabindex+keydown）。 */
+.provider-name-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* 卡片内的可交互元素必须压在覆盖层之上，否则覆盖层会把它们的点击吃掉 */
+.card-actions,
+.capability-default-chip {
+  position: relative;
+  z-index: 2;
+}
+
 .provider-id {
   display: flex;
   align-items: center;
@@ -793,6 +867,8 @@ onMounted(() => {
 }
 .status-label.enabled { color: #34a853; }
 .status-label.disabled { color: #999; }
+/* 「未配置」是待办不是故障：用琥珀色与「已停用」的灰区分开 */
+.status-label.not-configured { color: #b06000; }
 
 .card-body {
   padding: var(--space-md) var(--space-lg);

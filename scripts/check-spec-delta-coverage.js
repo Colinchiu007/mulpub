@@ -125,27 +125,57 @@ function parseSpec(text) {
 function collectDeltaDeclarations(text) {
   const removed = new Set();
   const renamedFrom = new Set();
+  // 「有意删除某条 Scenario」的声明：键 = `<Requirement 标题>::<Scenario 标题>`
+  // （用复合键而不是单 Scenario 名：同名 Scenario 可能出现在不同 Requirement 下）
+  const removedScenarios = new Set();
   let section = null;
+  let currentRequirement = null;
+  let currentScenario = null;
   for (const raw of text.replace(/\r\n/g, '\n').split('\n')) {
     const line = raw.trim();
     const h2 = /^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements$/.exec(line);
     if (h2) {
       section = h2[1];
+      currentRequirement = null;
+      currentScenario = null;
       continue;
     }
     if (/^##\s+/.test(line)) {
       section = null;
+      currentRequirement = null;
+      currentScenario = null;
       continue;
     }
     if (section === 'REMOVED') {
       const m = /^###\s+Requirement:\s*(.+)$/.exec(line);
       if (m) removed.add(m[1].trim());
-    } else if (section === 'RENAMED') {
+      continue;
+    }
+    if (section === 'RENAMED') {
       const m = /^-\s*FROM:\s*###\s+Requirement:\s*(.+)$/.exec(line);
       if (m) renamedFrom.add(m[1].trim());
+      continue;
+    }
+    // MODIFIED 段里：记 Requirement 与 Scenario，供 REMOVED 标记定位
+    if (section === 'MODIFIED') {
+      const reqM = /^###\s+Requirement:\s*(.+)$/.exec(line);
+      if (reqM) {
+        currentRequirement = reqM[1].trim();
+        currentScenario = null;
+        continue;
+      }
+      const scnM = /^####\s+Scenario:\s*(.+)$/.exec(line);
+      if (scnM) {
+        currentScenario = scnM[1].trim();
+        continue;
+      }
+      // 标记行：`**REMOVED**: 理由`（只在该 Scenario 的正文首行有效）
+      if (currentRequirement && currentScenario && /^\*\*REMOVED\*\*\s*[:：]/.test(line)) {
+        removedScenarios.add(currentRequirement + '::' + currentScenario);
+      }
     }
   }
-  return { removed, renamedFrom };
+  return { removed, renamedFrom, removedScenarios };
 }
 
 function parseArgs(argv) {
@@ -215,6 +245,7 @@ function main(argv) {
   // ---- 本 PR 的 change delta 里声明过的合法删除/改名 ----
   const declaredRemoved = new Set();
   const declaredRenamedFrom = new Set();
+  const declaredRemovedScenarios = new Set();
   for (const e of statuses) {
     if (!CHANGE_DELTA_RE.test(e.file) || e.status === 'D') continue;
     let text;
@@ -228,6 +259,7 @@ function main(argv) {
     const d = collectDeltaDeclarations(text);
     for (const x of d.removed) declaredRemoved.add(x);
     for (const x of d.renamedFrom) declaredRenamedFrom.add(x);
+    for (const x of d.removedScenarios) declaredRemovedScenarios.add(x);
   }
 
   if (targets.length === 0) {
@@ -282,6 +314,9 @@ function main(argv) {
       const hs = h.get(title);
       for (const s of scenarios) {
         if (hs.has(s)) continue;
+        // 有意删除的声明：delta 的 MODIFIED 块里该 Scenario 正文首行写了 `**REMOVED**: 理由`
+        // ⇒ 这条是**声明过的删除**，不是丢失。
+        if (declaredRemovedScenarios.has(title + '::' + s)) continue;
         violations.push({
           file: t.headPath,
           kind: 'SCENARIO',
@@ -289,8 +324,9 @@ function main(argv) {
           scenario: s,
           detail: 'Scenario 在合并后消失',
           hint: 'openspec 约定合并 delta 时必须「Preserve scenarios/content not mentioned in the delta」；'
-            + '若确实要删这条 Scenario，当前 openspec delta 表达力不足，请在 change 的 proposal/tasks 里写明理由，'
-            + '并把该 Scenario 从基线里显式移出后再合。',
+            + '若确实要删这条 Scenario，在 change 的 delta 里把它留在 `## MODIFIED Requirements` 段内、'
+            + '并在正文首行写 `**REMOVED**: <理由>` 声明删除意图（该 Scenario 仍须列在块里，'
+            + '否则 `openspec validate` 会判「drops a scenario the main spec still has」）。',
         });
       }
     }

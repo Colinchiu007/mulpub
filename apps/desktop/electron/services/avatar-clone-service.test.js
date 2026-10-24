@@ -71,6 +71,11 @@ function videoMedia () {
   return { blob: createBlob('mp4-bytes', 'video/mp4'), fileName: 'me.mp4', contentType: 'video/mp4' }
 }
 
+// change: avatar-voice-clone-bundled —— 配套声音素材（录音）
+function audioMedia () {
+  return { blob: createBlob('mp3-bytes', 'audio/mpeg'), fileName: 'me.mp3', contentType: 'audio/mpeg' }
+}
+
 function createService ({ store, manager, userDataPath, fsImpl } = {}) {
   return new AvatarCloneService({
     store: store || createStore(),
@@ -357,6 +362,45 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
 
   // ── change: digital-human-multiprovider：provider 隔离 ──────────────
 
+  describe("远端调用必须按 owner.providerId 走（不能写死 heygen）", () => {
+    it("providerId=hifly 时 createAvatar 打到 hifly", async () => {
+      const store = createStore()
+      const manager = createManager({ createAvatar: () => ({ code: 0, data: { id: 'av-hf' } }) })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      await service.createClone({ name: '飞影形象', type: 'photo', media: imageMedia(), providerId: 'hifly' })
+
+      const call = manager.callAdapter.mock.calls.find((c) => c[1] === 'createAvatar')
+      expect(call).toBeDefined()
+      expect(call[0]).toBe('hifly')
+    })
+
+    it('删除也按 providerId 走（hifly 的形象不能拿 HeyGen 删）', async () => {
+      const store = createStore()
+      const manager = createManager({ createAvatar: () => ({ code: 0, data: { id: 'av-hf' } }) })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      await service.createClone({ name: '飞影形象', type: 'photo', media: imageMedia(), providerId: 'hifly' })
+      await service.deleteClone({ avatarId: 'av-hf', providerId: 'hifly' })
+
+      const call = manager.callAdapter.mock.calls.find((c) => c[1] === 'deleteAvatar')
+      expect(call).toBeDefined()
+      expect(call[0]).toBe('hifly')
+    })
+
+    it('providerId=heygen 时仍打 heygen（回归）', async () => {
+      const store = createStore()
+      const manager = createManager({ createAvatar: () => ({ code: 0, data: { id: 'av-hg' } }) })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      await service.createClone({ name: 'HeyGen 形象', type: 'photo', media: imageMedia(), providerId: 'heygen' })
+
+      const call = manager.callAdapter.mock.calls.find((c) => c[1] === 'createAvatar')
+      expect(call[0]).toBe('heygen')
+    })
+  })
+
+
   describe('provider 隔离（registry 键与样本目录按 providerId 分段）', () => {
     it('两家 provider 的克隆写进各自 registry，不串库', async () => {
       const store = createStore()
@@ -450,6 +494,90 @@ describe('AvatarCloneService — 数字人形象克隆', () => {
       // 重命名不得触发任何远端调用
       expect(callSpy).not.toHaveBeenCalled()
       expect(manager.callAdapter).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // ── change: avatar-voice-clone-bundled：声音与形象绑在同一家 provider ──
+
+  describe('配套声音（bundled voice）', () => {
+    it('传 voice ⇒ 同一 provider 下先后调 createAvatar 与 cloneVoice', async () => {
+      const store = createStore()
+      const manager = createManager({
+        createAvatar: () => ({ code: 0, data: { id: 'av-1' } }),
+        cloneVoice: () => ({ code: 0, data: { voice_id: 'vc-1' } }),
+      })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      const result = await service.createClone({
+        name: '完整克隆', type: 'photo', media: imageMedia(), voice: audioMedia(), providerId: 'hifly',
+      })
+
+      expect(result.code).toBe(0)
+      const avCall = manager.callAdapter.mock.calls.find((c) => c[1] === 'createAvatar')
+      const vcCall = manager.callAdapter.mock.calls.find((c) => c[1] === 'cloneVoice')
+      expect(avCall[0]).toBe('hifly')
+      expect(vcCall[0]).toBe('hifly')
+      expect(result.data.avatar.voiceId).toBe('vc-1')
+    })
+
+    it('声音失败 ⇒ 补偿删已建成的形象，且不写 registry（不留半截克隆）', async () => {
+      const store = createStore()
+      const manager = createManager({
+        createAvatar: () => ({ code: 0, data: { id: 'av-1' } }),
+        cloneVoice: () => ({ code: -1, message: 'VOICE_CLONE_LIMIT' }),
+      })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      const result = await service.createClone({
+        name: '半截', type: 'photo', media: imageMedia(), voice: audioMedia(), providerId: 'hifly',
+      })
+
+      expect(result.code).toBe(-1)
+      expect(result.message).toBe('AVATAR_CLONE_VOICE_FAILED')
+      const delCall = manager.callAdapter.mock.calls.find((c) => c[1] === 'deleteAvatar')
+      expect(delCall).toBeDefined()
+      expect(delCall[2]).toMatchObject({ avatarId: 'av-1' })
+      // registry 不得留下条目
+      const registry = store.getValue('user-a', 'avatar-clones:v1:hifly:' + ownerHash('user-a'))
+      expect(registry).toBeUndefined()
+    })
+
+    it('不传 voice ⇒ 只建形象，registry 条目无 voiceId 字段', async () => {
+      const store = createStore()
+      const manager = createManager({ createAvatar: () => ({ code: 0, data: { id: 'av-1' } }) })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+
+      const result = await service.createClone({ name: '只要形象', type: 'photo', media: imageMedia(), providerId: 'hifly' })
+
+      expect(result.code).toBe(0)
+      expect(manager.callAdapter.mock.calls.some((c) => c[1] === 'cloneVoice')).toBe(false)
+      expect('voiceId' in result.data.avatar).toBe(false)
+    })
+
+    it('voice 扩展名不在白名单 ⇒ 整个请求被拒', async () => {
+      const service = createService({ userDataPath: userDataDir })
+      const result = await service.createClone({
+        name: 'x', type: 'photo', media: imageMedia(), voice: { blob: createBlob('txt', 'text/plain'), fileName: 'a.txt' },
+      })
+      expect(result.message).toBe('AVATAR_CLONE_INVALID_ARGUMENTS')
+    })
+
+    it('删除带 voiceId 的条目 ⇒ 连带删声音', async () => {
+      const store = createStore()
+      const manager = createManager({
+        createAvatar: () => ({ code: 0, data: { id: 'av-1' } }),
+        cloneVoice: () => ({ code: 0, data: { voice_id: 'vc-1' } }),
+      })
+      const service = createService({ store, manager, userDataPath: userDataDir })
+      await service.createClone({
+        name: '完整', type: 'photo', media: imageMedia(), voice: audioMedia(), providerId: 'hifly',
+      })
+
+      await service.deleteClone({ avatarId: 'av-1', providerId: 'hifly' })
+
+      const dels = manager.callAdapter.mock.calls.filter((c) => c[1] === 'deleteAvatar')
+      expect(dels.some((c) => c[2].avatarId === 'av-1')).toBe(true)
+      expect(dels.some((c) => c[2].avatarId === 'vc-1')).toBe(true)
     })
   })
 })

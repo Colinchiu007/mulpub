@@ -1,0 +1,479 @@
+'use strict';
+/**
+ * 变异反证驱动：qm6-exit-capabilities（change: qm6-exit-capability-probe）
+ *
+ * 目的不是"证明测试能红"，而是证明**每条锁真的在守它声称的那个东西**。
+ * 七条硬约束沿用上一刀（PR #4234 固化、PR #4305 复用的那版）：
+ *  1. 动手前先读原始字节建基线，每条变异前复核"文件没被别人改过"；
+ *  2. 锚点必须恰命中 1 次，且目标文本在改前不得已存在；
+ *  3. 应用后先 `node --check`，语法坏掉记 PROBLEM 而不是 MISSED；
+ *  4. 每个靶子套件必须真的被收集（`# tests N`，N ≥ 下界）；一个没跑的文件在摘要里与"跑了且绿"同形；
+ *  5. 还原后立即重跑一次被测锁，全绿才继续下一条；
+ *  6. MISSED 只允许是声明过的重叠，且重叠须由另一条变异机械证明 —— 本刀 `ALLOWED_MISSED` 留空；
+ *  7. 写后必须回读：锚点命中数只证明"它在原文里唯一"，不证明"盘上现在是被改后的内容"。
+ * 另加本刀特有的一条：**expectGreen 是会被打脸的声明**（上一刀 m18 实测被否证过一次），
+ * 所以凡"某套件必须照绿"的断言，红了即 PROBLEM，不得读成"少红一条也算过"。
+ *
+ * 用法：node scripts/qm6-exit-capabilities.mutation.js [id …]
+ */
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const ROOT = path.resolve(__dirname, '..');
+const CAPS = 'scripts/qm6-exit-capabilities.js';
+const LOCKS = 'scripts/qm6-exit-capabilities.test.js';
+const PROBE = 'scripts/ccg-convergence-probe.js';
+const PROBET = 'scripts/ccg-convergence-probe.test.js';
+const WF = '.github/workflows/quality-gate.yml';
+const MUT = 'scripts/qm6-exit-capabilities.mutation.js';
+
+const SUITES = [
+  { file: LOCKS, minTests: 20 },
+  { file: PROBET, minTests: 11 },
+];
+
+const M = [
+  {
+    id: 'n1', file: CAPS,
+    note: 'upheld 谓词改成恒 true ⇒ 探针会宣布一条根本不存在的出口，而下一条 PR 会照着它写"机制已闭合"',
+    from: '  return /\\breturn\\b/.test(blk) && /Capable|Satisfied|resolvedEvidence|resolution\\b|externalReview/.test(blk);',
+    to: '  return true;',
+    expect: ['A2'],
+  },
+  {
+    id: 'n2', file: CAPS,
+    note: 'upheld 谓词改成恒 false ⇒ 将来真加了出口的 PR 也不会被看见（另一个方向的同一种谎）',
+    from: '  return /\\breturn\\b/.test(blk) && /Capable|Satisfied|resolvedEvidence|resolution\\b|externalReview/.test(blk);',
+    to: '  return false;',
+    expect: ['A2'],
+  },
+  {
+    id: 'n3', file: CAPS,
+    note: '把"整块配对"退回"固定窗口" ⇒ 多几行注释就改变读数（本仓点名的窗口判据同型）',
+    from: '  const blk = sliceBlock(body.slice(at).replace(/^[ \\t]*if[ \\t]*\\([^)]*\\)/, \'\'));',
+    to: "  const blk = body.slice(at).split('\\n').slice(0, 3).join('\\n');",
+    expect: ['A3'],
+    expectGreen: [PROBET],
+  },
+  {
+    id: 'n4', file: CAPS,
+    note: '高危域谓词放宽成"文本里出现过谓词名" ⇒ 注释里提一句就会被当成解除臂在位',
+    from: '  const hasPredicate = /^[ \\t]*function[ \\t]+externalReviewSatisfied[ \\t]*\\(/m.test(driverSrc);',
+    to: '  const hasPredicate = /externalReviewSatisfied/.test(driverSrc);',
+    expect: ['A1'],
+  },
+  {
+    id: 'n5', file: CAPS,
+    note: '工具署名谓词改成恒 true ⇒ 会说"自扮演收口可以署名"，而写回器今天仍在拒签',
+    from: '  return /\\|\\|/.test(cond);',
+    to: '  return true;',
+    expect: ['A5'],
+  },
+  {
+    id: 'n6', file: CAPS,
+    note: '重演 #4062 的撤销方式：把一条谓词从导出面摘掉（不是改坏实现，是"删掉检测"本身）',
+    from: '  externalReviewCapable, upheldExitCapable, toolSignatureCapable,',
+    to: '  externalReviewCapable, toolSignatureCapable,',
+    expect: ['A12'],
+  },
+  {
+    id: 'n7', file: CAPS,
+    note: '把 unknown 档折叠成 false ⇒ "vendor 被改名"与"这条出口不存在"在读数上同形（本刀立项的那条假话）',
+    from: "  if (typeof driverSrc !== 'string' || driverSrc.trim() === '') return 'unknown';\n  if (!/blockingFromAdjudication/.test(driverSrc)) return 'unknown';",
+    to: "  if (typeof driverSrc !== 'string' || driverSrc.trim() === '') return false;\n  if (!/blockingFromAdjudication/.test(driverSrc)) return false;",
+    expect: ['A6'],
+  },
+  {
+    id: 'n8', file: CAPS,
+    note: '结论生成器改成无视入参 ⇒ 结论又变回一句与读数无关的散文',
+    from: '  const phrase = (v, yes, no, unknown) => (v === \'unknown\' ? unknown : (v === true ? yes : no));',
+    to: "  const phrase = (v, yes, no, unknown) => no;",
+    expect: ['A8'],
+  },
+  {
+    id: 'n9', file: CAPS,
+    note: '三档不变量的检查改成恒过 ⇒ 谓词漏写 return（undefined）会被静默读成"没有出口"',
+    from: '    if (!NOVEL.has(String(v))) throw new Error(',
+    to: '    if (false) throw new Error(',
+    expect: ['A7'],
+  },
+  {
+    id: 'n10', file: PROBE,
+    note: '探针把结论行写死回旧句子 ⇒ 假话复发，且只有 A10 会发现',
+    from: "    + capabilities.conclusionLine(caps) + '\\n');",
+    to: "    + '而 self-play 对 crypto 项无条件计阻断 ⇒ 深度审查闭环不可达\\n');",
+    expect: ['A10'],
+  },
+  {
+    id: 'n11', file: PROBE,
+    note: '摘掉探针与读数器之间的接线（require 行）⇒ 读数存在但没有执行体',
+    from: "const capabilities = require('./qm6-exit-capabilities.js');",
+    to: 'const capabilities = null;',
+    expect: ['A10'],
+  },
+  {
+    id: 'n12', file: WF,
+    note: '把契约锁从 Gate 2b6 的 run 正文里删掉 ⇒ 它存在但永不执行，而文件仍在（装饰性门禁的原始形态）',
+    from: '          node --test scripts/qm6-exit-capabilities.test.js',
+    to: '',
+    expect: ['A11'],
+    expectGreen: [PROBET],
+  },
+  {
+    id: 'n13', file: PROBET,
+    note: '把 P6 白名单收窄的代价做实：让 isThirdPartyRequire 恒 false ⇒ 真第三方 require 也能过关',
+    from: "  if (id.startsWith('./') || id.startsWith('../')) return false;",
+    to: '  return false;',
+    expect: ['P9'],
+  },
+  {
+    id: 'n14', file: CAPS,
+    note: '两路比较改成恒 ok ⇒ "交叉验证"变成装饰：结构读法失效时探针照样报一致',
+    from: '  if (structural !== behavioral) {',
+    to: '  if (false) {',
+    expect: ['A14'],
+  },
+  {
+    id: 'n15', file: CAPS,
+    note: '行为档入口改成"是函数就 unavailable" ⇒ 真跑路径整体不执行，交叉只剩结构一路'
+      + '（锚点必须带上函数头：同一句守卫现在在正控里也有一份，只写那一行会命中 2 次）',
+    from: 'function upheldExitBehavioral (fn, opts) {\n  if (typeof fn !== \'function\') return \'unavailable\';',
+    to: 'function upheldExitBehavioral (fn, opts) {\n  if (typeof fn === \'function\') return \'unavailable\';',
+    expect: ['A13'],
+    alsoExpect: ['P10'],
+  },
+  {
+    id: 'n16', file: CAPS,
+    note: '摘掉"无凭证那份必须阻断"这道防呆 ⇒ 随便填两格就能被判成出口在位（行为档失去区分度）',
+    from: "  if (bare.length === 0) throw new Error('无凭证那份居然不阻断 ⇒ 这条出口没有\"缺一格即拦\"的防呆，不得判在位');",
+    to: '  if (bare.length === 0) return true;',
+    expect: ['A13'],
+  },
+  {
+    id: 'n17', file: PROBE,
+    note: '探针把行为档常数覆盖成 unavailable ⇒ 调用还在、结果不再来自真跑（A15 只查在位，看不见这格；P10 才看得见）',
+    from: '  caps.upheldBehavioral = behavioral.upheld;',
+    to: "  caps.upheldBehavioral = 'unavailable';",
+    expect: ['P10'],
+  },
+  {
+    id: 'n18', file: PROBE,
+    note: '摘掉"vendor 在位但行为档取不到数"这道守卫 ⇒ 两路全瞎时探针仍报"两路一致：不在位"，与真跑确认过的结论逐字同形',
+    from: "  if (caps.upheldBehavioral === 'unavailable') problems.push(",
+    to: '  if (false) problems.push(',
+    expect: ['P11'],
+  },
+  {
+    id: 'n19', file: CAPS,
+    note: '正控改成恒 true ⇒ "这份凭证确实被 vendor 消费"变成一句自我确认；行为档可以在空夹具上给出 false 读数',
+    from: '  return out.length === 0;',
+    to: '  return true;',
+    expect: ['A16'],
+  },
+  {
+    id: 'n20', file: CAPS,
+    note: '摘掉"正控不成立即拒绝给结论"这道闸 ⇒ 夹具键名写错时"没有出口"这个读数什么也没测，却看着完全正常',
+    from: "  if (opts && opts.receiptLive === false) return 'unavailable';",
+    to: '  if (false) return \'unavailable\';',
+    expect: ['A13'],
+  },
+  {
+    id: 'n21', file: CAPS,
+    note: '把解除臂词表里的 externalReview 摘掉 ⇒ vendor 今天唯一消费的凭证键写成的臂读不出来（那条臂的夹具就成了无人量的装饰）',
+    from: '  return /\\breturn\\b/.test(blk) && /Capable|Satisfied|resolvedEvidence|resolution\\b|externalReview/.test(blk);',
+    to: '  return /\\breturn\\b/.test(blk) && /Capable|Satisfied|resolvedEvidence|resolution\\b/.test(blk);',
+    expect: ['A2'],
+  },
+  // ↓ 这四条的靶子是**驱动自己**（MUT）。锚点与目标串都写成两段拼接：
+  //   直接写整串时，M 表里这行字面量本身就是文件内容的一部分，"命中恰 1 次"与"改前不得已存在"
+  //   两道自检都会被自己反咬（实测：n22 报命中 2 次）。这是本仓「锚点唯一性被自己插入的文本反咬」
+  //   的又一落点，正解是改**插入的写法**，不是放宽命中数要求。
+  {
+    id: 'n22', file: MUT,
+    note: '摘掉"开工前证靶子干净"这道闸 ⇒ 驱动会把上一次崩溃留下的污染当成原始内容并在还原时写回它',
+    from: '    assertCleanBaseline' + '(targets);',
+    to: '    // (摘除这道' + '闸)',
+    expect: ['A19'],
+  },
+  {
+    id: 'n23', file: MUT,
+    note: '摘掉 sidecar ⇒ 被信号杀掉时盘上留在"改坏的那一份"，而仓里没有任何可执行的出口（只有散文式的"请自行恢复"）',
+    from: '  writeSidecar' + '(orig);',
+    to: '  // (摘除 ' + 'sidecar)',
+    expect: ['A19'],
+  },
+  {
+    id: 'n24', file: MUT,
+    note: '未知旗标不再拒绝 ⇒ 一次拼错的 `--limit` 会读成"整轮扫描"，而本驱动改的是受 git 管理的源文件',
+    from: '  const unknown = flags.filter((a) => !KNOWN_FLAGS' + '.includes(a));',
+    to: '  const unknown = flags.filter(() => ' + 'false);',
+    expect: ['A18'],
+  },
+  {
+    id: 'n25', file: MUT,
+    note: '允许 --restore 与变异 id 混用 ⇒ 同一趟里既还原又改文件，还原结果不再是它声称的那份',
+    from: "    if (only.length) throw new Error('--restore 必须单独使用" + '（它不做变异，只做还原）\');',
+    to: '    if (false) throw new ' + "Error('--restore 必须单独使用（它不做变异，只做还原）');",
+    expect: ['A18'],
+  },
+  {
+    id: 'n26', file: MUT,
+    note: '不拿单实例锁 ⇒ 两轮驱动并发改写同一批靶子、sidecar 互相覆盖，还原时拿错基线（锚点带换行是为了只命中 runAll 那一处）',
+    from: '\n  acquireLock' + '();',
+    to: '\n  // (不拿锁)',
+    expect: ['A19'],
+  },
+  {
+    id: 'n27', file: MUT,
+    note: 'finally 里不释放锁 ⇒ 一次正常跑完就把这条工具永久封死（陈旧锁不自动破是设计，但正常路径必须释放）',
+    from: '\n    releaseLock();',
+    to: '\n    // (不释放锁)',
+    expect: ['A19'],
+  },
+  {
+    id: 'msanity', file: LOCKS,
+    note: '驱动自己的体检：把一个期望值改成明显错的数；这条不红就是驱动没在读 TAP',
+    from: "  assert.equal(C.toolSignatureCapable(WB_SINGLE), false, '今天只认 performedBy ⇒ 自扮演收口永拿不到 tier');",
+    to: "  assert.equal(C.toolSignatureCapable(WB_SINGLE), true, 'sanity');",
+    expect: ['A5'],
+  },
+];
+
+const ALLOWED_MISSED = new Set();
+
+const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+const write = (rel, text) => fs.writeFileSync(path.join(ROOT, rel), text, 'utf8');
+/** 锚点按 LF 书写；按被改物的真实行尾展开（写回时不留混行尾）。 */
+const expand = (text, s) => (text.includes('\r\n') ? s.split('\n').join('\r\n') : s);
+const nameHit = (reds, want) => reds.some((r) => r === want || r.startsWith(want + ' '));
+
+function suiteRun (suite) {
+  const r = spawnSync(process.execPath, ['--test', suite.file], { cwd: ROOT, encoding: 'utf8' });
+  const out = String(r.stdout || '');
+  const m = out.match(/^# tests (\d+)$/m);
+  const f = out.match(/^# fail (\d+)$/m);
+  const reds = [...out.matchAll(/^not ok \d+ - (.+)$/gm)].map((x) => x[1].trim());
+  if (!m || !f) return { ok: false, why: `UNREADABLE(${suite.file}) 没有 # tests / # fail 行 rc=${r.status} stderr=${String(r.stderr).slice(0, 160)}` };
+  const collected = Number(m[1]);
+  if (collected < suite.minTests) return { ok: false, why: `UNREADABLE(${suite.file}) collected=${collected} < 下界 ${suite.minTests}` };
+  if (r.status !== 0 && reds.length === 0) return { ok: false, why: `UNREADABLE(${suite.file}) rc=${r.status} 但失败清单为空（LOADFAIL/worker 被杀一类）：${out.slice(-300)}` };
+  return { ok: true, suite: suite.file, collected, reds };
+}
+
+function restoreAll (orig) {
+  for (const [f, text] of Object.entries(orig)) {
+    if (read(f) !== text) write(f, text);
+    if (read(f) !== text) throw new Error(`还原失败：${f}`);
+  }
+}
+
+/* ---------------- 基线卫生与异常终止的出口（QM-6 第二轮评审 i2） ---------------- */
+// 本驱动**原地覆盖受 git 管理的源文件**。finally 只覆盖"抛错"这一条路：被 SIGTERM/断电杀掉时
+// 盘上留的就是被改坏的那一份，而下一次运行会把它的字节当成"原始内容"（本仓实测过一次：
+// 崩溃一次的驱动把污染态固化成 ORIG）。所以这里给两条机械出口，不写"请自行恢复"这种散文。
+const SIDECAR = path.join(os.tmpdir(), 'qm6-exit-capabilities-mutation-orig.json');
+const LOCK = SIDECAR + '.lock';
+
+/**
+ * 单实例锁（QM-6 第三轮评审 i1 的可修那一半）：两个驱动同时跑会**同时改写同一批受 git 管理的源文件**，
+ * 而 sidecar 是固定文件名 —— 后写的覆盖先写的，`--restore` 于是会还原成另一轮的基线。
+ * 用 `wx` 标志原子建文件（存在即 EEXIST），锁里写 pid；被 SIGKILL 留下陈旧锁时**不自动破锁**：
+ * 自动破锁等于把"两个进程互相踩对方的基线"这一整类故障重新打开，宁可让人来看一眼。
+ */
+function acquireLock (lockPath) {
+  const p = lockPath || LOCK;
+  try {
+    const fd = fs.openSync(p, 'wx');
+    fs.writeSync(fd, String(process.pid));
+    fs.closeSync(fd);
+  } catch (e) {
+    if (e && e.code === 'EEXIST') {
+      let holder = '<unreadable>';
+      try { holder = String(fs.readFileSync(p, 'utf8')).trim() || '<empty>' } catch (e2) { holder = '<unreadable:' + e2.code + '>' }
+      throw new Error('另一个变异驱动正在跑（锁=' + p + '，持有者 pid=' + holder
+        + '）。两个驱动会同时改写同一批靶子并互相覆盖 sidecar，还原时会拿错基线。'
+        + '正解：先确认那个进程还在不在（不在才手工删这个锁文件），不要并发跑，也不要"重试到绿"。');
+    }
+    throw e;
+  }
+  return p;
+}
+
+function releaseLock (lockPath) {
+  const p = lockPath || LOCK;
+  try { fs.unlinkSync(p) } catch (e) { if (!e || e.code !== 'ENOENT') throw e }
+}
+
+function gitCleanAgainstHead (f, cwd) {
+  const env = { ...process.env };
+  // GIT_DIR 一类变量会静默压过 cwd（钩子窗口里实测踩过）：那时量的根本不是本仓的追踪态。
+  for (const k of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) delete env[k];
+  const r = spawnSync('git', ['status', '--porcelain', '--', f], { cwd: cwd || ROOT, encoding: 'utf8', env });
+  if (r.status !== 0) throw new Error(`git status 取不到读数（rc=${r.status}）⇒ 按未证实处理，不得在量不到基线时改文件：${String(r.stderr).slice(0, 160)}`);
+  return String(r.stdout || '').trim() === '';
+}
+
+function assertCleanBaseline (targets, cwd) {
+  const dirty = targets.filter((f) => !gitCleanAgainstHead(f, cwd));
+  if (dirty.length) {
+    throw new Error('靶子与 HEAD 不一致：' + dirty.join(', ')
+      + '\n  ⇒ 驱动会把这份污染当成"原始内容"并在还原时写回它（本仓实测发生过一次）。'
+      + '\n  正解：先提交，或 `git checkout HEAD -- <上面逐个精确路径>`（禁止宽目录），再重跑。');
+  }
+}
+
+function writeSidecar (orig) {
+  const payload = { root: ROOT, writtenAt: new Date().toISOString(), files: orig };
+  const tmp = SIDECAR + '.' + process.pid + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(payload, null, 2), 'utf8');
+  fs.renameSync(tmp, SIDECAR);
+  const back = JSON.parse(fs.readFileSync(SIDECAR, 'utf8'));
+  if (Object.keys(back.files).length !== Object.keys(orig).length) throw new Error('sidecar 写后回读文件数不符：' + SIDECAR);
+  for (const f of Object.keys(orig)) if (back.files[f] !== orig[f]) throw new Error('sidecar 写后回读内容漂移：' + f);
+  process.stdout.write('[mutation] 原始字节 sidecar=' + SIDECAR
+    + '（异常终止后：node scripts/qm6-exit-capabilities.mutation.js --restore）\n');
+}
+
+function restoreFromSidecar () {
+  if (!fs.existsSync(SIDECAR)) throw new Error('没有 sidecar：' + SIDECAR + '（说明本轮驱动还没开始改文件，或已被清理）');
+  const back = JSON.parse(fs.readFileSync(SIDECAR, 'utf8'));
+  if (back.root !== ROOT) throw new Error(`sidecar 的 root=${back.root} 与本次 ROOT=${ROOT} 不同源，拒绝跨仓还原`);
+  const names = Object.keys(back.files || {});
+  if (!names.length) throw new Error('sidecar 里没有任何文件记录，无从还原');
+  for (const f of names) {
+    if (read(f) !== back.files[f]) write(f, back.files[f]);
+    if (read(f) !== back.files[f]) throw new Error('还原后回读仍不一致：' + f);
+    process.stdout.write('[mutation] 已从 sidecar 还原 ' + f + '\n');
+  }
+  process.stdout.write('[mutation] 还原完成 writtenAt=' + back.writtenAt + ' files=' + names.length + '\n');
+}
+
+/**
+ * CLI 解析单独成函数：A18 要**直接调它**而不是 spawn 本驱动 ——
+ * spawn 出来的子进程若因某个变异而不再拒绝未知旗标，就会在父驱动正在改文件时**再开一轮变异扫描**，
+ * 那两个进程会互相把对方的污染当成基线（本条不是假想：n24 试过，红在错误的地方）。
+ */
+const KNOWN_FLAGS = ['--restore', '--allow-dirty'];
+
+function parseCli (argv) {
+  const flags = (argv || []).filter((a) => a.startsWith('-'));
+  // 未知旗标一律出声：本驱动改的是受 git 管理的源文件，"旗标被静默忽略"读起来就是"按预期跑了"。
+  const unknown = flags.filter((a) => !KNOWN_FLAGS.includes(a));
+  if (unknown.length) throw new Error(`未知旗标：${unknown.join(',')}（本驱动只认 ${KNOWN_FLAGS.join(' / ')}，其余参数是个别变异 id）`);
+  const only = (argv || []).filter((a) => !a.startsWith('-'));
+  if (flags.includes('--restore')) {
+    if (only.length) throw new Error('--restore 必须单独使用（它不做变异，只做还原）');
+    return { restore: true, only: [], allowDirty: false };
+  }
+  return { restore: false, only, allowDirty: flags.includes('--allow-dirty') };
+}
+
+function runAll (onlyArg, allowDirty) {
+  const only = onlyArg || [];
+  if (only.length) {
+    const unknown = only.filter((id) => !M.some((m) => m.id === id));
+    if (unknown.length) throw new Error(`未知变异 id：${unknown.join(',')}（参数不得被静默忽略）`);
+  }
+  const targets = [...new Set(M.map((m) => m.file))];
+  acquireLock();
+  try {
+  if (allowDirty) {
+    // 显式留痕的出口，不是把闸关掉：脏基线仍然打印出来，sidecar 也照写，异常终止时 `--restore` 仍能回到这一份。
+    const dirty = targets.filter((f) => !gitCleanAgainstHead(f));
+    process.stdout.write('[mutation] ⚠ --allow-dirty：以下靶子与 HEAD 不一致，本轮的"原始内容"就是这份未提交状态：'
+      + (dirty.length ? dirty.join(', ') : '(无)') + '\n');
+  } else {
+    assertCleanBaseline(targets);
+  }
+  const orig = Object.fromEntries(targets.map((f) => [f, read(f)]));
+  writeSidecar(orig);
+  for (const m of M) {
+    const from = expand(orig[m.file], m.from);
+    const hits = orig[m.file].split(from).length - 1;
+    if (hits !== 1) throw new Error(`${m.id} 在 ${m.file} 的锚点命中 ${hits} 次（要求恰为 1）`);
+    if (m.to !== '' && orig[m.file].split(expand(orig[m.file], m.to)).length - 1 !== 0) throw new Error(`${m.id} 的目标文本在改前已存在于 ${m.file}`);
+  }
+  const namePool = read(LOCKS) + read(PROBET);
+  for (const m of M) {
+    for (const want of [...m.expect, ...(m.alsoExpect || [])]) {
+      if (!namePool.includes(`'${want}`)) throw new Error(`${m.id} 要求 ${want} 必须红，但锁文件里没有这个用例名（探针指向不存在的东西）`);
+    }
+    for (const g of m.expectGreen || []) if (!SUITES.some((s) => s.file === g)) throw new Error(`${m.id} 要求 ${g} 保持绿，但它不在靶子套件清单里`);
+  }
+
+  const results = [];
+  let attempted = 0;
+  try {
+    for (const m of M) {
+      if (only.length && !only.includes(m.id)) continue;
+      attempted++;
+      const before = read(m.file);
+      if (before !== orig[m.file]) { results.push({ id: m.id, state: 'PROBLEM', why: `开工前 ${m.file} 已被改过，拒绝在脏基线上做变异` }); break }
+      write(m.file, before.split(expand(before, m.from)).join(expand(before, m.to)));
+      const applied = read(m.file);
+      if (m.to !== '' && applied === before) { results.push({ id: m.id, state: 'PROBLEM', why: '写后回读没有变化，替换未落地' }); restoreAll(orig); break }
+      if (m.file.endsWith('.js')) {
+        const c = spawnSync(process.execPath, ['--check', m.file], { cwd: ROOT, encoding: 'utf8' });
+        if (c.status !== 0) { results.push({ id: m.id, state: 'PROBLEM', why: `变异把语法改坏了：${String(c.stderr).split('\n').slice(0, 2).join(' / ')}` }); restoreAll(orig); continue }
+      }
+      const runs = SUITES.map(suiteRun);
+      restoreAll(orig);
+      const bad = runs.find((x) => !x.ok);
+      if (bad) { results.push({ id: m.id, state: 'PROBLEM', why: bad.why }); continue }
+      const greenViolated = (m.expectGreen || []).filter((g) => runs.some((x) => x.suite === g && x.reds.length > 0));
+      if (greenViolated.length) { results.push({ id: m.id, state: 'PROBLEM', why: `声明保持绿的套件红了：${greenViolated.join(',')}（驱动当场否证这条声明）` }); continue }
+      const reds = runs.flatMap((x) => x.reds);
+      const wantAll = [...m.expect, ...(m.alsoExpect || [])];
+      const caught = m.expect.filter((e) => nameHit(reds, e));
+      const also = wantAll.filter((e) => !m.expect.includes(e) && nameHit(reds, e));
+      const unexpected = reds.filter((r) => !wantAll.some((e) => nameHit([r], e)));
+      if (reds.length === 0) results.push({ id: m.id, state: ALLOWED_MISSED.has(m.id) ? 'MISSED(声明的重叠)' : 'MISSED', why: m.note, reds: [] });
+      else if (caught.length !== m.expect.length || also.length !== wantAll.length - m.expect.length)
+        results.push({ id: m.id, state: 'PROBLEM', why: `期望指名红缺席：缺 ${wantAll.filter((e) => !nameHit(reds, e)).join(',')}；实际红：${reds.join(' | ') || '(无)'}` });
+      else results.push({ id: m.id, state: 'CAUGHT', why: m.note, reds, collected: runs.map((x) => `${path.basename(x.suite)}=${x.collected}`).join(' '), also: also.length ? also : undefined, unexpected: unexpected.length ? unexpected : undefined });
+      const recheck = SUITES.map(suiteRun).filter((x) => !x.ok || x.reds.length > 0);
+      if (recheck.length) { results.push({ id: `${m.id}-restore`, state: 'PROBLEM', why: `还原后被测锁仍红/未跑：${JSON.stringify(recheck.map((x) => x.why || x.reds))}` }); break }
+    }
+  } finally {
+    restoreAll(orig);
+  }
+    return { results, attempted };
+  } finally {
+    // 锁在**外层** finally 释放：内层 finally 只保证文件还原，抛错路径上锁不能留在盘上，
+    // 否则下一次运行会被一个已经不存在的进程挡住。
+    releaseLock();
+  }
+}
+
+if (require.main === module) {
+  const cli = parseCli(process.argv.slice(2));
+  if (cli.restore) {
+    // 还原也要拿同一把锁：对着"另一个驱动正在改"的文件做还原，等于把那一轮的中间态写回基线。
+    acquireLock();
+    try { restoreFromSidecar() } finally { releaseLock() }
+    process.exit(0);
+  }
+  const { results, attempted } = runAll(cli.only, cli.allowDirty);
+  for (const r of results) {
+    console.log(`${r.state.padEnd(18)} ${r.id} ${r.why}`);
+    if (r.collected) console.log(`  收集：${r.collected}`);
+    if (r.reds && r.reds.length) console.log(`  红：${r.reds.join(' | ')}`);
+    if (r.also) console.log(`  同时红：${r.also.join(' | ')}`);
+    if (r.unexpected) console.log(`  未预期但红：${r.unexpected.join(' | ')}`);
+  }
+  const ca = results.filter((x) => x.state === 'CAUGHT').length;
+  const mi = results.filter((x) => x.state.startsWith('MISSED')).length;
+  const pr = results.filter((x) => x.state === 'PROBLEM').length;
+  const total = results.filter((x) => !x.id.endsWith('-restore')).length;
+  console.log(`SUMMARY CAUGHT=${ca} MISSED=${mi} PROBLEM=${pr} TOTAL=${total} ATTEMPTED=${attempted}`);
+  const ok = pr === 0 && mi === ALLOWED_MISSED.size && total === attempted;
+  console.log(ok ? 'RESULT=OK' : 'RESULT=FAIL');
+  process.exit(ok ? 0 : 1);
+}
+
+module.exports = {
+  M, SUITES, runAll, restoreFromSidecar, assertCleanBaseline, gitCleanAgainstHead, parseCli,
+  acquireLock, releaseLock, SIDECAR, LOCK,
+};

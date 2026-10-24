@@ -6,6 +6,17 @@ import avatarZh from './avatar/zh'
 import uiZh from './ui/zh'
 
 export default {
+    // ── AI 讲解视频（animated-explainer）专属：画面模式 ──────────────────────
+    // 两种画面来源：AI 生成（调模型设置里的默认生图模型，消耗积分/额度）、
+    // 动效标题卡（本地 ffmpeg 渲染，不消耗积分，但表现形式单一——只是图片展示文字）。
+    explainer: {
+      visualMode: {
+        label: '画面模式',
+        ai: 'AI 生成',
+        titleCard: '动效标题卡',
+        hint: '动效标题卡由本地渲染，不消耗积分；但表现形式单一——只是图片展示文字，没有 AI 画面。',
+      },
+    },
     story2video: {
       style: {
         cleanProfessional: '简洁专业',
