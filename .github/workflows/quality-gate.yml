@@ -1078,12 +1078,14 @@ jobs:
       # PowerShell 多行 step 只取最后一条命令的退出码，中间命令失败会被静默吞掉。
       # 2026-09-12 修复：每条命令后显式检查退出码，任一失败立即退出（与 Gate 6 同模式）。
       # 事故背景：PR #1719/#1732 的 18 处硬编码中文曾因本缺陷从未被 CI 拦截（--cjk FAIL 但 job success）。
-      - name: "Gate 7 - locale content sync (zh/en paired + renderer CJK + key existence + python CJK)"
+      - name: "Gate 7 - locale content sync (zh/en paired + renderer CJK + key existence + python CJK + key symmetry)"
         run: |
           git fetch origin main --no-tags
           node --test .github/scripts/check-locale-sync.test.js
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .github/scripts/check-locale-sync.js --pair-base origin/main
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .github/scripts/check-locale-sync.js --symmetry
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .github/scripts/check-locale-sync.js --cjk
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -237,3 +237,86 @@ test('check-locale-sync：真实 locales 确为装配文件且子模块键经装
   assert.equal(keys.has('accountsPage.cloudSyncErr.kmsUnavailable'), true)
   assert.ok(keys.size > 3000, `真实 zh 键集规模异常（${keys.size}）`)
 })
+// --symmetry：逐对 locales/**/{zh,en}.js 键集对称档（与 --pair-base / --keys 的分工见脚本头注释）
+test('--symmetry：两份键集相同 ⇒ PASS 并打印规模', () => {
+  const fx = writeLocaleFixture('sym-ok', {
+    'zh.js': 'export default { a: { x: "甲" } }\n', 'en.js': 'export default { a: { x: "A" } }\n',
+    'page/zh.js': 'export default { title: "标题" }\n', 'page/en.js': 'export default { title: "Title" }\n',
+  })
+  const r = run(['--symmetry', '--locales-dir', fx.dir])
+  assert.equal(r.ok, true, `应通过：${r.out}\n${r.err}`)
+  assert.match(r.out, /symmetry PASS/)
+  assert.match(r.out, /pairs=2/, '必须打印配对数，否则「扫了什么」不可复核')
+})
+
+test('--symmetry（反证）：单侧多出键双向都 FAIL 且点名那一对与那个键', () => {
+  const a = writeLocaleFixture('sym-onlyzh', {
+    'page/zh.js': 'export default { title: "标题", hint: "提示" }\n', 'page/en.js': 'export default { title: "Title" }\n',
+  })
+  const r1 = run(['--symmetry', '--locales-dir', a.dir])
+  assert.equal(r1.ok, false, 'zh 单边键必须红')
+  assert.match(r1.err + r1.out, /onlyZh=hint/)
+  assert.match(r1.err + r1.out, /page/, '必须点名具体那一对，否则无法定位')
+  const b = writeLocaleFixture('sym-onlyen', {
+    'page/zh.js': 'export default { title: "标题" }\n', 'page/en.js': 'export default { title: "Title", orphan: "X" }\n',
+  })
+  const r2 = run(['--symmetry', '--locales-dir', b.dir])
+  assert.equal(r2.ok, false, 'en 单边键同样是不对称，判据不得只查一个方向')
+  assert.match(r2.err + r2.out, /onlyEn=orphan/)
+})
+
+test('--symmetry（反证）：只有 zh 没有 en 孪生 ⇒ FAIL，不得当成「无需比较」', () => {
+  const fx = writeLocaleFixture('sym-notwin', { 'page/zh.js': 'export default { title: "标题" }\n' })
+  const r = run(['--symmetry', '--locales-dir', fx.dir])
+  assert.equal(r.ok, false)
+  assert.match(r.err + r.out, /missingTwin/)
+})
+
+test('--symmetry（反证）：两侧皆零键的一对必须 FAIL（解析退化成空集合的形状）', () => {
+  const fx = writeLocaleFixture('sym-empty', { 'page/zh.js': 'export default {}\n', 'page/en.js': 'export default {}\n' })
+  const r = run(['--symmetry', '--locales-dir', fx.dir])
+  assert.equal(r.ok, false, '零键对既可能是空命名空间也可能是解析退化，两者都不得静默放行')
+  assert.match(r.err + r.out, /emptyPair/)
+})
+
+test('--symmetry（反证）：扫描域为空一律 FAIL，不得读成「没有漂移」', () => {
+  const dir = require('node:fs').mkdtempSync(path.join(require('node:os').tmpdir(), 'locale-gate-empty-'))
+  const r = run(['--symmetry', '--locales-dir', dir])
+  assert.equal(r.ok, false, '「缺口=0」与「什么都没扫」必须可区分')
+  assert.match(r.err + r.out, /domain is empty/)
+})
+
+test('--symmetry（反证）：嵌套子目录的不对称也要抓到（判定域不得只扫一层）', () => {
+  const fx = writeLocaleFixture('sym-nested', {
+    'a/b/c/zh.js': 'export default { deep: { k: "值" }, gone: "旧" }\n', 'a/b/c/en.js': 'export default { deep: { k: "V" } }\n',
+  })
+  const r = run(['--symmetry', '--locales-dir', fx.dir])
+  assert.equal(r.ok, false)
+  assert.match(r.err + r.out, /a\/b\/c/)
+  assert.match(r.err + r.out, /gone/)
+})
+
+test('--symmetry：真实 locales 两档键集同形，且规模下界证明扫描没退化', () => {
+  const r = run(['--symmetry'])
+  assert.equal(r.ok, true, `真实仓应无漂移：${r.out}\n${r.err}`)
+  const m = /pairs=(\d+) zhKeys=(\d+)/.exec(r.out)
+  assert.ok(m, `PASS 行必须带 pairs 与 zhKeys 两个读数：${r.out}`)
+  assert.ok(Number(m[1]) >= 50, `配对数下界 50，实测 ${m[1]} —— 退化说明判定域缩小`)
+  assert.ok(Number(m[2]) >= 8000, `键总数下界 8000，实测 ${m[2]} —— 退化说明解析退化`)
+})
+
+test('--symmetry 必须接线进 Gate 7 且带退出码检查（否则等于没写）', () => {
+  const lines = require('node:fs').readFileSync(path.join(__dirname, '..', '..', '.github/workflows/quality-gate.yml'), 'utf8').split(/\r?\n/)
+  const start = lines.findIndex((l) => /name:\s*"Gate 7 - locale content sync/.test(l))
+  assert.ok(start >= 0, '找不到 Gate 7 步骤名 ⇒ 步骤被改名，本锁的锚已失效')
+  const block = []
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*-\s+name:/.test(lines[i])) break
+    const t = lines[i].trim()
+    if (t.startsWith('#')) continue // 注释里的字样不算接线
+    block.push(t)
+  }
+  assert.match(block.join('\n'), /check-locale-sync\.js --symmetry/, 'Gate 7 必须执行对称档')
+  const idx = block.findIndex((t) => t.includes('--symmetry'))
+  assert.match(block[idx + 1] || '', /\$LASTEXITCODE/, '对称档之后必须立刻检查退出码（PowerShell 只取末条命令的 rc）')
+})

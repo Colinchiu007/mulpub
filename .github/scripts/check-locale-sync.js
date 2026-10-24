@@ -22,6 +22,14 @@
  *    notify* / notifyConfirm('...') 的字符串 key，逐一验证 zh.js 与 en.js 均存在。
  *    防止 vue-i18n 对缺失 key 原样返回（如 accountsPage.loginExpiredHint 泄漏到 UI）。
  *
+ * 5) --symmetry [--locales-dir <dir>]：locale 目录内每一对 {zh.js, en.js} 的键集必须完全相同。
+ *    域 = <dir>（默认 apps/desktop/src/locales）下**全部层级**的 zh.js，含按功能拆出的子目录
+ *    （locales/<ns>/{zh,en}.js、locales/<ns>/<sub>/{zh,en}.js）。四类形态各自必须 FAIL：
+ *    onlyZh / onlyEn（单侧键）、missingTwin（只有中文侧）、emptyPair（任一侧零键）。
+ *    与 1) 的分工：1) 只看「同一次提交里两个文件是否都改了」，对「都改了但改的不是同一批键」失明；
+ *    与 3) 的分工：3) 只在渲染端用到该键时才发现缺失，对「先落中文、键还没被用」失明。
+ *    扫描域为空 ⇒ FAIL（不得把「什么都没扫」读成「零漂移」）。
+ *
  * 已知边界（2026-08-14）：CJK 基线按 file:line 存储，行号偏移（如 BGM 素材库新增 215 行）会触发全量 fresh 假阳性——修复方式为显式 --update-baseline（无新增用户可见硬编码时）。
  * 已知边界（2026-08-13）：
  * - 仅覆盖 .js 与 .vue <script>；.vue <template> 文案由 ui-i18n 存量批次收敛，不在本扫描范围。
@@ -44,12 +52,14 @@ const CJK = /[\u4e00-\u9fff]/
 
 function parseArgs () {
   const args = process.argv.slice(2)
-  const opts = { pairBase: null, cjk: false, keys: false, pyCjk: false, updateBaseline: false, updatePyBaseline: false }
+  const opts = { pairBase: null, cjk: false, keys: false, pyCjk: false, symmetry: false, localesDir: null, updateBaseline: false, updatePyBaseline: false }
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--pair-base') opts.pairBase = args[++i]
     else if (args[i] === '--cjk') opts.cjk = true
     else if (args[i] === '--keys') opts.keys = true
     else if (args[i] === '--py-cjk') opts.pyCjk = true
+    else if (args[i] === '--symmetry') opts.symmetry = true
+    else if (args[i] === '--locales-dir') opts.localesDir = args[++i]
     else if (args[i] === '--update-baseline') opts.updateBaseline = true
     else if (args[i] === '--update-py-baseline') opts.updatePyBaseline = true
     else {
@@ -103,6 +113,86 @@ function runPairCheck (base) {
 
 function toPosixRel (file) {
   return path.relative(ROOT, file).split(String.fromCharCode(92)).join('/')
+}
+
+/**
+ * 域 = 传入目录下**全部层级**的 zh.js。只扫一层会把拆进子目录的文件整体排除在判定域外，
+ * 而枚举失败必须抛错 —— 不完整的遍历报「零漂移」是假绿。
+ */
+function collectLocaleZhFiles (dir) {
+  const out = []
+  const walk = (d) => {
+    let entries
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true })
+    } catch (err) {
+      throw new Error(`无法枚举 locale 目录 ${toPosixRel(d)}：${err.message}`)
+    }
+    for (const e of entries) {
+      const abs = path.join(d, e.name)
+      if (e.isDirectory()) walk(abs)
+      else if (/zh\.js$/.test(e.name)) out.push(abs)
+    }
+  }
+  walk(dir)
+  return out.sort()
+}
+
+/**
+ * 三条判据的分工（不是重复）：--pair-base 只看「同一次提交里两个文件是否都改」，
+ * 对「都改了但改的不是同一批键」失明；--keys 只在渲染端用到该键时才发现缺失，
+ * 对「先落中文、键还没被用」失明；本档逐对比较键集，把不对称钉在它落下的那一刻。
+ */
+function runSymmetryCheck (localesDirArg) {
+  const dir = localesDirArg ? path.resolve(localesDirArg) : path.join(SRC_DIR, 'locales')
+  let zhFiles
+  try {
+    zhFiles = collectLocaleZhFiles(dir)
+  } catch (err) {
+    console.error(`[locale-sync] FAIL：symmetry 无法完成遍历（判据自身故障，按未证实处理）：${err.message}`)
+    process.exit(1)
+  }
+  if (zhFiles.length === 0) {
+    console.error(`[locale-sync] FAIL：symmetry 扫描域为空 —— domain is empty（${toPosixRel(dir)}）；「没有漂移」与「什么都没扫」必须可区分`)
+    process.exit(1)
+  }
+  const problems = []
+  let pairs = 0
+  let zhKeyTotal = 0
+  for (const zf of zhFiles) {
+    const relDir = toPosixRel(path.dirname(zf))
+    const ef = zf.replace(/zh\.js$/, 'en.js')
+    if (!fs.existsSync(ef)) {
+      problems.push(`${relDir}: missingTwin（有 zh.js 无 en.js）`)
+      continue
+    }
+    pairs++
+    let zhKeys, enKeys
+    try {
+      zhKeys = loadLocaleKeys(zf)
+      enKeys = loadLocaleKeys(ef)
+    } catch (err) {
+      console.error(`[locale-sync] FAIL：symmetry 无法解析 locale 文件 ${toPosixRel(zf)}：${err.message}`)
+      process.exit(1)
+    }
+    if (zhKeys.size === 0 || enKeys.size === 0) {
+      problems.push(`${relDir}: emptyPair（zh=${zhKeys.size} en=${enKeys.size}；零键既可能是空命名空间也可能是解析退化，两者都不得静默放行）`)
+      continue
+    }
+    zhKeyTotal += zhKeys.size
+    const onlyZh = [...zhKeys].filter((k) => !enKeys.has(k)).sort()
+    const onlyEn = [...enKeys].filter((k) => !zhKeys.has(k)).sort()
+    if (onlyZh.length > 0 || onlyEn.length > 0) {
+      problems.push(`${relDir}: onlyZh=${onlyZh.slice(0, 8).join(',') || '-'} onlyEn=${onlyEn.slice(0, 8).join(',') || '-'}（zh=${zhKeys.size} en=${enKeys.size}）`)
+    }
+  }
+  if (problems.length > 0) {
+    for (const p of problems) console.error(`[locale-sync]   不对称 ${p}`)
+    console.error(`[locale-sync] FAIL：zh/en 键集不对称 —— 共 ${problems.length} 对（域 ${toPosixRel(dir)}，配对 ${pairs}）`)
+    console.error('[locale-sync] 修法：在同目录的孪生文件里补上缺席的键；确属一侧不该存在的死键，则从该侧删除，不得只改一份。')
+    process.exit(1)
+  }
+  console.log(`[locale-sync] symmetry PASS（pairs=${pairs} zhKeys=${zhKeyTotal} drift=0，域=${toPosixRel(dir)}）`)
 }
 
 /** python-backend 用户可见消息扫描：raise 语句字符串字面量中的中文（i18n 机制补洞，2026-09-12）。 */
@@ -480,8 +570,10 @@ if (require.main === module) {
   if (opts.cjk) { runCjkScan(opts); ran = true }
   if (opts.keys) { runKeysCheck(); ran = true }
   if (opts.pyCjk) { runPyCjkScan(opts); ran = true }
+  if (opts.symmetry) { runSymmetryCheck(opts.localesDir); ran = true }
   if (!ran) {
     console.error('用法：node .github/scripts/check-locale-sync.js --pair-base <ref> | --cjk [--update-baseline] | --keys | --py-cjk [--update-py-baseline]')
+    console.error('  另可：--symmetry [--locales-dir <dir>]（逐对 zh/en 键集对称档）')
     process.exit(2)
   }
 }
