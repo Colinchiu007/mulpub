@@ -1,0 +1,75 @@
+{
+  "sha": "01e9776cd4da9cab41a6bd67e544044adc7c9dc2",
+  "layer": "diff",
+  "mode": "dual",
+  "reason": "变更 345 行 > 200 行阈值（对齐 §12.6 Red Team）",
+  "stats": {
+    "changedLines": 345,
+    "fileCount": 8,
+    "codeFileCount": 3,
+    "sensitivePathHits": [],
+    "plannedPathHits": [],
+    "sensitiveContentHits": 2,
+    "docSensitiveContentHits": 7,
+    "docSensitiveContentSample": [
+      "| 触发条件 | 容器声明**叶子角色**（`role=\"button\"` / `link` / `tab` / `menuitem` / `checkbox` / `radio` / `img`），而其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |",
+      "- **QM-6 真外部评审跑出 9 条发现并逐条处置**（critic=claude / proposer=opencode，评审链这次是通的）：**i1 Critical 成立并已修** —— 不涂白注释时，容器里一句写着 `</div>` 的 HTML 注释就让配对深度提前归零，其后的真 `<button>` 永久不被看到，**锁变绿而缺陷仍在**，正是本锁声称要防的那种静默漏扫；现 `blankOutNonTemplate()` 把注释与 `<script>`/`<style>` 区块**等长涂白**（保留换行，行号仍对得上原文），并配三组 fixture。**i2 / i3 / i7 同样成立并已修**：交互集合补入本仓在用的组件名（只认原生标签时 `<el-button>` 里的真按钮对锁完全隐形）；被修站点的等价控件断言从**文件级 grep** 降到**同一容器区间内**（文件级断言证明不了「降级没丢功能」）；`tabindex=\"-1\"` 不再计成可操作控件、`:role=\"'button'\"` 进判定域（必须先取整个属性值再剥内层引号 —— 把内层引号写进字符类会整条不匹配，第一版就是这么错的）。**i4 / i6 逐条否证**：i4 前半「判定产物不该入库」与 AGENTS.md QM-6 第 3 条及 origin/main CHANGELOG 的既有裁决相反（`.gitignore` 只排 `.ccg/tasks/*`，注释原文即「判定记录 `.ccg/reviews/*.json` 才是留痕」），但它的**后半成立并已修** —— 本记录原文「两条外部通道在本机仍不可用」与产物的 `backendAvailability` 自相矛盾，已按实况改写；i6 建议例外键加行号，而本仓对「账本存行号」有明确反例（追加型载体里行号指针结构上必然过期），正解是锚点片段不是行号。**i8 / i9**：规则 4「把 HTML 标签名 `select` 当 SQL」的收窄属改「谁来守门」，不在本批自改（而它正是本 PR 被抬成 DUAL 的唯一原因，未靠拆字符串绕过）；顺带现场取证一条机制事实 —— CI 的 `QG Changes` 跑的是 `--mode=advisory`，**打印欠账但不阻断**，所以「CI 绿」不等于「QM-6 闭环」，该判据必须由本地 `--mode=enforce` 跑一次。",
+      "| 触发条件 | 容器声明叶子角色，其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |"
+    ],
+    "ccgSensitiveContentHits": 11,
+    "ccgSensitiveContentSample": [
+      "  \"reason\": \"变更 195 行（≤ 200）但命中 auth/数据库/加密：敏感内容 1 处\",",
+      "      \"| 触发条件 | 容器声明**叶子角色**（`role=\\\"button\\\"` / `link` / `tab` / `menuitem` / `checkbox` / `radio` / `img`），而其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |\",",
+      "      \"| 触发条件 | 容器声明叶子角色，其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |\","
+    ],
+    "lineReadGaps": []
+  },
+  "decidedAt": "2026-10-21T12:03:33.549Z",
+  "decidedBy": "ccg-review-decider",
+  "reviewBackends": {
+    "proposer": "opencode",
+    "critic": "claude",
+    "from": {
+      "proposer": "list",
+      "critic": "list"
+    },
+    "notes": [],
+    "overridden": false
+  },
+  "backendAvailability": {
+    "count": 2,
+    "total": 2,
+    "partial": false,
+    "wrapperReady": true,
+    "backends": {
+      "wrapperExists": true,
+      "names": [
+        "claude",
+        "opencode"
+      ],
+      "onPath": [
+        "claude",
+        "opencode"
+      ]
+    }
+  },
+  "deepReview": {
+    "required": true,
+    "status": "self_play_pending",
+    "performedBy": "self-play(pending)",
+    "confidenceWeight": 0.6,
+    "requiresExternalReview": [
+      {
+        "id": "i6",
+        "severity": "Warning",
+        "domains": [
+          "crypto"
+        ]
+      }
+    ],
+    "findings": null,
+    "template": ".adversarial\\ccg-deep-01e9776c\\adjudication.json",
+    "note": "裁决尚未填写：4/4 条未定（i1, i2, i3, i6）",
+    "at": "2026-10-21T12:09:49.826Z"
+  }
+}

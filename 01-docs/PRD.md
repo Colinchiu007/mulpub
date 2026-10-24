@@ -20672,3 +20672,38 @@ DOM 采集失败时补真实昵称/ID/粉丝、DOM 成功时不调 HTTP、兜底
 - 新增 `AutomationView.notify-registration.test.js` 4 条：顺序锁 + 窗口期内失败/恢复各一条行为锁 + 空载荷负控。反证按被禁形态原样重造 ⇒ 4 条指名变红，还原后逐字节相同。
 - 方法学收获（写进 PRD 验收锚点）：顺序断言第一版把期望写成了**被禁形态** `['list','register']`，它在修复前后都红 —— 是"红之后去读实际读数"才发现错的是期望而不是代码。这类断言首次变红时必须先判"代码错还是期望错"，否则顺手把期望改对就会把缺陷钉成契约。
 - 文档：`01-docs/PRD.md` 新增《自动化页后台通知的注册时机合同》（顺序 / 为什么不补发 / 分档 / 空载荷 / 显示项与提示文字 / 验收锚点）；执行记录 `openspec/records/ux-audit-automation-notify-first.md`。既有 `AutomationView.test.js` 同跑通过。
+## 叶子角色容器与卡内真实控件的同源合同（2026-10-21，ux-audit-leaf-roles / 审计 4.4 第二批）
+
+> 修的是「看上去能用、辅助技术里不存在」这一类无障碍缺陷，与本仓反复记录的「装饰性链路」同族，但更坏：这里控件是被**主动**从无障碍树里删掉的。
+
+### 一、缺陷形状与判据
+
+| 项 | 口径 |
+|---|---|
+| 触发条件 | 容器声明**叶子角色**（`role="button"` / `link` / `tab` / `menuitem` / `checkbox` / `radio` / `img`），而其内部含真实可交互控件（`<button>` / `<a>` / `<input>` / `<select>` / `<textarea>` / `<summary>`，或任意元素带 `@click` / `@keydown` / `tabindex` / `href`） |
+| 为什么是 bug | ARIA 规范里叶子角色的子树是 **presentational**：读屏与无障碍浏览树看不到卡内的【编辑】【预览】【关闭】，鼠标点得到、看上去也在，只有辅助技术消失。`<button>` 套 `<button>` 还同时是非法 HTML（`TabBar.vue` 那处即此形） |
+| 与上一批（4.4 首批）的方向差别 | 首批修的是「非按钮可点元素**缺**键盘可达」⇒ 补 `role="button" tabindex="0" @keydown`；本批是**同一个容器里已经有真控件** ⇒ 再补 role 反而把真控件藏掉。两批共用一句判据：**先问「卡内有没有等价真实控件」，有则降级容器，无则升级容器** |
+| 修法 | 容器去掉 `role` / `tabindex` / 容器级 `@keydown`，`@click` 可作为鼠标便利保留；键盘路径交给卡内那枚真实控件。**移除容器 role 的前提是等价真实控件确实存在**（动作与参数都要同一），否则必须先补内层控件，不得直接删 |
+| 数据校验 | 判据按**语义**（角色 + 后代是否可交互）判定，不按类名或标签名猜测；扫描必须**引号感知**地取开标签边界——属性值里带 `>`（如 `@mouseover="e => …"`）会把标签截断，使该站点静默漏扫；扫描前必须把 `<!-- -->` 注释与 `<script>`/`<style>` 区块**等长涂白**（QM-6 评审 i1，Critical）：同名闭合标签出现在注释或 JS 字符串里会让配对深度提前归零，其后的真控件**永久看不到**，锁变绿而缺陷仍在；交互控件集合必须含本仓在用的**组件名**（`el-button` / `UiButton` / `router-link` …，i2），并如实声明边界——模板级扫描看不到渲染后的 DOM（`v-html`、`<component :is>`、枚举之外的组件名一律看不见）；配对扫描对 **void 元素 / 自闭合 / 配不上对** 三种情况不得返回"文件剩余全文"当容器内容，必须跳过或**抛错点名文件与行号**（r2-i1）；role 判定必须 **token 化 + 大小写不敏感**，而 `presentation`/`none` **不算**叶子角色（r2-i2）；插值 `{{ … }}` 与属性值里的反引号不得被当成标记（r2-i3/i4）。反证驱动脚本本身必须入库、可从干净 checkout 一条命令复跑（r2-i7） |
+| 例外治理 | 三条已知未修站点进 `KNOWN_LEAF_ROLE_CONFLICTS`（键 = `文件:角色`），每项必须带**说明「正解是什么 + 为何不在本批」**的理由；清单只能缩小，且**条目对应违规消失时必须报陈旧**（否则例外会变成永久豁免） |
+| 反失明 | 锁自带两条：扫描域 `.vue` 文件数 > 100，且全仓确实存在带叶子角色的元素（否则「零违规」只是解析器瞎掉）。M4 变异（把 `button` 从角色表里摘掉 ⇒ 违规归零）实测正是红在「例外条目虚挂」那条上 |
+
+### 二、本批改动与未改动（显示项与交互）
+
+| 站点 | 处置 | 键盘等价物（必须真实存在才允许降级容器） |
+|---|---|---|
+| `views/Collection.vue` 采集记录卡（`copy-library-item-*`） | 移除 `role="button"` / `tabindex` / `@keyup.enter`，保留整卡 `@click` | 卡内【编辑】按钮 `@click.stop="openRecordForEdit(entry.item)"` —— 同一函数同一参数 |
+| `views/CreateHistory.vue` 渲染结果卡（`render-card`） | 同上（移除 `role` / `tabindex` / `@keydown.enter`） | 卡内【预览】`UiButton` push 的正是同一串 `$router.push('/create/result?path=' + encodeURIComponent(r.outputPath \|\| ''))` |
+| `components/TabBar.vue` 标签（`role="tab"` 内嵌关闭按钮） | **未改**，进例外清单 | 正解 = 把关闭按钮移出 tab 元素并重排 tab 宽度与 hover 命中区；属带像素风险的结构性改动，须单独一批并跑视觉门禁 |
+| `features/accounts/components/AccountManagementCard.vue` | **未改**，进例外清单 | 容器点击是"展开/选中"，与卡内 checkbox 不是同一动作；先要产品口径定「整卡是否保留点击」，且牵动勾选态样式 ⇒ 与 4.1 第二批同批 |
+| `views/CopyLibraryView.vue` 文案库卡 | **未改**，进例外清单 | 容器是"查看详情"的**唯一**入口 ⇒ 必须先把标题做成真按钮（或 stretched-link）再降级容器，涉及焦点环归属与样式 |
+
+用户可见变化：本批两张卡**不再进入 Tab 顺序**（焦点改由卡内按钮承载），其余视觉与鼠标行为不变；读屏在采集库与创作历史里能重新听到【编辑】【预览】【发布】。
+
+### 三、验收锚点
+
+- 结构锁 `apps/desktop/src/leaf-role-contract.test.js`（8 条）：扫描域非空 + 违规必须命中例外清单且清单不虚挂 + 每条例外必须有说明正解的理由 + 两个被修站点的容器形状与**同一容器区间内**的等价控件同时在位 + 四组 fixture 钉住解析器边界（注释与 `<script>` 里的 `</div>` 不得截断容器 / 注释里的示例不得制造命中 / `tabindex="-1"` 不算交互 / `:role="'button'"` 与 `<el-button>`、`<UiButton>` 也在判定域）；
+- 九道变异各自指名红、红集互不相同（M1 加回容器 role / M2 清空例外理由 / M3 虚挂例外 / M4 摘掉解析器的 `button` 角色 ⇒ 违规归零被「清单虚挂」抓到 / M5 摘掉注释与 script 涂白 / M6 容器区间退化成空串 / M7 放宽 tabindex 判定 / M8 role 识别退回只认静态字面量 / M9 删掉交互组件名），跑完逐条 md5 回原值；QM-6 评审命中 i1(Critical)/i2/i3/i7 后加的四个能力各有一条指名变异；
+- 消费者并集：按 basename 对两个被改视图反查测试消费者（`git grep -l -E "(views/|/)(Collection|CreateHistory)\.vue" -- 'apps/desktop/**/*.test.js'`）得 16 个文件，并上本锁共 **17** 个测试文件全跑 = **324 passed / 0 failed / 0 pending**；
+- **焦点环注意**（写给下一批）：`src/styles/focus-ring.test.js` 的变体域是按「`tag==='button' \|\| 'a' \|\| /role="button"/`」从模板清点的，所以把 `role="button"` 从容器**移到**某个 span 上会改变它的判定域 —— 本批选择「降级容器、不新增 role」正是为了不同时改动两套契约。
+

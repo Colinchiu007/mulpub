@@ -37,7 +37,8 @@
           </template>
         </EmptyState>
         <div v-else class="render-list">
-          <div v-for="(r, i) in renders" :key="i" class="render-card" tabindex="0" role="button" @keydown.enter="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
+          <!-- 同上：卡内【预览】按钮 push 的是同一个路由表达式，容器不再声明 role/tabindex（见 leaf-role-contract.test.js） -->
+          <div v-for="(r, i) in renders" :key="i" class="render-card" @click="$router.push('/create/result?path=' + encodeURIComponent(r.outputPath || ''))">
             <div class="render-info">
               <span class="render-icon"><el-icon><VideoCamera /></el-icon></span>
               <div class="render-meta">
