@@ -379,6 +379,9 @@ export default {
       // 2026-10-12：自动封面兜底的两条分支文案（公众号封面必填 → 生成结果必须对用户可见）
       coverGeneratedFailed: '封面图生成失败，本次按无封面继续发布',
       coverAlreadySet: '已使用你选择的封面图，不再自动生成',
+      // 2026-10-20（fix-publish-failures）：封面通道 ≠ 配图通道。图文平台要求「至少一张图片」，
+      // 用户只配了封面时把封面同时落进配图通道，让用户知道系统做了什么。
+      coverReusedAsImage: '已将封面图同时作为配图（图文平台要求至少一张图片）',
       offlineCached: '网络已断开，任务已缓存',
       offlineProgress: '📡 网络已断开，发布任务已缓存，网络恢复后自动重试',
       scheduleCreated: (ctx) => '⏰ 已创建 ' + ctx.named('count') + ' 个定时任务',

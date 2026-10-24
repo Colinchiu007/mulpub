@@ -68,6 +68,15 @@ const IMAGE_TEXT_PLATFORMS = ['xiaohongshu', 'kuaishou', 'douyin', 'toutiao']
 // 自动封面集合 = 图文要求图片的平台 ∪ 封面必填的平台；**单一真源**，禁止在别处再列一份。
 const AUTO_COVER_PLATFORMS = [...IMAGE_TEXT_PLATFORMS, 'wechat_mp']
 
+// 2026-10-22（wechat-cover-guard）：封面必须由**独立字段**提供的平台。
+// 公众号的封面与配图是两条互不相通的通道——草稿封面是独立字段（`cdn_url` 五槽位），
+// 正文里带多少张图都不会被平台自动取作封面；而小红书/快手/抖音/头条是「首图即封面」，
+// 已有配图就无需再生成（2026-10-12 立此初衷是为省掉一次生图调用，本刀不推翻它）。
+// 因此「已有配图」只能免除后者、不能免除前者。此前 `!hasImages` 被当作整个兜底块的前提，
+// 带图文章（读书笔记这类正文配图的内容）因此永久缺封面，落到后台就是
+// 「草稿保存成功、但缺封面无法直接发表」——2026-10-20 读书笔记即此形态。
+const INDEPENDENT_COVER_PLATFORMS = ['wechat_mp']
+
 function nowTimeString() {
   return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
@@ -460,12 +469,17 @@ export function usePublishFlow(options) {
       // （AI 生图优先，本地标题卡兜底——cover:generate-ai 已内建回退）。生成失败不阻断发布
       // （无图平台照常发，图片平台会在引擎层如实报错）；成功则附加进表单（用户可见，透明）。
       //
-      // 触发条件必须**完备**——四项同时成立才生成：
-      //   ① 非视频发布；② 选中平台命中 AUTO_COVER_PLATFORMS；
-      //   ③ 无图片（image_files / images 都空）；
-      //   ④ **无任何封面**（cover_path / cover_file / cover_url 都空）。
-      // ④ 是本次补的：此前漏了它，导致「用户已选封面但没选图片」时仍会多生成一张，
-      // 既浪费一次生图调用，又让「用户选的封面」与「系统生成的封面」在同一次发布里并存。
+      // 2026-10-20（fix-publish-failures）修正一处**把整批发布打挂的漏判**：
+      //   「用户已选封面、但没选图片」时，旧实现只打一条 coverAlreadySet 就什么都不做（2026-10-12
+      //   为省一次生图调用把该分支改成空操作）。但**封面通道 ≠ 配图通道**：
+      //     · cover_path / cover_file → 给「封面必填」的平台（公众号）
+      //     · image_files / images    → 给「至少要一张图」的平台（小红书/快手/抖音/头条）
+      //   小红书图文发布页（target=image）在**图片上传完成之前不渲染标题框与正文编辑器**，
+      //   于是「有封面无配图」会让三个 title 候选 + 三个 editor 候选全部超时，draft-only 门禁
+      //   随后 fail-closed 中止——真机日志见 app-run.log 2026-10-20T05:29。
+      //   现在改为**复用**：有本地封面就把它同时落进配图通道（封面本身就是一张合格的首图），
+      //   既不多生成一张（保住 2026-10-12 的初衷），也不再让图文平台空着配图出发。
+      //   只有仅有远程 cover_url（file input 无法消费 URL）或完全没有封面时才真正去生成。
       const isTextImagePublish = !isVideoMode && selectedPlatforms.value.some(p => AUTO_COVER_PLATFORMS.includes(p))
       const hasImages = (Array.isArray(article.image_files) && article.image_files.length > 0)
         || (Array.isArray(article.images) && article.images.length > 0)
@@ -474,32 +488,55 @@ export function usePublishFlow(options) {
         || article.cover_file
         || String(article.cover_url || '').trim(),
       )
-      if (isTextImagePublish && article.title.trim()) {
-        if (hasCover) {
-          if (!hasImages) addProgress(progressText('publishPage.publishFlow.coverAlreadySet'), 'info')
-        } else if (!hasImages) {
-          try {
-            addProgress(progressText('publishPage.publishFlow.generatingCover'), 'info')
-            const coverRes = await generateAiCover({ prompt: article.title, ratio: '3:4' })
-            if (coverRes && coverRes.code === 0 && coverRes.data && coverRes.data.coverPath) {
-              const coverFile = normalizePublishFile({ path: coverRes.data.coverPath })
-              if (coverFile) {
-                // 双通道落值（2026-10-12）：图片通道给「要求至少一张图」的平台（小红书/快手/抖音/头条），
-                // 封面通道给「封面必填」的平台（公众号）。只落一侧就会出现「快手有封面、公众号没有」。
-                article.image_files = [coverFile]
-                article.images = [coverFile.path]
-                article.cover_file = coverFile
-                article.cover_path = coverFile.path
-                addProgress(progressText('publishPage.publishFlow.coverGenerated'), 'success')
-              }
-            } else {
-              // 生成失败不阻断：无图平台照常发布，但必须出声（此前是静默 catch，用户看不到原因）
-              addProgress(progressText('publishPage.publishFlow.coverGeneratedFailed'), 'warning')
+      const needsIndependentCover = selectedPlatforms.value.some(p => INDEPENDENT_COVER_PLATFORMS.includes(p))
+      // 生图 + 落值的**单一实现**（两条分支共用）：`alsoAsImage` 决定是否顺带填进配图通道。
+      // 不抽函数就会在两处各抄一遍生图与失败出声，漂移时表现为「一边出声一边静默」。
+      const generateAndApplyCover = async ({ alsoAsImage }) => {
+        try {
+          addProgress(progressText('publishPage.publishFlow.generatingCover'), 'info')
+          const coverRes = await generateAiCover({ prompt: article.title, ratio: '3:4' })
+          const coverPath = coverRes && coverRes.code === 0 && coverRes.data ? coverRes.data.coverPath : ''
+          const coverFile = coverPath ? normalizePublishFile({ path: coverPath }) : null
+          if (coverFile) {
+            // 封面通道（封面必填的平台，如公众号）恒定落值
+            article.cover_file = coverFile
+            article.cover_path = coverFile.path
+            // 图片通道（要求至少一张图的小红书/快手/抖音/头条）：只落一侧就会出现
+            // 「快手有封面、公众号没有」（2026-10-12），故无图时必须双通道落值。
+            if (alsoAsImage) {
+              article.image_files = [coverFile]
+              article.images = [coverFile.path]
             }
-          } catch (_) {
-            addProgress(progressText('publishPage.publishFlow.coverGeneratedFailed'), 'warning')
+            addProgress(progressText('publishPage.publishFlow.coverGenerated'), 'success')
+            return true
           }
+          // 失败不阻断：无图平台照常发布，但必须出声（此前是静默 catch，用户看不到原因）
+          addProgress(progressText('publishPage.publishFlow.coverGeneratedFailed'), 'warning')
+          return false
+        } catch (_) {
+          addProgress(progressText('publishPage.publishFlow.coverGeneratedFailed'), 'warning')
+          return false
         }
+      }
+      if (isTextImagePublish && article.title.trim() && !hasImages) {
+        const localCoverPath = String(article.cover_path || '').trim()
+        const coverAsImage = localCoverPath
+          ? normalizePublishFile({
+            path: localCoverPath,
+            name: (article.cover_file && article.cover_file.name) || '',
+          })
+          : null
+        if (coverAsImage) {
+          article.image_files = [coverAsImage]
+          article.images = [coverAsImage.path]
+          addProgress(progressText('publishPage.publishFlow.coverReusedAsImage'), 'info')
+        } else {
+          await generateAndApplyCover({ alsoAsImage: true })
+        }
+      } else if (isTextImagePublish && article.title.trim() && hasImages && needsIndependentCover && !hasCover) {
+        // 已有配图但无封面：公众号封面是独立字段，配图不会自动成为封面 ⇒ 仍要补。
+        // 只补封面通道，不覆盖用户已选的配图（`alsoAsImage: false`）。
+        await generateAndApplyCover({ alsoAsImage: false })
       }
 
       const data = buildArticleData()

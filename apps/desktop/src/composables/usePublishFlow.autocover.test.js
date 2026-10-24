@@ -131,26 +131,58 @@ describe('usePublishFlow — 图文自动封面兜底', () => {
     expect(article.cover_path).toBe(COVER_PATH)
   })
 
-  it('🔴 表单已有封面时不得再生成（否则生成封面会盖掉用户选择，且白跑一次生图）', async () => {
+  it('🔴 表单已有封面时不得再生成，但必须把封面复用为配图', async () => {
+    // 2026-10-20（fix-publish-failures）：封面通道 ≠ 配图通道。
+    // 小红书图文页在图片上传前不渲染标题框/编辑器，只配封面会让整条链选择器全超时。
     const { article, flow } = setup(['wechat_mp'], { cover_path: 'D:/covers/user-picked.png' })
 
     await flow.handlePublish()
 
     expect(mockGenerateAiCover).not.toHaveBeenCalled()
     expect(article.cover_path).toBe('D:/covers/user-picked.png')
-    expect(progressTexts(flow).join('|')).toContain('已使用你选择的封面图')
+    expect(article.images).toEqual(['D:/covers/user-picked.png'])
+    expect(article.image_files.map(f => f.path)).toEqual(['D:/covers/user-picked.png'])
+    expect(progressTexts(flow).join('|')).toContain('已将封面图同时作为配图')
   })
 
-  it('表单只有远程封面 URL 时也不生成', async () => {
+  it('表单只有远程封面 URL 时生成配图（远程 URL 不能作为 file input 的本地文件）', async () => {
+    // 2026-10-20 行为变更：远程封面无法复用为本地配图，若不生成则图文平台必然空配图失败。
     const { flow } = setup(['wechat_mp'], { cover_url: 'https://cdn.example.com/c.png' })
 
     await flow.handlePublish()
 
-    expect(mockGenerateAiCover).not.toHaveBeenCalled()
+    expect(mockGenerateAiCover).toHaveBeenCalledTimes(1)
   })
 
-  it('表单已有图片时不生成', async () => {
-    const { flow } = setup(['wechat_mp'], { images: ['D:/img/a.png'] })
+  it('🔴 公众号：已有配图但无封面时仍要生成封面（封面是独立字段，配图不会自动成为封面）', async () => {
+    // 2026-10-22（wechat-cover-guard）：公众号草稿封面走**独立字段**（`cdn_url` 五槽位），
+    // 正文与配图都不会被平台自动当作封面 ⇒ 「已有配图」不能免除封面兜底。
+    // 旧实现把 `!hasImages` 当作整个兜底块的前提，带图文章因此永久缺封面，
+    // 落到后台就是「草稿保存成功但缺封面、无法直接发表」（2026-10-20 读书笔记实例）。
+    const { article, flow } = setup(['wechat_mp'], { images: ['D:/img/a.png'] })
+
+    await flow.handlePublish()
+
+    expect(mockGenerateAiCover).toHaveBeenCalledTimes(1)
+    expect(article.cover_path).toBe(COVER_PATH)
+    expect(article.cover_file?.path).toBe(COVER_PATH)
+    // 只补封面通道，不得覆盖用户已选的配图
+    expect(article.images).toEqual(['D:/img/a.png'])
+  })
+
+  it('公众号有配图且封面生成失败时：出声、不阻断、不写空封面', async () => {
+    mockGenerateAiCover.mockResolvedValue({ code: -1, message: '生图服务不可用' })
+    const { article, flow } = setup(['wechat_mp'], { images: ['D:/img/a.png'] })
+
+    await flow.handlePublish()
+
+    expect(article.cover_path).toBe('')
+    expect(progressTexts(flow).join('|')).toContain('封面图生成失败')
+    expect(mockPublishBatch).toHaveBeenCalled()
+  })
+
+  it('首图即封面的平台（小红书）：已有配图时不生成（保住 2026-10-12 初衷）', async () => {
+    const { flow } = setup(['xiaohongshu'], { images: ['D:/img/a.png'] })
 
     await flow.handlePublish()
 
