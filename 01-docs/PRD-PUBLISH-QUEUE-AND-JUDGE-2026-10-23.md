@@ -1166,3 +1166,44 @@ CoverTitles: [], TemplateName: "", FilterName: "", ActivityTag: ...
 - DOM 轨：封面是硬门槛，上传器为自绘组件（无 image input、无 iframe、无 shadowRoot），JS click / 真实鼠标 / DataTransfer / CDP 拖拽 / 文件选择器拦截 **五种方式全部无效**；点「发布」页面抛 `TypeError: Cannot read properties of undefined (reading 'network')`
 - 竖版 vs 横版：两种都带 `*封面` 红星（竖版用 1080×1920 测试、横版用 ffmpeg 生成的 1920×1080 测试，结论一致）
 - API 轨三条路：Node 直发 / 页面内 fetch / 页面内 XHR 全部 403（secsdk 逐请求签名）
+
+## 8.34 今日头条：AGW 网关 vs xigua 老接口的鉴权差异（2026-10-24 17:40 实测）
+
+### 页面内真实 POST 探测（同一个登录态、同一个页面上下文）
+
+| 路径 | 状态 | 判读 |
+| --- | --- | --- |
+| `/mp/agw/article/publish` | **200** | 路由存在，**cookie 鉴权即可**，空 body 也不返回 403 |
+| `/xigua/api/upload/PublishVideo` | 403 | 路由存在，但要求 secsdk 逐请求签名 |
+| `/ugc/publish/video/v4/commit/`（带/不带尾斜杠） | 404 | 该路径不在 mp.toutiao.com |
+| `/ugc/publish/video/v1/get_token/` | 502 | 路由存在但上游不可用 |
+| `/mp/agw/video/publish`、`/mp/agw/video/publish_video`、`/mp/agw/video/create`、`/mp/agw/publish/video`、`/mp/agw/xigua/publish`、`/mp/agw/xigua/publish_video`、`/mp/agw/article_material/video/publish`、`/mp/agw/video/commit`、`/mp/agw/video/publish/commit`、`/mp/agw/article/publish_video`、`/mp/agw/video/upload/publish` | 全部 404 | 均非视频发布路由 |
+
+### 结论：我方一直用错鉴权族
+
+- `/mp/agw/*` = **AGW 网关**，cookie 鉴权，**不需要 secsdk 签名**
+- `/xigua/api/upload/*` = 老的西瓜接口族，**必须** secsdk 逐请求签名
+
+这解释了为什么 Node 直发、页面内 fetch、页面内 XHR 三种方式打 `PublishVideo` 全部 403：**不是令牌取错了，是这个族本来就要求签名**。
+
+### 视频发布路径仍未知
+
+扫描页面已加载的 60 个 JS chunk，提取出全部 `/ugc/` 与 `/mp/agw/` 路径：
+
+```
+/mp/agw/creator_center/timer_publish
+/mp/agw/article_material/token/create
+/mp/agw/general/creator_helper/publish_suppression_tip
+/mp/agw/deliver/publish_guide_popup
+/ugc/publish/post/v1/suggest/
+/ugc/publish/post/v1/contact/
+```
+
+**视频发布接口不在静态可达的 chunk 里**（懒加载），11 个语义候选路径全部 404。
+
+### 下一步
+
+唯一可靠办法：真实浏览器手动发一条头条视频，F12 → Network 抓到实际 POST 的 URL 与 body。拿到后：
+
+1. 若在 `/mp/agw/*` 族 ⇒ 直接 cookie 鉴权调用，**不需要**任何 csrf 处理
+2. 若仍在 `/xigua/*` 族 ⇒ 必须在页面上下文内由页面自身发起（我方已实现 `publishViaPage`，可复用）
