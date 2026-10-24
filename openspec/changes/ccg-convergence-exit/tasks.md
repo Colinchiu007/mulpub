@@ -69,3 +69,58 @@
 - [x] 9.3 upheld 4 条并逐条落地：`i2` CHANGELOG 前页降披露（保留缺陷类别，收回可照抄的落点与步骤号）、`i6` `.gitignore` 注释去掉会腐烂的行号（改按内容指向）、`i8` P3 增「`vendor.engine` 必须以 `scripts/engine.js` 结尾」的形状断言、`i3` 本条由「填完裁决 + resume 零模型调用收敛为终值」处置
 - [x] 9.4 dismissed 2 条并给可核对证据：`i1`（「记录没有已解决这一格 ⇒ 假阻断」是本 PR 的**被测对象**，不是本 PR 的缺陷；仓侧自造标记＝再造一份漂移口径，按 D8 出路②留给上游）、`i4`（「P8 会静默失效」与实测相反 —— 改变规则顺序正是它的检测目标，负控已实测 CAUGHT）
 - [x] 9.5 修复后复跑：`node --test scripts/ccg-convergence-probe.test.js` ⇒ tests 8 / pass 8 / fail 0（P1–P8，含新形状断言）
+
+## 10. 刀E：探针现读 vendor 的「外部复核」表达（2026-10-20，change 范围在此显式扩）
+
+- [x] 10.0 **本节存在的理由 = §7.2 的前提已被推翻**：那条写「本仓不得私改 vendor 副本，须先在上游立 issue」。
+  2026-10-20 经用户显式授权（"按你的建议 3 → 1"）改为先给本机 vendor 驱动打补丁，让「外部复核发生过」在机械上可表达；
+  §7.2 原文不改写（它是当时的决策快照），本条声明现状取代之。上游 issue 草稿仍有效、投递渠道仍待维护者指定。
+- [x] 10.1 补丁落点：vendor 驱动 `ccg-deep-review.js` 加 `externalReviewSatisfied(i, adj)`（高危域项填齐
+  `performedBy/evidenceRef/reviewedAt` 三格才解除阻断，缺一 fail-closed）+ `expectedExternalBackend` 跨家族校验
+  + 驱动末尾 `module.exports`（原文件无导出、以裸 `process.exit(main())` 结尾，导致探针无法在不拉起进程的前提下读判据）。
+  原始文件 sha256 记在 `openspec/records/ccg-probe-external-review.md` §5；备份目录与补丁后 sha256 只写在 vendor
+  文件头注释里（不受本仓版本管理，因此**换机即失效**，这条是已知代价不是遗漏）。
+- [x] 10.2 先写失败测试：P9（vendor 在位 ⇒ 结论必须现读为「已能表达外部复核」）、P10（在位/不在位都不得进 `problems`，
+  三档退出码 0/1/2 语义不变）。红态实测 `tests 10 / pass 8 / fail 2`，实现后 `10/10`。
+- [x] 10.3 探针本体新增纯函数 `externalReviewCapable(driverSrc)`（两格都在位才算在位）并入 `readings`、新增一条结论分支；
+  `module.exports` 导出该函数，供测试直接喂字符串夹具（不等 vendor 在场）。
+- [x] 10.4 变异反证 E-M1（在位判定退回恒 `false`）/ E-M2（退回恒 `true`）各自实测变红，
+  且**红集不同**：E-M1 指名 P9、E-M2 指名 P10 ⇒ 两条断言各守一格，不互相掩盖。
+- [x] 10.5 收尾判据：`node --test scripts/ccg-convergence-probe.test.js` 10/10；`node scripts/ccg-convergence-probe.js` rc=0
+  并打印新结论；Gate 12c / 品牌残留 / workflow 结构 / 接线棘轮 / fail-fast / 记录欠账 / max-lines 全 rc=0；
+  每次提交前跑 `--numstat` 与 `--ignore-cr-at-eol --numstat` 两口径对账，逐字相等才提交。
+  （现场补记：第一笔提交前该测试文件末尾留了一个**孤立 CR**，`git ls-files --eol` 因此报 `i/-text w/-text` ——
+  即 `text=auto` 整份跳过归一化，索引里躺着 243 行 CRLF、原始 numstat 243/217 而 ignore-cr 只有 26/0。
+  摘掉那一个字节后 `i/lf w/crlf`、两口径同为 25/0。这条是本仓已知坑的第三次现场复现。）
+
+### 10.6 故意不做（本刀）
+
+- [ ] 10.6a 不改 `scripts/ccg-review-decider.js` 的宽严，也不改 `check-pr-exec-record.js` 的闭合词表 ——
+  本刀只让探针**说实话**，闭环词表仍是 §7.3 的人工裁决项。
+- [ ] 10.6b 不把 vendor 补丁搬进本仓。因此探针的「在位」读数**是机器局部的**：换机器/换 runner 上
+  `externalReviewCapable` 会是 `false`，而按 10.2 的设计那不构成红 —— 这正是本刀要固化的口径：
+  **结论随现场变，判据不随结论变**。
+
+### 10.7 现状补记（2026-10-23，change: qm6-exit-capability-probe）
+
+**本节不改写上面 §1-§10 的原文**（它们是当时事实的快照），只声明现状 —— 因为 §10 描述的东西已经不在它原来的位置上了。
+
+- **§10 那批改动曾被整段撤销过一次**：PR #4062（一个 s2v 错误码修复）携带评审前的旧副本 squash 落地，
+  把 #4067 在本文件、`scripts/ccg-convergence-probe.js`、`scripts/ccg-convergence-probe.test.js` 三处的改动
+  一次删空（`git show --stat 8fdd617b2`：本文件 −31、探针 +1/−21、探针测试 −25）。
+  本文件现由 `qm6-exit-capability-probe` 前滚恢复，**恢复的是原文，不是重跑结论**。
+- **能力读数的实现搬家了**：现在住在 `scripts/qm6-exit-capabilities.js`，三条谓词
+  `externalReviewCapable` / `upheldExitCapable` / `toolSignatureCapable`，并**多读一格** ——
+  §10 那版只看"高危域能不能被外部复核解除"，没看"工具署名能不能被自扮演收口拿到"。
+  探针现在只负责把读数拼成结论行，自己不再持有任何结论字符串。
+- **契约锁换到了独立文件** `scripts/qm6-exit-capabilities.test.js`（A1-A12）。
+  这不是洁癖：上一版"发现撤销"的那条断言与它守护的实现**同批被删**，
+  ⇒ 同文件内的锁对这类撤销结构性无效。检出必须住在不会被同一批旧副本带上的第三个文件里。
+- **§10.4 说的 P9 / P10 与今天这两个编号不是同一件事**：那两条用例随撤销一起消失，
+  今天 `ccg-convergence-probe.test.js` 的 P9 是 `isThirdPartyRequire` 的反向夹具
+  （由本刀把 P6 白名单从「非内置即第三方」收窄成「非内置且非相对」之后补的）。编号复用、语义不同，故在此写明。
+- **当场读数**（重取：`node scripts/qm6-exit-capabilities.test.js`、`node scripts/ccg-convergence-probe.js`）：
+  `externalReview=true`、`upheld=false`、`toolSignature=false`。
+  即 §10.2 那句「填三格后可闭合」在本机仍成立；而 §10 那一版**看不见**的两格今天仍是墙：
+  诚实标 upheld 没有出口、自扮演收口拿不到工具署名。后两格属"谁来守门"，
+  由 `qm6-zero-human-closure`（PR #4304）按「探测器先于拆闸」的顺序处理，不在本刀。

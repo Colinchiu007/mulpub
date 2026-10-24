@@ -536,10 +536,15 @@ jobs:
       # 诚实边界：GitHub runner 上没有 ~/.claude/skills/adversarial-review-loop，
       # 所以 CI 跑的是「缺引擎 ⇒ rc=2 且点名探针失明」那一档；ladder 读数断言在本机那一档执行。
       # 两档都必须有产物 —— 缺引擎不 skip、不判绿（见 scripts/ccg-convergence-probe.test.js 头注）。
+      # 追加一把独立文件的契约锁（change: qm6-exit-capability-probe）。动因是实测事故：
+      # PR #4062 携带评审前的旧副本 squash 落地，把 #4067 在探针、探针测试、ccg-convergence-exit/tasks.md
+      # 三处的改动整段撤销（+1/−21、−25、−31），而"发现撤销"的那条断言与它守护的实现**同批被删**。
+      # ⇒ 检出必须住在不会被同一批旧副本带上的第三个文件里，并与探针同步点名。
       - name: "Gate 2b6 - CCG convergence-exit probe (changes job)"
         shell: bash
         run: |
           node --test scripts/ccg-convergence-probe.test.js
+          node --test scripts/qm6-exit-capabilities.test.js
 
       # --- Gate 2c3：CHANGELOG.md「只可增长」棘轮 ---
       # 动因（实测）：b531bdfe7（PR #2884，一个 ai-taste 功能 PR）把 CHANGELOG.md 从
