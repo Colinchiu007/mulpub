@@ -556,6 +556,12 @@ const platformsMixin = {
                       } catch (_eF) {}
                     }
                   } catch (_eFP) { log.warn('RpaView', '[tencent_video] frame-publish failed: ' + String((_eFP && _eFP.message) || '').slice(0, 80)) }
+                  // direct-publish（2026-10-24 实测成功）：真正发稿的是「直接发表」按钮，
+                  // 「发表」只是打开确认面板。顺序：点发表 → 等 1.2s → 点直接发表。
+                  try {
+                    const _dp = await win.webContents.executeJavaScript('(function(){var h=document.querySelector(".wujie_iframe");if(!h||!h.shadowRoot)return "no-shadow";var bs=h.shadowRoot.querySelectorAll("button");for(var i=0;i<bs.length;i++){if((bs[i].innerText||"").replace(/\\s+/g,"")==="直接发表"){var r=bs[i].getBoundingClientRect();if(r.width>0&&r.height>0){bs[i].click();return "clicked-direct "+Math.round(r.width)+"x"+Math.round(r.height)}}}return "direct-not-visible"})()', true)
+                    log.info('RpaView', '[tencent_video] direct-publish: ' + _dp)
+                  } catch (_eDp) { log.warn('RpaView', '[tencent_video] direct-publish failed: ' + String((_eDp && _eDp.message) || '').slice(0, 80)) }
                   // pointer-sequence：坐标点击实测未进入页面（click-probe: []），
                   // 改用页内完整指针事件序列（pointerdown→mousedown→pointerup→mouseup→click），
                   // 这是 React 合成事件体系唯一可靠的非坐标触发方式。
